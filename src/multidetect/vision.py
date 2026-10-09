@@ -468,6 +468,25 @@ class BufferedFrameSource:
         with self._metrics_lock:
             return self._backpressure_count
 
+    # Optional frame-source capabilities must survive the bounded capture
+    # wrapper.  The live loop intentionally discovers these methods by
+    # capability instead of widening the common FrameSource protocol; without
+    # this forwarding, a Gazebo depth companion is authenticated by the worker
+    # but becomes invisible to ranging once capture buffering is enabled.
+    @property
+    def depth_contract(self) -> Any | None:
+        return getattr(self._source, "depth_contract", None)
+
+    @property
+    def latest_depth_frame(self) -> Any | None:
+        return getattr(self._source, "latest_depth_frame", None)
+
+    def depth_measurement_for(self, **kwargs: Any) -> Any | None:
+        reader = getattr(self._source, "depth_measurement_for", None)
+        if not callable(reader):
+            return None
+        return reader(**kwargs)
+
     def open(self) -> None:
         if self._worker is not None and self._worker.is_alive():
             return

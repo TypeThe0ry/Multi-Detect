@@ -100,6 +100,11 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert 'MODE3_CONFIRMATION_ENABLED="${MODE3_CONFIRMATION_ENABLED:-0}"' in launcher
     assert 'MODE3_AIM_CONTROL_ENABLED="${MODE3_AIM_CONTROL_ENABLED:-0}"' in launcher
     assert 'RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"' in launcher
+    assert 'METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT="${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT:-}"' in launcher
+    assert 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION="${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION:-0}"' in launcher
+    assert 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires metric depth to be enabled.' in launcher
+    assert 'verify_outdoor_depth_calibration_report.py' in launcher
+    assert '--require-quality-gate' in launcher
     assert '--gstreamer-latency-ms "${GSTREAMER_LATENCY_MS}"' in launcher
     assert '--capture-queue-frames "${CAPTURE_QUEUE_FRAMES}"' in launcher
     assert '--primary-model-frame-stride "${PRIMARY_FIRE_MODEL_FRAME_STRIDE}"' in launcher
@@ -225,6 +230,7 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "src/multidetect/target_geolocation.py" in deployer
     assert "scripts/export_outdoor_depth_calibration_candidates.py" in deployer
     assert "scripts/validate_outdoor_depth_calibration.py" in deployer
+    assert "scripts/verify_outdoor_depth_calibration_report.py" in deployer
     assert "scripts/fit_outdoor_depth_calibration.py" in deployer
     assert "src/multidetect/domain.py" in deployer
     assert "src/multidetect/pixhawk.py" in deployer
@@ -261,6 +267,8 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1" in deployer
     assert "geometry-accepted target depth events" in deployer
     assert "automatic_calibration_update=false" in deployer
+    assert "calibration_report_verified=true" in deployer
+    assert "METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION" in deployer
     assert "--metric-depth-calibration-document" in deployer
     assert "sudo -n systemctl restart" in deployer
     assert "QGC source and build artifacts stay local" in deployer

@@ -89,6 +89,10 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "scripts/generate_px4_runtime_capture_evidence.py",
         "scripts/run_px4_runtime_capture.ps1",
     } <= set(document["source_files"]["px4_mission_path"])
+    assert {
+        "scripts/vtol_selected_task_campaign.py",
+        "scripts/vtol_sitl_mission_acceptance.py",
+    } <= set(document["source_files"]["px4_mission_path"])
     assert (
         "configs/schemas/camera-calibration.schema.json"
         in document["source_files"]["core_algorithm"]
@@ -183,6 +187,32 @@ def test_canonical_release_parity_document_matches_current_sources() -> None:
         version_manifest_path=VERSION_MANIFEST,
     )
     assert canonical == generated
+    assert canonical["source_files"] == build_release_parity_document(REPO_ROOT)["source_files"]
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "src/multidetect/autonomy/task_selection.py",
+        "src/multidetect/autonomy/task_session.py",
+        "src/multidetect/autonomy/mission_outcome.py",
+        "src/multidetect/simulation/task_episode.py",
+    ),
+)
+def test_incremental_decision_modules_invalidate_core_identity(
+    tmp_path: Path, relative: str
+) -> None:
+    assert relative in DEFAULT_FILE_LIST["core_algorithm"]
+    groups = _groups()
+    groups["core_algorithm"].append(relative)
+    root = _root_with_sources(tmp_path, groups)
+    before = compute_parity(root, groups)
+    (root / relative).write_text("changed decision semantics\n", encoding="utf-8")
+    after = compute_parity(root, groups)
+    assert before["core_algorithm_hash"] != after["core_algorithm_hash"]
+    assert all(
+        before[field] == after[field] for field in PARITY_FIELDS if field != "core_algorithm_hash"
+    )
 
 
 def test_file_order_is_canonical_and_hash_is_stable(tmp_path: Path) -> None:

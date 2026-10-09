@@ -24,6 +24,20 @@ from .vision import VisionDependencyError
 DEPTH_ANYTHING_V2_METRIC_INDOOR_SMALL_ONNX_SHA256 = (
     "2e25a3f332b34d885a1b3059cab471f7916a36099325810821b2d6e0471f74ad"
 )
+# Exported from the repository-owned Depth Anything V2 metric outdoor-small
+# Transformers checkpoint by scripts/export_depth_anything_onnx.py.  Keep the
+# digest pinned so a local conversion cannot silently replace the runtime
+# model, while preserving the same estimator contract used by LIVE and SIM.
+DEPTH_ANYTHING_V2_METRIC_OUTDOOR_SMALL_ONNX_SHA256 = (
+    "36b38a0b34f5431a9bbcbedca7d72b440006204910d13227bc844641b0b23e52"
+)
+
+_PINNED_METRIC_DEPTH_ONNX_DIGESTS = frozenset(
+    {
+        DEPTH_ANYTHING_V2_METRIC_INDOOR_SMALL_ONNX_SHA256,
+        DEPTH_ANYTHING_V2_METRIC_OUTDOOR_SMALL_ONNX_SHA256,
+    }
+)
 
 
 class MetricDepthContractError(RuntimeError):
@@ -432,7 +446,7 @@ class MetricDepthEstimator:
         if not path.is_file():
             raise MetricDepthContractError(f"metric-depth model does not exist: {path}")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest != DEPTH_ANYTHING_V2_METRIC_INDOOR_SMALL_ONNX_SHA256:
+        if digest not in _PINNED_METRIC_DEPTH_ONNX_DIGESTS:
             raise MetricDepthContractError("metric-depth ONNX artifact digest is not pinned")
         try:
             import onnxruntime as ort
@@ -646,6 +660,7 @@ class AsyncMetricDepthRunner:
 __all__ = [
     "AsyncMetricDepthRunner",
     "DEPTH_ANYTHING_V2_METRIC_INDOOR_SMALL_ONNX_SHA256",
+    "DEPTH_ANYTHING_V2_METRIC_OUTDOOR_SMALL_ONNX_SHA256",
     "MetricDepthConfig",
     "MetricDepthContractError",
     "MetricDepthEstimator",

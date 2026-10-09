@@ -1,0 +1,18 @@
+{
+  "contract": "multidetect.teacher-disposable-SIM-operator-v1",
+  "experiment_id": "teacher-SIM-operator-20261008-r2",
+  "owned_container_name": "multidetect-teacher-gazebo",
+  "scope": "owned-disposable-software-SIM-only",
+  "explicitly_authorized": true,
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "change": {"name": "COM_RC_IN_MODE", "expected_before": 1, "requested_after": 4},
+  "sources": {
+    "metadata": {"path": "artifacts/diagnostics/onboard-teacher-px4-image-metadata-20261008-r3/parameters.json", "bytes": 898525, "sha256": "42153dcffc825cdddbdb19147af583ab7da2ce4796d004e42525d8f3a644cd79"},
+    "metadata_extraction": {"path": "artifacts/diagnostics/onboard-teacher-px4-image-metadata-20261008-r3/metadata-extraction.json", "bytes": 6534, "sha256": "3ac8a044e4c001b4a4a5d7fdaa183f0b42a77e82f3378b461a4dc73ec31d31e1"},
+    "firmware_output": {"path": "artifacts/diagnostics/onboard-teacher-px4-diagnostics-20261008-r1/native-00-version.stdout.bin", "bytes": 322, "sha256": "998fcb1d33e32f6630d2e0804e75606e132f17255a0d969b81c62735cec3b866"},
+    "parameter_output": {"path": "artifacts/diagnostics/onboard-teacher-px4-diagnostics-20261008-r1/native-10-COM_RC_IN_MODE.stdout.bin", "bytes": 118, "sha256": "8c8d95c9b866872169bcfb993c9d49ac1003ce6659f09b2ed04307978b9670ca"},
+    "prior_evidence": {"path": "docs/evidence/onboard-teacher-px4-diagnostics-20261008-r1.json", "bytes": 6105, "sha256": "4d8fcfbb4b03918a1ef7a82dcb141629719240a0036780b7a43962afb4aa2cc1"}
+  }
+}
+
+

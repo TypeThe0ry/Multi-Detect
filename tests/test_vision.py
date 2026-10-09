@@ -1268,10 +1268,12 @@ def test_rtsp_gstreamer_software_pipeline_rejects_control_characters(monkeypatch
 def test_buffered_frame_source_preserves_fifo_order_and_reports_backpressure() -> None:
     class _FastSource:
         reconnect_count = 2
+        depth_contract = {"sensor_id": "front-depth"}
 
         def __init__(self) -> None:
             self.index = 0
             self.closed = False
+            self.latest_depth_frame = {"frame_id": "frame-1"}
 
         def open(self) -> None:
             pass
@@ -1288,6 +1290,9 @@ def test_buffered_frame_source_preserves_fifo_order_and_reports_backpressure() -
 
         def close(self) -> None:
             self.closed = True
+
+        def depth_measurement_for(self, **kwargs):
+            return {"frame_id": kwargs["frame_id"], "source": "gazebo_depth"}
 
     inner = _FastSource()
     source = vision_module.BufferedFrameSource(inner, capacity=2)
@@ -1306,6 +1311,9 @@ def test_buffered_frame_source_preserves_fifo_order_and_reports_backpressure() -
     assert source.captured_frame_count >= 3
     assert source.delivered_frame_count == 3
     assert inner.closed is True
+    assert source.depth_contract == {"sensor_id": "front-depth"}
+    assert source.latest_depth_frame == {"frame_id": "frame-1"}
+    assert source.depth_measurement_for(frame_id="frame-3")["source"] == "gazebo_depth"
 
 
 def test_buffered_frame_source_propagates_worker_failure_without_secret_text() -> None:

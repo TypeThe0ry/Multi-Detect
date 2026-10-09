@@ -49,11 +49,45 @@ PROTECTED_GROUND_STATION_PORT = 14550
 RELEASE_STATUS = (
     f"v{PRODUCT_VERSION.release_label}; final v{PRODUCT_VERSION.numeric} remains blocked"
 )
+LANDED_STATE_SETTLE_TIMEOUT_SECONDS = 20.0
+# Docker Desktop can briefly starve PX4's MAVLink heartbeat stream while the
+# evaluator command is being applied.  COMMAND_ACK=ACCEPTED is not a state
+# proof, so keep waiting for a fresh armed heartbeat, but use a bounded window
+# that covers the observed cold-start latency instead of racing at eight
+# seconds.
+ARMED_STATE_TIMEOUT_SECONDS = 30.0
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _wait_for_landed_disarmed_state(collector: TelemetryCollector) -> None:
+    """Wait for PX4's land detector to settle across the evaluator boundary.
+
+    An unarmed heartbeat can arrive while PX4 still reports TAKEOFF/LANDING.
+    The combined runner starts the Mission transaction immediately afterwards;
+    carrying that transient state across the boundary can leave AUTO.MISSION
+    armed but motionless.  Keep this barrier bounded and fail closed.
+    """
+    deadline = collector.elapsed_s + LANDED_STATE_SETTLE_TIMEOUT_SECONDS
+    while collector.elapsed_s < deadline:
+        collector.collect(min(0.25, max(0.0, deadline - collector.elapsed_s)))
+        heartbeat = collector.last_heartbeat
+        if (
+            heartbeat
+            and not (
+                int(heartbeat["base_mode"])
+                & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
+            )
+            and collector.last_landed_state == mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND
+        ):
+            return
+    raise VtolAcceptanceError(
+        "attached VTOL evaluator disarmed but PX4 land detector did not settle "
+        "to MAV_LANDED_STATE_ON_GROUND"
+    )
 
 
 def _validate_owned_running_container(
@@ -90,6 +124,7 @@ def run_attached_acceptance(
     transition_timeout_s: float = 15.0,
     fixed_wing_hold_s: float = 8.0,
     multicopter_hold_s: float = 1.0,
+    armed_state_timeout_s: float = ARMED_STATE_TIMEOUT_SECONDS,
     fixed_wing_ready_file: Path | None = None,
     source_system: int = GCS_SOURCE_SYSTEM,
     source_component: int = GCS_SOURCE_COMPONENT,
@@ -103,6 +138,7 @@ def run_attached_acceptance(
         (transition_timeout_s, "transition_timeout_s", 1.0, 120.0),
         (fixed_wing_hold_s, "fixed_wing_hold_s", 0.0, 60.0),
         (multicopter_hold_s, "multicopter_hold_s", 0.0, 60.0),
+        (armed_state_timeout_s, "armed_state_timeout_s", 1.0, 120.0),
     ):
         if not math.isfinite(value) or not minimum <= value <= maximum:
             raise VtolAcceptanceError(f"{name} must be finite in [{minimum}, {maximum}]")
@@ -173,7 +209,7 @@ def run_attached_acceptance(
                 "arm": True,
             }
         )
-        collector.wait_for_armed_state(True, timeout_s=8.0)
+        collector.wait_for_armed_state(True, timeout_s=armed_state_timeout_s)
         phase_events.append({"phase": "multicopter_armed", "at_s": round(collector.elapsed_s, 6)})
 
         transition_fw = _send_command(
@@ -252,6 +288,7 @@ def run_attached_acceptance(
         # detector and only then emit the unarmed heartbeat, so require a
         # fresh heartbeat with the requested state inside a bounded window.
         collector.wait_for_armed_state(False, timeout_s=12.0)
+        _wait_for_landed_disarmed_state(collector)
         phase_events.append({"phase": "completed", "at_s": round(collector.elapsed_s, 6)})
 
         position_quality = _position_quality(collector)
@@ -308,6 +345,11 @@ def run_attached_acceptance(
                 "channel": "test-only combined-SIM evaluator",
             },
             "parameter_overrides": parameter_overrides,
+            "timing": {
+                "armed_state_timeout_s": armed_state_timeout_s,
+                "disarmed_state_timeout_s": 12.0,
+                "landed_state_settle_timeout_s": LANDED_STATE_SETTLE_TIMEOUT_SECONDS,
+            },
             "phases": phase_events,
             "fault_timeline": fault_timeline,
             "fault_events_observed": fault_events,
@@ -371,6 +413,11 @@ def run_attached_acceptance(
             "phases": phase_events,
             "fault_timeline": fault_timeline,
             "parameter_overrides": parameter_overrides,
+            "timing": {
+                "armed_state_timeout_s": armed_state_timeout_s,
+                "disarmed_state_timeout_s": 12.0,
+                "landed_state_settle_timeout_s": LANDED_STATE_SETTLE_TIMEOUT_SECONDS,
+            },
             "safety": {
                 "product_runtime_flight_control_enabled": False,
                 "real_pixhawk_contacted": False,
@@ -404,6 +451,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--transition-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--fixed-wing-hold-seconds", type=float, default=8.0)
     parser.add_argument("--multicopter-hold-seconds", type=float, default=1.0)
+    parser.add_argument(
+        "--armed-state-timeout-seconds",
+        type=float,
+        default=ARMED_STATE_TIMEOUT_SECONDS,
+        help="bounded wait for a fresh PX4 armed heartbeat after COMMAND_ACK",
+    )
     parser.add_argument("--fixed-wing-ready-file", type=Path)
     parser.add_argument("--source-system", type=int, default=GCS_SOURCE_SYSTEM)
     parser.add_argument("--source-component", type=int, default=GCS_SOURCE_COMPONENT)
@@ -424,6 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         transition_timeout_s=args.transition_timeout_seconds,
         fixed_wing_hold_s=args.fixed_wing_hold_seconds,
         multicopter_hold_s=args.multicopter_hold_seconds,
+        armed_state_timeout_s=args.armed_state_timeout_seconds,
         fixed_wing_ready_file=(
             args.fixed_wing_ready_file.resolve() if args.fixed_wing_ready_file else None
         ),

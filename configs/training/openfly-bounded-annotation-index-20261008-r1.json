@@ -1,0 +1,54 @@
+{
+  "annotation_stat": {
+    "bytes": 405815796,
+    "device": 2512056422999380000,
+    "inode": 844424936921874,
+    "mtime_ns": 1791367224656930000,
+    "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\openfly-navigation-source-pilot-20261007-r2\\raw\\Annotation\\train.json"
+  },
+  "budget": {
+    "max_bytes": 67108864,
+    "max_candidate_frames": 4096,
+    "max_frames_per_route": 128,
+    "max_records": 20000,
+    "max_routes": 128
+  },
+  "contract": "multidetect.openfly-bounded-annotation-index-v1-plan",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "historical_annotation_binding": {
+    "bytes": 405815796,
+    "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\openfly-navigation-source-pilot-20261007-r2\\raw\\Annotation\\train.json",
+    "sha256": "1a4c5a5ed1561ea5b3b79b6c25da7648ce4085b7d8489d62022a9bd1244100df"
+  },
+  "locked_scene_roles": {
+    "env_airsim_16": "dev-validation",
+    "env_airsim_18": "train",
+    "env_airsim_23": "dev-test",
+    "env_airsim_26": "train"
+  },
+  "official_seen_unseen_reserved_untouched": true,
+  "scan_scope": "first_bounded_prefix_in_original_train_order_not_exhaustive_or_random",
+  "source_files": [
+    {
+      "bytes": 20205,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\build_openfly_bounded_annotation_index.py",
+      "sha256": "44fa29ddac4ee20886cc53191834b7141d1e1872b231ff7fd2d71ce4c27747a4"
+    },
+    {
+      "bytes": 17030,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_build_openfly_bounded_annotation_index.py",
+      "sha256": "b1e01345be84985572a77023197849132306cd671a77657572981817dc202e40"
+    },
+    {
+      "bytes": 34972,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\fetch_openfly_navigation_pilot.py",
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    }
+  ],
+  "source_manifest": {
+    "bytes": 142534,
+    "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\openfly-navigation-source-pilot-20261007-r2\\manifest.json",
+    "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+  }
+}
+

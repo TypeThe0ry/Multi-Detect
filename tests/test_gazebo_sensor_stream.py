@@ -4,12 +4,19 @@ import hashlib
 import io
 import json
 import math
+import struct
 import sys
+import threading
 from dataclasses import replace
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from multidetect.gazebo_fault_verification import (
+    SensorFaultDiagnosticError,
+    verify_sensor_fault_diagnostic,
+)
+from scripts.gazebo_depth_wire import read_depth_wire_frame
 from scripts.gazebo_sensor_stream import (
     FLAG_CAMERA_INFO,
     FLAG_NAVSAT,
@@ -32,7 +39,10 @@ from scripts.gazebo_sensor_stream import (
     WIRE_VERSION,
     CausalSourceBuffer,
     WireOrderValidator,
+    _normalize_depth_float32,
     _odometry_from_message,
+    _parse_depth_contract,
+    _runtime_pixel_format_name,
     _shutdown_transport_node,
     build_wire_frame,
     decode_wire_blob,
@@ -257,6 +267,10 @@ def _run_fake_gazebo_helper(
     odometry_behavior: str,
     topics: tuple[str, str, str, str] | None = None,
     validate_camera_info: bool = False,
+    fault_source: str | None = None,
+    fault_start_image: int = 0,
+    fault_duration_images: int = 0,
+    frame_count: int = 1,
 ) -> tuple[int, bytes, list[dict[str, object]]]:
     class CameraInfo:
         pass
@@ -274,6 +288,7 @@ def _run_fake_gazebo_helper(
         def __init__(self) -> None:
             self.callbacks: dict[str, object] = {}
             self.unsubscribed_topics: list[str] = []
+            self.background_threads: list[threading.Thread] = []
 
         def subscribe(self, message_type: type[object], _topic: str, callback: object) -> bool:
             name = message_type.__name__
@@ -415,6 +430,8 @@ def _run_fake_gazebo_helper(
                     "causal_history",
                     "future_sources",
                     "stale_navsat_then_fresh",
+                    "fault_recovery_navsat",
+                    "long_fault_image",
                 }:
                     callback(  # type: ignore[operator]
                         _gazebo_message(
@@ -483,12 +500,132 @@ def _run_fake_gazebo_helper(
                             )
                         )
                         self._emit_image(stamp_ns=3_100_000_000)
+                    elif odometry_behavior == "fault_recovery_navsat":
+                        # The default case injects on the first image.  The
+                        # delayed case deliberately emits one normal frame
+                        # before the fault to cover the pre-window timeline
+                        # boundary, then proves cache invalidation and fresh
+                        # recovery on a later frame.
+                        if fault_start_image == 1:
+                            self._emit_image(stamp_ns=2_000_000_000)
+                            self.callbacks["NavSat"](
+                                _gazebo_message(
+                                    stamp_ns=2_100_000_002,
+                                    latitude_deg=47.397743,
+                                    longitude_deg=8.545595,
+                                    altitude=488.3,
+                                )
+                            )
+                            self._emit_image(stamp_ns=3_000_000_000)
+                            self.callbacks["NavSat"](
+                                _gazebo_message(
+                                    stamp_ns=3_100_000_002,
+                                    latitude_deg=47.397744,
+                                    longitude_deg=8.545596,
+                                    altitude=488.4,
+                                )
+                            )
+                            callback(
+                                _gazebo_message(
+                                    stamp_ns=2_900_000_003,
+                                    pose_with_covariance=SimpleNamespace(
+                                        pose=SimpleNamespace(
+                                            position=SimpleNamespace(x=2.0, y=3.0, z=4.0),
+                                            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+                                        )
+                                    ),
+                                    twist_with_covariance=SimpleNamespace(
+                                        twist=SimpleNamespace(
+                                            linear=SimpleNamespace(x=5.0, y=6.0, z=7.0)
+                                        )
+                                    ),
+                                )
+                            )
+                            self._emit_image(stamp_ns=4_000_000_000)
+                        else:
+                            self._emit_image(stamp_ns=2_000_000_000)
+                            self.callbacks["NavSat"](
+                                _gazebo_message(
+                                    stamp_ns=2_100_000_002,
+                                    latitude_deg=47.397743,
+                                    longitude_deg=8.545595,
+                                    altitude=488.3,
+                                )
+                            )
+                            self._emit_image(stamp_ns=3_000_000_000)
+                            self.callbacks["NavSat"](
+                                _gazebo_message(
+                                    stamp_ns=3_100_000_002,
+                                    latitude_deg=47.397744,
+                                    longitude_deg=8.545596,
+                                    altitude=488.4,
+                                )
+                            )
+                            callback(
+                                _gazebo_message(
+                                    stamp_ns=2_900_000_003,
+                                    pose_with_covariance=SimpleNamespace(
+                                        pose=SimpleNamespace(
+                                            position=SimpleNamespace(x=2.0, y=3.0, z=4.0),
+                                            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+                                        )
+                                    ),
+                                    twist_with_covariance=SimpleNamespace(
+                                        twist=SimpleNamespace(
+                                            linear=SimpleNamespace(x=5.0, y=6.0, z=7.0)
+                                        )
+                                    ),
+                                )
+                            )
+                            self._emit_image(stamp_ns=4_000_000_000)
+                            self.callbacks["NavSat"](
+                                _gazebo_message(
+                                    stamp_ns=4_100_000_002,
+                                    latitude_deg=47.397745,
+                                    longitude_deg=8.545597,
+                                    altitude=488.5,
+                                )
+                            )
+                            callback(
+                                _gazebo_message(
+                                    stamp_ns=4_900_000_003,
+                                    pose_with_covariance=SimpleNamespace(
+                                        pose=SimpleNamespace(
+                                            position=SimpleNamespace(x=3.0, y=4.0, z=5.0),
+                                            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+                                        )
+                                    ),
+                                    twist_with_covariance=SimpleNamespace(
+                                        twist=SimpleNamespace(
+                                            linear=SimpleNamespace(x=6.0, y=7.0, z=8.0)
+                                        )
+                                    ),
+                                )
+                            )
+                            self._emit_image(stamp_ns=5_000_000_000)
+                    elif odometry_behavior == "long_fault_image":
+                        total_images = frame_count + fault_duration_images
+
+                        def emit_long_fault_images() -> None:
+                            for index in range(total_images):
+                                self._emit_image(
+                                    stamp_ns=1_100_000_000 + (index + 1) * 1_000_000
+                                )
+
+                        worker = threading.Thread(
+                            target=emit_long_fault_images,
+                            name="fake-gazebo-long-fault-images",
+                        )
+                        self.background_threads.append(worker)
+                        worker.start()
                     else:
                         self._emit_image()
             return True
 
         def unsubscribe(self, topic: str) -> bool:
             self.unsubscribed_topics.append(topic)
+            for worker in self.background_threads:
+                worker.join(timeout=1.0)
             return True
 
         def _emit_image(self, *, stamp_ns: int = 2_000_000_000) -> None:
@@ -528,7 +665,24 @@ def _run_fake_gazebo_helper(
     stderr = io.StringIO()
     monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(sys, "stderr", stderr)
-    argv = ["gazebo_sensor_stream.py", "--frames", "1", "--timeout-seconds", "0.5"]
+    argv = [
+        "gazebo_sensor_stream.py",
+        "--frames",
+        str(frame_count),
+        "--timeout-seconds",
+        "0.5",
+    ]
+    if fault_source is not None:
+        argv.extend(
+            (
+                "--fault-source",
+                fault_source,
+                "--fault-start-image",
+                str(fault_start_image),
+                "--fault-duration-images",
+                str(fault_duration_images),
+            )
+        )
     if validate_camera_info:
         argv.extend(
             (
@@ -582,6 +736,274 @@ def test_helper_enforces_configured_camera_info_semantics(
     assert finished["camera_info_intrinsics_semantic_validation"] == (
         "validated_k_p_rectification_plumb_bob_distortion"
     )
+
+
+def _depth_contract_json() -> str:
+    return json.dumps(
+        {
+            "sensor_id": "downward-depth",
+            "source_topic": (
+                "/world/test_world/model/test_model/link/depth_camera_link/"
+                "sensor/depth_camera/depth_image"
+            ),
+            "calibration_id": "rgb-depth-v1",
+            "calibration_sha256": "a" * 64,
+            "registration_mode": "registered_to_rgb",
+            "coordinate_space": "rgb_pixel_aligned",
+            "encoding": "FLOAT32_M",
+            "distance_semantics": "optical_axis_z_m",
+            "width": 2,
+            "height": 1,
+            "minimum_depth_m": 0.2,
+            "maximum_depth_m": 100.0,
+            "fx_px": 1.0,
+            "fy_px": 1.0,
+            "cx_px": 1.0,
+            "cy_px": 0.5,
+        }
+    )
+
+
+def test_depth_contract_is_exactly_scoped_and_strict() -> None:
+    contract = _parse_depth_contract(
+        _depth_contract_json(), world="test_world", model="test_model"
+    )
+    assert contract is not None
+    assert contract["source_topic"].endswith("/depth_camera/depth_image")
+    assert contract["depth_camera_info_topic"].endswith("/depth_camera/camera_info")
+
+    with pytest.raises(ValueError, match="exact scoped depth topic"):
+        _parse_depth_contract(
+            _depth_contract_json().replace("test_world", "other_world"),
+            world="test_world",
+            model="test_model",
+        )
+    duplicate = _depth_contract_json().replace(
+        '"sensor_id": "downward-depth",',
+        '"sensor_id": "downward-depth", "sensor_id": "duplicate",',
+    )
+    with pytest.raises(ValueError, match="duplicate field"):
+        _parse_depth_contract(duplicate, world="test_world", model="test_model")
+
+
+def test_depth_normalizer_requires_runtime_r_float32_descriptor() -> None:
+    enum_value = SimpleNamespace(name="R_FLOAT32")
+    descriptor = SimpleNamespace(
+        fields_by_name={
+            "pixel_format_type": SimpleNamespace(
+                enum_type=SimpleNamespace(values_by_number={6: enum_value})
+            )
+        }
+    )
+    message = _gazebo_message(
+        stamp_ns=2_000_000_000,
+        width=2,
+        height=1,
+        step=8,
+        pixel_format_type=6,
+        data=b"\x00\x00\x80?\x00\x00@@",
+    )
+    message.DESCRIPTOR = descriptor
+    contract = _parse_depth_contract(
+        _depth_contract_json(), world="test_world", model="test_model"
+    )
+    assert contract is not None
+    assert _runtime_pixel_format_name(message) == "R_FLOAT32"
+    assert _normalize_depth_float32(message, contract=contract) == message.data
+    message.DESCRIPTOR = SimpleNamespace(
+        fields_by_name={
+            "pixel_format_type": SimpleNamespace(
+                enum_type=SimpleNamespace(values_by_number={6: SimpleNamespace(name="RGB_INT8")})
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="must be R_FLOAT32"):
+        _normalize_depth_float32(message, contract=contract)
+
+
+@pytest.mark.parametrize(
+    ("depth_stamp_ns", "expected_exit", "expected_counter"),
+    (
+        (1_999_999_999, 0, "depth"),
+        (1_899_999_999, 2, "depth_stale_for_rgb"),
+    ),
+)
+def test_enabled_depth_callback_emits_rgb_then_immediate_depth_companion(
+    monkeypatch: pytest.MonkeyPatch,
+    depth_stamp_ns: int,
+    expected_exit: int,
+    expected_counter: str,
+) -> None:
+    """The live callback seam must bind a causal depth frame to each RGB blob."""
+
+    class CameraInfo:
+        pass
+
+    class Image:
+        pass
+
+    class NavSat:
+        pass
+
+    class OdometryWithCovariance:
+        pass
+
+    enum_descriptor = SimpleNamespace(
+        fields_by_name={
+            "pixel_format_type": SimpleNamespace(
+                enum_type=SimpleNamespace(values_by_number={6: SimpleNamespace(name="R_FLOAT32")})
+            )
+        }
+    )
+
+    def depth_image(stamp_ns: int) -> SimpleNamespace:
+        message = _gazebo_message(
+            stamp_ns=stamp_ns,
+            width=2,
+            height=1,
+            step=8,
+            pixel_format_type=6,
+            data=struct.pack("<2f", 2.0, 3.0),
+        )
+        message.DESCRIPTOR = enum_descriptor
+        return message
+
+    def camera_info(stamp_ns: int) -> SimpleNamespace:
+        return _gazebo_message(
+            stamp_ns=stamp_ns,
+            width=2,
+            height=1,
+            intrinsics=SimpleNamespace(k=[1.0, 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0]),
+            projection=SimpleNamespace(
+                p=[1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0]
+            ),
+            rectification_matrix=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            distortion=SimpleNamespace(model=0, k=[0.0] * 5),
+        )
+
+    class FakeNode:
+        def __init__(self) -> None:
+            self.image_callback: object | None = None
+
+        def subscribe(self, message_type: type[object], topic: str, callback: object) -> bool:
+            name = message_type.__name__
+            if topic.endswith("/depth_camera/camera_info"):
+                callback(camera_info(1_000_000_000))  # type: ignore[operator]
+            elif topic.endswith("/depth_camera/depth_image"):
+                callback(depth_image(depth_stamp_ns))  # type: ignore[operator]
+            elif name == "Image":
+                self.image_callback = callback
+            elif name == "CameraInfo":
+                callback(camera_info(1_000_000_001))  # type: ignore[operator]
+            elif name == "NavSat":
+                callback(
+                    _gazebo_message(
+                        stamp_ns=1_000_000_002,
+                        latitude_deg=47.397742,
+                        longitude_deg=8.545594,
+                        altitude=488.2,
+                    )
+                )  # type: ignore[operator]
+            elif name == "OdometryWithCovariance":
+                callback(
+                    _gazebo_message(
+                        stamp_ns=1_000_000_003,
+                        pose_with_covariance=SimpleNamespace(
+                            pose=SimpleNamespace(
+                                position=SimpleNamespace(x=1.0, y=2.0, z=3.0),
+                                orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+                            )
+                        ),
+                        twist_with_covariance=SimpleNamespace(
+                            twist=SimpleNamespace(linear=SimpleNamespace(x=4.0, y=5.0, z=6.0))
+                        ),
+                    )
+                )  # type: ignore[operator]
+                rgb = _gazebo_message(
+                    stamp_ns=2_000_000_000,
+                    width=2,
+                    height=1,
+                    step=6,
+                    pixel_format_type=GAZEBO_PIXEL_FORMAT_RGB_INT8,
+                    data=bytes((1, 2, 3, 4, 5, 6)),
+                )
+                # The image callback is the first Image callback registered for
+                # the RGB topic; execute it after all causal sources are ready.
+                assert self.image_callback is not None
+                self.image_callback(rgb)  # type: ignore[operator]
+            return True
+
+        def unsubscribe(self, _topic: str) -> bool:
+            return True
+
+    modules: dict[str, ModuleType] = {}
+    for name in (
+        "gz",
+        "gz.msgs10",
+        "gz.msgs10.camera_info_pb2",
+        "gz.msgs10.image_pb2",
+        "gz.msgs10.navsat_pb2",
+        "gz.msgs10.odometry_with_covariance_pb2",
+        "gz.transport13",
+    ):
+        modules[name] = ModuleType(name)
+        monkeypatch.setitem(sys.modules, name, modules[name])
+    modules["gz.msgs10.camera_info_pb2"].CameraInfo = CameraInfo  # type: ignore[attr-defined]
+    modules["gz.msgs10.image_pb2"].Image = Image  # type: ignore[attr-defined]
+    modules["gz.msgs10.navsat_pb2"].NavSat = NavSat  # type: ignore[attr-defined]
+    modules["gz.msgs10.odometry_with_covariance_pb2"].OdometryWithCovariance = (  # type: ignore[attr-defined]
+        OdometryWithCovariance
+    )
+    modules["gz.transport13"].Node = FakeNode  # type: ignore[attr-defined]
+
+    stdout = _BinaryStdoutCapture()
+    stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", stderr)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gazebo_sensor_stream.py",
+            "--frames",
+            "1",
+            "--timeout-seconds",
+            "0.5",
+            "--world",
+            "test_world",
+            "--model-instance",
+            "test_model",
+            "--depth-contract-json",
+            _depth_contract_json(),
+        ],
+    )
+    exit_code = sensor_stream_main()
+    assert exit_code == expected_exit
+    blob = stdout.buffer.getvalue()
+    if expected_exit == 0:
+        rgb_header, _rgb_payload = parse_wire_frame(blob[: WIRE_HEADER_BYTES + 6])
+        companion = read_depth_wire_frame(
+            io.BytesIO(blob[WIRE_HEADER_BYTES + 6 :]),
+            expected_sequence=rgb_header.sequence,
+            expected_rgb_sensor_stamp_ns=rgb_header.sensor_stamp_ns,
+            expected_rgb_record_sha256=rgb_header.sha256.hex(),
+            expected_source_topic=(
+                "/world/test_world/model/test_model/link/depth_camera_link/"
+                "sensor/depth_camera/depth_image"
+            ),
+            expected_calibration_id="rgb-depth-v1",
+            expected_calibration_sha256="a" * 64,
+        )
+        assert companion.payload == struct.pack("<2f", 2.0, 3.0)
+    diagnostics = [json.loads(line) for line in stderr.getvalue().splitlines() if line]
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    assert finished["depth_enabled"] is True
+    assert finished["message_counts"]["depth"] == 1
+    assert finished["message_counts"][expected_counter] >= (1 if expected_exit else 0)
+    if expected_exit == 0:
+        assert rgb_header.sequence == 0
 
 
 def test_normalize_rgb_to_packed_bgr24_with_step_padding() -> None:
@@ -1019,6 +1441,164 @@ def test_helper_discards_transient_stale_dynamic_binding_then_accepts_fresh_sour
     assert finished["message_counts"]["stale_odometry_rejections"] == 1
 
 
+def test_helper_fault_window_never_emits_cached_navsat_before_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="fault_recovery_navsat",
+        fault_source="navsat",
+        fault_start_image=1,
+        fault_duration_images=1,
+    )
+
+    assert exit_code == 0
+    [(header, _payload)] = decode_wire_blob(blob, expected_frames=1)
+    assert header.sensor_stamp_ns == 4_000_000_000
+    assert header.navsat_stamp_ns == 3_100_000_002
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    fault = finished["fault_injection"]
+    assert fault["dynamic_source_policy"] == (
+        "reject_during_window_and_until_post_window_fresh_sample"
+    )
+    assert fault["dropped_counts"]["fault_dropped_navsat"] == 1
+    assert fault["window_rejected_frame_count"] == 1
+    assert fault["stale_source_rejection_count"] == 1
+    assert fault["emitted_during_window_count"] == 0
+    assert fault["timeline_overflow"] is False
+    assert [event["event"] for event in fault["timeline"]] == [
+        "frame_rejected_fault_window",
+        "source_dropped",
+        "frame_rejected_waiting_for_fresh_source",
+        "source_fresh_after_window",
+        "wire_emitted",
+        "wire_emitted_after_recovery",
+    ]
+    assert fault["cache_cleared"] is True
+    assert fault["source_epoch"] == 1
+    assert fault["timeline"][1]["source_epoch"] == 1
+    assert fault["timeline"][2]["source_epoch"] == 1
+    assert fault["timeline"][3]["source_epoch"] == 1
+    assert fault["timeline"][4]["source_epoch"] == 1
+    assert fault["timeline"][5]["source_epoch"] == 1
+    assert all(
+        event["wire_sequence"] is None
+        for event in fault["timeline"]
+        if event["event"] not in {"wire_emitted", "wire_emitted_after_recovery"}
+    )
+    assert fault["recovery_observed"] is True
+
+
+def test_helper_fault_window_preserves_pre_window_wire_before_cache_epoch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="fault_recovery_navsat",
+        fault_source="navsat",
+        fault_start_image=2,
+        fault_duration_images=1,
+        frame_count=2,
+    )
+
+    assert exit_code == 0
+    headers = [header for header, _payload in decode_wire_blob(blob, expected_frames=2)]
+    assert [header.sensor_stamp_ns for header in headers] == [2_000_000_000, 5_000_000_000]
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    fault = finished["fault_injection"]
+    assert fault["source_epoch"] == 1
+    assert [event["event"] for event in fault["timeline"]] == [
+        "wire_emitted",
+        "frame_rejected_fault_window",
+        "source_dropped",
+        "frame_rejected_waiting_for_fresh_source",
+        "source_fresh_after_window",
+        "wire_emitted",
+        "wire_emitted_after_recovery",
+    ]
+    assert fault["timeline"][0]["source_epoch"] == 0
+    assert fault["timeline"][5]["source_epoch"] == 1
+
+
+def test_helper_long_image_fault_preserves_wire_timeline_and_verifies_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame_count = 120
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="long_fault_image",
+        fault_source="image",
+        fault_start_image=1,
+        fault_duration_images=1,
+        frame_count=frame_count,
+    )
+
+    assert exit_code == 0
+    headers = [
+        header for header, _payload in decode_wire_blob(blob, expected_frames=frame_count)
+    ]
+    assert [header.sequence for header in headers] == list(range(frame_count))
+
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    fault = finished["fault_injection"]
+    timeline = fault["timeline"]
+    wire_events = [event for event in timeline if event["event"] == "wire_emitted"]
+    assert len(wire_events) == frame_count
+    assert [event["wire_sequence"] for event in wire_events] == list(range(frame_count))
+    recovery_events = [
+        event for event in timeline if event["event"] == "wire_emitted_after_recovery"
+    ]
+    assert len(recovery_events) == 1
+    assert recovery_events[0]["wire_sequence"] == 0
+    assert fault["timeline_overflow"] is False
+
+    stderr_tail = "\n".join(json.dumps(item, sort_keys=True) for item in diagnostics)
+    verification = verify_sensor_fault_diagnostic(
+        stderr_tail,
+        fault_source="image",
+        fault_start_image=1,
+        fault_duration_images=1,
+    )
+    assert verification["timeline_overflow"] is False
+    assert verification["dropped_source_messages"] == 1
+    assert verification["recovery_observed"] is True
+
+
+def test_helper_long_image_fault_overflow_is_rejected_by_shared_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="long_fault_image",
+        fault_source="image",
+        fault_start_image=1,
+        fault_duration_images=65,
+        frame_count=4,
+    )
+
+    assert exit_code == 0
+    assert len(decode_wire_blob(blob, expected_frames=4)) == 4
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    fault = finished["fault_injection"]
+    assert fault["timeline_overflow"] is True
+    stderr_tail = "\n".join(json.dumps(item, sort_keys=True) for item in diagnostics)
+    with pytest.raises(SensorFaultDiagnosticError):
+        verify_sensor_fault_diagnostic(
+            stderr_tail,
+            fault_source="image",
+            fault_start_image=1,
+            fault_duration_images=65,
+        )
+
+
 @pytest.mark.parametrize("behavior", ("duplicate_navsat", "out_of_order_navsat"))
 def test_helper_rejects_duplicate_or_out_of_order_source_callbacks(
     monkeypatch: pytest.MonkeyPatch,
@@ -1051,6 +1631,28 @@ def test_causal_source_buffer_rejects_duplicate_and_out_of_order_callbacks() -> 
     with pytest.raises(ValueError, match="strictly increasing"):
         samples.append({"stamp_ns": 250, "value": "out-of-order"})
     assert samples.last_stamp_ns == 300
+
+
+def test_causal_source_buffer_clear_invalidates_history_but_keeps_stamp_order() -> None:
+    samples = CausalSourceBuffer("NavSat", maximum_samples=4)
+    samples.append({"stamp_ns": 100, "value": "pre-fault"})
+
+    assert samples.epoch == 0
+    assert samples.ready is True
+    assert samples.clear_samples() == 1
+    assert samples.epoch == 1
+    assert samples.ready is False
+    assert samples.latest_at_or_before(200) is None
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        samples.append({"stamp_ns": 100, "value": "replayed"})
+
+    samples.append({"stamp_ns": 200, "value": "post-fault"})
+    assert samples.ready is True
+    assert samples.latest_at_or_before(200) == {
+        "stamp_ns": 200,
+        "value": "post-fault",
+    }
 
 
 def test_transport_shutdown_unsubscribes_topics_and_reports_missing_binding() -> None:

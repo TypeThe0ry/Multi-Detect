@@ -1,0 +1,2331 @@
+{
+  "acquisition_receipt": {
+    "bytes": 114695,
+    "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/receipt.json",
+    "sha256": "72be0f673a14cc56af2eb650e69d5039f29dfb6951eb45b58b69cf10ab21875c"
+  },
+  "budget": {
+    "batch_size": 1,
+    "max_decoded_pixels_per_image": 16777216,
+    "max_encoded_image_bytes": 8388608,
+    "max_images": 82,
+    "max_plan_report_bytes": 2097152,
+    "max_png_chunks_per_image": 4096,
+    "max_shards": 3,
+    "max_total_extracted_bytes": 134217728
+  },
+  "claims": {
+    "action_class_coverage_claimed": false,
+    "candidate_promoted": false,
+    "execution_authority": false,
+    "final_release_allowed": false,
+    "gpu_used": false,
+    "hil_real_evidence": false,
+    "model_loaded": false,
+    "optimizer_performed": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "quality_claim": false,
+    "samples_created": false,
+    "seen_unseen_downloaded": false,
+    "training_ready": false,
+    "weights_downloaded": false
+  },
+  "contract": "multidetect.openfly-embedded-png-extraction-plan-v1",
+  "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "expected_images": 82,
+  "flight_label_derivation_authorized": false,
+  "independent_holdout_claim_allowed": false,
+  "merge_old_dataset_authorized": false,
+  "network_authorized": false,
+  "original_embedded_bytes_extraction_authorized": true,
+  "original_train_annotation": {
+    "bytes": 405815796,
+    "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Annotation/train.json",
+    "sha256": "1a4c5a5ed1561ea5b3b79b6c25da7648ce4085b7d8489d62022a9bd1244100df"
+  },
+  "output_directory": "artifacts/training/openfly-multiscene-embedded-images-20261008-r1",
+  "routes": [
+    {
+      "annotation_filenames": [
+        "20250101_175035_2",
+        "20250101_175037_5",
+        "20250101_175037_6",
+        "20250101_175039_9",
+        "20250101_175040_12",
+        "20250101_175042_15",
+        "20250101_175043_18",
+        "20250101_175045_21",
+        "20250101_175045_22"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        6,
+        9,
+        12,
+        15,
+        18,
+        21,
+        22
+      ],
+      "annotation_index": 139,
+      "config_publisher": {
+        "bytes": 773,
+        "digest": "01429a4317bfee7b669127f62f172cdbb2a7390f",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_26.yaml"
+      },
+      "development_partition": "train",
+      "image_path": "env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383",
+      "metadata_rows": [
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 0,
+          "image_id": "20250101_175032_0",
+          "pos": [
+            -653.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 1,
+          "image_id": "20250101_175035_1",
+          "pos": [
+            -650.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 2,
+          "image_id": "20250101_175035_2",
+          "pos": [
+            -647.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 3,
+          "image_id": "20250101_175036_3",
+          "pos": [
+            -644.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 4,
+          "image_id": "20250101_175036_4",
+          "pos": [
+            -641.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 5,
+          "image_id": "20250101_175037_5",
+          "pos": [
+            -638.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "turn right",
+          "action_value": 30,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 6,
+          "image_id": "20250101_175037_6",
+          "pos": [
+            -635.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": 0.0
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 7,
+          "image_id": "20250101_175038_7",
+          "pos": [
+            -635.9417644394264,
+            -2180.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982988
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 8,
+          "image_id": "20250101_175038_8",
+          "pos": [
+            -633.343688228073,
+            -2181.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 9,
+          "image_id": "20250101_175039_9",
+          "pos": [
+            -630.7456120167196,
+            -2183.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 10,
+          "image_id": "20250101_175039_10",
+          "pos": [
+            -628.1475358053663,
+            -2184.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 11,
+          "image_id": "20250101_175040_11",
+          "pos": [
+            -625.5494595940129,
+            -2186.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 12,
+          "image_id": "20250101_175040_12",
+          "pos": [
+            -622.9513833826595,
+            -2187.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 13,
+          "image_id": "20250101_175041_13",
+          "pos": [
+            -620.3533071713061,
+            -2189.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 14,
+          "image_id": "20250101_175041_14",
+          "pos": [
+            -617.7552309599528,
+            -2190.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 15,
+          "image_id": "20250101_175042_15",
+          "pos": [
+            -615.1571547485994,
+            -2192.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 16,
+          "image_id": "20250101_175042_16",
+          "pos": [
+            -612.559078537246,
+            -2193.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 17,
+          "image_id": "20250101_175043_17",
+          "pos": [
+            -609.9610023258927,
+            -2195.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 18,
+          "image_id": "20250101_175043_18",
+          "pos": [
+            -607.3629261145393,
+            -2196.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 19,
+          "image_id": "20250101_175044_19",
+          "pos": [
+            -604.7648499031859,
+            -2198.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 20,
+          "image_id": "20250101_175044_20",
+          "pos": [
+            -602.1667736918325,
+            -2199.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 21,
+          "image_id": "20250101_175045_21",
+          "pos": [
+            -599.5686974804792,
+            -2201.4865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        },
+        {
+          "action_type": "stop",
+          "action_value": 0,
+          "env_id": "env_airsim_26/astar_data/low_short",
+          "frame_index": 22,
+          "image_id": "20250101_175045_22",
+          "pos": [
+            -596.9706212691258,
+            -2202.9865230292557,
+            -298.70610889761286
+          ],
+          "traj_id": "2025-1-1_17-50-32_972125383",
+          "yaw": -0.5235987755982894
+        }
+      ],
+      "original_annotation_record_sha256": "7f226a9ad42f5279e9c0b8e1b18636aa20b488871569495705e8a71b25862e81",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+      "pose_publisher": {
+        "bytes": 6122,
+        "digest": "334f68313dda33713762f6dd14ea160d3f797109",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383/pose.jsonl"
+      },
+      "required_frame_count": 23,
+      "scene_id": "env_airsim_26",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 14931369,
+        "row_groups": 1,
+        "rows": 23,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "shard_file": {
+        "bytes": 14935853,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+        "sha256": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538"
+      },
+      "shard_publisher": {
+        "bytes": 14935853,
+        "digest": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet"
+      }
+    },
+    {
+      "annotation_filenames": [
+        "20250109_211306_2",
+        "20250109_211307_5",
+        "20250109_211308_8",
+        "20250109_211310_11",
+        "20250109_211311_14",
+        "20250109_211312_15",
+        "20250109_211312_16"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        8,
+        11,
+        14,
+        15,
+        16
+      ],
+      "annotation_index": 220,
+      "config_publisher": {
+        "bytes": 3791,
+        "digest": "f81b6ba7a4a49c906e5294fcce20c6f4e311c1d9",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_16.yaml"
+      },
+      "development_partition": "dev-validation",
+      "image_path": "env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921",
+      "metadata_rows": [
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 0,
+          "image_id": "20250109_211302_0",
+          "pos": [
+            -962.8394718091544,
+            -129.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755983084
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 1,
+          "image_id": "20250109_211305_1",
+          "pos": [
+            -960.2413955978011,
+            -127.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755983084
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 2,
+          "image_id": "20250109_211306_2",
+          "pos": [
+            -957.6433193864477,
+            -126.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 3,
+          "image_id": "20250109_211306_3",
+          "pos": [
+            -955.0452431750944,
+            -124.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 4,
+          "image_id": "20250109_211306_4",
+          "pos": [
+            -952.447166963741,
+            -123.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 5,
+          "image_id": "20250109_211307_5",
+          "pos": [
+            -949.8490907523876,
+            -121.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 6,
+          "image_id": "20250109_211308_6",
+          "pos": [
+            -947.2510145410342,
+            -120.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 7,
+          "image_id": "20250109_211308_7",
+          "pos": [
+            -944.6529383296809,
+            -118.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 8,
+          "image_id": "20250109_211308_8",
+          "pos": [
+            -942.0548621183275,
+            -117.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 9,
+          "image_id": "20250109_211309_9",
+          "pos": [
+            -939.4567859069741,
+            -115.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 10,
+          "image_id": "20250109_211309_10",
+          "pos": [
+            -936.8587096956207,
+            -114.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 11,
+          "image_id": "20250109_211310_11",
+          "pos": [
+            -934.2606334842674,
+            -112.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 12,
+          "image_id": "20250109_211310_12",
+          "pos": [
+            -931.662557272914,
+            -111.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 13,
+          "image_id": "20250109_211311_13",
+          "pos": [
+            -929.0644810615606,
+            -109.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 14,
+          "image_id": "20250109_211311_14",
+          "pos": [
+            -926.4664048502073,
+            -108.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 15,
+          "image_id": "20250109_211312_15",
+          "pos": [
+            -923.8683286388539,
+            -106.65858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        },
+        {
+          "action_type": "stop",
+          "action_value": 0,
+          "env_id": "env_airsim_16/astar_data/high_short",
+          "frame_index": 16,
+          "image_id": "20250109_211312_16",
+          "pos": [
+            -921.2702524275005,
+            -105.15858832053743,
+            87.81275808263148
+          ],
+          "traj_id": "2025-1-9_21-13-2_1569115921",
+          "yaw": 0.5235987755982894
+        }
+      ],
+      "original_annotation_record_sha256": "92a5782796a89c6643c2cf1aaf7fff84562d9d3c3dbf1703e615e80bf5c22ac6",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+      "pose_publisher": {
+        "bytes": 4627,
+        "digest": "835d65c1e03adcbf9ed9b16353c11adb4e093cc1",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921/pose.jsonl"
+      },
+      "required_frame_count": 17,
+      "scene_id": "env_airsim_16",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 14854329,
+        "row_groups": 1,
+        "rows": 17,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "shard_file": {
+        "bytes": 14859023,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+        "sha256": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4"
+      },
+      "shard_publisher": {
+        "bytes": 14859023,
+        "digest": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet"
+      }
+    },
+    {
+      "annotation_filenames": [
+        "20250119_020003_2",
+        "20250119_020005_5",
+        "20250119_020007_8",
+        "20250119_020010_11",
+        "20250119_020011_12",
+        "20250119_020013_15",
+        "20250119_020015_18",
+        "20250119_020017_21",
+        "20250119_020020_24",
+        "20250119_020022_27",
+        "20250119_020024_30",
+        "20250119_020027_33",
+        "20250119_020028_35",
+        "20250119_020029_36",
+        "20250119_020031_39",
+        "20250119_020032_40",
+        "20250119_020033_41"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        8,
+        11,
+        12,
+        15,
+        18,
+        21,
+        24,
+        27,
+        30,
+        33,
+        35,
+        36,
+        39,
+        40,
+        41
+      ],
+      "annotation_index": 90,
+      "config_publisher": {
+        "bytes": 763,
+        "digest": "34ff6ff802cab8e76580bd1957fa3dfe8c602dc6",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_23.yaml"
+      },
+      "development_partition": "dev-test",
+      "image_path": "env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985",
+      "metadata_rows": [
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 0,
+          "image_id": "20250119_020001_0",
+          "pos": [
+            -76.92267636750154,
+            -160.20109746913903,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 1,
+          "image_id": "20250119_020002_1",
+          "pos": [
+            -78.42267636750154,
+            -162.79917368049234,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 2,
+          "image_id": "20250119_020003_2",
+          "pos": [
+            -79.92267636750154,
+            -165.39724989184566,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 3,
+          "image_id": "20250119_020004_3",
+          "pos": [
+            -81.42267636750154,
+            -167.99532610319898,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 4,
+          "image_id": "20250119_020004_4",
+          "pos": [
+            -82.92267636750154,
+            -170.5934023145523,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 5,
+          "image_id": "20250119_020005_5",
+          "pos": [
+            -84.42267636750154,
+            -173.1914785259056,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 6,
+          "image_id": "20250119_020006_6",
+          "pos": [
+            -85.92267636750154,
+            -175.78955473725892,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 7,
+          "image_id": "20250119_020007_7",
+          "pos": [
+            -87.42267636750154,
+            -178.38763094861224,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 8,
+          "image_id": "20250119_020007_8",
+          "pos": [
+            -88.92267636750154,
+            -180.98570715996556,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 9,
+          "image_id": "20250119_020008_9",
+          "pos": [
+            -90.42267636750154,
+            -183.58378337131887,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 10,
+          "image_id": "20250119_020009_10",
+          "pos": [
+            -91.92267636750154,
+            -186.1818595826722,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 11,
+          "image_id": "20250119_020010_11",
+          "pos": [
+            -93.42267636750154,
+            -188.7799357940255,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go up",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 12,
+          "image_id": "20250119_020011_12",
+          "pos": [
+            -94.92267636750154,
+            -191.37801200537882,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 13,
+          "image_id": "20250119_020011_13",
+          "pos": [
+            -94.92267636750154,
+            -191.37801200537882,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 14,
+          "image_id": "20250119_020012_14",
+          "pos": [
+            -96.42267636750154,
+            -193.97608821673214,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 15,
+          "image_id": "20250119_020013_15",
+          "pos": [
+            -97.92267636750154,
+            -196.57416442808545,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 16,
+          "image_id": "20250119_020014_16",
+          "pos": [
+            -99.42267636750154,
+            -199.17224063943877,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 17,
+          "image_id": "20250119_020014_17",
+          "pos": [
+            -100.92267636750154,
+            -201.77031685079209,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 18,
+          "image_id": "20250119_020015_18",
+          "pos": [
+            -102.42267636750154,
+            -204.3683930621454,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 19,
+          "image_id": "20250119_020016_19",
+          "pos": [
+            -103.92267636750154,
+            -206.96646927349872,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 20,
+          "image_id": "20250119_020017_20",
+          "pos": [
+            -105.42267636750154,
+            -209.56454548485203,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 21,
+          "image_id": "20250119_020017_21",
+          "pos": [
+            -106.92267636750154,
+            -212.16262169620535,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 22,
+          "image_id": "20250119_020018_22",
+          "pos": [
+            -108.42267636750154,
+            -214.76069790755867,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 23,
+          "image_id": "20250119_020019_23",
+          "pos": [
+            -109.92267636750154,
+            -217.35877411891198,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 24,
+          "image_id": "20250119_020020_24",
+          "pos": [
+            -111.42267636750154,
+            -219.9568503302653,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 25,
+          "image_id": "20250119_020020_25",
+          "pos": [
+            -112.92267636750154,
+            -222.5549265416186,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 26,
+          "image_id": "20250119_020021_26",
+          "pos": [
+            -114.42267636750154,
+            -225.15300275297193,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 27,
+          "image_id": "20250119_020022_27",
+          "pos": [
+            -115.92267636750154,
+            -227.75107896432525,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 28,
+          "image_id": "20250119_020023_28",
+          "pos": [
+            -117.42267636750154,
+            -230.34915517567856,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 29,
+          "image_id": "20250119_020024_29",
+          "pos": [
+            -118.92267636750154,
+            -232.94723138703188,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 30,
+          "image_id": "20250119_020024_30",
+          "pos": [
+            -120.42267636750154,
+            -235.5453075983852,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 31,
+          "image_id": "20250119_020025_31",
+          "pos": [
+            -121.92267636750154,
+            -238.1433838097385,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 32,
+          "image_id": "20250119_020026_32",
+          "pos": [
+            -123.42267636750154,
+            -240.74146002109183,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 33,
+          "image_id": "20250119_020027_33",
+          "pos": [
+            -124.92267636750154,
+            -243.33953623244514,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 34,
+          "image_id": "20250119_020027_34",
+          "pos": [
+            -126.42267636750154,
+            -245.93761244379846,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 35,
+          "image_id": "20250119_020028_35",
+          "pos": [
+            -127.92267636750154,
+            -248.53568865515177,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "turn right",
+          "action_value": 30,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 36,
+          "image_id": "20250119_020029_36",
+          "pos": [
+            -129.42267636750154,
+            -251.1337648665051,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.0943951023931953
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 37,
+          "image_id": "20250119_020030_37",
+          "pos": [
+            -129.42267636750154,
+            -251.1337648665051,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.617993877991494
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 38,
+          "image_id": "20250119_020031_38",
+          "pos": [
+            -132.02075257885485,
+            -252.6337648665051,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.6179938779914944
+        },
+        {
+          "action_type": "go straight",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 39,
+          "image_id": "20250119_020031_39",
+          "pos": [
+            -134.61882879020817,
+            -254.1337648665051,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.6179938779914944
+        },
+        {
+          "action_type": "go down",
+          "action_value": 3,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 40,
+          "image_id": "20250119_020032_40",
+          "pos": [
+            -137.21690500156149,
+            -255.6337648665051,
+            94.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.6179938779914944
+        },
+        {
+          "action_type": "stop",
+          "action_value": 0,
+          "env_id": "env_airsim_23/astar_data/high_long",
+          "frame_index": 41,
+          "image_id": "20250119_020033_41",
+          "pos": [
+            -137.21690500156149,
+            -255.6337648665051,
+            91.80529431779377
+          ],
+          "traj_id": "2025-01-19_02-00-00_373985",
+          "yaw": -2.6179938779914944
+        }
+      ],
+      "original_annotation_record_sha256": "5c14d05378d8364099761b9501a1266343897630d6ce6f8149dae7ccda650d0b",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+      "pose_publisher": {
+        "bytes": 11094,
+        "digest": "7efc576f438ae685e77bcde33239309efe0a5f75",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985/pose.jsonl"
+      },
+      "required_frame_count": 42,
+      "scene_id": "env_airsim_23",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 26264725,
+        "row_groups": 1,
+        "rows": 42,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "shard_file": {
+        "bytes": 26269042,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+        "sha256": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f"
+      },
+      "shard_publisher": {
+        "bytes": 26269042,
+        "digest": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet"
+      }
+    }
+  ],
+  "runtime": {
+    "source_inventory_scope": "listed_package_entrypoints_extensions_not_all_transitive_DLLs",
+    "sources": [
+      {
+        "bytes": 150163,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\Image.py",
+        "sha256": "ba778c08d7f45b60d1629367f816d89c240d35e0af9388d28cd69cd96398fb16"
+      },
+      {
+        "bytes": 26977,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\ImageFile.py",
+        "sha256": "8a253d9bd3eb09113303d41686aa2a13f6f1fbff0b2a8e4d15df97d96dddee0f"
+      },
+      {
+        "bytes": 52409,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\PngImagePlugin.py",
+        "sha256": "dc89eb0f655d910039c28780862ad5dde71856a967172e0f330e9140a3673ae0"
+      },
+      {
+        "bytes": 2094,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\__init__.py",
+        "sha256": "f7c69bc557e7f287758c969322beb962b62b21bef330a6ce279a3af2bc84d8ed"
+      },
+      {
+        "bytes": 2349056,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\_imaging.cp312-win_amd64.pyd",
+        "sha256": "f44fee1dd1c49e647fbfc60554997d6e5e6c7f578058a7799ee6870b84df8da2"
+      },
+      {
+        "bytes": 18554,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pyarrow\\__init__.py",
+        "sha256": "49d53b009dcb20d7be59340e354707be0835b0878351ad9544ead1820b253c7e"
+      },
+      {
+        "bytes": 378368,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pyarrow\\_parquet.cp312-win_amd64.pyd",
+        "sha256": "6e7c031e1a5ffd84c34792aa0664c4eea899cc761089d6d1eda2c8425451b1b3"
+      },
+      {
+        "bytes": 842,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pyarrow\\parquet\\__init__.py",
+        "sha256": "30ff21998e72d7e2d7a04520e958a7ac67d3859930d470305082f875dad20314"
+      },
+      {
+        "bytes": 92815,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pyarrow\\parquet\\core.py",
+        "sha256": "07a446fdac1c47f7e56803f29672f128ea7f49106a64efc2d435b824e7ee0166"
+      },
+      {
+        "bytes": 12311,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\yaml\\__init__.py",
+        "sha256": "377e52d351cc7ac1537b469144c5a43e3d0f6bc2046c7a44f452bb72be4176dc"
+      }
+    ],
+    "versions": {
+      "Pillow": "11.0.0",
+      "PyYAML": "6.0.2",
+      "pyarrow": "18.1.0"
+    }
+  },
+  "sources": [
+    {
+      "bytes": 487935,
+      "path": ".venv-vlm/Lib/site-packages/huggingface_hub/hf_api.py",
+      "sha256": "444326f4016052dca2cc8ead904cba8255f601aefe4c7efeb96865865d2ad1f1"
+    },
+    {
+      "bytes": 100742,
+      "path": "artifacts/diagnostics/openfly-multiscene-availability-20261008-r1/report.json",
+      "sha256": "0dfa82bf71d173834c92f34a707676ae73ca0fba6fa50c5507740614175d77ac"
+    },
+    {
+      "bytes": 168,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/metadata/episode-220-tree.json",
+      "sha256": "8d258e05b09b9dca5c37abb1c9455f01bcb67c18d700a4a588ca593a9b0524a9"
+    },
+    {
+      "bytes": 167,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/metadata/episode-90-tree.json",
+      "sha256": "de03cb88e368dbcf2f5ea2621f509d741da9ab8e7ddb88eaf58dc6e7e7370cab"
+    },
+    {
+      "bytes": 65032,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/report.json",
+      "sha256": "511ba2b701c7b27af554b480c328eb8b54934a5a56f0ea00b1af7d5a53362558"
+    },
+    {
+      "bytes": 1075,
+      "path": "artifacts/diagnostics/openfly-parquet-exact-routes-20261008-r1/paths-info.json",
+      "sha256": "83056e8aeb858dfe7a3d159e228858a732582922796a6fa605b82d8a43dde5de"
+    },
+    {
+      "bytes": 75582,
+      "path": "artifacts/diagnostics/openfly-parquet-exact-routes-20261008-r1/report.json",
+      "sha256": "5d534fffa669b168c793bacfc6cff22b54d98ec985d0553fc0c83ebd8f95331b"
+    },
+    {
+      "bytes": 1989,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-1.json",
+      "sha256": "3e4c9a0c81633d29cffed959590c774da94d40a8ed5784f4e888ebfcb0376f57"
+    },
+    {
+      "bytes": 1168,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-2.json",
+      "sha256": "c76dc1e60f178b7b6c62ee5d27fb5097b80cadbd510dfeef90274c42b5882de8"
+    },
+    {
+      "bytes": 1575,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-3.json",
+      "sha256": "f634bae90e83364d4f78e252d1d5f66af4a74e11a0e30f8ff0033a6c23597348"
+    },
+    {
+      "bytes": 132976,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-4.json",
+      "sha256": "c0c928dc0236b9f5459c1dc456293a5117ca56ab2d63027be78bad060944b909"
+    },
+    {
+      "bytes": 151809,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-5.json",
+      "sha256": "7ed1aedd3d6fe0e37327e005655bf501007c7e10c18da7d0cd8e33eae3cec161"
+    },
+    {
+      "bytes": 357756,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/metadata/tree-6.json",
+      "sha256": "085a0fade3339c20bd9a1d26709f8c08008e23543ac30af0511f0f0d3cea9a26"
+    },
+    {
+      "bytes": 857410,
+      "path": "artifacts/diagnostics/openfly-parquet-leaf-metadata-20261008-r1/report.json",
+      "sha256": "2e6a7e1e315aca6885fb367627ed306052db442d4f563d23b506227998e998e7"
+    },
+    {
+      "bytes": 5167,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/documentation/hf.py",
+      "sha256": "905d29e7c53b1c2a6bc756834376d02b6f22760e622844c898d9ddea9b1dfb5c"
+    },
+    {
+      "bytes": 1885,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/documentation/upload.sh",
+      "sha256": "0a3ff91cf03b75b2ecfadbaa1b25726a4607b1e9ddd03f415c0ce8951151814d"
+    },
+    {
+      "bytes": 1502,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-1.json",
+      "sha256": "2a87d800b7733aa08286e78dd6017927273d5905494e5dab8137c96160e125b7"
+    },
+    {
+      "bytes": 119,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-2.json",
+      "sha256": "21124bc9b6fd17adf1da0762517fdbe5210eb3bf5046ed42373e6357031cc39a"
+    },
+    {
+      "bytes": 119,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-3.json",
+      "sha256": "286c35569bd1b69d2e62ce3a1952eb1d1af17d915536a25a341fb2770e9bce70"
+    },
+    {
+      "bytes": 119,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-4.json",
+      "sha256": "91beecae20486bc4e0c4dd1b5415987d4baf4629649c1615eb6994aacf199bbf"
+    },
+    {
+      "bytes": 119,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-5.json",
+      "sha256": "4975ec8e6a8ef758f6d3eda3e92dd76e4fb57290437f471188482754c542b379"
+    },
+    {
+      "bytes": 119,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/metadata/tree-6.json",
+      "sha256": "e1931dd3711b86f57852f85d50941b235c37b0798eeab7fbe5acec8be023e8ab"
+    },
+    {
+      "bytes": 69719,
+      "path": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1/report.json",
+      "sha256": "290a0751c31cc405d8dc913a084dab15add4fc321669140e256c0d6996af1367"
+    },
+    {
+      "bytes": 137789,
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r2.json",
+      "sha256": "3751f103e55432688a99cfcf7178b13a400962b9c935992af05dbc9bd2a4079b"
+    },
+    {
+      "bytes": 4627,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921/pose.jsonl",
+      "sha256": "9ce2bff218da8bb485a566779c0738cf3be344f98fa39885c59a374b4dca8e31"
+    },
+    {
+      "bytes": 11094,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985/pose.jsonl",
+      "sha256": "0321d88003b7e9bd0af08f1a5ce64a483b52fc8ce65f863c6e08375f779be9d6"
+    },
+    {
+      "bytes": 6122,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383/pose.jsonl",
+      "sha256": "151298514252c13c024491376673cec41cf7d99f2ca97a1f4f3e5020e7bd9fb2"
+    },
+    {
+      "bytes": 3791,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_16.yaml",
+      "sha256": "cb85865814d06dadd41cbb9a7b0b3ff156949ba083dc3188ba0515d005ecd475"
+    },
+    {
+      "bytes": 763,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_23.yaml",
+      "sha256": "3d528e397b7189113b11d700c3c91cfefd365453eb937aec52432b344ae3f878"
+    },
+    {
+      "bytes": 773,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_26.yaml",
+      "sha256": "82ed8317535f84b83f95fdaae8c29c18b07aa860d56a210a760d6cae93a2ad73"
+    },
+    {
+      "bytes": 14859023,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+      "sha256": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4"
+    },
+    {
+      "bytes": 26269042,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+      "sha256": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f"
+    },
+    {
+      "bytes": 14935853,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+      "sha256": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538"
+    },
+    {
+      "bytes": 114695,
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/receipt.json",
+      "sha256": "72be0f673a14cc56af2eb650e69d5039f29dfb6951eb45b58b69cf10ab21875c"
+    },
+    {
+      "bytes": 167,
+      "path": "artifacts/training/openfly-multiscene-source-20261008-r1/metadata/episode-139-tree.json",
+      "sha256": "7bfb10db290aab13e750ffef2adbca40b1a46a79deae07d321db5ba5dcf83c9e"
+    },
+    {
+      "bytes": 59276,
+      "path": "artifacts/training/openfly-multiscene-source-20261008-r1/receipt.json",
+      "sha256": "99d3e8b06cd38375f85aa020efac528392ea2d1e81c345f876a36cf5c4c7c627"
+    },
+    {
+      "bytes": 767,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/configs/env_airsim_18.yaml",
+      "sha256": "ad8bc6917927809056ce95ed7f9d9015d0c247f930cc6850bf74d11b89437067"
+    },
+    {
+      "bytes": 5975,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/scripts/sim/airsim_bridge.py",
+      "sha256": "c1bee010ab1278068d3bb041452091efe67e5c9e43fe0afe570f6008f68aad72"
+    },
+    {
+      "bytes": 10300,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/tool_ws/src/traj_gen/include/navi/pathsearch.hpp",
+      "sha256": "f98a44b913c580d99428f0110678d451dd988c491bf8efd573aecc546d48551c"
+    },
+    {
+      "bytes": 47345,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/tool_ws/src/traj_gen/src/traj_gen.cc",
+      "sha256": "65d5c0bb234340fd4ca0c0cd5fd78a2f1fdde9fff2778384216362df3956e745"
+    },
+    {
+      "bytes": 1100,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/license/code/LICENSE",
+      "sha256": "a1603d026405d0c09a869a2a519f3802642cdbcb48a62b13b87ad0230f8a6109"
+    },
+    {
+      "bytes": 31,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/license/dataset/README.md",
+      "sha256": "4bcf87ecfbbb8e07a01b21415a970c8b53a5283bf6872b657040d3f45c9241f7"
+    },
+    {
+      "bytes": 142534,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+      "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+    },
+    {
+      "bytes": 637,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/annotation-tree.json",
+      "sha256": "fe475b32e323f505ad406f7b01c8d95dc14bbfde6216fa62a92992db752a6f49"
+    },
+    {
+      "bytes": 212856,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/code-tree.json",
+      "sha256": "d54418dd300ac482c2068ddd3ab8abebede92f6b566163c57ed89a9246cda43f"
+    },
+    {
+      "bytes": 768,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/dataset-root-tree.json",
+      "sha256": "9009dfc89dd919e2b6ce145d870c44020f9926513495646f2bca3cbc66c53b1e"
+    },
+    {
+      "bytes": 7147,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-0-tree.json",
+      "sha256": "bb55276e34417e2d2708ad9caadff0723682dd35ea492c3a3ef2013411676e7b"
+    },
+    {
+      "bytes": 170,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-2-tree.json",
+      "sha256": "196b5951ae074282ff2f0773d9a03f8317694e4e6d276ea31b320ae4c1b56dc4"
+    },
+    {
+      "bytes": 169,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-5-tree.json",
+      "sha256": "8c704ba7bca440012eb10b658e57461139540c837aca35ff08326a36f82e7982"
+    },
+    {
+      "bytes": 165,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-6-tree.json",
+      "sha256": "efa89655697a46a6f08d414fb4ff498bb9f2055befe522bec2f0676ec614437c"
+    },
+    {
+      "bytes": 11257,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-7-tree.json",
+      "sha256": "ac190ec244fefe3a4aa1ba7ee2f141b973731198ffd4758e1d6143924ed8899d"
+    },
+    {
+      "bytes": 13885,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-8-tree.json",
+      "sha256": "1eb6662592f8e9669cb79e1c893c0f8a2475ddae6f4bc75031a154149b3215cd"
+    },
+    {
+      "bytes": 405815796,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Annotation/train.json",
+      "sha256": "1a4c5a5ed1561ea5b3b79b6c25da7648ce4085b7d8489d62022a9bd1244100df"
+    },
+    {
+      "bytes": 683799,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190202_0.png",
+      "sha256": "cc69ef04688b84a02b21ad99e93aa8f39aeb063ef433cb1a310f8b9706ce71e1"
+    },
+    {
+      "bytes": 658385,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_1.png",
+      "sha256": "3c6c8cc831fa94fce8b4414637ef2f6dd1d5a9962f8cfebfbd283660e9fab219"
+    },
+    {
+      "bytes": 637250,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_2.png",
+      "sha256": "893f1ca4fa0ecfd87f8c05f7657fd161b205802b7d1ee4f66e570fec41e979f1"
+    },
+    {
+      "bytes": 623133,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_3.png",
+      "sha256": "6fc8b59bbea85de9c0f962d863effce94ba2f1045e652bbface4286fe38c7e8f"
+    },
+    {
+      "bytes": 605504,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190206_4.png",
+      "sha256": "ecc2d5a0e6f8d60c0b8c63d2a9530061bf18bec55e47b521b9e1ec7518d0a28b"
+    },
+    {
+      "bytes": 602473,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190206_5.png",
+      "sha256": "37c9a34207bdc595cef918a5386cf8517e2a55682028fe6b26ed24f1cf879df8"
+    },
+    {
+      "bytes": 603043,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_6.png",
+      "sha256": "5efc7f4dceccf033d77ec237da0dcccb5bf52223fc8d00312b3273c701afb44f"
+    },
+    {
+      "bytes": 604957,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_7.png",
+      "sha256": "bb24d49305b3af49c4ac444180a5214003e60c9c60b9d219738a7a92bca97746"
+    },
+    {
+      "bytes": 615437,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_8.png",
+      "sha256": "84f1ff017fcd90dcfbb5781005bed2e6efa84c268fc575745f9735488d55f301"
+    },
+    {
+      "bytes": 648056,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190208_10.png",
+      "sha256": "63bcaab89738e9ac91c5f9911b5c22d8ab1efe433a96df925918e34c5757a4e9"
+    },
+    {
+      "bytes": 630870,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190208_9.png",
+      "sha256": "820a0d6c9962f3d10a290d5e15f707390b1fc61c62ef4a12a464ec2763be7b84"
+    },
+    {
+      "bytes": 644253,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_11.png",
+      "sha256": "1b7b42c930fb282ddd146e7975a8f784fb70c91a4240536fd8bd5da8ecaf4f7c"
+    },
+    {
+      "bytes": 637417,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_12.png",
+      "sha256": "be1962999c1a4d43d26c420de2485854a55805ae5e8163b46dbaaf4d411bdb5b"
+    },
+    {
+      "bytes": 661057,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_13.png",
+      "sha256": "6f372965d6548ebb0fee86c95d4b2ed061aec7385b51bae966e2d433ba295b95"
+    },
+    {
+      "bytes": 650698,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190210_14.png",
+      "sha256": "4438bf3eacf4397b1511a0807241a0789093655390dcbdc4a1aebe9b4687110a"
+    },
+    {
+      "bytes": 627249,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190210_15.png",
+      "sha256": "b15ea8e9052d7a39d3b10689434b78271971a3d3ed9517405c7abff3ae492d84"
+    },
+    {
+      "bytes": 639267,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190211_16.png",
+      "sha256": "f4c993c2d53f00ef2ea2be487e6f234069fe7c0e7b03c65078da3d2a809b1e99"
+    },
+    {
+      "bytes": 583838,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190211_17.png",
+      "sha256": "5cc7948d788a35eab4f12a889b0748b0b016853cfc1806f02431198952b42f5b"
+    },
+    {
+      "bytes": 531423,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190212_18.png",
+      "sha256": "31daf51910ac8873d4414336960cdffba5c02450d2e4d6cd802aef399db8fcf0"
+    },
+    {
+      "bytes": 5125,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/pose.jsonl",
+      "sha256": "61f9bc0a06d205e12138eb76e85b4bd3acdb56d15da9aee4afa1c79c09b0ab7f"
+    },
+    {
+      "bytes": 662718,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194237_0.png",
+      "sha256": "aec8d9302f8876492b3a508872a9d0d048959c44b950a074913b4a4df29ad1dc"
+    },
+    {
+      "bytes": 666252,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194240_1.png",
+      "sha256": "2c0fb200964bda200f28c548e285f23a4260c53e12375786235e147e4eda8b9f"
+    },
+    {
+      "bytes": 659616,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_2.png",
+      "sha256": "bf7e0d45f3da02a0e409ce8c7d2be5c52349843fa194d47a7e45166c8bc4a713"
+    },
+    {
+      "bytes": 665556,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_3.png",
+      "sha256": "e693dff3fbe1647033a4063c71b335612d26143a01b2922beb3df588e2182232"
+    },
+    {
+      "bytes": 669461,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_4.png",
+      "sha256": "a02eeb27898a5ac80b62a2e0b4c193649d34961d6eaee4c87218952503d58444"
+    },
+    {
+      "bytes": 671453,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194242_5.png",
+      "sha256": "3ca6751e5b4c62416946f8956b9e18713010d0afebfb66fb1ab912378669d4c3"
+    },
+    {
+      "bytes": 674382,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194242_6.png",
+      "sha256": "4605fb967df3d9377b8602917f16758dadb1c7de4b74e8d4856b71416ce6152b"
+    },
+    {
+      "bytes": 679841,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194243_7.png",
+      "sha256": "62b6aa228256fec7eb882afbad7ff5db400a973830882daa6c4a8cc83640cf17"
+    },
+    {
+      "bytes": 686804,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194243_8.png",
+      "sha256": "83feab1a502bdb9a7a3e420eaaf610a91362f4a9ddf834aeb1fabb924f2ea57a"
+    },
+    {
+      "bytes": 626850,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_10.png",
+      "sha256": "6275b8801ccd338a155bc324ce9d653d9568ac4baf24c31993e6a69e816ae327"
+    },
+    {
+      "bytes": 591885,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_11.png",
+      "sha256": "c311fcf54d78c24bfc9d1d5dd90a96915a24cb1db53dc87d478c3c2b552662e4"
+    },
+    {
+      "bytes": 678231,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_9.png",
+      "sha256": "ece5eb8014c57c6e54390c70ec75fc7566101fe2bd0982b1668c547c84f2e421"
+    },
+    {
+      "bytes": 580981,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_12.png",
+      "sha256": "e201cc5c16f809703871e7c0fdbcbaaf2211b72f70b8d6bbcc9b04f9f2705c69"
+    },
+    {
+      "bytes": 605993,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_13.png",
+      "sha256": "6acbc4ed16ae1f070102dab14544ae73d13d76da038e878c6799ccbca4152de7"
+    },
+    {
+      "bytes": 666127,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_14.png",
+      "sha256": "7a1bd858e0efc9f49d22a5dbd531566b14b32b96c77a0c80111428036f7dfd48"
+    },
+    {
+      "bytes": 669813,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_15.png",
+      "sha256": "3911d892ff859a9baf8a18c3ebe1c8a2722823d369164562915028a5841a6eba"
+    },
+    {
+      "bytes": 666624,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_16.png",
+      "sha256": "294982a7069f0f008026e84909ffc15cc74accdba851585a78a2228c100a0eaf"
+    },
+    {
+      "bytes": 664598,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_17.png",
+      "sha256": "9756d9ffb77d41b2cbe0413d5ca7733d576f13b8d5def575246e91466c7ecc0e"
+    },
+    {
+      "bytes": 658352,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194247_18.png",
+      "sha256": "178df323f39f536d8ca0d8a3e0b9e8ba6e71ab65677255ce5985c249df3a5834"
+    },
+    {
+      "bytes": 662060,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194247_19.png",
+      "sha256": "7744295b80aa924159d862797c3fd71a08375916549b83fbd68bb9004fd850fa"
+    },
+    {
+      "bytes": 651094,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_20.png",
+      "sha256": "23098e5d3d63f806b19a4740b5bdf9cf5f12d5bd1adcc427e17e9a4f7bdad9da"
+    },
+    {
+      "bytes": 648800,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_21.png",
+      "sha256": "e605dd1468811623125220583b4acd4e8d9297b7e9e976a82e155d4c4fee9e2e"
+    },
+    {
+      "bytes": 661666,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_22.png",
+      "sha256": "c5c22e0e62780a6d1c20f0220e8c28bcdccdb94fb1ef4939430fc72041cfaa84"
+    },
+    {
+      "bytes": 643245,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194249_23.png",
+      "sha256": "3ab6b936cf943b44422d3431b3c24631bda8a2b06733e7efd8e7d56e23180ec8"
+    },
+    {
+      "bytes": 628123,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194249_24.png",
+      "sha256": "de03ad7d3c0b41dac89983ce78b5627f1114c61962c268314ddef471e785097d"
+    },
+    {
+      "bytes": 607365,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194250_25.png",
+      "sha256": "c778af0290dcc24340dd9d74567fd7f0b04676aca00df92dc4815ea9f27224a0"
+    },
+    {
+      "bytes": 596174,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194250_26.png",
+      "sha256": "3e62bde5d90a572bfaa0c657c8c85862ddb79aa94ddab6151ebc7d310d621293"
+    },
+    {
+      "bytes": 583677,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194251_27.png",
+      "sha256": "5a9b73e3cc1079c9e044ecf6fcb2dfff2bece1b37dec797a4f09648696ad2bc1"
+    },
+    {
+      "bytes": 566366,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194251_28.png",
+      "sha256": "e4c94824329c104df9f8893c2488235685a309d438d1166a96e14db1e7dcc8d7"
+    },
+    {
+      "bytes": 546877,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_29.png",
+      "sha256": "1beb8b36270b09a8579a833afeea4e1a55f66c9df4080b650a2d5a45fe6bb3cb"
+    },
+    {
+      "bytes": 530028,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_30.png",
+      "sha256": "6b08c3eed30003f22c976bd78755e09c56b7eecafbc14cf6f6a2f939d7c64729"
+    },
+    {
+      "bytes": 524437,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_31.png",
+      "sha256": "2845822059f1d111b4ea8ae4618836f166bbcbac65ae640c48294b33d36db3ff"
+    },
+    {
+      "bytes": 528636,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_32.png",
+      "sha256": "2b8e80d24b99c51ef53754041a6d3b11a4d34c9b51173fc50e65d9cd111605d5"
+    },
+    {
+      "bytes": 528111,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_33.png",
+      "sha256": "dce3715418e13a41686ab10570da8d64fef452a973fd5e0877487db5d05ccaf2"
+    },
+    {
+      "bytes": 544867,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_34.png",
+      "sha256": "b555b61a356eebb0bbb950bddac6b0293153addef6f150aeceb1da24d8438525"
+    },
+    {
+      "bytes": 557765,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194254_35.png",
+      "sha256": "4add8562d1f7ad26440d5eb0ae8f6f541e6b6bd2010278d75b6f3d5004fbda42"
+    },
+    {
+      "bytes": 557441,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194254_36.png",
+      "sha256": "f2a5a26e71c5ffd7139b9718119180757737421b8098faaaeb8476f520e91326"
+    },
+    {
+      "bytes": 9541,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/pose.jsonl",
+      "sha256": "60e05b1e2849de47328ae4ed983aad0db7cb2f8b48a0ba4c39268661bfd78974"
+    },
+    {
+      "bytes": 685112,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235139_0.png",
+      "sha256": "4ef4a84b1c5c5f8d29c0983ea541ac5187de2f698990b697fb1ba1a165fc7696"
+    },
+    {
+      "bytes": 681106,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_1.png",
+      "sha256": "de9e1136feff56496b2834f60ba6c2fd577f58853667245e50a7996a84dfd9aa"
+    },
+    {
+      "bytes": 680973,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_2.png",
+      "sha256": "dc9e46d34d4726c7492cd48e7ae15416eb828712101ab48fac939438eba9e436"
+    },
+    {
+      "bytes": 662568,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_3.png",
+      "sha256": "e700930f735421e50c4f1939dc8fe73be78026eb3fe79935f84a60d39b2b8398"
+    },
+    {
+      "bytes": 653491,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235143_4.png",
+      "sha256": "37a729a71277e650a2888bb37832c37a96adf9aae316dbc7d4ec5c5b72ac8302"
+    },
+    {
+      "bytes": 646796,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235143_5.png",
+      "sha256": "9c4e1db212319ef7faec172a60f2eb46b28d879fd8f9746b60ec4c8ec8574b28"
+    },
+    {
+      "bytes": 652157,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235144_6.png",
+      "sha256": "ff603016e0e5073222b770e6f14b62e3449905716af5233c5eda56f1c5da1aa5"
+    },
+    {
+      "bytes": 638484,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235144_7.png",
+      "sha256": "73df199acb5c720945f2b7565c88dcf25a8511f304346f061f93de9be16c801f"
+    },
+    {
+      "bytes": 677811,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_10.png",
+      "sha256": "2081fb16fb56eec98f75943c785d0296c2eb3dbe5cc45969f0048391d69dd209"
+    },
+    {
+      "bytes": 676946,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_8.png",
+      "sha256": "b837decb738ce338532cd9ba3a4d8eec5f94a129cccbd0470f88ebd092faaffd"
+    },
+    {
+      "bytes": 683361,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_9.png",
+      "sha256": "aa7825d43cd8e32d1c7a022ae34bc30cf3cb9f395ff43601edfe93e921c98797"
+    },
+    {
+      "bytes": 671595,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235146_11.png",
+      "sha256": "f18a045a0c99fe3f045fe434284e87dfabf6feca6683b4e0e65ce278c54c098d"
+    },
+    {
+      "bytes": 646408,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235146_12.png",
+      "sha256": "a731bc4e3223d7ab18e75a97d9b4d1054dfa0588f17e0c1802863e87ca1b4128"
+    },
+    {
+      "bytes": 635413,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_13.png",
+      "sha256": "a4e732e0245cea5b212dd6cff7b4b717d4962bcd101774e25183cba1a6087d37"
+    },
+    {
+      "bytes": 674289,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_14.png",
+      "sha256": "5bd222d75b3686679a20a95b5e7ab8396223ab9e8c186211de704c77f4fd8dd0"
+    },
+    {
+      "bytes": 659599,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_15.png",
+      "sha256": "f1b5a1793865d7d04c0aea8f53b5cf998a601f229eeb9de71c6e06688392ce67"
+    },
+    {
+      "bytes": 618696,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235148_16.png",
+      "sha256": "f7e49677f8be89c53b58ddf6c1118bf792b58f0c00e1b2116649bb1e4220b8b3"
+    },
+    {
+      "bytes": 615236,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235148_17.png",
+      "sha256": "9bbd5b311a1ee7bcb795bcba7631b932ce51f279cc08d51e8109268e005bff6f"
+    },
+    {
+      "bytes": 653266,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_18.png",
+      "sha256": "a2ce358b70967dd070448dc3261bf04c58092da21f4f76059e411d847f537c95"
+    },
+    {
+      "bytes": 661917,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_19.png",
+      "sha256": "dacd0bfa588f1ff900cdd82b6a1c609ae8bfcd9d0dfac5504b28351ee3688731"
+    },
+    {
+      "bytes": 653746,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_20.png",
+      "sha256": "8325c63bfbf52e11160901fcc6573cfae3821ece0d03dc411b597e9bac2942e1"
+    },
+    {
+      "bytes": 672964,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235150_21.png",
+      "sha256": "f9906bbff6fff1d2f8cf3d6a658e443bb755dce642b2ee99b2bd46048f5f7b5f"
+    },
+    {
+      "bytes": 672679,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235150_22.png",
+      "sha256": "4fe33aabfd4b76afe5a9453ab095111b4a83049cf17bee2d49230ec59641adff"
+    },
+    {
+      "bytes": 673774,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235151_23.png",
+      "sha256": "cd5278248d28b53557a0f39462217a9066efc03c7b5450b334567460b30fc579"
+    },
+    {
+      "bytes": 688146,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235151_24.png",
+      "sha256": "fc638c4b19c7332a96674c5e5e61068b004fb68d634d1edf6472418a89363b1a"
+    },
+    {
+      "bytes": 717742,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_25.png",
+      "sha256": "53b7b6eb255b8fafeafc682898e5a87198aaa37ffce7cf992b5e5302e4833bd4"
+    },
+    {
+      "bytes": 721187,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_26.png",
+      "sha256": "d99d646225846148145737231935d8c5a19554d0fdc62f01f1d9a96fc4e40fae"
+    },
+    {
+      "bytes": 719208,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_27.png",
+      "sha256": "bfe2d460a862b7ac9a38bb1ea25125a6610e5023b367a3e56f51a6c057ef6a0f"
+    },
+    {
+      "bytes": 713739,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235153_28.png",
+      "sha256": "fb429bd5ce30b7c40615f2bc0e6f949daf24b13a520b3491d8633af57af789fe"
+    },
+    {
+      "bytes": 720569,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235153_29.png",
+      "sha256": "4239d7996d328d9d42f8df256cd5b97213bffc5b0ac54890efe4490c9daabd7e"
+    },
+    {
+      "bytes": 7866,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/pose.jsonl",
+      "sha256": "a1f409fd43258e5f016369476cb69ba94b583ef6e297ec8c2311a958f8224e64"
+    },
+    {
+      "bytes": 1139,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-0.json",
+      "sha256": "11e5ac7b3b8983b1e1f29a38112ad3c36ee9cbd56c449f5b455da0dfbf06a1a5"
+    },
+    {
+      "bytes": 2117,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-7.json",
+      "sha256": "c374707a84f77ca4d3763d5fa43bb92695eeebb6c84f5dc87258311c6d8e0eae"
+    },
+    {
+      "bytes": 2382,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-8.json",
+      "sha256": "ca97821b5161ad3a55037919e41b04ae0261bc58d796333fccc7961157854ee3"
+    },
+    {
+      "bytes": 7080,
+      "path": "configs/training/openfly-multiscene-acquisition-20261008-r2.json",
+      "sha256": "7d84b33d149830e8a5b66807926d2dd151acafac8bbc2b7258ad1c0fe1a4e3db"
+    },
+    {
+      "bytes": 62970,
+      "path": "configs/training/openfly-multiscene-availability-probe-20261008-r1.json",
+      "sha256": "3f5d3c304580bac2c050246f01a562f5b3721b31f50555bf13c7b7beb6bba07c"
+    },
+    {
+      "bytes": 36592,
+      "path": "configs/training/openfly-multiscene-download-20261008-r1.json",
+      "sha256": "d75825abb342ec73ec2d934b7af3814facee9640b170493e5854c33aa352ae20"
+    },
+    {
+      "bytes": 54352,
+      "path": "configs/training/openfly-parquet-acquisition-20261008-r1.json",
+      "sha256": "199bb4cb062bf5c9914afcc921744212e0a5ebe057c02e3505bc422bf426dee4"
+    },
+    {
+      "bytes": 46764,
+      "path": "configs/training/openfly-parquet-exact-route-metadata-20261008-r1.json",
+      "sha256": "096b1ac3c06de7794c5981da79db1cd0c1059c1af41d86c6f4b6d9f3ac44d9c5"
+    },
+    {
+      "bytes": 39191,
+      "path": "configs/training/openfly-parquet-leaf-probe-20261008-r1.json",
+      "sha256": "65aa66bb971eeea4cbd2a2efa6db99d79cb81b789027254183af8fd12a630e5d"
+    },
+    {
+      "bytes": 37463,
+      "path": "configs/training/openfly-parquet-publication-probe-20261008-r1.json",
+      "sha256": "0feac1c4c3350e9329843c6c8f2788ac70335313a0c019a902837db72d1df0ca"
+    },
+    {
+      "bytes": 15665,
+      "path": "scripts/bind_openfly_parquet_route_metadata.py",
+      "sha256": "a47585a2aaabeef2753dd5ffe6bd00a33a55ee0fc6ed47ce9855db3a19564573"
+    },
+    {
+      "bytes": 35770,
+      "path": "scripts/build_onboard_openfly_navigation_dataset.py",
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "bytes": 26806,
+      "path": "scripts/extract_openfly_parquet_images.py",
+      "sha256": "fb071ac675892d97dabf0dd7781ca7397daf04c3a5306c90769b550906775b36"
+    },
+    {
+      "bytes": 27895,
+      "path": "scripts/fetch_and_audit_openfly_parquet.py",
+      "sha256": "0b5312f57a1e5813c1b7cef0e37de762d1c94e90376bd3d55000e727d862f6e9"
+    },
+    {
+      "bytes": 24889,
+      "path": "scripts/fetch_openfly_multiscene_navigation.py",
+      "sha256": "d86e2fd419edcafdc3abc6934aea7e830e548b72157faed85e63005909821439"
+    },
+    {
+      "bytes": 34972,
+      "path": "scripts/fetch_openfly_navigation_pilot.py",
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "bytes": 28565,
+      "path": "scripts/plan_openfly_multiscene_acquisition.py",
+      "sha256": "b20930141a7746bf9ada7f102baec69c3d6fd72b4a1beb4e77006029fa783618"
+    },
+    {
+      "bytes": 22592,
+      "path": "scripts/probe_openfly_multiscene_availability.py",
+      "sha256": "25263370ca4ae9fbb68c65452b22cfff537cf22d4eb1f40fe9f3eb47d5ccb085"
+    },
+    {
+      "bytes": 13228,
+      "path": "scripts/probe_openfly_parquet_leaf_metadata.py",
+      "sha256": "71391d64d406af69667e965fd7dd1db5224d9797fcd09584c209d479448a5cb8"
+    },
+    {
+      "bytes": 17481,
+      "path": "scripts/probe_openfly_parquet_publication.py",
+      "sha256": "605303f0bb857419b95d8c373f34e7fd254ff8e0c34b058617bb3d788ea8e7e5"
+    },
+    {
+      "bytes": 52186,
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "src/multidetect/autonomy/serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    },
+    {
+      "bytes": 11605,
+      "path": "tests/test_bind_openfly_parquet_route_metadata.py",
+      "sha256": "0d0a150ff3f4345fed15c9ef6cee461a4dc826825c27109d5d5a43b3ff278618"
+    },
+    {
+      "bytes": 15363,
+      "path": "tests/test_extract_openfly_parquet_images.py",
+      "sha256": "2de61d27799389ef72ec89c33e490bbfb3a289276b10de18409c2bed2749e105"
+    },
+    {
+      "bytes": 13404,
+      "path": "tests/test_fetch_and_audit_openfly_parquet.py",
+      "sha256": "50694d90826aba2b7c2d7c6e59ca9c0b993b57d0b0cbf6297dc4b56e1d099209"
+    },
+    {
+      "bytes": 17728,
+      "path": "tests/test_fetch_openfly_multiscene_navigation.py",
+      "sha256": "384e3b66fcf04c723f679b005c961de89cc7be253e3e4382a8ca9eec9163077b"
+    },
+    {
+      "bytes": 17893,
+      "path": "tests/test_fetch_openfly_navigation_pilot.py",
+      "sha256": "8911a88af5e0f7950fdd5b0e954ceeeaaf4e652e1551c31ce898fce33facc284"
+    },
+    {
+      "bytes": 19390,
+      "path": "tests/test_plan_openfly_multiscene_acquisition.py",
+      "sha256": "a375d5b03898a57ce893367aaacf4a5e48da15ad08eb71c7884627ed44ddabe3"
+    },
+    {
+      "bytes": 11809,
+      "path": "tests/test_probe_openfly_multiscene_availability.py",
+      "sha256": "83d01c0dcf7a2ff6db9f64f3e28a17bdd68122d9764f77b739c6c10923c9a52e"
+    },
+    {
+      "bytes": 6536,
+      "path": "tests/test_probe_openfly_parquet_leaf_metadata.py",
+      "sha256": "30ee0a6819bde68b202459b16ca7c776c43fc82e4626e992ca4ab3f1a0a6dd16"
+    },
+    {
+      "bytes": 9781,
+      "path": "tests/test_probe_openfly_parquet_publication.py",
+      "sha256": "cb927af6bec266cfdc4699359f8b21bacad34b6019b66380187aa9ecd651412b"
+    }
+  ],
+  "transcode_authorized": false
+}

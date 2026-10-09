@@ -24,6 +24,12 @@
       "calibration_id": "gazebo-front-camera-v1"
     },
     {
+      "sensor_id": "front-depth",
+      "kind": "depth_camera",
+      "stream_uri": "gazebo://river_rescue_vtol_001/front-depth",
+      "calibration_id": "gazebo-front-depth-v1"
+    },
+    {
       "sensor_id": "px4-telemetry",
       "kind": "mavlink_telemetry",
       "stream_uri": "udp://127.0.0.1:14541"

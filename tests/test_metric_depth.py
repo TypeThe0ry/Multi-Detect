@@ -9,11 +9,18 @@ import pytest
 
 from multidetect.domain import BoundingBox
 from multidetect.metric_depth import (
+    DEPTH_ANYTHING_V2_METRIC_OUTDOOR_SMALL_ONNX_SHA256,
     AsyncMetricDepthRunner,
     MetricDepthConfig,
     MetricDepthEstimator,
 )
 from multidetect.multimodal_ranging import DirectRangeSource
+
+
+def test_repository_outdoor_metric_depth_export_digest_is_pinned() -> None:
+    assert DEPTH_ANYTHING_V2_METRIC_OUTDOOR_SMALL_ONNX_SHA256 == (
+        "36b38a0b34f5431a9bbcbedca7d72b440006204910d13227bc844641b0b23e52"
+    )
 
 
 @dataclass(frozen=True)

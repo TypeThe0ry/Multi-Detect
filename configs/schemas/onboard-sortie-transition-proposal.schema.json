@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/onboard-sortie-transition-proposal.schema.json",
+  "title": "Multi-Detect truth-free OnboardAI sortie transition proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "status",
+    "source",
+    "training_ready",
+    "review_required",
+    "truth_free",
+    "truth_injected",
+    "policy_applied_to_actuator",
+    "candidate_promoted",
+    "final_release_allowed",
+    "rows",
+    "summary"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.onboard-sortie-transition-proposal"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.onboard-sortie-transition-proposal-v1"},
+    "status": {"const": "proposal_pending_review"},
+    "source": {"$ref": "#/$defs/source"},
+    "training_ready": {"const": false},
+    "review_required": {"const": true},
+    "truth_free": {"const": true},
+    "truth_injected": {"const": false},
+    "policy_applied_to_actuator": {"const": false},
+    "candidate_promoted": {"const": false},
+    "final_release_allowed": {"const": false},
+    "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/row"}},
+    "summary": {"$ref": "#/$defs/summary"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptance", "trajectory_staging", "bridge_contract"],
+      "properties": {
+        "acceptance": {"$ref": "#/$defs/file"},
+        "trajectory_staging": {"$ref": "#/$defs/file"},
+        "bridge_contract": {"type": "string", "minLength": 1}
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episode_id",
+        "transition_id",
+        "frame_id",
+        "observed_at_s",
+        "status",
+        "staging_transition",
+        "acceptance_binding",
+        "truth_free",
+        "training_ready",
+        "review_required"
+      ],
+      "properties": {
+        "episode_id": {"type": "string", "minLength": 1},
+        "transition_id": {"type": "string", "minLength": 1},
+        "frame_id": {"type": "string", "minLength": 1},
+        "observed_at_s": {"type": "number"},
+        "status": {"enum": ["bound", "pending"]},
+        "staging_transition": {"type": "object"},
+        "acceptance_binding": {"$ref": "#/$defs/binding"},
+        "truth_free": {"const": true},
+        "training_ready": {"const": false},
+        "review_required": {"const": true}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status", "frame_id", "observation_present", "decision_present", "decision_complete"],
+      "properties": {
+        "status": {"enum": ["bound", "pending"]},
+        "frame_id": {"type": "string", "minLength": 1},
+        "observation_present": {"type": "boolean"},
+        "decision_present": {"type": "boolean"},
+        "decision_complete": {"type": "boolean"},
+        "hashes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/sha256"}}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "staging_transition_count",
+        "bound_transition_count",
+        "pending_transition_count",
+        "all_bound_decisions_complete",
+        "synthetic_labels_created"
+      ],
+      "properties": {
+        "staging_transition_count": {"type": "integer", "minimum": 1},
+        "bound_transition_count": {"type": "integer", "minimum": 0},
+        "pending_transition_count": {"type": "integer", "minimum": 0},
+        "all_bound_decisions_complete": {"type": "boolean"},
+        "synthetic_labels_created": {"const": false}
+      }
+    }
+  }
+}

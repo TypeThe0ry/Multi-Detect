@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.shared-task-policy-artifact",
+  "policy_id": "external-shared-policy-multirotor-profile-v1",
+  "policy_version": "0.3.0-pre.8",
+  "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "feature_names": [
+    "priority",
+    "total_distance_m",
+    "estimated_duration_s"
+  ],
+  "airframe_profile_hash": "5bd121275d285e27adef2a8f4b4242b481dffb8368ec4dd231089eeac8732d47",
+  "mission_contract_hash": "b50408f8a2998cafb50e6b738aea357d3e8aff0ec589d413c35873b8302ead1d",
+  "safety_policy_hash": "57d0146cf3f2d8ac21342d1fe22545567c762870df3ad6ac2893a1de8c987692",
+  "parent_model_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "training_dataset_sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+}

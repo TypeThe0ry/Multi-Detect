@@ -344,9 +344,22 @@ def test_raw_bgr24_geometry_mismatch_fails_closed(tmp_path: Path) -> None:
     assert configs == []
 
 
-def test_matching_frame_set_proves_gazebo_pixels_and_v2_causal_binding(tmp_path: Path) -> None:
+@pytest.mark.parametrize("qpc", [False, True])
+def test_matching_frame_set_proves_gazebo_pixels_and_v2_causal_binding(tmp_path: Path, qpc) -> None:
     case = _write_case(tmp_path)
     frame_set = _write_frame_set(case)
+    if qpc:
+        from multidetect.clock import HighResolutionSystemClock
+
+        raw = json.loads(frame_set.read_text(encoding="utf-8"))
+        raw["captured_at_clock"] = "host_perf_counter"
+        raw["host_clock_identity"] = HighResolutionSystemClock(session_id="detector").identity()
+        for row in raw["frames"]:
+            row["provenance"]["captured_at_clock"] = raw["captured_at_clock"]
+            row["provenance"]["host_clock_identity"] = dict(raw["host_clock_identity"])
+        raw.pop("manifest_sha256")
+        raw["manifest_sha256"] = canonical_sha256(raw)
+        frame_set.write_text(json.dumps(raw), encoding="utf-8")
     config = CandidateDetectorControlsConfig(
         **{
             name: getattr(case.config, name)

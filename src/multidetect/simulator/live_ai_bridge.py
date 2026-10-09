@@ -65,6 +65,9 @@ MSG_GPS_RAW_INT = 24
 MSG_ATTITUDE = 30
 MSG_GLOBAL_POSITION_INT = 33
 MSG_VFR_HUD = 74
+MSG_HOME_POSITION = 242
+
+_EARTH_RADIUS_M = 6_378_137.0
 
 # Perception and RANGE_STATUS use the same conservative freshness budget.  A
 # caller can override it for deterministic replay, but the production default
@@ -91,6 +94,7 @@ _KNOWN_MESSAGE_IDS = frozenset(
         MSG_ATTITUDE,
         MSG_GLOBAL_POSITION_INT,
         MSG_VFR_HUD,
+        MSG_HOME_POSITION,
     }
 )
 
@@ -365,6 +369,34 @@ def _frame_message(frame: MavlinkFrame) -> dict[str, object] | None:
             "source_system_id": frame.source_system_id,
             "source_component_id": frame.source_component_id,
         }
+    if msgid == MSG_HOME_POSITION:
+        # HOME_POSITION follows the MAVLink field ordering (the generated
+        # pymavlink class is authoritative here): latitude, longitude and
+        # altitude are the first 12 bytes.  ``time_usec`` is a MAVLink 2
+        # extension at offset 52; it is *not* a prefix.  MAVLink 2 may trim
+        # trailing zero bytes, including the high zero bytes of the optional
+        # little-endian time_usec extension. The core prefix is sufficient for
+        # a valid frame; any present extension prefix is zero-padded on decode.
+        # MAVLink 1 always carries the complete 52-byte core payload.
+        if frame.version == 1 and len(payload) != 52:
+            return None
+        if len(payload) < 12 or len(payload) > 60:
+            return None
+        latitude, longitude, altitude = struct.unpack_from("<iii", payload)
+        timestamp_usec = None
+        if frame.version >= 2 and len(payload) > 52:
+            timestamp_usec = struct.unpack(
+                "<Q", payload[52:60].ljust(8, b"\x00")
+            )[0]
+        return {
+            "type": "HOME_POSITION",
+            "time_usec": timestamp_usec,
+            "latitude": latitude,
+            "longitude": longitude,
+            "altitude": altitude,
+            "source_system_id": frame.source_system_id,
+            "source_component_id": frame.source_component_id,
+        }
     if msgid == MSG_VFR_HUD:
         if len(payload) < 20:
             return None
@@ -492,6 +524,8 @@ class SimulatorTelemetryBridge:
             "link_healthy": None,
             "armed": None,
             "battery_remaining_pct": math.nan,
+            "home_bearing_deg": None,
+            "home_distance_m": None,
             "observed_at_s": 0.0,
             # Per-field freshness is kept separately from the frame cursor so
             # an incomplete/out-of-order MAVLink frame cannot make an older
@@ -521,6 +555,9 @@ class SimulatorTelemetryBridge:
         self._altitude_cursor_s: float | None = None
         self._velocity_cursor_s: float | None = None
         self._heading_cursor_s: float | None = None
+        self._home_position_cursor_s: float | None = None
+        self._home_latitude_deg: float | None = None
+        self._home_longitude_deg: float | None = None
         self._heartbeat_seen = False
         self._last_heartbeat_at_s: float | None = None
         self._heartbeat_stale = False
@@ -544,6 +581,8 @@ class SimulatorTelemetryBridge:
         self._perception_expired = 0
         self._perception_rejections: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
         self._last_perception: dict[str, object] | None = None
+        self._return_request_count = 0
+        self._last_return_request_reason: str | None = None
         self._history: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
         self._rejections: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
         self._frames_observed = 0
@@ -746,6 +785,8 @@ class SimulatorTelemetryBridge:
                     "link_healthy": None,
                     "armed": None,
                     "battery_remaining_pct": math.nan,
+                    "home_bearing_deg": None,
+                    "home_distance_m": None,
                     "observed_at_s": 0.0,
                     "position_observed_at_s": None,
                     "gps_observed_at_s": None,
@@ -764,6 +805,9 @@ class SimulatorTelemetryBridge:
             self._altitude_cursor_s = None
             self._velocity_cursor_s = None
             self._heading_cursor_s = None
+            self._home_position_cursor_s = None
+            self._home_latitude_deg = None
+            self._home_longitude_deg = None
             self._heartbeat_seen = False
             self._last_heartbeat_at_s = None
             self._heartbeat_stale = False
@@ -845,6 +889,15 @@ class SimulatorTelemetryBridge:
                 "perception_expired": self._perception_expired,
                 "target_observed_at_s": self._target_observed_at_s,
                 "perception_rejections": list(self._perception_rejections),
+                "return_request_count": self._return_request_count,
+                "last_return_request_reason": self._last_return_request_reason,
+                "home_position_observed_at_s": self._home_position_cursor_s,
+                "home_latitude_deg": self._home_latitude_deg,
+                "home_longitude_deg": self._home_longitude_deg,
+                "home_vector_available": (
+                    self._latest.get("home_bearing_deg") is not None
+                    and self._latest.get("home_distance_m") is not None
+                ),
                 "last_perception": (
                     None if self._last_perception is None else dict(self._last_perception)
                 ),
@@ -861,6 +914,37 @@ class SimulatorTelemetryBridge:
                 "output_transport": "shared SimulatorMavlinkControlAdapter MANUAL_CONTROL",
                 "real_control_acceptance": "not_claimed",
             }
+
+    def request_return(
+        self,
+        reason: str,
+        *,
+        timestamp_s: float | None = None,
+    ) -> SimulatorAiDecision | None:
+        """Apply an explicit mission/safety return request to the live snapshot.
+
+        This is a control-plane input, not a perception field.  Callers must
+        provide a non-empty reason; the request is recorded and immediately
+        evaluated by the same policy/executor path as telemetry-triggered
+        return requests.  GPS quality remains the executor's hard gate.
+        """
+
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("return request reason must be a non-empty string")
+        with self._lock:
+            stamp = self._timestamp(timestamp_s)
+            self._latest["return_requested"] = True
+            self._return_request_count += 1
+            self._last_return_request_reason = reason.strip()
+            self._latest["observed_at_s"] = stamp
+            self._history.append(
+                {
+                    "type": "RETURN_REQUEST",
+                    "observed_at_s": stamp,
+                    "reason": self._last_return_request_reason,
+                }
+            )
+            return self._step_if_ready(stamp, "RETURN_REQUEST")
 
     def _timestamp(self, value: float | None) -> float:
         raw = self.clock() if value is None else value
@@ -890,6 +974,7 @@ class SimulatorTelemetryBridge:
                 MSG_GLOBAL_POSITION_INT: "GLOBAL_POSITION_INT",
                 MSG_VFR_HUD: "VFR_HUD",
                 MSG_ATTITUDE: "ATTITUDE",
+                MSG_HOME_POSITION: "HOME_POSITION",
             }.get(msgid, "")
             if not kind:
                 return None
@@ -931,6 +1016,8 @@ class SimulatorTelemetryBridge:
             self._apply_gps_raw(message, stamp)
         elif kind == "GLOBAL_POSITION_INT":
             self._apply_global_position(message, stamp)
+        elif kind == "HOME_POSITION":
+            self._apply_home_position(message, stamp)
         elif kind == "VFR_HUD":
             speed = _float_field(message, "groundspeed")
             if math.isfinite(speed) and speed >= 0.0:
@@ -939,6 +1026,9 @@ class SimulatorTelemetryBridge:
             latest["heading_deg"] = float(heading) % 360.0
         # ATTITUDE is intentionally observed but not converted into an action;
         # the shared AI contract only needs the bounded telemetry fields above.
+        # Recompute after every telemetry frame so a HOME_POSITION received
+        # before or after the current GPS sample produces the same vector.
+        self._refresh_home_vector()
 
     @staticmethod
     def _timestamp_is_current(stamp: float, previous: float | None) -> bool:
@@ -1098,6 +1188,72 @@ class SimulatorTelemetryBridge:
                 self._coordinate_cursor_s = stamp
                 self._coordinate_source = None
 
+    def _apply_home_position(self, message: object, stamp: float) -> None:
+        """Record the PX4 HOME_POSITION datum without trusting simulator truth."""
+
+        if not self._timestamp_is_current(stamp, self._home_position_cursor_s):
+            return
+        latitude_raw = _field(message, "latitude")
+        if latitude_raw is None:
+            latitude_raw = _field(message, "lat")
+        longitude_raw = _field(message, "longitude")
+        if longitude_raw is None:
+            longitude_raw = _field(message, "lon")
+        latitude_e7 = _wire_int32(latitude_raw, unknown=_MAVLINK_INT32_MAX)
+        longitude_e7 = _wire_int32(longitude_raw, unknown=_MAVLINK_INT32_MAX)
+        coordinates = _valid_coordinate_pair(latitude_e7, longitude_e7)
+        self._home_position_cursor_s = stamp
+        if coordinates is None:
+            # A newer malformed HOME_POSITION is a hard barrier. Do not pair
+            # an old home datum with a new vehicle position.
+            self._home_latitude_deg = None
+            self._home_longitude_deg = None
+            return
+        self._home_latitude_deg, self._home_longitude_deg = coordinates
+
+    def _refresh_home_vector(self) -> None:
+        """Derive a relative home vector from observed WGS-84 telemetry."""
+
+        latest = self._latest
+        latitude = latest.get("latitude_deg")
+        longitude = latest.get("longitude_deg")
+        if (
+            self._home_latitude_deg is None
+            or self._home_longitude_deg is None
+            or not _finite(latitude)
+            or not _finite(longitude)
+        ):
+            latest["home_bearing_deg"] = None
+            latest["home_distance_m"] = None
+            return
+
+        latitude_deg = float(latitude)
+        longitude_deg = float(longitude)
+        home_latitude_deg = float(self._home_latitude_deg)
+        home_longitude_deg = float(self._home_longitude_deg)
+        lat1 = math.radians(latitude_deg)
+        lat2 = math.radians(home_latitude_deg)
+        delta_lon = math.radians(home_longitude_deg - longitude_deg)
+        haversine = math.sin((lat2 - lat1) / 2.0) ** 2 + (
+            math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2.0) ** 2
+        )
+        distance_m = _EARTH_RADIUS_M * 2.0 * math.atan2(
+            math.sqrt(max(0.0, haversine)),
+            math.sqrt(max(0.0, 1.0 - haversine)),
+        )
+        absolute_bearing_deg = math.degrees(
+            math.atan2(
+                math.sin(delta_lon) * math.cos(lat2),
+                math.cos(lat1) * math.sin(lat2)
+                - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon),
+            )
+        ) % 360.0
+        heading = latest.get("heading_deg")
+        heading_deg = float(heading) if _finite(heading) else 0.0
+        relative_bearing_deg = (absolute_bearing_deg - heading_deg + 180.0) % 360.0 - 180.0
+        latest["home_bearing_deg"] = relative_bearing_deg
+        latest["home_distance_m"] = max(0.0, distance_m)
+
     def _snapshot(self, stamp: float) -> SimulatorTelemetrySnapshot:
         self._expire_target_observation(stamp)
         values = dict(self._latest)
@@ -1129,9 +1285,11 @@ class SimulatorTelemetryBridge:
             "SYS_STATUS",
             "GPS_RAW_INT",
             "GLOBAL_POSITION_INT",
+            "HOME_POSITION",
             "VFR_HUD",
             "ATTITUDE",
             "PERCEPTION_TARGET",
+            "RETURN_REQUEST",
         }:
             return None
         if not self._armed_observed and self.wait_for_armed_heartbeat:

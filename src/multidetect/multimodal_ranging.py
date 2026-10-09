@@ -30,6 +30,7 @@ class DirectRangeSource(StrEnum):
     RGB_SLAM = "rgb_slam"
     MONOCULAR_SIZE = "monocular_size"
     MONOCULAR_METRIC = "monocular_metric"
+    GAZEBO_DEPTH = "gazebo_depth"
 
 
 @dataclass(frozen=True, slots=True)

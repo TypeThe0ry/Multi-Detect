@@ -5,7 +5,7 @@
   "channels": {
     "runtime_input": {
       "path": "river_rescue_vtol_001.runtime.json",
-      "sha256": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587"
+      "sha256": "582e05422fdac8e5934d80f92a5e77d080dfee39c6e1d65221e4ff4593dba5d4"
     },
     "truth": {
       "path": "river_rescue_vtol_001.truth.json",

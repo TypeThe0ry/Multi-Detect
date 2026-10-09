@@ -1,0 +1,18 @@
+{
+  "schema": "multidetect.gazebo-capture-provenance-invalidations",
+  "schema_version": 1,
+  "contract": "multidetect.gazebo-capture-provenance-invalidations-v1",
+  "entries": [
+    {
+      "path_suffix": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/materialized-r4",
+      "reason": "fabricated host_monotonic clock and annotation-wrapper provenance was rebound to mainline assets",
+      "replacement": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/materialized-r6-staging"
+    },
+    {
+      "path_suffix": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/materialized-r5",
+      "reason": "fabricated host_monotonic clock and annotation-wrapper provenance was rebound to mainline assets",
+      "replacement": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/materialized-r6-staging"
+    }
+  ],
+  "training_ready": false
+}

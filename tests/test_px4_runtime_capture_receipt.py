@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -188,3 +189,90 @@ def test_receipt_cli_create_and_verify(tmp_path: Path, capsys: pytest.CaptureFix
     assert verify_main([str(output), "--base-directory", str(base), "--runtime-mode", "hil"]) == 0
     verified = json.loads(capsys.readouterr().out)
     assert verified["event"] == "px4_runtime_capture_receipt_verified"
+
+
+def test_receipt_survives_relocation_without_original_directory(tmp_path: Path) -> None:
+    base, summary_path, _ = _fixture(tmp_path)
+    document = build_px4_runtime_capture_receipt(summary_path, base, "capture-receipt.json")
+    summary_bytes = summary_path.read_bytes()
+    destination = tmp_path / "copied capture"
+    shutil.copytree(base, destination)
+    base.rename(tmp_path / "original-offline")
+
+    assert (destination / "capture-summary.json").read_bytes() == summary_bytes
+    assert (
+        verify_px4_runtime_capture_receipt(
+            "capture-receipt.json", base_directory=destination, expected_runtime_mode="hil"
+        )
+        == document
+    )
+    assert verify_px4_runtime_capture_receipt(destination / "capture-receipt.json") == document
+    with pytest.raises(Px4RuntimeCaptureReceiptError, match="runtime_mode"):
+        verify_px4_runtime_capture_receipt(
+            destination / "capture-receipt.json", expected_runtime_mode="real"
+        )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "mission",
+        "runtime_observation",
+        "runtime_profile",
+        "mission_feedback",
+        "endpoint_vehicle_identity",
+        "join",
+    ],
+)
+@pytest.mark.parametrize("mutation", ["missing", "same-size-tamper"])
+def test_relocated_receipt_checks_destination_not_original(
+    tmp_path: Path, role: str, mutation: str
+) -> None:
+    base, summary_path, files = _fixture(tmp_path)
+    build_px4_runtime_capture_receipt(summary_path, base, "capture-receipt.json")
+    destination = tmp_path / "copy"
+    shutil.copytree(base, destination)
+    target = destination / files[role].relative_to(base)
+    if mutation == "missing":
+        target.unlink()
+    else:
+        payload = target.read_bytes()
+        target.write_bytes(bytes([payload[0] ^ 1]) + payload[1:])
+    # The original remains valid; falling back to it must never mask damage.
+    verify_px4_runtime_capture_receipt(base / "capture-receipt.json")
+    with pytest.raises(Px4RuntimeCaptureReceiptError):
+        verify_px4_runtime_capture_receipt(destination / "capture-receipt.json")
+
+
+@pytest.mark.parametrize("origin", ["C:/offline/capture", "/offline/capture"])
+def test_receipt_historical_paths_are_platform_independent(tmp_path: Path, origin: str) -> None:
+    base, summary_path, _ = _fixture(tmp_path)
+    document = build_px4_runtime_capture_receipt(summary_path, base, "capture-receipt.json")
+    summary = json.loads(summary_path.read_bytes())
+    for entry in document["files"]:
+        summary[entry["role"]]["path"] = origin + "/" + entry["path"]
+    payload = json.dumps(summary).encode()
+    summary_path.write_bytes(payload)
+    document["capture_summary"].update(bytes=len(payload), sha256=_sha256(payload))
+    (base / "capture-receipt.json").write_text(json.dumps(document), encoding="utf-8")
+    assert verify_px4_runtime_capture_receipt(base / "capture-receipt.json") == document
+
+
+@pytest.mark.parametrize("mutation", ["wrong-role", "wrong-path", "mixed-origin"])
+def test_receipt_rejects_inconsistent_origin_mapping(tmp_path: Path, mutation: str) -> None:
+    base, summary_path, _ = _fixture(tmp_path)
+    document = build_px4_runtime_capture_receipt(summary_path, base, "capture-receipt.json")
+    if mutation == "wrong-role":
+        document["files"][0]["role"] = "join"
+    elif mutation == "wrong-path":
+        shutil.copyfile(base / "mission.json", base / "other.json")
+        document["files"][0]["path"] = "other.json"
+    else:
+        summary = json.loads(summary_path.read_bytes())
+        summary["mission"]["path"] = str(tmp_path / "different-root" / "mission.json")
+        payload = json.dumps(summary).encode()
+        summary_path.write_bytes(payload)
+        document["capture_summary"].update(bytes=len(payload), sha256=_sha256(payload))
+    (base / "capture-receipt.json").write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(Px4RuntimeCaptureReceiptError):
+        verify_px4_runtime_capture_receipt(base / "capture-receipt.json")

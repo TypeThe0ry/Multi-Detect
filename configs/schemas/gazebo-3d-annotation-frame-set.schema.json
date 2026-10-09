@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/gazebo-3d-annotation-frame-set.schema.json",
+  "title": "Multi-Detect capture-only Gazebo 3-D annotation frame set",
+  "description": "Hash-bound offline supervision. Annotation data is never a runtime policy input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "source_attribution",
+    "rgb_frame_set",
+    "annotation_config",
+    "wrapper_binding",
+    "topic_contract",
+    "label_contract",
+    "runtime_boundary",
+    "frames",
+    "training_ready",
+    "reviewed_annotation_manifest"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.gazebo-3d-annotation-frame-set"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.gazebo-3d-annotation-frame-set-v1"},
+    "source_attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation",
+        "capture_only",
+        "truth_loaded_by_runtime",
+        "runtime_consumes_annotation_topics"
+      ],
+      "properties": {
+        "annotation": {"const": "actual_gazebo_capture_only_annotation_output"},
+        "capture_only": {"const": true},
+        "truth_loaded_by_runtime": {"const": false},
+        "runtime_consumes_annotation_topics": {"const": false}
+      }
+    },
+    "rgb_frame_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "manifest_sha256", "scenario_id", "scenario_manifest_hash"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "scenario_manifest_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "annotation_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "wrapper_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vehicle_wrapper_sha256", "target_wrapper_sha256"],
+      "properties": {
+        "vehicle_wrapper_sha256": {"$ref": "#/$defs/sha256"},
+        "target_wrapper_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "topic_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounding_box_3d", "instance_segmentation"],
+      "properties": {
+        "bounding_box_3d": {"const": "multidetect/annotation/bounding_boxes_3d"},
+        "instance_segmentation": {"const": "multidetect/annotation/instance_segmentation"}
+      }
+    },
+    "label_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_id", "class_name"],
+      "properties": {
+        "label_id": {"const": 42},
+        "class_name": {"const": "search_target"}
+      }
+    },
+    "runtime_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offline_supervision_only",
+        "runtime_consumes_annotation_topics",
+        "truth_injected_into_policy",
+        "policy_input_contract",
+        "training_requires_independent_review"
+      ],
+      "properties": {
+        "offline_supervision_only": {"const": true},
+        "runtime_consumes_annotation_topics": {"const": false},
+        "truth_injected_into_policy": {"const": false},
+        "policy_input_contract": {"const": "rgb_depth_camera_info_pose_telemetry_only"},
+        "training_requires_independent_review": {"const": true}
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/frame"}
+    },
+    "training_ready": {"const": false},
+    "reviewed_annotation_manifest": {"type": "null"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "finiteNumber": {
+      "type": "number"
+    },
+    "normalizedBbox": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "range3d": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "number"}
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "frame_id",
+        "rgb_payload_sha256",
+        "captured_at_s",
+        "bounding_box_3d",
+        "instance_segmentation"
+      ],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 0},
+        "frame_id": {"type": "string", "minLength": 1},
+        "rgb_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "captured_at_s": {"$ref": "#/$defs/finiteNumber", "minimum": 0},
+        "bounding_box_3d": {"$ref": "#/$defs/box"},
+        "instance_segmentation": {"$ref": "#/$defs/segmentation"}
+      }
+    },
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "label_id", "normalized_bbox", "range_3d_m"],
+      "properties": {
+        "topic": {"const": "multidetect/annotation/bounding_boxes_3d"},
+        "label_id": {"const": 42},
+        "normalized_bbox": {"$ref": "#/$defs/normalizedBbox"},
+        "range_3d_m": {"$ref": "#/$defs/range3d"}
+      }
+    },
+    "segmentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic",
+        "label_id",
+        "labels_map_topic",
+        "payload_sha256",
+        "visible_bbox_normalized",
+        "visible_pixels"
+      ],
+      "properties": {
+        "topic": {"const": "multidetect/annotation/instance_segmentation"},
+        "label_id": {"const": 42},
+        "labels_map_topic": {
+          "const": "multidetect/annotation/instance_segmentation/labels_map"
+        },
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "visible_bbox_normalized": {"$ref": "#/$defs/normalizedBbox"},
+        "visible_pixels": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

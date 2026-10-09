@@ -217,6 +217,7 @@ from .scenario_runner import (
     SimulatorScenarioRunnerConfig,
     SimulatorScenarioRunnerError,
     SimulatorScenarioRunResult,
+    SimulatorTaskPolicyBinding,
 )
 from .stack import (
     BuiltinWorldReference,
@@ -439,6 +440,7 @@ __all__ = [
     "SimulatorScenarioRunner",
     "SimulatorScenarioRunnerConfig",
     "SimulatorScenarioRunnerError",
+    "SimulatorTaskPolicyBinding",
     "SCENE_SNAPSHOT_SCHEMA_VERSION",
     "SCENE_STREAM_EVENT",
     "SCENE_STREAM_SCHEMA_VERSION",

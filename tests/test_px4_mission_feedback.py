@@ -12,7 +12,9 @@ from multidetect.autonomy.contracts import (
     MissionFrame,
     MissionItem,
 )
+from multidetect.autonomy.mission_outcome import MissionOutcomeMonitor
 from multidetect.autonomy.serialization import AutonomyContractError
+from multidetect.clock import ManualClock
 from multidetect.mission_progress import (
     MissionProgressError,
     MissionProgressPhase,
@@ -26,6 +28,229 @@ from multidetect.px4_mission_feedback import (
     Px4MissionFeedbackSnapshot,
     Px4MissionFeedbackTracker,
 )
+
+
+def _outcome_monitor():
+    clock = ManualClock()
+    monitor = MissionOutcomeMonitor(
+        _mission(), clock, timeout_s=10, expected_system_id=1, expected_component_id=1
+    )
+    return clock, monitor
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_waiting_poll_reuses_current_snapshot_hash(monkeypatch, pending):
+    _, monitor = _outcome_monitor()
+    if pending:
+        monitor._pending_reached = (0, {})
+    expected = monitor._tracker.mission.canonical_hash
+    original = ExecutableMission.canonical_hash.fget
+    calls = []
+
+    def counted(mission):
+        calls.append(mission)
+        return original(mission)
+
+    monkeypatch.setattr(ExecutableMission, "canonical_hash", property(counted))
+    result = monitor.poll()
+    assert result.status == "waiting"
+    assert result.mission_hash == expected
+    assert len(calls) == 1
+
+
+def test_outcome_requires_post_terminal_landed_disarmed_and_latches() -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.observe_lifecycle(landed=True, armed=False, source_system_id=1, source_component_id=1)
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    assert monitor.poll().status == "waiting"
+    monitor.observe_lifecycle(landed=True, armed=True, source_system_id=1, source_component_id=1)
+    assert monitor.poll().status == "waiting"
+    monitor.observe_lifecycle(landed=True, armed=False, source_system_id=1, source_component_id=1)
+    outcome = monitor.poll()
+    assert outcome.status == "completed"
+    assert outcome.mission_hash == _mission().canonical_hash
+    clock.advance(20)
+    assert monitor.poll() == outcome
+    assert not monitor.ingest_message(_message("MISSION_CURRENT", 0))
+
+
+def test_outcome_timeout_never_becomes_success_from_late_feedback() -> None:
+    clock, monitor = _outcome_monitor()
+    clock.advance(10)
+    assert not monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    monitor.observe_lifecycle(landed=True, armed=False, source_system_id=1, source_component_id=1)
+    assert monitor.poll().status == "timeout"
+
+
+def test_outcome_stale_feedback_does_not_complete() -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    clock.advance(2)
+    monitor.observe_lifecycle(landed=True, armed=False, source_system_id=1, source_component_id=1)
+    assert monitor.poll().status == "waiting"
+    clock.advance(8)
+    assert monitor.poll().status == "timeout"
+
+
+@pytest.mark.parametrize("source", (2, True))
+def test_outcome_rejects_lifecycle_source_mismatch(source) -> None:
+    _, monitor = _outcome_monitor()
+    monitor.observe_lifecycle(
+        landed=True, armed=False, source_system_id=source, source_component_id=1
+    )
+    assert monitor.poll().status == "failed"
+
+
+def test_outcome_rejects_invalid_mission_feedback() -> None:
+    _, monitor = _outcome_monitor()
+    assert not monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2, system=2))
+    assert monitor.poll().status == "failed"
+
+
+@pytest.mark.parametrize("timeout", (0, -1, float("nan"), True))
+def test_outcome_invalid_deadline(timeout) -> None:
+    with pytest.raises(ValueError):
+        MissionOutcomeMonitor(
+            _mission(),
+            ManualClock(),
+            timeout_s=timeout,
+            expected_system_id=1,
+            expected_component_id=1,
+        )
+
+
+def _lifecycle_message(kind: str, **fields):
+    return {"message_type": kind, "source_system_id": 1, "source_component_id": 1, **fields}
+
+
+def test_raw_lifecycle_requires_both_post_terminal_messages() -> None:
+    _, monitor = _outcome_monitor()
+    heartbeat = _lifecycle_message("HEARTBEAT", base_mode=0)
+    landed = _lifecycle_message("EXTENDED_SYS_STATE", landed_state=1)
+    monitor.ingest_message(heartbeat)
+    monitor.ingest_message(landed)
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    monitor.ingest_message(heartbeat)
+    assert monitor.poll().status == "waiting"
+    monitor.ingest_message(landed)
+    assert monitor.poll().status == "completed"
+
+
+@pytest.mark.parametrize("fields", [{}, {"base_mode": True}, {"base_mode": 256}])
+def test_raw_heartbeat_missing_or_invalid_does_not_default_to_disarmed(fields) -> None:
+    _, monitor = _outcome_monitor()
+    assert not monitor.ingest_message(_lifecycle_message("HEARTBEAT", **fields))
+    assert monitor.poll().status == "failed"
+
+
+@pytest.mark.parametrize("state", [0, 2, 3, 4])
+def test_raw_non_ground_states_never_complete(state) -> None:
+    _, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    monitor.ingest_message(_lifecycle_message("HEARTBEAT", base_mode=0))
+    monitor.ingest_message(_lifecycle_message("EXTENDED_SYS_STATE", landed_state=state))
+    assert monitor.poll().status == "waiting"
+
+
+def test_raw_pair_does_not_refresh_old_half() -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    monitor.ingest_message(_lifecycle_message("HEARTBEAT", base_mode=0))
+    clock.advance(1)
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    clock.advance(0.6)
+    monitor.ingest_message(_lifecycle_message("EXTENDED_SYS_STATE", landed_state=1))
+    assert monitor.poll().status == "waiting"
+    monitor.ingest_message(_lifecycle_message("HEARTBEAT", base_mode=0))
+    assert monitor.poll().status == "completed"
+
+
+def test_raw_lifecycle_wrong_source_fails() -> None:
+    _, monitor = _outcome_monitor()
+    msg = _lifecycle_message("HEARTBEAT", base_mode=0)
+    msg["source_system_id"] = 2
+    assert not monitor.ingest_message(msg)
+    assert monitor.poll().status == "failed"
+
+
+def test_outcome_accepts_decoded_pymavlink_packets() -> None:
+    from pymavlink import mavutil
+
+    _, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    encoder = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
+    decoder = mavutil.mavlink.MAVLink(None)
+    heartbeat = mavutil.mavlink.MAVLink_heartbeat_message(2, 12, 0, 0, 3, 3)
+    landed = mavutil.mavlink.MAVLink_extended_sys_state_message(0, 1)
+    for packet in (heartbeat, landed):
+        decoded = decoder.parse_char(packet.pack(encoder))
+        assert monitor.ingest_message(decoded)
+    assert monitor.poll().status == "completed"
+
+
+@pytest.mark.parametrize("delay", (0.031, 0.406, 1.49))
+def test_outcome_bounded_ahead_event_requires_later_current(delay) -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 0))
+    assert monitor.ingest_message(_message("MISSION_ITEM_REACHED", 1))
+    assert monitor.poll().reason == "awaiting_current_confirmation"
+    clock.advance(delay)
+    assert monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    assert monitor.reconciliations == [
+        {
+            "sequence": 1,
+            "received_at_s": 0.0,
+            "confirmed_at_s": delay,
+            "delay_s": delay,
+            "accepted": True,
+        }
+    ]
+    assert monitor.poll().status == "waiting"
+
+
+def test_outcome_reconciles_multiple_ahead_events_after_current_jump() -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 0))
+    assert monitor.ingest_message(_message("MISSION_ITEM_REACHED", 2))
+    assert monitor.ingest_message(_message("MISSION_ITEM_REACHED", 1))
+    clock.advance(0.4)
+    assert monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    assert [item["sequence"] for item in monitor.reconciliations] == [1, 2]
+    assert all(item["accepted"] is True for item in monitor.reconciliations)
+    assert monitor.poll().status == "waiting"
+
+
+def test_outcome_pending_duplicates_do_not_extend_deadline() -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 0))
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 1))
+    clock.advance(1.0)
+    monitor.ingest_message(_message("MISSION_ITEM_REACHED", 1))
+    clock.advance(0.5)
+    assert not monitor.ingest_message(_message("MISSION_CURRENT", 2))
+    assert monitor.poll().status == "failed"
+    assert monitor.poll().reason == "reached_confirmation_deadline_exceeded"
+
+
+@pytest.mark.parametrize("seq,system", [(2, 1), (1, 2)])
+def test_outcome_reconciliation_does_not_accept_far_ahead_or_wrong_source(seq, system) -> None:
+    clock, monitor = _outcome_monitor()
+    monitor.ingest_message(_message("MISSION_CURRENT", 0))
+    accepted = monitor.ingest_message(_message("MISSION_ITEM_REACHED", seq, system=system))
+    if system == 1:
+        assert accepted
+        clock.advance(1.5)
+        assert monitor.poll().status == "failed"
+        assert monitor.poll().reason == "reached_confirmation_deadline_exceeded"
+    else:
+        assert not accepted
+        assert monitor.poll().status == "failed"
 
 
 def _mission(item_count: int = 3) -> ExecutableMission:

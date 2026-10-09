@@ -80,6 +80,7 @@ RANGING_SOURCE_IDS = (
     "monocular_size",
     "monocular_metric",
     "rgb_slam",
+    "gazebo_depth",
 )
 
 RANGING_REASON_IDS = (
@@ -261,6 +262,13 @@ class RuntimeBackendHealth(StrEnum):
     UNHEALTHY = "unhealthy"
 
 
+class PolicyRuntimeAction(StrEnum):
+    """Wire-visible result of the shared high-level task policy."""
+
+    SELECT = "select"
+    ABSTAIN = "abstain"
+
+
 def operator_identifier_token(value: str) -> int:
     """Return the stable 64-bit wire token used for bound operator metadata."""
 
@@ -348,6 +356,95 @@ class RuntimeStatusMessage:
                 raise ValueError("hardware outputs may only be present for REAL runtime status")
         if not self.metadata_only or self.direct_pixhawk_writes or self.physical_release_enabled:
             raise ValueError("runtime status transport must remain display-only")
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyRuntimeStatusMessage:
+    """Compact, authenticated, display-only SharedTaskPolicy status.
+
+    Hashes are 64-bit prefixes of full source-bound identities. They are
+    intentionally insufficient to reconstruct a mission or issue an actuator
+    command; QGC uses them only to show which policy/planner result is active.
+    """
+
+    sequence: int
+    action: PolicyRuntimeAction
+    selected_task_hash64: int | None
+    policy_artifact_hash64: int | None
+    ranker_hash64: int | None
+    plan_hash64: int | None
+    executable_mission_hash64: int | None
+    wire_hash64: int | None
+    context_hash64: int
+    airframe_profile_hash64: int
+    reason_hash64: int
+    planner_revalidated: bool
+    mission_bound: bool
+    mission_started: bool
+    policy_applied_to_actuator: bool
+    truth_free: bool
+    produced_at_s: float
+    protocol_version: int = OPERATOR_LINK_PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if self.protocol_version != OPERATOR_LINK_PROTOCOL_VERSION:
+            raise ValueError("unsupported operator-link protocol version")
+        _require_uint(self.sequence, bits=32, name="policy runtime sequence")
+        if not isinstance(self.action, PolicyRuntimeAction):
+            raise ValueError("policy runtime action is invalid")
+        for value, name in (
+            (self.context_hash64, "policy runtime context hash"),
+            (self.airframe_profile_hash64, "policy runtime airframe profile hash"),
+            (self.reason_hash64, "policy runtime reason hash"),
+        ):
+            _require_uint(value, bits=64, name=name, nonzero=True)
+        for value, name in (
+            (self.selected_task_hash64, "policy runtime selected task hash"),
+            (self.policy_artifact_hash64, "policy runtime artifact hash"),
+            (self.ranker_hash64, "policy runtime ranker hash"),
+            (self.plan_hash64, "policy runtime plan hash"),
+            (self.executable_mission_hash64, "policy runtime executable mission hash"),
+            (self.wire_hash64, "policy runtime wire hash"),
+        ):
+            if value is not None:
+                _require_uint(value, bits=64, name=name, nonzero=True)
+        for value, name in (
+            (self.planner_revalidated, "planner_revalidated"),
+            (self.mission_bound, "mission_bound"),
+            (self.mission_started, "mission_started"),
+            (self.policy_applied_to_actuator, "policy_applied_to_actuator"),
+            (self.truth_free, "truth_free"),
+        ):
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be boolean")
+        if not isfinite(self.produced_at_s) or self.produced_at_s < 0.0:
+            raise ValueError("policy runtime timestamp must be finite and non-negative")
+        if self.action is PolicyRuntimeAction.SELECT:
+            if (
+                self.selected_task_hash64 is None
+                or not self.mission_bound
+                or not self.planner_revalidated
+            ):
+                raise ValueError(
+                    "selected policy runtime status requires a bound, revalidated mission"
+                )
+        else:
+            if (
+                self.selected_task_hash64 is not None
+                or self.mission_bound
+                or self.planner_revalidated
+            ):
+                raise ValueError(
+                    "abstained policy runtime status cannot bind or revalidate a mission"
+                )
+        if self.mission_bound and (
+            self.plan_hash64 is None or self.executable_mission_hash64 is None
+        ):
+            raise ValueError("bound policy runtime status requires compiled mission hashes")
+        if self.mission_started or self.policy_applied_to_actuator:
+            raise ValueError("policy runtime status cannot start a mission or control an actuator")
+        if not self.truth_free:
+            raise ValueError("policy runtime status must be truth-free")
 
 
 @dataclass(frozen=True, slots=True)
@@ -2349,6 +2446,8 @@ __all__ = [
     "ReleaseStatusMessage",
     "RuntimeBackendHealth",
     "RuntimeMode",
+    "PolicyRuntimeAction",
+    "PolicyRuntimeStatusMessage",
     "RuntimeStatusMessage",
     "SceneContextRegionEntry",
     "SceneContextState",

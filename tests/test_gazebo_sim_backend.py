@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import math
+import struct
 import sys
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, asdict, replace
@@ -33,7 +35,8 @@ from multidetect.multimodal_ranging import CameraCalibration
 from multidetect.runtime import RuntimeMode, RuntimeProfile
 from multidetect.simulation import SensorRuntimeInput, load_runtime_scenario
 from multidetect.terrain_dem import load_local_dem_grid
-from scripts.gazebo_sensor_stream import build_wire_frame
+from scripts.gazebo_depth_wire import build_depth_wire_record
+from scripts.gazebo_sensor_stream import WIRE_HEADER_BYTES, build_wire_frame, unpack_header
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
@@ -137,6 +140,25 @@ def _wire_frame(
     return packet
 
 
+def _depth_companion(backend: GazeboSimBackend, rgb_record: bytes) -> bytes:
+    header = unpack_header(rgb_record[:WIRE_HEADER_BYTES])
+    metadata = dict(backend.frame_source.depth_contract or {})
+    metadata.pop("sensor_id")
+    metadata.update(
+        {
+            "sequence": header.sequence,
+            "rgb_sensor_stamp_ns": header.sensor_stamp_ns,
+            "rgb_record_sha256": header.sha256.hex(),
+            "source_stamp_ns": header.sensor_stamp_ns,
+            "stride_bytes": 8,
+        }
+    )
+    return build_depth_wire_record(
+        metadata=metadata,
+        payload=struct.pack("<ff", 5.0, 5.0),
+    )
+
+
 def _replace_wire_field(
     packet: bytes,
     index: int,
@@ -224,6 +246,83 @@ def test_gazebo_sim_wire_round_trip_is_integrity_and_readiness_bound() -> None:
     )
 
 
+@pytest.mark.parametrize("fault_source", ["image", "navsat", "odometry"])
+def test_gazebo_external_fault_window_is_hash_bound_and_forwarded(
+    fault_source: str,
+) -> None:
+    runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
+    terrain_dem = load_local_dem_grid(TERRAIN_DEM)
+    backend = GazeboSimBackend(
+        scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(),
+        docker_executable=Path(sys.executable).resolve(),
+        container_name="owned-gazebo-sim",
+        frame_count=8,
+        airframe_profile_hash="a" * 64,
+        container_image_sha256="b" * 64,
+        stream_script_sha256="c" * 64,
+        model_assets_sha256="d" * 64,
+        terrain_dem=terrain_dem,
+        expected_width=2,
+        expected_height=1,
+        fault_source=fault_source,
+        fault_start_image=2,
+        fault_duration_images=2,
+    )
+    command = backend.frame_source.command
+    assert command[command.index("--fault-source") + 1] == fault_source
+    assert command[command.index("--fault-start-image") + 1] == "2"
+    assert command[command.index("--fault-duration-images") + 1] == "2"
+    assert backend.descriptor.fault_injection_enabled is True
+    assert backend.frame_source.stats.fault_injection_enabled is True
+    assert backend.frame_source.stats.fault_source == fault_source
+    assert backend.frame_source.stats.fault_start_image == 2
+    assert backend.frame_source.stats.fault_duration_images == 2
+    assert backend.sensor_binding_hash != GazeboSimBackend(
+        scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(),
+        docker_executable=Path(sys.executable).resolve(),
+        container_name="owned-gazebo-sim",
+        frame_count=8,
+        airframe_profile_hash="a" * 64,
+        container_image_sha256="b" * 64,
+        stream_script_sha256="c" * 64,
+        model_assets_sha256="d" * 64,
+        terrain_dem=terrain_dem,
+        expected_width=2,
+        expected_height=1,
+    ).sensor_binding_hash
+
+
+@pytest.mark.parametrize(
+    ("fault_source", "start", "duration"),
+    [(None, 1, 1), ("image", 0, 1), ("image", 1, 0), ("camera_info", 1, 1)],
+)
+def test_gazebo_external_fault_window_rejects_unbounded_or_unsupported_values(
+    fault_source: str | None,
+    start: int,
+    duration: int,
+) -> None:
+    runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
+    with pytest.raises(ValueError):
+        GazeboSimBackend(
+            scenario_input=runtime_input,
+            camera_calibration=_camera_calibration(),
+            docker_executable=Path(sys.executable).resolve(),
+            container_name="owned-gazebo-sim",
+            frame_count=8,
+            airframe_profile_hash="a" * 64,
+            container_image_sha256="b" * 64,
+            stream_script_sha256="c" * 64,
+            model_assets_sha256="d" * 64,
+            expected_width=2,
+            expected_height=1,
+            fault_source=fault_source,
+            fault_start_image=start,
+            fault_duration_images=duration,
+        )
+
+
 def test_gazebo_frame_source_preserves_helper_stderr_after_eof_exit() -> None:
     runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
     process = _EofThenExitedProcess(
@@ -253,6 +352,46 @@ def test_gazebo_frame_source_preserves_helper_stderr_after_eof_exit() -> None:
     assert "odometry rejected" in message
     assert "unexpected EOF while reading Gazebo SIM header" in message
     backend.close()
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_gazebo_frame_source_preserves_one_structured_finished_diagnostic(
+    duplicate: bool,
+) -> None:
+    runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
+    diagnostic = {
+        "event": "gazebo_sensor_stream_finished",
+        "gate_passed": True,
+        "fault_injection": {"enabled": True, "source": "image", "timeline": []},
+    }
+    line = json.dumps(diagnostic).encode() + b"\n"
+    process = _FakeProcess(b"")
+    process.stderr = io.BytesIO(b"not JSON\n" + line + (line if duplicate else b""))
+    backend = GazeboSimBackend(
+        scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(),
+        docker_executable=Path(sys.executable).resolve(),
+        container_name="owned-gazebo-sim",
+        frame_count=1,
+        airframe_profile_hash="a" * 64,
+        container_image_sha256="b" * 64,
+        stream_script_sha256="c" * 64,
+        model_assets_sha256="d" * 64,
+        expected_width=2,
+        expected_height=1,
+        popen_factory=lambda *_args, **_kwargs: process,
+    )
+    rgb_record = _wire_frame(0, stamp_ns=1_000_000_000)
+    process.stdout = io.BytesIO(rgb_record + _depth_companion(backend, rgb_record))
+    backend.frame_source.open()
+    backend.frame_source.read()
+    backend.close()
+    stats = backend.frame_source.require_complete()
+    assert stats.fault_diagnostic == (None if duplicate else diagnostic)
+    if not duplicate:
+        exported = stats.to_mapping()
+        exported["fault_diagnostic"]["fault_injection"]["source"] = "navsat"
+        assert backend.frame_source.stats.fault_diagnostic == diagnostic
 
 
 def test_gazebo_sim_wire_requires_full_odometry() -> None:
@@ -979,29 +1118,37 @@ def test_gazebo_sensor_binding_supports_every_checked_in_rgb_scenario(
     assert binding["topic_binding_sha256"] == backend.topic_binding_hash
 
 
-def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> None:
+@pytest.mark.parametrize("qpc", [False, True])
+def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics(qpc) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
+    selected_clock = HighResolutionSystemClock(session_id="pixels") if qpc else None
     runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
     terrain_dem = load_local_dem_grid(TERRAIN_DEM)
-    stream = _wire_frame(
-        0,
-        stamp_ns=1_000_000_000,
-        latitude_deg=terrain_dem.origin_latitude_deg,
-        longitude_deg=terrain_dem.origin_longitude_deg,
-        altitude_m=terrain_dem.origin_elevation_m + 10.0,
-    ) + _wire_frame(
-        1,
-        stamp_ns=1_033_333_333,
-        latitude_deg=terrain_dem.origin_latitude_deg,
-        longitude_deg=terrain_dem.origin_longitude_deg,
-        altitude_m=terrain_dem.origin_elevation_m + 10.0,
-        position_east_m=1.5,
-        position_north_m=2.5,
-        position_up_m=4.0,
-        velocity_flu_mps=(7.0, 0.0, 0.0),
-    )
-    process = _FakeProcess(stream)
+    rgb_records = [
+        _wire_frame(
+            0,
+            stamp_ns=1_000_000_000,
+            latitude_deg=terrain_dem.origin_latitude_deg,
+            longitude_deg=terrain_dem.origin_longitude_deg,
+            altitude_m=terrain_dem.origin_elevation_m + 10.0,
+        ),
+        _wire_frame(
+            1,
+            stamp_ns=1_033_333_333,
+            latitude_deg=terrain_dem.origin_latitude_deg,
+            longitude_deg=terrain_dem.origin_longitude_deg,
+            altitude_m=terrain_dem.origin_elevation_m + 10.0,
+            position_east_m=1.5,
+            position_north_m=2.5,
+            position_up_m=4.0,
+            velocity_flu_mps=(7.0, 0.0, 0.0),
+        ),
+    ]
+    process = _FakeProcess(b"")
     backend = GazeboSimBackend(
         scenario_input=runtime_input,
+        clock=selected_clock,
         camera_calibration=_camera_calibration(),
         docker_executable=Path(sys.executable).resolve(),
         container_name="owned-gazebo-sim",
@@ -1014,6 +1161,9 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
         expected_width=2,
         expected_height=1,
         popen_factory=lambda *_args, **_kwargs: process,
+    )
+    process.stdout = io.BytesIO(
+        b"".join(record + _depth_companion(backend, record) for record in rgb_records)
     )
 
     assert backend.descriptor.mode is RuntimeMode.SIM
@@ -1032,6 +1182,10 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
         "camera_info_topic": (
             "/world/default/model/standard_vtol_mono_cam_0/"
             "link/camera_link/sensor/camera/camera_info"
+        ),
+        "depth_topic": (
+            "/world/default/model/standard_vtol_mono_cam_0/"
+            "link/depth_camera_link/sensor/depth_camera/depth_image"
         ),
         "navsat_topic": (
             "/world/default/model/standard_vtol_mono_cam_0/"
@@ -1056,6 +1210,42 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
         "camera_info_intrinsics_semantic_validation": (
             GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
         ),
+        "depth_sensor": {
+            "sensor_id": "front-depth",
+            "kind": "depth_camera",
+            "calibration_id": "gazebo-front-depth-v1",
+            "stream_uri": "gazebo://river_rescue_vtol_001/front-depth",
+            "topic": expected_topics["depth_topic"],
+            "calibration_sha256": canonical_sha256(
+                {
+                    "schema_version": 1,
+                    "calibration_id": "gazebo-front-depth-v1",
+                    "sensor_id": "front-depth",
+                    "width_px": 2,
+                    "height_px": 1,
+                    "fx_px": 1.0,
+                    "fy_px": 1.0,
+                    "cx_px": 1.0,
+                    "cy_px": 0.5,
+                    "distortion": [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "rectification": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                    "extrinsics_rgb_to_depth": {
+                        "translation_m": [0.0, 0.0, 0.0],
+                        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    },
+                    "registration_mode": "registered_to_rgb",
+                    "coordinate_space": "rgb_pixel_aligned",
+                    "encoding": "FLOAT32_M",
+                    "distance_semantics": "optical_axis_z_m",
+                    "near_clip_m": 0.1,
+                    "far_clip_m": 3000.0,
+                }
+            ),
+            "registration_mode": "registered_to_rgb",
+            "coordinate_space": "rgb_pixel_aligned",
+            "encoding": "FLOAT32_M",
+            "distance_semantics": "optical_axis_z_m",
+        },
     }
     assert GAZEBO_SIM_SOURCE_ROW_ORDER == "top_to_bottom"
     assert GAZEBO_SIM_WIRE_ROW_ORDER == "top_to_bottom"
@@ -1065,11 +1255,16 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
     for option, expected in (
         ("--image-topic", expected_topics["image_topic"]),
         ("--camera-info-topic", expected_topics["camera_info_topic"]),
+        ("--depth-contract-json", None),
         ("--navsat-topic", expected_topics["navsat_topic"]),
         ("--odometry-topic", expected_topics["odometry_topic"]),
     ):
         index = command.index(option)
-        assert command[index + 1] == expected
+        if option == "--depth-contract-json":
+            assert '"source_topic":"' + expected_topics["depth_topic"] + '"' in command[index + 1]
+            assert '"encoding":"FLOAT32_M"' in command[index + 1]
+        else:
+            assert command[index + 1] == expected
     assert not hasattr(backend, "ground_truth")
     assert not hasattr(backend, "truth")
     backend.frame_source.open()
@@ -1084,7 +1279,19 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
     assert first_provenance.frame_id == first.frame_id
     assert first_provenance.sequence == 0
     assert first_provenance.captured_at_s == first.captured_at_s
-    assert first_provenance.captured_at_clock == "host_monotonic"
+    assert first_provenance.captured_at_clock == ("host_perf_counter" if qpc else "host_monotonic")
+    if qpc:
+        exported = first_provenance.to_mapping()
+        assert exported["host_clock_identity"] == selected_clock.identity()
+        exported["host_clock_identity"]["session_id"] = "tampered"
+        assert first_provenance.to_mapping()["host_clock_identity"] == selected_clock.identity()
+        assert dict(provenance[1].host_clock_identity) == selected_clock.identity()
+    else:
+        assert "host_clock_identity" not in first_provenance.to_mapping()
+    if first_provenance.depth_geometry is not None:
+        exported = first_provenance.to_mapping()
+        assert isinstance(first_provenance.depth_geometry, tuple)
+        assert exported["depth_geometry"] == list(first_provenance.depth_geometry)
     assert first_provenance.sensor_stamp_ns == 1_000_000_000
     assert first_provenance.camera_info_stamp_ns == 999_999_997
     assert first_provenance.navsat_stamp_ns == 999_999_998

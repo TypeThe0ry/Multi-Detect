@@ -3,7 +3,9 @@
 
 Measured rows use ``sample_id,raw_depth_m,actual_distance_m``. Rows whose ID
 does not occur in the calibration document are reported as independent holdout
-evidence; the script never changes the deployed calibration.
+evidence; the script never changes the deployed calibration.  The optional
+strict gate turns holdout count and supplied error thresholds into an explicit
+fail-closed deployment-readiness check, while the default remains advisory.
 """
 
 from __future__ import annotations
@@ -38,6 +40,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("samples", type=Path, help="CSV or JSON field sample table")
     parser.add_argument("--calibration", type=Path, required=True, help="fitted calibration JSON")
     parser.add_argument("--output", type=Path, required=True, help="validation report JSON")
+    parser.add_argument(
+        "--require-independent-holdout",
+        action="store_true",
+        help=(
+            "fail unless the calibration has the required number of independent holdout "
+            "samples and all supplied error thresholds pass"
+        ),
+    )
+    parser.add_argument(
+        "--minimum-independent-holdout",
+        type=int,
+        default=3,
+        help="minimum independent holdout samples required by the strict gate (default: 3)",
+    )
+    parser.add_argument(
+        "--maximum-holdout-mae-m",
+        type=float,
+        help="optional maximum independent-holdout mean absolute error in metres",
+    )
+    parser.add_argument(
+        "--maximum-holdout-rmse-m",
+        type=float,
+        help="optional maximum independent-holdout root mean square error in metres",
+    )
+    parser.add_argument(
+        "--maximum-holdout-error-m",
+        type=float,
+        help="optional maximum absolute independent-holdout error in metres",
+    )
+    parser.add_argument(
+        "--maximum-holdout-relative-mae",
+        type=float,
+        help="optional maximum independent-holdout mean absolute relative error",
+    )
     return parser
 
 
@@ -70,7 +106,20 @@ def validation_report(
     samples: Iterable[_MeasuredSample],
     *,
     calibration_path: Path,
+    require_independent_holdout: bool = False,
+    minimum_independent_holdout: int = 3,
+    maximum_holdout_mae_m: float | None = None,
+    maximum_holdout_rmse_m: float | None = None,
+    maximum_holdout_error_m: float | None = None,
+    maximum_holdout_relative_mae: float | None = None,
 ) -> dict[str, object]:
+    _validate_quality_gate_arguments(
+        minimum_independent_holdout=minimum_independent_holdout,
+        maximum_holdout_mae_m=maximum_holdout_mae_m,
+        maximum_holdout_rmse_m=maximum_holdout_rmse_m,
+        maximum_holdout_error_m=maximum_holdout_error_m,
+        maximum_holdout_relative_mae=maximum_holdout_relative_mae,
+    )
     profile = load_calibration_document(calibration_path)
     try:
         document = strict_json_loads(
@@ -90,6 +139,20 @@ def validation_report(
     fitted = tuple(sample for sample in values if sample.sample_id in fitted_ids)
     all_residuals = _residuals(values, mapper=profile.map_depth)
     holdout = tuple(sample for sample in values if sample.sample_id not in fitted_ids)
+    holdout_residuals = _residuals(holdout, mapper=profile.map_depth)
+    holdout_metrics = _metrics(holdout_residuals)
+    holdout_relative_metrics = _relative_metrics(holdout, mapper=profile.map_depth)
+    quality_gate = _quality_gate(
+        holdout_count=len(holdout),
+        holdout_metrics=holdout_metrics,
+        holdout_relative_metrics=holdout_relative_metrics,
+        required=require_independent_holdout,
+        minimum_independent_holdout=minimum_independent_holdout,
+        maximum_holdout_mae_m=maximum_holdout_mae_m,
+        maximum_holdout_rmse_m=maximum_holdout_rmse_m,
+        maximum_holdout_error_m=maximum_holdout_error_m,
+        maximum_holdout_relative_mae=maximum_holdout_relative_mae,
+    )
     return {
         "schema_version": 1,
         "calibration": {
@@ -120,7 +183,9 @@ def validation_report(
         },
         "all_measured": _metrics(all_residuals),
         "fitted_samples": _metrics(_residuals(fitted, mapper=profile.map_depth)),
-        "independent_holdout": _metrics(_residuals(holdout, mapper=profile.map_depth)),
+        "independent_holdout": holdout_metrics,
+        "independent_holdout_relative": holdout_relative_metrics,
+        "quality_gate": quality_gate,
         "advisory_only": True,
         "automatic_calibration_update": False,
     }
@@ -141,6 +206,12 @@ def main(argv: list[str] | None = None) -> int:
     report = validation_report(
         load_measured_samples(args.samples),
         calibration_path=args.calibration,
+        require_independent_holdout=args.require_independent_holdout,
+        minimum_independent_holdout=args.minimum_independent_holdout,
+        maximum_holdout_mae_m=args.maximum_holdout_mae_m,
+        maximum_holdout_rmse_m=args.maximum_holdout_rmse_m,
+        maximum_holdout_error_m=args.maximum_holdout_error_m,
+        maximum_holdout_relative_mae=args.maximum_holdout_relative_mae,
     )
     write_report(args.output, report)
     measurement = report["measurement"]
@@ -150,8 +221,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote {args.output}")
     print(f"holdout_samples={holdout}")
     print(f"holdout_mae_m={metrics['mean_absolute_error_m']}")
+    relative = report["independent_holdout_relative"]
+    assert isinstance(relative, Mapping)
+    print(f"holdout_relative_mae={relative['mean_absolute_relative_error']}")
+    quality_gate = report["quality_gate"]
+    assert isinstance(quality_gate, Mapping)
+    print(f"quality_gate_status={quality_gate['status']}")
     print("automatic_calibration_update=false")
-    return 0
+    return 0 if quality_gate["passed"] is not False else 2
 
 
 def _load_rows(path: Path) -> tuple[Mapping[str, object], ...]:
@@ -200,6 +277,136 @@ def _metrics(residuals: Iterable[float]) -> dict[str, float | int | None]:
         "signed_bias_m": math.fsum(values) / len(values),
         "maximum_absolute_error_m": max(absolute),
     }
+
+
+def _relative_metrics(
+    samples: Iterable[_MeasuredSample],
+    *,
+    mapper: Callable[[float], float],
+) -> dict[str, float | int | None]:
+    values = tuple(samples)
+    if not values:
+        return {
+            "sample_count": 0,
+            "mean_absolute_relative_error": None,
+            "maximum_absolute_relative_error": None,
+        }
+    relative = tuple(
+        abs(mapper(sample.raw_depth_m) - sample.actual_distance_m) / sample.actual_distance_m
+        for sample in values
+    )
+    return {
+        "sample_count": len(relative),
+        "mean_absolute_relative_error": math.fsum(relative) / len(relative),
+        "maximum_absolute_relative_error": max(relative),
+    }
+
+
+def _quality_gate(
+    *,
+    holdout_count: int,
+    holdout_metrics: Mapping[str, object],
+    holdout_relative_metrics: Mapping[str, object],
+    required: bool,
+    minimum_independent_holdout: int,
+    maximum_holdout_mae_m: float | None,
+    maximum_holdout_rmse_m: float | None,
+    maximum_holdout_error_m: float | None,
+    maximum_holdout_relative_mae: float | None,
+) -> dict[str, object]:
+    thresholds = {
+        "minimum_independent_holdout": minimum_independent_holdout,
+        "maximum_holdout_mae_m": maximum_holdout_mae_m,
+        "maximum_holdout_rmse_m": maximum_holdout_rmse_m,
+        "maximum_holdout_error_m": maximum_holdout_error_m,
+        "maximum_holdout_relative_mae": maximum_holdout_relative_mae,
+    }
+    observed = {
+        "independent_holdout_count": holdout_count,
+        "holdout_mae_m": holdout_metrics.get("mean_absolute_error_m"),
+        "holdout_rmse_m": holdout_metrics.get("root_mean_square_error_m"),
+        "holdout_maximum_error_m": holdout_metrics.get("maximum_absolute_error_m"),
+        "holdout_relative_mae": holdout_relative_metrics.get("mean_absolute_relative_error"),
+    }
+    if not required:
+        return {
+            "status": "advisory",
+            "required": False,
+            "passed": None,
+            "failure_reasons": [],
+            "thresholds": thresholds,
+            "observed": observed,
+        }
+    failures: list[str] = []
+    if holdout_count < minimum_independent_holdout:
+        failures.append(
+            "independent_holdout_count_below_minimum "
+            f"({holdout_count}<{minimum_independent_holdout})"
+        )
+    _check_metric_threshold(
+        failures,
+        holdout_metrics.get("mean_absolute_error_m"),
+        maximum_holdout_mae_m,
+        "holdout_mae_exceeds_threshold",
+    )
+    _check_metric_threshold(
+        failures,
+        holdout_metrics.get("root_mean_square_error_m"),
+        maximum_holdout_rmse_m,
+        "holdout_rmse_exceeds_threshold",
+    )
+    _check_metric_threshold(
+        failures,
+        holdout_metrics.get("maximum_absolute_error_m"),
+        maximum_holdout_error_m,
+        "holdout_maximum_error_exceeds_threshold",
+    )
+    _check_metric_threshold(
+        failures,
+        holdout_relative_metrics.get("mean_absolute_relative_error"),
+        maximum_holdout_relative_mae,
+        "holdout_relative_mae_exceeds_threshold",
+    )
+    return {
+        "status": "failed" if failures else "passed",
+        "required": True,
+        "passed": not failures,
+        "failure_reasons": failures,
+        "thresholds": thresholds,
+        "observed": observed,
+    }
+
+
+def _check_metric_threshold(
+    failures: list[str],
+    observed: object,
+    threshold: float | None,
+    reason: str,
+) -> None:
+    if threshold is None:
+        return
+    if observed is None or float(observed) > threshold:
+        failures.append(reason)
+
+
+def _validate_quality_gate_arguments(
+    *,
+    minimum_independent_holdout: int,
+    maximum_holdout_mae_m: float | None,
+    maximum_holdout_rmse_m: float | None,
+    maximum_holdout_error_m: float | None,
+    maximum_holdout_relative_mae: float | None,
+) -> None:
+    if isinstance(minimum_independent_holdout, bool) or minimum_independent_holdout < 1:
+        raise ValueError("minimum independent holdout must be a positive integer")
+    for value, name in (
+        (maximum_holdout_mae_m, "maximum holdout MAE"),
+        (maximum_holdout_rmse_m, "maximum holdout RMSE"),
+        (maximum_holdout_error_m, "maximum holdout error"),
+        (maximum_holdout_relative_mae, "maximum holdout relative MAE"),
+    ):
+        if value is not None and (not math.isfinite(value) or value <= 0.0):
+            raise ValueError(f"{name} must be finite and positive")
 
 
 def _positive_float(value: object, name: str) -> float:

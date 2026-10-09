@@ -13,7 +13,10 @@ from multidetect.autonomy.contracts import (
     MissionFrame,
     MissionItem,
 )
+from multidetect.autonomy.policy_artifact import PolicyArtifact
+from multidetect.autonomy.policy_contract import SharedTaskPolicy
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.autonomy.task_ranker import TaskRanker
 from multidetect.mission_progress import MissionProgressConfig, MissionProgressPhase
 from multidetect.runtime import RuntimeMode, load_runtime_run_report
 from multidetect.simulation import FaultEvent, FaultKind, load_runtime_scenario
@@ -27,6 +30,312 @@ from multidetect.simulator.scenario_runner import main as scenario_runner_main
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
+
+
+def test_energy_profile_loads_from_hash_bound_runtime_channel(tmp_path: Path) -> None:
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    for channel in manifest["channels"].values():
+        shutil.copyfile(MANIFEST.parent / channel["path"], tmp_path / channel["path"])
+    runtime_path = tmp_path / manifest["channels"]["runtime_input"]["path"]
+    raw = json.loads(runtime_path.read_text(encoding="utf-8"))
+    raw["vehicle"]["energy_profile"] = {
+        "capacity_wh": 10,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "integration fixture only; not physically calibrated",
+    }
+    runtime_path.write_text(json.dumps(raw), encoding="utf-8")
+    manifest["channels"]["runtime_input"]["sha256"] = canonical_sha256(raw)
+    manifest_path = tmp_path / MANIFEST.name
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config = SimulatorScenarioRunnerConfig(
+        frames=2,
+        dt_s=10,
+        enable_ai=False,
+        arm_on_start=False,
+        use_world_origin=False,
+    )
+    runner = SimulatorScenarioRunner(manifest_path, config=config)
+    profile = runner.runtime_input.vehicle.energy_profile
+    assert profile.capacity_wh == 10
+    baseline = SimulatorScenarioRunner(MANIFEST, config=config)
+    assert (
+        runner.runtime_descriptor.airframe_profile_hash
+        != baseline.runtime_descriptor.airframe_profile_hash
+    )
+    result = runner.run()
+    assert result.completed_frames == 2
+    assert runner.sim.model.battery_remaining_pct == pytest.approx(98)
+    assert runner.sim.model.energy_observation()["provenance"] == profile.provenance
+    assert '"energy"' in json.dumps(result.evidence)
+    # Identical on-disk input and simulation time reproduce the exact output.
+    assert (
+        SimulatorScenarioRunner(manifest_path, config=config).run().evidence_hash
+        == result.evidence_hash
+    )
+    raw["vehicle"]["energy_profile"]["capacity_wh"] = 20
+    runtime_path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(SimulatorScenarioRunnerError):
+        SimulatorScenarioRunner(manifest_path, config=config)  # stale channel hash
+
+
+def _shared_policy_for_runner(runner: SimulatorScenarioRunner) -> SharedTaskPolicy:
+    ranker = TaskRanker((0.0, 0.0, 0.0), "simulator-runner-fixture")
+    artifact = PolicyArtifact.for_ranker(
+        ranker,
+        policy_id="simulator-runner-fixture",
+        policy_version="0.3.0-pre.8",
+        airframe_profile_hash=runner.descriptor.airframe_profile_hash,
+        mission_contract_hash="1" * 64,
+        safety_policy_hash="2" * 64,
+    )
+    return SharedTaskPolicy(ranker, artifact)
+
+
+def test_shared_policy_identity_is_bound_without_mixing_actuator_policy() -> None:
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=2),
+    )
+    policy = _shared_policy_for_runner(runner)
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=2),
+        shared_policy=policy,
+        expected_policy_artifact_sha256=policy.artifact_sha256,
+    )
+    result = runner.run()
+    binding = result.evidence["shared_task_policy"]
+    assert binding["status"] == "identity_bound_only"
+    assert binding["policy_artifact_sha256"] == policy.artifact_sha256
+    assert binding["planner_revalidation_required"] is True
+    assert binding["planner_revalidated"] is False
+    assert binding["policy_applied_to_actuator"] is False
+    assert binding["low_level_actuator_policy_separate"] is True
+
+
+def test_shared_policy_runner_fails_closed_on_artifact_or_airframe_mismatch() -> None:
+    baseline = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=1),
+    )
+    policy = _shared_policy_for_runner(baseline)
+    with pytest.raises(SimulatorScenarioRunnerError, match="expected identity"):
+        SimulatorScenarioRunner(
+            MANIFEST,
+            config=SimulatorScenarioRunnerConfig(frames=1),
+            shared_policy=policy,
+            expected_policy_artifact_sha256="3" * 64,
+        )
+    foreign_ranker = TaskRanker((0.0, 0.0, 0.0), "foreign-airframe-fixture")
+    foreign_artifact = PolicyArtifact.for_ranker(
+        foreign_ranker,
+        policy_id="foreign-airframe-fixture",
+        policy_version="0.3.0-pre.8",
+        airframe_profile_hash="4" * 64,
+        mission_contract_hash="1" * 64,
+        safety_policy_hash="2" * 64,
+    )
+    with pytest.raises(SimulatorScenarioRunnerError, match="airframe profile"):
+        SimulatorScenarioRunner(
+            MANIFEST,
+            config=SimulatorScenarioRunnerConfig(frames=1),
+            shared_policy=SharedTaskPolicy(foreign_ranker, foreign_artifact),
+        )
+
+
+def test_shared_policy_selects_revalidates_compiles_and_binds_mission() -> None:
+    from scripts.train_task_ranker import load_dataset
+
+    groups, _, _ = load_dataset(ROOT / "configs/training/task-ranker-budget-v1.json")
+    case = groups["train"][0]
+    base = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=2, enable_ai=False),
+    )
+    ranker = TaskRanker((0.0, 0.0, 0.0), "task-binding-fixture")
+    artifact = PolicyArtifact.for_ranker(
+        ranker,
+        policy_id="task-binding-fixture",
+        policy_version="0.3.0-pre.8",
+        airframe_profile_hash=base.descriptor.airframe_profile_hash,
+        mission_contract_hash="1" * 64,
+        safety_policy_hash="2" * 64,
+    )
+    policy = SharedTaskPolicy(ranker, artifact)
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=2, enable_ai=False),
+        shared_policy=policy,
+        expected_policy_artifact_sha256=artifact.canonical_hash,
+    )
+    context = replace(
+        case.context,
+        airframe_profile_hash=base.descriptor.airframe_profile_hash,
+    )
+    binding = runner.select_and_bind_task(
+        case.candidates,
+        context,
+        case.vehicle_class,
+        runtimes=case.runtimes,
+    )
+    assert binding.decision.action.value == "select"
+    assert binding.decision.planner_revalidated is True
+    assert binding.mission_bound is True
+    assert binding.mission_started is False
+    assert runner.mission is not None
+    result = runner.run()
+    task_binding = result.evidence["shared_task_policy"]["task_binding"]
+    assert task_binding["executable_mission_sha256"] == binding.executable_mission_sha256
+    assert task_binding["policy_applied_to_actuator"] is False
+    runtime_binding = result.evidence["shared_task_policy"]["runtime_binding"]
+    assert runtime_binding["policy_artifact_sha256"] == artifact.canonical_hash
+    assert runtime_binding["ranker_sha256"] == ranker.canonical_hash
+    assert runtime_binding["planner_revalidated"] is True
+    assert runtime_binding["mission_bound"] is True
+    assert runtime_binding["mission_started"] is False
+    assert runtime_binding["policy_applied_to_actuator"] is False
+
+
+def test_shared_policy_abstention_is_recorded_without_binding_mission() -> None:
+    from scripts.train_task_ranker import load_dataset
+
+    groups, _, _ = load_dataset(ROOT / "configs/training/task-ranker-budget-v1.json")
+    case = groups["train"][0]
+    base = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=1, enable_ai=False),
+    )
+    context = replace(
+        case.context,
+        gps_fix_type=0,
+        airframe_profile_hash=base.descriptor.airframe_profile_hash,
+    )
+    ranker = TaskRanker((0.0, 0.0, 0.0), "task-abstain-fixture")
+    artifact = PolicyArtifact.for_ranker(
+        ranker,
+        policy_id="task-abstain-fixture",
+        policy_version="0.3.0-pre.8",
+        airframe_profile_hash=base.descriptor.airframe_profile_hash,
+        mission_contract_hash="1" * 64,
+        safety_policy_hash="2" * 64,
+    )
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=1, enable_ai=False),
+        shared_policy=SharedTaskPolicy(ranker, artifact),
+    )
+    binding = runner.select_and_bind_task(
+        case.candidates,
+        context,
+        case.vehicle_class,
+        runtimes=case.runtimes,
+    )
+    assert binding.decision.action.value == "abstain"
+    assert binding.selected_task_id is None
+    assert binding.mission_bound is False
+    assert runner.mission is None
+    runtime_binding = runner.task_policy_runtime_binding
+    assert runtime_binding is not None
+    assert runtime_binding.action == "abstain"
+    assert runtime_binding.selected_task_id is None
+    assert runtime_binding.mission_bound is False
+    assert runtime_binding.reason == binding.decision.reason
+
+
+def test_shared_policy_rejects_context_from_another_airframe() -> None:
+    from scripts.train_task_ranker import load_dataset
+
+    groups, _, _ = load_dataset(ROOT / "configs/training/task-ranker-budget-v1.json")
+    case = groups["train"][0]
+    base = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=1, enable_ai=False),
+    )
+    ranker = TaskRanker((0.0, 0.0, 0.0), "task-context-identity-fixture")
+    artifact = PolicyArtifact.for_ranker(
+        ranker,
+        policy_id="task-context-identity-fixture",
+        policy_version="0.3.0-pre.8",
+        airframe_profile_hash=base.descriptor.airframe_profile_hash,
+        mission_contract_hash="1" * 64,
+        safety_policy_hash="2" * 64,
+    )
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=1, enable_ai=False),
+        shared_policy=SharedTaskPolicy(ranker, artifact),
+    )
+    with pytest.raises(SimulatorScenarioRunnerError, match="context airframe profile"):
+        runner.select_and_bind_task(
+            case.candidates,
+            replace(case.context, airframe_profile_id="foreign-airframe"),
+            case.vehicle_class,
+            runtimes=case.runtimes,
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"capacity_wh": 0},
+        {"capacity_wh": True},
+        {"capacity_wh": float("nan")},
+        {"avionics_power_w": -1},
+        {"avionics_power_w": 0, "propulsion_max_power_w": 0},
+        {"provenance": " "},
+        {"target_truth": 12},
+    ],
+)
+def test_runtime_energy_profile_rejects_bad_configuration(changes) -> None:
+    from multidetect.simulation.runtime_input import VehicleRuntimeInput
+
+    raw = load_runtime_scenario(MANIFEST, mode=RuntimeMode.SIM).vehicle.to_mapping()
+    raw["energy_profile"] = {
+        "capacity_wh": 10,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "fixture",
+        **changes,
+    }
+    with pytest.raises(ValueError):
+        VehicleRuntimeInput.from_mapping(raw)
+
+
+def test_energy_battery_fault_offsets_live_state_without_recharging_it() -> None:
+    from multidetect.simulation.runtime_input import VehicleEnergyProfile
+    from multidetect.simulator.flight_model import FlightModelConfig
+
+    runtime = load_runtime_scenario(MANIFEST, mode=RuntimeMode.SIM)
+    runtime = replace(
+        runtime,
+        vehicle=replace(
+            runtime.vehicle, energy_profile=VehicleEnergyProfile(10, 360, 0, "fixture")
+        ),
+        faults=(
+            FaultEvent(
+                event_id="energy-drop",
+                at_s=0,
+                kind=FaultKind.BATTERY_STEP_DROP,
+                magnitude=10,
+                duration_s=15,
+            ),
+        ),
+    )
+    runner = SimulatorScenarioRunner(
+        runtime,
+        config=SimulatorScenarioRunnerConfig(enable_ai=False, arm_on_start=False),
+        model_config=FlightModelConfig(initial_battery_remaining_pct=20),
+    )
+    model = runner.sim.model
+    assert runner._observation(model.telemetry).battery_remaining_pct == 10
+    model.step({}, 10)  # Background energy falls to 10%, not a fixed 100% baseline.
+    assert runner._observation(model.telemetry).battery_remaining_pct == 0
+    assert model.battery_remaining_pct == 10
+    model.step({}, 5)  # Finite sensor fault ends; restore current 5%, not pre-fault 20%.
+    assert runner._observation(model.telemetry).battery_remaining_pct == 5
+    assert model.battery_remaining_pct == 5
+    assert runner.sim.model.energy_observation()["remaining_wh"] == 0.5
 
 
 def _single_item_mission() -> ExecutableMission:

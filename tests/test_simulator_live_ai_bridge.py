@@ -78,6 +78,62 @@ def _global_position() -> bytes:
     return _v1_frame(33, payload)
 
 
+def _home_position(
+    *,
+    latitude_e7: int = 312345000,
+    longitude_e7: int = 1215432100,
+    mavlink2: bool = False,
+    time_usec: int = 1_000_000,
+) -> bytes:
+    # MAVLink HOME_POSITION core wire order is latitude, longitude, altitude,
+    # then x/y/z/q/approach fields. time_usec is a MAVLink 2 extension at the
+    # end, never a prefix. Keep the complete payload for v1; v2 may truncate
+    # trailing zero bytes, but this fixture exercises the extension too.
+    core = struct.pack(
+        "<iiiffffffffff",
+        latitude_e7,
+        longitude_e7,
+        12345,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    )
+    payload = core + (struct.pack("<Q", time_usec) if mavlink2 else b"")
+    if not mavlink2:
+        assert len(payload) == 52
+    else:
+        assert len(payload) == 60
+    return _v2_frame(242, payload) if mavlink2 else _v1_frame(242, payload)
+
+
+def _v2_frame(message_id: int, payload: bytes, *, system: int = 1, component: int = 1) -> bytes:
+    return (
+        bytes(
+            [
+                0xFD,
+                len(payload),
+                0,
+                0,
+                0,
+                system,
+                component,
+                message_id & 0xFF,
+                (message_id >> 8) & 0xFF,
+                0,
+            ]
+        )
+        + payload
+        + b"\x00\x00"
+    )
+
+
 def test_bridge_folds_truth_free_px4_frames_into_shared_ai_executor() -> None:
     connection = _Connection()
     authority = SimulatorControlAuthority()
@@ -106,6 +162,145 @@ def test_bridge_folds_truth_free_px4_frames_into_shared_ai_executor() -> None:
     assert snapshot["ground_speed_mps"] == pytest.approx(1.118, rel=1e-3)
     assert snapshot["truth_free"] is True
     assert connection.mav.messages
+
+
+def test_home_position_is_converted_to_shared_return_vector() -> None:
+    bridge, authority, connection = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=100.0)
+    bridge.ingest_datagram(_gps(), timestamp_s=100.1)
+    bridge.ingest_datagram(_global_position(), timestamp_s=100.2)
+    bridge.ingest_datagram(_home_position(), timestamp_s=100.3)
+
+    evidence = bridge.evidence()
+    snapshot = evidence["last_snapshot"]
+    assert evidence["home_position_observed_at_s"] == pytest.approx(100.3)
+    assert evidence["home_vector_available"] is True
+    assert snapshot["home_distance_m"] == pytest.approx(7.55, rel=0.03)
+    assert snapshot["home_bearing_deg"] == pytest.approx(90.0, abs=1.0)
+
+    # A qualified GPS sample plus a valid home vector lets the shared policy
+    # choose RETURN on low battery. No bridge-specific actuator path exists.
+    decision = bridge.ingest(
+        {
+            "type": "SYS_STATUS",
+            "battery_remaining": 5,
+            "source_system_id": 1,
+            "source_component_id": 1,
+        },
+        timestamp_s=100.4,
+    )
+    assert decision is not None
+    assert decision.mode.value == "return"
+    assert decision.reason == "battery_below_return_threshold"
+    assert connection.mav.messages
+
+
+def test_home_position_mavlink2_extension_is_decoded_in_correct_order() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=102.0)
+    bridge.ingest_datagram(_global_position(), timestamp_s=102.1)
+    bridge.ingest_datagram(_home_position(mavlink2=True, time_usec=987654321), timestamp_s=102.2)
+
+    evidence = bridge.evidence()
+    assert evidence["home_vector_available"] is True
+    assert evidence["last_snapshot"]["home_distance_m"] == pytest.approx(7.55, rel=0.03)
+
+
+def test_home_position_mavlink2_truncated_core_is_rejected_without_pairing() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=103.0)
+    bridge.ingest_datagram(_global_position(), timestamp_s=103.1)
+    # MAVLink 2 can trim trailing zero bytes, but not the required WGS-84
+    # prefix. A payload shorter than latitude/longitude/altitude is malformed.
+    bridge.ingest_datagram(_v2_frame(242, b"\x00" * 11), timestamp_s=103.2)
+    evidence = bridge.evidence()
+    assert evidence["frames_rejected"] == 1
+    assert evidence["home_vector_available"] is False
+
+
+@pytest.mark.parametrize("payload_length", [11, 53])
+def test_home_position_mavlink1_requires_exact_core_payload_length(payload_length: int) -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=103.25)
+    bridge.ingest_datagram(_global_position(), timestamp_s=103.3)
+    bridge.ingest_datagram(_v1_frame(242, b"\x00" * payload_length), timestamp_s=103.4)
+    evidence = bridge.evidence()
+    assert evidence["frames_rejected"] == 1
+    assert evidence["home_vector_available"] is False
+
+
+def test_home_position_mavlink2_legal_tail_truncation_is_accepted() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=103.5)
+    bridge.ingest_datagram(_global_position(), timestamp_s=103.6)
+    # MAVLink 2 trims zero-valued trailing fields. The three required global
+    # coordinates remain present, so a 12-byte payload is valid.
+    payload = struct.pack("<iii", 312345000, 1215432100, 12345)
+    bridge.ingest_datagram(_v2_frame(242, payload), timestamp_s=103.7)
+    evidence = bridge.evidence()
+    assert evidence["frames_rejected"] == 0
+    assert evidence["home_vector_available"] is True
+
+
+def test_home_position_mavlink2_partial_time_extension_is_accepted() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=103.8)
+    bridge.ingest_datagram(_global_position(), timestamp_s=103.9)
+    core = struct.pack("<iii", 312345000, 1215432100, 12345) + b"\x00" * 40
+    # A generated pymavlink v2 packet may end after the low four bytes of a
+    # timestamp when its high four bytes are zero; this is legal MAVLink 2
+    # empty-byte truncation, not a malformed partial field.
+    payload = core + struct.pack("<I", 987654321)
+    bridge.ingest_datagram(_v2_frame(242, payload), timestamp_s=104.0)
+    evidence = bridge.evidence()
+    assert evidence["frames_rejected"] == 0
+    assert evidence["home_vector_available"] is True
+
+
+def test_home_position_out_of_order_does_not_replace_newer_datum() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=104.0)
+    bridge.ingest_datagram(_global_position(), timestamp_s=104.1)
+    bridge.ingest_datagram(_home_position(latitude_e7=312345000), timestamp_s=104.3)
+    bridge.ingest_datagram(_home_position(latitude_e7=312344000), timestamp_s=104.2)
+    evidence = bridge.evidence()
+    assert evidence["home_position_observed_at_s"] == pytest.approx(104.3)
+    assert evidence["home_latitude_deg"] == pytest.approx(31.2345)
+
+
+def test_home_position_reset_clears_datum_and_derived_vector() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=105.0)
+    bridge.ingest_datagram(_global_position(), timestamp_s=105.1)
+    bridge.ingest_datagram(_home_position(), timestamp_s=105.2)
+    assert bridge.evidence()["home_vector_available"] is True
+    bridge.reset()
+    evidence = bridge.evidence()
+    assert evidence["home_position_observed_at_s"] is None
+    assert evidence["home_latitude_deg"] is None
+    assert evidence["home_vector_available"] is False
+
+
+def test_invalid_home_position_clears_previous_return_vector() -> None:
+    bridge, _, _ = _make_bridge(heartbeat_timeout_s=None)
+    bridge.ingest_datagram(_heartbeat(), timestamp_s=110.0)
+    bridge.ingest_datagram(_gps(), timestamp_s=110.1)
+    bridge.ingest_datagram(_home_position(), timestamp_s=110.2)
+    assert bridge.evidence()["home_vector_available"] is True
+
+    bridge.ingest(
+        {
+            "type": "HOME_POSITION",
+            "latitude": 2_147_483_647,
+            "longitude": 1_215_432_100,
+            "source_system_id": 1,
+            "source_component_id": 1,
+        },
+        timestamp_s=110.3,
+    )
+    evidence = bridge.evidence()
+    assert evidence["home_vector_available"] is False
+    assert evidence["last_snapshot"]["home_distance_m"] is None
 
 
 def test_bridge_rejects_wrong_identity_and_truncated_known_frame() -> None:
@@ -521,6 +716,24 @@ def test_watchdog_tick_enforces_heartbeat_freshness_without_new_frames() -> None
     assert authority.state.value == "failsafe"
     assert len(connection.mav.messages) == before + 1
     assert bridge.evidence()["heartbeat_stale_events"] == 1
+
+
+def test_return_request_with_stale_gps_enters_shared_gps_failsafe() -> None:
+    bridge, authority, connection = _make_bridge(heartbeat_timeout_s=2.0)
+    bridge.ingest_datagram(_heartbeat(armed=True), timestamp_s=100.0)
+    bridge.ingest_datagram(_gps(), timestamp_s=100.1)
+    bridge.ingest_datagram(_heartbeat(armed=True), timestamp_s=101.5)
+
+    decision = bridge.request_return("gps_quality_loss_return_request", timestamp_s=101.7)
+
+    assert decision is not None
+    assert decision.mode.value == "failsafe"
+    assert decision.reason == "return_gps_quality_insufficient"
+    assert authority.state.value == "failsafe"
+    evidence = bridge.evidence()
+    assert evidence["return_request_count"] == 1
+    assert evidence["last_return_request_reason"] == "gps_quality_loss_return_request"
+    assert connection.mav.messages
 
 
 def test_fresh_heartbeat_recovers_gate_but_requires_explicit_authority_recovery() -> None:

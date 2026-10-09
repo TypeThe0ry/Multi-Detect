@@ -8,6 +8,7 @@ from uuid import uuid4
 from .adaptive_ranging import AdaptiveRangingPolicy
 from .approach_hil import ApproachHilAssessment, SlideConfirmationChallenge
 from .autonomy.serialization import require_sha256
+from .autonomy.task_policy_runtime import TaskPolicyRuntimeBinding
 from .domain import AuthorizationChallenge, DeploymentWindowSolution, MissionPhase, VehicleTelemetry
 from .mavlink_gps import normalize_gps_fix_type, normalize_satellites_visible
 from .mission import MissionStatus, ObservationOutcome
@@ -24,6 +25,8 @@ from .operator_link import (
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
     PayloadTargetStatusMessage,
+    PolicyRuntimeAction,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeBackendHealth,
@@ -269,6 +272,58 @@ def build_runtime_status_from_descriptor(
         ),
         profile_valid=True,
         produced_at_s=produced_at_s,
+    )
+
+
+def build_policy_runtime_status_message(
+    *,
+    sequence: int,
+    binding: TaskPolicyRuntimeBinding,
+    produced_at_s: float | None = None,
+) -> PolicyRuntimeStatusMessage:
+    """Project one shared-policy binding onto the authenticated read-only link."""
+
+    if not isinstance(binding, TaskPolicyRuntimeBinding):
+        raise TypeError("binding must be a TaskPolicyRuntimeBinding")
+
+    def optional_hash(value: str | None, name: str) -> int | None:
+        return None if value is None else _sha256_prefix64(value, name)
+
+    try:
+        action = PolicyRuntimeAction(binding.action)
+    except ValueError as exc:
+        raise ValueError(f"unsupported policy runtime action: {binding.action}") from exc
+    return PolicyRuntimeStatusMessage(
+        sequence=sequence,
+        action=action,
+        selected_task_hash64=(
+            None
+            if binding.selected_task_id is None
+            else operator_identifier_token(binding.selected_task_id)
+        ),
+        policy_artifact_hash64=optional_hash(
+            binding.policy_artifact_sha256,
+            "policy_artifact_sha256",
+        ),
+        ranker_hash64=optional_hash(binding.ranker_sha256, "ranker_sha256"),
+        plan_hash64=optional_hash(binding.plan_sha256, "plan_sha256"),
+        executable_mission_hash64=optional_hash(
+            binding.executable_mission_sha256,
+            "executable_mission_sha256",
+        ),
+        wire_hash64=optional_hash(binding.wire_hash, "wire_hash"),
+        context_hash64=_sha256_prefix64(binding.context_sha256, "context_sha256"),
+        airframe_profile_hash64=_sha256_prefix64(
+            binding.airframe_profile_hash,
+            "airframe_profile_hash",
+        ),
+        reason_hash64=operator_identifier_token(binding.reason),
+        planner_revalidated=binding.planner_revalidated,
+        mission_bound=binding.mission_bound,
+        mission_started=binding.mission_started,
+        policy_applied_to_actuator=binding.policy_applied_to_actuator,
+        truth_free=binding.truth_free,
+        produced_at_s=binding.produced_at_s if produced_at_s is None else produced_at_s,
     )
 
 
@@ -1085,6 +1140,7 @@ __all__ = [
     "build_release_status_message",
     "build_runtime_status_from_descriptor",
     "build_runtime_status_message",
+    "build_policy_runtime_status_message",
     "build_safety_status_message",
     "build_scene_context_status_messages",
     "build_target_pool_status_messages",

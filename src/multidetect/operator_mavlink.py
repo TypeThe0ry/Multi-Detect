@@ -16,6 +16,7 @@ from .operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeStatusMessage,
@@ -177,6 +178,11 @@ class OperatorMavlinkTunnelAdapter:
 
     def encode_runtime_status(self, status: RuntimeStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_runtime_status(status))
+
+    def encode_policy_runtime_status(self, status: PolicyRuntimeStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_policy_runtime_status(status)
+        )
 
     def encode_runtime_status_ack(
         self,

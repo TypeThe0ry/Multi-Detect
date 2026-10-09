@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-independent-holdout-v1",
+  "provenance": "Predeclared truth-free semantic transition holdout for the shared OnboardAI contract. These cases are not used by train_onboard_model.py and are not physical or field evidence.",
+  "training_used": false,
+  "cases": [
+    {
+      "case_id": "holdout-green-mismatch-search",
+      "event_kind": "target_moved",
+      "task_phase": "search",
+      "target_confidence": 0.81,
+      "target_match_score": 0.08,
+      "target_class_match": true,
+      "target_color_match": false,
+      "expected_task": "search",
+      "expected_flight": "move_relative"
+    },
+    {
+      "case_id": "holdout-red-match-follow",
+      "event_kind": "target_moved",
+      "task_phase": "search",
+      "target_confidence": 0.94,
+      "target_match_score": 0.93,
+      "target_class_match": true,
+      "target_color_match": true,
+      "expected_task": "match_target",
+      "expected_flight": "follow_target"
+    },
+    {
+      "case_id": "holdout-record-location-return",
+      "event_kind": "target_moved",
+      "task_phase": "record_location",
+      "target_confidence": 0.97,
+      "target_match_score": 0.98,
+      "target_class_match": true,
+      "target_color_match": true,
+      "expected_task": "record_location",
+      "expected_flight": "return_home"
+    },
+    {
+      "case_id": "holdout-return-report",
+      "event_kind": "mission_complete",
+      "task_phase": "return_home",
+      "target_confidence": 0.0,
+      "target_match_score": 0.0,
+      "target_class_match": null,
+      "target_color_match": null,
+      "expected_task": "report",
+      "expected_flight": "hold_position"
+    },
+    {
+      "case_id": "holdout-gps-degraded-hold",
+      "event_kind": "gps_degraded",
+      "task_phase": "search",
+      "target_confidence": 0.25,
+      "target_match_score": 0.0,
+      "target_class_match": null,
+      "target_color_match": null,
+      "gps_fix_type": 2,
+      "gps_horizontal_accuracy_m": 14.0,
+      "expected_task": "hold",
+      "expected_flight": "hold_position"
+    },
+    {
+      "case_id": "holdout-battery-return",
+      "event_kind": "battery_low",
+      "task_phase": "search",
+      "target_confidence": 0.0,
+      "target_match_score": 0.0,
+      "target_class_match": null,
+      "target_color_match": null,
+      "battery_remaining_pct": 17.0,
+      "estimated_flight_time_s": 500.0,
+      "expected_task": "return_home",
+      "expected_flight": "return_home"
+    },
+    {
+      "case_id": "holdout-obstacle-hold",
+      "event_kind": "obstacle_risk",
+      "task_phase": "inspect_target",
+      "target_confidence": 0.72,
+      "target_match_score": 0.72,
+      "target_class_match": true,
+      "target_color_match": true,
+      "obstacle_distance_m": 4.0,
+      "expected_task": "hold",
+      "expected_flight": "hold_position"
+    }
+  ],
+  "physical_performance_claimed": false,
+  "jetson_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

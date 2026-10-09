@@ -15,6 +15,7 @@ command allowlist.  It never broadens QGC's read-only policy.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import select
@@ -28,6 +29,7 @@ from enum import Enum
 from threading import Event
 from typing import Final
 
+from multidetect.clock import HighResolutionSystemClock
 from multidetect.px4_sitl_qgc_router import (
     QgcFrameDisposition,
     classify_qgc_frame,
@@ -45,6 +47,11 @@ PX4_SYSTEM_ID: Final = 1
 PX4_COMPONENT_ID: Final = 1
 EVALUATOR_TARGET_COMPONENT_IDS: Final = frozenset({0, PX4_COMPONENT_ID})
 MAXIMUM_ROUTER_DURATION_SECONDS: Final = 600.0
+# A single mission remains capped at MAXIMUM_ROUTER_DURATION_SECONDS.  The
+# outer disposable-SITL campaign may deliberately bind several missions to
+# one router lifetime, so the lifecycle owner can provide a larger, still
+# finite bound for that aggregate session.
+MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS: Final = 3600.0
 MAV_TYPE_GCS: Final = 6
 MAV_AUTOPILOT_INVALID: Final = 8
 MAV_CMD_COMPONENT_ARM_DISARM: Final = 400
@@ -397,6 +404,7 @@ def classify_evaluator_frame(
 @dataclass(slots=True)
 class RouterSummary:
     started_monotonic_s: float
+    maximum_router_duration_seconds: float = MAXIMUM_ROUTER_DURATION_SECONDS
     ready_event_supplied: bool = False
     stop_event_supplied: bool = False
     ready_barrier_reached_monotonic_s: float | None = None
@@ -543,7 +551,7 @@ class RouterSummary:
             "evaluator_maximum_mission_items": MAXIMUM_EVALUATOR_MISSION_ITEMS,
             "evaluator_mission_target_system_id": PX4_SYSTEM_ID,
             "evaluator_mission_target_component_ids": sorted(EVALUATOR_TARGET_COMPONENT_IDS),
-            "maximum_router_duration_seconds": MAXIMUM_ROUTER_DURATION_SECONDS,
+            "maximum_router_duration_seconds": self.maximum_router_duration_seconds,
             "all_udp_endpoints_loopback": True,
             "all_ports_distinct": True,
             "protected_udp_14550_used": False,
@@ -581,13 +589,19 @@ def _validated_mavlink_id(value: int, name: str) -> None:
         raise Px4GazeboQgcRouterError(f"{name} must be an integer in 1..255")
 
 
-def _validated_duration_seconds(value: float) -> float:
+def _validated_duration_seconds(
+    value: float,
+    *,
+    maximum: float = MAXIMUM_ROUTER_DURATION_SECONDS,
+) -> float:
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, float))
-        or not 1.0 <= float(value) <= MAXIMUM_ROUTER_DURATION_SECONDS
+        or not 1.0 <= float(value) <= maximum
     ):
-        raise Px4GazeboQgcRouterError("duration_seconds must be in 1..600 seconds")
+        raise Px4GazeboQgcRouterError(
+            f"duration_seconds must be in 1..{maximum:g} seconds"
+        )
     return float(value)
 
 
@@ -638,9 +652,11 @@ def run_router(
     evaluator_system_id: int,
     evaluator_component_id: int,
     duration_seconds: float,
+    duration_limit_seconds: float = MAXIMUM_ROUTER_DURATION_SECONDS,
     acknowledge_owned_disposable_sitl: bool = False,
     ready_event: Event | None = None,
     stop_event: Event | None = None,
+    observation_clock: HighResolutionSystemClock | None = None,
 ) -> dict[str, object]:
     """Run the bounded loopback router and return a machine-readable summary.
 
@@ -649,6 +665,13 @@ def run_router(
     graceful external stop request without weakening the bounded duration.
     """
 
+    if observation_clock is not None and not isinstance(
+        observation_clock, HighResolutionSystemClock
+    ):
+        raise Px4GazeboQgcRouterError("router observations require explicit high-resolution clock")
+    receipts = []
+    receipts_seen = 0
+    receipt_limit = 131072
     if acknowledge_owned_disposable_sitl is not True:
         raise Px4GazeboQgcRouterError("explicit owned-disposable-SITL acknowledgement is required")
     ports = (
@@ -662,7 +685,14 @@ def run_router(
     _validated_ports(ports)
     _validated_mavlink_id(evaluator_system_id, "evaluator_system_id")
     _validated_mavlink_id(evaluator_component_id, "evaluator_component_id")
-    validated_duration_seconds = _validated_duration_seconds(duration_seconds)
+    validated_duration_limit_seconds = _validated_duration_seconds(
+        duration_limit_seconds,
+        maximum=MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS,
+    )
+    validated_duration_seconds = _validated_duration_seconds(
+        duration_seconds,
+        maximum=validated_duration_limit_seconds,
+    )
     if ready_event is not None and (
         not callable(getattr(ready_event, "set", None))
         or not callable(getattr(ready_event, "clear", None))
@@ -678,6 +708,7 @@ def run_router(
 
     summary = RouterSummary(
         started_monotonic_s=time.monotonic(),
+        maximum_router_duration_seconds=validated_duration_limit_seconds,
         ready_event_supplied=ready_event is not None,
         stop_event_supplied=stop_event is not None,
     )
@@ -728,6 +759,10 @@ def run_router(
                     if _source_allowed(source, expected_port=None, summary=summary):
                         summary.px4_datagrams_received += 1
                         for frame in px4_decoder.feed(datagram):
+                            received_at = (
+                                observation_clock.monotonic() if observation_clock is not None
+                                else None
+                            )
                             summary.px4_frames_received += 1
                             summary.px4_message_ids[frame.message_id] += 1
                             qgc_channel.sendto(frame.encoded, (LOOPBACK_HOST, qgc_port))
@@ -737,6 +772,18 @@ def run_router(
                             )
                             summary.px4_frames_forwarded_to_qgc += 1
                             summary.px4_frames_forwarded_to_evaluator += 1
+                            if observation_clock is not None and frame.message_id in {0, 2, 33, 74}:
+                                forwarded_at = observation_clock.monotonic()
+                                receipts_seen += 1
+                                if len(receipts) < receipt_limit:
+                                    receipts.append({
+                                        "frame_sha256": hashlib.sha256(frame.encoded).hexdigest(),
+                                        "message_id": frame.message_id,
+                                        "source_system": frame.source_system_id,
+                                        "source_component": frame.source_component_id,
+                                        "router_decoded_host_s": received_at,
+                                        "router_forwarded_host_s": forwarded_at,
+                                    })
 
             if qgc_channel in readable:
                 received = _recv_datagram(qgc_channel)
@@ -840,7 +887,7 @@ def run_router(
         for channel in reversed(channels):
             channel.close()
 
-    return summary.as_dict(
+    result = summary.as_dict(
         qgc_port=qgc_port,
         qgc_router_port=qgc_router_port,
         evaluator_port=evaluator_port,
@@ -853,6 +900,17 @@ def run_router(
         qgc_discarded_bytes=qgc_decoder.discarded_bytes,
         evaluator_discarded_bytes=evaluator_decoder.discarded_bytes,
     )
+    if observation_clock is not None:
+        result["telemetry_receipts"] = {
+            "schema_version": 1,
+            "host_clock_identity": observation_clock.identity(),
+            "samples": receipts,
+            "samples_seen": receipts_seen,
+            "samples_dropped": receipts_seen - len(receipts),
+            "timestamp_scope": "userspace_decode_and_forward_not_kernel_receive_or_px4_send",
+            "source_send_timing_claimed": False,
+        }
+    return result
 
 
 def _parser() -> argparse.ArgumentParser:

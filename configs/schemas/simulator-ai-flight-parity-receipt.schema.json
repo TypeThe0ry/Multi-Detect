@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/simulator-ai-flight-parity-receipt.schema.json",
+  "title": "Multi-Detect simulator AI flight parity receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "producer",
+    "evidence_scope",
+    "release_parity",
+    "shared_policy_mission_layer",
+    "simulator_ai_flight_layer",
+    "bindings",
+    "safety_boundary",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.simulator-ai-flight-parity-receipt" },
+    "schema_version": { "const": 1 },
+    "producer": { "const": "create_simulator_ai_flight_parity_receipt" },
+    "evidence_scope": { "const": "retained_layers_file_audit" },
+    "release_parity": { "$ref": "#/$defs/parity" },
+    "shared_policy_mission_layer": { "$ref": "#/$defs/policyLayer" },
+    "simulator_ai_flight_layer": { "$ref": "#/$defs/aiLayer" },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_release_parity",
+        "same_audit_reference_parity",
+        "current_runtime_parity_proven",
+        "external_sim_rerun_performed",
+        "same_scenario_manifest",
+        "same_airframe_profile_identity",
+        "airframe_profile_sha256",
+        "policy_applied_to_actuator",
+        "truth_free",
+        "planner_revalidated",
+        "px4_mission_path_reused_by_shared_policy_layer",
+        "hil_real_evidence",
+        "outdoor_gnss_evidence",
+        "final_release_allowed"
+      ],
+      "properties": {
+        "same_release_parity": { "type": "boolean" },
+        "same_audit_reference_parity": { "const": true },
+        "current_runtime_parity_proven": { "type": "boolean" },
+        "external_sim_rerun_performed": { "const": false },
+        "same_scenario_manifest": { "const": true },
+        "same_airframe_profile_identity": { "const": true },
+        "airframe_profile_sha256": { "$ref": "#/$defs/sha256" },
+        "policy_applied_to_actuator": { "const": false },
+        "truth_free": { "const": true },
+        "planner_revalidated": { "const": true },
+        "px4_mission_path_reused_by_shared_policy_layer": { "const": true },
+        "hil_real_evidence": { "const": false },
+        "outdoor_gnss_evidence": { "const": false },
+        "final_release_allowed": { "const": false },
+        "shared_policy_runtime_parity_snapshot_verified": { "type": "boolean" },
+        "simulator_runtime_parity_snapshot_verified": { "type": "boolean" }
+      }
+    },
+    "safety_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "high_level_policy_controls_mission_selection_only",
+        "low_level_ai_flight_response_is_separately_evidenced",
+        "direct_policy_to_actuator_path",
+        "real_hardware_contacted",
+        "external_sim_cleanup_verified"
+      ],
+      "properties": {
+        "high_level_policy_controls_mission_selection_only": { "const": true },
+        "low_level_ai_flight_response_is_separately_evidenced": { "const": true },
+        "direct_policy_to_actuator_path": { "const": false },
+        "real_hardware_contacted": { "const": false },
+        "external_sim_cleanup_verified": { "const": true }
+      }
+    },
+    "receipt_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "file_sha256", "release_label", "hashes", "scope"],
+      "properties": {
+        "verified": { "const": true },
+        "path": { "type": "string", "minLength": 1 },
+        "scope": { "const": "receipt_generation_file_binding" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "release_label": { "type": "string", "minLength": 1 },
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core_algorithm_hash",
+            "px4_mission_path_hash",
+            "safety_policy_hash",
+            "task_contract_hash",
+            "ui_contract_hash"
+          ],
+          "properties": {
+            "core_algorithm_hash": { "$ref": "#/$defs/sha256" },
+            "px4_mission_path_hash": { "$ref": "#/$defs/sha256" },
+            "safety_policy_hash": { "$ref": "#/$defs/sha256" },
+            "task_contract_hash": { "$ref": "#/$defs/sha256" },
+            "ui_contract_hash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "policyLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "file_sha256",
+        "receipt_sha256",
+        "policy_artifact_sha256",
+        "ranker_sha256",
+        "scenario_id",
+        "scenario_manifest_sha256",
+        "airframe_profile_sha256",
+        "airframe_profile_id",
+        "airframe_model_name",
+        "airframe_vehicle_model",
+        "release_label",
+        "runtime_source_parity_verified"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "receipt_sha256": { "$ref": "#/$defs/sha256" },
+        "policy_artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "ranker_sha256": { "$ref": "#/$defs/sha256" },
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "scenario_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "airframe_profile_sha256": { "$ref": "#/$defs/sha256" },
+        "airframe_profile_id": { "type": "string", "minLength": 1 },
+        "airframe_model_name": { "type": "string", "minLength": 1 },
+        "airframe_vehicle_model": { "type": "string", "minLength": 1 },
+        "release_label": { "type": "string", "minLength": 1 },
+        "runtime_source_parity_verified": { "const": false },
+        "runtime_parity_snapshot_verified": { "type": "boolean" }
+      }
+    },
+    "aiLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "file_sha256",
+        "schema",
+        "scenario_id",
+        "scenario_manifest_sha256",
+        "airframe",
+        "flight_status",
+        "position_sample_count",
+        "minimum_horizontal_displacement_m",
+        "final_horizontal_displacement_m",
+        "maximum_horizontal_displacement_m",
+        "ai_steps",
+        "ai_policy_steps",
+        "target_updates_accepted",
+        "cleanup_verified",
+        "truth_free",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_flight_acceptance",
+        "visual_accuracy"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "schema": { "const": "multidetect.simulator-docker-acceptance" },
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "scenario_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "airframe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["airframe_profile_id", "model_name", "vehicle_model"],
+          "properties": {
+            "airframe_profile_id": { "type": "string", "minLength": 1 },
+            "model_name": { "type": "string", "minLength": 1 },
+            "vehicle_model": { "type": "string", "minLength": 1 }
+          }
+        },
+        "flight_status": { "const": "passed" },
+        "position_sample_count": { "type": "integer", "minimum": 1 },
+        "minimum_horizontal_displacement_m": { "type": "number", "minimum": 0 },
+        "final_horizontal_displacement_m": { "type": "number", "minimum": 0 },
+        "maximum_horizontal_displacement_m": { "type": "number", "minimum": 0 },
+        "ai_steps": { "type": "integer", "minimum": 0 },
+        "ai_policy_steps": { "type": "integer", "minimum": 0 },
+        "target_updates_accepted": { "type": "integer", "minimum": 0 },
+        "cleanup_verified": { "const": true },
+        "truth_free": { "const": true },
+        "hardware_acceptance": { "const": "not_claimed" },
+        "hil_acceptance": { "const": "not_claimed" },
+        "real_flight_acceptance": { "const": "not_claimed" },
+        "visual_accuracy": { "const": "not_claimed" },
+        "runtime_parity_snapshot_verified": { "type": "boolean" }
+      }
+    }
+  }
+}

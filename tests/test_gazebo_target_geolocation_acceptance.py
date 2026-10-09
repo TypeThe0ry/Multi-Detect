@@ -540,8 +540,21 @@ def _config(case: _Case) -> GazeboTargetGeolocationConfig:
     )
 
 
-def test_two_frame_camera_to_wgs84_gate_is_truth_isolated(tmp_path: Path) -> None:
+@pytest.mark.parametrize("qpc", [False, True])
+def test_two_frame_camera_to_wgs84_gate_is_truth_isolated(tmp_path: Path, qpc) -> None:
     case = _build_case(tmp_path)
+    if qpc:
+        from multidetect.clock import HighResolutionSystemClock
+
+        raw = json.loads(case.frame_set.read_text(encoding="utf-8"))
+        raw["captured_at_clock"] = "host_perf_counter"
+        raw["host_clock_identity"] = HighResolutionSystemClock(session_id="geolocation").identity()
+        for row in raw["frames"]:
+            row["provenance"]["captured_at_clock"] = raw["captured_at_clock"]
+            row["provenance"]["host_clock_identity"] = dict(raw["host_clock_identity"])
+        raw.pop("manifest_sha256")
+        raw["manifest_sha256"] = canonical_sha256(raw)
+        case.frame_set.write_text(json.dumps(raw), encoding="utf-8")
     detector = _FakeDetector(case.detection)
     factory_calls = 0
 

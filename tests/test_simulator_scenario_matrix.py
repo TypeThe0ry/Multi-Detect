@@ -148,13 +148,18 @@ def test_matrix_cover_faults_extends_budget_and_requires_every_event() -> None:
     assert result["gate_passed"] is True
     assert result["fault_coverage_required"] is True
     assert result["fault_coverage_auto_extended"] is True
+    assert result["fault_recovery_required"] is True
     assert result["requested_frames_before_fault_coverage"] == 2
-    assert result["requested_frames"] > 2
+    assert result["requested_frames"] == 1852
     coverage = result["scenarios"][0]["fault_coverage"]
     assert coverage["declared_event_count"] == 4
     assert coverage["fired_event_count"] == 4
     assert coverage["all_declared_faults_exercised"] is True
     assert coverage["uncovered_event_ids"] == []
+    recovery = result["scenarios"][0]["fault_recovery"]
+    assert recovery["all_finite_faults_recovered"] is True
+    assert recovery["recovered_event_count"] == 4
+    assert recovery["unrecovered_event_ids"] == []
 
 
 def test_matrix_fault_coverage_requirement_fails_closed_when_budget_is_short() -> None:

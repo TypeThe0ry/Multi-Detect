@@ -921,6 +921,12 @@ def _verify_frame_set(
     without_hash.pop("manifest_sha256", None)
     if canonical_sha256(without_hash) != manifest_sha:
         raise GazeboTargetGeolocationInputError("frame-set canonical SHA-256 is invalid")
+    from .backends.gazebo_sim import validate_frame_set_clock
+
+    try:
+        validate_frame_set_clock(raw)
+    except (TypeError, ValueError) as exc:
+        raise GazeboTargetGeolocationInputError(f"frame-set clock: {exc}") from exc
     if raw.get("scenario_id") != scenario_id:
         raise GazeboTargetGeolocationInputError("frame-set scenario_id does not match scenario")
     if raw.get("scenario_manifest_hash") != scenario_manifest_hash:
@@ -1114,7 +1120,6 @@ def _verify_frame_set(
             or provenance.get("pixel_format") != "BGR24"
             or provenance.get("frame_id") != frame_id
             or provenance.get("sequence") != index
-            or provenance.get("captured_at_clock") != "host_monotonic"
             or provenance.get("payload_sha256") != payload_sha
         ):
             raise GazeboTargetGeolocationInputError(

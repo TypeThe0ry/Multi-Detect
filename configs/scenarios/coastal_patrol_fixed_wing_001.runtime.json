@@ -24,6 +24,12 @@
       "calibration_id": "gazebo-fixed-wing-front-camera-v1"
     },
     {
+      "sensor_id": "forward-depth",
+      "kind": "depth_camera",
+      "stream_uri": "gazebo://coastal_patrol_fixed_wing_001/forward-depth",
+      "calibration_id": "gazebo-fixed-wing-depth-v1"
+    },
+    {
       "sensor_id": "px4-telemetry",
       "kind": "mavlink_telemetry",
       "stream_uri": "udp://127.0.0.1:14541"

@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task": {
+        "schema_version": 1,
+        "task_id": "synthetic-east",
+        "task_type": "corridor_visual_search",
+        "geometry": {
+          "kind": "runtime-derived-live-gps-corridor",
+          "resolved_feature_id": "explicit-synthetic-route",
+          "direction": "north_then_east_then_live_home",
+          "length_m": 238.99492573714514,
+          "buffer_m": 40,
+          "centerline": [
+            {
+              "latitude_deg": 1.3,
+              "longitude_deg": 103.8005
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.8005,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.80112968633,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3,
+              "longitude_deg": 103.8005,
+              "altitude_m": 0,
+              "altitude_reference": "relative_home"
+            }
+          ],
+          "resolution_confidence": 1
+        },
+        "target_classes": [
+          "simulated_search_subject"
+        ],
+        "on_detection": [
+          "capture_evidence",
+          "report_geolocation"
+        ],
+        "constraints": {
+          "minimum_return_battery_pct": 5,
+          "maximum_duration_s": 600,
+          "remain_inside_geofence": true
+        },
+        "completion_action": "land",
+        "unresolved_assumptions": []
+      },
+      "priority": 10,
+      "runtime": {
+        "schema_version": 1,
+        "home_position": {
+          "latitude_deg": 1.3,
+          "longitude_deg": 103.8005
+        },
+        "mission_geometry": {
+          "waypoints": [
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.8005,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.80112968633,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            }
+          ],
+          "takeoff_altitude_m": 20,
+          "loiter_time_s": 5,
+          "loiter_radius_m": 30,
+          "acceptance_radius_m": 8,
+          "landing": {
+            "latitude_deg": 1.3,
+            "longitude_deg": 103.8005,
+            "altitude_m": 0,
+            "altitude_reference": "relative_home"
+          }
+        },
+        "safety_policy": {
+          "geofence_center": {
+            "latitude_deg": 1.3,
+            "longitude_deg": 103.8005
+          },
+          "geofence_radius_m": 350,
+          "allowed_airframe_profile_ids": [
+            "px4_vtol_gazebo_v1"
+          ],
+          "minimum_relative_altitude_m": 10,
+          "maximum_relative_altitude_m": 60,
+          "maximum_mission_radius_m": 250,
+          "maximum_loiter_radius_m": 60,
+          "maximum_loiter_time_s": 30,
+          "maximum_landing_offset_m": 5,
+          "home_match_tolerance_m": 1,
+          "maximum_items": 64
+        }
+      }
+    },
+    {
+      "task": {
+        "schema_version": 1,
+        "task_id": "synthetic-west",
+        "task_type": "corridor_visual_search",
+        "geometry": {
+          "kind": "runtime-derived-live-gps-corridor",
+          "resolved_feature_id": "explicit-synthetic-route",
+          "direction": "north_then_west_then_home",
+          "length_m": 238.99492573714514,
+          "buffer_m": 40,
+          "centerline": [
+            {
+              "latitude_deg": 1.3,
+              "longitude_deg": 103.8005
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.8005,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.79987031367,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3,
+              "longitude_deg": 103.8005,
+              "altitude_m": 0,
+              "altitude_reference": "relative_home"
+            }
+          ],
+          "resolution_confidence": 1
+        },
+        "target_classes": [
+          "simulated_search_subject"
+        ],
+        "on_detection": [
+          "capture_evidence",
+          "report_geolocation"
+        ],
+        "constraints": {
+          "minimum_return_battery_pct": 5,
+          "maximum_duration_s": 600,
+          "remain_inside_geofence": true
+        },
+        "completion_action": "land",
+        "unresolved_assumptions": []
+      },
+      "priority": 1,
+      "runtime": {
+        "schema_version": 1,
+        "home_position": {
+          "latitude_deg": 1.3,
+          "longitude_deg": 103.8005
+        },
+        "mission_geometry": {
+          "waypoints": [
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.8005,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            },
+            {
+              "latitude_deg": 1.3006295242546073,
+              "longitude_deg": 103.79987031367,
+              "altitude_m": 25,
+              "altitude_reference": "relative_home"
+            }
+          ],
+          "takeoff_altitude_m": 20,
+          "loiter_time_s": 5,
+          "loiter_radius_m": 30,
+          "acceptance_radius_m": 8,
+          "landing": {
+            "latitude_deg": 1.3,
+            "longitude_deg": 103.8005,
+            "altitude_m": 0,
+            "altitude_reference": "relative_home"
+          }
+        },
+        "safety_policy": {
+          "geofence_center": {
+            "latitude_deg": 1.3,
+            "longitude_deg": 103.8005
+          },
+          "geofence_radius_m": 350,
+          "allowed_airframe_profile_ids": [
+            "px4_vtol_gazebo_v1"
+          ],
+          "minimum_relative_altitude_m": 10,
+          "maximum_relative_altitude_m": 60,
+          "maximum_mission_radius_m": 250,
+          "maximum_loiter_radius_m": 60,
+          "maximum_loiter_time_s": 30,
+          "maximum_landing_offset_m": 5,
+          "home_match_tolerance_m": 1,
+          "maximum_items": 64
+        }
+      }
+    }
+  ],
+  "ranker": {
+    "schema_version": 1,
+    "extension": "linear-feasible-task-ranker-v1",
+    "base": "shared-planner-baseline-v1",
+    "provenance": "explicit zero-coefficient shared-planner baseline; no pretrained perception weights replaced",
+    "coefficients": {
+      "priority": 0.0,
+      "total_distance_m": 0.0,
+      "estimated_duration_s": 0.0
+    }
+  },
+  "prompt": {
+    "schema_version": 1,
+    "prompt_id": "prompt-vtol-shared-policy-east-west-v1",
+    "text": "Execute the approved bounded VTOL visual-search routes, report detections, and land at live GPS home.",
+    "language": "en",
+    "issued_at": "2026-10-04T00:00:00Z",
+    "operator_id": "operator-sim-acceptance",
+    "aircraft_id": "px4_vtol_gazebo_v1"
+  }
+}
+

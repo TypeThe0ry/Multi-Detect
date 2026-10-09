@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/mission-replacement-receipt.schema.json",
+  "title": "Multi-Detect fail-closed in-flight Mission replacement receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "binding",
+    "binding_sha256",
+    "parent_state_required",
+    "state",
+    "terminal",
+    "records",
+    "journal",
+    "mission_replacement_used",
+    "policy_applied_to_actuator",
+    "truth_free"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "contract": { "const": "multidetect.mission-replacement-receipt" },
+    "binding": { "$ref": "#/$defs/binding" },
+    "binding_sha256": { "$ref": "#/$defs/sha256" },
+    "parent_state_required": { "const": "start_permitted" },
+    "state": { "type": "string" },
+    "terminal": { "type": "boolean" },
+    "records": { "type": "array", "items": { "type": "object" } },
+    "journal": { "type": "object" },
+    "mission_replacement_used": { "const": true },
+    "policy_applied_to_actuator": { "const": false },
+    "recovery_required": { "type": "boolean" },
+    "recovery_reason": { "type": ["string", "null"] },
+    "truth_free": { "const": true }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "contract",
+        "replacement_id",
+        "parent_transaction_id",
+        "parent_mission_sha256",
+        "event_sha256",
+        "context_sha256",
+        "new_mission_sha256",
+        "new_protocol_sha256",
+        "airframe_profile_sha256",
+        "parent_journal_sha256",
+        "observed_current_sequence",
+        "resume_sequence",
+        "source_system",
+        "source_component",
+        "reason",
+        "truth_free"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "contract": { "const": "multidetect.mission-replacement-binding" },
+        "replacement_id": { "type": "string", "minLength": 1 },
+        "parent_transaction_id": { "type": "string", "minLength": 1 },
+        "parent_mission_sha256": { "$ref": "#/$defs/sha256" },
+        "event_sha256": { "$ref": "#/$defs/sha256" },
+        "context_sha256": { "$ref": "#/$defs/sha256" },
+        "new_mission_sha256": { "$ref": "#/$defs/sha256" },
+        "new_protocol_sha256": { "$ref": "#/$defs/sha256" },
+        "airframe_profile_sha256": { "$ref": "#/$defs/sha256" },
+        "parent_journal_sha256": { "$ref": "#/$defs/sha256" },
+        "observed_current_sequence": { "type": "integer", "minimum": 0 },
+        "resume_sequence": { "type": "integer", "minimum": 1 },
+        "source_system": { "const": 1 },
+        "source_component": { "const": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "parent_protocol_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "policy_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "ranker_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "planner_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "safety_policy_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "release_parity_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "truth_free": { "const": true }
+      }
+    }
+  }
+}

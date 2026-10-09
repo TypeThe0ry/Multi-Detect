@@ -179,17 +179,63 @@ class VehicleSpawnPose:
 
 
 @dataclass(frozen=True, slots=True)
+class VehicleEnergyProfile:
+    """Runtime-visible energy assumptions; never evaluator-only target truth."""
+
+    capacity_wh: float
+    avionics_power_w: float
+    propulsion_max_power_w: float
+    provenance: str
+
+    def __post_init__(self) -> None:
+        for name in ("capacity_wh", "avionics_power_w", "propulsion_max_power_w"):
+            object.__setattr__(self, name, require_real(getattr(self, name), name, minimum=0))
+        if self.capacity_wh <= 0 or self.avionics_power_w + self.propulsion_max_power_w <= 0:
+            raise AutonomyContractError("positive capacity and total power required")
+        object.__setattr__(self, "provenance", require_text(self.provenance, "provenance"))
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> VehicleEnergyProfile:
+        value = strict_object(
+            raw,
+            name="VehicleEnergyProfile",
+            required=frozenset(
+                {
+                    "capacity_wh",
+                    "avionics_power_w",
+                    "propulsion_max_power_w",
+                    "provenance",
+                }
+            ),
+        )
+        return cls(**value)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "capacity_wh": self.capacity_wh,
+            "avionics_power_w": self.avionics_power_w,
+            "propulsion_max_power_w": self.propulsion_max_power_w,
+            "provenance": self.provenance,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class VehicleRuntimeInput:
     model: str
     airframe_profile_id: str
     spawn_id: str
     spawn_pose: VehicleSpawnPose | None = None
+    energy_profile: VehicleEnergyProfile | None = None
 
     def __post_init__(self) -> None:
         for name in ("model", "airframe_profile_id", "spawn_id"):
             object.__setattr__(self, name, require_text(getattr(self, name), name))
         if self.spawn_pose is not None and not isinstance(self.spawn_pose, VehicleSpawnPose):
             raise AutonomyContractError("spawn_pose must be VehicleSpawnPose or None")
+        if self.energy_profile is not None and not isinstance(
+            self.energy_profile, VehicleEnergyProfile
+        ):
+            raise AutonomyContractError("energy_profile must be VehicleEnergyProfile or None")
 
     @classmethod
     def from_mapping(cls, raw: object) -> VehicleRuntimeInput:
@@ -197,12 +243,17 @@ class VehicleRuntimeInput:
             raw,
             name="VehicleRuntimeInput",
             required=frozenset({"model", "airframe_profile_id", "spawn_id"}),
-            optional=frozenset({"spawn_pose"}),
+            optional=frozenset({"spawn_pose", "energy_profile"}),
         )
         return cls(
             model=require_text(value["model"], "model"),
             airframe_profile_id=require_text(value["airframe_profile_id"], "airframe_profile_id"),
             spawn_id=require_text(value["spawn_id"], "spawn_id"),
+            energy_profile=(
+                VehicleEnergyProfile.from_mapping(value["energy_profile"])
+                if "energy_profile" in value
+                else None
+            ),
             spawn_pose=(
                 VehicleSpawnPose.from_mapping(value["spawn_pose"])
                 if "spawn_pose" in value
@@ -218,6 +269,8 @@ class VehicleRuntimeInput:
         }
         if self.spawn_pose is not None:
             result["spawn_pose"] = self.spawn_pose.to_mapping()
+        if self.energy_profile is not None:
+            result["energy_profile"] = self.energy_profile.to_mapping()
         return result
 
 

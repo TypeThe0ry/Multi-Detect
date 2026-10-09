@@ -17,7 +17,11 @@ def test_docker_recovery_script_is_explicit_and_read_only_by_default() -> None:
     assert "[switch]$Apply" in text
     assert "[switch]$RemoveStaleEntry" in text
     assert "[switch]$RotateRunDirectory" in text
+    assert "[switch]$RotateTargetDirectory" in text
+    assert "[string]$EntryPath" in text
     assert "[switch]$RestartDocker" in text
+    assert "[string]$EntryName = 'dockerInference'" in text
+    assert "sailor-ingest.sock" in text
     assert "if (-not $Apply)" in text
     assert "Read-only mode: no process, reparse point, or Docker data was changed." in text
     assert "Docker Desktop is still running" in text
@@ -28,10 +32,11 @@ def test_docker_recovery_script_is_explicit_and_read_only_by_default() -> None:
 def test_docker_recovery_targets_only_the_confirmed_docker_inference_entry() -> None:
     text = _read_script()
 
-    assert "$entryName = 'dockerInference'" in text
+    assert "$selectedEntryName = $EntryName" in text
     assert "[Environment]::GetFolderPath('LocalApplicationData')" in text
     assert "Join-Path $localAppData 'Docker\\run'" in text
-    assert "[IO.Path]::GetFullPath((Join-Path $runRoot $entryName))" in text
+    assert "[IO.Path]::GetFullPath((Join-Path $runRoot $selectedEntryName))" in text
+    assert "Refusing a recovery target outside LocalApplicationData" in text
     assert "[IO.FileAttributes]::ReparsePoint" in text
     assert "Unexpected parent directory for recovery target" in text
     assert "Remove-Item -LiteralPath $runRoot" not in text
@@ -54,7 +59,9 @@ def test_restart_is_hidden_and_only_available_after_apply() -> None:
     text = _read_script()
 
     assert (
-        "if (-not $Apply -and ($RemoveStaleEntry -or $RotateRunDirectory -or $RestartDocker))"
+        "if (-not $Apply -and ("
+        "$RemoveStaleEntry -or $RotateRunDirectory -or "
+        "$RotateTargetDirectory -or $RestartDocker))"
     ) in text
     assert "if ($RestartDocker)" in text
     assert "Start-Process -FilePath $dockerDesktop -WindowStyle Hidden" in text
@@ -63,9 +70,11 @@ def test_restart_is_hidden_and_only_available_after_apply() -> None:
 def test_runtime_directory_rotation_is_reversible_and_does_not_delete_data() -> None:
     text = _read_script()
 
-    assert "run-recovery-backup-$stamp" in text
-    assert "Move-Item -LiteralPath $runRoot -Destination $backupRoot -Force" in text
-    assert "New-Item -ItemType Directory -Path $runRoot -Force" in text
+    assert '"$rotationName-recovery-backup-$stamp"' in text
+    assert "Move-Item -LiteralPath $targetRoot -Destination $backupRoot -Force" in text
+    assert "New-Item -ItemType Directory -Path $targetRoot -Force" in text
+    assert '"$rotationName-recovery-backup-$stamp"' in text
+    assert "RotateTargetDirectory" in text
     assert "Preserved entries:" in text
     assert "Remove-Item -LiteralPath $runRoot" not in text
     assert "wsl --unregister" not in text

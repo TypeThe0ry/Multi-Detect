@@ -35,6 +35,8 @@ from multidetect.operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PolicyRuntimeAction,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeBackendHealth,
@@ -391,6 +393,41 @@ def test_range_status_weight_quantization_preserves_tiny_contribution_budget() -
     assert len(decoded.source_contributions) == 2
     assert all(item.weight > 0.0 for item in decoded.source_contributions)
     assert sum(item.weight for item in decoded.source_contributions) <= 1.0
+
+
+def test_range_status_round_trip_accepts_gazebo_depth_source() -> None:
+    status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=105,
+        target_id="target-gazebo-depth",
+        calibration_id="gazebo-multirotor-depth-v1",
+        source_frame_id="gazebo-sim-000010",
+        source_captured_at_s=1_000.20,
+        produced_at_s=1_000.25,
+        validity=RangeValidity.VALID,
+        reasons=("multimodal_range_consistent",),
+        sources=("gazebo_depth",),
+        rejected_sources=(),
+        slant_range_m=42.0,
+        data_freshness_s=0.05,
+        sensor_consistency=0.98,
+        source_contributions=(
+            RangeSourceContribution(
+                source="gazebo_depth",
+                range_m=42.0,
+                sigma_m=1.5,
+                weight=1.0,
+                freshness_s=0.05,
+            ),
+        ),
+    )
+
+    decoded = _codec().decode(_codec().encode_range_status(status)).message
+
+    assert isinstance(decoded, RangeStatusMessage)
+    assert decoded.sources == ("gazebo_depth",)
+    assert decoded.source_contributions[0].source == "gazebo_depth"
+    assert decoded.source_contributions[0].range_m == pytest.approx(42.0)
 
 
 def test_range_status_round_trip_supports_geometry_uncertainty_bit_31() -> None:
@@ -1183,6 +1220,66 @@ def test_runtime_status_acceptance_ack_round_trip_and_golden_vector() -> None:
         "4d4401180000000000750000000000018aa1000c000000740123456789abcdef"
         "4cd881cb1e13f077518cd60dd837383e"
     )
+
+
+def test_policy_runtime_status_round_trip_is_display_only_and_bounded() -> None:
+    status = PolicyRuntimeStatusMessage(
+        sequence=118,
+        action=PolicyRuntimeAction.SELECT,
+        selected_task_hash64=0x0102030405060708,
+        policy_artifact_hash64=0x1112131415161718,
+        ranker_hash64=0x2122232425262728,
+        plan_hash64=0x3132333435363738,
+        executable_mission_hash64=0x4142434445464748,
+        wire_hash64=0x5152535455565758,
+        context_hash64=0x6162636465666768,
+        airframe_profile_hash64=0x7172737475767778,
+        reason_hash64=0x8182838485868788,
+        planner_revalidated=True,
+        mission_bound=True,
+        mission_started=False,
+        policy_applied_to_actuator=False,
+        truth_free=True,
+        produced_at_s=101.03,
+    )
+
+    encoded = _codec().encode_policy_runtime_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 112
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.POLICY_RUNTIME_STATUS
+    assert decoded.sequence == 118
+    assert decoded.message == status
+
+
+def test_policy_runtime_status_abstain_cannot_bind_or_control() -> None:
+    status = PolicyRuntimeStatusMessage(
+        sequence=119,
+        action=PolicyRuntimeAction.ABSTAIN,
+        selected_task_hash64=None,
+        policy_artifact_hash64=None,
+        ranker_hash64=None,
+        plan_hash64=None,
+        executable_mission_hash64=None,
+        wire_hash64=None,
+        context_hash64=1,
+        airframe_profile_hash64=2,
+        reason_hash64=3,
+        planner_revalidated=False,
+        mission_bound=False,
+        mission_started=False,
+        policy_applied_to_actuator=False,
+        truth_free=True,
+        produced_at_s=101.04,
+    )
+
+    decoded = _codec().decode(_codec().encode_policy_runtime_status(status))
+    assert decoded.message_type is WireMessageType.POLICY_RUNTIME_STATUS
+    assert decoded.message == status
+
+    with pytest.raises(ValueError, match="cannot start a mission"):
+        replace(status, mission_started=True)
 
 
 def test_runtime_status_acceptance_ack_rejects_mutation_and_zero_run_hash() -> None:

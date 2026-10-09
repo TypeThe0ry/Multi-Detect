@@ -18,17 +18,31 @@ import os
 import re
 import struct
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 from threading import RLock, Thread
 from typing import BinaryIO
 
+try:  # Repository imports and pytest namespace-package execution.
+    from scripts.gazebo_depth_wire import (
+        GazeboDepthWireError,
+        GazeboDepthWireFrame,
+        read_depth_wire_frame,
+    )
+except ModuleNotFoundError:  # ``python scripts/run_simulator_docker_acceptance.py``.
+    from gazebo_depth_wire import (  # type: ignore[no-redef]
+        GazeboDepthWireError,
+        GazeboDepthWireFrame,
+        read_depth_wire_frame,
+    )
+
 from ..adaptive_ranging import assess_gps_quality
 from ..autonomy.serialization import canonical_sha256, require_int, require_real, require_sha256
-from ..clock import Clock, SystemClock
+from ..clock import Clock, HighResolutionSystemClock, SystemClock, validate_host_identity
 from ..domain import VehicleTelemetry
-from ..multimodal_ranging import CameraCalibration
+from ..gazebo_depth import GazeboDepthFrame, resolve_declared_gazebo_depth_sensor
+from ..multimodal_ranging import CameraCalibration, DirectRangeMeasurement
 from ..runtime import RuntimeCapability, RuntimeDescriptor, RuntimeMode, RuntimeProfile
 from ..simulation.runtime_input import ScenarioRuntimeInput
 from ..terrain_dem import (
@@ -73,10 +87,33 @@ GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE = "gazebo_odometry_covariance_with_config
 GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG = 0.3
 GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG = 0.3
 GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG = 1.0
+GAZEBO_SIM_FAULT_SOURCES = ("image", "navsat", "odometry")
+GAZEBO_DEPTH_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/depth_image"
 
 _SAFE_CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _SAFE_GAZEBO_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _MAX_STDERR_BYTES = 64 * 1024
+_MAX_FAULT_STDERR_BYTES = 16 * 1024 * 1024
+
+
+def _validate_fault_window(
+    fault_source: str | None,
+    fault_start_image: int,
+    fault_duration_images: int,
+) -> tuple[str | None, int, int]:
+    """Validate the explicit, bounded external-SIM source fault window."""
+
+    if fault_source is None:
+        if fault_start_image != 0 or fault_duration_images != 0:
+            raise ValueError("fault window options require fault_source")
+        return None, 0, 0
+    if fault_source not in GAZEBO_SIM_FAULT_SOURCES:
+        raise ValueError(
+            "fault_source must be one of: " + ", ".join(GAZEBO_SIM_FAULT_SOURCES)
+        )
+    start = require_int(fault_start_image, "fault_start_image", minimum=1)
+    duration = require_int(fault_duration_images, "fault_duration_images", minimum=1)
+    return fault_source, start, duration
 
 
 def _gazebo_sensor_topics(
@@ -95,6 +132,15 @@ def _gazebo_sensor_topics(
         f"/world/{world}/model/{model_instance}/link/base_link/sensor/navsat_sensor/navsat",
         f"/model/{model_instance}/odometry_with_covariance",
     )
+
+
+def _gazebo_depth_topic(*, world: str, model_instance: str) -> str:
+    """Derive the exact scoped topic emitted by the co-located depth sensor."""
+
+    for value, name in ((world, "world"), (model_instance, "model_instance")):
+        if _SAFE_GAZEBO_NAME.fullmatch(value) is None:
+            raise ValueError(f"{name} contains unsupported characters")
+    return f"/world/{world}/model/{model_instance}{GAZEBO_DEPTH_TOPIC_SUFFIX}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +324,38 @@ class GazeboSimFrameTelemetryProvenance:
         return asdict(self)
 
 
+def validate_frame_set_clock(document: Mapping[str, object]) -> None:
+    """Bind every frame to the manifest domain, without claiming clock synchronization.
+
+    Call after checking the manifest hash. The hash provides integrity, not
+    source authentication; parent capture acceptance must bind its own clock.
+    """
+    label = document.get("captured_at_clock", "host_monotonic")
+    legacy = {"source": "python.monotonic", "session_id": None}
+    if label == "host_perf_counter":
+        expected = validate_host_identity(document.get("host_clock_identity"))
+    elif label == "host_monotonic":
+        expected = legacy
+        if document.get("host_clock_identity", legacy) != legacy:
+            raise ValueError("frame-set legacy clock identity is contradictory")
+    else:
+        raise ValueError("frame-set capture clock is unsupported")
+    frames = document.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise ValueError("frame-set clock requires nonempty frames")
+    for row in frames:
+        provenance = row.get("provenance") if isinstance(row, Mapping) else None
+        if not isinstance(provenance, Mapping) or provenance.get("captured_at_clock") != label:
+            raise ValueError("frame-set contains mixed or missing capture clocks")
+        actual = (
+            validate_host_identity(provenance.get("host_clock_identity"))
+            if label == "host_perf_counter"
+            else provenance.get("host_clock_identity", legacy)
+        )
+        if actual != expected:
+            raise ValueError("frame-set capture clock identity mismatch")
+
+
 @dataclass(frozen=True, slots=True)
 class GazeboSimFrameProvenance:
     """Immutable, pixel-free provenance for one accepted wire-v3 frame.
@@ -310,17 +388,47 @@ class GazeboSimFrameProvenance:
     wire_unsigned_header_hex: str | None = None
     wire_telemetry: GazeboSimWireTelemetryProvenance | None = None
     frame_telemetry: GazeboSimFrameTelemetryProvenance | None = None
+    host_clock_identity: tuple[tuple[str, str | int | bool], ...] | None = None
+    depth_record_sha256: str | None = None
+    depth_payload_sha256: str | None = None
+    depth_source_stamp_ns: int | None = None
+    depth_source_skew_ns: int | None = None
+    depth_topic: str | None = None
+    depth_calibration_id: str | None = None
+    depth_calibration_sha256: str | None = None
+    depth_geometry: tuple[int, int, int] | None = None
+    depth_encoding: str | None = None
+    depth_distance_semantics: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
         """Return a JSON-ready copy without exposing mutable source state."""
 
         result = asdict(self)
+        if self.host_clock_identity is not None:
+            result["host_clock_identity"] = dict(self.host_clock_identity)
         if self.wire_telemetry is not None:
             result["wire_telemetry"] = self.wire_telemetry.to_mapping()
+        if self.depth_geometry is not None:
+            # Keep the in-memory record identical to the JSON representation
+            # used by the sealed frame-set manifest.  ``asdict`` preserves the
+            # tuple, while JSON reloads it as a list; strict manifest binding
+            # must not reject an otherwise unchanged depth geometry record.
+            result["depth_geometry"] = list(self.depth_geometry)
         for optional_field in (
             "wire_unsigned_header_hex",
             "wire_telemetry",
             "frame_telemetry",
+            "host_clock_identity",
+            "depth_record_sha256",
+            "depth_payload_sha256",
+            "depth_source_stamp_ns",
+            "depth_source_skew_ns",
+            "depth_topic",
+            "depth_calibration_id",
+            "depth_calibration_sha256",
+            "depth_geometry",
+            "depth_encoding",
+            "depth_distance_semantics",
         ):
             if result[optional_field] is None:
                 result.pop(optional_field)
@@ -357,6 +465,16 @@ class GazeboSimTransportStats:
     simulated_satellites_visible: int = 12
     simulated_gps_horizontal_accuracy_m: float = 1.5
     simulated_gps_vertical_accuracy_m: float = 2.5
+    fault_injection_enabled: bool = False
+    fault_source: str | None = None
+    fault_start_image: int | None = None
+    fault_duration_images: int = 0
+    fault_diagnostic: dict[str, object] | None = None
+    depth_enabled: bool = False
+    depth_companion_count: int = 0
+    depth_topic: str | None = None
+    depth_calibration_id: str | None = None
+    depth_calibration_sha256: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
         return asdict(self)
@@ -861,6 +979,10 @@ class GazeboSimFrameSource:
         timeout_s: float = 60.0,
         expected_width: int = 1280,
         expected_height: int = 960,
+        fault_source: str | None = None,
+        fault_start_image: int = 0,
+        fault_duration_images: int = 0,
+        depth_contract: Mapping[str, object] | None = None,
         popen_factory: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
     ) -> None:
         docker = Path(docker_executable)
@@ -895,11 +1017,79 @@ class GazeboSimFrameSource:
         self.camera_info_topic = camera_info_topic
         self.navsat_topic = navsat_topic
         self.odometry_topic = odometry_topic
+        self.depth_contract = None if depth_contract is None else dict(depth_contract)
+        if self.depth_contract is not None:
+            required_depth_fields = {
+                "sensor_id",
+                "source_topic",
+                "calibration_id",
+                "calibration_sha256",
+                "registration_mode",
+                "coordinate_space",
+                "encoding",
+                "distance_semantics",
+                "width",
+                "height",
+                "minimum_depth_m",
+                "maximum_depth_m",
+                "fx_px",
+                "fy_px",
+                "cx_px",
+                "cy_px",
+            }
+            if set(self.depth_contract) != required_depth_fields:
+                raise ValueError("depth contract has an invalid field set")
+            expected_depth_topic = _gazebo_depth_topic(
+                world=world,
+                model_instance=model_instance,
+            )
+            if self.depth_contract["source_topic"] != expected_depth_topic:
+                raise ValueError("depth contract topic does not match world/model binding")
+            if self.depth_contract["registration_mode"] != "registered_to_rgb":
+                raise ValueError("Gazebo SIM depth must be registered_to_rgb")
+            if self.depth_contract["coordinate_space"] != "rgb_pixel_aligned":
+                raise ValueError("Gazebo SIM depth must be RGB pixel aligned")
+            if self.depth_contract["encoding"] != "FLOAT32_M":
+                raise ValueError("Gazebo SIM depth currently requires FLOAT32_M")
+            if self.depth_contract["distance_semantics"] != "optical_axis_z_m":
+                raise ValueError("Gazebo SIM depth currently requires optical_axis_z_m")
+            if (self.depth_contract["width"], self.depth_contract["height"]) != (
+                expected_width,
+                expected_height,
+            ):
+                raise ValueError("depth contract geometry does not match RGB wire geometry")
+            self.depth_topic = expected_depth_topic
+            self.depth_sensor_id = str(self.depth_contract["sensor_id"])
+            self.depth_calibration_id = str(self.depth_contract["calibration_id"])
+            self.depth_calibration_sha256 = require_sha256(
+                str(self.depth_contract["calibration_sha256"]),
+                "depth_calibration_sha256",
+            )
+        else:
+            self.depth_topic = None
+            self.depth_sensor_id = None
+            self.depth_calibration_id = None
+            self.depth_calibration_sha256 = None
         self.topic_binding_sha256 = require_sha256(topic_binding_sha256, "topic_binding_sha256")
         self.sensor_binding_sha256 = require_sha256(sensor_binding_sha256, "sensor_binding_sha256")
         self.frame_count = require_int(frame_count, "frame_count", minimum=1)
         self.expected_width = require_int(expected_width, "expected_width", minimum=1)
         self.expected_height = require_int(expected_height, "expected_height", minimum=1)
+        (
+            self.fault_source,
+            self.fault_start_image,
+            self.fault_duration_images,
+        ) = _validate_fault_window(
+            fault_source,
+            fault_start_image,
+            fault_duration_images,
+        )
+        self.fault_injection_enabled = self.fault_source is not None
+        self._stderr_limit = (
+            min(_MAX_FAULT_STDERR_BYTES, _MAX_STDERR_BYTES + (self.frame_count * 1024))
+            if self.fault_injection_enabled
+            else _MAX_STDERR_BYTES
+        )
         self.timeout_s = require_real(timeout_s, "timeout_s", minimum=0.001)
         if not isinstance(telemetry_provider, GazeboSimTelemetryProvider):
             raise TypeError("telemetry_provider must be GazeboSimTelemetryProvider")
@@ -948,6 +1138,20 @@ class GazeboSimFrameSource:
                 separators=(",", ":"),
             ),
         )
+        if self.depth_contract is not None:
+            self._command += (
+                "--depth-contract-json",
+                json.dumps(self.depth_contract, sort_keys=True, separators=(",", ":")),
+            )
+        if self.fault_injection_enabled:
+            self._command += (
+                "--fault-source",
+                self.fault_source,
+                "--fault-start-image",
+                str(self.fault_start_image),
+                "--fault-duration-images",
+                str(self.fault_duration_images),
+            )
         self._popen_factory = popen_factory
         self._process: subprocess.Popen[bytes] | None = None
         self._stderr_thread: Thread | None = None
@@ -958,6 +1162,8 @@ class GazeboSimFrameSource:
         self._last_sensor_stamp_ns: int | None = None
         self._payload_bytes = 0
         self._frame_provenance: list[GazeboSimFrameProvenance] = []
+        self._depth_frames: dict[str, GazeboDepthFrame] = {}
+        self._depth_companion_count = 0
         self._helper_exit_code: int | None = None
         self._opened = False
         self._closed = False
@@ -979,6 +1185,37 @@ class GazeboSimFrameSource:
         if not self._frame_provenance:
             raise RuntimeError("Gazebo SIM frame provenance is not ready")
         return self._frame_provenance[-1]
+
+    @property
+    def latest_depth_frame(self) -> GazeboDepthFrame | None:
+        """Return the validated depth side-channel for the latest RGB frame."""
+
+        if not self._frame_provenance:
+            return None
+        return self._depth_frames.get(self._frame_provenance[-1].frame_id)
+
+    def depth_measurement_for(
+        self,
+        *,
+        target_id: str,
+        bbox: tuple[float, float, float, float],
+        frame_id: str,
+        minimum_valid_pixels: int = 16,
+    ) -> DirectRangeMeasurement | None:
+        """Sample only the depth companion bound to the exact RGB frame."""
+
+        if self.depth_contract is None:
+            return None
+        depth = self._depth_frames.get(frame_id)
+        if depth is None:
+            return None
+        if depth.frame_id != frame_id:
+            return None
+        return depth.sample_target(
+            target_id=target_id,
+            bbox=bbox,
+            minimum_valid_pixels=minimum_valid_pixels,
+        ).measurement()
 
     def open(self) -> None:
         if self._closed:
@@ -1016,6 +1253,20 @@ class GazeboSimFrameSource:
                 expected_height=self.expected_height,
                 previous_sensor_stamp_ns=self._last_sensor_stamp_ns,
             )
+            depth_wire: GazeboDepthWireFrame | None = None
+            if self.depth_contract is not None:
+                try:
+                    depth_wire = read_depth_wire_frame(
+                        stdout,
+                        expected_sequence=wire.sequence,
+                        expected_rgb_sensor_stamp_ns=wire.sensor_stamp_ns,
+                        expected_rgb_record_sha256=wire.record_sha256,
+                        expected_source_topic=self.depth_topic,
+                        expected_calibration_id=self.depth_calibration_id,
+                        expected_calibration_sha256=self.depth_calibration_sha256,
+                    )
+                except GazeboDepthWireError as exc:
+                    raise RuntimeError(f"Gazebo depth companion rejected: {exc}") from exc
         except RuntimeError as exc:
             # A helper can close stdout before ``poll`` observes its exit.  In
             # that race the wire reader reports only EOF and the diagnostic
@@ -1049,6 +1300,31 @@ class GazeboSimFrameSource:
             (wire.height, wire.width, 3)
         )
         captured_at_s = self.clock.monotonic()
+        depth_frame: GazeboDepthFrame | None = None
+        if depth_wire is not None:
+            metadata = depth_wire.metadata
+            depth_frame = GazeboDepthFrame(
+                sensor_id=str(self.depth_sensor_id),
+                calibration_id=depth_wire.calibration_id,
+                frame_id=f"gazebo-sim-{wire.sequence:06d}",
+                source_topic=depth_wire.source_topic,
+                width=depth_wire.width,
+                height=depth_wire.height,
+                stride_bytes=depth_wire.stride_bytes,
+                encoding=depth_wire.encoding,
+                payload=depth_wire.payload,
+                payload_sha256=hashlib.sha256(depth_wire.payload).hexdigest(),
+                source_stamp_ns=depth_wire.source_stamp_ns,
+                frame_sensor_stamp_ns=wire.sensor_stamp_ns,
+                captured_at_s=captured_at_s,
+                minimum_depth_m=float(metadata["minimum_depth_m"]),
+                maximum_depth_m=float(metadata["maximum_depth_m"]),
+                distance_semantics=str(metadata["distance_semantics"]),
+                fx_px=float(metadata["fx_px"]),
+                fy_px=float(metadata["fy_px"]),
+                cx_px=float(metadata["cx_px"]),
+                cy_px=float(metadata["cy_px"]),
+            )
         self.telemetry_provider.update(wire, observed_at_s=captured_at_s)
         frame_telemetry = GazeboSimFrameTelemetryProvenance.from_telemetry(
             self.telemetry_provider.snapshot(now_s=captured_at_s)
@@ -1058,7 +1334,16 @@ class GazeboSimFrameSource:
             frame_id=frame_id,
             sequence=wire.sequence,
             captured_at_s=captured_at_s,
-            captured_at_clock="host_monotonic",
+            captured_at_clock=(
+                "host_perf_counter"
+                if isinstance(self.clock, HighResolutionSystemClock)
+                else "host_monotonic"
+            ),
+            host_clock_identity=(
+                tuple(self.clock.identity().items())
+                if isinstance(self.clock, HighResolutionSystemClock)
+                else None
+            ),
             sensor_stamp_ns=wire.sensor_stamp_ns,
             camera_info_stamp_ns=wire.camera_info_stamp_ns,
             navsat_stamp_ns=wire.navsat_stamp_ns,
@@ -1077,11 +1362,40 @@ class GazeboSimFrameSource:
             wire_unsigned_header_hex=wire.unsigned_header.hex(),
             wire_telemetry=GazeboSimWireTelemetryProvenance.from_wire(wire),
             frame_telemetry=frame_telemetry,
+            depth_record_sha256=(depth_wire.record_sha256 if depth_wire is not None else None),
+            depth_payload_sha256=(
+                hashlib.sha256(depth_wire.payload).hexdigest() if depth_wire is not None else None
+            ),
+            depth_source_stamp_ns=(depth_wire.source_stamp_ns if depth_wire is not None else None),
+            depth_source_skew_ns=(
+                wire.sensor_stamp_ns - depth_wire.source_stamp_ns
+                if depth_wire is not None
+                else None
+            ),
+            depth_topic=(depth_wire.source_topic if depth_wire is not None else None),
+            depth_calibration_id=(depth_wire.calibration_id if depth_wire is not None else None),
+            depth_calibration_sha256=(
+                depth_wire.calibration_sha256 if depth_wire is not None else None
+            ),
+            depth_geometry=(
+                (depth_wire.width, depth_wire.height, depth_wire.stride_bytes)
+                if depth_wire is not None
+                else None
+            ),
+            depth_encoding=(depth_wire.encoding if depth_wire is not None else None),
+            depth_distance_semantics=(
+                str(depth_wire.metadata["distance_semantics"])
+                if depth_wire is not None
+                else None
+            ),
         )
         self._next_sequence += 1
         self._odometry_timestamp_frame_count += int(wire.odometry_present)
         self._payload_bytes += len(wire.payload_bgr24)
         self._frame_provenance.append(provenance)
+        if depth_frame is not None:
+            self._depth_frames[frame_id] = depth_frame
+            self._depth_companion_count += 1
         if self._first_sensor_stamp_ns is None:
             self._first_sensor_stamp_ns = wire.sensor_stamp_ns
         self._last_sensor_stamp_ns = wire.sensor_stamp_ns
@@ -1143,6 +1457,10 @@ class GazeboSimFrameSource:
                 and self._first_sensor_stamp_ns is not None
                 and self._last_sensor_stamp_ns is not None
                 and self._odometry_timestamp_frame_count == self.frame_count
+                and (
+                    self.depth_contract is None
+                    or self._depth_companion_count == self.frame_count
+                )
             ),
             sensor_id=self.sensor_id,
             calibration_id=self.calibration_id,
@@ -1171,7 +1489,42 @@ class GazeboSimFrameSource:
             simulated_gps_vertical_accuracy_m=(
                 self.telemetry_provider.simulated_gps_vertical_accuracy_m
             ),
+            fault_injection_enabled=self.fault_injection_enabled,
+            fault_source=self.fault_source,
+            fault_start_image=(
+                self.fault_start_image if self.fault_injection_enabled else None
+            ),
+            fault_duration_images=(
+                self.fault_duration_images if self.fault_injection_enabled else 0
+            ),
+            fault_diagnostic=self._finished_diagnostic(),
+            depth_enabled=self.depth_contract is not None,
+            depth_companion_count=self._depth_companion_count,
+            depth_topic=self.depth_topic,
+            depth_calibration_id=self.depth_calibration_id,
+            depth_calibration_sha256=self.depth_calibration_sha256,
         )
+
+    def _finished_diagnostic(self) -> dict[str, object] | None:
+        """Return the helper's structured finished diagnostic when available.
+
+        The binary stdout channel is deliberately reserved for framed sensor
+        records.  The helper therefore emits its fault timeline on stderr;
+        keep the parsed record in the transport evidence so a combined
+        Mission/QGC run can verify the same fault contract without scraping a
+        human log.  Malformed or duplicate finished records are withheld
+        rather than treated as a successful diagnostic.
+        """
+
+        records: list[dict[str, object]] = []
+        for line in bytes(self._stderr).decode("utf-8", errors="replace").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and value.get("event") == "gazebo_sensor_stream_finished":
+                records.append(value)
+        return records[0] if len(records) == 1 else None
 
     def _require_process(self) -> subprocess.Popen[bytes]:
         if self._closed:
@@ -1192,8 +1545,8 @@ class GazeboSimFrameSource:
             if not chunk:
                 return
             self._stderr.extend(chunk)
-            if len(self._stderr) > _MAX_STDERR_BYTES:
-                del self._stderr[: len(self._stderr) - _MAX_STDERR_BYTES]
+            if len(self._stderr) > self._stderr_limit:
+                del self._stderr[: len(self._stderr) - self._stderr_limit]
 
 
 class GazeboSimBackend:
@@ -1223,6 +1576,9 @@ class GazeboSimBackend:
         simulated_gps_horizontal_accuracy_m: float = 1.5,
         simulated_gps_vertical_accuracy_m: float = 2.5,
         terrain_dem: LocalDemGrid | None = None,
+        fault_source: str | None = None,
+        fault_start_image: int = 0,
+        fault_duration_images: int = 0,
         clock: Clock | None = None,
         popen_factory: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
     ) -> None:
@@ -1254,6 +1610,57 @@ class GazeboSimBackend:
                 f"{rgb_sensor.stream_uri!r} != {expected_stream_uri!r}"
             )
         topics = _gazebo_sensor_topics(world=world, model_instance=model_instance)
+        depth_binding = resolve_declared_gazebo_depth_sensor(scenario_input.sensors)
+        depth_contract: dict[str, object] | None = None
+        depth_topic: str | None = None
+        if depth_binding is not None:
+            depth_topic = _gazebo_depth_topic(world=world, model_instance=model_instance)
+            if depth_binding.stream_uri != (
+                f"gazebo://{scenario_input.scenario_id}/{depth_binding.sensor_id}"
+            ):
+                raise ValueError("Gazebo SIM depth stream_uri does not match its scenario binding")
+            depth_calibration_document = {
+                "schema_version": 1,
+                "calibration_id": depth_binding.calibration_id,
+                "sensor_id": depth_binding.sensor_id,
+                "width_px": expected_width,
+                "height_px": expected_height,
+                "fx_px": camera_calibration.fx_px,
+                "fy_px": camera_calibration.fy_px,
+                "cx_px": camera_calibration.cx_px,
+                "cy_px": camera_calibration.cy_px,
+                "distortion": [0.0, 0.0, 0.0, 0.0, 0.0],
+                "rectification": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                "extrinsics_rgb_to_depth": {
+                    "translation_m": [0.0, 0.0, 0.0],
+                    "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                },
+                "registration_mode": "registered_to_rgb",
+                "coordinate_space": "rgb_pixel_aligned",
+                "encoding": "FLOAT32_M",
+                "distance_semantics": "optical_axis_z_m",
+                "near_clip_m": 0.1,
+                "far_clip_m": 3000.0,
+            }
+            depth_calibration_sha256 = canonical_sha256(depth_calibration_document)
+            depth_contract = {
+                "sensor_id": depth_binding.sensor_id,
+                "source_topic": depth_topic,
+                "calibration_id": depth_binding.calibration_id,
+                "calibration_sha256": depth_calibration_sha256,
+                "registration_mode": "registered_to_rgb",
+                "coordinate_space": "rgb_pixel_aligned",
+                "encoding": "FLOAT32_M",
+                "distance_semantics": "optical_axis_z_m",
+                "width": expected_width,
+                "height": expected_height,
+                "minimum_depth_m": 0.1,
+                "maximum_depth_m": 3000.0,
+                "fx_px": camera_calibration.fx_px,
+                "fy_px": camera_calibration.fy_px,
+                "cx_px": camera_calibration.cx_px,
+                "cy_px": camera_calibration.cy_px,
+            }
         topic_binding = {
             "schema_version": 1,
             "world": world,
@@ -1263,6 +1670,8 @@ class GazeboSimBackend:
             "navsat_topic": topics[2],
             "odometry_topic": topics[3],
         }
+        if depth_topic is not None:
+            topic_binding["depth_topic"] = depth_topic
         self.topic_binding_hash = canonical_sha256(topic_binding)
         self._sensor_binding = {
             "schema_version": 1,
@@ -1280,6 +1689,19 @@ class GazeboSimBackend:
                 GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
             ),
         }
+        if depth_contract is not None:
+            self._sensor_binding["depth_sensor"] = {
+                "sensor_id": depth_binding.sensor_id,
+                "kind": "depth_camera",
+                "calibration_id": depth_binding.calibration_id,
+                "stream_uri": depth_binding.stream_uri,
+                "topic": depth_topic,
+                "calibration_sha256": depth_contract["calibration_sha256"],
+                "registration_mode": depth_contract["registration_mode"],
+                "coordinate_space": depth_contract["coordinate_space"],
+                "encoding": depth_contract["encoding"],
+                "distance_semantics": depth_contract["distance_semantics"],
+            }
         selected_clock = clock or SystemClock()
         if not isinstance(selected_clock, Clock):
             raise TypeError("clock must implement Clock")
@@ -1313,6 +1735,15 @@ class GazeboSimBackend:
             minimum=0.0,
             maximum=1_000.0,
         )
+        (
+            fault_source,
+            fault_start_image,
+            fault_duration_images,
+        ) = _validate_fault_window(
+            fault_source,
+            fault_start_image,
+            fault_duration_images,
+        )
         if terrain_dem is not None and not isinstance(terrain_dem, LocalDemGrid):
             raise TypeError("terrain_dem must be a LocalDemGrid or None")
         if terrain_dem is not None and terrain_dem.scenario_id != scenario_input.scenario_id:
@@ -1320,8 +1751,7 @@ class GazeboSimBackend:
                 "terrain_dem scenario_id does not match the validated ScenarioRuntimeInput"
             )
         self.scenario_input = scenario_input
-        self.sensor_binding_hash = canonical_sha256(
-            {
+        sensor_binding_document = {
                 "schema_version": 3,
                 "wire_version": GAZEBO_SIM_WIRE_VERSION,
                 "scenario_manifest_hash": scenario_input.scenario_manifest_hash,
@@ -1332,6 +1762,7 @@ class GazeboSimBackend:
                 "model_instance": model_instance,
                 "world": world,
                 "scenario_rgb_camera": self._sensor_binding,
+                "scenario_depth_camera": depth_contract,
                 "frame_count": frame_count,
                 "width": expected_width,
                 "height": expected_height,
@@ -1351,7 +1782,14 @@ class GazeboSimBackend:
                     "odometry_local_up_used_as_agl": False,
                 },
             }
-        )
+        if fault_source is not None:
+            sensor_binding_document["fault_injection"] = {
+                "source": fault_source,
+                "start_image": fault_start_image,
+                "duration_images": fault_duration_images,
+                "window_key": "received_image_index",
+            }
+        self.sensor_binding_hash = canonical_sha256(sensor_binding_document)
         self.descriptor = RuntimeDescriptor(
             mode=RuntimeMode.SIM,
             profile=RuntimeProfile.sim(),
@@ -1362,7 +1800,7 @@ class GazeboSimBackend:
             scenario_seed=scenario_input.seed,
             recording_hash=None,
             deterministic=False,
-            fault_injection_enabled=False,
+            fault_injection_enabled=fault_source is not None,
         )
         if RuntimeCapability.FLIGHT_CONTROL_OUTPUT in self.descriptor.profile.capabilities:
             raise ValueError("Gazebo SIM backend cannot expose flight-control output")
@@ -1397,6 +1835,10 @@ class GazeboSimBackend:
             timeout_s=timeout_s,
             expected_width=expected_width,
             expected_height=expected_height,
+            fault_source=fault_source,
+            fault_start_image=fault_start_image,
+            fault_duration_images=fault_duration_images,
+            depth_contract=depth_contract,
             popen_factory=popen_factory,
         )
         self._closed = False
@@ -1678,6 +2120,7 @@ def _read_exact(stream: BinaryIO, count: int, name: str) -> bytes:
 
 
 __all__ = [
+    "GAZEBO_DEPTH_TOPIC_SUFFIX",
     "GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE",
     "GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG",
     "GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG",
@@ -1714,4 +2157,5 @@ __all__ = [
     "gazebo_sim_attitude_sigmas_deg",
     "read_gazebo_sim_wire_frame",
     "reconstruct_gazebo_sim_wire_frame",
+    "_gazebo_depth_topic",
 ]

@@ -77,6 +77,7 @@ from typing import Any
 
 from .actuator_safety import verify_actuator_safety_evidence
 from .alert_link_bench import verify_alert_link_bench_report
+from .autonomy.serialization import canonical_sha256
 from .field_evidence_bundle import verify_field_evidence_bundle_report
 from .field_link_preflight import verify_field_link_report
 from .field_session_capture import verify_field_session_capture
@@ -635,6 +636,17 @@ _MODEL_REVIEW_KEYS = frozenset(
         "reasons",
     }
 )
+_SHARED_POLICY_RUNTIME_HANDOFF_KEYS = frozenset(
+    {
+        "path",
+        "sha256",
+        "bytes",
+        "schema",
+        "schema_version",
+        "handoff_sha256",
+        "gate_passed",
+    }
+)
 _QGC_OPERATOR_VISUAL_ACCEPTANCE_KEYS = frozenset(
     {
         "schema",
@@ -690,6 +702,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "simulator_3d_control",
         "simulator_scene_stream_set",
         "model_review",
+        "shared_policy_runtime_handoff",
     }
 )
 _REQUIRED_TOP_LEVEL_KEYS = frozenset({"schema_version", "product", "release_label", "modes"})
@@ -5136,6 +5149,162 @@ def _model_review_result(
     return result
 
 
+def _shared_policy_runtime_handoff_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+    expected_release_label: str | None,
+) -> dict[str, Any]:
+    """Reopen the cross-mode SharedTaskPolicy handoff receipt.
+
+    The handoff receipt is intentionally a provenance gate, not a hardware
+    acceptance gate.  This verifier checks the durable envelope and keeps the
+    target HIL/REAL claims explicitly false.  A later binding step compares
+    its source parity projection with the four mode records.
+    """
+
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": [],
+        "document": None,
+        "source_parity_hashes": None,
+        "target_runtime_mode": None,
+    }
+    reasons: list[str] = result["reasons"]
+    if raw_record is None:
+        reasons.append("shared_policy_runtime_handoff record is absent")
+        return result
+    if not isinstance(raw_record, Mapping):
+        reasons.append("shared_policy_runtime_handoff must be an object")
+        return result
+    unknown = sorted(set(raw_record).difference(_SHARED_POLICY_RUNTIME_HANDOFF_KEYS))
+    if unknown:
+        reasons.append(f"unknown shared_policy_runtime_handoff field(s): {unknown!r}")
+    for field in _SHARED_POLICY_RUNTIME_HANDOFF_KEYS:
+        if field not in raw_record:
+            reasons.append(f"shared_policy_runtime_handoff.{field} is missing")
+    path_value = raw_record.get("path")
+    handoff_path: Path | None = None
+    if not isinstance(path_value, str) or not path_value.strip():
+        reasons.append("shared_policy_runtime_handoff.path is missing or empty")
+    else:
+        requested = Path(path_value)
+        if not requested.is_absolute():
+            requested = manifest_directory / requested
+        if requested.is_symlink():
+            reasons.append("shared_policy_runtime_handoff file must not be a symbolic link")
+        try:
+            handoff_path = requested.resolve()
+        except (OSError, RuntimeError) as exc:
+            reasons.append(f"shared_policy_runtime_handoff path cannot be resolved: {exc}")
+    expected_sha = raw_record.get("sha256")
+    if not _is_sha256(expected_sha):
+        reasons.append("shared_policy_runtime_handoff.sha256 is missing or invalid")
+    expected_handoff_sha = raw_record.get("handoff_sha256")
+    if not _is_sha256(expected_handoff_sha):
+        reasons.append("shared_policy_runtime_handoff.handoff_sha256 is missing or invalid")
+    if type(raw_record.get("bytes")) is not int or raw_record.get("bytes", 0) < 1:
+        reasons.append("shared_policy_runtime_handoff.bytes must be a positive integer")
+    if raw_record.get("schema") != "multidetect.shared-policy-runtime-handoff":
+        reasons.append("shared_policy_runtime_handoff.schema is invalid")
+    if raw_record.get("schema_version") != 1:
+        reasons.append("shared_policy_runtime_handoff.schema_version is invalid")
+    if raw_record.get("gate_passed") is not True:
+        reasons.append("shared_policy_runtime_handoff.gate_passed is false")
+
+    if handoff_path is not None:
+        if not handoff_path.is_file():
+            reasons.append("shared_policy_runtime_handoff file does not exist")
+        else:
+            try:
+                actual_sha = _sha256(handoff_path)
+                actual_bytes = handoff_path.stat().st_size
+            except OSError as exc:
+                reasons.append(f"shared_policy_runtime_handoff file cannot be hashed: {exc}")
+                actual_sha = None
+                actual_bytes = None
+            if (
+                actual_sha is not None
+                and isinstance(expected_sha, str)
+                and _is_sha256(expected_sha)
+                and actual_sha.lower() != expected_sha.lower()
+            ):
+                reasons.append("shared_policy_runtime_handoff file SHA-256 does not match")
+            if actual_bytes is not None and actual_bytes != raw_record.get("bytes"):
+                reasons.append("shared_policy_runtime_handoff byte count does not match")
+            try:
+                document = _load_object(handoff_path)
+            except ValueError as exc:
+                reasons.append(f"shared_policy_runtime_handoff cannot be reopened: {exc}")
+            else:
+                result["document"] = document
+                stored_digest = document.get("handoff_sha256")
+                unsigned = {
+                    key: value for key, value in document.items() if key != "handoff_sha256"
+                }
+                if (
+                    not isinstance(stored_digest, str)
+                    or canonical_sha256(unsigned) != stored_digest
+                ):
+                    reasons.append("shared_policy_runtime_handoff canonical hash does not match")
+                if stored_digest != expected_handoff_sha:
+                    reasons.append("shared_policy_runtime_handoff digest projection does not match")
+                source = document.get("source")
+                target = document.get("target")
+                claims = document.get("claims")
+                if not isinstance(source, Mapping) or source.get("runtime_mode") != "SIM":
+                    reasons.append("shared_policy_runtime_handoff source runtime must be SIM")
+                if not isinstance(target, Mapping) or target.get("runtime_mode") not in {
+                    "hil",
+                    "real",
+                }:
+                    reasons.append(
+                        "shared_policy_runtime_handoff target runtime must be HIL or REAL"
+                    )
+                if isinstance(target, Mapping):
+                    result["target_runtime_mode"] = target.get("runtime_mode")
+                if not isinstance(claims, Mapping) or any(
+                    claims.get(field) is not False
+                    for field in (
+                        "hardware_acceptance",
+                        "hil_acceptance",
+                        "real_acceptance",
+                        "outdoor_gnss_evidence",
+                        "final_release_allowed",
+                    )
+                ):
+                    reasons.append(
+                        "shared_policy_runtime_handoff claim boundary is not fail-closed"
+                    )
+                checks = document.get("checks")
+                if not isinstance(checks, Mapping) or not checks or not all(
+                    value is True for value in checks.values()
+                ):
+                    reasons.append("shared_policy_runtime_handoff checks are not all true")
+                if document.get("gate_passed") is not True:
+                    reasons.append("shared_policy_runtime_handoff document gate_passed is false")
+                if isinstance(source, Mapping):
+                    parity = source.get("release_parity")
+                    hashes = parity.get("hashes") if isinstance(parity, Mapping) else None
+                    if isinstance(hashes, Mapping) and all(
+                        _is_sha256(hashes.get(field)) for field in PARITY_FIELDS
+                    ):
+                        result["source_parity_hashes"] = {
+                            field: str(hashes[field]).lower() for field in PARITY_FIELDS
+                        }
+                    else:
+                        reasons.append("shared_policy_runtime_handoff source parity is incomplete")
+                    if expected_release_label is not None and isinstance(parity, Mapping):
+                        if parity.get("release_label") != expected_release_label:
+                            reasons.append(
+                                "shared_policy_runtime_handoff release label does not match"
+                            )
+
+    result["passed"] = not reasons
+    return result
+
+
 def evaluate_release_gate(
     manifest_path: str | Path,
     *,
@@ -5514,6 +5683,25 @@ def evaluate_release_gate(
     if raw_model_review is not None and not model_review_result["passed"]:
         top_reasons.extend(f"model_review: {reason}" for reason in model_review_result["reasons"])
 
+    raw_shared_policy_runtime_handoff = manifest.get("shared_policy_runtime_handoff")
+    shared_policy_runtime_handoff_result = _shared_policy_runtime_handoff_result(
+        raw_shared_policy_runtime_handoff,
+        manifest_directory=path.parent,
+        expected_release_label=(
+            version.release_label if version is not None else manifest.get("release_label")
+        ),
+    )
+    # A supplied handoff is authoritative on every channel.  Absence remains
+    # backward-compatible for prereleases; the final channel requires it.
+    if (
+        raw_shared_policy_runtime_handoff is not None
+        and not shared_policy_runtime_handoff_result["passed"]
+    ):
+        top_reasons.extend(
+            "shared_policy_runtime_handoff: " + reason
+            for reason in shared_policy_runtime_handoff_result["reasons"]
+        )
+
     mode_results: dict[str, Any] = {}
     for mode in REQUIRED_MODES:
         mode_results[mode] = _record_result(
@@ -5609,6 +5797,34 @@ def evaluate_release_gate(
                 checks["join_parity_matches"] = False
             simulator_external_result["passed"] = False
             top_reasons.append(f"simulator_external_evidence: {reason}")
+
+    if raw_shared_policy_runtime_handoff is not None:
+        handoff_hashes = shared_policy_runtime_handoff_result.get("source_parity_hashes")
+        mode_parity_records = [result.get("parity") for result in mode_results.values()]
+        mode_parity: dict[str, str] | None = None
+        if all(isinstance(record, Mapping) for record in mode_parity_records):
+            first = mode_parity_records[0]
+            if isinstance(first, Mapping) and all(
+                record == first for record in mode_parity_records
+            ):
+                mode_parity = {
+                    field: str(first[field]).lower() for field in PARITY_FIELDS if field in first
+                }
+        if not isinstance(handoff_hashes, Mapping) or mode_parity is None:
+            reason = (
+                "shared_policy_runtime_handoff parity cannot be compared with "
+                "four-mode E7 parity"
+            )
+            shared_policy_runtime_handoff_result["reasons"].append(reason)
+            shared_policy_runtime_handoff_result["passed"] = False
+            top_reasons.append(f"shared_policy_runtime_handoff: {reason}")
+        elif {
+            field: str(handoff_hashes.get(field)).lower() for field in PARITY_FIELDS
+        } != mode_parity:
+            reason = "shared_policy_runtime_handoff parity does not match four-mode E7 parity"
+            shared_policy_runtime_handoff_result["reasons"].append(reason)
+            shared_policy_runtime_handoff_result["passed"] = False
+            top_reasons.append(f"shared_policy_runtime_handoff: {reason}")
 
     parity_results: dict[str, bool] = {}
     for field in PARITY_FIELDS:
@@ -5885,6 +6101,15 @@ def evaluate_release_gate(
                     f"px4_mission_feedback: {reason}"
                     for reason in px4_mission_feedback_result["reasons"]
                 )
+            if not shared_policy_runtime_handoff_result["present"]:
+                release_reasons.append(
+                    "final release requires a hash-bound SharedTaskPolicy SIM-to-HIL/REAL handoff"
+                )
+            elif not shared_policy_runtime_handoff_result["passed"]:
+                release_reasons.extend(
+                    "shared_policy_runtime_handoff: " + reason
+                    for reason in shared_policy_runtime_handoff_result["reasons"]
+                )
             if not pixhawk_covariance_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound HIL/REAL x three-airframe "
@@ -5960,6 +6185,8 @@ def evaluate_release_gate(
         "pixhawk_covariance_required_for_release": True,
         "model_review": model_review_result,
         "model_review_required_for_release": True,
+        "shared_policy_runtime_handoff": shared_policy_runtime_handoff_result,
+        "shared_policy_runtime_handoff_required_for_release": True,
         "parity": parity_results,
         "gate_passed": gate_passed,
         "release_allowed": gate_passed and not release_reasons,

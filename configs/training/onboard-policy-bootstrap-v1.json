@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-bootstrap-v1",
+  "method": "synthetic_expert_distillation_bootstrap",
+  "script": "scripts/train_onboard_model.py",
+  "seed": 20261004,
+  "default_samples": 6000,
+  "default_epochs": 30,
+  "current_artifact": "artifacts/models/onboard-policy-r3/onboard_policy_r3.onnx",
+  "current_model_id": "onboard-policy-r3",
+  "current_model_version": "0.3.0-pre.8-onboard-policy-r3",
+  "current_model_sha256": "617b666fd6daf538421ba8ce4af4aa1332bd882e0aec6c4d8ba8115fee16786d",
+  "current_feature_width": 38,
+  "feature_contract": "ONBOARD_MODEL_FEATURE_NAMES",
+  "task_action_order": [
+    "takeoff",
+    "search",
+    "inspect_target",
+    "match_target",
+    "record_location",
+    "return_home",
+    "report",
+    "hold",
+    "land"
+  ],
+  "flight_action_order": [
+    "hold_position",
+    "move_relative",
+    "goto_relative",
+    "search",
+    "follow_target",
+    "return_home",
+    "land"
+  ],
+  "task_phase_order": [
+    "takeoff",
+    "search",
+    "inspect_target",
+    "match_target",
+    "record_location",
+    "return_home",
+    "report",
+    "hold",
+    "land"
+  ],
+  "output_layout": {
+    "task_logits": 9,
+    "flight_logits": 7,
+    "regression": [
+      "north_offset_logit",
+      "east_offset_logit",
+      "altitude_logit",
+      "speed_logit"
+    ]
+  },
+  "scenario_families": [
+    "search_mismatch",
+    "search_left_right",
+    "takeoff_to_search",
+    "matched_target_confirm",
+    "matched_target_inspect",
+    "matched_target_record_return",
+    "low_battery_return",
+    "gps_hold",
+    "obstacle_hold",
+    "inference_fault_hold",
+    "mission_report",
+    "mission_land"
+  ],
+  "synthetic_bootstrap": true,
+  "physical_performance_claimed": false,
+  "jetson_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

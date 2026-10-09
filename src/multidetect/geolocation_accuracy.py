@@ -392,6 +392,19 @@ def verify_geolocation_accuracy_report(
                 minimum_one_sigma_coverage=requirements.get("minimum_one_sigma_coverage"),  # type: ignore[arg-type]
                 minimum_two_sigma_coverage=requirements.get("minimum_two_sigma_coverage"),  # type: ignore[arg-type]
             )
+            selection_for_coverage = report.get("selection")
+            coverage_for_gate = (
+                selection_for_coverage.get("coverage")
+                if isinstance(selection_for_coverage, Mapping)
+                else None
+            )
+            if isinstance(coverage_for_gate, Mapping):
+                coverage_reasons = _coverage_gate_reasons(coverage_for_gate)
+                expected_report["reasons"] = [
+                    *expected_report["reasons"],
+                    *coverage_reasons,
+                ]
+                expected_report["gate_passed"] = not expected_report["reasons"]
         except (TypeError, ValueError) as exc:
             reasons.append(f"accuracy report cannot be recomputed: {exc}")
 
@@ -514,7 +527,8 @@ def _validate_selection_metadata(
         "allow_extra_truth",
         "max_truth_time_delta_s",
     }
-    unknown = sorted(set(selection).difference(expected_keys))
+    allowed_keys = expected_keys | {"coverage", "sensor_transport"}
+    unknown = sorted(set(selection).difference(allowed_keys))
     missing = sorted(expected_keys.difference(selection))
     if unknown:
         reasons.append(f"accuracy report selection has unknown field(s): {unknown!r}")
@@ -564,6 +578,20 @@ def _validate_selection_metadata(
             "accuracy report selection max_truth_time_delta_s must be finite, non-negative, or null"
         )
 
+    coverage = selection.get("coverage")
+    if coverage is not None:
+        if not isinstance(coverage, Mapping):
+            reasons.append("accuracy report selection coverage must be an object")
+        else:
+            _validate_selection_coverage(coverage, reasons)
+
+    sensor_transport = selection.get("sensor_transport")
+    if sensor_transport is not None:
+        if not isinstance(sensor_transport, Mapping):
+            reasons.append("accuracy report selection sensor_transport must be an object")
+        else:
+            _validate_sensor_transport_binding(sensor_transport, reasons)
+
     if (
         expected_sample_count is not None
         and counts.get("matched_event_count") != expected_sample_count
@@ -583,6 +611,179 @@ def _validate_selection_metadata(
     if "truth_row_count" in counts and "matched_event_count" in counts:
         if counts["truth_row_count"] != counts["matched_event_count"] + len(unused):
             reasons.append("accuracy report selection truth rows do not conserve matches")
+
+
+def _validate_selection_coverage(coverage: Mapping[str, object], reasons: list[str]) -> None:
+    """Validate regime metadata without treating it as independent truth.
+
+    The source replay/truth hashes are checked by the field-evidence join.  The
+    standalone accuracy verifier therefore checks only shape, finiteness and
+    ordered separation here; it must never infer that a regime was physically
+    measured from a copied count alone.
+    """
+
+    expected = {
+        "minimum_distance_regimes",
+        "distance_regime_separation_m",
+        "distance_sample_count",
+        "distance_regimes_m",
+        "minimum_slope_regimes",
+        "slope_regime_separation_deg",
+        "slope_sample_count",
+        "slope_regimes_deg",
+    }
+    unknown = sorted(set(coverage).difference(expected))
+    missing = sorted(expected.difference(coverage))
+    if unknown:
+        reasons.append(f"accuracy report coverage has unknown field(s): {unknown!r}")
+    if missing:
+        reasons.append(f"accuracy report coverage is missing field(s): {missing!r}")
+        return
+    for name in (
+        "minimum_distance_regimes",
+        "distance_sample_count",
+        "minimum_slope_regimes",
+        "slope_sample_count",
+    ):
+        value = coverage.get(name)
+        if type(value) is not int or value < 0:
+            reasons.append(f"accuracy report coverage {name} must be a non-negative integer")
+    for name in ("distance_regime_separation_m", "slope_regime_separation_deg"):
+        value = coverage.get(name)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) <= 0.0
+        ):
+            reasons.append(f"accuracy report coverage {name} must be finite and positive")
+    for name, separation in (
+        ("distance_regimes_m", coverage.get("distance_regime_separation_m")),
+        ("slope_regimes_deg", coverage.get("slope_regime_separation_deg")),
+    ):
+        values = coverage.get(name)
+        if not isinstance(values, list):
+            reasons.append(f"accuracy report coverage {name} must be an array")
+            continue
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in values
+        ):
+            reasons.append(f"accuracy report coverage {name} contains an invalid value")
+            continue
+        if values != sorted(values):
+            reasons.append(f"accuracy report coverage {name} must be sorted")
+        if isinstance(separation, (int, float)) and not isinstance(separation, bool):
+            if any(
+                float(right) - float(left) < float(separation)
+                for left, right in zip(values, values[1:], strict=False)
+            ):
+                reasons.append(f"accuracy report coverage {name} violates regime separation")
+    if (
+        isinstance(coverage.get("distance_sample_count"), int)
+        and isinstance(coverage.get("distance_regimes_m"), list)
+        and len(coverage["distance_regimes_m"]) > coverage["distance_sample_count"]
+    ):
+        reasons.append("accuracy report coverage distance regime count exceeds samples")
+    if (
+        isinstance(coverage.get("slope_sample_count"), int)
+        and isinstance(coverage.get("slope_regimes_deg"), list)
+        and len(coverage["slope_regimes_deg"]) > coverage["slope_sample_count"]
+    ):
+            reasons.append("accuracy report coverage slope regime count exceeds samples")
+
+
+def _validate_sensor_transport_binding(
+    binding: Mapping[str, object], reasons: list[str]
+) -> None:
+    """Validate transport provenance shape without trusting it as live truth."""
+
+    expected = {
+        "manifest_file_sha256",
+        "manifest_file_bytes",
+        "manifest_sha256",
+        "schema_version",
+        "wire_version",
+        "pixel_format",
+        "scenario_id",
+        "scenario_manifest_hash",
+        "sensor_binding_hash",
+        "frame_count",
+        "matched_frame_count",
+        "matched_frame_ids",
+        "raw_bytes_sha256_verified",
+        "truth_free",
+    }
+    unknown = sorted(set(binding).difference(expected))
+    missing = sorted(expected.difference(binding))
+    if unknown:
+        reasons.append(f"accuracy report sensor_transport has unknown field(s): {unknown!r}")
+    if missing:
+        reasons.append(f"accuracy report sensor_transport is missing field(s): {missing!r}")
+        return
+    for name in ("manifest_file_sha256", "manifest_sha256"):
+        if not _is_sha256(binding.get(name)):
+            reasons.append(f"accuracy report sensor_transport {name} is invalid")
+    if binding.get("sensor_binding_hash") is not None and not _is_sha256(
+        binding.get("sensor_binding_hash")
+    ):
+        reasons.append("accuracy report sensor_transport sensor_binding_hash is invalid")
+    if type(binding.get("manifest_file_bytes")) is not int or binding["manifest_file_bytes"] < 1:
+        reasons.append("accuracy report sensor_transport manifest_file_bytes is invalid")
+    if binding.get("schema_version") not in (1, 2):
+        reasons.append("accuracy report sensor_transport schema_version is invalid")
+    if binding.get("wire_version") != 3:
+        reasons.append("accuracy report sensor_transport wire_version is invalid")
+    if binding.get("pixel_format") != "BGR24":
+        reasons.append("accuracy report sensor_transport pixel_format is invalid")
+    scenario_id = binding.get("scenario_id")
+    if scenario_id is not None and (not isinstance(scenario_id, str) or not scenario_id.strip()):
+        reasons.append("accuracy report sensor_transport scenario_id is invalid")
+    if binding.get("scenario_manifest_hash") is not None and not _is_sha256(
+        binding.get("scenario_manifest_hash")
+    ):
+        reasons.append("accuracy report sensor_transport scenario_manifest_hash is invalid")
+    for name in ("frame_count", "matched_frame_count"):
+        if type(binding.get(name)) is not int or binding[name] < 1:
+            reasons.append(f"accuracy report sensor_transport {name} is invalid")
+    frame_ids = binding.get("matched_frame_ids")
+    if not isinstance(frame_ids, list) or any(
+        not isinstance(item, str) or not item.strip() for item in frame_ids
+    ):
+        reasons.append("accuracy report sensor_transport matched_frame_ids is invalid")
+    elif len(set(frame_ids)) != len(frame_ids):
+        reasons.append("accuracy report sensor_transport matched_frame_ids must be unique")
+    if isinstance(frame_ids, list) and binding.get("matched_frame_count") != len(frame_ids):
+        reasons.append("accuracy report sensor_transport matched_frame_count does not match IDs")
+    if (
+        isinstance(binding.get("frame_count"), int)
+        and isinstance(binding.get("matched_frame_count"), int)
+        and binding["matched_frame_count"] > binding["frame_count"]
+    ):
+        reasons.append("accuracy report sensor_transport matched frames exceed frame_count")
+    if binding.get("raw_bytes_sha256_verified") is not True:
+        reasons.append("accuracy report sensor_transport raw bytes are not verified")
+    if binding.get("truth_free") is not True:
+        reasons.append("accuracy report sensor_transport must be truth-free")
+
+
+def _coverage_gate_reasons(coverage: Mapping[str, object]) -> list[str]:
+    """Recompute only the explicit coverage gates from serialized metadata."""
+
+    reasons: list[str] = []
+    for minimum_name, regimes_name in (
+        ("minimum_distance_regimes", "distance_regimes_m"),
+        ("minimum_slope_regimes", "slope_regimes_deg"),
+    ):
+        minimum = coverage.get(minimum_name)
+        regimes = coverage.get(regimes_name)
+        if type(minimum) is int and minimum >= 0 and isinstance(regimes, list):
+            if len(regimes) < minimum:
+                label = regimes_name.removesuffix("_m").removesuffix("_deg")
+                reasons.append(f"{label}<{minimum} (got {len(regimes)})")
+    return reasons
 
 
 def _selection_id_list(value: object, name: str, reasons: list[str]) -> tuple[str, ...]:

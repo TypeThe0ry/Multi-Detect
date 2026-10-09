@@ -335,6 +335,26 @@ def test_dry_run_executes_only_fixture_and_never_runner(tmp_path: Path) -> None:
     assert json.loads(output.read_text(encoding="utf-8"))["gate_passed"] is True
 
 
+def test_explicit_release_parity_snapshot_is_stable_across_run_boundaries(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "parity-locked-ai.json"
+    result = module.run_acceptance(
+        SCENARIO,
+        output,
+        release_parity_path=ROOT / "configs" / "release-parity.json",
+    )
+    snapshot = result["release_parity_snapshot"]
+    assert isinstance(snapshot, dict)
+    assert snapshot["requested"] is True
+    assert snapshot["stable"] is True
+    assert snapshot["error"] is None
+    assert snapshot["start"] == snapshot["end"]
+    assert result["release_parity_snapshot_gate_passed"] is True
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    assert persisted["release_parity_snapshot"]["stable"] is True
+
+
 def test_disarmed_live_run_reports_not_exercised_not_failed() -> None:
     result = module._augment_payload(
         {
@@ -626,6 +646,34 @@ def test_joystick_preflight_is_scoped_only_to_the_flight_exercise() -> None:
     ]
     assert flight_parameters == [*arm_parameters, "COM_RC_IN_MODE"]
     assert calls[-1][-2:] == ["COM_RC_IN_MODE", "1"]
+
+
+def test_arm_preflight_retries_only_while_px4_server_is_starting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+    attempts = 0
+
+    def runner(argv: list[str], **_kwargs: object):
+        nonlocal attempts
+        calls.append(argv)
+        attempts += 1
+        if attempts <= 2:
+            return _completed(argv, code=1, stderr="ERROR [px4] PX4 server not running")
+        return _completed(argv, stdout="param set")
+
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    result = module._prepare_disposable_sitl_for_arm(
+        "docker",
+        "starting-px4",
+        runner=runner,
+    )
+
+    assert len(calls) == 6
+    assert result["applied"] is True
+    assert result["parameters"][0]["attempt_count"] == 3
+    assert len(result["parameters"][0]["attempts"]) == 3
+    assert all(row["attempt_count"] == 1 for row in result["parameters"][1:])
 
 
 def test_none_polls_do_not_consume_the_real_frame_limit() -> None:

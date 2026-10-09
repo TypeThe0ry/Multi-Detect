@@ -100,23 +100,23 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "release-mode-sim-20260902-pre.8-combined-qgc-v4.json",
         "release-mode-hil-20260902-target-state-evidence-v1.json",
         "release-mode-real-20260901-pre.8-field-rerun.json",
-        "replay-set-sim-gazebo-2026\\replay-set.manifest.json",
-        "accuracy-report-20260904-pre8.json",
-        "threshold-calibration-20260904-pre8-verification.json",
-        "field-link-preflight-live-20260904T-current.json",
+        "replay-set-positive-fixture-20260924\\replay-set.manifest.json",
+        "accuracy-report.json",
+        "threshold-calibration-20260924-verification.json",
+        "field-link-preflight-current-20260928-r2.json",
         "simulator-safety-acceptance-latest.json",
         "actuator-safety-software-acceptance-latest.json",
         "simulator-scenario-matrix-20260903-portable-paths-pre8.json",
-        "combined-sim-qgc-20260905T175019Z-64536\\combined-evidence.json",
-        "release-mode-sim-combined-current.json",
-        "simulator-external-runtime-ai-join-v105-current-parity-pre8.json",
-        "simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json",
-        "px4-reported-position-response-matrix-v105-current-parity-pre8.json",
-        "px4-reported-position-response-campaign-v105-current-parity-pre8.json",
+        "combined-sim-qgc-navsat-20261001-r4\\combined-evidence.json",
+        "combined-sim-qgc-navsat-20261001-r4\\release-mode-sim-combined-current.json",
+        "simulator-external-evidence-policy-helper-20261001-r26.json",
+        "simulator-external-evidence-policy-helper-20261001-r26-revalidated.json",
+        "px4-reported-position-response-current-parity-20261001-r26\\px4-reported-position-response-matrix-current-parity.json",
+        "px4-reported-position-response-current-parity-20261001-r26\\px4-reported-position-response-campaign-current-parity.json",
         "px4-airframe-mission-transaction-acceptance-latest.json",
-        "simulator-3d-control-v105-current-vtol-pre8.json",
-        "simulator-3d-control-v105-current-fixed-wing-pre8.json",
-        "simulator-3d-control-v105-current-multirotor-pre8.json",
+        "simulator-3d-control-current-20261001-r1\\simulator-3d-control-current-vtol.json",
+        "simulator-3d-control-current-20261001-r1\\simulator-3d-control-current-fixed-wing.json",
+        "simulator-3d-control-current-20261001-r1\\simulator-3d-control-current-multirotor.json",
         "scene-stream-fixed-wing-20260904.json",
         "scene-stream-multirotor-20260904.json",
         "scene-stream-vtol-20260904.json",
@@ -124,19 +124,14 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         assert path in text
 
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v105\\"
-        "simulator-external-runtime-ai-join-v105-current-parity-pre8.json"
-    ) in text
+        "artifacts\\evaluation\\simulator-external-evidence-policy-helper-20261001-r26.json"
+        in text
+    )
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v105\\"
-        "simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json"
-    ) in text
-    for filename in (
-        "simulator-3d-control-v105-current-vtol-pre8.json",
-        "simulator-3d-control-v105-current-fixed-wing-pre8.json",
-        "simulator-3d-control-v105-current-multirotor-pre8.json",
-    ):
-        assert ("artifacts\\evaluation\\terminal-continuation-v105\\" + filename) in text
+        "artifacts\\evaluation\\simulator-external-evidence-policy-helper-20261001-r26-revalidated.json"
+        in text
+    )
+    assert "artifacts\\evaluation\\terminal-continuation-v105\\simulator-3d-control" not in text
     assert "combined-sim-qgc-20260902-hwnd-fallback-v4.json" not in text
     assert "terminal-continuation-v65\\simulator-external-runtime-ai-join" not in text
     assert "terminal-continuation-v65\\simulator-external-runtime-ai-revalidation" not in text
@@ -166,24 +161,24 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
     assert "terminal-continuation-v49\\simulator-external-runtime-ai-join" not in text
     assert "terminal-continuation-v49\\simulator-external-runtime-ai-revalidation" not in text
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v34\\"
-        "replay-set-sim-gazebo-2026\\replay-set.manifest.json"
+        "artifacts\\evaluation\\replay-set-positive-fixture-20260924\\"
+        "replay-set.manifest.json"
     ) in text
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v34\\"
-        "replay-set-sim-gazebo-2026\\accuracy-report-20260904-pre8.json"
+        "artifacts\\evaluation\\replay-set-positive-fixture-20260924\\accuracy-report.json"
     ) in text
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v34\\"
-        "replay-set-sim-gazebo-2026\\threshold-calibration-20260904-pre8-verification.json"
+        "artifacts\\evaluation\\replay-set-positive-fixture-20260924\\"
+        "threshold-calibration-20260924-verification.json"
     ) in text
     assert "artifacts\\replay-sets\\sim-gazebo-2026\\replay-set.manifest.json" not in text
     assert "accuracy-report-20260903-positive-strata.json" not in text
     assert "threshold-calibration-20260902-pre.8-verification.json" not in text
+    assert "artifacts\\evaluation\\field-link-preflight-current-20260928-r2.json" in text
     assert (
         "artifacts\\evaluation\\terminal-continuation-v33\\"
         "field-link-preflight-live-20260904T-current.json"
-    ) in text
+    ) not in text
     assert (
         "artifacts\\evaluation\\terminal-continuation-v32\\"
         "simulator-external-runtime-ai-join-20260904-current-pre8.json"
@@ -201,10 +196,11 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "simulator-external-runtime-ai-revalidation-20260904-current-pre8.json"
     ) not in text
 
-    # The default must point at the current parity-valid v105 evidence chain
-    # and the fixed v33 field preflight. Older snapshots are historical
-    # provenance only and must not be selected by a no-argument run; the field
-    # preflight itself is expected to fail closed when it ages past policy.
+    # The default must point at the current parity-valid evidence chain
+    # and the current diagnostic-bound field preflight. Older snapshots are
+    # historical provenance only and must not be selected by a no-argument run;
+    # the field preflight itself is expected to fail closed when the hardware
+    # link is absent or it ages past policy.
     deprecated_provider_fallback = (
         "simulator-external-runtime-ai-revalidation-20260903-"
         + "current-provider-fallback-parity.json"

@@ -54,6 +54,10 @@ FIELD_EVIDENCE_STRATA = (
     "accuracy",
 )
 DEFAULT_MAXIMUM_TELEMETRY_AGE_S = 1.0
+DEFAULT_MINIMUM_DISTANCE_REGIMES = 0
+DEFAULT_DISTANCE_REGIME_SEPARATION_M = 5.0
+DEFAULT_MINIMUM_SLOPE_REGIMES = 0
+DEFAULT_SLOPE_REGIME_SEPARATION_DEG = 3.0
 _SHA256_LENGTH = 64
 _FIELD_EVIDENCE_REPORT_KEYS = frozenset(
     {
@@ -167,6 +171,10 @@ def check_field_evidence_bundle(
     accuracy_report: str | Path | None = None,
     maximum_telemetry_age_s: float = DEFAULT_MAXIMUM_TELEMETRY_AGE_S,
     require_real_domain: bool = True,
+    minimum_distance_regimes: int = DEFAULT_MINIMUM_DISTANCE_REGIMES,
+    distance_regime_separation_m: float = DEFAULT_DISTANCE_REGIME_SEPARATION_M,
+    minimum_slope_regimes: int = DEFAULT_MINIMUM_SLOPE_REGIMES,
+    slope_regime_separation_deg: float = DEFAULT_SLOPE_REGIME_SEPARATION_DEG,
 ) -> dict[str, Any]:
     """Verify and cross-bind one field evidence set without writing files.
 
@@ -190,7 +198,15 @@ def check_field_evidence_bundle(
         )
     if type(require_real_domain) is not bool:
         raise ValueError("require_real_domain must be a boolean")
+    _validate_coverage_policy(
+        minimum_distance_regimes=minimum_distance_regimes,
+        distance_regime_separation_m=distance_regime_separation_m,
+        minimum_slope_regimes=minimum_slope_regimes,
+        slope_regime_separation_deg=slope_regime_separation_deg,
+    )
     maximum_age = float(maximum_telemetry_age_s)
+    distance_separation = float(distance_regime_separation_m)
+    slope_separation = float(slope_regime_separation_deg)
 
     values: dict[str, str | Path | None] = {
         "field_session_report": field_session_report,
@@ -648,6 +664,14 @@ def check_field_evidence_bundle(
                     fail("accuracy", "accuracy selection contains unmatched event IDs")
                 if selection.get("unused_truth_ids") != []:
                     fail("accuracy", "accuracy selection contains unused truth IDs")
+                _enforce_accuracy_coverage_policy(
+                    selection.get("coverage"),
+                    minimum_distance_regimes=minimum_distance_regimes,
+                    distance_regime_separation_m=distance_separation,
+                    minimum_slope_regimes=minimum_slope_regimes,
+                    slope_regime_separation_deg=slope_separation,
+                    fail=lambda reason: fail("accuracy", reason),
+                )
                 if not isinstance(measurement, Mapping):
                     fail("accuracy", "accuracy report measurement is missing")
                 else:
@@ -688,6 +712,10 @@ def check_field_evidence_bundle(
                 fail("accuracy", "accuracy verifier gate_passed is not true")
             if isinstance(measurement, Mapping):
                 strata["accuracy"]["sample_count"] = measurement.get("sample_count")
+            if isinstance(selection, Mapping) and isinstance(selection.get("coverage"), Mapping):
+                coverage = selection["coverage"]
+                strata["accuracy"]["distance_regimes_m"] = coverage.get("distance_regimes_m")
+                strata["accuracy"]["slope_regimes_deg"] = coverage.get("slope_regimes_deg")
             context["accuracy_document"] = accuracy_document
         except Exception as exc:  # noqa: BLE001
             fail("accuracy", f"verification error: {type(exc).__name__}: {exc}")
@@ -704,6 +732,10 @@ def check_field_evidence_bundle(
         "input_bytes": {name: inputs[name].get("bytes", 0) for name in _INPUT_NAMES},
         "maximum_telemetry_age_s": maximum_age,
         "require_real_domain": require_real_domain,
+        "minimum_distance_regimes": minimum_distance_regimes,
+        "distance_regime_separation_m": distance_separation,
+        "minimum_slope_regimes": minimum_slope_regimes,
+        "slope_regime_separation_deg": slope_separation,
     }
     cross_binding_reasons: list[str] = []
     session_document = context.get("session_document")
@@ -823,6 +855,10 @@ def check_field_evidence_bundle(
         "policy": {
             "maximum_telemetry_age_s": maximum_age,
             "require_real_domain": require_real_domain,
+            "minimum_distance_regimes": minimum_distance_regimes,
+            "distance_regime_separation_m": distance_separation,
+            "minimum_slope_regimes": minimum_slope_regimes,
+            "slope_regime_separation_deg": slope_separation,
         },
     }
     bundle_id = f"field-evidence-{canonical_sha256(bundle_identity)[:24]}"
@@ -841,6 +877,10 @@ def check_field_evidence_bundle(
         "policy": {
             "maximum_telemetry_age_s": maximum_age,
             "require_real_domain": require_real_domain,
+            "minimum_distance_regimes": minimum_distance_regimes,
+            "distance_regime_separation_m": distance_separation,
+            "minimum_slope_regimes": minimum_slope_regimes,
+            "slope_regime_separation_deg": slope_separation,
         },
         "inputs": inputs,
         "strata": strata,
@@ -982,9 +1022,25 @@ def verify_field_evidence_bundle_report(
 
     maximum_age: object = DEFAULT_MAXIMUM_TELEMETRY_AGE_S
     policy_real_domain: object = None
+    policy_minimum_distance_regimes: object = DEFAULT_MINIMUM_DISTANCE_REGIMES
+    policy_distance_regime_separation_m: object = DEFAULT_DISTANCE_REGIME_SEPARATION_M
+    policy_minimum_slope_regimes: object = DEFAULT_MINIMUM_SLOPE_REGIMES
+    policy_slope_regime_separation_deg: object = DEFAULT_SLOPE_REGIME_SEPARATION_DEG
     if isinstance(policy, Mapping):
         maximum_age = policy.get("maximum_telemetry_age_s", DEFAULT_MAXIMUM_TELEMETRY_AGE_S)
         policy_real_domain = policy.get("require_real_domain")
+        policy_minimum_distance_regimes = policy.get(
+            "minimum_distance_regimes", DEFAULT_MINIMUM_DISTANCE_REGIMES
+        )
+        policy_distance_regime_separation_m = policy.get(
+            "distance_regime_separation_m", DEFAULT_DISTANCE_REGIME_SEPARATION_M
+        )
+        policy_minimum_slope_regimes = policy.get(
+            "minimum_slope_regimes", DEFAULT_MINIMUM_SLOPE_REGIMES
+        )
+        policy_slope_regime_separation_deg = policy.get(
+            "slope_regime_separation_deg", DEFAULT_SLOPE_REGIME_SEPARATION_DEG
+        )
         if type(policy_real_domain) is not bool:
             reasons.append("field evidence report policy.require_real_domain must be a boolean")
     elif isinstance(checks, Mapping):
@@ -1000,6 +1056,19 @@ def verify_field_evidence_bundle_report(
                 "field evidence report real-domain policy does not match the requested policy"
             )
     effective_real_domain = bool(policy_real_domain)
+    try:
+        _validate_coverage_policy(
+            minimum_distance_regimes=policy_minimum_distance_regimes,
+            distance_regime_separation_m=policy_distance_regime_separation_m,
+            minimum_slope_regimes=policy_minimum_slope_regimes,
+            slope_regime_separation_deg=policy_slope_regime_separation_deg,
+        )
+    except ValueError as exc:
+        reasons.append(f"field evidence report coverage policy is invalid: {exc}")
+        policy_minimum_distance_regimes = DEFAULT_MINIMUM_DISTANCE_REGIMES
+        policy_distance_regime_separation_m = DEFAULT_DISTANCE_REGIME_SEPARATION_M
+        policy_minimum_slope_regimes = DEFAULT_MINIMUM_SLOPE_REGIMES
+        policy_slope_regime_separation_deg = DEFAULT_SLOPE_REGIME_SEPARATION_DEG
 
     raw_inputs = document.get("inputs")
     input_paths: dict[str, str | Path | None] = {}
@@ -1053,6 +1122,10 @@ def verify_field_evidence_bundle_report(
             accuracy_report=input_paths["accuracy_report"],
             maximum_telemetry_age_s=maximum_age,  # type: ignore[arg-type]
             require_real_domain=effective_real_domain,
+            minimum_distance_regimes=policy_minimum_distance_regimes,  # type: ignore[arg-type]
+            distance_regime_separation_m=policy_distance_regime_separation_m,  # type: ignore[arg-type]
+            minimum_slope_regimes=policy_minimum_slope_regimes,  # type: ignore[arg-type]
+            slope_regime_separation_deg=policy_slope_regime_separation_deg,  # type: ignore[arg-type]
         )
     except Exception as exc:  # noqa: BLE001 - malformed evidence is a verification result
         reasons.append(f"field evidence bundle re-evaluation failed: {type(exc).__name__}: {exc}")
@@ -1089,8 +1162,23 @@ def verify_field_evidence_bundle_report(
         for key in comparable_keys:
             if document.get(key) != recomputed.get(key):
                 reasons.append(f"field evidence report {key} does not match re-evaluation")
-        if "policy" in document and document.get("policy") != recomputed.get("policy"):
-            reasons.append("field evidence report policy does not match re-evaluation")
+        if "policy" in document:
+            serialized_policy = document.get("policy")
+            recomputed_policy = recomputed.get("policy")
+            if isinstance(serialized_policy, Mapping) and isinstance(recomputed_policy, Mapping):
+                legacy_policy = {
+                    "maximum_telemetry_age_s": serialized_policy.get("maximum_telemetry_age_s"),
+                    "require_real_domain": serialized_policy.get("require_real_domain"),
+                }
+                if set(serialized_policy).issubset(legacy_policy):
+                    if legacy_policy != {
+                        key: recomputed_policy.get(key) for key in legacy_policy
+                    }:
+                        reasons.append("field evidence report policy does not match re-evaluation")
+                elif serialized_policy != recomputed_policy:
+                    reasons.append("field evidence report policy does not match re-evaluation")
+            elif serialized_policy != recomputed_policy:
+                reasons.append("field evidence report policy does not match re-evaluation")
 
     if require_gate_passed and result["gate_passed"] is not True:
         reasons.append("field evidence bundle gate_passed is not true")
@@ -1154,6 +1242,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum frame-to-telemetry age (default: 1.0; canonical maximum: 1.5)",
     )
     parser.add_argument(
+        "--minimum-distance-regimes",
+        type=int,
+        default=DEFAULT_MINIMUM_DISTANCE_REGIMES,
+        help="require this many separated survey distance regimes",
+    )
+    parser.add_argument(
+        "--distance-regime-separation-m",
+        type=float,
+        default=DEFAULT_DISTANCE_REGIME_SEPARATION_M,
+        help="minimum distance between survey regime representatives",
+    )
+    parser.add_argument(
+        "--minimum-slope-regimes",
+        type=int,
+        default=DEFAULT_MINIMUM_SLOPE_REGIMES,
+        help="require this many separated survey slope regimes",
+    )
+    parser.add_argument(
+        "--slope-regime-separation-deg",
+        type=float,
+        default=DEFAULT_SLOPE_REGIME_SEPARATION_DEG,
+        help="minimum slope separation between regime representatives",
+    )
+    parser.add_argument(
         "--allow-sim-domain",
         action="store_true",
         help="allow a scenario-bound recording for diagnostic SIM checks",
@@ -1183,6 +1295,10 @@ def main(argv: list[str] | None = None) -> int:
             accuracy_report=args.accuracy_report,
             maximum_telemetry_age_s=args.maximum_telemetry_age_s,
             require_real_domain=not args.allow_sim_domain,
+            minimum_distance_regimes=args.minimum_distance_regimes,
+            distance_regime_separation_m=args.distance_regime_separation_m,
+            minimum_slope_regimes=args.minimum_slope_regimes,
+            slope_regime_separation_deg=args.slope_regime_separation_deg,
         )
         if args.out is not None:
             write_field_evidence_bundle(args.out, report)
@@ -1203,6 +1319,92 @@ def _new_stratum(name: str, input_names: Sequence[str]) -> dict[str, Any]:
         "gate_passed": False,
         "reasons": [],
     }
+
+
+def _validate_coverage_policy(
+    *,
+    minimum_distance_regimes: object,
+    distance_regime_separation_m: object,
+    minimum_slope_regimes: object,
+    slope_regime_separation_deg: object,
+) -> None:
+    for name, value in (
+        ("minimum_distance_regimes", minimum_distance_regimes),
+        ("minimum_slope_regimes", minimum_slope_regimes),
+    ):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    for name, value in (
+        ("distance_regime_separation_m", distance_regime_separation_m),
+        ("slope_regime_separation_deg", slope_regime_separation_deg),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) <= 0.0
+        ):
+            raise ValueError(f"{name} must be finite and positive")
+
+
+def _enforce_accuracy_coverage_policy(
+    coverage: object,
+    *,
+    minimum_distance_regimes: int,
+    distance_regime_separation_m: float,
+    minimum_slope_regimes: int,
+    slope_regime_separation_deg: float,
+    fail: Any,
+) -> None:
+    """Apply the bundle's explicit coverage policy to verified report metadata."""
+
+    if minimum_distance_regimes == 0 and minimum_slope_regimes == 0:
+        return
+    if not isinstance(coverage, Mapping):
+        fail("accuracy selection coverage is required by the bundle policy")
+        return
+
+    expectations = (
+        (
+            minimum_distance_regimes,
+            distance_regime_separation_m,
+            "minimum_distance_regimes",
+            "distance_regime_separation_m",
+            "distance_regimes_m",
+            "distance",
+        ),
+        (
+            minimum_slope_regimes,
+            slope_regime_separation_deg,
+            "minimum_slope_regimes",
+            "slope_regime_separation_deg",
+            "slope_regimes_deg",
+            "slope",
+        ),
+    )
+    for minimum, separation, minimum_name, separation_name, values_name, label in expectations:
+        if minimum == 0:
+            continue
+        if coverage.get(minimum_name) != minimum:
+            fail(
+                f"accuracy selection coverage {minimum_name} does not match bundle policy"
+            )
+        observed_separation = coverage.get(separation_name)
+        if (
+            not isinstance(observed_separation, (int, float))
+            or isinstance(observed_separation, bool)
+            or not math.isclose(float(observed_separation), separation, rel_tol=1e-12, abs_tol=1e-9)
+        ):
+            fail(
+                f"accuracy selection coverage {separation_name} does not match bundle policy"
+            )
+        values = coverage.get(values_name)
+        if not isinstance(values, list):
+            fail(f"accuracy selection coverage {values_name} is missing")
+        elif len(values) < minimum:
+            fail(
+                f"accuracy coverage {label}_regimes<{minimum} (got {len(values)})"
+            )
 
 
 def _finalize_stratum(stratum: dict[str, Any]) -> None:

@@ -130,6 +130,18 @@ def _negative_entry(
     require(vehicle.get("model") == expected.get("vehicle_model"), "vehicle_model")
     require(vehicle.get("model_name") == expected.get("model_name"), "model_name")
     require(environment.get("PX4_SYS_AUTOSTART") == expected.get("px4_sys_autostart"), "autostart")
+    expected_scenario = root / str(expected.get("scenario_path", "missing"))
+    scenario_bytes = expected_scenario.read_bytes() if expected_scenario.is_file() else b""
+    require(bool(scenario_bytes), "scenario_manifest_available")
+    require(
+        scenario.get("manifest_sha256") == _sha256(scenario_bytes),
+        "scenario_manifest_sha256",
+    )
+    require(scenario.get("truth_loaded_by_runtime") is False, "truth_not_loaded")
+    require(
+        scenario.get("expectations_loaded_by_runtime") is False,
+        "expectations_not_loaded",
+    )
     require(runtime.get("status") == "passed", "container_runtime")
     require(cleanup.get("removed") is True and cleanup.get("errors") == [], "cleanup")
     require(flight.get("requested") is True, "flight_requested")

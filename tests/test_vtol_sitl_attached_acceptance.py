@@ -57,6 +57,8 @@ class _FakeCollector:
             "system_status": 4,
         }
         self.last_gps = {"fix_type": 3, "satellites_visible": 10, "lat": 1, "lon": 1}
+        self.last_landed_state = 1  # MAV_LANDED_STATE_ON_GROUND
+        self.armed_waits: list[tuple[bool, float]] = []
 
     def wait_for_heartbeat(self, _timeout_s: float) -> dict[str, object]:
         return dict(self.last_heartbeat)
@@ -75,6 +77,7 @@ class _FakeCollector:
 
     def wait_for_armed_state(self, armed: bool, timeout_s: float) -> None:
         assert timeout_s > 0.0
+        self.armed_waits.append((armed, timeout_s))
         current = bool(
             self.last_heartbeat
             and self.last_heartbeat["base_mode"] & 128  # MAV_MODE_FLAG_SAFETY_ARMED
@@ -170,6 +173,10 @@ def test_attach_gate_runs_only_bounded_evaluator_commands_and_keeps_runtime_read
     assert evidence.is_file()
     assert ready.is_file()
     assert collectors
+    assert collectors[0].armed_waits == [
+        (True, module.ARMED_STATE_TIMEOUT_SECONDS),
+        (False, 12.0),
+    ]
     assert connection.closed is True
 
 

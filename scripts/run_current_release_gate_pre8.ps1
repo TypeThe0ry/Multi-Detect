@@ -10,18 +10,17 @@ param(
     [string]$SimEvidence = 'artifacts\evaluation\release-mode-sim-20260902-pre.8-combined-qgc-v4.json',
     [string]$HilEvidence = 'artifacts\evaluation\release-mode-hil-20260902-target-state-evidence-v1.json',
     [string]$RealEvidence = 'artifacts\evaluation\release-mode-real-20260901-pre.8-field-rerun.json',
-    # v34 is a regenerated copy of the historical Gazebo SIM replay-set.  The
-    # copy preserves every source frame/event while rebinding recording_hash
-    # to the current schema (including optional telemetry fields); the
-    # historical artifacts remain immutable provenance and are not used by a
-    # no-argument run.
-    [string]$ReplaySetManifest = 'artifacts\evaluation\terminal-continuation-v34\replay-set-sim-gazebo-2026\replay-set.manifest.json',
-    [string]$ReplaySetAccuracyEvidence = 'artifacts\evaluation\terminal-continuation-v34\replay-set-sim-gazebo-2026\accuracy-report-20260904-pre8.json',
-    [string]$ReplaySetCalibrationVerification = 'artifacts\evaluation\terminal-continuation-v34\replay-set-sim-gazebo-2026\threshold-calibration-20260904-pre8-verification.json',
+    # Keep the no-argument wrapper bound to the current positive-strata
+    # fixture.  It is intentionally still fail-closed because its source is
+    # synthetic_demo and it is not deployment-domain evidence; historical
+    # Gazebo replay-set artifacts remain immutable provenance only.
+    [string]$ReplaySetManifest = 'artifacts\evaluation\replay-set-positive-fixture-20260924\replay-set.manifest.json',
+    [string]$ReplaySetAccuracyEvidence = 'artifacts\evaluation\replay-set-positive-fixture-20260924\accuracy-report.json',
+    [string]$ReplaySetCalibrationVerification = 'artifacts\evaluation\replay-set-positive-fixture-20260924\threshold-calibration-20260924-verification.json',
     # Keep the no-argument wrapper bound to the latest same-day preflight.  A
     # stale field report is still preserved as historical evidence, but must
     # not silently become the canonical current input.
-    [string]$RealFieldLinkPreflight = 'artifacts\evaluation\terminal-continuation-v33\field-link-preflight-live-20260904T-current.json',
+    [string]$RealFieldLinkPreflight = 'artifacts\evaluation\field-link-preflight-current-20260928-r2.json',
     [ValidateRange(0, 86400)]
     [double]$RealFieldLinkMaxAgeSeconds = 900.0,
     # Optional six-strata field bundle.  Keep it empty by default so historic
@@ -43,6 +42,9 @@ param(
     # existing prerelease rebinding remains compatible; final release checks
     # must pass the reviewed deployment candidate explicitly.
     [string]$ModelReviewBundle = '',
+    # Optional hash-bound SharedTaskPolicy SIM-to-HIL/REAL handoff.  Keep it
+    # empty for prerelease diagnostics; final release evaluation requires it.
+    [string]$SharedPolicyRuntimeHandoff = '',
     [string]$SimulatorSafetyEvidence = 'artifacts\evaluation\simulator-safety-acceptance-latest.json',
     [string]$ActuatorSafetyEvidence = 'artifacts\evaluation\actuator-safety-software-acceptance-latest.json',
     # Use the current portable-path matrix by default.  The legacy
@@ -53,19 +55,21 @@ param(
     # Bind the latest complete 900-frame QGC/PX4 combined acceptance and its
     # current release-mode envelope. The former 2026-09-02 capture predates the
     # required CameraInfo K/P/R/D and full-odometry semantics.
-    [string]$SimulatorCombinedEvidence = 'artifacts\evaluation\combined-sim-qgc-20260905T175019Z-64536\combined-evidence.json',
-    [string]$SimulatorCombinedReleaseModeEvidence = 'artifacts\evaluation\terminal-continuation-v105\release-mode-sim-combined-current.json',
+    [string]$SimulatorCombinedEvidence = 'artifacts\evaluation\combined-sim-qgc-navsat-20261001-r4\combined-evidence.json',
+    [string]$SimulatorCombinedReleaseModeEvidence = 'artifacts\evaluation\combined-sim-qgc-navsat-20261001-r4\release-mode-sim-combined-current.json',
     # Bind summaries re-derived from the immutable external runtime/AI source
     # records against the current release-parity file. Older summaries remain
     # historical evidence because their recorded parity identity is stale.
-    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v105\simulator-external-runtime-ai-join-v105-current-parity-pre8.json',
-    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v105\simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json',
+    # r26 is the current source-bound index.  It is a static rebinding of
+    # retained source evidence, not a claim that a new external runtime ran.
+    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\simulator-external-evidence-policy-helper-20261001-r26.json',
+    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\simulator-external-evidence-policy-helper-20261001-r26-revalidated.json',
     [string]$Px4AirframeTransactionEvidence = 'artifacts\evaluation\px4-airframe-mission-transaction-acceptance-latest.json',
     # External Docker/Gazebo response from fixed-wing, multirotor and VTOL,
     # measured exclusively from PX4 GLOBAL_POSITION_INT and bound to source.
-    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v105\px4-reported-position-response-matrix-v105-current-parity-pre8.json',
+    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\px4-reported-position-response-current-parity-20261001-r26\px4-reported-position-response-matrix-current-parity.json',
     # Two positive runs and three explicit fail-closed faults for each airframe.
-    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v105\px4-reported-position-response-campaign-v105-current-parity-pre8.json',
+    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\px4-reported-position-response-current-parity-20261001-r26\px4-reported-position-response-campaign-current-parity.json',
     # Optional human-reviewed QGC evidence. Final release requires four
     # independently captured records in replay/sim/hil/real order. Keep this
     # empty until the operator has actually reviewed and signed each capture.
@@ -80,9 +84,9 @@ param(
     # hashes match the current Gazebo assets. The v56 records remain immutable
     # provenance but no longer match the current model bytes.
     [string[]]$Simulator3dControlEvidence = @(
-        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-vtol-pre8.json',
-        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-fixed-wing-pre8.json',
-        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-multirotor-pre8.json'
+        'artifacts\evaluation\simulator-3d-control-current-20261001-r1\simulator-3d-control-current-vtol.json',
+        'artifacts\evaluation\simulator-3d-control-current-20261001-r1\simulator-3d-control-current-fixed-wing.json',
+        'artifacts\evaluation\simulator-3d-control-current-20261001-r1\simulator-3d-control-current-multirotor.json'
     ),
     [string[]]$SimulatorSceneStreamSetEvidence = @(
         'artifacts\evaluation\terminal-continuation-v30\scene-stream-fixed-wing-20260904.json',
@@ -265,6 +269,7 @@ $optionalInputMap = [ordered]@{
     '--real-alert-link-bench' = $RealAlertLinkBench
     '--real-gr01-operator-link-bench' = $RealGr01OperatorLinkBench
     '--model-review-bundle' = $ModelReviewBundle
+    '--shared-policy-runtime-handoff' = $SharedPolicyRuntimeHandoff
 }
 $controlArguments = [System.Collections.Generic.List[string]]::new()
 $controlArguments.Add((Resolve-RepositoryPath -Requested 'scripts\create_release_gate_manifest.py'))

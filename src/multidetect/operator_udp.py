@@ -28,6 +28,7 @@ from .operator_link import (
     PayloadTargetConfirmationCommand,
     PayloadTargetConfirmationCommandGuard,
     PayloadTargetStatusMessage,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeStatusMessage,
@@ -567,6 +568,14 @@ class UdpOperatorSelectionServer:
         peer: tuple[str, int],
     ) -> None:
         self._channel.sendto(self.mavlink.encode_runtime_status(status), peer)
+
+    def publish_policy_runtime_status(
+        self,
+        status: PolicyRuntimeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_policy_runtime_status(status), peer)
 
     def publish_runtime_status_for_acceptance(
         self,

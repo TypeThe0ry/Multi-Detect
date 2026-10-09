@@ -102,18 +102,83 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
     ),
     "core_algorithm": (
+        "src/multidetect/clock.py",
         # Gazebo is a SIM adapter, but its fixed wire and ENU/FLU covariance
         # conversion feed the exact shared pose/ranging contract.  Bind both
         # producer and consumer so SIM cannot retain a stale core identity
         # after its telemetry semantics diverge from REPLAY/HIL/REAL.
         "scripts/gazebo_sensor_stream.py",
+        "scripts/gazebo_depth_wire.py",
         "src/multidetect/backends/gazebo_sim.py",
+        "src/multidetect/gazebo_fault_verification.py",
+        "src/multidetect/live.py",
         "src/multidetect/adaptive_ranging.py",
         "src/multidetect/depth_calibration.py",
         # The platform-neutral task planner is shared by REPLAY, SIM, HIL and
         # REAL; bind it to the core hash so distance/energy/readiness changes
         # cannot drift away from the common mission path.
         "src/multidetect/autonomy/planner.py",
+        # The explicit SIM-only budget qualifier must not retain old model or
+        # provenance semantics when a new context enters the shared planner.
+        "src/multidetect/autonomy/sim_planning_inputs.py",
+        # Incremental task selection and observed completion share one identity
+        # across runtime modes; no mode may retain an older decision core.
+        # The vehicle-neutral campaign seam binds policy selection and runtime
+        # compilation before an injected vehicle lifecycle adapter; keep it in
+        # the common identity so SIM/HIL/REAL cannot silently drift at this
+        # handoff boundary.
+        "src/multidetect/autonomy/onboard_agent.py",
+        # The event-to-Mission revision and safety callback boundary is shared
+        # by SIM, HIL and REAL; bind it so transport handoffs cannot silently
+        # diverge from the common OnboardAI contract.
+        "src/multidetect/autonomy/onboard_adapter.py",
+        # The model navigation compiler and phase receipt state machine are
+        # adapter-owned but shared by SIM, HIL and REAL; bind both so a model
+        # cannot change route authoring or task sequencing without a parity
+        # transition.
+        "src/multidetect/autonomy/onboard_navigation.py",
+        "src/multidetect/autonomy/onboard_task_state.py",
+        "src/multidetect/autonomy/onboard_onnx.py",
+        # The bounded history contract, session isolation and identical decoder
+        # are shared between SIM and the future Jetson runtime.  A temporal
+        # artifact cannot silently retain an older single-step core identity.
+        "src/multidetect/autonomy/onboard_history.py",
+        "src/multidetect/autonomy/onboard_history_onnx.py",
+        # The selected OnboardAI model reference is a shared identity boundary
+        # for 4060 SIM and future Jetson loading; bind its fail-closed hash
+        # verifier so a model swap cannot retain the old core parity.
+        "src/multidetect/autonomy/onboard_model_reference.py",
+        "scripts/train_onboard_model.py",
+        "scripts/onboard_sequence_windows.py",
+        "scripts/train_onboard_history_model.py",
+        # Continuous Gazebo RGB/Depth captures enter training only through a
+        # truth-free staging boundary.  Bind the staging schema so a change to
+        # episode grouping or source identity is visible in the parity record.
+        "configs/schemas/onboard-trajectory-dataset.schema.json",
+        "configs/schemas/onboard-trajectory-staging.schema.json",
+        "configs/schemas/onboard-trajectory-label-review-receipt.schema.json",
+        "configs/schemas/onboard-rendered-3d-review-receipt.schema.json",
+        "scripts/run_onboard_policy_chain.py",
+        # In-flight replacement is a separate parent-bound transaction.  Bind
+        # its pause/cursor/resume state machine so a transport cannot change
+        # replacement semantics without invalidating SIM/HIL/REAL parity.
+        "src/multidetect/mission_replacement.py",
+        "configs/schemas/mission-replacement-receipt.schema.json",
+        "src/multidetect/autonomy/prompt_resolution.py",
+        "src/multidetect/autonomy/mission_campaign.py",
+        "src/multidetect/autonomy/task_selection.py",
+        "src/multidetect/autonomy/policy_artifact.py",
+        "src/multidetect/autonomy/policy_contract.py",
+        "src/multidetect/autonomy/task_policy.py",
+        "src/multidetect/autonomy/task_ranker.py",
+        "src/multidetect/autonomy/task_session.py",
+        "src/multidetect/autonomy/task_policy_runtime.py",
+        "src/multidetect/autonomy/mission_outcome.py",
+        # Budget episodes consume the same selection/compilation seam. Bind
+        # their projection semantics without claiming physical validation.
+        "src/multidetect/simulation/task_episode.py",
+        "src/multidetect/simulation/task_training.py",
+        "src/multidetect/simulation/energy_replay.py",
         # Mission progress is the shared observation boundary between the
         # compiled PX4 mission and SIM/HIL/REAL telemetry.  Bind it here so
         # acceptance-radius and GPS-freshness changes cannot drift by mode.
@@ -124,6 +189,9 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # diverge on fix, satellite, or unknown-value semantics.
         "src/multidetect/mavlink_gps.py",
         "src/multidetect/metric_depth.py",
+        # Gazebo depth/range samples bind real sensor bytes and timestamps to
+        # the same DirectRangeMeasurement contract used by live/replay.
+        "src/multidetect/gazebo_depth.py",
         # Multi-modal slant/ground ranging and its uncertainty propagation are
         # shared by SIM, REPLAY, HIL and REAL; bind the complete estimator so
         # a near-horizon or stale-distance change cannot drift by mode.  Its
@@ -145,6 +213,8 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # SIM cannot silently regress to a spherical/equirectangular position
         # while REAL keeps the shared ellipsoid implementation.
         "src/multidetect/simulator/flight_model.py",
+        "src/multidetect/simulator/closed_loop.py",
+        "src/multidetect/simulator/scenario_runner.py",
         "src/multidetect/simulator/perception_bridge.py",
         # Target-event evidence carries the exact camera calibration consumed
         # by target geolocation.  Bind both the loader/builder and its strict
@@ -158,8 +228,31 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # while retaining a stale parity identity.
         "src/multidetect/target_image_anchor.py",
         "src/multidetect/target_geolocation.py",
+        # Offline geolocation accuracy and survey joins are the same estimator
+        # evidence boundary used to review SIM/HIL/REAL positioning; bind the
+        # wire-v3 sensor transport bridge and report schema so stale sensor or
+        # coverage semantics cannot retain an old shared identity.
+        "src/multidetect/geolocation_accuracy.py",
+        "src/multidetect/geolocation_survey.py",
+        "src/multidetect/sensor_transport_binding.py",
+        "configs/schemas/target-geolocation-accuracy-report.schema.json",
     ),
     "task_contract": (
+        "src/multidetect/autonomy/mission_context_admission.py",
+        # Context validity/provenance and canonical decoding are shared task
+        # semantics, not backend-only metadata. Bind both versioned schemas
+        # without weakening the retained v1 input contract.
+        "src/multidetect/autonomy/contracts.py",
+        "src/multidetect/autonomy/serialization.py",
+        "configs/schemas/autonomy-context-snapshot.schema.json",
+        "configs/schemas/autonomy-context-snapshot-v2.schema.json",
+        "src/multidetect/autonomy/policy_artifact.py",
+        "src/multidetect/autonomy/policy_contract.py",
+        "src/multidetect/autonomy/task_ranker.py",
+        "src/multidetect/autonomy/task_policy.py",
+        "src/multidetect/autonomy/task_policy_runtime.py",
+        "configs/schemas/scenario-runtime-input.schema.json",
+        "src/multidetect/simulation/runtime_input.py",
         "configs/schemas/autonomy-platform-neutral-plan.schema.json",
         # A field bundle cannot claim its evidence join is complete from
         # nominal camera mount numbers alone.  Bind both the physical survey
@@ -293,6 +386,35 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # planner and the vehicle-specific PX4 compilers.
         "src/multidetect/mission_compile_cli.py",
         "src/multidetect/mission_planning.py",
+        # Teacher authoring still consumes the shared Mission compiler, with
+        # source revalidation and exact v2 scope instead of synthetic grants.
+        "src/multidetect/autonomy/onboard_teacher_mission.py",
+        "src/multidetect/autonomy/sim_teacher_compilation.py",
+        # The shared execution adapter and its external Mission transport are
+        # the only bridge from a compiled, policy-bound Mission to an owned
+        # PX4/Gazebo socket.  Bind both so a transport or permit change cannot
+        # retain stale SIM/HIL/REAL Mission evidence.
+        "src/multidetect/autonomy/mission_adapter.py",
+        "src/multidetect/px4_external_mission.py",
+        "src/multidetect/px4_mission_acceptance.py",
+        "scripts/run_simulator_docker_acceptance.py",
+        "scripts/run_external_px4_mission_transaction.py",
+        # The selected-task external campaign is the executable bridge from
+        # SharedTaskPolicy to the existing PX4 Mission upload/readback/commit
+        # lifecycle. Bind both the campaign orchestrator and its VTOL
+        # acceptance entry point so changing selection, planner revalidation,
+        # cleanup or evidence binding invalidates the PX4 path identity.
+        "scripts/vtol_selected_task_campaign.py",
+        "scripts/vtol_sitl_mission_acceptance.py",
+        # The combined external SIM sensor campaign owns the ready barrier,
+        # same-container capture, final artifact revalidation, and exact-ID
+        # cleanup. Bind its wrapper so acceptance/evidence logic cannot drift
+        # while retaining an old PX4 Mission path hash.
+        "scripts/run_vtol_mission_sensor_capture.py",
+        # The QGC-integrated wrapper owns the combined SIM process lifecycle,
+        # native-video/toolbar checks, Mission handoff and final cleanup.  It
+        # must share the same PX4 path identity as the headless campaign.
+        "scripts/run_px4_gazebo_qgc_combined_sim_acceptance.ps1",
         # Mode-3 confirmation state and the bounded SET_ATTITUDE_TARGET
         # transport are part of the physical output path.  Hash both so a
         # runtime cannot ship different live-attestation or pilot-cancel

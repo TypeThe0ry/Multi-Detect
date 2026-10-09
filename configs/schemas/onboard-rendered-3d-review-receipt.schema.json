@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/onboard-rendered-3d-review-receipt.schema.json",
+  "title": "Multi-Detect reviewed rendered 3-D OnboardAI receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "event",
+    "source_dataset_sha256",
+    "source_manifest_sha256",
+    "review_manifest",
+    "annotator",
+    "reviewer",
+    "reviewed_at_utc",
+    "independent_review_recorded",
+    "claims",
+    "canonical_hash"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.onboard-rendered-3d-review-receipt"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.onboard-rendered-3d-review-v1"},
+    "event": {"const": "onboard_rendered_3d_rows_reviewed"},
+    "source_dataset_sha256": {"$ref": "#/$defs/sha256"},
+    "source_manifest_sha256": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "review_manifest": {"$ref": "#/$defs/reviewManifest"},
+    "annotator": {"type": "string", "minLength": 1},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at_utc": {"type": "string", "minLength": 1},
+    "independent_review_recorded": {"const": true},
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "labels_complete",
+        "truth_free_inputs",
+        "no_scenario_truth_labels",
+        "payload_bindings_verified",
+        "release_ready"
+      ],
+      "properties": {
+        "labels_complete": {"const": true},
+        "truth_free_inputs": {"const": true},
+        "no_scenario_truth_labels": {"const": true},
+        "payload_bindings_verified": {"const": true},
+        "release_ready": {"const": false}
+      }
+    },
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reviewManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "row_count", "canonical_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "row_count": {"type": "integer", "minimum": 1},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

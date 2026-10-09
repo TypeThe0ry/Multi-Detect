@@ -232,6 +232,189 @@ def _fault_coverage_summary(fault_events: Iterable[Mapping[str, Any]]) -> dict[s
     }
 
 
+_RECOVERY_FIELDS_BY_KIND: dict[str, tuple[str, ...]] = {
+    "camera_dropout": (
+        "target_visible",
+        "target_bearing_deg",
+        "target_distance_m",
+        "target_confidence",
+    ),
+    "gps_dropout": (
+        "latitude_deg",
+        "longitude_deg",
+        "gps_fix_type",
+        "gps_horizontal_accuracy_m",
+        "gps_vertical_accuracy_m",
+        "satellites_visible",
+        "position_observed_at_s",
+        "gps_observed_at_s",
+    ),
+    "gps_drift": (
+        "latitude_deg",
+        "longitude_deg",
+        "gps_horizontal_accuracy_m",
+    ),
+    "airspeed_freeze": ("airspeed_mps", "ground_speed_mps"),
+    "wind_gust": ("wind_east_mps", "wind_north_mps"),
+    "target_drift": ("target_distance_m",),
+    "target_distance_drift": ("target_distance_m",),
+    "target_bearing_drift": ("target_bearing_deg",),
+    "timestamp_skew": (
+        "altitude_observed_at_s",
+        "position_observed_at_s",
+        "gps_observed_at_s",
+    ),
+}
+
+
+def _same_observation_value(left: object, right: object) -> bool:
+    if isinstance(left, float) and isinstance(right, float):
+        if math.isnan(left) and math.isnan(right):
+            return True
+    return left == right
+
+
+def _fault_recovery_summary(
+    fault_events: Iterable[Mapping[str, Any]],
+    steps: Iterable[Mapping[str, Any]],
+    baseline_steps: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Prove finite sensor faults return to a no-fault baseline.
+
+    The baseline is another truth-free run of the same manifest and runner
+    configuration with fault injection disabled.  This deliberately avoids
+    using evaluator truth or assuming a sensor's nominal value.  Only finite
+    fault windows are expected to recover; indefinite faults remain an
+    explicit non-recovery case.
+    """
+
+    observed_by_index = {
+        item.get("index"): item
+        for item in steps
+        if isinstance(item, Mapping) and isinstance(item.get("index"), int)
+    }
+    baseline_by_index = {
+        item.get("index"): item
+        for item in baseline_steps
+        if isinstance(item, Mapping) and isinstance(item.get("index"), int)
+    }
+    events: list[dict[str, Any]] = []
+    indefinite_ids: list[str] = []
+    unrecovered_ids: list[str] = []
+    for event in fault_events:
+        event_id = event.get("event_id")
+        kind = event.get("kind")
+        duration = event.get("duration_s")
+        at_s = event.get("at_s")
+        if not isinstance(event_id, str) or not event_id:
+            continue
+        if duration is None:
+            indefinite_ids.append(event_id)
+            continue
+        if (
+            not isinstance(kind, str)
+            or kind not in _RECOVERY_FIELDS_BY_KIND
+            or not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or duration <= 0.0
+            or not isinstance(at_s, (int, float))
+            or isinstance(at_s, bool)
+        ):
+            unrecovered_ids.append(event_id)
+            events.append(
+                {
+                    "event_id": event_id,
+                    "kind": kind,
+                    "recovery_expected": True,
+                    "recovery_proven": False,
+                    "reason": "unsupported_or_invalid_recovery_contract",
+                }
+            )
+            continue
+        end_s = float(at_s) + float(duration)
+        active_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+        after_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+        fields = _RECOVERY_FIELDS_BY_KIND[kind]
+        for index, observed in observed_by_index.items():
+            baseline = baseline_by_index.get(index)
+            if baseline is None:
+                continue
+            observation_values = observed.get("observation")
+            time_s = (
+                observation_values.get("observed_at_s")
+                if isinstance(observation_values, Mapping)
+                else None
+            )
+            if not isinstance(time_s, (int, float)) or isinstance(time_s, bool):
+                continue
+            pair = (observed, baseline)
+            if float(at_s) <= float(time_s) < end_s:
+                active_pairs.append(pair)
+            elif float(time_s) >= end_s:
+                after_pairs.append(pair)
+
+        def differs(
+            pair: tuple[Mapping[str, Any], Mapping[str, Any]],
+            *,
+            fields: tuple[str, ...] = fields,
+        ) -> bool:
+            observed, baseline = pair
+            observed_values = observed.get("observation")
+            baseline_values = baseline.get("observation")
+            if not isinstance(observed_values, Mapping) or not isinstance(baseline_values, Mapping):
+                return False
+            return any(
+                not _same_observation_value(observed_values.get(field), baseline_values.get(field))
+                for field in fields
+            )
+
+        effect_observed = any(differs(pair) for pair in active_pairs)
+        mismatched_after = [
+            field
+            for field in fields
+            if any(
+                not _same_observation_value(
+                    pair[0].get("observation", {}).get(field),
+                    pair[1].get("observation", {}).get(field),
+                )
+                for pair in after_pairs
+                if isinstance(pair[0].get("observation"), Mapping)
+                and isinstance(pair[1].get("observation"), Mapping)
+            )
+        ]
+        # ``active_frames``/``fired`` already prove that the event was applied;
+        # some valid fixtures (for example a frozen value that is already
+        # steady) have no observable numerical delta.  Recovery therefore
+        # requires an observed active window and a post-window baseline match,
+        # not an arbitrary non-zero effect magnitude.
+        recovery_proven = bool(active_pairs and after_pairs and not mismatched_after)
+        if not recovery_proven:
+            unrecovered_ids.append(event_id)
+        events.append(
+            {
+                "event_id": event_id,
+                "kind": kind,
+                "at_s": float(at_s),
+                "duration_s": float(duration),
+                "active_observation_count": len(active_pairs),
+                "post_window_observation_count": len(after_pairs),
+                "effect_observed_against_baseline": effect_observed,
+                "post_window_mismatched_fields": mismatched_after,
+                "recovery_expected": True,
+                "recovery_proven": recovery_proven,
+            }
+        )
+    finite_count = len(events)
+    return {
+        "finite_event_count": finite_count,
+        "recovered_event_count": sum(item["recovery_proven"] is True for item in events),
+        "unrecovered_event_ids": unrecovered_ids,
+        "indefinite_event_ids": indefinite_ids,
+        "all_finite_faults_recovered": not unrecovered_ids,
+        "events": events,
+    }
+
+
 def _summary_gate(
     summary: dict[str, Any],
     *,
@@ -439,6 +622,13 @@ def verify_scenario_matrix_document(
             document.get("fault_coverage_auto_extended") is True,
             "final release requires fault_coverage_auto_extended=true",
         )
+    fault_recovery_required = document.get("fault_recovery_required", False)
+    if "fault_recovery_required" in document:
+        check(
+            "fault_recovery_required",
+            isinstance(fault_recovery_required, bool),
+            "fault_recovery_required must be a boolean",
+        )
 
     claims = document.get("claims")
     check("claims", isinstance(claims, Mapping), "claims must be an object")
@@ -534,6 +724,14 @@ def verify_scenario_matrix_document(
                 continue
             if not passed:
                 reasons.extend(f"scenarios[{index}]: {reason}" for reason in summary_reasons)
+            if fault_recovery_required:
+                recovery = summary.get("fault_recovery")
+                if not isinstance(recovery, Mapping):
+                    reasons.append(f"scenarios[{index}]: fault recovery summary is missing")
+                elif recovery.get("all_finite_faults_recovered") is not True:
+                    reasons.append(
+                        f"scenarios[{index}]: finite fault recovery is incomplete"
+                    )
             if summary.get("gate_passed") is not True:
                 reasons.append(f"scenarios[{index}].gate_passed must be true")
             if isinstance(scenario_ids, list) and summary_id not in scenario_ids:
@@ -670,11 +868,13 @@ def run_scenario_matrix(
                 duration = fault_tail_s if event.duration_s is None else float(event.duration_s)
                 latest_fault_time_s = max(latest_fault_time_s, float(event.at_s) + duration)
         if latest_fault_time_s > 0.0:
-            # The runner samples at t=0, dt, ...; one extra sample guarantees
-            # a finite event ending exactly on a sample boundary is included.
+            # The runner observes before each physics tick, so the final
+            # observation is at ``(frames - 1) * dt``.  Two extra samples are
+            # required when an event ends exactly on a tick boundary: one to
+            # observe the boundary and one to retain a post-window sample.
             effective_frames = max(
                 frames,
-                int(math.ceil(latest_fault_time_s / float(dt_s))) + 1,
+                int(math.ceil(latest_fault_time_s / float(dt_s))) + 2,
             )
     summaries: list[dict[str, Any]] = []
     scenario_ids: set[str] = set()
@@ -685,7 +885,7 @@ def run_scenario_matrix(
             dt_s=float(dt_s),
             enable_ai=enable_ai,
             arm_on_start=arm_on_start,
-            history_limit=min(frames, 8),
+            history_limit=effective_frames if cover_faults else min(frames, 8),
         )
         try:
             first = SimulatorScenarioRunner(manifest, config=config).run()
@@ -693,6 +893,30 @@ def run_scenario_matrix(
             if repeat:
                 second = SimulatorScenarioRunner(manifest, config=config).run()
                 second_hash = second.evidence_hash
+            baseline = None
+            recovery_run = None
+            if cover_faults:
+                baseline_config = SimulatorScenarioRunnerConfig(
+                    frames=effective_frames,
+                    dt_s=float(dt_s),
+                    # Recovery comparison isolates the sensor transform from
+                    # different AI control outputs during the fault window.
+                    # The production-shaped AI run above remains the matrix
+                    # authority/watchdog evidence.
+                    enable_ai=False,
+                    arm_on_start=arm_on_start,
+                    active_fault_ids=(),
+                    history_limit=effective_frames,
+                )
+                baseline = SimulatorScenarioRunner(manifest, config=baseline_config).run()
+                recovery_config = SimulatorScenarioRunnerConfig(
+                    frames=effective_frames,
+                    dt_s=float(dt_s),
+                    enable_ai=False,
+                    arm_on_start=arm_on_start,
+                    history_limit=effective_frames,
+                )
+                recovery_run = SimulatorScenarioRunner(manifest, config=recovery_config).run()
         except (OSError, SimulatorScenarioRunnerError, ValueError, TypeError, RuntimeError) as exc:
             raise SimulatorScenarioMatrixError(f"{manifest.name}: {exc}") from exc
         summary = _scenario_summary(
@@ -714,6 +938,15 @@ def run_scenario_matrix(
         )
         summary["gate_passed"] = passed
         summary["failure_reasons"] = reasons
+        if cover_faults:
+            summary["fault_recovery"] = _fault_recovery_summary(
+                first.fault_events,
+                () if recovery_run is None else recovery_run.steps,
+                () if baseline is None else baseline.steps,
+            )
+            if summary["fault_recovery"]["all_finite_faults_recovered"] is not True:
+                summary["gate_passed"] = False
+                summary["failure_reasons"].append("finite fault recovery is incomplete")
         summaries.append(summary)
 
     product = load_product_version()
@@ -749,6 +982,7 @@ def run_scenario_matrix(
         "repeatability_checked": repeat,
         "fault_coverage_required": fault_coverage_requested,
         "fault_coverage_auto_extended": cover_faults,
+        "fault_recovery_required": cover_faults,
         "fault_coverage_tail_s": float(fault_tail_s),
         "required_modes": ["fixed-wing", "multirotor", "vtol"],
         "scenarios": summaries,

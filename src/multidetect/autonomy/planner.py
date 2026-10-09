@@ -30,7 +30,7 @@ from .contracts import (
     ResolvedTaskSpec,
     TaskType,
 )
-from .serialization import require_int, require_real, require_text, strict_object
+from .serialization import require_int, require_real, require_sha256, require_text, strict_object
 
 
 class PlannerError(AutonomyContractError):
@@ -262,19 +262,72 @@ class PlanningEstimate:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class RouteAcquisitionRequirements:
+    """A bound v2 MR survey needs camera capture, not an active detector.
+
+    This is a task capability declaration, not a skip-all safety option. GPS,
+    geofence, map/terrain, camera, wind and conservative energy/speed gates stay
+    enabled. A future static-scene clearance substitute needs a separate verified
+    contract; file presence alone is not obstacle-clearance evidence.
+    """
+
+    task_spec_sha256: str
+    context_snapshot_sha256: str
+    modeled_endurance_receive_age_s: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name in ("task_spec_sha256", "context_snapshot_sha256"):
+            object.__setattr__(self, name, require_sha256(getattr(self, name), name))
+        object.__setattr__(
+            self,
+            "modeled_endurance_receive_age_s",
+            require_real(
+                self.modeled_endurance_receive_age_s,
+                "modeled_endurance_receive_age_s",
+                minimum=0.0,
+                maximum=2.0,
+            ),
+        )
+
+    def validate_for(
+        self, task: ResolvedTaskSpec, context: ContextSnapshot, vehicle_class: str
+    ) -> None:
+        if (
+            context.schema_version != 2
+            or vehicle_class != "multirotor"
+            or task.task_type is not TaskType.SURVEY
+            or task.on_detection
+            or task.completion_action is not PlanAction.RETURN
+            or not task.constraints.remain_inside_geofence
+            or task.canonical_hash != self.task_spec_sha256
+            or context.canonical_hash != self.context_snapshot_sha256
+        ):
+            raise PlannerError("route acquisition requirements do not match a bounded v2 MR survey")
+        if self.modeled_endurance_receive_age_s and (
+            context.provenance is None
+            or context.provenance.runtime_kind != "SIM"
+            or context.provenance.endurance.kind != "explicit_SIM_energy_model"
+        ):
+            raise PlannerError("receive-age correction requires the explicit SIM energy model")
+
+
 def estimate_task(
     task: ResolvedTaskSpec,
     context: ContextSnapshot,
     vehicle_class: str,
     *,
     policy: PlannerPolicy | None = None,
+    resource_requirements: RouteAcquisitionRequirements | None = None,
 ) -> PlanningEstimate:
     """Validate planning prerequisites and return a conservative WGS-84 estimate."""
 
     selected_policy = PlannerPolicy() if policy is None else policy
     if not isinstance(selected_policy, PlannerPolicy):
         raise PlannerError("policy must be a PlannerPolicy")
-    normalized_vehicle = _validate_inputs(task, context, vehicle_class, selected_policy)
+    normalized_vehicle = _validate_inputs(
+        task, context, vehicle_class, selected_policy, resource_requirements=resource_requirements
+    )
     outbound_distance_m, task_distance_m, return_distance_m = _route_distances(task, context)
     if task.completion_action is not PlanAction.RETURN:
         # A LAND completion ends at the task geometry.  Keep the home distance
@@ -288,15 +341,39 @@ def estimate_task(
         "vtol": selected_policy.vtol_cruise_speed_mps,
         "multirotor": selected_policy.multirotor_cruise_speed_mps,
     }[normalized_vehicle]
-    measured_speed = max(context.ground_speed_mps, context.airspeed_mps)
-    planning_speed = min(
-        selected_policy.maximum_planning_speed_mps,
-        max(nominal_speed, measured_speed),
+    if context.schema_version == 1:
+        # Preserve legacy measured-speed semantics for the unchanged v1 contract.
+        assert context.airspeed_mps is not None
+        measured_speed = max(context.ground_speed_mps, context.airspeed_mps)
+        planning_speed = min(
+            selected_policy.maximum_planning_speed_mps,
+            max(nominal_speed, measured_speed),
+        )
+    else:
+        # Instantaneous ground/air speed is not a sustainable air-relative
+        # capability. v2 must use the caller's separately bound conservative model.
+        assert context.flight_capability is not None
+        planning_speed = min(
+            selected_policy.maximum_planning_speed_mps,
+            context.flight_capability.cruise_airspeed_mps,
+        )
+    route_legs = _route_legs(
+        task,
+        context,
+        include_return=task.completion_action is PlanAction.RETURN,
     )
-    wind_speed = math.hypot(context.wind_north_mps, context.wind_east_mps)
-    effective_speed = max(selected_policy.minimum_speed_mps, planning_speed - wind_speed)
-
-    travel_duration_s = total_distance_m / effective_speed
+    assert context.wind_north_mps is not None and context.wind_east_mps is not None
+    travel_duration_s = _directional_travel_duration(
+        route_legs,
+        airspeed_mps=planning_speed,
+        wind_north_mps=context.wind_north_mps,
+        wind_east_mps=context.wind_east_mps,
+        minimum_progress_mps=selected_policy.minimum_speed_mps,
+    )
+    # This is the route-wide harmonic ground speed implied by the individual
+    # wind-triangle solutions.  It is deliberately not used as a speed floor:
+    # an infeasible leg has already failed closed above.
+    effective_speed = total_distance_m / travel_duration_s
     overhead_s = selected_policy.takeoff_duration_s + selected_policy.landing_duration_s
     if normalized_vehicle == "vtol":
         # The platform-neutral plan remains identical; the VTOL compiler owns
@@ -314,7 +391,18 @@ def estimate_task(
         context.battery_remaining_pct - reserve_pct - selected_policy.minimum_battery_margin_pct
     )
     usable_fraction = max(0.0, energy_headroom_pct / max(context.battery_remaining_pct, 1.0e-9))
+    assert context.estimated_flight_time_s is not None
     available_duration_s = context.estimated_flight_time_s * usable_fraction
+    if resource_requirements is not None:
+        # The explicit model already subtracts receive age from total endurance,
+        # while sampled battery remains unmodified. Scaling that aged total would
+        # incorrectly reduce the reserve as well. Charge the missing fraction of
+        # elapsed time: (E-age)*f-age*(1-f) = E*f-age, deducting reserve only once.
+        available_duration_s = max(
+            0.0,
+            available_duration_s
+            - resource_requirements.modeled_endurance_receive_age_s * (1.0 - usable_fraction),
+        )
     if estimated_duration_s > available_duration_s + 1.0e-9:
         raise PlannerError("estimated mission duration exceeds energy budget above return reserve")
     if estimated_duration_s > task.constraints.maximum_duration_s + 1.0e-9:
@@ -339,6 +427,7 @@ def plan_task(
     vehicle_class: str,
     *,
     policy: PlannerPolicy | None = None,
+    resource_requirements: RouteAcquisitionRequirements | None = None,
 ) -> PlatformNeutralPlan:
     """Compile a resolved task into one deterministic platform-neutral plan.
 
@@ -348,7 +437,9 @@ def plan_task(
     HIL/REAL plan before a vehicle-specific PX4 compiler is selected.
     """
 
-    estimate = estimate_task(task, context, vehicle_class, policy=policy)
+    estimate = estimate_task(
+        task, context, vehicle_class, policy=policy, resource_requirements=resource_requirements
+    )
     primary_action = _TASK_ACTIONS[task.task_type]
     feature_id = task.geometry.resolved_feature_id
     steps: list[PlanStep] = [PlanStep(0, PlanAction.TAKEOFF)]
@@ -407,12 +498,18 @@ def _validate_inputs(
     context: ContextSnapshot,
     vehicle_class: str,
     policy: PlannerPolicy,
+    *,
+    resource_requirements: RouteAcquisitionRequirements | None = None,
 ) -> str:
     if not isinstance(task, ResolvedTaskSpec):
         raise PlannerError("task must be a ResolvedTaskSpec")
     if not isinstance(context, ContextSnapshot):
         raise PlannerError("context must be a ContextSnapshot")
     normalized_vehicle = normalize_vehicle_class(vehicle_class)
+    if resource_requirements is not None:
+        if not isinstance(resource_requirements, RouteAcquisitionRequirements):
+            raise PlannerError("resource_requirements must be RouteAcquisitionRequirements")
+        resource_requirements.validate_for(task, context, normalized_vehicle)
     if not task.ready_for_planning:
         raise PlannerError("task contains unresolved assumptions")
     if task.geometry.resolution_confidence < policy.minimum_geometry_confidence:
@@ -425,7 +522,7 @@ def _validate_inputs(
         raise PlannerError("geofence is not valid")
     for name, available in (
         ("camera", context.camera_available),
-        ("perception", context.perception_available),
+        ("perception", context.perception_available or resource_requirements is not None),
         ("map cache", context.map_cache_available),
         ("DEM", context.dem_available),
     ):
@@ -435,8 +532,10 @@ def _validate_inputs(
         task.constraints.minimum_return_battery_pct + policy.minimum_battery_margin_pct
     ):
         raise PlannerError("battery is not above return reserve plus planning margin")
-    if context.estimated_flight_time_s <= 0.0:
+    if context.estimated_flight_time_s is None or context.estimated_flight_time_s <= 0.0:
         raise PlannerError("estimated flight time must be positive")
+    if context.schema_version == 2:
+        _validate_v2_planning_sources(context, normalized_vehicle)
     seen_actions: set[PlanAction] = set()
     for action in task.on_detection:
         if action not in _DETECTION_ACTIONS:
@@ -445,6 +544,34 @@ def _validate_inputs(
             raise PlannerError("on_detection actions must be unique")
         seen_actions.add(action)
     return normalized_vehicle
+
+
+def _validate_v2_planning_sources(context: ContextSnapshot, vehicle_class: str) -> None:
+    """Accept only declared, exact-scope v2 inputs; SHA is not certification."""
+    provenance = context.provenance
+    assert provenance is not None
+    if context.wind_north_mps is None or context.wind_east_mps is None:
+        raise PlannerError("v2 planning requires a known wind model or observation")
+    for source in (provenance.endurance, provenance.wind):
+        if source.kind.startswith("explicit_SIM_") and provenance.runtime_kind != "SIM":
+            raise PlannerError("explicit SIM models cannot authorize non-SIM planning")
+    capability = context.flight_capability
+    if capability is None:
+        raise PlannerError("v2 planning requires an explicit conservative flight capability")
+    if (
+        capability.airframe_profile_id != context.airframe_profile_id
+        or capability.airframe_profile_hash != context.airframe_profile_hash
+        or capability.vehicle_class != vehicle_class
+        or capability.runtime_kind != provenance.runtime_kind
+    ):
+        raise PlannerError(
+            "flight capability does not match context airframe, vehicle, or runtime scope"
+        )
+    if vehicle_class in {"fixed-wing", "vtol"} and provenance.airspeed.kind not in {
+        "air_relative_sensor",
+        "air_relative_estimator",
+    }:
+        raise PlannerError("fixed-wing cruise requires a qualified air-relative airspeed source")
 
 
 def _route_distances(
@@ -480,6 +607,116 @@ def _route_distances(
     # the two-point sample.  Use the larger value so a sparse centerline can
     # never make the energy/time estimate optimistic.
     return outbound, max(task.geometry.length_m, polyline), return_distance
+
+
+def _route_legs(
+    task: ResolvedTaskSpec,
+    context: ContextSnapshot,
+    *,
+    include_return: bool,
+) -> tuple[tuple[float, float], ...]:
+    """Return ``(distance_m, initial_bearing_deg)`` for every route leg.
+
+    The sampled centerline can be shorter than its declared geometry length.
+    In that case its segment distances are scaled proportionally while their
+    WGS-84 bearings remain unchanged.  This preserves the existing
+    conservative distance rule without inventing a new heading.
+    """
+
+    points = task.geometry.centerline
+    centerline_distances = [
+        wgs84_distance_m(
+            latitude1_deg=left.latitude_deg,
+            longitude1_deg=left.longitude_deg,
+            latitude2_deg=right.latitude_deg,
+            longitude2_deg=right.longitude_deg,
+        )
+        for left, right in zip(points[:-1], points[1:], strict=True)
+    ]
+    sampled_length = sum(centerline_distances)
+    if sampled_length <= 1.0e-9:
+        raise PlannerError("task centerline has no usable direction")
+    task_distance = max(task.geometry.length_m, sampled_length)
+    scale = task_distance / sampled_length
+
+    # Build outbound and centerline legs separately so the declared-vs-sampled
+    # scale cannot accidentally stretch the outbound leg.
+    scaled: list[tuple[float, float]] = []
+    outbound = wgs84_distance_m(
+        latitude1_deg=context.aircraft_position.latitude_deg,
+        longitude1_deg=context.aircraft_position.longitude_deg,
+        latitude2_deg=points[0].latitude_deg,
+        longitude2_deg=points[0].longitude_deg,
+    )
+    if outbound > 1.0e-9:
+        scaled.append((outbound, _initial_bearing_deg(context.aircraft_position, points[0])))
+    for distance, left, right in zip(
+        centerline_distances,
+        points[:-1],
+        points[1:],
+        strict=True,
+    ):
+        if distance > 1.0e-9:
+            scaled.append((distance * scale, _initial_bearing_deg(left, right)))
+
+    if include_return:
+        last = points[-1]
+        return_distance = wgs84_distance_m(
+            latitude1_deg=last.latitude_deg,
+            longitude1_deg=last.longitude_deg,
+            latitude2_deg=context.home_position.latitude_deg,
+            longitude2_deg=context.home_position.longitude_deg,
+        )
+        if return_distance > 1.0e-9:
+            scaled.append((return_distance, _initial_bearing_deg(last, context.home_position)))
+    if not scaled:
+        raise PlannerError("route contains no usable distance")
+    return tuple(scaled)
+
+
+def _directional_travel_duration(
+    route_legs: tuple[tuple[float, float], ...],
+    *,
+    airspeed_mps: float,
+    wind_north_mps: float,
+    wind_east_mps: float,
+    minimum_progress_mps: float,
+) -> float:
+    """Compute route time from a steady wind-triangle solution per leg."""
+
+    duration_s = 0.0
+    for distance_m, track_deg in route_legs:
+        track = math.radians(track_deg % 360.0)
+        north, east = math.cos(track), math.sin(track)
+        wind_along = wind_north_mps * north + wind_east_mps * east
+        wind_cross = wind_east_mps * north - wind_north_mps * east
+        if abs(wind_cross) > airspeed_mps + 1.0e-9:
+            raise PlannerError("crosswind exceeds planning airspeed")
+        forward_air = airspeed_mps * math.sqrt(max(0.0, 1.0 - (wind_cross / airspeed_mps) ** 2))
+        # Do not use favourable wind as extra endurance.  A deployment may
+        # later adopt a reviewed tailwind policy, but the common planner must
+        # remain conservative across SIM, PX4 and REAL until that policy is
+        # explicitly versioned and validated.
+        progress_mps = min(airspeed_mps, forward_air + wind_along)
+        if progress_mps <= minimum_progress_mps:
+            raise PlannerError("wind leaves insufficient forward progress")
+        duration_s += distance_m / progress_mps
+    if not math.isfinite(duration_s) or duration_s <= 0.0:
+        raise PlannerError("wind-aware route duration is invalid")
+    return duration_s
+
+
+def _initial_bearing_deg(left: object, right: object) -> float:
+    """Return the clockwise WGS-84 initial bearing between two GeoPoints."""
+
+    lat1 = math.radians(left.latitude_deg)
+    lat2 = math.radians(right.latitude_deg)
+    delta_lon = math.radians(right.longitude_deg - left.longitude_deg)
+    y = math.sin(delta_lon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
+    if abs(x) < 1.0e-15 and abs(y) < 1.0e-15:
+        raise PlannerError("route bearing is undefined for coincident points")
+    return math.degrees(math.atan2(y, x)) % 360.0
 
 
 __all__ = [

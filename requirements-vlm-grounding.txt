@@ -1,0 +1,4 @@
+# Development-only factual visual grounding. Reuses the existing CUDA PyTorch.
+# Keep this separate: requirements-vlm-shadow.txt is bound to prior evidence.
+-r requirements-vlm-shadow.txt
+peft==0.17.1

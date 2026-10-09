@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_red_green_search_001",
+  "scenario_version": 1,
+  "seed": 56311,
+  "world": {
+    "world_asset": "builtin://gazebo/gazebo_red_green_search_001",
+    "map_asset": "builtin://maps/gazebo_red_green_search_001.geojson",
+    "dem_asset": "builtin://terrain/gazebo_red_green_search_001.dem.json",
+    "wind_north_mps": 0.0,
+    "wind_east_mps": 0.0,
+    "gust_mps": 0.0
+  },
+  "vehicle": {
+    "model": "px4_multirotor_standard",
+    "airframe_profile_id": "px4_multirotor_gazebo_v1",
+    "spawn_id": "gazebo_red_green_search_home_multirotor"
+  },
+  "sensors": [
+    {
+      "sensor_id": "front-camera",
+      "kind": "rgb_camera",
+      "stream_uri": "gazebo://gazebo_red_green_search_001/front-camera",
+      "calibration_id": "gazebo-multirotor-front-camera-v1"
+    },
+    {
+      "sensor_id": "front-depth",
+      "kind": "depth_camera",
+      "stream_uri": "gazebo://gazebo_red_green_search_001/front-depth",
+      "calibration_id": "gazebo-multirotor-front-depth-v1"
+    },
+    {
+      "sensor_id": "px4-telemetry",
+      "kind": "mavlink_telemetry",
+      "stream_uri": "udp://127.0.0.1:14541"
+    }
+  ],
+  "faults": []
+}

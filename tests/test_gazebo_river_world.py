@@ -37,8 +37,10 @@ def test_river_world_is_repository_owned_sdf_with_default_topic_namespace() -> N
     assert "http://" not in serialized
     assert "https://" not in serialized
     assert "fuel://" not in serialized
-    assert "model://" not in serialized
-    assert not world.findall(".//include")
+    assert "model://multidetect_search_target_v1" in serialized
+    includes = world.findall(".//include")
+    assert len(includes) == 1
+    assert includes[0].findtext("uri") == "model://multidetect_search_target_v1"
 
 
 def test_river_world_has_px4_rate_physics_sun_and_navsat_reference() -> None:

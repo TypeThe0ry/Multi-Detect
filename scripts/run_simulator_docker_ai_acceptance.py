@@ -36,6 +36,7 @@ flight-command path is used.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -119,6 +120,8 @@ PX4_CUSTOM_MAIN_MODE_STABILIZED = 7
 PX4_STABILIZED_CUSTOM_MODE = PX4_CUSTOM_MAIN_MODE_STABILIZED << 16
 ARM_RETRY_INTERVAL_S = 1.0
 ARM_MAX_ATTEMPTS = 6
+ARM_PREFLIGHT_RETRY_INTERVAL_S = 0.5
+ARM_PREFLIGHT_MAX_ATTEMPTS = 20
 FLIGHT_MODE_RETRY_INTERVAL_S = 1.0
 FLIGHT_MODE_MAX_ATTEMPTS = 3
 FLIGHT_TARGET_REFRESH_S = 0.1
@@ -128,11 +131,60 @@ MAX_POSITION_SAMPLES = 4096
 DEFAULT_MAXIMUM_TELEMETRY_FRAMES = 100_000
 DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S = 3.0
 FLIGHT_FAULTS = frozenset(
-    {"none", "target_refresh_dropout", "heartbeat_dropout", "flight_mode_loss"}
+    {
+        "none",
+        "target_refresh_dropout",
+        "heartbeat_dropout",
+        "flight_mode_loss",
+        "gps_quality_loss",
+        "battery_low",
+    }
 )
 RELEASE_STATUS = (
     f"v{PRODUCT_VERSION.release_label}; final v{PRODUCT_VERSION.numeric} remains blocked"
 )
+_RELEASE_PARITY_KEYS = (
+    "core_algorithm_hash",
+    "px4_mission_path_hash",
+    "safety_policy_hash",
+    "task_contract_hash",
+    "ui_contract_hash",
+)
+
+
+def _capture_release_parity(path: str | Path) -> dict[str, object]:
+    """Capture release-parity identity at one runtime boundary."""
+
+    resolved = Path(path).expanduser().resolve(strict=True)
+    raw = resolved.read_bytes()
+    document = json.loads(raw.decode("utf-8"))
+    if not isinstance(document, dict):
+        raise DockerAiAcceptanceError("release parity document must be a JSON object")
+    hashes = document.get("parity")
+    if not isinstance(hashes, dict) or set(hashes) != set(_RELEASE_PARITY_KEYS):
+        raise DockerAiAcceptanceError("release parity document has an incomplete hash set")
+    normalized: dict[str, str] = {}
+    for key in _RELEASE_PARITY_KEYS:
+        value = hashes.get(key)
+        if not isinstance(value, str) or len(value) != 64:
+            raise DockerAiAcceptanceError(f"release parity {key} must be a SHA-256 string")
+        try:
+            int(value, 16)
+        except ValueError as exc:
+            raise DockerAiAcceptanceError(
+                f"release parity {key} must be a SHA-256 string"
+            ) from exc
+        normalized[key] = value.lower()
+    release_label = document.get("release_label")
+    if not isinstance(release_label, str) or not release_label:
+        raise DockerAiAcceptanceError("release parity release_label is missing")
+    return {
+        "path": str(resolved),
+        "bytes": len(raw),
+        "file_sha256": hashlib.sha256(raw).hexdigest(),
+        "release_label": release_label,
+        "hashes": normalized,
+    }
 
 
 # Keep the Docker AI probe's transport contract local and explicit.  The base
@@ -347,33 +399,62 @@ def _prepare_disposable_sitl_for_arm(
             parameter,
             value,
         ]
-        if runner is not None:
-            result = runner(argv, timeout_s=10.0, check=True)
-        else:
-            result = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=10.0,
-                check=False,
+        attempts: list[dict[str, object]] = []
+        for attempt in range(1, ARM_PREFLIGHT_MAX_ATTEMPTS + 1):
+            if runner is not None:
+                result = runner(argv, timeout_s=10.0, check=True)
+            else:
+                result = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=10.0,
+                    check=False,
+                )
+            returncode = getattr(result, "returncode", 0)
+            stdout = str(getattr(result, "stdout", "") or "").strip()
+            stderr = str(getattr(result, "stderr", "") or "").strip()
+            attempts.append(
+                {
+                    "attempt": attempt,
+                    "returncode": returncode,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                }
             )
-        returncode = getattr(result, "returncode", 0)
-        stdout = str(getattr(result, "stdout", "") or "").strip()
-        stderr = str(getattr(result, "stderr", "") or "").strip()
-        row = {
-            "parameter": parameter,
-            "value": value,
-            "returncode": returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "scope": "owned disposable PX4/Gazebo SITL only",
-        }
-        applied.append(row)
-        if returncode != 0:
-            raise DockerAiAcceptanceError(
-                f"disposable SITL arm preflight failed for {parameter}: "
-                f"{stderr or stdout or f'returncode={returncode}'}"
-            )
+            if returncode == 0:
+                applied.append(
+                    {
+                        "parameter": parameter,
+                        "value": value,
+                        "returncode": returncode,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "attempt_count": attempt,
+                        "attempts": attempts,
+                        "scope": "owned disposable PX4/Gazebo SITL only",
+                    }
+                )
+                break
+            startup_not_ready = "server not running" in f"{stderr}\n{stdout}".lower()
+            if not startup_not_ready or attempt >= ARM_PREFLIGHT_MAX_ATTEMPTS:
+                applied.append(
+                    {
+                        "parameter": parameter,
+                        "value": value,
+                        "returncode": returncode,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "attempt_count": attempt,
+                        "attempts": attempts,
+                        "scope": "owned disposable PX4/Gazebo SITL only",
+                    }
+                )
+                raise DockerAiAcceptanceError(
+                    f"disposable SITL arm preflight failed for {parameter}: "
+                    f"{stderr or stdout or f'returncode={returncode}'}"
+                )
+            time.sleep(ARM_PREFLIGHT_RETRY_INTERVAL_S)
     return {
         "requested": True,
         "applied": True,
@@ -529,6 +610,7 @@ class DockerAiTelemetryProbe:
         exercise_flight_duration_s: float = 0.0,
         minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
         inject_flight_fault: str = "none",
+        request_return_on_gps_loss: bool = False,
     ) -> None:
         # Validate both legs before constructing any connection factory.  This
         # keeps dry-run fixtures and live ``--execute`` runs under the same
@@ -550,6 +632,8 @@ class DockerAiTelemetryProbe:
             raise ValueError("exercise_arm requires wait_for_armed_heartbeat")
         if not isinstance(exercise_target, bool):
             raise TypeError("exercise_target must be bool")
+        if not isinstance(request_return_on_gps_loss, bool):
+            raise TypeError("request_return_on_gps_loss must be bool")
         if exercise_target and not exercise_arm:
             raise ValueError("exercise_target requires exercise_arm")
         try:
@@ -607,11 +691,17 @@ class DockerAiTelemetryProbe:
         self.exercise_flight_duration_s = normalized_flight_duration
         self.minimum_flight_displacement_m = normalized_minimum_displacement
         self.inject_flight_fault = normalized_flight_fault
+        self.request_return_on_gps_loss = request_return_on_gps_loss
         self.flight_fault_trigger_after_s = min(1.0, normalized_flight_duration / 2.0)
         self.flight_fault_activated_at_s: float | None = None
         self.flight_fault_mode_command_sent = False
         self.flight_fault_mode_command_error: str | None = None
         self.flight_fault_suppressed_heartbeats = 0
+        self.flight_fault_suppressed_gps = 0
+        self.flight_fault_return_requested = False
+        self.flight_fault_return_decision: dict[str, object] | None = None
+        self.flight_fault_battery_injected = False
+        self.flight_fault_battery_decision: dict[str, object] | None = None
         self.frames_observed = 0
         self.messages: list[dict[str, object]] = []
         self.rejections: list[dict[str, object]] = []
@@ -1053,6 +1143,20 @@ class DockerAiTelemetryProbe:
                 and self.flight_fault_mode_command_sent
                 and status == "flight_mode_loss_observed"
             )
+        elif self.inject_flight_fault == "gps_quality_loss":
+            observed = (
+                activated
+                and self.flight_fault_suppressed_gps > 0
+                and status == "gps_quality_loss_observed"
+            )
+        elif self.inject_flight_fault == "battery_low":
+            observed = (
+                activated
+                and self.flight_fault_battery_injected
+                and isinstance(self.flight_fault_battery_decision, Mapping)
+                and self.flight_fault_battery_decision.get("mode") in {"return", "failsafe"}
+                and status == "battery_low_response_observed"
+            )
         else:
             observed = False
         return {
@@ -1062,8 +1166,48 @@ class DockerAiTelemetryProbe:
             "activated": activated,
             "activated_at_s": self.flight_fault_activated_at_s,
             "observed": observed,
-            "fail_closed": bool(requested and observed),
+            "fail_closed": bool(
+                requested
+                and observed
+                and (
+                    self.inject_flight_fault not in {"gps_quality_loss", "battery_low"}
+                    or (
+                        self.request_return_on_gps_loss
+                        and isinstance(self.flight_fault_return_decision, Mapping)
+                        and self.flight_fault_return_decision.get("mode") == "failsafe"
+                    )
+                    or (
+                        self.inject_flight_fault == "battery_low"
+                        and isinstance(self.flight_fault_battery_decision, Mapping)
+                        and self.flight_fault_battery_decision.get("mode") == "failsafe"
+                    )
+                )
+            ),
+            "adaptation": (
+                "return_gps_gate_failsafe"
+                if (
+                    self.inject_flight_fault == "gps_quality_loss"
+                    and self.request_return_on_gps_loss
+                    and observed
+                )
+                else "continued_track_without_location_claim"
+                if self.inject_flight_fault == "gps_quality_loss" and observed
+                else (
+                    "return_on_low_battery"
+                    if isinstance(self.flight_fault_battery_decision, Mapping)
+                    and self.flight_fault_battery_decision.get("mode") == "return"
+                    else "battery_low_failsafe"
+                    if self.inject_flight_fault == "battery_low" and observed
+                    else None
+                )
+            ),
             "suppressed_heartbeats": self.flight_fault_suppressed_heartbeats,
+            "suppressed_gps": self.flight_fault_suppressed_gps,
+            "return_requested": self.flight_fault_return_requested,
+            "return_request_enabled": self.request_return_on_gps_loss,
+            "return_decision": self.flight_fault_return_decision,
+            "battery_injected": self.flight_fault_battery_injected,
+            "battery_decision": self.flight_fault_battery_decision,
             "mode_command_sent": self.flight_fault_mode_command_sent,
             "mode_command_error": self.flight_fault_mode_command_error,
             "scope": "disposable_loopback_px4_sitl_only",
@@ -1167,6 +1311,21 @@ class DockerAiTelemetryProbe:
                     "type": kind,
                     "observed_at_s": stamp,
                     "fault_injected": "heartbeat_dropout",
+                    "suppressed_before_bridge": True,
+                }
+            )
+            return
+        if (
+            kind == "GPS_RAW_INT"
+            and self.inject_flight_fault == "gps_quality_loss"
+            and self.flight_fault_activated_at_s is not None
+        ):
+            self.flight_fault_suppressed_gps += 1
+            self.messages.append(
+                {
+                    "type": kind,
+                    "observed_at_s": stamp,
+                    "fault_injected": "gps_quality_loss",
                     "suppressed_before_bridge": True,
                 }
             )
@@ -1374,6 +1533,10 @@ class DockerAiTelemetryProbe:
             target_bearing_deg=bearing_deg,
             target_distance_m=distance_m,
             target_confidence=confidence,
+            return_requested=(
+                self.inject_flight_fault == "gps_quality_loss"
+                and self.flight_fault_activated_at_s is not None
+            ),
         )
         previous_observation = self.target_observation
         self.target_observation = {
@@ -1531,7 +1694,8 @@ class DockerAiTelemetryProbe:
         gate_passed = bool(
             not requested
             or (
-                started is not None
+                self.inject_flight_fault not in {"gps_quality_loss", "battery_low"}
+                and started is not None
                 and elapsed >= self.exercise_flight_duration_s
                 and self.flight_mode_observed
                 and self.flight_mode_loss_events == 0
@@ -1556,6 +1720,24 @@ class DockerAiTelemetryProbe:
             status = "flight_mode_not_observed"
         elif self.inject_flight_fault == "heartbeat_dropout" and not heartbeat_continuity_gate:
             status = "heartbeat_continuity_failed"
+        elif (
+            self.inject_flight_fault == "gps_quality_loss"
+            and self.flight_fault_suppressed_gps > 0
+            and started is not None
+            and elapsed >= min(1.5, self.exercise_flight_duration_s)
+            and (
+                not self.request_return_on_gps_loss
+                or self.flight_fault_return_requested
+            )
+        ):
+            status = "gps_quality_loss_observed"
+        elif (
+            self.inject_flight_fault == "battery_low"
+            and self.flight_fault_battery_injected
+            and isinstance(self.flight_fault_battery_decision, Mapping)
+            and self.flight_fault_battery_decision.get("mode") in {"return", "failsafe"}
+        ):
+            status = "battery_low_response_observed"
         elif not refresh_gate:
             status = "target_refresh_not_sustained"
         elif not heartbeat_continuity_gate:
@@ -1722,6 +1904,39 @@ class DockerAiTelemetryProbe:
                 self.poll_iterations += 1
                 now = self.clock()
                 self._activate_flight_fault(now)
+                if (
+                    self.inject_flight_fault == "gps_quality_loss"
+                    and self.flight_fault_activated_at_s is not None
+                    and self.request_return_on_gps_loss
+                    and not self.flight_fault_return_requested
+                    and now - self.flight_fault_activated_at_s >= 1.5
+                ):
+                    decision = self.bridge.request_return(
+                        "gps_quality_loss_return_request",
+                        timestamp_s=now,
+                    )
+                    self.flight_fault_return_requested = True
+                    self.flight_fault_return_decision = (
+                        None if decision is None else decision.to_mapping()
+                    )
+                if (
+                    self.inject_flight_fault == "battery_low"
+                    and self.flight_fault_activated_at_s is not None
+                    and not self.flight_fault_battery_injected
+                ):
+                    decision = self.bridge.ingest(
+                        {
+                            "type": "SYS_STATUS",
+                            "battery_remaining": 5,
+                            "source_system_id": self.px4_system_id,
+                            "source_component_id": PX4_AUTOPILOT_COMPONENT,
+                        },
+                        timestamp_s=now,
+                    )
+                    self.flight_fault_battery_injected = True
+                    self.flight_fault_battery_decision = (
+                        None if decision is None else decision.to_mapping()
+                    )
                 if now >= next_heartbeat:
                     self._send_heartbeat(telemetry)
                     next_heartbeat = now + 0.5
@@ -2192,6 +2407,7 @@ def _empty_ai_evidence(
     exercise_flight_duration_s: float = 0.0,
     minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
     inject_flight_fault: str = "none",
+    request_return_on_gps_loss: bool = False,
 ) -> dict[str, object]:
     normalized_component_ids = _normalize_component_ids(px4_component_ids)
     normalized_flight_duration = _validate_exercise_flight_duration(exercise_flight_duration_s)
@@ -2298,6 +2514,9 @@ def _empty_ai_evidence(
                 "observed": False,
                 "fail_closed": False,
                 "suppressed_heartbeats": 0,
+                "suppressed_gps": 0,
+                "battery_injected": False,
+                "battery_decision": None,
                 "mode_command_sent": False,
                 "mode_command_error": None,
                 "scope": "disposable_loopback_px4_sitl_only",
@@ -2556,6 +2775,8 @@ def run_acceptance(
     exercise_flight_duration_s: float = 0.0,
     minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
     inject_flight_fault: str = "none",
+    request_return_on_gps_loss: bool = False,
+    release_parity_path: str | Path | None = None,
     runner: Callable[..., object] | None = None,
     telemetry_probe_factory: Callable[[str], DockerAiTelemetryProbe] | None = None,
 ) -> dict[str, object]:
@@ -2567,6 +2788,8 @@ def run_acceptance(
         raise DockerAiAcceptanceError("exercise_arm requires --execute")
     if not isinstance(exercise_target, bool):
         raise TypeError("exercise_target must be bool")
+    if not isinstance(request_return_on_gps_loss, bool):
+        raise TypeError("request_return_on_gps_loss must be bool")
     if exercise_target and not exercise_arm:
         raise DockerAiAcceptanceError("exercise_target requires --exercise-arm")
     if exercise_target and not execute:
@@ -2592,6 +2815,11 @@ def run_acceptance(
     _validate_control_endpoint(f"udpout:127.0.0.1:{control_port}")
     _validate_telemetry_endpoint(f"udpin:127.0.0.1:{telemetry_port}")
 
+    parity_start = (
+        _capture_release_parity(release_parity_path)
+        if release_parity_path is not None
+        else None
+    )
     fixture: dict[str, object] | None = None
     probes: list[DockerAiTelemetryProbe] = []
     arm_preflight_result: dict[str, object] | None = None
@@ -2636,6 +2864,7 @@ def run_acceptance(
                     exercise_flight_duration_s=normalized_flight_duration,
                     minimum_flight_displacement_m=normalized_minimum_displacement,
                     inject_flight_fault=normalized_flight_fault,
+                    request_return_on_gps_loss=request_return_on_gps_loss,
                 )
             )
             # Keep custom test/production factories inside the same boundary:
@@ -2767,6 +2996,40 @@ def run_acceptance(
         fixture=fixture,
         execution_requested=execute,
     )
+    parity_end: dict[str, object] | None = None
+    parity_error: str | None = None
+    if release_parity_path is not None:
+        try:
+            parity_end = _capture_release_parity(release_parity_path)
+        except (
+            DockerAiAcceptanceError,
+            OSError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            parity_error = str(exc)
+    parity_stable = bool(
+        parity_start is not None
+        and parity_end is not None
+        and parity_start == parity_end
+    )
+    result["release_parity_snapshot"] = {
+        "requested": release_parity_path is not None,
+        "start": parity_start,
+        "end": parity_end,
+        "stable": parity_stable if release_parity_path is not None else None,
+        "error": parity_error,
+    }
+    result["release_parity_snapshot_gate_passed"] = (
+        True if release_parity_path is None else parity_stable
+    )
+    if release_parity_path is not None and not parity_stable:
+        result["gate_passed"] = False
+        claims = result.get("claims")
+        claims = dict(claims) if isinstance(claims, Mapping) else {}
+        claims["runtime_release_parity"] = "drift_or_unavailable"
+        result["claims"] = claims
     # Rewrite the evidence after augmentation; the base helper writes before
     # this bridge-specific layer is known.
     evidence = Path(evidence_path).expanduser().resolve()
@@ -2804,6 +3067,12 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument(
+        "--release-parity",
+        type=Path,
+        default=ROOT / "configs" / "release-parity.json",
+        help="release parity file to lock at runtime start/end",
+    )
     parser.add_argument("--docker", type=Path)
     parser.add_argument(
         "--execute",
@@ -2859,6 +3128,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--request-return-on-gps-loss",
+        action="store_true",
+        help=(
+            "for gps_quality_loss only, issue an explicit mission return request "
+            "after GPS freshness expires and verify the GPS-gated failsafe path"
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         "--timeout-seconds",
         dest="timeout_s",
@@ -2892,6 +3169,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exercise_flight_duration_s=args.exercise_flight_duration_s,
             minimum_flight_displacement_m=args.minimum_flight_displacement_m,
             inject_flight_fault=args.inject_flight_fault,
+            request_return_on_gps_loss=args.request_return_on_gps_loss,
+            release_parity_path=args.release_parity,
         )
     except (
         DockerAiAcceptanceError,

@@ -23,7 +23,13 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 
-from .autonomy.serialization import AutonomyContractError, require_text, strict_json_loads
+from .autonomy.policy_artifact import MAX_POLICY_ARTIFACT_BYTES, PolicyArtifact
+from .autonomy.serialization import (
+    AutonomyContractError,
+    require_sha256,
+    require_text,
+    strict_json_loads,
+)
 from .compat import UTC
 from .live_runtime_observation_mission_binding import (
     build_runtime_endpoint_vehicle_identity_sidecar,
@@ -110,6 +116,38 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _load_policy_artifact(
+    path: Path,
+    *,
+    mission_airframe_profile_hash: str,
+    expected_file_sha256: str | None,
+) -> tuple[PolicyArtifact, str]:
+    """Load and bind the exact policy artifact used by a field capture.
+
+    The artifact remains metadata-only and never grants actuator authority.  The
+    airframe identity check prevents a policy trained/bound for a different
+    vehicle profile from entering a HIL/REAL capture, while the optional file
+    digest lets the operator bind the copied artifact before opening telemetry.
+    """
+
+    payload = path.read_bytes()
+    if len(payload) > MAX_POLICY_ARTIFACT_BYTES:
+        raise Px4RuntimeCaptureError("policy artifact exceeds size limit")
+    file_sha256 = hashlib.sha256(payload).hexdigest()
+    if expected_file_sha256 is not None:
+        if file_sha256 != require_sha256(expected_file_sha256, "policy artifact file SHA-256"):
+            raise Px4RuntimeCaptureError("policy artifact file SHA-256 mismatch")
+    try:
+        artifact = PolicyArtifact.from_mapping(strict_json_loads(payload, name="policy artifact"))
+    except (AutonomyContractError, TypeError, ValueError, KeyError) as exc:
+        raise Px4RuntimeCaptureError("policy artifact is invalid") from exc
+    if artifact.airframe_profile_hash != mission_airframe_profile_hash:
+        raise Px4RuntimeCaptureError(
+            "policy artifact airframe profile does not match Mission airframe profile"
+        )
+    return artifact, file_sha256
+
+
 def _atomic_write_json(
     path: Path,
     document: Mapping[str, object],
@@ -193,6 +231,8 @@ def capture_px4_runtime_sidecars(
     mission: str | Path,
     runtime_observation: str | Path,
     runtime_profile: str | Path,
+    policy_artifact: str | Path | None = None,
+    policy_artifact_file_sha256: str | None = None,
     runtime_mode: str,
     endpoint: str,
     mission_feedback_out: str | Path = Path("feedback/px4-mission-feedback.json"),
@@ -236,6 +276,11 @@ def capture_px4_runtime_sidecars(
     mission_path = _input_path(mission, base=base, label="mission")
     live_path = _input_path(runtime_observation, base=base, label="runtime_observation")
     profile_path = _input_path(runtime_profile, base=base, label="runtime_profile")
+    policy_artifact_path = (
+        None
+        if policy_artifact is None
+        else _input_path(policy_artifact, base=base, label="policy_artifact")
+    )
     feedback_path = _output_path(
         mission_feedback_out,
         base=base,
@@ -252,7 +297,9 @@ def capture_px4_runtime_sidecars(
         if capture_summary_out is None
         else _output_path(capture_summary_out, base=base, label="capture_summary_out")
     )
-    source_paths = (mission_path, live_path, profile_path)
+    source_paths = (mission_path, live_path, profile_path) + (
+        (policy_artifact_path,) if policy_artifact_path is not None else ()
+    )
     output_paths = (feedback_path, identity_path, join_path)
     if capture_summary_path is not None:
         output_paths = output_paths + (capture_summary_path,)
@@ -260,6 +307,14 @@ def capture_px4_runtime_sidecars(
         raise Px4RuntimeCaptureError("input and output paths must be distinct")
 
     mission_document = load_executable_mission_document(mission_path)
+    policy_document = None
+    policy_file_sha256 = None
+    if policy_artifact_path is not None:
+        policy_document, policy_file_sha256 = _load_policy_artifact(
+            policy_artifact_path,
+            mission_airframe_profile_hash=mission_document.airframe_profile_hash,
+            expected_file_sha256=policy_artifact_file_sha256,
+        )
     live_result = load_runtime_observation_result(live_path)
     if live_result.mode.value != mode:
         raise Px4RuntimeCaptureError("runtime observation mode does not match capture mode")
@@ -388,6 +443,21 @@ def capture_px4_runtime_sidecars(
             "mission_id": mission_document.mission_id,
             "mission_hash": mission_document.canonical_hash,
         },
+        "policy_artifact": (
+            {
+                "path": str(policy_artifact_path),
+                "file_sha256": policy_file_sha256,
+                "canonical_sha256": policy_document.canonical_hash,
+                "policy_id": policy_document.policy_id,
+                "policy_version": policy_document.policy_version,
+                "ranker_sha256": policy_document.ranker_sha256,
+                "airframe_profile_hash": policy_document.airframe_profile_hash,
+                "mission_contract_hash": policy_document.mission_contract_hash,
+                "safety_policy_hash": policy_document.safety_policy_hash,
+            }
+            if policy_artifact_path is not None and policy_document is not None
+            else None
+        ),
         "runtime_observation": {
             "path": str(live_path),
             "result_sha256": live_result.canonical_hash,
@@ -434,6 +504,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mission", type=Path, required=True)
     parser.add_argument("--runtime-observation", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
+    parser.add_argument("--policy-artifact", type=Path)
+    parser.add_argument("--policy-artifact-file-sha256")
     parser.add_argument("--runtime-mode", choices=sorted(_MODES), required=True)
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--baud", type=int, default=57_600)
@@ -506,6 +578,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             mission=args.mission,
             runtime_observation=args.runtime_observation,
             runtime_profile=args.runtime_profile,
+            policy_artifact=args.policy_artifact,
+            policy_artifact_file_sha256=args.policy_artifact_file_sha256,
             runtime_mode=args.runtime_mode,
             endpoint=args.endpoint,
             mission_feedback_out=args.mission_feedback_out,

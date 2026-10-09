@@ -512,8 +512,12 @@ def build_production_perception(
                     OnnxRawYoloConfig(
                         model_path=args.safety_onnx_model,
                         class_names=safety_class_names,
-                        input_width=args.input_width,
-                        input_height=args.input_height,
+                        input_width=(
+                            getattr(args, "safety_input_width", None) or args.input_width
+                        ),
+                        input_height=(
+                            getattr(args, "safety_input_height", None) or args.input_height
+                        ),
                         confidence_threshold=safety_candidate_confidence,
                         iou_threshold=args.safety_model_iou_threshold,
                         maximum_detections=args.safety_model_maximum_detections,
@@ -531,8 +535,12 @@ def build_production_perception(
                     OnnxNx6Config(
                         model_path=args.safety_onnx_model,
                         class_names=safety_class_names,
-                        input_width=args.input_width,
-                        input_height=args.input_height,
+                        input_width=(
+                            getattr(args, "safety_input_width", None) or args.input_width
+                        ),
+                        input_height=(
+                            getattr(args, "safety_input_height", None) or args.input_height
+                        ),
                         confidence_threshold=safety_candidate_confidence,
                         providers=providers,
                         trt_engine_cache_path=args.trt_engine_cache,

@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+
+# ruff: noqa: E402 -- repository-local CLI bootstrap before package imports
+_REPOSITORY_SOURCE = Path(__file__).resolve().parents[1] / "src"
+if _REPOSITORY_SOURCE.is_dir() and str(_REPOSITORY_SOURCE) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_SOURCE))
 
 from multidetect.autonomy import (
     ContextSnapshot,

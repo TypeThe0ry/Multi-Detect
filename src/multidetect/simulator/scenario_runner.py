@@ -26,8 +26,12 @@ from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..autonomy.contracts import ExecutableMission
+from ..autonomy.contracts import ContextSnapshot, ExecutableMission
+from ..autonomy.mission_campaign import select_and_compile_task
+from ..autonomy.policy_contract import PolicyAction, PolicyDecision, SharedTaskPolicy
 from ..autonomy.serialization import canonical_sha256
+from ..autonomy.task_policy_runtime import TaskPolicyRuntimeBinding
+from ..autonomy.task_selection import TaskCandidate
 from ..clock import ManualClock
 from ..mission_progress import MissionProgressConfig, MissionProgressSnapshot
 from ..product_version import load_product_version
@@ -47,6 +51,7 @@ from .flight_model import (
     FlightMode,
     FlightModelConfig,
     FlightTelemetrySnapshot,
+    SimulationEnergyProfile,
 )
 from .mavlink_control import SimulatorMavlinkControlConfig
 from .stack import (
@@ -69,6 +74,43 @@ ManualProvider = Callable[
     [int, FlightTelemetrySnapshot],
     FlightControlSetpoint | Mapping[str, object] | None,
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatorTaskPolicyBinding:
+    """One high-level task decision joined to the shared Mission compiler.
+
+    This document is deliberately separate from actuator evidence.  A task
+    ranker proposes a feasible task; the existing planner and Mission compiler
+    produce the executable Mission, while the low-level simulator AI policy
+    remains the only source of actuator setpoints in the closed loop.
+    """
+
+    decision: PolicyDecision
+    vehicle_class: str
+    context_sha256: str
+    selected_task_id: str | None
+    plan_sha256: str | None
+    executable_mission_sha256: str | None
+    wire_hash: str | None
+    mission_bound: bool
+    mission_started: bool
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "decision": self.decision.to_mapping(),
+            "vehicle_class": self.vehicle_class,
+            "context_sha256": self.context_sha256,
+            "selected_task_id": self.selected_task_id,
+            "plan_sha256": self.plan_sha256,
+            "executable_mission_sha256": self.executable_mission_sha256,
+            "wire_hash": self.wire_hash,
+            "mission_bound": self.mission_bound,
+            "mission_started": self.mission_started,
+            "planner_revalidated": self.decision.planner_revalidated,
+            "policy_applied_to_actuator": False,
+            "truth_free": self.decision.truth_free,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +341,8 @@ class SimulatorScenarioRunner:
         model_config: FlightModelConfig | None = None,
         mission: ExecutableMission | None = None,
         mission_progress_config: MissionProgressConfig | None = None,
+        shared_policy: SharedTaskPolicy | None = None,
+        expected_policy_artifact_sha256: str | None = None,
     ) -> None:
         self.config = config or SimulatorScenarioRunnerConfig()
         if not isinstance(self.config, SimulatorScenarioRunnerConfig):
@@ -315,9 +359,24 @@ class SimulatorScenarioRunner:
             raise TypeError("mission_progress_config must be MissionProgressConfig or None")
         if mission is None and mission_progress_config is not None:
             raise TypeError("mission_progress_config requires a mission")
+        if shared_policy is not None and not isinstance(shared_policy, SharedTaskPolicy):
+            raise TypeError("shared_policy must be a SharedTaskPolicy or None")
+        if expected_policy_artifact_sha256 is not None:
+            from ..autonomy.serialization import require_sha256
+
+            expected_policy_artifact_sha256 = require_sha256(
+                expected_policy_artifact_sha256,
+                "expected_policy_artifact_sha256",
+            )
+        if expected_policy_artifact_sha256 is not None and shared_policy is None:
+            raise TypeError("expected_policy_artifact_sha256 requires shared_policy")
         self.observation_provider = observation_provider
         self.manual_provider = manual_provider
         self.mission = mission
+        self.shared_policy = shared_policy
+        self.expected_policy_artifact_sha256 = expected_policy_artifact_sha256
+        self._task_policy_binding: SimulatorTaskPolicyBinding | None = None
+        self._task_policy_runtime_binding: TaskPolicyRuntimeBinding | None = None
         self.scenario_path: Path | None = None
         if isinstance(scenario, ScenarioRuntimeInput):
             self.runtime_input = scenario
@@ -353,6 +412,7 @@ class SimulatorScenarioRunner:
             deterministic=True,
             fault_injection_enabled=bool(self._faults),
         )
+        self._shared_policy_binding = self._validate_shared_policy_binding()
         selected_model_config = model_config or FlightModelConfig(
             initial_latitude_deg=initial_latitude,
             initial_longitude_deg=initial_longitude,
@@ -380,6 +440,11 @@ class SimulatorScenarioRunner:
             ),
             dt_s=self.config.dt_s,
             model_config=selected_model_config,
+            energy_profile=(
+                SimulationEnergyProfile(**self.runtime_input.vehicle.energy_profile.to_mapping())
+                if self.runtime_input.vehicle.energy_profile is not None
+                else None
+            ),
             control_config=control_config,
             ai_config=ai_config,
             initial_authority=self.config.initial_authority,
@@ -391,6 +456,50 @@ class SimulatorScenarioRunner:
         self._battery_remaining_pct = 100.0
         self._last_observation: SimulatorTelemetrySnapshot | None = None
         self._result: SimulatorScenarioRunResult | None = None
+
+    def _validate_shared_policy_binding(self) -> dict[str, object] | None:
+        """Validate an optional high-level policy identity without executing it.
+
+        The deterministic runner owns the low-level ``SimulatorAiExecutor``
+        path. It has no task candidate set or fresh ``ContextSnapshot`` from
+        which ``SharedTaskPolicy.decide`` could safely run. Binding an
+        artifact here records provenance only; task selection and planner
+        revalidation remain an explicit upstream step.
+        """
+
+        policy = self.shared_policy
+        if policy is None:
+            return None
+        artifact = policy.artifact
+        if artifact.ranker_sha256 != policy.ranker.canonical_hash:
+            raise SimulatorScenarioRunnerError(
+                "shared policy artifact ranker hash does not match supplied ranker"
+            )
+        if self.expected_policy_artifact_sha256 is not None:
+            if policy.artifact_sha256 != self.expected_policy_artifact_sha256:
+                raise SimulatorScenarioRunnerError(
+                    "shared policy artifact hash does not match expected identity"
+                )
+        if artifact.airframe_profile_hash != self.runtime_descriptor.airframe_profile_hash:
+            raise SimulatorScenarioRunnerError(
+                "shared policy airframe profile hash does not match SIM runtime"
+            )
+        return {
+            "status": "identity_bound_only",
+            "policy_id": artifact.policy_id,
+            "policy_version": artifact.policy_version,
+            "policy_artifact_sha256": policy.artifact_sha256,
+            "ranker_sha256": policy.ranker.canonical_hash,
+            "airframe_profile_hash": artifact.airframe_profile_hash,
+            "mission_contract_hash": artifact.mission_contract_hash,
+            "safety_policy_hash": artifact.safety_policy_hash,
+            "ranker_artifact_bound": True,
+            "truth_free": True,
+            "planner_revalidation_required": True,
+            "planner_revalidated": False,
+            "policy_applied_to_actuator": False,
+            "low_level_actuator_policy_separate": True,
+        }
 
     @property
     def runtime(self) -> ScenarioRuntimeInput:
@@ -448,6 +557,133 @@ class SimulatorScenarioRunner:
             return self.sim.start_mission()
         except (RuntimeError, ValueError, TypeError) as exc:
             raise SimulatorScenarioRunnerError(str(exc)) from exc
+
+    @property
+    def task_policy_binding(self) -> SimulatorTaskPolicyBinding | None:
+        """Return the optional high-level task-to-Mission binding."""
+
+        return self._task_policy_binding
+
+    @property
+    def task_policy_runtime_binding(self) -> TaskPolicyRuntimeBinding | None:
+        """The shared, display-only policy status for SIM/REPLAY consumers."""
+
+        return self._task_policy_runtime_binding
+
+    def select_and_bind_task(
+        self,
+        candidates: Sequence[TaskCandidate],
+        context: ContextSnapshot,
+        vehicle_class: str,
+        *,
+        runtimes: Mapping[str, object],
+        start_mission: bool = False,
+    ) -> SimulatorTaskPolicyBinding:
+        """Select one task through the shared policy and bind its Mission.
+
+        The method is the explicit high-level SIM seam.  It requires a
+        ``SharedTaskPolicy``; calls ``decide`` on truth-free observations;
+        recompiles the selected task through the existing planner/runtime
+        compiler; and only then installs the resulting executable Mission
+        observer.  ``start_mission`` is opt-in because selection is not an
+        execution authorization.
+        """
+
+        if self._result is not None:
+            raise SimulatorScenarioRunnerError(
+                "cannot select a task after run completion"
+            )
+        if self.shared_policy is None:
+            raise SimulatorScenarioRunnerError(
+                "select_and_bind_task requires a SharedTaskPolicy"
+            )
+        if not isinstance(context, ContextSnapshot):
+            raise SimulatorScenarioRunnerError("context must be a ContextSnapshot")
+        if context.airframe_profile_id != self.runtime_input.vehicle.airframe_profile_id:
+            raise SimulatorScenarioRunnerError(
+                "task policy context airframe profile does not match SIM scenario"
+            )
+        if isinstance(candidates, (str, bytes, bytearray)) or not isinstance(candidates, Sequence):
+            raise SimulatorScenarioRunnerError("candidates must be a sequence")
+        entries = tuple(candidates)
+        if any(not isinstance(item, TaskCandidate) for item in entries):
+            raise SimulatorScenarioRunnerError("candidates must contain TaskCandidate values")
+        if not isinstance(runtimes, Mapping):
+            raise SimulatorScenarioRunnerError("runtimes must be a mapping")
+        if not isinstance(start_mission, bool):
+            raise SimulatorScenarioRunnerError("start_mission must be bool")
+        if self.mission is not None:
+            raise SimulatorScenarioRunnerError("a Mission is already bound to the runner")
+        try:
+            task_binding = select_and_compile_task(
+                entries,
+                context,
+                vehicle_class,
+                runtimes=runtimes,
+                airframe_profile_hash=self.runtime_descriptor.airframe_profile_hash,
+                shared_policy=self.shared_policy,
+            )
+        except (TypeError, ValueError) as exc:
+            raise SimulatorScenarioRunnerError(str(exc)) from exc
+        decision = task_binding.decision
+        if decision is None:
+            raise SimulatorScenarioRunnerError("shared task campaign returned no policy decision")
+        if decision.action is PolicyAction.ABSTAIN:
+            self._task_policy_runtime_binding = task_binding.to_runtime_binding(
+                airframe_profile_hash=self.runtime_descriptor.airframe_profile_hash,
+                ranker_sha256=self.shared_policy.ranker.canonical_hash,
+                reason=decision.reason,
+            )
+            binding = SimulatorTaskPolicyBinding(
+                decision=decision,
+                vehicle_class=vehicle_class,
+                context_sha256=context.canonical_hash,
+                selected_task_id=None,
+                plan_sha256=None,
+                executable_mission_sha256=None,
+                wire_hash=None,
+                mission_bound=False,
+                mission_started=False,
+            )
+            self._task_policy_binding = binding
+            return binding
+        if task_binding.selected is None or decision.task_id is None:
+            raise SimulatorScenarioRunnerError(
+                "shared policy returned SELECT without an evaluated task"
+            )
+        if task_binding.selected.candidate.task.task_id != decision.task_id:
+            raise SimulatorScenarioRunnerError(
+                "policy decision task does not match selected planner task"
+            )
+        compilation = task_binding.compilation
+        if compilation is None:
+            raise SimulatorScenarioRunnerError(
+                "shared policy returned SELECT without a compiled Mission"
+            )
+        self.bind_mission(compilation.compiled_mission.executable_mission)
+        self._task_policy_runtime_binding = task_binding.to_runtime_binding(
+            airframe_profile_hash=self.runtime_descriptor.airframe_profile_hash,
+            ranker_sha256=self.shared_policy.ranker.canonical_hash,
+            reason=decision.reason,
+        )
+        started = False
+        if start_mission:
+            started = self.start_mission()
+            if not started:
+                raise SimulatorScenarioRunnerError("Mission start was rejected")
+        binding = SimulatorTaskPolicyBinding(
+            decision=decision,
+            vehicle_class=compilation.vehicle_class,
+            context_sha256=context.canonical_hash,
+            selected_task_id=decision.task_id,
+            plan_sha256=compilation.plan.canonical_hash,
+            executable_mission_sha256=compilation.executable_mission_hash,
+            wire_hash=compilation.wire_hash,
+            mission_bound=True,
+            mission_started=started,
+        )
+        self._task_policy_binding = binding
+        return binding
 
     def run(self, *, close: bool = True) -> SimulatorScenarioRunResult:
         """Execute the configured frame budget and return canonical evidence."""
@@ -513,6 +749,18 @@ class SimulatorScenarioRunner:
             if close:
                 self.sim.close()
         evidence = self.sim.evidence()
+        if self._shared_policy_binding is not None:
+            # Opt-in so historical runs without a high-level policy retain
+            # their exact evidence shape and hash.
+            evidence["shared_task_policy"] = dict(self._shared_policy_binding)
+        if self._task_policy_binding is not None:
+            evidence["shared_task_policy"]["task_binding"] = (
+                self._task_policy_binding.to_mapping()
+            )
+        if self._task_policy_runtime_binding is not None:
+            evidence["shared_task_policy"]["runtime_binding"] = (
+                self._task_policy_runtime_binding.to_mapping()
+            )
         # Keep the origin decision alongside the truth-free flight evidence so
         # consumers can distinguish an SDF-aligned run from an explicit local
         # override without loading evaluator truth.
@@ -709,6 +957,18 @@ class SimulatorScenarioRunner:
                 ground_speed_mps=previous.ground_speed_mps,
             )
         if event.kind is FaultKind.BATTERY_STEP_DROP:
+            if self.sim.model.energy_profile is not None:
+                # This is an observation fault, not a recharge or a physical
+                # capacity change. Offset the current energy observation on
+                # each active frame so the old fixed percentage cannot raise
+                # a battery that has continued to discharge underneath it.
+                runtime.battery_applied = True
+                return replace(
+                    observed,
+                    battery_remaining_pct=max(
+                        0.0, observed.battery_remaining_pct - abs(magnitude or 10.0)
+                    ),
+                )
             if not runtime.battery_applied:
                 self._battery_remaining_pct = max(
                     0.0,

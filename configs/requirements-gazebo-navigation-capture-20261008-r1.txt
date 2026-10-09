@@ -1,0 +1,9 @@
+# Dedicated Gazebo input-capture environment; no training/model dependencies.
+# Verified with CPython 3.12.7 on Windows x64 on 2026-10-08.
+# Keep separate from the hash-bound VLM/navigation training environments.
+numpy==2.5.3
+opencv-contrib-python==5.0.0.93
+pymavlink==2.4.50
+Pillow==12.3.0
+jsonschema==4.26.0
+pyserial==3.5

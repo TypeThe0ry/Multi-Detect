@@ -221,6 +221,22 @@ def test_campaign_verifier_reopens_every_source(tmp_path: Path) -> None:
     assert verification["checks"]["fault_runs"] is False
 
 
+def test_campaign_verifier_rejects_fault_source_bound_to_stale_scenario_manifest(
+    tmp_path: Path,
+) -> None:
+    positives, faults = _workspace(tmp_path)
+    output = tmp_path / "campaign.json"
+    output.write_text(
+        json.dumps(build_campaign(positives, faults, repository_root=tmp_path)),
+        encoding="utf-8",
+    )
+    scenario_path = tmp_path / EXPECTED_AIRFRAMES["fixed-wing"]["scenario_path"]
+    scenario_path.write_text('{"vehicle_class":"fixed-wing","changed":true}', encoding="utf-8")
+    verification = verify_file(output, repository_root=tmp_path)
+    assert verification["gate_passed"] is False
+    assert verification["checks"]["fault_runs"] is False
+
+
 def test_release_gate_binds_and_reverifies_campaign(tmp_path: Path, monkeypatch) -> None:
     positives, faults = _workspace(tmp_path)
     campaign = tmp_path / "campaign.json"

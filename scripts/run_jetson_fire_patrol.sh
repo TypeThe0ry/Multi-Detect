@@ -71,6 +71,12 @@ METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-}"
 # The document must already exist on the Jetson; this launch script deliberately
 # never creates or modifies calibration evidence.
 METRIC_DEPTH_CALIBRATION_DOCUMENT="${METRIC_DEPTH_CALIBRATION_DOCUMENT:-}"
+# Optional deployment-side binding for the independent holdout report produced
+# by validate_outdoor_depth_calibration.py.  Supplying the report verifies its
+# calibration-document hash; setting the gate switch also requires an explicit
+# passed strict quality gate before metric-depth can start.
+METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT="${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT:-}"
+METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION="${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION:-0}"
 METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.4}"
 METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-}"
 RANGING_MINIMUM_DISTANCE_M="${RANGING_MINIMUM_DISTANCE_M:-0.4}"
@@ -164,6 +170,14 @@ done
 
 if [[ -n "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" && ! -f "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" ]]; then
     printf 'METRIC_DEPTH_CALIBRATION_DOCUMENT must name an existing JSON file.\n' >&2
+    exit 2
+fi
+if [[ -n "${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT}" && ! -f "${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT}" ]]; then
+    printf 'METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT must name an existing JSON file.\n' >&2
+    exit 2
+fi
+if [[ "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" != "0" && "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" != "1" ]]; then
+    printf 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION must be 0 or 1.\n' >&2
     exit 2
 fi
 
@@ -292,6 +306,10 @@ if [[ "${METRIC_DEPTH_ENABLED}" == "auto" ]]; then
         METRIC_DEPTH_ENABLED=0
     fi
 fi
+if [[ "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" == "1" && "${METRIC_DEPTH_ENABLED}" != "1" ]]; then
+    printf 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires metric depth to be enabled.\n' >&2
+    exit 2
+fi
 if [[ "${METRIC_DEPTH_ENABLED}" == "1" ]]; then
     if [[ "${MULTIMODAL_RANGING_ENABLED}" != "1" ]]; then
         printf 'METRIC_DEPTH_ENABLED=1 requires MULTIMODAL_RANGING_ENABLED=1.\n' >&2
@@ -300,6 +318,29 @@ if [[ "${METRIC_DEPTH_ENABLED}" == "1" ]]; then
     if [[ ! -f "${METRIC_DEPTH_MODEL_PATH}" ]]; then
         printf 'METRIC_DEPTH_MODEL_PATH must name an existing model.\n' >&2
         exit 2
+    fi
+    if [[ "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" == "1" && -z "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" ]]; then
+        printf 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires METRIC_DEPTH_CALIBRATION_DOCUMENT.\n' >&2
+        exit 2
+    fi
+    if [[ "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" == "1" && -z "${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT}" ]]; then
+        printf 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT.\n' >&2
+        exit 2
+    fi
+    if [[ -n "${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT}" ]]; then
+        if [[ -z "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" ]]; then
+            printf 'METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT requires METRIC_DEPTH_CALIBRATION_DOCUMENT.\n' >&2
+            exit 2
+        fi
+        report_verifier=(
+            "${PYTHON}" "${ROOT}/scripts/verify_outdoor_depth_calibration_report.py"
+            --calibration "${METRIC_DEPTH_CALIBRATION_DOCUMENT}"
+            --report "${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT}"
+        )
+        if [[ "${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION}" == "1" ]]; then
+            report_verifier+=(--require-quality-gate)
+        fi
+        "${report_verifier[@]}"
     fi
     args+=(
         --metric-depth-model "${METRIC_DEPTH_MODEL_PATH}"

@@ -20,11 +20,19 @@ import hashlib
 import json
 import math
 import threading
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
 
-from ..autonomy.contracts import ExecutableMission
+from ..autonomy.contracts import ContextSnapshot, ExecutableMission
+from ..autonomy.onboard_adapter import (
+    OnboardMissionEventLoop,
+    OnboardMissionRevision,
+)
+from ..autonomy.onboard_agent import OnboardRuntimeEvent
+from ..autonomy.prompt_resolution import PromptTaskResolver
+from ..autonomy.task_selection import TaskCandidate
 from ..clock import ManualClock
 from ..mission_progress import (
     MissionProgressConfig,
@@ -48,6 +56,7 @@ from .flight_model import (
     FlightModelConfig,
     FlightModelError,
     FlightTelemetrySnapshot,
+    SimulationEnergyProfile,
 )
 from .mavlink_control import (
     SimulatorControlReceipt,
@@ -382,6 +391,7 @@ class SimulatorClosedLoop:
         wind_mps: tuple[Real, Real] = (0.0, 0.0),
         dt_s: Real = 0.1,
         model_config: FlightModelConfig | None = None,
+        energy_profile: SimulationEnergyProfile | None = None,
         control_config: SimulatorMavlinkControlConfig | None = None,
         ai_config: SimulatorAiExecutorConfig | None = None,
         initial_authority: ControlAuthorityState | str = ControlAuthorityState.PAUSED,
@@ -395,6 +405,7 @@ class SimulatorClosedLoop:
             seed=seed,
             wind_mps=wind_mps,
             config=model_config,
+            energy_profile=energy_profile,
         )
         self.default_dt_s = _finite(dt_s, "dt_s")
         if self.default_dt_s <= 0.0 or self.default_dt_s > self.model.config.max_dt_s:
@@ -485,6 +496,13 @@ class SimulatorClosedLoop:
         self._step_index = 0
         self._history: list[SimulatorClosedLoopStep] = []
         self._last_control_receipt: SimulatorControlReceipt | None = None
+        # Optional shared OnboardAI ingress.  It is deliberately not created
+        # by default: callers must provide the same hash-bound adapter they
+        # intend to use for HIL/REAL, so a plain flight-model SIM cannot be
+        # mistaken for an onboard-autonomy acceptance run.
+        self._onboard_event_loop: OnboardMissionEventLoop | None = None
+        self._onboard_mission_progress_config = mission_progress_config
+        self._onboard_applied_revision_sequence: int | None = None
         # Match the live bridge lifecycle gate: an AI opt-in while the model
         # is disarmed or link state is unknown remains paused until explicit
         # ARM and a positively healthy link observation arrive.
@@ -557,6 +575,138 @@ class SimulatorClosedLoop:
         with self._lock:
             self._require_open()
             self.mission_tracker = None
+
+    @property
+    def onboard_event_loop(self) -> OnboardMissionEventLoop | None:
+        """The optional serialized OnboardAI ingress bound to this SIM."""
+
+        with self._lock:
+            return self._onboard_event_loop
+
+    def bind_onboard_event_loop(
+        self,
+        event_loop: OnboardMissionEventLoop,
+        context: ContextSnapshot,
+        *,
+        candidates: Sequence[TaskCandidate] | None = None,
+        runtimes: Mapping[str, object] | None = None,
+        resolver: PromptTaskResolver | None = None,
+        mission_id: str | None = None,
+        mission_progress_config: MissionProgressConfig | None = None,
+    ) -> OnboardMissionRevision:
+        """Prepare a shared OnboardAI session and bind its first Mission.
+
+        This is an observer/adapter bridge only.  ``OnboardMissionEventLoop``
+        owns policy and planner validation; this simulator only replaces its
+        progress observer.  It never starts a Mission or emits an actuator
+        command as a result of an OnboardAI decision.
+        """
+
+        with self._lock:
+            self._require_open()
+            if not isinstance(event_loop, OnboardMissionEventLoop):
+                raise TypeError("event_loop must be an OnboardMissionEventLoop")
+            if self._onboard_event_loop is not None:
+                raise SimulatorClosedLoopError("an OnboardAI event loop is already bound")
+            if mission_progress_config is not None and not isinstance(
+                mission_progress_config, MissionProgressConfig
+            ):
+                raise SimulatorClosedLoopError(
+                    "mission_progress_config must be MissionProgressConfig or None"
+                )
+            try:
+                revision = event_loop.prepare(
+                    context,
+                    candidates=candidates,
+                    runtimes=runtimes,
+                    resolver=resolver,
+                    mission_id=mission_id,
+                )
+            except Exception:
+                if event_loop.adapter.faulted:
+                    self.mission_tracker = None
+                raise
+            self._onboard_event_loop = event_loop
+            if mission_progress_config is not None:
+                self._onboard_mission_progress_config = mission_progress_config
+            self._apply_onboard_revision(
+                revision, config=self._onboard_mission_progress_config
+            )
+            self._onboard_applied_revision_sequence = revision.sequence
+            return revision
+
+    def handle_onboard_event(
+        self,
+        context: ContextSnapshot,
+        event: OnboardRuntimeEvent,
+        *,
+        candidates: Sequence[TaskCandidate] | None = None,
+        runtimes: Mapping[str, object] | None = None,
+        mission_id: str | None = None,
+        mission_progress_config: MissionProgressConfig | None = None,
+    ) -> OnboardMissionRevision:
+        """Route one sensor/health event through the shared realtime seam.
+
+        Target movement/loss/completion causes a hash-bound Mission observer
+        replacement after ``SharedTaskPolicy`` and the existing planner have
+        both revalidated it.  GPS/battery/obstacle/inference safety events
+        clear the observer only after the adapter's safety dispatcher has
+        acknowledged the safe response.  Flight authority remains with the
+        existing SIM/QGC/PX4 lifecycle path.
+        """
+
+        with self._lock:
+            self._require_open()
+            if self._onboard_event_loop is None:
+                raise SimulatorClosedLoopError("bind an OnboardAI event loop first")
+            if mission_progress_config is not None and not isinstance(
+                mission_progress_config, MissionProgressConfig
+            ):
+                raise SimulatorClosedLoopError(
+                    "mission_progress_config must be MissionProgressConfig or None"
+                )
+            try:
+                revision = self._onboard_event_loop.submit(
+                    context,
+                    event,
+                    candidates=candidates,
+                    runtimes=runtimes,
+                    mission_id=mission_id,
+                )
+            except Exception:
+                # A failed lifecycle transaction leaves the installed Mission
+                # unknown.  Do not keep publishing a valid-looking observer.
+                if self._onboard_event_loop.adapter.faulted:
+                    self.mission_tracker = None
+                raise
+            if (
+                revision is not self._onboard_event_loop.last_revision
+                or self._onboard_applied_revision_sequence is not None
+                and revision.sequence <= self._onboard_applied_revision_sequence
+            ):
+                return revision
+            if mission_progress_config is not None:
+                self._onboard_mission_progress_config = mission_progress_config
+            self._apply_onboard_revision(
+                revision, config=self._onboard_mission_progress_config
+            )
+            self._onboard_applied_revision_sequence = revision.sequence
+            return revision
+
+    def _apply_onboard_revision(
+        self,
+        revision: OnboardMissionRevision,
+        *,
+        config: MissionProgressConfig | None,
+    ) -> None:
+        if revision.mission is None:
+            self.mission_tracker = None
+        else:
+            try:
+                self.mission_tracker = MissionProgressTracker(revision.mission, config=config)
+            except (TypeError, ValueError) as exc:
+                raise SimulatorClosedLoopError(str(exc)) from exc
+        self._onboard_applied_revision_sequence = revision.sequence
 
     def start_mission(self) -> bool:
         """Send the bounded ``MISSION_START`` lifecycle command."""
@@ -790,6 +940,11 @@ class SimulatorClosedLoop:
                         **self.mission_tracker.snapshot.to_mapping(),
                         "sha256": self.mission_tracker.snapshot.canonical_hash,
                     }
+                ),
+                "onboard_event_loop": (
+                    None
+                    if self._onboard_event_loop is None
+                    else self._onboard_event_loop.evidence()
                 ),
                 "flight_model": self.model.evidence_with_hash(),
                 "last_step": None if not self._history else self._history[-1].to_mapping(),

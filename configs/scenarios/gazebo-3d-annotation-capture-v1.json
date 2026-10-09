@@ -1,0 +1,55 @@
+{
+  "schema": "multidetect.gazebo-3d-annotation-capture",
+  "schema_version": 1,
+  "contract": "multidetect.gazebo-3d-annotation-capture-v1",
+  "purpose": "offline_3d_annotation_only",
+  "mainline_manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c"
+  },
+  "base_world": {
+    "path": "simulation/gazebo/worlds/urban_inspection_multirotor_001.sdf",
+    "sha256": "0a2aa69f2bc1fd42b70870759267cd2b3fdbb6b0014d1ead7de42d0c4822ecd7"
+  },
+  "vehicle_wrapper": {
+    "base_uri": "model://x500_mono_cam",
+    "annotation_uri": "model://multidetect_annotation_x500_v1",
+    "path": "simulation/gazebo/annotation/multidetect_annotation_x500_v1/model.sdf",
+    "sha256": "a19a49a34f0b827305bd679c37715147bdd827eeda74f3cc45fb4e1c0bc797cc",
+    "vehicle_class": "multirotor"
+  },
+  "target_wrapper": {
+    "base_uri": "model://multidetect_search_target_v1",
+    "annotation_uri": "model://multidetect_annotation_target_v1",
+    "path": "simulation/gazebo/annotation/multidetect_annotation_target_v1/model.sdf",
+    "sha256": "e402ebddd11c289bb87cac72d7fb45ed6715a359730962eb736903c4a8eb8fda",
+    "label_id": 42
+  },
+  "sensors": {
+    "bounding_box": {
+      "type": "boundingbox_camera",
+      "topic": "multidetect/annotation/bounding_boxes_3d",
+      "width": 1280,
+      "height": 960,
+      "update_rate_hz": 30
+    },
+    "segmentation": {
+      "type": "segmentation",
+      "topic": "multidetect/annotation/instance_segmentation",
+      "width": 1280,
+      "height": 960,
+      "update_rate_hz": 30
+    }
+  },
+  "label_mapping": {
+    "label_id": 42,
+    "class_name": "search_target",
+    "source": "capture_only_gazebo_label_plugin"
+  },
+  "runtime_boundary": {
+    "runtime_consumes_annotation_topics": false,
+    "truth_injected_into_policy": false,
+    "policy_input_contract": "rgb_depth_camera_info_pose_telemetry_only",
+    "training_requires_independent_review": true
+  }
+}

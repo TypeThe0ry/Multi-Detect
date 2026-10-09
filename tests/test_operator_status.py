@@ -5,12 +5,14 @@ from dataclasses import replace
 import pytest
 
 from multidetect.autonomy import AutonomyContractError
+from multidetect.autonomy.task_policy_runtime import TaskPolicyRuntimeBinding
 from multidetect.domain import VehicleTelemetry
 from multidetect.multimodal_ranging import RangeSolution, RangeValidity
-from multidetect.operator_link import RuntimeBackendHealth, RuntimeMode
+from multidetect.operator_link import PolicyRuntimeAction, RuntimeBackendHealth, RuntimeMode
 from multidetect.operator_status import (
     RangeSolutionFrameBinding,
     build_gnss_status_message,
+    build_policy_runtime_status_message,
     build_range_status_message,
     build_runtime_status_from_descriptor,
     build_runtime_status_message,
@@ -351,6 +353,37 @@ def test_runtime_status_builder_rejects_partial_scenario_identity() -> None:
             run_hash64=2,
             produced_at_s=21.0,
         )
+
+
+def test_policy_runtime_status_builder_projects_hash_bound_read_only_binding() -> None:
+    binding = TaskPolicyRuntimeBinding(
+        vehicle_class="vtol",
+        context_sha256=HASH_A,
+        airframe_profile_hash=HASH_B,
+        action=PolicyRuntimeAction.SELECT.value,
+        reason="planner_revalidated",
+        selected_task_id="river-rescue-001",
+        policy_artifact_sha256=HASH_C,
+        ranker_sha256=HASH_D,
+        plan_sha256=HASH_E,
+        executable_mission_sha256=HASH_A,
+        wire_hash=HASH_B,
+        planner_revalidated=True,
+        mission_bound=True,
+        produced_at_s=21.0,
+    )
+
+    status = build_policy_runtime_status_message(sequence=18, binding=binding)
+
+    assert status.action is PolicyRuntimeAction.SELECT
+    assert status.selected_task_hash64 is not None
+    assert status.context_hash64 == int(HASH_A[:16], 16)
+    assert status.airframe_profile_hash64 == int(HASH_B[:16], 16)
+    assert status.planner_revalidated is True
+    assert status.mission_bound is True
+    assert status.mission_started is False
+    assert status.policy_applied_to_actuator is False
+    assert status.truth_free is True
 
 
 def test_runtime_status_builder_requires_nonzero_valid_profile_and_run_hashes() -> None:

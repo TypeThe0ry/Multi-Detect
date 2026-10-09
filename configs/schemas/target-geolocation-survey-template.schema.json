@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "event",
     "schema_version",
     "evidence_type",
     "ground_truth_isolated",
@@ -25,9 +26,11 @@
     "skipped_reasons",
     "row_count",
     "required_truth_columns",
+    "optional_coverage_columns",
     "rows"
   ],
   "properties": {
+    "event": {"const": "multidetect.target-geolocation-survey-template-created"},
     "schema_version": {"const": 1},
     "evidence_type": {"const": "multidetect.target-geolocation-survey-template.v1"},
     "ground_truth_isolated": {"const": true},
@@ -55,6 +58,9 @@
     "row_count": {"type": "integer", "minimum": 0},
     "required_truth_columns": {
       "const": ["ground_truth_latitude_deg", "ground_truth_longitude_deg"]
+    },
+    "optional_coverage_columns": {
+      "const": ["survey_range_m", "survey_slope_deg"]
     },
     "rows": {
       "type": "array",
@@ -100,6 +106,8 @@
         "reported_sigma_m",
         "ground_truth_latitude_deg",
         "ground_truth_longitude_deg",
+        "survey_range_m",
+        "survey_slope_deg",
         "surveyed_at_utc",
         "survey_method",
         "operator_notes"
@@ -119,6 +127,8 @@
         "reported_sigma_m": {"type": "number", "minimum": 0},
         "ground_truth_latitude_deg": {"$ref": "#/$defs/optionalLatitude"},
         "ground_truth_longitude_deg": {"$ref": "#/$defs/optionalLongitude"},
+        "survey_range_m": {"type": ["number", "null"], "minimum": 0},
+        "survey_slope_deg": {"type": ["number", "null"]},
         "surveyed_at_utc": {"type": ["string", "null"]},
         "survey_method": {"type": ["string", "null"]},
         "operator_notes": {"type": ["string", "null"]}

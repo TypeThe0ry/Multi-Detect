@@ -1,0 +1,1387 @@
+{
+  "claims": {
+    "GPU_used": false,
+    "candidate_promoted": false,
+    "dataset_merged_or_split_modified": false,
+    "default_changed": false,
+    "execution_authority": false,
+    "final_release_allowed": false,
+    "generalization_verified": false,
+    "hil_real_evidence": false,
+    "historical_cpu86_metadata_parity_claimed": false,
+    "model_loaded": false,
+    "model_weights_read": false,
+    "network_used": false,
+    "official_holdout_verified": false,
+    "optimizer_performed": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "quality_claim": false,
+    "training_or_candidate_plan_authorized": false,
+    "training_ready_for_candidate": false
+  },
+  "contract": "multidetect.onboard-navigation-indexed-cpu122-inputs-v2-plan",
+  "dataset": {
+    "bytes": 566681,
+    "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/samples.jsonl",
+    "sha256": "95426e1eb1aa986630b9de2c15131538e156884fa3f8e63941935a62a325c6aa"
+  },
+  "episode_count": 6,
+  "images": [
+    {
+      "bytes": 654327,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143508_0.png",
+      "sha256": "a8efc37d43dd5ad4a964a8414d67c8b8e5caed956efc4d3fa6ecac2db180646b"
+    },
+    {
+      "bytes": 650798,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143511_1.png",
+      "sha256": "f45312dd42ad5b03a5246ea03a8d1e8e07814cf4f902fafb479ea96de6b9ec8b"
+    },
+    {
+      "bytes": 682076,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143511_2.png",
+      "sha256": "07bc11c50d9d4dd1882644f4560c7d425c151abf7bd26aa6ce401e3f1a61fcd8"
+    },
+    {
+      "bytes": 688415,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143512_3.png",
+      "sha256": "00aba55cdbc743e8d41bb8cc8988e1394ce48ca8fff0d37a9ca2e782d0460f85"
+    },
+    {
+      "bytes": 684589,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143512_4.png",
+      "sha256": "cc8a3d63e839dae54e99be6299d6a88ed475268cc34fc2d828650471f06175e4"
+    },
+    {
+      "bytes": 750853,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143512_5.png",
+      "sha256": "72690a1674ff0dc8222b11d251e0d1933996e8db3771c77c5c4363abe6a593f1"
+    },
+    {
+      "bytes": 743276,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143513_6.png",
+      "sha256": "ac7cf88bf084cb3825f44f666e55e3e1e1f07e5449b35041fee68d1e936a91da"
+    },
+    {
+      "bytes": 741734,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143513_7.png",
+      "sha256": "ab415df6dc42372d286ba45e3355362f3ef05f42493fd81fe43dd792d3a51159"
+    },
+    {
+      "bytes": 733055,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143514_8.png",
+      "sha256": "1f0414c18a8cbd41b3bbb590972c01f5716e642622ec0f6c31c1d76fa885eb21"
+    },
+    {
+      "bytes": 729290,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143514_9.png",
+      "sha256": "0622b2ec0144a75a617ee8ffc36286538aa727ea330d31b1b68baac0e8d4904e"
+    },
+    {
+      "bytes": 727523,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143515_10.png",
+      "sha256": "a9c541980262b48b1d4216cff338408a475acc3d1e2007a7bfaddb1492c1f409"
+    },
+    {
+      "bytes": 719336,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143515_11.png",
+      "sha256": "08af0c48115f7ac04b00d7626fbd5c07c4fc95c4ddde3a8d71fab205d105f96a"
+    },
+    {
+      "bytes": 704794,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143516_12.png",
+      "sha256": "475adddd3f0f2af44da22c61912b60046a47c2d6d2348ae74a41a1a2ebece26e"
+    },
+    {
+      "bytes": 721740,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143516_13.png",
+      "sha256": "dcb6f2ee780fb82887829a60f53053706e4518ccc6e100bb932a0400f6aa4ea6"
+    },
+    {
+      "bytes": 749966,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143516_14.png",
+      "sha256": "51aadc1f0d082c55ab51ebb6a7fec53b0f5a5dabdd7ce4983edd183b19f54730"
+    },
+    {
+      "bytes": 737200,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143517_15.png",
+      "sha256": "993273018a019597b31c7a90fc46853c5d222208f93b5d4a0ec2459627f82998"
+    },
+    {
+      "bytes": 723527,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/20250101_143517_16.png",
+      "sha256": "75cf52f6a4dc06dc5cb55b5c116918898409f1f1b061eb43f169078573f90321"
+    },
+    {
+      "bytes": 758896,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151050_0.png",
+      "sha256": "9f7f7f074591f87c33d90cc069c143fa6443c9223380ef2f7f1bf5111d460d41"
+    },
+    {
+      "bytes": 758984,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151053_1.png",
+      "sha256": "a555a649b7beaeb4ab1d2adbe488b231bdac68f2b8a4b7b8ab08be068759b10f"
+    },
+    {
+      "bytes": 764860,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151054_2.png",
+      "sha256": "0543771ffc7afade3de5495228c97864e6b3b9d6afd292fe5c0250987fc673f0"
+    },
+    {
+      "bytes": 773031,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151054_3.png",
+      "sha256": "e0c98b3ebdc73f351f545eea5da477921c2e44317b466303fc4a2eafc5ec1e42"
+    },
+    {
+      "bytes": 787474,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151055_4.png",
+      "sha256": "82d052b793acb20a1b36857a9cc30c046376030aa85e6654ebdd09eb32535905"
+    },
+    {
+      "bytes": 800873,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151055_5.png",
+      "sha256": "3ff5cf79683f3b44f698fdcb572fca350b97a8a2cbaf80e9f9c4370b3932ad9f"
+    },
+    {
+      "bytes": 806638,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151056_6.png",
+      "sha256": "5188ffdbf3cd78513658f356678a8449bec4fa8f9d5287d6ebf969dece2a66c5"
+    },
+    {
+      "bytes": 804555,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151056_7.png",
+      "sha256": "6e37273dca619c6686a3b1f2ec6dee6e80f0d8e88e5d6af4d4574c51ae701591"
+    },
+    {
+      "bytes": 827901,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151056_8.png",
+      "sha256": "326471454cb347a27d3efc9efba53e92164d21956702e4f15b5a5314a09d1c97"
+    },
+    {
+      "bytes": 737905,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151057_10.png",
+      "sha256": "961b364e5538bc0b22f0af68f20145b6ea0b5a59f6c8e1798b2fcd10677f2eca"
+    },
+    {
+      "bytes": 736053,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151057_9.png",
+      "sha256": "7473ab2dd60f26c0fcf1888522d71ca8840812051d71e72a0261209a312afc9e"
+    },
+    {
+      "bytes": 749021,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151058_11.png",
+      "sha256": "03360dbf4a1132f036d5db732bd2e400047c7e224a3af9f984d49871abe06c2a"
+    },
+    {
+      "bytes": 724849,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151058_12.png",
+      "sha256": "391544d27bf532ffe1b1d481c83b0eb122ef139e840a24a61b7d9f8d5852f941"
+    },
+    {
+      "bytes": 838987,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151059_13.png",
+      "sha256": "342609bf8a8bf88d336238b7915703596cae4a8dcfcad95e3d9c535327e023e6"
+    },
+    {
+      "bytes": 845649,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/20250101_151059_14.png",
+      "sha256": "c8ec65a1e595dd9b91435c8b28a69f73046c52bac39bc871c87956d6e4a86d8f"
+    },
+    {
+      "bytes": 578359,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150352_0.png",
+      "sha256": "ed680f51282e8281901a45a041d2390e3e3c7289835c7aba37e32d1f76def5af"
+    },
+    {
+      "bytes": 573743,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150355_1.png",
+      "sha256": "6bd92412241c4b292bb81a82f955ecdd63eab2e21a0a0ad6e443d86fa9ccedae"
+    },
+    {
+      "bytes": 572820,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150355_2.png",
+      "sha256": "fa22f95d214a7ba9573118a6bbb3c3e69d1e1b93ab50436e546e30a98556318c"
+    },
+    {
+      "bytes": 571522,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150356_3.png",
+      "sha256": "385ae3c322a283c41b071a752b0f9c34b726b72e9052608d0c9a2c6401af758a"
+    },
+    {
+      "bytes": 568072,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150356_4.png",
+      "sha256": "d964f3b4fd26766711900b9fccfa51c633486463f852103daa53b6be93deefb4"
+    },
+    {
+      "bytes": 565146,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150356_5.png",
+      "sha256": "33c2b732669f6d59664bb0dfc0935b99f2c0d9fbbe2bc825d14d38d87a06394d"
+    },
+    {
+      "bytes": 561548,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150357_6.png",
+      "sha256": "9bd89fa1433ceedec51f8edc11ec0d19f9a868d0e06bf89f7e6ffdbf2251e213"
+    },
+    {
+      "bytes": 563116,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150357_7.png",
+      "sha256": "3b664f0c6f6a793bcb401911f2dc9fb9c4259e0ebb0d6aea7007cf21bc350ec2"
+    },
+    {
+      "bytes": 563219,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150358_8.png",
+      "sha256": "2c0f455ee9e027a2b095533018acf3aa5e0ea142d70da2b7c5bbc00739561960"
+    },
+    {
+      "bytes": 561540,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150358_9.png",
+      "sha256": "f169edf301d27a9065e574996f6c23049703939d5d67581d103d13b93ff8e900"
+    },
+    {
+      "bytes": 563088,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150359_10.png",
+      "sha256": "96dca5521db7dcf962bd7cf2bd000fbde47c14a7ab35212e1f537bda29b93b49"
+    },
+    {
+      "bytes": 567999,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150359_11.png",
+      "sha256": "8ad681729156c54e2ca4d26da7cda6b18e7190a41ec62ac15b969d6be69afe01"
+    },
+    {
+      "bytes": 569292,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150400_12.png",
+      "sha256": "29a6156d29fdea36d5fe85fa4ae75388daf1864845e065816408e1eeb3464050"
+    },
+    {
+      "bytes": 579719,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150400_13.png",
+      "sha256": "f91ceb5e8eec730ac97a5b73b07a3e56bb179fbd87cce5fce45180ed6ab2189c"
+    },
+    {
+      "bytes": 586945,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150401_14.png",
+      "sha256": "ee9f2dc01f836e29c4ee063ef93dcbccc910099a5a0d998954194b42dfca3715"
+    },
+    {
+      "bytes": 632660,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150401_15.png",
+      "sha256": "5ce98ae83dcf91fb2b865731d1ce9f3863cf402a618ae61004319d4df268fe7f"
+    },
+    {
+      "bytes": 642504,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150402_16.png",
+      "sha256": "5a70346321ee4329a37bb914eac1d95761a453efb014a56cdb85d7e8f4637d42"
+    },
+    {
+      "bytes": 640991,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150402_17.png",
+      "sha256": "d50f2cdd23e9ef1a230fd365c3a2b003be4720d2807e950209d323816b148efd"
+    },
+    {
+      "bytes": 640827,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150402_18.png",
+      "sha256": "8f989882eab73f5a65d107d155a8a605bd3ac1ce31c05e024f87a46eaa98ad4c"
+    },
+    {
+      "bytes": 670563,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150403_19.png",
+      "sha256": "876d56b4230481f0790e7e4a2229c5599ab8122d30db1b2e1c84e319edf3a05f"
+    },
+    {
+      "bytes": 670330,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150403_20.png",
+      "sha256": "2c3e9b08e02597793a56616881594c1c59eda86c4312378f1c97165f54bebc83"
+    },
+    {
+      "bytes": 668712,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150404_21.png",
+      "sha256": "a7e786980023318a5439f7913f6fe78708431592df9dee3626481eeebacfa077"
+    },
+    {
+      "bytes": 669865,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150404_22.png",
+      "sha256": "3bd63ad1da2d215aa22f5223bf71ab421239fa05c2e492a540675094d29a456c"
+    },
+    {
+      "bytes": 703747,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150405_23.png",
+      "sha256": "c3528e2b919e5e071f95ce603c1840ca2617cbb3fd1f58733ece87fd9c933d2a"
+    },
+    {
+      "bytes": 663460,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/20250101_150405_24.png",
+      "sha256": "5746757bc851091af08377214505d0b12fc57fcc3986375ba2761642c15b2a9c"
+    },
+    {
+      "bytes": 664813,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154507_0.png",
+      "sha256": "e5892ccfba9f773e50334c708849f784fe2eca4bdee6b19d378d1aa3ef63fdc2"
+    },
+    {
+      "bytes": 664031,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154510_1.png",
+      "sha256": "ded9be0f579177c22774159e4db20bf901de544896ec6c6f1dfa2f25ad476792"
+    },
+    {
+      "bytes": 669248,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154511_2.png",
+      "sha256": "60faa5dda1b59b5dfc5809121a7ffa7e09228ff861a26621ded3ac7f5cbf843e"
+    },
+    {
+      "bytes": 671238,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154511_3.png",
+      "sha256": "3f4062b111f906bdae32d104a73a584442ca2bf76b320ada4c1e50b16c80b280"
+    },
+    {
+      "bytes": 673509,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154512_4.png",
+      "sha256": "0e00592ae6c360a8d191f57c9f9d741e1dd43b160b5ea549a179d2258d8853d9"
+    },
+    {
+      "bytes": 676184,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154512_5.png",
+      "sha256": "76c7adeda7255430faadf7c1c445efb978c46d65303c6193c225e1d3f88e47e6"
+    },
+    {
+      "bytes": 679296,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154512_6.png",
+      "sha256": "fa13f17e7c2465fbdb27f2b09f10ac305e11f2cee55105fc5415dfd45cc83d03"
+    },
+    {
+      "bytes": 679342,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154513_7.png",
+      "sha256": "8571c6df08c7658ece6be199e619cd82fdc8bb7cded3460b346fca6b19facc2b"
+    },
+    {
+      "bytes": 683915,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154513_8.png",
+      "sha256": "d7c8ab87eb8e544ad347c1edfce8a8a9e999e1f02dfc96167088a44fad483f52"
+    },
+    {
+      "bytes": 689840,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154514_10.png",
+      "sha256": "2eccdcc40e3be99437265ed8f5f01ec1da49e16d29756bb9d8d2ed20262c5944"
+    },
+    {
+      "bytes": 683209,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154514_9.png",
+      "sha256": "1c08136f75dc9a30bc5013643002448e1456d55e8cb5499a82c73c1dad61b7c1"
+    },
+    {
+      "bytes": 696825,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154515_11.png",
+      "sha256": "73ae4c942a5e4f1a8f9cb692f72ce8cfc6aa456d580402542c6a40d08086b88d"
+    },
+    {
+      "bytes": 717335,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154515_12.png",
+      "sha256": "52fbe3adf7b36c9ab91aa7fb541f9d4a7e85eb5b0bf8bf5e222781397b7005a8"
+    },
+    {
+      "bytes": 738689,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154516_13.png",
+      "sha256": "3b79d37d1be9c56b74697d8a3a72fb6d36a3e11693186de35e953c22538bad94"
+    },
+    {
+      "bytes": 775190,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/20250101_154516_14.png",
+      "sha256": "5c7090e47b17ff235ee84aa712bdacd428da0c88bd0b6df8634850a093955899"
+    },
+    {
+      "bytes": 599050,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165312_0.png",
+      "sha256": "140ef4e5d06b2579a73d7b163daf2b64009915618ce6b0eb12593d51a6b9be14"
+    },
+    {
+      "bytes": 600438,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165315_1.png",
+      "sha256": "764cc20c20c708bfbcb6e40fe890ffa1208f57aa8543c2c6b4f7b2ddc8e20f8d"
+    },
+    {
+      "bytes": 602902,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165316_2.png",
+      "sha256": "974d5e2d07ccc653822aad22f73cd623552502c548679f5b81516b7a27455520"
+    },
+    {
+      "bytes": 601891,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165316_3.png",
+      "sha256": "1c0cc7f652d569acefae6a5aa0c144e1c6e45b9c94b23008bfef5d20be888205"
+    },
+    {
+      "bytes": 606318,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165317_4.png",
+      "sha256": "64da8f58f340f93b5d18eb0095e3db1cbaa1c82b64e43bfd29d85aa4ec9eddbe"
+    },
+    {
+      "bytes": 607680,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165317_5.png",
+      "sha256": "9cbda17a5b49c790e2b33f3ce673f9a7740bfbfbca57127722b2e97799f0e5b2"
+    },
+    {
+      "bytes": 613678,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165318_6.png",
+      "sha256": "5d85f72cffd93f8162b0e81f7e583677976dd36ae12dea8542aaf963912cea4b"
+    },
+    {
+      "bytes": 617698,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165318_7.png",
+      "sha256": "a4524d7efee8714b2ecdb3b86375916aa8d3aa4129e4f5a8ce88800de7d3686f"
+    },
+    {
+      "bytes": 619961,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165318_8.png",
+      "sha256": "538055ebf209799aa209ab6ef3ef3f3f5b33bb85b54f2eed1879a2a5eb9e25ca"
+    },
+    {
+      "bytes": 626218,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165319_10.png",
+      "sha256": "2acaef1e3cb856327da31dca43663f0c59f527214daa93ce2ae066e7d9104fc3"
+    },
+    {
+      "bytes": 623383,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165319_9.png",
+      "sha256": "309a5af74b1e124dde2dcd60410171d39ded0fa1227c1255942c9daebc34ce02"
+    },
+    {
+      "bytes": 625800,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165320_11.png",
+      "sha256": "674f4f1f0b7ef59a8d6a2c8daa8800b2983e82fee44a36f7e5181f58972b3eba"
+    },
+    {
+      "bytes": 624814,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165320_12.png",
+      "sha256": "fbdacf8c2adcc4503443f4870fd0fe5ea914fbd1752e0a7dafdcb522d5dc32f4"
+    },
+    {
+      "bytes": 622043,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165321_13.png",
+      "sha256": "fc2b9e5a6aaf161b8986ae6224ffe315f62159ed511f80c1db2d95e30b9db46f"
+    },
+    {
+      "bytes": 622780,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165321_14.png",
+      "sha256": "0b7cb3a11a2da770ec3c39acbc93f3c8c0eb39ae9b385d63838bb2a84fd6edda"
+    },
+    {
+      "bytes": 619356,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165322_15.png",
+      "sha256": "6a4973387c0cfc7b117d3d09a0a0bab4b2e9d7a8acca8280437078916a91236f"
+    },
+    {
+      "bytes": 615147,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165322_16.png",
+      "sha256": "8317179d24e43631ebe9b87c602ec10eb0ba124ace57a942d7db16546ed42fb4"
+    },
+    {
+      "bytes": 610039,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165323_17.png",
+      "sha256": "83fa991d87b9a7f629975b0c4c84fa9a1b62fac47be645b6c27d554cbb98d98d"
+    },
+    {
+      "bytes": 612797,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165323_18.png",
+      "sha256": "7e76a6fe3710b7fc4594d792a0f633085e0f991c7b643ca79a59d81bd7e5e287"
+    },
+    {
+      "bytes": 616741,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165324_19.png",
+      "sha256": "76c0ff3f77dc11fe38e4693b4edbaf9437f471aad6eef2df45d7f17e3d88a76e"
+    },
+    {
+      "bytes": 614480,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165324_20.png",
+      "sha256": "81dfb2015304dc58ac45ab5df817301b75be50523277eab3b58994d7faf81dc8"
+    },
+    {
+      "bytes": 601493,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165325_21.png",
+      "sha256": "c50045dbf2d24d1d98306b31c9f8ef49bc7a7c3e7fedf637a1845ff7d2167f2f"
+    },
+    {
+      "bytes": 602060,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165325_22.png",
+      "sha256": "8e6ddab0337f9be2451e33169c33e106ff8982048f911d54a036f4a9a33fa8b9"
+    },
+    {
+      "bytes": 600088,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165325_23.png",
+      "sha256": "f3a96d09668d4845d5cf9e6b0994e9ba99166bcc0a87f4d9dbfffed4f6b7741d"
+    },
+    {
+      "bytes": 601494,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165326_24.png",
+      "sha256": "f1178f8f47c5eacdb46a2858456223c56b4ef814e596cbda82afb90f74dc9601"
+    },
+    {
+      "bytes": 599456,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165326_25.png",
+      "sha256": "efd81ba4809210b12b11eeacae367f5a5062f82910683f63a37a6fa3b0072df9"
+    },
+    {
+      "bytes": 604166,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165327_26.png",
+      "sha256": "c474faea0ca87a563565ccfbc18f94bcc5600ddf09c1380adccb194adf743f2e"
+    },
+    {
+      "bytes": 592121,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165327_27.png",
+      "sha256": "1de4678b73e95f33b5fbc3da6169e8875d892ac779d74a993da6b533a0c93475"
+    },
+    {
+      "bytes": 588501,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/20250101_165328_28.png",
+      "sha256": "e69da3885fffbdb2a7dbb5b5d087b9a7a6d476a0e6d19aa72cde6e10a1760b6c"
+    },
+    {
+      "bytes": 760629,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181856_0.png",
+      "sha256": "a428f075c562cc7b824595d1307a6ffbc6404fccc68625b175eb3745fe34eed6"
+    },
+    {
+      "bytes": 762744,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181859_1.png",
+      "sha256": "5559de2ac26648896fa13f4487e5097b37f8cfaef6fdff01426a1d85c1dbc7c8"
+    },
+    {
+      "bytes": 754718,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181900_2.png",
+      "sha256": "46c140bb1c5378135f08bbfe7a19e5f9ee3eb3c5f97f078b38b0b99284c6dfde"
+    },
+    {
+      "bytes": 755252,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181900_3.png",
+      "sha256": "20336f26dcf61b38017bcb563a1f0ae44fbaab09549c114344158747ff3a7693"
+    },
+    {
+      "bytes": 762038,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181900_4.png",
+      "sha256": "c2e310e8bb7511ef0c5154acc8c6fc2f0a2678a4df3a0bffbfa1e9ed891ffbfa"
+    },
+    {
+      "bytes": 772043,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181901_5.png",
+      "sha256": "d310f0e9ec79926e4179ec38ea3fcceef77432bf30f485fc4345138479e60659"
+    },
+    {
+      "bytes": 777783,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181901_6.png",
+      "sha256": "1da4897103efd5df36687f7cd0a75e1815336ded4857c8e6d3c9a6a30b26acd9"
+    },
+    {
+      "bytes": 781718,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181902_7.png",
+      "sha256": "79c862e96451018a24b46fc3f8dab839b92d8ae3a8aa02c8601c7b8a2a65bdc5"
+    },
+    {
+      "bytes": 783469,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181902_8.png",
+      "sha256": "d231d1fa78e0706ea49a590769bed32b0c5ce1d38e2ca1ba06f5c960bd0e56ae"
+    },
+    {
+      "bytes": 791400,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181903_10.png",
+      "sha256": "72fb73192ad2122ee8a2339d04e7bc145260f68c85d51f3a4fc16f03c1dd3942"
+    },
+    {
+      "bytes": 787896,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181903_9.png",
+      "sha256": "594f324ca84db00d4514bdb0104d342b26abac01061995402214a85af9fd7fd1"
+    },
+    {
+      "bytes": 793926,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181904_11.png",
+      "sha256": "a36b6a5e54f505a2bba8199f8a5f8222ac14b84e6b1f1f62d05937fa3fe54ff5"
+    },
+    {
+      "bytes": 804170,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181904_12.png",
+      "sha256": "102be58ddc1168a692b196b60536bf09b2566a8c40180d561fe499d4d00faca6"
+    },
+    {
+      "bytes": 807298,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181904_13.png",
+      "sha256": "0ab50e8643d9e9e15197548e02d93b76c781bd80cc5297d5777b98c2fd087df2"
+    },
+    {
+      "bytes": 808169,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181905_14.png",
+      "sha256": "2d6a9b5bd47040a46c9521dde49aa77dc12e1e87d84992729b5367f23ffabd0a"
+    },
+    {
+      "bytes": 809741,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181905_15.png",
+      "sha256": "265cd2a254c5b3b1f8e5202e1b7301d44ad143c73cab3ac6a9729d37bb61d7b5"
+    },
+    {
+      "bytes": 810176,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181906_16.png",
+      "sha256": "62d38c9ac6ee027e14ce5401f9b2b8643762d40ce4046cf3aba791c4410d3824"
+    },
+    {
+      "bytes": 814441,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181906_17.png",
+      "sha256": "4d904ac924449b4bdedef9f5fd1d9e2b597983e2fb80d9eb38bd7d7a808a138e"
+    },
+    {
+      "bytes": 804378,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181907_18.png",
+      "sha256": "34dd399d1c2359bbe0a9388bfc0385c624238f37c833dccdf83ea0257dbeb324"
+    },
+    {
+      "bytes": 816862,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181907_19.png",
+      "sha256": "ecfa5a586ab19f5549b6988c96cc0fcb342e5c20ad974741537f5fd43a31c51d"
+    },
+    {
+      "bytes": 795785,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/20250101_181908_20.png",
+      "sha256": "556c509330c7ad5dd1a8f54268eeaed6dff553ad3b225468ba7a7070e3e57e86"
+    }
+  ],
+  "limits": {
+    "cpu_threads": 1,
+    "max_input_tokens": 4096,
+    "max_new_tokens": 192,
+    "max_pixels_per_image": 50176,
+    "resident_samples": 1
+  },
+  "optional_arrow_isolation": {
+    "claim_exhaustive_native_file_io_audit": false,
+    "datasets_forbidden_before_and_after": true,
+    "deny_preloaded_pyarrow_without_module_deletion": true,
+    "install_before_heavy_imports": true,
+    "mechanism": "process_local_MetaPathFinder_ImportError_for_pyarrow_and_children",
+    "preserve_prior_finder_order_and_identity": true,
+    "pyarrow_absent_before_and_after": true,
+    "remove_only_own_finder_by_identity": true,
+    "retain_and_record_legitimate_dependency_finders": true,
+    "site_packages_modified": false
+  },
+  "optional_import_runtime": {
+    "module_origins": {
+      "pandas": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pandas\\__init__.py",
+      "sklearn": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\sklearn\\__init__.py"
+    },
+    "package_versions": {
+      "pandas": "2.2.3",
+      "scikit-learn": "1.6.0",
+      "transformers": "4.57.6"
+    },
+    "scope": "narrow_primary_optional_import_chain_not_exhaustive_native_or_transitive_audit",
+    "source_files": [
+      {
+        "bytes": 47212,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\auto\\auto_factory.py",
+        "sha256": "04c0b61097c533459ecf74ee8b9d730abd4febbbfa4a9f73841fb7ff49c8eee2"
+      },
+      {
+        "bytes": 210172,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\generation\\utils.py",
+        "sha256": "55fd5c50aa785e226afa03e4507b8d27c0328714c0bd048bc60af9e8813a1173"
+      },
+      {
+        "bytes": 63997,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\generation\\candidate_generator.py",
+        "sha256": "9809a08720d61cb0e7bb998685e6fb98c4b0e76a3f73cc0cf07603d69a00950b"
+      },
+      {
+        "bytes": 4802,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\sklearn\\__init__.py",
+        "sha256": "5dd87832a8c9d2deafcd99ce6a5b6de59b4d770098ff24c3d74e25432f5f83f8"
+      },
+      {
+        "bytes": 79395,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\sklearn\\metrics\\_ranking.py",
+        "sha256": "e764c2ea1e9b8abfe6a9842985f8eb088ea4729c155f1a992f3ff2c25735afd8"
+      },
+      {
+        "bytes": 111150,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\sklearn\\utils\\validation.py",
+        "sha256": "ce83f87d98d22c85b70ea5733d61874816db8e7e3790f9b30ad15905e94f2612"
+      },
+      {
+        "bytes": 15915,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\sklearn\\utils\\fixes.py",
+        "sha256": "eb0655957e3067fedf541430d0b601bbd23bcc86428ed175d6de89e11a619598"
+      },
+      {
+        "bytes": 8978,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pandas\\__init__.py",
+        "sha256": "755b7c4dc96dc69da85a32fad32513cdcbe67061b1322de2bd2759db3a6690be"
+      },
+      {
+        "bytes": 4280,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pandas\\compat\\__init__.py",
+        "sha256": "90319bfd2f8b7a9f19752ffea463c835caefa123db8f7c74855551d59f29832f"
+      },
+      {
+        "bytes": 1006,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pandas\\compat\\pyarrow.py",
+        "sha256": "5b370a0730ac65aa6e50f30850bec854c8979b52fbcb3038407bf7085e40bb12"
+      }
+    ]
+  },
+  "output_dir": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r2",
+  "partition_counts": {
+    "train": 122
+  },
+  "prior_failed_attempt": {
+    "plan": {
+      "bytes": 68741,
+      "path": "configs/training/onboard-navigation-indexed-cpu122-20261008-r1.json",
+      "sha256": "5950e18dce84f2bf742c9c3f5aeacd1cebcc96c4c18f7971773251e3ae7d2826"
+    },
+    "prefix_reference": {
+      "bytes": 498217,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/prefix-reference.json",
+      "sha256": "7a0b38d44bdfc6b875e94c3e3ff252c959560b2ff2db29766c9638284cfcee9d"
+    },
+    "prepared_inputs": {
+      "bytes": 276821,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/prepared-inputs.json",
+      "sha256": "0da334dd93899183a6a56517b063d1e67ada343feb18e0f1d81295e648744780"
+    },
+    "receipt": {
+      "bytes": 5356,
+      "path": "docs/evidence/onboard-navigation-indexed-cpu122-failure-20261008-r1.json",
+      "sha256": "fbd2aeaefdaf8ba41203ff193a487e66d463471e480e883df28ae1ad6f7b4373"
+    },
+    "report": {
+      "bytes": 122510,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/report.json",
+      "sha256": "a44a8227f55d95299256315729abdc7039011c510a852c8e81894553ec63b254"
+    }
+  },
+  "processor_files": [
+    {
+      "bytes": 7136,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/README.md",
+      "sha256": "5fc5be1ca9a3910399bd6239ee5086ab5d82a2a59c5d2b00e887a8835cc110e4"
+    },
+    {
+      "bytes": 5502,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/chat_template.json",
+      "sha256": "6f8a6a55027e3da5160105556cda5dd69f6423f1c32645f6730d32de7773d0c4"
+    },
+    {
+      "bytes": 1505,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/config.json",
+      "sha256": "bec4b3d446efa05807365c9e1cec03ac590836879d02f3a6da879971154bdd3b"
+    },
+    {
+      "bytes": 269,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/generation_config.json",
+      "sha256": "1e241830b48b397cb0900101421df5450baddc7adf01e5fc86b5615865f3bae4"
+    },
+    {
+      "bytes": 1671839,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/merges.txt",
+      "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+    },
+    {
+      "bytes": 390,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/preprocessor_config.json",
+      "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+    },
+    {
+      "bytes": 7032403,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/tokenizer.json",
+      "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7"
+    },
+    {
+      "bytes": 10868,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/tokenizer_config.json",
+      "sha256": "c2da771801886ad9ae98181793ffd3dfb7f1af30f6f7c6a4e15d7dbba52e2399"
+    },
+    {
+      "bytes": 385,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/video_preprocessor_config.json",
+      "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+    },
+    {
+      "bytes": 2776833,
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/vocab.json",
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    }
+  ],
+  "processor_snapshot": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203",
+  "reference_kind": "saved_cpu122_metadata_reproduced_under_optional_arrow_isolation",
+  "routes": {
+    "143": 15,
+    "144": 21,
+    "148": 15,
+    "150": 29,
+    "153": 17,
+    "154": 25
+  },
+  "runtime": {
+    "entry_origins": {
+      "PIL/Image.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\Image.py",
+      "PIL/ImageFile.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\ImageFile.py",
+      "PIL/PngImagePlugin.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\PngImagePlugin.py",
+      "PIL/__init__.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\__init__.py",
+      "numpy/__init__.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\numpy\\__init__.py",
+      "tokenizers/__init__.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\tokenizers\\__init__.py",
+      "torch/__init__.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\__init__.py",
+      "torchvision/__init__.py": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torchvision\\__init__.py",
+      "transformers/__init__.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\__init__.py",
+      "transformers/models/auto/processing_auto.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\auto\\processing_auto.py",
+      "transformers/models/qwen2/tokenization_qwen2.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2\\tokenization_qwen2.py",
+      "transformers/models/qwen2/tokenization_qwen2_fast.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2\\tokenization_qwen2_fast.py",
+      "transformers/models/qwen2_vl/image_processing_qwen2_vl.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2_vl\\image_processing_qwen2_vl.py",
+      "transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2_vl\\image_processing_qwen2_vl_fast.py",
+      "transformers/models/qwen3_vl/processing_qwen3_vl.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\processing_qwen3_vl.py",
+      "transformers/models/qwen3_vl/video_processing_qwen3_vl.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\video_processing_qwen3_vl.py",
+      "transformers/processing_utils.py": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\processing_utils.py"
+    },
+    "legacy_five_package_versions": {
+      "accelerate": "1.12.0",
+      "peft": "0.17.1",
+      "safetensors": "0.8.0",
+      "torch": "2.6.0+cu124",
+      "transformers": "4.57.6"
+    },
+    "package_roots": {
+      "Pillow": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages",
+      "numpy": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages",
+      "tokenizers": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages",
+      "torch": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages",
+      "torchvision": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages",
+      "transformers": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages"
+    },
+    "package_versions": {
+      "Pillow": "11.0.0",
+      "accelerate": "1.12.0",
+      "numpy": "2.1.3",
+      "peft": "0.17.1",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.22.2",
+      "torch": "2.6.0+cu124",
+      "torchvision": "0.21.0+cu124",
+      "transformers": "4.57.6"
+    },
+    "python_executable": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe",
+    "scope": "Listed CPU entrypoints/extensions and five pinned versions; not exhaustive DLL/transitive attestation",
+    "source_files": [
+      {
+        "bytes": 150163,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\Image.py",
+        "sha256": "ba778c08d7f45b60d1629367f816d89c240d35e0af9388d28cd69cd96398fb16"
+      },
+      {
+        "bytes": 26977,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\ImageFile.py",
+        "sha256": "8a253d9bd3eb09113303d41686aa2a13f6f1fbff0b2a8e4d15df97d96dddee0f"
+      },
+      {
+        "bytes": 52409,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\PngImagePlugin.py",
+        "sha256": "dc89eb0f655d910039c28780862ad5dde71856a967172e0f330e9140a3673ae0"
+      },
+      {
+        "bytes": 2094,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\__init__.py",
+        "sha256": "f7c69bc557e7f287758c969322beb962b62b21bef330a6ce279a3af2bc84d8ed"
+      },
+      {
+        "bytes": 2349056,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PIL\\_imaging.cp312-win_amd64.pyd",
+        "sha256": "f44fee1dd1c49e647fbfc60554997d6e5e6c7f578058a7799ee6870b84df8da2"
+      },
+      {
+        "bytes": 22868,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\numpy\\__init__.py",
+        "sha256": "fa03d3df682110f6c81223c06cd3afd7dc0ddbe0bf107caaee83abc7056f6049"
+      },
+      {
+        "bytes": 10240,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\_C.cp312-win_amd64.pyd",
+        "sha256": "8cc12784367470aa0f3ebe54a0c4593ac52d5bc273ed7ba719cbb10b4a3dbdb8"
+      },
+      {
+        "bytes": 103037,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\__init__.py",
+        "sha256": "0901a8ad92b30f947405e28fc98dd21c578cfbe8796b0173de931f42079b1f89"
+      },
+      {
+        "bytes": 3639,
+        "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torchvision\\__init__.py",
+        "sha256": "c94c9b6f678a4415f62d6b0364f0271291d6b4415c1874be5e8e6bf0af9189cd"
+      },
+      {
+        "bytes": 270104,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe",
+        "sha256": "137c474a645a9471ab3a369084e7cd573cd8b7ff8f81cb85363fffdf5904106c"
+      },
+      {
+        "bytes": 2739,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\tokenizers\\__init__.py",
+        "sha256": "510d5e23458612433da9f1fe430b5009fb88ba90508ee4340d2397b32c319080"
+      },
+      {
+        "bytes": 7395328,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\tokenizers\\tokenizers.pyd",
+        "sha256": "7acb83f5b89136597e0d14b788d82917bf2870df94575bf77e12731c4e49c4df"
+      },
+      {
+        "bytes": 47000,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\__init__.py",
+        "sha256": "aa8cb54da488cf43ba37b9955bb6c0d84d2000db0306f6a5f1c20b6842482d04"
+      },
+      {
+        "bytes": 20853,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\auto\\processing_auto.py",
+        "sha256": "e97580de189cd7e5ea3378a96e01279939f305c68a0245a9160b80cb1a938961"
+      },
+      {
+        "bytes": 13935,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2\\tokenization_qwen2.py",
+        "sha256": "23f05697fcaf26fe5e328abaf524f010510a2b9f4ba2e2edc9dca0a4015a09a2"
+      },
+      {
+        "bytes": 5210,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2\\tokenization_qwen2_fast.py",
+        "sha256": "1025a3b86526283bd86a447f0fe2d991d09775b32d3fdcc233c9e447b0611049"
+      },
+      {
+        "bytes": 26381,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2_vl\\image_processing_qwen2_vl.py",
+        "sha256": "7820a0fcca107e75605e08d9b774285ca2b0316f857bc0225c779794705ecf4f"
+      },
+      {
+        "bytes": 12723,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen2_vl\\image_processing_qwen2_vl_fast.py",
+        "sha256": "09bfa9b17df7c3f0c6159bc34008ee50f21d2472cd5bae7e5c21ba1ca13a423c"
+      },
+      {
+        "bytes": 17149,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\processing_qwen3_vl.py",
+        "sha256": "efd8d64aaf608aad1ffb3e6d503d6a99e5227d007df95c1d9fa905d998cda4a9"
+      },
+      {
+        "bytes": 11561,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\video_processing_qwen3_vl.py",
+        "sha256": "a49a83fc45cd9baa3e391a68af79743c70d47b86d7d6c81a262fda4104f89db7"
+      },
+      {
+        "bytes": 87156,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\processing_utils.py",
+        "sha256": "6c29de5c3fc674cf21ba6377a39cbafb2ba3e4bc2d1202d4b944f8cf840e6f33"
+      }
+    ]
+  },
+  "sample_count": 122,
+  "sample_ids": [
+    "f1b12efacbb22cbcf97a75d959209de2b5da2fe92b82147f4e0a1ec03bd3d1cb",
+    "bbb63bc607b8a30a414e6bcbb30a6f887612c019a5de3d6572419ccdf7e7e352",
+    "8dadcb453accccff42ddbcbd88765f121ddd931be39e508b7118b4acb0b2929e",
+    "eaf9859adc76b59f757dcde461f0b3cb26bfefc999895cae89f42ec2ea5388a3",
+    "8a9f092c6b1eda701e5c4a3d6f66d79bc79429737dcc6c37c6eb570cda0f0b27",
+    "a51e13592aa0804f325408fa915bea94ae6b48e8b890ff8e2cda7827c86957a3",
+    "75f13a5d3160b868f44fdcc362af90e671eb470b48c7532a64ea2c748a759f67",
+    "bca62e561dea974e72a04d73f9d25aaf0aa00fe76ac0d2702679218544decd60",
+    "70d54c665074138a4b9e295b508829adb18dc26abab39f50121da403d3b2251c",
+    "da5792011161fbe0f8e11d3376e7fd3b34a86cc7647cc203968d99ef2c64bf0d",
+    "3ac557d2539f2ee754125c9d9b562b46197d41a1c27ca84365e95f32c2158fc4",
+    "3d29f35fec9593b4a086a002131192fe971b79a3214515d6c590634700d154a0",
+    "c8501909c6331a35329290de67bc9d920ad636c587b356d4183fa96c513096ad",
+    "11e0d55f2d644a7fe5c9a6759896f929f4072f63efca3a9cbf40df816dada057",
+    "6375c4d57faddb21324fe6fd7716f0026c8bc6289bc3c2594018ea064d735c32",
+    "f378e5f266d9cb28fd3df8a19230f931ed333ea7f71eadf972f37a08f870762f",
+    "49daab0712282d576ee116bc0f220ba6db26c5f81243426d3f5797f18c633abc",
+    "39cc8865691300e3710057d8602d33795d2cb36221bf6af8c8210830fa91eb4f",
+    "cb94a106dd8ae134c72efcc896dfea340b724982c4ff688047b27d35294fdbee",
+    "682b21200604334da9a3234fd262ff9c5e9902b4aa618c2bd11bd62c0cba2449",
+    "cbe5379440b02994a4ce073efddd542e995189bb6de48f5f63515bea4538df7e",
+    "a23cde810690f30f779331c924e4f87f92ad7fc95df97bb1a80e82badecd4873",
+    "c5336b36d0046927c03d106d8def53b02abda09e70006413b576f8cbf55dd0a4",
+    "f8a74e77eeb978b7426a55a7fd64cdfbe730115733d838318dea078487ea4d45",
+    "642198eeb9d2c13be65ce50b77f05b8336448a189dec8167a71c7e79c93f90e8",
+    "5db8dd2435cf342085cb3de011832b2a65a73d7d71d7d4ea502a469c1be96878",
+    "c7ffb67e3313d37f74ff5898d8935f54c2b270a792014425b1f3515993fb95c8",
+    "7626d44a56fd32c6315ffe8312f6a5e846e7af2447331be3d5618f625ad76bf5",
+    "7464f69770a9849e4c4a4955d4036b83ec4010d74db22743a0b3a17f2bb40373",
+    "8b27f23d9642cf36635e3976d2fc243962f5e9f48c7411677e57d5076d648f1b",
+    "83de206bbf9ac8cabcd1f136f11d4a4681303e9a7ca10e5f11072e1c7d173216",
+    "14ac069ead22f8da9debb8c3b8a9804a1d76962aa67676075118d392f4deee19",
+    "58ab950fae2a5ac73cdf950017e682bca5e4225b001ab27652c63ace9592c380",
+    "57b95bda992a8c29de7d70e67bde4b3114a389c93618ba8f8a478ea704c637e3",
+    "de397f1878e47cb14faeeb9128f2c9d45f265fa5c07d61ced31d9d8d705a68d1",
+    "4aff8be102a78af78b03eccf59c969722c612114a3353aab8bf6d802682cdeb0",
+    "88a45d9729a23f882ea98bd4d9dfa33e4d395b325d4771e13b9bc5690e283bbc",
+    "68ca54d268ca7a676924b83bf2cc77b543ad129621953e07b9c70e3cda3ca6ac",
+    "247ceda49acfeabaca774f4c8308f5765802c084e00769eb388d8a7bdc992e7e",
+    "721847623532880b56da6d25c07c9b187f8562f8e464e875e568cd16434f8e60",
+    "7dcaa8e0ed647686c225ad27dc9b47ab943642d167901d4b13e05031483f68a1",
+    "3a948b22384e6f326fbbbedd9190ab17d8c1737b52cf41b636689caeb0463d62",
+    "ec1b9b156ef1ac7dd11a922205e5fd05ae68ef2cd6cffd3d07c1ad08c16d6648",
+    "8cac74006f86b5ce4d51f035485fc206bdb73ab27fb6d13ba122a0e8a73bdfd4",
+    "cc6d23f14d80cf80bf797ce797550be8dd124acf7469309fbf00bf01fb2bc4b5",
+    "59f80298bd62906c7dff200e4f896b44ac60025bcd2cbe1603d6b3fc2bd876f2",
+    "7a32009246d976e395d8a1460f3c353d9e38e50b2d4461b10c2be4d5e49a1788",
+    "49e6e71f8b954463e74cdefdfad33680e1fd89060a312d7f8d55fbbcb9c0a430",
+    "182cc171d7ebf4345e42af9284c423bc54c976278231566aae917b8980f6a93a",
+    "056fcc92348ebf53735890e0d503282786d5ed148a88b5a6d7dabe9570981034",
+    "327ef8a82afd897dd5540785a63cd9bc7e59fa80e8df27b8c445e591a3781c1a",
+    "00ee1c22637a931dabe539f84baaad09ae32fff8830495c124cfe533fbe679c0",
+    "09d85e309f4832ecc26241189062ed565c25e82594427e1a94b310894224c636",
+    "d5267e1b0f39a2e6a1d9e8d34a2fa93bc0cdc03064455291cbc2cdb7861ef00a",
+    "376933877f94e85464b8d31f034da7fb92eaf60b72a84541f2c75b00b7ec82db",
+    "81df0a5aff644b0e48ba90ab1d03b08c32fc2eb5807350c265f636cc4333c275",
+    "663e3e397e9bb115d29c2b42d78e8faf2d0ffdb7575b38abc8c624334790c95e",
+    "05868082ea627a6c4c7c1d9896cae423756f3017a5728ea0362a112044d29dbd",
+    "786a32f68c971ff7e85db3a157bb8c46520f1af4b0265a5f78689d253c324151",
+    "5297dd539673a34349eb87401400b3fe7c468e4de8356da4ab640e1efd42b5b0",
+    "fc7a6a20a9f19a1d85acd7c819a68c66131a465cff0ad886a41a40ce0197e6c0",
+    "b4816c7fe2fa914e7c988011a96d38b0c1dc0774f83b86e1e6f4b67f4aa9c6b3",
+    "e9daeb5fd0c4e1aca8161c7a7b0e834c9e9fec611b2ddfca3ff4c81ac4e627b7",
+    "77a398fd03ca75cf57eaed46f044ab0a6bd35bb3c6576548f084df611631eea4",
+    "8e47b4f2c2ea33df73d74b7fe88f83e447fa75ba6c48de7bd291504cd71545a9",
+    "06640a668950e9823f1b87df13b40cd5a6dfca220b0d20d701d19740db0deaa7",
+    "8762865e662e4d46899accde26305575bff82b24bc69c2bd4a4edd19ee9952c7",
+    "a46309a7b13987cfe3542f3b106881f1183486ffc2b4c11dbde88347d2ab4c49",
+    "0c7518cf1e603625224343a51f7343bc58b212f99eb1f024ca738959ff227f06",
+    "8d223c65f722a770755c06e78dbfbf8a0fa75b86feb00e6ebdb3639cb5a5653c",
+    "156ac85dee571210447c5ce8741d017453891f36681c1c4a34d003611fd2f151",
+    "f3fbe2ce95a4a8cf36eca54a5539f047418067d06b4bbdee432e40c0b2a17e5c",
+    "c0fb0d5c0f9c2a39199fc94967449ee20e374777d51dc40ebf7d557a431cde02",
+    "e4cd65c99943afbed4b75a8b25b92250ed1e6383904331b686e143b7c67465fd",
+    "53a3723f596436621853511798c3027a0991d07273f08d39132d9899c9fafebf",
+    "1fd611c310df0d63a9efe5a7c37f0bf81364a6b4c632bd2b3a1a78e4ba4c1670",
+    "77910adf8b68969e96c08d875d0388bb74e451f2a24c0f3cc91941219ab97361",
+    "af9ea6f68a45c86154de9ec41f7c0696ba15ee14633855631bab2843a97a41f0",
+    "739b579173ca8b11ab3c5cd5417e8eeefa7e12acf61480842b877085c4088088",
+    "9d8f11cdbce07914c362c86955681560edcf0824bc4be25b46b8937d4613d682",
+    "46b4d27951d0de93c9e26064c5f26fbda782129caf1d973261d99681deaf85b5",
+    "637967fab52a0e6b44f52b04978d1580ab5a42e6c5142bc6452225b77e1867bb",
+    "8aa4e7cbd08568c785014505868ac79823f7a2a70c4ef402ceaeac54e2089657",
+    "056ac96bbe193715cde34f4e6c6b797ef3a1329610163e83b34f466fc5558a9b",
+    "a67f73a524411fd28ac0812843a10df9b592d10552a42f025f09736bc70c792d",
+    "caac4764cbb9053a6f37bd681cbec71bde6a9f38a12e249c5973c1b70e85dd29",
+    "c427ce3ed2e12c6acb22a3264380167feeee6fb8eb6bfb0afc286ec7ffd6b9af",
+    "5fa9eff2d34582bd8173e76ddbd2f967b3e94baa29f04ac0e45ed1a7dba502ad",
+    "e04c358c74a32337d4fa4ea212efaef96e2fd14e4e8e21c1b4ba23c5fa10ea1e",
+    "6a47e92db97568946629e510031de94002337df5ab15f9ea5a86035d2fe3d1b4",
+    "529ad86a9cc6909109644ad3a34b1061132b16f4009e0bc4dec779070a8dc559",
+    "08c344afdef0bbd14d2a6b84db47a507781e605785a48ea03345d5950ed34884",
+    "36a3596c78d6b385b18d61828e4e5a6f0021d02a03620968f055171f6ddce8a8",
+    "b4ab68529c9deec76a7f213cba56553771f8b74e6ba624b52a056c5103578010",
+    "dbd76f7a7f710b14ef1c17511f05c95ca4c109abe163a87342edb3ec6fca63f8",
+    "d5a8ba3f37e707ceb1621ad54bd60ceb910cadbab0e1d324fd056c808aa7839c",
+    "61647524dbfd4921bc2d65ee3b6d7fa54138665038d0516a64a4d6845bb18d0e",
+    "9cda20e0af96d48f8f1a96cdb3abc6f2e2b9061d0f72cc7543a825657caac6f4",
+    "52cbf6e6d8b3f3e83c52a0d46d69532a1e7808e929bd398277911fd660e901c3",
+    "c6c44a0e9dc138f0760c0b017f8ab33bd4fe8cb6dee0bcbb5f3aec3209d8a1e7",
+    "f343e0acceafac5f70c544846b1ab950525ad87f808ee885e30a38ce53237271",
+    "3b1b5b8443db58517ef7f5d5417f227e34b812f0b38f2a8239e7bdc2f2025724",
+    "8cfcb45ab84866fcce4d09ee6902791a1af7bc23f61929d60e5544e8c02f225b",
+    "04a1edfd94f2966fe7a4809c55f3c2b1d10340c1b5f9b675a3b2c08ca90d817f",
+    "a2f430d6e92da068121fd81ae181be62f7db6e7ee70e978edda6b03cd9ca52a1",
+    "827a76e23d37d9b55fd5785ca537a5beaaf4562e1f64cfb7df587249258a813d",
+    "b4f16bb54114791ee767f3e2a1423070548e7a77b7e6b71bbcdf871ba930cbd3",
+    "6ab219a031163d04fdb6f428a3b741d31792d9ebd8508a294dbc71c7f8027f97",
+    "7a0b03fc9f2c4236bbd757bf562cf0cd4cf5b37a619cb0068961367eb4963482",
+    "284d2808fa9f1d1c000d97b2c2eb3e697ff19fec61c765ae27a622c0e4d835d7",
+    "9ae2cdc19ea2ee7aff31aa92e86f2f933cec20b79db1a674a767f11901eede3a",
+    "719ed1d49b83000558231d5b327fea81b828bed106b72982a8964b8c3978987a",
+    "581ff39b857a510aca27c7a2bf1e79f3e165b1205ece7b57ded35656b36b4263",
+    "a8ba14663b1714a4cefcd433cca0558c6a2afe607540bbfe3eb9ac95daf292de",
+    "a15d6d7a3ef7f9eeb7201b47f62f4886fea9c139f13d307bad7a08bb8193a03c",
+    "d4252538b93455fbaa6511c0721b5b5b66d87fa53c0fe96d90c523a2591e2c9a",
+    "e81abbfa0a172ac4ddb159db0a9b15864b6a18158ca2e02e6473069d367a31a0",
+    "0410e18402712cd12b35f409b7ef6606562ba0abc7ce0935d8101d37626c87cc",
+    "fffe09b01fb6d9d07296c27127c3dcdbe2efd6a38f88913e97d4a34666067334",
+    "7ed4831cc73c73f69fac371dc958ee7d50e0b9b333b1604beefad91d420d8f6a",
+    "69b441543d3b1d9e89faea5c2f5ccc805576418ed6fe97bd313f6f9ea808d225",
+    "9df1cb23e5f6085aa94a0679f6eb4988521d6e9e616db24c7a00dc0787fa9963"
+  ],
+  "schema_version": 1,
+  "source_report": {
+    "bytes": 360461,
+    "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/report.json",
+    "sha256": "b223a626a18528b392be8e2e146cdc02caeb169c469a1c456c501df3ea4e5c07"
+  },
+  "sources": [
+    {
+      "bytes": 128577,
+      "path": "artifacts/diagnostics/onboard-navigation-dataset-overlap-20261008-r1/image-identities.json",
+      "sha256": "5c3e9c83adeb2121c4945883b0198daaf7fbe34f7a5af58acf641160128266eb"
+    },
+    {
+      "bytes": 67667,
+      "path": "artifacts/diagnostics/onboard-navigation-dataset-overlap-20261008-r1/report.json",
+      "sha256": "314f09a4e4d3497397aa22230bda041a416bebb6546062747969e0e4d009dd69"
+    },
+    {
+      "bytes": 498217,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/prefix-reference.json",
+      "sha256": "7a0b38d44bdfc6b875e94c3e3ff252c959560b2ff2db29766c9638284cfcee9d"
+    },
+    {
+      "bytes": 276821,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/prepared-inputs.json",
+      "sha256": "0da334dd93899183a6a56517b063d1e67ada343feb18e0f1d81295e648744780"
+    },
+    {
+      "bytes": 122510,
+      "path": "artifacts/diagnostics/onboard-navigation-indexed-cpu122-20261008-r1/report.json",
+      "sha256": "a44a8227f55d95299256315729abdc7039011c510a852c8e81894553ec63b254"
+    },
+    {
+      "bytes": 4579,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_14-35-7_1795519125/pose.jsonl",
+      "sha256": "1ccf135e9ee15cbe9f0c801a70b7cd01c528da1218de9378a64f6a1bdd4b1df9"
+    },
+    {
+      "bytes": 4106,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_15-10-50_1232056856/pose.jsonl",
+      "sha256": "a7e0a26a03747beba59b4a4a07417879d5affaa7019704f2bda38dbcb0335cb9"
+    },
+    {
+      "bytes": 6656,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_15-3-52_1426819080/pose.jsonl",
+      "sha256": "5f23024e4596801e30f376f4ca220b4555837d8e9f18c431a9f27eb4a8e96aee"
+    },
+    {
+      "bytes": 4128,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_15-45-7_76593093/pose.jsonl",
+      "sha256": "6f0d2d0e7f795cadf4b1627d3438e08ee6cc3a771643a83139995e20a99ec7c0"
+    },
+    {
+      "bytes": 7416,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_16-53-12_610506582/pose.jsonl",
+      "sha256": "905de56618d3e8f3b77035641c40e9d9139b8889feb7bf34fe074da21056fe39"
+    },
+    {
+      "bytes": 5690,
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_18-18-56_1683932587/pose.jsonl",
+      "sha256": "544d8e1f9cc2bbf58fa23da77451310ac418fcec5c3c090024f0bda7d002509e"
+    },
+    {
+      "bytes": 12178,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/143.json",
+      "sha256": "1e7d5ea592062476f682ba5302aaac15dbbe5cbbc46aaa3a6353b5af1b7ab34f"
+    },
+    {
+      "bytes": 16332,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/144.json",
+      "sha256": "d2e4c3d657181e8ff24f8c8cee7d3983a728dbec82b28df45e3462f49c595a2c"
+    },
+    {
+      "bytes": 11901,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/148.json",
+      "sha256": "7b42895c047d01bc683652ee565c00df543621ea5024c64789b5ea6b186762d5"
+    },
+    {
+      "bytes": 20670,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/150.json",
+      "sha256": "e6cf6218663267b02005b50bc0f1cbfaceb51f2596f4ef99eda27ce3e2be1a33"
+    },
+    {
+      "bytes": 13251,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/153.json",
+      "sha256": "45ae772c97ab381dc45f1532bbe135f858347096e42f66fef1676063a0784b10"
+    },
+    {
+      "bytes": 19427,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/154.json",
+      "sha256": "4f40f5d20d5214a970699f07ae98bf76380d9428c0bc68eea98361df4be66a6c"
+    },
+    {
+      "bytes": 1706,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/annotation-selection-provenance.json",
+      "sha256": "b65219aa6111931c12f02e1d5fae1c6179267f56a97555bb8760c6c1bc98dd95"
+    },
+    {
+      "bytes": 7695,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/annotation-selection.json",
+      "sha256": "f42922931aa52e3854f496be0fd8ac6f910131914424500423de7b5a9c027ddd"
+    },
+    {
+      "bytes": 36020,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/conversion/audit_openfly_indexed_training_routes.py",
+      "sha256": "56fecb6cbff2bea3b07db92527d72506332983963d48ef28e0d23f22be0a1b64"
+    },
+    {
+      "bytes": 360461,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/report.json",
+      "sha256": "b223a626a18528b392be8e2e146cdc02caeb169c469a1c456c501df3ea4e5c07"
+    },
+    {
+      "bytes": 566681,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/samples.jsonl",
+      "sha256": "95426e1eb1aa986630b9de2c15131538e156884fa3f8e63941935a62a325c6aa"
+    },
+    {
+      "bytes": 1694,
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/unit-verification.json",
+      "sha256": "65d57328e385fd6ba64cdc5f5c8bec0c2be6559fccec8c2ef7f71be5caf28672"
+    },
+    {
+      "bytes": 31,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/license/dataset/README.md",
+      "sha256": "4bcf87ecfbbb8e07a01b21415a970c8b53a5283bf6872b657040d3f45c9241f7"
+    },
+    {
+      "bytes": 162,
+      "path": "configs/product-version.json",
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "bytes": 13874,
+      "path": "configs/release-parity.json",
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "bytes": 343298,
+      "path": "configs/training/onboard-navigation-dataset-overlap-20261008-r1.json",
+      "sha256": "4c6a19290f55f8a646be9f060c38728485049dc91a51769b027a0837aee790ab"
+    },
+    {
+      "bytes": 9763,
+      "path": "configs/training/onboard-navigation-importpath-runtime-20261007-r2.json",
+      "sha256": "3d4413dcb69e3671252fbe06ee84e34ad12d242329e3e2bd379952ae59a60c43"
+    },
+    {
+      "bytes": 68741,
+      "path": "configs/training/onboard-navigation-indexed-cpu122-20261008-r1.json",
+      "sha256": "5950e18dce84f2bf742c9c3f5aeacd1cebcc96c4c18f7971773251e3ae7d2826"
+    },
+    {
+      "bytes": 1343,
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "bytes": 13152,
+      "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "bytes": 24529,
+      "path": "configs/training/openfly-indexed-training-supervision-20261008-r1.json",
+      "sha256": "b4e3b9efaeaa3cdf9a844264d7f732f795e86a6aa6276c0608e0047f170f3ef5"
+    },
+    {
+      "bytes": 5061,
+      "path": "docs/evidence/onboard-navigation-dataset-overlap-20261008-r1.json",
+      "sha256": "9ddcd89ab37bbf234aaec2030d391623ce838d608a9435f0690547296805448b"
+    },
+    {
+      "bytes": 5356,
+      "path": "docs/evidence/onboard-navigation-indexed-cpu122-failure-20261008-r1.json",
+      "sha256": "fbd2aeaefdaf8ba41203ff193a487e66d463471e480e883df28ae1ad6f7b4373"
+    },
+    {
+      "bytes": 5036,
+      "path": "docs/evidence/openfly-bounded-annotation-index-20261008-r1.json",
+      "sha256": "69c16c0e6be79c6cf1823b914a8f6063f184d48c19ee802d522bd4fd2db72156"
+    },
+    {
+      "bytes": 5100,
+      "path": "docs/evidence/openfly-indexed-route-payloads-20261008-r1.json",
+      "sha256": "846a4cfd477174342ca845ac834035bd00336cee127f054b26ed8de1c02f0a08"
+    },
+    {
+      "bytes": 9671,
+      "path": "docs/evidence/openfly-indexed-training-supervision-20261008-r1.json",
+      "sha256": "9eb51ec796269363fda0c2586c0c11d0bb34f022badce1ec8f2e07f1c5c0a295"
+    },
+    {
+      "bytes": 30254,
+      "path": "scripts/audit_onboard_navigation_dataset_overlap.py",
+      "sha256": "e86490dabaecce6bdc518b995d0ab2cf541ea8991ac55a6755fb81a3e189ebff"
+    },
+    {
+      "bytes": 36020,
+      "path": "scripts/audit_openfly_indexed_training_routes.py",
+      "sha256": "56fecb6cbff2bea3b07db92527d72506332983963d48ef28e0d23f22be0a1b64"
+    },
+    {
+      "bytes": 8277,
+      "path": "scripts/onboard_navigation_balanced_encoding.py",
+      "sha256": "622db7200a634237451ae01d8d4c4b1a2433a8a7ce7191fa0437cf811b9c6198"
+    },
+    {
+      "bytes": 5165,
+      "path": "scripts/onboard_navigation_closed_sample_encoding.py",
+      "sha256": "5f3bc0e7284c5a92bca1a4781898546eda2ec30c58626b1f321a023a179455b9"
+    },
+    {
+      "bytes": 31713,
+      "path": "scripts/probe_onboard_vlm.py",
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "bytes": 49187,
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "bytes": 40430,
+      "path": "scripts/train_onboard_vlm_navigation_pilot.py",
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "bytes": 19144,
+      "path": "scripts/verify_onboard_navigation_actor_inputs.py",
+      "sha256": "5fb7a2fbf46ae880fbace6f947bf77d571c3bc227af68c19808a88074c7d74b6"
+    },
+    {
+      "bytes": 37413,
+      "path": "scripts/verify_onboard_navigation_indexed_cpu_inputs.py",
+      "sha256": "566e576a52546b34380526c17bb406de47a4efca2762c299cd28275521ac0373"
+    },
+    {
+      "bytes": 23702,
+      "path": "scripts/verify_onboard_navigation_indexed_cpu_inputs_v2.py",
+      "sha256": "d65757e1dbd51a4301a49b3977ca12189f2ecf1e734ad177563d9c56fd554325"
+    },
+    {
+      "bytes": 16642,
+      "path": "scripts/verify_onboard_vlm_grounding_adapter.py",
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "bytes": 13167,
+      "path": "src/multidetect/autonomy/onboard_navigation_actor.py",
+      "sha256": "eaefc34cd199295c43cab927d3c51182bfa728fd1753c7ac2e4150a1400a83e1"
+    },
+    {
+      "bytes": 18843,
+      "path": "src/multidetect/autonomy/onboard_navigation_inference.py",
+      "sha256": "3838a9ee4ee1eef58a680369076157263cfe824bc75c6dcbfe265a977564954f"
+    },
+    {
+      "bytes": 52186,
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "src/multidetect/autonomy/serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    },
+    {
+      "bytes": 19036,
+      "path": "tests/test_audit_onboard_navigation_dataset_overlap.py",
+      "sha256": "0329a34ff39fec7d6b2f18a83948bfc8cc2e1fbc4fda485b61a5c9697989ab68"
+    },
+    {
+      "bytes": 24658,
+      "path": "tests/test_audit_openfly_indexed_training_routes.py",
+      "sha256": "c91e0b9e4292d3757d0850a229f6e675379e275f19a07d5f37aab6f41d3ad21c"
+    },
+    {
+      "bytes": 25612,
+      "path": "tests/test_verify_onboard_navigation_indexed_cpu_inputs.py",
+      "sha256": "719ed0f38b5bd2c073475ba34185cbe64d57cb50a310c0d06b850203c4ed7c3c"
+    },
+    {
+      "bytes": 17734,
+      "path": "tests/test_verify_onboard_navigation_indexed_cpu_inputs_v2.py",
+      "sha256": "30d4456101da220b8b40a727be3227ec64c9ed08583af6d5c39f9ef82abcd7bf"
+    }
+  ]
+}

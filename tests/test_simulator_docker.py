@@ -193,3 +193,18 @@ def test_docker_cli_strict_only_checks_discovery_and_still_does_not_start(
     assert code in {0, 2}
     if code == 2:
         assert "Docker Desktop" in capsys.readouterr().out
+
+
+def test_airframe_profile_identity_excludes_per_run_stack_wiring(tmp_path):
+    from multidetect.simulator.stack import airframe_profile_hash
+
+    base = {
+        "schema_version": 1,
+        "airframe_profile_id": "px4_vtol_gazebo_v1",
+        "vehicle_model": "px4_vtol_standard",
+        "model_name": "standard_vtol_mono_cam",
+    }
+    first = airframe_profile_hash({**base, "stack_plan_sha256": "a" * 64})
+    second = airframe_profile_hash({**base, "stack_plan_sha256": "b" * 64})
+    assert first == second
+    assert len(first) == 64

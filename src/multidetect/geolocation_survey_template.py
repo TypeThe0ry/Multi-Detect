@@ -53,6 +53,8 @@ TEMPLATE_COLUMNS = (
     "reported_sigma_m",
     "ground_truth_latitude_deg",
     "ground_truth_longitude_deg",
+    "survey_range_m",
+    "survey_slope_deg",
     "surveyed_at_utc",
     "survey_method",
     "operator_notes",
@@ -104,6 +106,7 @@ class GeolocationSurveyTemplateResult:
                 "ground_truth_latitude_deg",
                 "ground_truth_longitude_deg",
             ],
+            "optional_coverage_columns": ["survey_range_m", "survey_slope_deg"],
         }
 
     def json_envelope(self) -> dict[str, object]:
@@ -179,6 +182,8 @@ def build_geolocation_survey_template(
                 # fill before invoking the accuracy evaluator.
                 "ground_truth_latitude_deg": None,
                 "ground_truth_longitude_deg": None,
+                "survey_range_m": None,
+                "survey_slope_deg": None,
                 "surveyed_at_utc": None,
                 "survey_method": None,
                 "operator_notes": None,

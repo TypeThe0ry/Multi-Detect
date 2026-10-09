@@ -43,6 +43,8 @@ from multidetect.monocular_avoidance import (
 )
 from multidetect.multimodal_ranging import (
     CameraCalibration,
+    DirectRangeMeasurement,
+    DirectRangeSource,
     MultiModalRangingEngine,
     RangeSolution,
     RangeValidity,
@@ -2922,6 +2924,69 @@ def test_live_ranging_uses_qualified_gps_and_bound_dem_in_shared_engine() -> Non
     assert solution.details["validity"] == RangeValidity.DEGRADED.value
     assert solution.details["sources"] == ("dem_gps", "camera_ground")
     assert solution.details["slant_range_m"] is not None
+
+
+def test_live_ranging_uses_authenticated_direct_depth_when_terrain_sigma_is_unbounded() -> None:
+    class _DepthFrameSource(_FrameSource):
+        def __init__(self) -> None:
+            super().__init__(1)
+            self.last_frame: CapturedFrame | None = None
+
+        def read(self) -> CapturedFrame:
+            self.last_frame = super().read()
+            return self.last_frame
+
+        def depth_measurement_for(self, *, target_id, bbox, frame_id, **_kwargs):
+            del bbox
+            if self.last_frame is None or frame_id != self.last_frame.frame_id:
+                return None
+            return DirectRangeMeasurement(
+                source=DirectRangeSource.GAZEBO_DEPTH,
+                target_id=target_id,
+                slant_range_m=42.0,
+                sigma_m=0.5,
+                captured_at_s=self.last_frame.captured_at_s,
+            )
+
+    class _TerrainFailureEngine(MultiModalRangingEngine):
+        def solve(self, **kwargs):
+            return live_module._invalid_live_range_solution(
+                target_id=kwargs["target"].target_id,
+                frame_id=kwargs["target"].frame_id,
+                calibration_id=kwargs["calibration"].calibration_id,
+                now_s=kwargs["now_s"],
+                reason="terrain_uncertainty_unbounded",
+            )
+
+    mission = MissionController(_patrol_config())
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    _seed_locked_primary_target(target_pool)
+    terrain = load_local_dem_grid(
+        ROOT / "simulation" / "terrain" / "river_rescue_vtol_001.dem.json"
+    )
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_DepthFrameSource(),
+        detector=_Detector(),
+        telemetry_provider=_TerrainRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=1, display=False),
+        unified_target_pool=target_pool,
+        ranging_engine=_TerrainFailureEngine(),
+        ranging_config=_live_ranging_config(terrain_dem=terrain),
+    ).run()
+
+    assert result.ranging_degraded_count == 1
+    solution = next(
+        event
+        for event in mission.audit.events()
+        if event.event_type == "ranging.primary_target_solution"
+    )
+    assert solution.details["validity"] == RangeValidity.DEGRADED.value
+    assert solution.details["sources"] == (DirectRangeSource.GAZEBO_DEPTH.value,)
+    assert solution.details["reasons"] == (
+        "direct_degraded_metric_range",
+        "vertical_reference_unavailable",
+    )
 
 
 def test_live_ranging_does_not_flat_fallback_when_qualified_dem_gps_is_skewed() -> None:

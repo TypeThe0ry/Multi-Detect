@@ -3,15 +3,18 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import struct
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from scripts import run_simulator_docker_acceptance as module
-from scripts.gazebo_sensor_stream import build_wire_frame
+from scripts.gazebo_depth_wire import build_depth_wire_record
+from scripts.gazebo_sensor_stream import WIRE_HEADER_BYTES, build_wire_frame, unpack_header
 from scripts.run_simulator_docker import build_docker_simulator_plan
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -213,6 +216,184 @@ def test_dry_run_records_sensor_capture_as_planned_without_claiming_it(
     assert sensor["odometry_local_up_used_as_agl"] is False
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {
+            "sensor_fault_source": "navsat",
+            "sensor_frame_count": 1,
+            "sensor_fault_start_image": 1,
+            "sensor_fault_duration_images": 1,
+        },
+        {
+            "sensor_fault_source": "navsat",
+            "sensor_frame_count": 2,
+            "sensor_fault_start_image": 1,
+            "sensor_fault_duration_images": 1,
+        },
+        {
+            "sensor_fault_source": "camera_info",
+            "sensor_frame_count": 2,
+            "sensor_fault_start_image": 1,
+            "sensor_fault_duration_images": 1,
+        },
+        {
+            "sensor_fault_source": "navsat",
+            "sensor_frame_count": 2,
+            "sensor_fault_start_image": 0,
+            "sensor_fault_duration_images": 1,
+        },
+        {
+            "sensor_fault_source": None,
+            "sensor_frame_count": 2,
+            "sensor_fault_start_image": 1,
+            "sensor_fault_duration_images": 1,
+        },
+    ],
+)
+def test_sensor_fault_preflight_rejects_unsafe_window(
+    tmp_path: Path, kwargs: dict[str, object]
+) -> None:
+    with pytest.raises(module.DockerSimulatorAcceptanceError):
+        module.run_acceptance(SCENARIO, tmp_path / "fault.json", **kwargs)
+
+
+def test_sensor_fault_diagnostic_requires_observed_recovery() -> None:
+    finished = {
+        "event": "gazebo_sensor_stream_finished",
+        "gate_passed": True,
+        "fault_injection": {
+            "enabled": True,
+            "source": "navsat",
+            "start_image": 2,
+            "duration_images": 2,
+            "window_key": "received_image_index",
+            "dynamic_source_policy": "reject_during_window_and_until_post_window_fresh_sample",
+            "cache_boundary_policy": (
+                "clear_source_history_on_first_dropped_callback_keep_stamp_order"
+            ),
+            "source_epoch": 1,
+            "cache_cleared": True,
+            "dropped_counts": {"fault_dropped_navsat": 2},
+            "window_rejected_frame_count": 2,
+            "stale_source_rejection_count": 1,
+            "emitted_during_window_count": 0,
+            "timeline_overflow": False,
+            "timeline": [
+                {
+                    "event": "source_dropped",
+                    "fault_active": True,
+                    "received_image_index": 2,
+                    "source_stamp_ns": 100,
+                    "wire_sequence": None,
+                    "source_epoch": 1,
+                },
+                {
+                    "event": "source_dropped",
+                    "fault_active": True,
+                    "received_image_index": 3,
+                    "source_stamp_ns": 105,
+                    "wire_sequence": None,
+                    "source_epoch": 1,
+                },
+                {
+                    "event": "frame_rejected_cached_source",
+                    "fault_active": False,
+                    "received_image_index": 4,
+                    "source_stamp_ns": 90,
+                    "dropped_source_stamp_ns": 105,
+                    "wire_sequence": None,
+                    "source_epoch": 1,
+                },
+                {
+                    "event": "source_fresh_after_window",
+                    "fault_active": False,
+                    "received_image_index": 4,
+                    "source_stamp_ns": 110,
+                    "wire_sequence": None,
+                    "source_epoch": 1,
+                },
+                {
+                    "event": "wire_emitted",
+                    "fault_active": False,
+                    "received_image_index": 5,
+                    "source_stamp_ns": 110,
+                    "dropped_source_stamp_ns": 105,
+                    "wire_sequence": 0,
+                    "source_epoch": 1,
+                },
+                {
+                    "event": "wire_emitted_after_recovery",
+                    "fault_active": False,
+                    "received_image_index": 5,
+                    "source_stamp_ns": 110,
+                    "dropped_source_stamp_ns": 105,
+                    "wire_sequence": 0,
+                    "source_epoch": 1,
+                },
+            ],
+            "recovered_frame_count": 1,
+            "recovery_observed": True,
+        },
+    }
+    result = module._verified_sensor_fault_diagnostic(
+        json.dumps(finished),
+        fault_source="navsat",
+        fault_start_image=2,
+        fault_duration_images=2,
+    )
+    assert result["recovery_observed"] is True
+    pre_window = json.loads(json.dumps(finished))
+    pre_window_timeline = pre_window["fault_injection"]["timeline"]
+    for item in pre_window_timeline:
+        if item.get("event") in {"wire_emitted", "wire_emitted_after_recovery"}:
+            item["wire_sequence"] += 1
+    pre_window_timeline.insert(
+        0,
+        {
+            "event": "wire_emitted",
+            "fault_active": False,
+            "received_image_index": 1,
+            "source_stamp_ns": 90,
+            "dropped_source_stamp_ns": None,
+            "wire_sequence": 0,
+            "source_epoch": 0,
+        },
+    )
+    pre_window_result = module._verified_sensor_fault_diagnostic(
+        json.dumps(pre_window),
+        fault_source="navsat",
+        fault_start_image=2,
+        fault_duration_images=2,
+    )
+    assert pre_window_result["recovery_observed"] is True
+    reordered = json.loads(json.dumps(finished))
+    reordered_timeline = reordered["fault_injection"]["timeline"]
+    reordered_timeline[-2], reordered_timeline[-1] = (
+        reordered_timeline[-1],
+        reordered_timeline[-2],
+    )
+    with pytest.raises(
+        module.DockerSimulatorAcceptanceError,
+        match="precedes its emitted wire",
+    ):
+        module._verified_sensor_fault_diagnostic(
+            json.dumps(reordered),
+            fault_source="navsat",
+            fault_start_image=2,
+            fault_duration_images=2,
+        )
+    broken = json.loads(json.dumps(finished))
+    broken["fault_injection"]["recovery_observed"] = False
+    with pytest.raises(module.DockerSimulatorAcceptanceError, match="observed and recovered"):
+        module._verified_sensor_fault_diagnostic(
+            json.dumps(broken),
+            fault_source="navsat",
+            fault_start_image=2,
+            fault_duration_images=2,
+        )
+
+
 def test_dry_run_records_explicit_pixel_output_without_creating_it(tmp_path: Path) -> None:
     frame_output = tmp_path / "planned-raw-frames"
     payload = module.run_acceptance(
@@ -234,6 +415,44 @@ def test_dry_run_records_explicit_pixel_output_without_creating_it(tmp_path: Pat
     assert persistence["manual_visual_acceptance"] == "not_claimed"
     assert persistence["hardware"] == "not_claimed"
     assert not frame_output.exists()
+
+
+def test_dry_run_records_explicit_depth_output_without_creating_it(tmp_path: Path) -> None:
+    frame_output = tmp_path / "planned-raw-frames"
+    depth_output = tmp_path / "planned-raw-depth"
+    payload = module.run_acceptance(
+        SCENARIO,
+        tmp_path / "sensor-depth-plan.json",
+        execute=False,
+        sensor_frame_count=2,
+        sensor_frame_output_dir=frame_output,
+        sensor_depth_output_dir=depth_output,
+    )
+
+    persistence = payload["depth_persistence"]
+    assert persistence == payload["sensor_transport"]["depth_persistence"]
+    assert persistence["requested"] is True
+    assert persistence["status"] == "planned_not_executed"
+    assert persistence["output_directory"] == str(depth_output.resolve())
+    assert persistence["persisted_frame_count"] == 0
+    assert persistence["actual_gazebo_depth_persisted"] is False
+    assert persistence["outdoor_calibration"] == "not_claimed"
+    assert not frame_output.exists()
+    assert not depth_output.exists()
+
+
+def test_depth_output_requires_a_paired_rgb_output_directory(tmp_path: Path) -> None:
+    with pytest.raises(
+        module.DockerSimulatorAcceptanceError,
+        match="requires sensor_frame_output_dir",
+    ):
+        module.run_acceptance(
+            SCENARIO,
+            tmp_path / "invalid-depth-plan.json",
+            execute=False,
+            sensor_frame_count=1,
+            sensor_depth_output_dir=tmp_path / "depth-only",
+        )
 
 
 def test_sensor_pixel_output_rejects_nonempty_directory_before_execution(
@@ -436,10 +655,17 @@ def test_raw_bgr24_persistence_rejects_pixels_changed_after_wire_validation(
     assert list(output_directory.iterdir()) == []
 
 
+@pytest.mark.parametrize("qpc", [False, True])
+@pytest.mark.parametrize("wrong_seal_clock", [False, True])
 def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    qpc: bool,
+    wrong_seal_clock: bool,
 ) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
+    selected_clock = HighResolutionSystemClock(session_id="capture-seal") if qpc else None
     plan = build_docker_simulator_plan(
         SCENARIO,
         repository_root=ROOT,
@@ -474,7 +700,7 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
 
     class _SensorProcess:
         def __init__(self) -> None:
-            self.stdout = io.BytesIO(packet)
+            self.stdout = io.BytesIO()
             self.stderr = io.BytesIO(b"")
             self.returncode: int | None = None
 
@@ -496,10 +722,30 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     process = _SensorProcess()
 
     def backend_factory(**kwargs: object):
-        return real_backend(
+        backend = real_backend(
             **kwargs,
             popen_factory=lambda *_args, **_kwargs: process,
         )
+        depth_contract = backend.frame_source.depth_contract
+        assert depth_contract is not None
+        rgb_header = unpack_header(packet[:WIRE_HEADER_BYTES])
+        depth_metadata = dict(depth_contract)
+        depth_metadata.pop("sensor_id")
+        depth_metadata.update(
+            {
+                "sequence": 0,
+                "rgb_sensor_stamp_ns": rgb_header.sensor_stamp_ns,
+                "rgb_record_sha256": rgb_header.sha256.hex(),
+                "source_stamp_ns": rgb_header.sensor_stamp_ns,
+                "stride_bytes": 8,
+            }
+        )
+        depth_record = build_depth_wire_record(
+            metadata=depth_metadata,
+            payload=struct.pack("<ff", 5.0, 5.0),
+        )
+        process.stdout = io.BytesIO(packet + depth_record)
+        return backend
 
     monkeypatch.setattr(module, "GazeboSimBackend", backend_factory)
     monkeypatch.setattr(
@@ -524,6 +770,33 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
         },
     )
     frame_output = tmp_path / "actual-gazebo-pixels"
+    depth_output = tmp_path / "actual-gazebo-depth"
+
+    if wrong_seal_clock:
+        original_seal = module._write_frame_set_manifest
+
+        def seal_with_wrong_clock(**kwargs):
+            kwargs["host_clock_identity"] = HighResolutionSystemClock(
+                session_id="wrong-seal"
+            ).identity()
+            return original_seal(**kwargs)
+
+        monkeypatch.setattr(module, "_write_frame_set_manifest", seal_with_wrong_clock)
+        with pytest.raises(module.DockerSimulatorAcceptanceError, match="clock binding failed"):
+            module._capture_gazebo_sensor_transport(
+                plan=plan,
+                manifest_path=SCENARIO,
+                docker_executable=str(Path(sys.executable).resolve()),
+                frame_count=1,
+                expected_width=2,
+                expected_height=1,
+                timeout_s=2.0,
+                frame_output_directory=frame_output,
+                depth_output_directory=depth_output,
+                clock=selected_clock,
+            )
+        assert not (frame_output / module.GAZEBO_BGR24_FRAME_SET_MANIFEST).exists()
+        return
 
     result = module._capture_gazebo_sensor_transport(
         plan=plan,
@@ -534,9 +807,20 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
         expected_height=1,
         timeout_s=2.0,
         frame_output_directory=frame_output,
+        depth_output_directory=depth_output,
+        clock=selected_clock,
     )
 
     assert result["qualified"] is True
+    sealed = json.loads(
+        (frame_output / module.GAZEBO_BGR24_FRAME_SET_MANIFEST).read_text(encoding="utf-8")
+    )
+    if qpc:
+        assert sealed["captured_at_clock"] == "host_perf_counter"
+        assert sealed["host_clock_identity"] == selected_clock.identity()
+        assert sealed["frames"][0]["provenance"]["host_clock_identity"] == selected_clock.identity()
+    else:
+        assert "host_clock_identity" not in sealed
     assert result["source_row_order"] == module.GAZEBO_SIM_SOURCE_ROW_ORDER
     assert result["wire_row_order"] == module.GAZEBO_SIM_WIRE_ROW_ORDER
     assert result["vertical_flip_applied"] is module.GAZEBO_SIM_VERTICAL_FLIP_APPLIED
@@ -560,6 +844,23 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     assert persistence["manual_visual_acceptance"] == "not_claimed"
     assert persistence["hardware"] == "not_claimed"
     assert (frame_output / "frame-000000.bgr24").read_bytes() == raw_pixels
+    depth_payload = struct.pack("<ff", 5.0, 5.0)
+    assert (depth_output / "depth-000000.float32_m").read_bytes() == depth_payload
+    depth_persistence = result["depth_persistence"]
+    assert depth_persistence["status"] == "passed"
+    assert depth_persistence["persisted_frame_count"] == 1
+    assert depth_persistence["raw_bytes_sha256_matches_wire_payload"] is True
+    assert depth_persistence["actual_gazebo_depth_persisted"] is True
+    depth_manifest_path = depth_output / module.GAZEBO_DEPTH_FRAME_SET_MANIFEST
+    depth_manifest = json.loads(depth_manifest_path.read_text(encoding="utf-8"))
+    depth_manifest_sha256 = depth_manifest.pop("manifest_sha256")
+    assert depth_manifest_sha256 == module.canonical_sha256(depth_manifest)
+    assert depth_manifest["encoding"] == "FLOAT32_M"
+    assert depth_manifest["frames"][0]["sha256"] == hashlib.sha256(depth_payload).hexdigest()
+    assert depth_manifest["frames"][0]["rgb_record_sha256"] == result["frames"][0]["record_sha256"]
+    assert depth_manifest["rgb_depth_pair_binding_sha256"] == module.canonical_sha256(
+        depth_manifest["rgb_depth_pair_binding"]
+    )
     manifest_path = frame_output / module.GAZEBO_BGR24_FRAME_SET_MANIFEST
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest_sha256 = manifest.pop("manifest_sha256")
@@ -605,6 +906,10 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     assert manifest["source_attribution"]["vertical_flip_applied"] is (
         module.GAZEBO_SIM_VERTICAL_FLIP_APPLIED
     )
+    depth_path = depth_output / "depth-000000.float32_m"
+    depth_path.write_bytes(b"tampered")
+    with pytest.raises(module.DockerSimulatorAcceptanceError, match="post-write integrity"):
+        module._verify_persisted_gazebo_depth(depth_output, depth_manifest["frames"][0])
 
 
 @pytest.mark.parametrize(
@@ -753,6 +1058,214 @@ def test_execute_starts_observes_and_always_cleans_container(
     assert any(call[1] == "stop" for call in calls)
     assert any(call[1] == "rm" for call in calls)
     assert evidence.is_file()
+
+
+def test_concurrent_sensor_capture_waits_for_live_start_gate(
+    tmp_path: Path,
+) -> None:
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "job-concurrent",
+        container_name="multidetect-concurrent-sensor",
+    )
+    calls: list[list[str]] = []
+    inspect_count = 0
+    start_gate = threading.Event()
+    capture_started_after_gate: list[bool] = []
+
+    def runner(argv: list[str], **_kwargs: object):
+        nonlocal inspect_count
+        calls.append(argv)
+        args = argv[1:]
+        if args[:3] == ["container", "inspect", plan.container_name]:
+            inspect_count += 1
+            if inspect_count == 1:
+                return _completed(argv, code=1, stderr="No such container")
+            return _completed(argv, stdout=json.dumps([_inspect_record(plan)]))
+        if args[:3] == ["image", "inspect", plan.image]:
+            return _completed(argv, stdout="sha256:image-id\n")
+        if args[:1] == ["run"]:
+            return _completed(argv, stdout="container-id-123\n")
+        if args[:1] in (["logs"], ["stop"], ["rm"]):
+            return _completed(argv, stdout="ok\n")
+        raise AssertionError(f"unexpected docker call: {argv}")
+
+    def capture_sensor_transport(**_kwargs: object) -> dict[str, object]:
+        capture_started_after_gate.append(start_gate.is_set())
+        return {
+            "status": "passed",
+            "requested": True,
+            "requested_frame_count": 1,
+            "qualified": True,
+            "wire_version": 3,
+            "pixel_persistence": {
+                "requested": False,
+                "status": "disabled",
+                "persisted_frame_count": 0,
+                "actual_gazebo_pixels_persisted": False,
+            },
+            "depth_persistence": {
+                "requested": False,
+                "status": "disabled",
+                "persisted_frame_count": 0,
+                "actual_gazebo_depth_persisted": False,
+            },
+        }
+
+    original_capture = module._capture_gazebo_sensor_transport
+    module._capture_gazebo_sensor_transport = capture_sensor_transport
+    try:
+
+        def telemetry_factory(_endpoint: str) -> module.DockerTelemetryProbe:
+            probe = module.DockerTelemetryProbe("fake")
+
+            def observe(_timeout: float) -> dict[str, object]:
+                start_gate.set()
+                return {"status": "passed", "qualified": True}
+
+            probe.observe = observe  # type: ignore[method-assign]
+            return probe
+
+        payload = module.run_acceptance(
+            SCENARIO,
+            tmp_path / "concurrent.json",
+            execute=True,
+            timeout_s=5.0,
+            docker="docker-fake",
+            container_name=plan.container_name,
+            sensor_frame_count=1,
+            runner=runner,
+            telemetry_probe_factory=telemetry_factory,
+            sensor_capture_concurrent=True,
+            sensor_capture_start_event=start_gate,
+        )
+    finally:
+        module._capture_gazebo_sensor_transport = original_capture
+
+    assert payload["gate_passed"] is True
+    assert payload["sensor_capture"] == {
+        "concurrent": True,
+        "start_gate_requested": True,
+        "start_gate_opened": True,
+        "flight_time_capture_contract": True,
+    }
+    assert capture_started_after_gate == [True]
+
+
+def test_execute_acceptance_runs_mission_transaction_hook_after_telemetry(
+    tmp_path: Path,
+) -> None:
+    """Mission transport is nested inside the owned container lifecycle."""
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "job",
+        container_name="mission-hook-sim",
+    )
+    calls: list[list[str]] = []
+    inspect_count = 0
+
+    def runner(argv: list[str], **_kwargs: object):
+        nonlocal inspect_count
+        calls.append(argv)
+        args = argv[1:]
+        if args[:3] == ["container", "inspect", plan.container_name]:
+            inspect_count += 1
+            if inspect_count == 1:
+                return _completed(argv, code=1, stderr="No such container")
+            return _completed(argv, stdout=json.dumps([_inspect_record(plan)]))
+        if args[:3] == ["image", "inspect", plan.image]:
+            return _completed(argv, stdout="sha256:image-id\n")
+        if args[:1] == ["run"]:
+            return _completed(argv, stdout="container-id-123\n")
+        if args[:1] in (["logs"], ["stop"], ["rm"]):
+            return _completed(argv, stdout="ok\n")
+        raise AssertionError(f"unexpected docker call: {argv}")
+
+    hook_calls: list[dict[str, object]] = []
+
+    def mission_hook(**kwargs: object) -> dict[str, object]:
+        hook_calls.append(kwargs)
+        assert kwargs["plan"] is not None
+        assert kwargs["inspect_record"] is not None
+        assert kwargs["telemetry"]["qualified"] is True  # type: ignore[index]
+        assert kwargs["control_endpoint"] == "udp:127.0.0.1:14540"
+        return {
+            "schema": "multidetect.px4-external-mission-transaction.v1",
+            "gate_passed": True,
+            "flight_started": False,
+            "physical_output_enabled": False,
+            "runtime_mode": "SIM_EXTERNAL",
+        }
+
+    payload = module.run_acceptance(
+        SCENARIO,
+        tmp_path / "mission-hook.json",
+        execute=True,
+        timeout_s=5.0,
+        docker="docker-fake",
+        container_name=plan.container_name,
+        runner=runner,
+        telemetry_probe_factory=_telemetry_factory([]),
+        mission_transaction_runner=mission_hook,
+    )
+    assert payload["gate_passed"] is True
+    assert payload["runtime_gate_passed"] is True
+    assert payload["mission_transaction_gate_passed"] is True
+    assert payload["mission_transaction"]["status"] == "passed"  # type: ignore[index]
+    assert hook_calls
+    assert any(call[1] == "stop" for call in calls)
+    assert any(call[1] == "rm" for call in calls)
+
+
+def test_execute_acceptance_rejects_mission_hook_that_starts_flight(
+    tmp_path: Path,
+) -> None:
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "job",
+        container_name="mission-hook-flight-sim",
+    )
+    inspect_count = 0
+
+    def runner(argv: list[str], **_kwargs: object):
+        nonlocal inspect_count
+        args = argv[1:]
+        if args[:3] == ["container", "inspect", plan.container_name]:
+            inspect_count += 1
+            if inspect_count == 1:
+                return _completed(argv, code=1)
+            return _completed(argv, stdout=json.dumps([_inspect_record(plan)]))
+        if args[:3] == ["image", "inspect", plan.image]:
+            return _completed(argv, stdout="sha256:image-id\n")
+        if args[:1] == ["run"]:
+            return _completed(argv, stdout="container-id-123\n")
+        if args[:1] in (["logs"], ["stop"], ["rm"]):
+            return _completed(argv, stdout="ok\n")
+        raise AssertionError(f"unexpected docker call: {argv}")
+
+    payload = module.run_acceptance(
+        SCENARIO,
+        tmp_path / "mission-hook-flight.json",
+        execute=True,
+        timeout_s=5.0,
+        docker="docker-fake",
+        container_name=plan.container_name,
+        runner=runner,
+        telemetry_probe_factory=_telemetry_factory([]),
+        mission_transaction_runner=lambda **_kwargs: {
+            "gate_passed": True,
+            "flight_started": True,
+            "physical_output_enabled": False,
+        },
+    )
+    assert payload["gate_passed"] is False
+    assert payload["runtime_gate_passed"] is False
+    assert "must not start flight" in str(payload["failure"])
+    assert payload["container_runtime"]["cleanup"]["removed"] is True  # type: ignore[index]
 
 
 def test_execute_failure_still_attempts_stop_and_remove(tmp_path: Path) -> None:

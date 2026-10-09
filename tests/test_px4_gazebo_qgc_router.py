@@ -19,6 +19,7 @@ from multidetect.px4_gazebo_qgc_router import (
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
     MAV_FRAME_MISSION,
     MAV_TYPE_GCS,
+    MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS,
     MAXIMUM_EVALUATOR_MISSION_ITEMS,
     MSG_MISSION_ACK,
     MSG_MISSION_COUNT,
@@ -692,6 +693,15 @@ def test_ports_duration_acknowledgement_and_sources_fail_closed() -> None:
         run_router(**kwargs, duration_seconds=1.0)
     assert _validated_duration_seconds(1.0) == 1.0
     assert _validated_duration_seconds(600.0) == 600.0
+    assert _validated_duration_seconds(
+        1200.0,
+        maximum=MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS,
+    ) == 1200.0
+    with pytest.raises(Px4GazeboQgcRouterError, match="1..3600"):
+        _validated_duration_seconds(
+            MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS + 1.0,
+            maximum=MAXIMUM_CONFIGURED_ROUTER_DURATION_SECONDS,
+        )
     with pytest.raises(Px4GazeboQgcRouterError, match="1..600"):
         run_router(
             **kwargs,
@@ -738,7 +748,13 @@ def test_ports_duration_acknowledgement_and_sources_fail_closed() -> None:
     assert summary.unexpected_udp_endpoint_datagrams_blocked == 1
 
 
-def test_router_mirrors_px4_and_enforces_independent_return_policies() -> None:
+@pytest.mark.parametrize("trace", [False, True])
+def test_router_mirrors_px4_and_enforces_independent_return_policies(trace) -> None:
+    import hashlib
+
+    from multidetect.clock import HighResolutionSystemClock
+
+    clock = HighResolutionSystemClock(session_id="router-fixture") if trace else None
     qgc, qgc_port = _bound_udp_socket()
     evaluator, evaluator_port = _bound_udp_socket()
     px4_input, px4_input_port = _bound_udp_socket()
@@ -767,6 +783,7 @@ def test_router_mirrors_px4_and_enforces_independent_return_policies() -> None:
                     duration_seconds=1.0,
                     acknowledge_owned_disposable_sitl=True,
                     ready_event=ready_event,
+                    observation_clock=clock,
                 )
             )
         except BaseException as error:  # pragma: no cover - reported in main thread
@@ -864,6 +881,19 @@ def test_router_mirrors_px4_and_enforces_independent_return_policies() -> None:
     assert not router_thread.is_alive()
     assert failures == []
     assert result["px4_frames_received"] == 1
+    if trace:
+        receipt = result["telemetry_receipts"]
+        assert receipt["host_clock_identity"] == clock.identity()
+        assert receipt["samples_seen"] == 1
+        assert receipt["samples_dropped"] == 0
+        row = receipt["samples"][0]
+        assert row["frame_sha256"] == hashlib.sha256(px4_frame).hexdigest()
+        assert row["message_id"] == 0
+        assert row["source_system"] == row["source_component"] == 1
+        assert row["router_decoded_host_s"] <= row["router_forwarded_host_s"]
+        assert receipt["source_send_timing_claimed"] is False
+    else:
+        assert "telemetry_receipts" not in result
     assert result["px4_frames_forwarded_to_qgc"] == 1
     assert result["px4_frames_forwarded_to_evaluator"] == 1
     assert result["qgc_read_only_frames_forwarded"] == 1

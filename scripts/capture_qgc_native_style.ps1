@@ -11,9 +11,12 @@ param(
     [int]$SettleMilliseconds = 3500,
     [ValidateRange(-1, 16)]
     [int]$PreferMonitorIndex = -1,
-    [ValidateRange(1024, 7680)]
+    # Remote/virtual displays can be smaller than a physical 1080p desktop.
+    # Keep the production default unchanged, but allow a real client surface
+    # to be captured when the working area is below the old hard floor.
+    [ValidateRange(640, 7680)]
     [int]$CaptureWidth = 1600,
-    [ValidateRange(640, 4320)]
+    [ValidateRange(480, 4320)]
     [int]$CaptureHeight = 900,
     [switch]$UseSoftwareOpenGL,
     [switch]$KeepProcess,
@@ -445,8 +448,8 @@ $captureGatePassed = [bool](
     $process -and
     $process.Id -gt 0 -and
     $captureRect -and
-    $captureRect.Width -gt 0 -and
-    $captureRect.Height -gt 0 -and
+    ($captureRect.Right - $captureRect.Left) -gt 0 -and
+    ($captureRect.Bottom - $captureRect.Top) -gt 0 -and
     $occludersAfter.Count -eq 0
 )
 $observation = [ordered]@{

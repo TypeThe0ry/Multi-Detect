@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/onboard-trajectory-label-review-receipt.schema.json",
+  "title": "Multi-Detect OnboardAI trajectory label review receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "event",
+    "dataset_id",
+    "dataset_version",
+    "label_manifest",
+    "source_recordings",
+    "episode_groups",
+    "review_policy_sha256",
+    "annotator",
+    "reviewer",
+    "reviewed_at_utc",
+    "claims",
+    "canonical_hash"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.onboard-trajectory-label-review-receipt"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.onboard-trajectory-label-review-v1"},
+    "event": {"const": "onboard_trajectory_labels_reviewed"},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "label_manifest": {"$ref": "#/$defs/labelManifest"},
+    "source_recordings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sourceRecording"}
+    },
+    "episode_groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/episodeGroup"}
+    },
+    "review_policy_sha256": {"$ref": "#/$defs/sha256"},
+    "annotator": {"type": "string", "minLength": 1},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at_utc": {"type": "string", "minLength": 1},
+    "claims": {"$ref": "#/$defs/claims"},
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "labelManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "row_count", "canonical_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "row_count": {"type": "integer", "minimum": 1},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceRecording": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "recording_id",
+        "recording_hash",
+        "scenario_manifest_sha256",
+        "airframe_profile_sha256",
+        "frame_count"
+      ],
+      "properties": {
+        "manifest_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "recording_id": {"type": "string", "minLength": 1},
+        "recording_hash": {"$ref": "#/$defs/sha256"},
+        "scenario_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "airframe_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "frame_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "episodeGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episode_group_sha256",
+        "episode_id",
+        "split",
+        "transition_count",
+        "transition_manifest_sha256"
+      ],
+      "properties": {
+        "episode_group_sha256": {"$ref": "#/$defs/sha256"},
+        "episode_id": {"type": "string", "minLength": 1},
+        "split": {"enum": ["train", "evaluation", "test"]},
+        "transition_count": {"type": "integer", "minimum": 1},
+        "transition_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "labels_complete",
+        "independent_review_recorded",
+        "truth_free_inputs",
+        "no_scenario_truth_labels",
+        "planner_evidence_bound",
+        "test_never_used_for_training",
+        "release_ready"
+      ],
+      "properties": {
+        "labels_complete": {"const": true},
+        "independent_review_recorded": {"const": true},
+        "truth_free_inputs": {"const": true},
+        "no_scenario_truth_labels": {"const": true},
+        "planner_evidence_bound": {"const": true},
+        "test_never_used_for_training": {"const": true},
+        "release_ready": {"const": false}
+      }
+    }
+  }
+}

@@ -95,6 +95,22 @@ def test_context_and_task_documents_round_trip() -> None:
     )
 
 
+def test_context_optional_airframe_profile_hash_is_round_tripped_and_validated() -> None:
+    context = _context()
+    profile_hash = "a" * 64
+    bound = ContextSnapshot.from_mapping(
+        {**context.to_mapping(), "airframe_profile_hash": profile_hash}
+    )
+
+    assert bound.airframe_profile_hash == profile_hash
+    assert ContextSnapshot.from_mapping(bound.to_mapping()) == bound
+    assert bound.to_mapping()["airframe_profile_hash"] == profile_hash
+
+    invalid = {**context.to_mapping(), "airframe_profile_hash": "not-a-sha256"}
+    with pytest.raises(AutonomyContractError, match="airframe_profile_hash"):
+        ContextSnapshot.from_mapping(invalid)
+
+
 def test_unresolved_assumptions_fail_the_planning_readiness_gate() -> None:
     mapping = _task().to_mapping()
     mapping["unresolved_assumptions"] = ["请选择两条候选河道中的一条"]

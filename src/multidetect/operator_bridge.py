@@ -20,6 +20,7 @@ from .operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeStatusMessage,
@@ -141,6 +142,13 @@ class OperatorStatusTransport(Protocol):
     def publish_runtime_status(
         self,
         status: RuntimeStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> None: ...
+
+    def publish_policy_runtime_status(
+        self,
+        status: PolicyRuntimeStatusMessage,
         *,
         peer: OperatorPeer,
     ) -> None: ...
@@ -268,6 +276,7 @@ class OperatorBridgeResult:
     published_target_pool_statuses: tuple[TargetPoolStatusMessage, ...] = ()
     published_scene_context_statuses: tuple[SceneContextStatusMessage, ...] = ()
     published_runtime_statuses: tuple[RuntimeStatusMessage, ...] = ()
+    published_policy_runtime_statuses: tuple[PolicyRuntimeStatusMessage, ...] = ()
 
 
 class LiveOperatorBridge:
@@ -286,6 +295,7 @@ class LiveOperatorBridge:
         gnss_status_heartbeat_s: float = 0.2,
         release_status_heartbeat_s: float = 1.0 / 15.0,
         runtime_status_heartbeat_s: float = 1.0,
+        policy_runtime_status_heartbeat_s: float = 1.0,
         approach_status_heartbeat_s: float = 1.0 / 15.0,
         payload_target_status_heartbeat_s: float = 1.0 / 15.0,
         target_pool_status_heartbeat_s: float = 0.2,
@@ -310,6 +320,11 @@ class LiveOperatorBridge:
             raise ValueError("release status heartbeat must be finite and positive")
         if not isfinite(runtime_status_heartbeat_s) or runtime_status_heartbeat_s <= 0.0:
             raise ValueError("runtime status heartbeat must be finite and positive")
+        if (
+            not isfinite(policy_runtime_status_heartbeat_s)
+            or policy_runtime_status_heartbeat_s <= 0.0
+        ):
+            raise ValueError("policy runtime status heartbeat must be finite and positive")
         if not isfinite(approach_status_heartbeat_s) or approach_status_heartbeat_s <= 0.0:
             raise ValueError("approach status heartbeat must be finite and positive")
         if (
@@ -336,6 +351,7 @@ class LiveOperatorBridge:
         self.gnss_status_heartbeat_s = gnss_status_heartbeat_s
         self.release_status_heartbeat_s = release_status_heartbeat_s
         self.runtime_status_heartbeat_s = runtime_status_heartbeat_s
+        self.policy_runtime_status_heartbeat_s = policy_runtime_status_heartbeat_s
         self.approach_status_heartbeat_s = approach_status_heartbeat_s
         self.payload_target_status_heartbeat_s = payload_target_status_heartbeat_s
         self.target_pool_status_heartbeat_s = target_pool_status_heartbeat_s
@@ -362,6 +378,8 @@ class LiveOperatorBridge:
         self._last_release_status_at_s: float | None = None
         self._last_runtime_status_fingerprint: tuple[object, ...] | None = None
         self._last_runtime_status_at_s: float | None = None
+        self._last_policy_runtime_status_fingerprint: tuple[object, ...] | None = None
+        self._last_policy_runtime_status_at_s: float | None = None
         self._last_approach_challenge_fingerprint: tuple[object, ...] | None = None
         self._last_approach_challenge_at_s: float | None = None
         self._last_approach_status_fingerprint: tuple[object, ...] | None = None
@@ -405,6 +423,7 @@ class LiveOperatorBridge:
         gnss_status: GnssStatusMessage | None = None,
         release_status: ReleaseStatusMessage | None = None,
         runtime_status: RuntimeStatusMessage | None = None,
+        policy_runtime_status: PolicyRuntimeStatusMessage | None = None,
         approach_challenge: ApproachChallengeStatusMessage | None = None,
         approach_status: ApproachStatusMessage | None = None,
         payload_target_challenge: PayloadTargetChallengeStatusMessage | None = None,
@@ -791,6 +810,22 @@ class LiveOperatorBridge:
             published_runtime_statuses = (runtime_status,)
             self._last_runtime_status_fingerprint = self._runtime_status_fingerprint(runtime_status)
             self._last_runtime_status_at_s = runtime_status.produced_at_s
+        published_policy_runtime_statuses: tuple[PolicyRuntimeStatusMessage, ...] = ()
+        if (
+            policy_runtime_status is not None
+            and self._active_peer is not None
+            and self._policy_runtime_status_due(policy_runtime_status)
+            and self._publish_policy_runtime_status(
+                policy_runtime_status,
+                self._active_peer,
+                errors,
+            )
+        ):
+            published_policy_runtime_statuses = (policy_runtime_status,)
+            self._last_policy_runtime_status_fingerprint = self._policy_runtime_status_fingerprint(
+                policy_runtime_status
+            )
+            self._last_policy_runtime_status_at_s = policy_runtime_status.produced_at_s
         published_approach_challenges: tuple[ApproachChallengeStatusMessage, ...] = ()
         if (
             effective_approach_challenge is not None
@@ -921,6 +956,7 @@ class LiveOperatorBridge:
             published_gnss_statuses=published_gnss_statuses,
             published_release_statuses=published_release_statuses,
             published_runtime_statuses=published_runtime_statuses,
+            published_policy_runtime_statuses=published_policy_runtime_statuses,
             accepted_approach_confirmations=tuple(accepted_approach_confirmations),
             published_approach_challenges=published_approach_challenges,
             published_approach_statuses=published_approach_statuses,
@@ -960,6 +996,8 @@ class LiveOperatorBridge:
         self._last_release_status_at_s = None
         self._last_runtime_status_fingerprint = None
         self._last_runtime_status_at_s = None
+        self._last_policy_runtime_status_fingerprint = None
+        self._last_policy_runtime_status_at_s = None
         self._last_approach_challenge_fingerprint = None
         self._last_approach_challenge_at_s = None
         self._last_approach_status_fingerprint = None
@@ -1144,6 +1182,23 @@ class LiveOperatorBridge:
         publish = getattr(self.transport, "publish_runtime_status", None)
         if not callable(publish):
             errors.append("RuntimeStatusTransportUnavailable")
+            return False
+        try:
+            publish(status, peer=peer)
+            return True
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(type(exc).__name__)
+            return False
+
+    def _publish_policy_runtime_status(
+        self,
+        status: PolicyRuntimeStatusMessage,
+        peer: OperatorPeer,
+        errors: list[str],
+    ) -> bool:
+        publish = getattr(self.transport, "publish_policy_runtime_status", None)
+        if not callable(publish):
+            errors.append("PolicyRuntimeStatusTransportUnavailable")
             return False
         try:
             publish(status, peer=peer)
@@ -1394,6 +1449,17 @@ class LiveOperatorBridge:
             status.produced_at_s - self._last_runtime_status_at_s >= self.runtime_status_heartbeat_s
         )
 
+    def _policy_runtime_status_due(self, status: PolicyRuntimeStatusMessage) -> bool:
+        fingerprint = self._policy_runtime_status_fingerprint(status)
+        if fingerprint != self._last_policy_runtime_status_fingerprint:
+            return True
+        if self._last_policy_runtime_status_at_s is None:
+            return True
+        return (
+            status.produced_at_s - self._last_policy_runtime_status_at_s
+            >= self.policy_runtime_status_heartbeat_s
+        )
+
     def _approach_challenge_due(self, status: ApproachChallengeStatusMessage) -> bool:
         fingerprint = self._approach_challenge_fingerprint(status)
         if fingerprint != self._last_approach_challenge_fingerprint:
@@ -1627,6 +1693,28 @@ class LiveOperatorBridge:
             status.ground_truth_isolated,
             status.hardware_outputs_present,
             status.profile_valid,
+        )
+
+    @staticmethod
+    def _policy_runtime_status_fingerprint(
+        status: PolicyRuntimeStatusMessage,
+    ) -> tuple[object, ...]:
+        return (
+            status.action,
+            status.selected_task_hash64,
+            status.policy_artifact_hash64,
+            status.ranker_hash64,
+            status.plan_hash64,
+            status.executable_mission_hash64,
+            status.wire_hash64,
+            status.context_hash64,
+            status.airframe_profile_hash64,
+            status.reason_hash64,
+            status.planner_revalidated,
+            status.mission_bound,
+            status.mission_started,
+            status.policy_applied_to_actuator,
+            status.truth_free,
         )
 
     @staticmethod

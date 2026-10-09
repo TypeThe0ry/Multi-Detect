@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/gazebo-3d-mainline-manifest.schema.json",
+  "title": "Multi-Detect repository-owned Gazebo 3-D mainline manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "release_label",
+    "purpose",
+    "claim_boundary",
+    "asset_policy",
+    "scenarios"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "manifest_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+    "release_label": {"type": "string", "minLength": 1},
+    "purpose": {"type": "string", "minLength": 1},
+    "claim_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deterministic_asset_audit",
+        "external_gazebo_runtime",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "outdoor_gnss_acceptance",
+        "final_release"
+      ],
+      "properties": {
+        "deterministic_asset_audit": {"const": true},
+        "external_gazebo_runtime": {"const": "not_claimed"},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "hil_acceptance": {"const": "not_claimed"},
+        "outdoor_gnss_acceptance": {"const": "not_claimed"},
+        "final_release": {"const": "not_claimed"}
+      }
+    },
+    "asset_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_owned_worlds",
+        "repository_owned_vehicle_compositions",
+        "dynamic_px4_flight_dynamics",
+        "billboard_perception_fixtures_excluded",
+        "runtime_truth_free",
+        "network_assets"
+      ],
+      "properties": {
+        "repository_owned_worlds": {"const": true},
+        "repository_owned_vehicle_compositions": {"const": true},
+        "dynamic_px4_flight_dynamics": {"const": true},
+        "billboard_perception_fixtures_excluded": {"const": true},
+        "runtime_truth_free": {"const": true},
+        "network_assets": {"const": false},
+        "upstream_model_provider": {"type": "string", "minLength": 1}
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 3,
+      "items": {"$ref": "#/$defs/scenario"}
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "targetModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "model", "config", "include_name", "pose"],
+      "properties": {
+        "uri": {"const": "model://multidetect_search_target_v1"},
+        "model": {"$ref": "#/$defs/asset"},
+        "config": {"$ref": "#/$defs/asset"},
+        "include_name": {"type": "string", "minLength": 1},
+        "pose": {"type": "string", "pattern": "^[-+0-9.eE ]+$"}
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "scenario_manifest",
+        "runtime_input",
+        "world_sdf",
+        "map_asset",
+        "dem_asset",
+        "target_model",
+        "vehicle",
+        "physics",
+        "wgs84_origin",
+        "sensors",
+        "assets"
+      ],
+      "properties": {
+        "scenario_id": {"type": "string", "minLength": 1},
+        "scenario_manifest": {"$ref": "#/$defs/asset"},
+        "runtime_input": {"$ref": "#/$defs/asset"},
+        "world_sdf": {"$ref": "#/$defs/asset"},
+        "map_asset": {"$ref": "#/$defs/asset"},
+        "dem_asset": {"$ref": "#/$defs/asset"},
+        "target_model": {"$ref": "#/$defs/targetModel"},
+        "vehicle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "class",
+            "runtime_model",
+            "airframe_profile_id",
+            "composition_model",
+            "composition_config",
+            "upstream_dependencies"
+          ],
+          "properties": {
+            "class": {"enum": ["vtol", "fixed-wing", "multirotor"]},
+            "runtime_model": {"type": "string", "minLength": 1},
+            "airframe_profile_id": {"type": "string", "minLength": 1},
+            "composition_model": {"$ref": "#/$defs/asset"},
+            "composition_config": {"$ref": "#/$defs/asset"},
+            "upstream_dependencies": {
+              "type": "array",
+              "minItems": 2,
+              "items": {"type": "string", "pattern": "^model://[A-Za-z0-9][A-Za-z0-9_.-]*$"}
+            }
+          }
+        },
+        "physics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "max_step_size", "real_time_update_rate"],
+          "properties": {
+            "type": {"const": "ode"},
+            "max_step_size": {"type": "number", "exclusiveMinimum": 0},
+            "real_time_update_rate": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "wgs84_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["surface_model", "world_frame_orientation"],
+          "properties": {
+            "surface_model": {"const": "EARTH_WGS84"},
+            "world_frame_orientation": {"const": "ENU"}
+          }
+        },
+        "sensors": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sensor_id", "kind"],
+            "properties": {
+              "sensor_id": {"type": "string", "minLength": 1},
+              "kind": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["aggregate_sha256"],
+          "properties": {
+            "aggregate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    }
+  }
+}

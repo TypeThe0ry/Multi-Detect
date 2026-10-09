@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/onboard-trajectory-staging.schema.json",
+  "title": "Multi-Detect truth-free OnboardAI 3-D trajectory staging v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "feature_names",
+    "task_action_order",
+    "flight_action_order",
+    "label_source",
+    "feature_provenance",
+    "training_ready",
+    "review_required",
+    "truth_free",
+    "truth_injected",
+    "policy_applied_to_actuator",
+    "split_strategy",
+    "materialized_sources",
+    "source_manifests",
+    "episodes",
+    "missing_context_fields",
+    "recording_bound",
+    "event_coverage"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.onboard-trajectory-staging"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.onboard-trajectory-staging-v1"},
+    "feature_names": {"type": "array", "minItems": 40, "maxItems": 40, "items": {"type": "string", "minLength": 1}},
+    "task_action_order": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "flight_action_order": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "label_source": {"const": "pending_independent_review_and_planner_revalidation"},
+    "feature_provenance": {"const": "recomputed_from_context_event_v1"},
+    "training_ready": {"const": false},
+    "review_required": {"const": true},
+    "truth_free": {"const": true},
+    "truth_injected": {"const": false},
+    "policy_applied_to_actuator": {"const": false},
+    "split_strategy": {"const": "episode_scene_airframe_seed"},
+    "materialized_sources": {"const": false},
+    "source_manifests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceManifest"}},
+    "episodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/episode"}},
+    "missing_context_fields": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "recording_bound": {"type": "boolean"},
+    "event_coverage": {"$ref": "#/$defs/eventCoverage"},
+    "external_gazebo_runtime": {"const": true},
+    "candidate_promoted": {"const": false},
+    "final_release_allowed": {"const": false},
+    "hil_real_evidence": {"const": false},
+    "outdoor_gnss_evidence": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "eventCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "event_kind_counts", "truth_free", "training_ready"],
+      "properties": {
+        "contract": {"const": "multidetect.onboard-3d-event-coverage-v1"},
+        "event_kind_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "truth_free": {"const": true},
+        "training_ready": {"const": false}
+      }
+    },
+    "sourceManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "scenario_manifest_sha256", "pixel_source", "depth_manifest"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "scenario_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "pixel_source": {"const": "actual_gazebo_camera_sensor_output"},
+        "depth_manifest": {"$ref": "#/$defs/fileReference"},
+        "recording_manifest": {"$ref": "#/$defs/recordingReference"}
+      }
+    },
+    "fileReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "recordingReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "recording_id", "recording_hash", "frame_count"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "recording_id": {"type": "string", "minLength": 1},
+        "recording_hash": {"$ref": "#/$defs/sha256"},
+        "frame_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "episode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episode_id", "scene_id", "scenario_manifest_sha256", "airframe_profile_id",
+        "airframe_profile_sha256", "recording_id", "recording_hash", "recording_bound",
+        "scenario_seed", "task_contract_sha256", "episode_group_sha256", "seed", "split",
+        "outcome", "transitions"
+      ],
+      "properties": {
+        "episode_id": {"type": "string", "minLength": 1},
+        "scene_id": {"type": "string", "minLength": 1},
+        "scenario_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "airframe_profile_id": {"type": "string", "minLength": 1},
+        "airframe_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "recording_id": {"type": "string", "minLength": 1},
+        "recording_hash": {"$ref": "#/$defs/sha256"},
+        "recording_bound": {"type": "boolean"},
+        "scenario_seed": {"type": "integer", "minimum": 0},
+        "task_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "episode_group_sha256": {"$ref": "#/$defs/sha256"},
+        "seed": {"type": "integer", "minimum": 0},
+        "split": {"enum": ["train", "evaluation", "test"]},
+        "outcome": {"const": "incomplete_capture"},
+        "transitions": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/transition"}}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence", "transition_id", "frame_id", "next_frame_id", "observed_at_s", "observation",
+        "features", "proposed_task_label", "proposed_flight_label", "proposed_regression",
+        "event_kind", "task_phase", "source", "label_status", "planner_revalidated", "truth_free",
+        "policy_applied_to_actuator"
+      ],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 0},
+        "transition_id": {"type": "string", "minLength": 1},
+        "frame_id": {"type": "string", "minLength": 1},
+        "next_frame_id": {"type": ["string", "null"]},
+        "observed_at_s": {"type": "number"},
+        "observation": {"$ref": "#/$defs/observation"},
+        "features": {"type": "array", "minItems": 40, "maxItems": 40, "items": {"type": "number"}},
+        "proposed_task_label": {"type": ["integer", "null"], "minimum": 0},
+        "proposed_flight_label": {"type": ["integer", "null"], "minimum": 0},
+        "proposed_regression": {"type": ["array", "null"], "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+        "event_kind": {"type": "string", "minLength": 1},
+        "task_phase": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/transitionSource"},
+        "label_status": {"const": "pending_independent_review"},
+        "planner_revalidated": {"const": false},
+        "truth_free": {"const": true},
+        "policy_applied_to_actuator": {"const": false}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "event"],
+      "properties": {"context": {"type": "object"}, "event": {"type": "object"}}
+    },
+    "transitionSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recording_id", "recording_hash", "recording_bound", "frame_id", "captured_at_s",
+        "episode_group_sha256", "rgb_payload_sha256", "depth_payload_sha256", "rgb_manifest_sha256",
+        "depth_manifest_sha256", "scenario_manifest_sha256", "context_sha256", "event_sha256"
+      ],
+      "properties": {
+        "recording_id": {"type": "string", "minLength": 1},
+        "recording_hash": {"$ref": "#/$defs/sha256"},
+        "recording_bound": {"type": "boolean"},
+        "frame_id": {"type": "string", "minLength": 1},
+        "captured_at_s": {"type": "number"},
+        "episode_group_sha256": {"$ref": "#/$defs/sha256"},
+        "rgb_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "depth_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "rgb_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "depth_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "scenario_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "context_sha256": {"$ref": "#/$defs/sha256"},
+        "event_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

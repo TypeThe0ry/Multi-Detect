@@ -26,11 +26,13 @@ import os
 import shutil
 import subprocess
 import time
+from collections import deque
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from multidetect.clock import Clock, HighResolutionSystemClock, SystemClock
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
@@ -197,9 +199,25 @@ def _assert_owned_container(
 class TelemetryCollector:
     """Small MAVLink observation adapter used by the evaluator only."""
 
-    def __init__(self, connection: Any) -> None:
+    BATTERY_HISTORY_LIMIT = 8192
+    ENERGY_INPUT_HISTORY_LIMIT = 8192
+
+    def __init__(
+        self,
+        connection: Any,
+        *,
+        energy_history_limit: int | None = None,
+        clock: Clock | None = None,
+    ) -> None:
+        self.clock = SystemClock() if clock is None else clock
+        if not isinstance(self.clock, Clock):
+            raise TypeError("collector clock must implement Clock")
+        if energy_history_limit is not None:
+            if type(energy_history_limit) is not int or not 1 <= energy_history_limit <= 131072:
+                raise VtolAcceptanceError("energy history limit must be an integer in 1..131072")
+            self.ENERGY_INPUT_HISTORY_LIMIT = energy_history_limit
         self.connection = connection
-        self.started = time.monotonic()
+        self.started = self.now_s()
         self.next_heartbeat = 0.0
         self.messages: list[dict[str, Any]] = []
         self.last_heartbeat: dict[str, Any] | None = None
@@ -208,17 +226,36 @@ class TelemetryCollector:
         self.last_vtol_state: int | None = None
         self.last_landed_state: int | None = None
         self.last_battery_remaining: int | None = None
+        self.last_battery_time_remaining_s: int | None = None
+        self.last_battery_observed_at_monotonic_s: float | None = None
+        self.last_gps_observed_at_monotonic_s: float | None = None
+        self.observation_sources: dict[str, tuple[int | None, int | None]] = {}
         self.last_heartbeat_observed_at_monotonic_s: float | None = None
         self.last_position_observed_at_monotonic_s: float | None = None
         self.last_extended_state_observed_at_monotonic_s: float | None = None
         self.position_samples: list[tuple[float, float, float, float]] = []
+        self.battery_samples: deque[dict[str, Any]] = deque(maxlen=self.BATTERY_HISTORY_LIMIT)
+        self.battery_samples_seen = 0
+        self.energy_input_samples: deque[dict[str, Any]] = deque(
+            maxlen=self.ENERGY_INPUT_HISTORY_LIMIT
+        )
+        self.energy_input_samples_seen = 0
 
     @property
     def elapsed_s(self) -> float:
-        return time.monotonic() - self.started
+        return self.now_s() - self.started
+
+    def now_s(self) -> float:
+        value = self.clock.monotonic()
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise VtolAcceptanceError("collector clock must be finite and nonnegative")
+        if value < getattr(self, "_last_clock_s", value):
+            raise VtolAcceptanceError("collector clock moved backwards")
+        self._last_clock_s = value
+        return value
 
     def send_gcs_heartbeat(self, *, force: bool = False) -> None:
-        now = time.monotonic()
+        now = self.now_s()
         if not force and now < self.next_heartbeat:
             return
         self.connection.mav.heartbeat_send(
@@ -232,8 +269,22 @@ class TelemetryCollector:
 
     def _record(self, message: Any) -> None:
         message_type = str(message.get_type())
-        observed_at_monotonic_s = time.monotonic()
+        observed_at_monotonic_s = self.now_s()
         now = observed_at_monotonic_s - self.started
+        self._record_energy_input(message, message_type=message_type, at_s=now)
+        if message_type in {
+            "HEARTBEAT",
+            "GPS_RAW_INT",
+            "GLOBAL_POSITION_INT",
+            "EXTENDED_SYS_STATE",
+            "BATTERY_STATUS",
+        }:
+            system = getattr(message, "get_srcSystem", lambda: None)()
+            component = getattr(message, "get_srcComponent", lambda: None)()
+            self.observation_sources[message_type] = (
+                system if type(system) is int else None,
+                component if type(component) is int else None,
+            )
         if message_type == "HEARTBEAT":
             self.last_heartbeat = {
                 "base_mode": int(message.base_mode),
@@ -250,6 +301,7 @@ class TelemetryCollector:
                 "lon": int(message.lon),
                 "alt_mm": int(message.alt),
             }
+            self.last_gps_observed_at_monotonic_s = observed_at_monotonic_s
         elif message_type == "GLOBAL_POSITION_INT":
             latitude = int(message.lat) / 10_000_000.0
             longitude = int(message.lon) / 10_000_000.0
@@ -267,8 +319,37 @@ class TelemetryCollector:
             self.last_landed_state = int(message.landed_state)
             self.last_extended_state_observed_at_monotonic_s = observed_at_monotonic_s
         elif message_type == "BATTERY_STATUS":
-            remaining = int(message.battery_remaining)
-            self.last_battery_remaining = remaining if remaining >= 0 else None
+            remaining = getattr(message, "battery_remaining", None)
+            self.last_battery_remaining = (
+                remaining if type(remaining) is int and 0 <= remaining <= 100 else None
+            )
+            endurance = getattr(message, "time_remaining", None)
+            self.last_battery_time_remaining_s = (
+                endurance if type(endurance) is int and endurance > 0 else None
+            )
+            self.last_battery_observed_at_monotonic_s = observed_at_monotonic_s
+
+            # Preserve wire units/sentinels for later energy-model calibration.
+            # Do not merge batteries, turn missing values into zero, or infer
+            # physical flight time from host time (SITL may run accelerated).
+            def wire_int(name: str) -> int | None:
+                value = getattr(message, name, None)
+                return value if type(value) is int else None
+
+            self.battery_samples_seen += 1
+            self.battery_samples.append(
+                {
+                    "at_s": now,
+                    "source_system": self.observation_sources[message_type][0],
+                    "source_component": self.observation_sources[message_type][1],
+                    "battery_id": wire_int("id"),
+                    "battery_remaining_pct": self.last_battery_remaining,
+                    "current_battery_cA_raw": wire_int("current_battery"),
+                    "current_consumed_mAh_raw": wire_int("current_consumed"),
+                    "energy_consumed_hJ_raw": wire_int("energy_consumed"),
+                    "time_remaining_s_raw": wire_int("time_remaining"),
+                }
+            )
         if message_type in {
             "HEARTBEAT",
             "GPS_RAW_INT",
@@ -291,22 +372,154 @@ class TelemetryCollector:
                 )
             elif message_type == "BATTERY_STATUS":
                 row["battery_remaining"] = self.last_battery_remaining
+                row["time_remaining_s"] = self.last_battery_time_remaining_s
             elif message_type == "COMMAND_ACK":
                 row.update({"command": int(message.command), "result": int(message.result)})
             elif message_type == "STATUSTEXT":
                 row["text"] = str(message.text)
             self.messages.append(row)
 
+    def _record_energy_input(self, message: Any, *, message_type: str, at_s: float) -> None:
+        """Keep independent causal inputs, not a synthetic synchronized sample."""
+        fields = {
+            "HEARTBEAT": ("base_mode", 255),
+            "VFR_HUD": ("throttle", 100),
+            "SYSTEM_TIME": ("time_boot_ms", 2**32 - 1),
+            "GLOBAL_POSITION_INT": ("time_boot_ms", 2**32 - 1),
+        }
+        if message_type not in fields:
+            return
+        field, maximum = fields[message_type]
+        value = getattr(message, field, None)
+        valid = type(value) is int and 0 <= value <= maximum
+        system = getattr(message, "get_srcSystem", lambda: None)()
+        component = getattr(message, "get_srcComponent", lambda: None)()
+        source_valid = (
+            type(system) is int and type(component) is int and (system, component) == (1, 1)
+        )
+        self.energy_input_samples_seen += 1
+        encoded = getattr(message, "get_msgbuf", lambda: None)()
+        encoded_hash = (
+            hashlib.sha256(encoded).hexdigest()
+            if isinstance(encoded, (bytes, bytearray)) and 0 < len(encoded) <= 300 else None
+        )
+        self.energy_input_samples.append(
+            {
+                "at_s": at_s,
+                "type": message_type,
+                "source_system": system if type(system) is int else None,
+                "source_component": component if type(component) is int else None,
+                "field": field,
+                "value": value if valid else None,
+                "field_valid": valid,
+                "source_is_expected_px4": source_valid,
+                "frame_sha256": encoded_hash,
+                "pump_started_host_s": getattr(self, "_pump_started_s", None),
+                "previous_pump_finished_host_s": getattr(self, "_pump_finished_s", None),
+            }
+        )
+
+    def post_mission_observation(self, *, now_s: float | None = None) -> dict[str, Any]:
+        """Expose observed state and gaps, never convert timeout into endurance."""
+        high_resolution = isinstance(self.clock, HighResolutionSystemClock)
+        if high_resolution and now_s is not None:
+            raise VtolAcceptanceError("high-resolution collector must read its own clock")
+        if now_s is None:
+            now_s = self.now_s()
+        clock_label = (
+            "host_perf_counter"
+            if high_resolution
+            else "host_monotonic"
+            if isinstance(self.clock, SystemClock)
+            else "injected_clock"
+        )
+        clock_identity = (
+            self.clock.identity()
+            if high_resolution
+            else {
+                "source": "python.monotonic"
+                if isinstance(self.clock, SystemClock)
+                else "injected_clock",
+                "session_id": None,
+            }
+        )
+        timestamps = {
+            "HEARTBEAT": self.last_heartbeat_observed_at_monotonic_s,
+            "GPS_RAW_INT": self.last_gps_observed_at_monotonic_s,
+            "GLOBAL_POSITION_INT": self.last_position_observed_at_monotonic_s,
+            "EXTENDED_SYS_STATE": self.last_extended_state_observed_at_monotonic_s,
+            "BATTERY_STATUS": self.last_battery_observed_at_monotonic_s,
+        }
+        ages = {
+            kind: None if stamp is None else now_s - stamp for kind, stamp in timestamps.items()
+        }
+        reasons = []
+        for kind, age in ages.items():
+            if age is None or not math.isfinite(age) or not 0 <= age <= 1.5:
+                reasons.append(f"{kind}:missing_or_stale")
+            if self.observation_sources.get(kind) != (1, 1):
+                reasons.append(f"{kind}:source_not_px4")
+        if self.last_battery_remaining is None:
+            reasons.append("battery_remaining_unavailable")
+        if self.last_battery_time_remaining_s is None:
+            reasons.append("observed_endurance_unavailable")
+        return {
+            "clock": clock_label,
+            "host_clock_identity": clock_identity,
+            "observed_at_s": now_s,
+            "sample_ages_s": ages,
+            "sources": dict(self.observation_sources),
+            "position": dict(self.last_position) if self.last_position is not None else None,
+            "gps": dict(self.last_gps) if self.last_gps is not None else None,
+            "battery_remaining_pct": self.last_battery_remaining,
+            "observed_endurance_s": self.last_battery_time_remaining_s,
+            "endurance_source": "BATTERY_STATUS.time_remaining_no_fallback",
+            "energy_input_history": {
+                "schema_version": 1,
+                "receive_clock": f"{clock_label}_since_collector_start",
+                "host_clock_identity": clock_identity,
+                "receive_origin_host_monotonic_s": self.started,
+                "boot_clock": "PX4_time_boot_ms_not_assumed_equal_to_gazebo_sensor_time",
+                "throttle_unit": "percent_setting_not_measured_power",
+                "samples_seen": self.energy_input_samples_seen,
+                "samples_dropped": self.energy_input_samples_seen - len(self.energy_input_samples),
+                "capacity": self.ENERGY_INPUT_HISTORY_LIMIT,
+                "samples": [dict(sample) for sample in self.energy_input_samples],
+                "synchronization_claimed": False,
+                "clock_continuity_proven": False,
+                "energy_integration_performed": False,
+            },
+            "battery_history": {
+                "schema_version": 1,
+                "clock": f"{clock_label}_since_collector_start_not_sim_time",
+                "host_clock_identity": clock_identity,
+                "samples_seen": self.battery_samples_seen,
+                "samples_dropped": self.battery_samples_seen - len(self.battery_samples),
+                "capacity": self.BATTERY_HISTORY_LIMIT,
+                "samples": [dict(sample) for sample in self.battery_samples],
+                "raw_sentinels_preserved": True,
+                "calibrated_endurance_claimed": False,
+            },
+            "telemetry_complete_and_fresh": not reasons,
+            "missing_reasons": reasons,
+            "authorizes_next_task": False,
+        }
+
     def pump(self, timeout_s: float = 0.15) -> Any | None:
-        self.send_gcs_heartbeat()
-        message = self.connection.recv_match(blocking=True, timeout=timeout_s)
-        if message is not None:
-            self._record(message)
-        return message
+        self._pump_started_s = self.now_s()
+        try:
+            self.send_gcs_heartbeat()
+            message = self.connection.recv_match(blocking=True, timeout=timeout_s)
+            if message is not None:
+                self._record(message)
+            return message
+        finally:
+            self._pump_finished_s = self.now_s()
+            self._pump_started_s = None
 
     def wait_for_heartbeat(self, timeout_s: float) -> dict[str, Any]:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + timeout_s
+        while self.now_s() < deadline:
             message = self.pump(0.25)
             if message is not None and message.get_type() == "HEARTBEAT":
                 heartbeat = self.last_heartbeat or {}
@@ -327,8 +540,8 @@ class TelemetryCollector:
         fix with non-zero coordinates.
         """
 
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + timeout_s
+        while self.now_s() < deadline:
             self.pump(0.25)
             gps = self.last_gps or {}
             if gps.get("fix_type", 0) >= 3 and gps.get("lat", 0) != 0 and gps.get("lon", 0) != 0:
@@ -350,11 +563,11 @@ class TelemetryCollector:
         a bounded settle interval; it does not alter estimator state.
         """
 
-        started = time.monotonic()
+        started = self.now_s()
         deadline = started + timeout_s
-        while time.monotonic() < deadline:
+        while self.now_s() < deadline:
             self.pump(0.2)
-            elapsed = time.monotonic() - started
+            elapsed = self.now_s() - started
             if (
                 elapsed >= minimum_settle_s
                 and len(self.position_samples) >= minimum_position_samples
@@ -365,8 +578,8 @@ class TelemetryCollector:
         raise VtolAcceptanceError("VTOL navigation estimator did not settle")
 
     def wait_for_command_ack(self, command: int, timeout_s: float = 8.0) -> int:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + timeout_s
+        while self.now_s() < deadline:
             message = self.pump(0.2)
             if message is None or message.get_type() != "COMMAND_ACK":
                 continue
@@ -381,8 +594,8 @@ class TelemetryCollector:
         raise VtolAcceptanceError(f"PX4 COMMAND_ACK timeout for command {command}")
 
     def wait_for_vtol_state(self, state: int, timeout_s: float = 15.0) -> None:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + timeout_s
+        while self.now_s() < deadline:
             self.pump(0.2)
             if self.last_vtol_state == state:
                 return
@@ -401,8 +614,8 @@ class TelemetryCollector:
 
         if not math.isfinite(timeout_s) or timeout_s <= 0.0:
             raise VtolAcceptanceError("armed-state wait timeout must be finite and positive")
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + timeout_s
+        while self.now_s() < deadline:
             message = self.pump(0.2)
             if message is None or message.get_type() != "HEARTBEAT":
                 continue
@@ -417,8 +630,8 @@ class TelemetryCollector:
         raise VtolAcceptanceError(f"PX4 did not report {state} state within {timeout_s:.1f}s")
 
     def collect(self, duration_s: float) -> None:
-        deadline = time.monotonic() + duration_s
-        while time.monotonic() < deadline:
+        deadline = self.now_s() + duration_s
+        while self.now_s() < deadline:
             self.pump(0.2)
 
 

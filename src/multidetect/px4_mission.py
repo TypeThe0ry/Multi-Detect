@@ -8,6 +8,7 @@ network I/O in the acceptance adapter which owns the MAVLink connection.
 from __future__ import annotations
 
 import math
+import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from .autonomy import (
     ValidationReport,
     ValidationVerdict,
 )
+from .autonomy.mission_context_admission import ContextV2MissionAdmission
 from .autonomy.serialization import (
     AutonomyContractError,
     canonical_sha256,
@@ -1321,10 +1323,31 @@ def px4_wire_hash(items: Sequence[Px4MissionItemInt]) -> str:
         raise Px4MissionError("wire mission contains a non-MISSION_ITEM_INT value")
     if tuple(item.sequence for item in normalized) != tuple(range(len(normalized))):
         raise Px4MissionError("wire mission sequence must be contiguous and zero-based")
+    canonical_items: list[dict[str, int | float]] = []
+    for item in normalized:
+        payload = item.to_mapping()
+        # PX4's mission store applies command-specific normalization before
+        # serving MISSION_ITEM_INT readback.  TAKEOFF's optional pitch is not
+        # retained, and LAND yaw is persisted at millidegree precision.  Keep
+        # the hash bound to the values PX4 can actually round-trip while still
+        # uploading the planner's original item (the safety geometry remains
+        # validated before compilation).
+        if item.command == MAV_CMD_NAV_TAKEOFF:
+            payload["param1"] = 0.0
+        if item.command == MAV_CMD_NAV_LAND:
+            payload["param4"] = round(float(item.param4), 3)
+        # MAVLink MISSION_ITEM_INT encodes the parameter and altitude fields
+        # as IEEE-754 float32 values.  The planner may hold Python float64
+        # values while PX4 returns the quantized float32 representation during
+        # readback.  Hash the actual wire precision so a legitimate PX4
+        # round-trip is not rejected as a mission replacement fault.
+        for field in ("param1", "param2", "param3", "param4", "z"):
+            payload[field] = struct.unpack("<f", struct.pack("<f", float(payload[field])))[0]
+        canonical_items.append(payload)
     return canonical_sha256(
         {
             "protocol": "MAVLink2/MISSION_ITEM_INT",
-            "items": [item.to_mapping() for item in normalized],
+            "items": canonical_items,
         }
     )
 
@@ -1383,7 +1406,38 @@ def _validate_plan_and_geometry(
     *,
     vehicle_label: str = "VTOL",
     lifecycle_overhead_items: int = 5,
+    context_admission: ContextV2MissionAdmission | None = None,
+    admission_now_s: float | None = None,
+    admission_clock_id: str | None = None,
+    airframe_profile_hash: str | None = None,
 ) -> None:
+    if context_snapshot.schema_version != 1:
+        if vehicle_label != "multirotor" or not isinstance(
+            context_admission, ContextV2MissionAdmission
+        ):
+            raise Px4MissionError(
+                "v2 context is observation/planning-only until Mission admission "
+                "binds an actual SIM/HIL/REAL runtime scope"
+            )
+        try:
+            context_admission.validate_for(
+                context=context_snapshot,
+                plan=platform_plan,
+                geometry_mapping=geometry.to_mapping(),
+                safety_policy_mapping=policy.to_mapping(),
+                airframe_profile_sha256=airframe_profile_hash,
+                vehicle_class="multirotor",
+                now_s=admission_now_s,
+                clock_id=admission_clock_id,
+            )
+        except (TypeError, ValueError) as exc:
+            raise Px4MissionError(f"v2 Mission compilation admission rejected: {exc}") from exc
+    elif (
+        context_admission is not None
+        or admission_now_s is not None
+        or admission_clock_id is not None
+    ):
+        raise Px4MissionError("v1 context must not consume a v2 Mission compilation admission")
     if platform_plan.context_snapshot_hash != context_snapshot.canonical_hash:
         raise Px4MissionError("platform plan context hash does not match runtime context")
     actions = tuple(step.action for step in platform_plan.steps)
@@ -1590,6 +1644,9 @@ def compile_multirotor_executable_mission(
     policy: Px4MultirotorSafetyPolicy,
     airframe_profile_hash: str,
     mission_id: str | None = None,
+    context_admission: ContextV2MissionAdmission | None = None,
+    admission_now_s: float | None = None,
+    admission_clock_id: str | None = None,
 ) -> CompiledPx4Mission:
     """Compile a hash-bound, bounded PX4 multirotor mission.
 
@@ -1597,6 +1654,10 @@ def compile_multirotor_executable_mission(
     ``MISSION_ITEM_INT`` transaction path used by VTOL and fixed-wing.  Only
     the lifecycle commands differ: a plain multirotor has no VTOL transition
     items and lands at the runtime-provided home/landing point.
+
+    A v2 context additionally requires an exact-scope compilation admission and
+    caller's current monotonic time/clock. This does not issue a ValidationReport,
+    OperatorGrant or start permit and never enables a physical transport.
     """
 
     if not isinstance(platform_plan, PlatformNeutralPlan):
@@ -1614,6 +1675,10 @@ def compile_multirotor_executable_mission(
         policy,
         vehicle_label="multirotor",
         lifecycle_overhead_items=3,
+        context_admission=context_admission,
+        admission_now_s=admission_now_s,
+        admission_clock_id=admission_clock_id,
+        airframe_profile_hash=airframe_profile_hash,
     )
     profile_hash = require_sha256(airframe_profile_hash, "airframe_profile_hash")
     resolved_mission_id = (
@@ -1705,6 +1770,11 @@ def _validate_fixed_wing_plan_and_geometry(
 ) -> tuple[float, float]:
     """Validate fixed-wing geometry and return resolved takeoff/landing headings."""
 
+    if context_snapshot.schema_version != 1:
+        raise Px4MissionError(
+            "v2 context is observation/planning-only until Mission admission "
+            "binds an actual SIM/HIL/REAL runtime scope"
+        )
     if platform_plan.context_snapshot_hash != context_snapshot.canonical_hash:
         raise Px4MissionError("platform plan context hash does not match runtime context")
     actions = tuple(step.action for step in platform_plan.steps)

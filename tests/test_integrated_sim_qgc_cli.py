@@ -188,8 +188,112 @@ class _FakeSynchronizedBridge:
         )
 
 
+def _finished_fault_diagnostic(
+    *, source: str, start_image: int, duration_images: int
+) -> dict[str, object]:
+    window_end = start_image + duration_images
+    if source == "image":
+        timeline = [
+            {
+                "event": "frame_rejected_fault_window",
+                "fault_active": True,
+                "received_image_index": start_image,
+                "source_stamp_ns": None,
+                "wire_sequence": None,
+                "source_epoch": 0,
+            },
+            {
+                "event": "wire_emitted",
+                "fault_active": False,
+                "received_image_index": window_end,
+                "source_stamp_ns": None,
+                "wire_sequence": 0,
+                "source_epoch": 0,
+            },
+            {
+                "event": "wire_emitted_after_recovery",
+                "fault_active": False,
+                "received_image_index": window_end,
+                "source_stamp_ns": None,
+                "wire_sequence": 0,
+                "source_epoch": 0,
+            },
+        ]
+        dropped_counts = {"fault_dropped_image": 1}
+        source_epoch = 0
+        cache_cleared = False
+        stale_rejection_count = 0
+    else:
+        timeline = [
+            {
+                "event": "source_dropped",
+                "fault_active": True,
+                "received_image_index": start_image,
+                "source_stamp_ns": 100,
+                "wire_sequence": None,
+                "source_epoch": 1,
+            },
+            {
+                "event": "source_fresh_after_window",
+                "fault_active": False,
+                "received_image_index": window_end,
+                "source_stamp_ns": 110,
+                "wire_sequence": None,
+                "source_epoch": 1,
+            },
+            {
+                "event": "wire_emitted",
+                "fault_active": False,
+                "received_image_index": window_end,
+                "source_stamp_ns": 110,
+                "wire_sequence": 0,
+                "source_epoch": 1,
+            },
+            {
+                "event": "wire_emitted_after_recovery",
+                "fault_active": False,
+                "received_image_index": window_end,
+                "source_stamp_ns": 110,
+                "wire_sequence": 0,
+                "source_epoch": 1,
+            },
+        ]
+        dropped_counts = {f"fault_dropped_{source}": 1}
+        source_epoch = 1
+        cache_cleared = True
+        stale_rejection_count = 1
+    return {
+        "event": "gazebo_sensor_stream_finished",
+        "gate_passed": True,
+        "fault_injection": {
+            "enabled": True,
+            "source": source,
+            "start_image": start_image,
+            "duration_images": duration_images,
+            "window_key": "received_image_index",
+            "dynamic_source_policy": (
+                "reject_during_window_and_until_post_window_fresh_sample"
+            ),
+            "cache_boundary_policy": (
+                "clear_source_history_on_first_dropped_callback_keep_stamp_order"
+            ),
+            "source_epoch": source_epoch,
+            "cache_cleared": cache_cleared,
+            "dropped_counts": dropped_counts,
+            "window_rejected_frame_count": 1,
+            "stale_source_rejection_count": stale_rejection_count,
+            "emitted_during_window_count": 0,
+            "timeline_overflow": False,
+            "timeline": timeline,
+            "recovered_frame_count": 1,
+            "recovery_observed": True,
+        },
+    }
+
+
 @dataclass(frozen=True)
 class _FakeSensorTransport:
+    emit_fault_diagnostic = False
     expected_frame_count: int = 2
     frame_count: int = 2
     odometry_timestamp_frame_count: int = 2
@@ -199,6 +303,7 @@ class _FakeSensorTransport:
     complete: bool = True
     odometry_required: bool = True
     full_odometry_pose_velocity_fusion_claimed: bool = True
+    fault_diagnostic: dict[str, object] | None = None
 
     def to_mapping(self) -> dict[str, object]:
         return asdict(self)
@@ -245,7 +350,15 @@ def test_integrated_sim_qgc_cli_is_genuine_sim_and_reuses_production_core(
         def run() -> tuple[_FakeResult, _FakeSensorTransport]:
             kwargs["operator_bridge"].runtime_run_hash64_hex = identity.run_identity_hash[:16]
             kwargs["operator_bridge"].simulate_run()
-            return _FakeResult(), _FakeSensorTransport()
+            fault_source = backend.kwargs.get("fault_source")
+            diagnostic = (
+                _finished_fault_diagnostic(
+                    source=str(fault_source), start_image=1, duration_images=1
+                )
+                if _FakeSensorTransport.emit_fault_diagnostic and fault_source is not None
+                else None
+            )
+            return _FakeResult(), _FakeSensorTransport(fault_diagnostic=diagnostic)
 
         return SimpleNamespace(identity=identity, run=run)
 
@@ -444,6 +557,75 @@ def test_integrated_sim_qgc_cli_is_genuine_sim_and_reuses_production_core(
     assert synchronized_audit["details"]["flight_control_enabled"] is False
     assert synchronized_audit["details"]["physical_release_enabled"] is False
 
+    fault_result_path = tmp_path / "sim-qgc-fault-result.json"
+    fault_command = list(command)
+    fault_command[fault_command.index("--result-out") + 1] = str(fault_result_path)
+    fault_command[fault_command.index("--audit-out") + 1] = str(
+        tmp_path / "sim-qgc-fault-audit.jsonl"
+    )
+    perception_index = fault_command.index("--perception-args")
+    fault_command[perception_index:perception_index] = [
+        "--fault-source", "image", "--fault-start-image", "1", "--fault-duration-images", "1"
+    ]
+    assert cli_module.main(fault_command) == 1
+    assert not fault_result_path.exists()
+    assert _FakeBackend.instance.kwargs["fault_source"] == "image"
+    assert _FakeBackend.instance.kwargs["fault_start_image"] == 1
+    assert _FakeBackend.instance.kwargs["fault_duration_images"] == 1
+    failure = json.loads(capsys.readouterr().err.splitlines()[-1])
+    assert "helper finished diagnostic was not captured" in failure["message"]
+
+    _FakeSensorTransport.emit_fault_diagnostic = True
+    try:
+        positive_result_path = tmp_path / "sim-qgc-fault-positive-result.json"
+        positive_audit_path = tmp_path / "sim-qgc-fault-positive-audit.jsonl"
+        positive_command = list(command)
+        positive_command[positive_command.index("--result-out") + 1] = str(
+            positive_result_path
+        )
+        positive_command[positive_command.index("--audit-out") + 1] = str(
+            positive_audit_path
+        )
+        positive_perception_index = positive_command.index("--perception-args")
+        positive_command[positive_perception_index:positive_perception_index] = [
+            "--fault-source",
+            "image",
+            "--fault-start-image",
+            "1",
+            "--fault-duration-images",
+            "1",
+        ]
+        assert cli_module.main(positive_command) == 0
+        positive_document = json.loads(positive_result_path.read_text(encoding="utf-8"))
+        positive_transport = positive_document["sensor_transport"]
+        assert positive_transport["fault_verification"]["source"] == "image"
+        assert positive_transport["fault_verification"]["recovery_observed"] is True
+
+        dynamic_result_path = tmp_path / "sim-qgc-fault-dynamic-result.json"
+        dynamic_audit_path = tmp_path / "sim-qgc-fault-dynamic-audit.jsonl"
+        dynamic_command = list(command)
+        dynamic_command[dynamic_command.index("--result-out") + 1] = str(
+            dynamic_result_path
+        )
+        dynamic_command[dynamic_command.index("--audit-out") + 1] = str(dynamic_audit_path)
+        dynamic_perception_index = dynamic_command.index("--perception-args")
+        dynamic_command[dynamic_perception_index:dynamic_perception_index] = [
+            "--fault-source",
+            "navsat",
+            "--fault-start-image",
+            "1",
+            "--fault-duration-images",
+            "1",
+        ]
+        assert cli_module.main(dynamic_command) == 0
+        dynamic_document = json.loads(dynamic_result_path.read_text(encoding="utf-8"))
+        dynamic_verification = dynamic_document["sensor_transport"]["fault_verification"]
+        assert dynamic_verification["source"] == "navsat"
+        assert dynamic_verification["cache_cleared"] is True
+        assert dynamic_verification["recovery_observed"] is True
+    finally:
+        _FakeSensorTransport.emit_fault_diagnostic = False
+
     strict_result_path = tmp_path / "sim-qgc-strict-result.json"
     strict_audit_path = tmp_path / "sim-qgc-strict-audit.jsonl"
     strict_command = list(command)
@@ -570,6 +752,49 @@ def test_integrated_sim_ranging_builder_binds_calibration_dem_and_shared_graph()
     assert binding_hash == cli_module.canonical_sha256(binding)
 
 
+def test_integrated_sim_metric_depth_uses_live_camera_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _Estimator:
+        def __init__(self, config: object) -> None:
+            captured["config"] = config
+
+    class _Runner:
+        def __init__(self, estimator: object) -> None:
+            captured["estimator"] = estimator
+
+    monkeypatch.setattr(cli_module, "MetricDepthEstimator", _Estimator)
+    monkeypatch.setattr(cli_module, "AsyncMetricDepthRunner", _Runner)
+    namespace = SimpleNamespace(
+        metric_depth_model=Path("depth-outdoor.onnx"),
+        metric_depth_calibration_document=None,
+        metric_depth_input_size=518,
+        metric_depth_minimum_depth_m=0.4,
+        metric_depth_maximum_depth_m=800.0,
+        metric_depth_minimum_interval_seconds=0.1,
+        metric_depth_maximum_age_seconds=1.0,
+        metric_depth_calibration_scale=1.0,
+        metric_depth_calibration_offset_m=0.0,
+        metric_depth_calibration_profile="outdoor-unanchored-v1",
+        metric_depth_grid_width=160,
+        metric_depth_grid_height=90,
+        metric_depth_temporal_window=5,
+    )
+
+    runner = cli_module._metric_depth_runner_from_namespace(namespace)
+
+    assert isinstance(runner, _Runner)
+    config = captured["config"]
+    assert config.model_path == Path("depth-outdoor.onnx")
+    assert config.input_size == 518
+    assert config.calibration_profile == "outdoor-unanchored-v1"
+    assert config.grid_width == 160
+    assert config.grid_height == 90
+    assert config.temporal_window_size == 5
+
+
 def test_integrated_sim_ranging_builder_rejects_wrong_calibration_id(
     tmp_path: Path,
 ) -> None:
@@ -608,12 +833,23 @@ def test_integrated_sim_ranging_acceptance_requires_shared_range_and_geo_publish
         {
             "target_id": "target-a",
             "frame_id": "frame-12",
+            "target_label": "person",
             "validity": "degraded",
+            "ground_range_m": 18.0,
+            "relative_bearing_deg": -12.0,
             "sources": ("dem_gps", "camera_ground"),
             "target_geolocation": {
                 "available": True,
                 "latitude_deg": 1.3,
                 "longitude_deg": 103.8,
+                "horizontal_sigma_m": 4.0,
+            },
+            "gps_quality": {"qualified": True, "age_s": 0.1},
+            "gps_sample": {
+                "fix_type": 3,
+                "satellites_visible": 12,
+                "h_acc_m": 3.0,
+                "v_acc_m": 4.0,
             },
         },
     )
@@ -661,6 +897,9 @@ def test_integrated_sim_ranging_acceptance_requires_shared_range_and_geo_publish
     assert acceptance["operator_range_publish_count"] == 1
     assert acceptance["operator_target_geolocation_publish_count"] == 1
     assert acceptance["source_bound_operator_range_geolocation_count"] == 1
+    assert acceptance["target_evidence_card_count"] == 1
+    assert acceptance["target_evidence_cards"][0]["available"] is True
+    assert acceptance["target_evidence_cards"][0]["claims"]["contains_flight_control"] is False
     assert acceptance["qgc_range_geolocation_adoption"] == "not_proved"
     assert acceptance["operator_visual_acceptance"] == "not_claimed"
 
@@ -716,6 +955,101 @@ def test_integrated_sim_ranging_acceptance_rejects_cross_frame_publication_count
     assert acceptance["gate_passed"] is False
     assert acceptance["source_bound_operator_range_geolocation_count"] == 0
     assert "no_source_bound_operator_range_geolocation" in acceptance["failure_reasons"]
+
+
+def test_integrated_sim_ranging_acceptance_accepts_bound_gazebo_depth_and_nested_gps() -> None:
+    audit = cli_module.AuditLog()
+    depth_topic = (
+        "/world/default/model/standard_vtol_mono_cam_0/link/depth_camera_link/"
+        "sensor/depth_camera/depth_image"
+    )
+    depth_hash = "b" * 64
+    audit.append(
+        "ranging.primary_target_solution",
+        12.0,
+        {
+            "target_id": "target-depth",
+            "frame_id": "frame-depth",
+            "target_label": "person",
+            "validity": "degraded",
+            "ground_range_m": 42.0,
+            "relative_bearing_deg": 3.0,
+            "sources": ("gazebo_depth",),
+            "target_geolocation": {
+                "available": True,
+                "latitude_deg": 1.3,
+                "longitude_deg": 103.8,
+                "horizontal_sigma_m": 2.0,
+                "gps_quality": {"qualified": True, "age_s": 0.1},
+                "gps_sample": {
+                    "fix_type": 3,
+                    "satellites_visible": 12,
+                    "h_acc_m": 1.0,
+                    "v_acc_m": 2.0,
+                },
+            },
+        },
+    )
+    audit.append(
+        "operator.remote_range_status",
+        12.01,
+        {
+            "target_id": "target-depth",
+            "source_frame_id": "frame-depth",
+            "validity": "degraded",
+            "source_age_s": 0.01,
+            "data_freshness_s": 0.01,
+        },
+    )
+    audit.append(
+        "operator.remote_target_geolocation_status",
+        12.01,
+        {
+            "target_id": "target-depth",
+            "source_frame_id": "frame-depth",
+            "available": True,
+            "source_age_s": 0.01,
+        },
+    )
+    acceptance = cli_module._integrated_sim_ranging_acceptance(
+        result=SimpleNamespace(
+            remote_range_status_count=1,
+            remote_target_geolocation_status_count=1,
+            ranging_error_count=0,
+            remote_transport_error_count=0,
+        ),
+        audit_log=audit,
+        binding={"schema_version": 1},
+        binding_hash="a" * 64,
+        required=True,
+        sensor_transport={
+            "expected_frame_count": 1,
+            "received_frame_count": 1,
+            "complete": True,
+            "depth_enabled": True,
+            "depth_companion_count": 1,
+            "depth_topic": depth_topic,
+            "depth_calibration_id": "gazebo-front-depth-v1",
+            "depth_calibration_sha256": depth_hash,
+        },
+        depth_contract={
+            "source_topic": depth_topic,
+            "calibration_id": "gazebo-front-depth-v1",
+            "calibration_sha256": depth_hash,
+            "registration_mode": "registered_to_rgb",
+            "coordinate_space": "rgb_pixel_aligned",
+            "encoding": "FLOAT32_M",
+            "distance_semantics": "optical_axis_z_m",
+        },
+    )
+
+    assert acceptance["gate_passed"] is True
+    assert acceptance["camera_ground_solution_count"] == 0
+    assert acceptance["gazebo_depth_solution_count"] == 1
+    assert acceptance["accepted_metric_solution_count"] == 1
+    assert acceptance["gazebo_depth_transport_qualified"] is True
+    assert acceptance["target_evidence_card_count"] == 1
+    assert acceptance["target_evidence_cards"][0]["available"] is True
 
 
 def test_integrated_sim_qgc_strict_geolocation_requires_calibration_before_backend(

@@ -123,6 +123,18 @@ class DockerSimulatorPlan:
     airframe_profile_id: str = ""
     environment: tuple[tuple[str, str], ...] = ()
     container_network_mode: str = "bridge"
+    # Retain the resolved asset bundle for the acceptance companion.  This
+    # field is intentionally outside the canonical parity source list; it is
+    # a planner-to-capture compatibility bridge, not a second hash contract.
+    assets: object | None = None
+    # Explicit provenance hashes keep the acceptance companion independent of
+    # the internal StackAssets object while preserving the exact asset bundle
+    # resolved by build_stack_plan.
+    world_sdf_sha256: str = ""
+    vehicle_model_sha256: str = ""
+    vehicle_config_sha256: str = ""
+    stack_assets_sha256: str = ""
+    model_root_assets_sha256: str = ""
 
     @property
     def command_text(self) -> str:
@@ -482,6 +494,12 @@ def build_docker_simulator_plan(
         model_name=model_name,
         airframe_profile_id=stack.airframe_profile_id,
         environment=environment_tokens,
+        assets=stack.assets,
+        world_sdf_sha256=stack.assets.world.sha256,
+        vehicle_model_sha256=stack.assets.model.sha256,
+        vehicle_config_sha256=stack.assets.model_config.sha256,
+        stack_assets_sha256=stack.assets.aggregate_sha256,
+        model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
     )
 
 

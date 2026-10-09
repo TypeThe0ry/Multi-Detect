@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_red_green_search_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "gazebo-green-distractor-billboard-v1",
+      "label": "car",
+      "position": {
+        "latitude_deg": 1.2999999999995135,
+        "longitude_deg": 103.80067970849029,
+        "altitude_m": 26.15,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary_software_only_billboard_distractor"
+    },
+    {
+      "target_id": "gazebo-red-car-search-target-billboard-v1",
+      "label": "car",
+      "position": {
+        "latitude_deg": 1.3002713094380802,
+        "longitude_deg": 103.80054492725308,
+        "altitude_m": 26.15,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary_software_only_billboard_target"
+    }
+  ]
+}

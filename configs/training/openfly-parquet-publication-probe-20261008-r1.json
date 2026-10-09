@@ -1,0 +1,721 @@
+{
+  "availability_report": {
+    "bytes": 100742,
+    "path": "artifacts/diagnostics/openfly-multiscene-availability-20261008-r1/report.json",
+    "sha256": "0dfa82bf71d173834c92f34a707676ae73ca0fba6fa50c5507740614175d77ac"
+  },
+  "budget": {
+    "max_document_bytes": 65536,
+    "max_total_metadata_bytes": 8388608,
+    "max_tree_bytes": 2097152,
+    "max_tree_levels": 2,
+    "max_tree_requests": 6
+  },
+  "child_selection": "up_to_first_five_direct_child_directories_in_publisher_order",
+  "claims": {
+    "action_class_coverage_claimed": false,
+    "candidate_promoted": false,
+    "execution_authority": false,
+    "final_release_allowed": false,
+    "gpu_used": false,
+    "hil_real_evidence": false,
+    "model_loaded": false,
+    "optimizer_performed": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "quality_claim": false,
+    "samples_created": false,
+    "seen_unseen_downloaded": false,
+    "training_ready": false,
+    "weights_downloaded": false
+  },
+  "contract": "multidetect.openfly-parquet-publication-probe-plan-v1",
+  "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "dataset_root_tree": {
+    "bytes": 768,
+    "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/dataset-root-tree.json",
+    "sha256": "9009dfc89dd919e2b6ce145d870c44020f9926513495646f2bca3cbc66c53b1e"
+  },
+  "documentation": [
+    {
+      "bytes": 5167,
+      "digest": "ed6e0465e84e8b60681a47a58e34fb0d2e7af72f",
+      "digest_kind": "sha1-git-blob",
+      "repository_path": "hf.py",
+      "url": "https://huggingface.co/datasets/IPEC-COMMUNITY/OpenFly/resolve/a12316d56a4e35a32ad626fb725ed7089937a1c4/hf.py"
+    },
+    {
+      "bytes": 1885,
+      "digest": "c76c6b36b7ec909ca044d34fbe86c31dae357113",
+      "digest_kind": "sha1-git-blob",
+      "repository_path": "upload.sh",
+      "url": "https://huggingface.co/datasets/IPEC-COMMUNITY/OpenFly/resolve/a12316d56a4e35a32ad626fb725ed7089937a1c4/upload.sh"
+    }
+  ],
+  "initial_tree_path": "traj",
+  "output_directory": "artifacts/diagnostics/openfly-parquet-publication-20261008-r1",
+  "payload_download_authorized": false,
+  "sources": [
+    {
+      "bytes": 100742,
+      "path": "artifacts/diagnostics/openfly-multiscene-availability-20261008-r1/report.json",
+      "sha256": "0dfa82bf71d173834c92f34a707676ae73ca0fba6fa50c5507740614175d77ac"
+    },
+    {
+      "bytes": 168,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/metadata/episode-220-tree.json",
+      "sha256": "8d258e05b09b9dca5c37abb1c9455f01bcb67c18d700a4a588ca593a9b0524a9"
+    },
+    {
+      "bytes": 167,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/metadata/episode-90-tree.json",
+      "sha256": "de03cb88e368dbcf2f5ea2621f509d741da9ab8e7ddb88eaf58dc6e7e7370cab"
+    },
+    {
+      "bytes": 65032,
+      "path": "artifacts/diagnostics/openfly-multiscene-original-metadata-20261008-r1/report.json",
+      "sha256": "511ba2b701c7b27af554b480c328eb8b54934a5a56f0ea00b1af7d5a53362558"
+    },
+    {
+      "bytes": 137789,
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r2.json",
+      "sha256": "3751f103e55432688a99cfcf7178b13a400962b9c935992af05dbc9bd2a4079b"
+    },
+    {
+      "bytes": 167,
+      "path": "artifacts/training/openfly-multiscene-source-20261008-r1/metadata/episode-139-tree.json",
+      "sha256": "7bfb10db290aab13e750ffef2adbca40b1a46a79deae07d321db5ba5dcf83c9e"
+    },
+    {
+      "bytes": 59276,
+      "path": "artifacts/training/openfly-multiscene-source-20261008-r1/receipt.json",
+      "sha256": "99d3e8b06cd38375f85aa020efac528392ea2d1e81c345f876a36cf5c4c7c627"
+    },
+    {
+      "bytes": 767,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/configs/env_airsim_18.yaml",
+      "sha256": "ad8bc6917927809056ce95ed7f9d9015d0c247f930cc6850bf74d11b89437067"
+    },
+    {
+      "bytes": 5975,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/scripts/sim/airsim_bridge.py",
+      "sha256": "c1bee010ab1278068d3bb041452091efe67e5c9e43fe0afe570f6008f68aad72"
+    },
+    {
+      "bytes": 10300,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/tool_ws/src/traj_gen/include/navi/pathsearch.hpp",
+      "sha256": "f98a44b913c580d99428f0110678d451dd988c491bf8efd573aecc546d48551c"
+    },
+    {
+      "bytes": 47345,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/tool_ws/src/traj_gen/src/traj_gen.cc",
+      "sha256": "65d5c0bb234340fd4ca0c0cd5fd78a2f1fdde9fff2778384216362df3956e745"
+    },
+    {
+      "bytes": 1100,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/license/code/LICENSE",
+      "sha256": "a1603d026405d0c09a869a2a519f3802642cdbcb48a62b13b87ad0230f8a6109"
+    },
+    {
+      "bytes": 31,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/license/dataset/README.md",
+      "sha256": "4bcf87ecfbbb8e07a01b21415a970c8b53a5283bf6872b657040d3f45c9241f7"
+    },
+    {
+      "bytes": 142534,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+      "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+    },
+    {
+      "bytes": 637,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/annotation-tree.json",
+      "sha256": "fe475b32e323f505ad406f7b01c8d95dc14bbfde6216fa62a92992db752a6f49"
+    },
+    {
+      "bytes": 212856,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/code-tree.json",
+      "sha256": "d54418dd300ac482c2068ddd3ab8abebede92f6b566163c57ed89a9246cda43f"
+    },
+    {
+      "bytes": 768,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/dataset-root-tree.json",
+      "sha256": "9009dfc89dd919e2b6ce145d870c44020f9926513495646f2bca3cbc66c53b1e"
+    },
+    {
+      "bytes": 7147,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-0-tree.json",
+      "sha256": "bb55276e34417e2d2708ad9caadff0723682dd35ea492c3a3ef2013411676e7b"
+    },
+    {
+      "bytes": 170,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-2-tree.json",
+      "sha256": "196b5951ae074282ff2f0773d9a03f8317694e4e6d276ea31b320ae4c1b56dc4"
+    },
+    {
+      "bytes": 169,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-5-tree.json",
+      "sha256": "8c704ba7bca440012eb10b658e57461139540c837aca35ff08326a36f82e7982"
+    },
+    {
+      "bytes": 165,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-6-tree.json",
+      "sha256": "efa89655697a46a6f08d414fb4ff498bb9f2055befe522bec2f0676ec614437c"
+    },
+    {
+      "bytes": 11257,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-7-tree.json",
+      "sha256": "ac190ec244fefe3a4aa1ba7ee2f141b973731198ffd4758e1d6143924ed8899d"
+    },
+    {
+      "bytes": 13885,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-8-tree.json",
+      "sha256": "1eb6662592f8e9669cb79e1c893c0f8a2475ddae6f4bc75031a154149b3215cd"
+    },
+    {
+      "bytes": 405815796,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Annotation/train.json",
+      "sha256": "1a4c5a5ed1561ea5b3b79b6c25da7648ce4085b7d8489d62022a9bd1244100df"
+    },
+    {
+      "bytes": 683799,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190202_0.png",
+      "sha256": "cc69ef04688b84a02b21ad99e93aa8f39aeb063ef433cb1a310f8b9706ce71e1"
+    },
+    {
+      "bytes": 658385,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_1.png",
+      "sha256": "3c6c8cc831fa94fce8b4414637ef2f6dd1d5a9962f8cfebfbd283660e9fab219"
+    },
+    {
+      "bytes": 637250,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_2.png",
+      "sha256": "893f1ca4fa0ecfd87f8c05f7657fd161b205802b7d1ee4f66e570fec41e979f1"
+    },
+    {
+      "bytes": 623133,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190205_3.png",
+      "sha256": "6fc8b59bbea85de9c0f962d863effce94ba2f1045e652bbface4286fe38c7e8f"
+    },
+    {
+      "bytes": 605504,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190206_4.png",
+      "sha256": "ecc2d5a0e6f8d60c0b8c63d2a9530061bf18bec55e47b521b9e1ec7518d0a28b"
+    },
+    {
+      "bytes": 602473,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190206_5.png",
+      "sha256": "37c9a34207bdc595cef918a5386cf8517e2a55682028fe6b26ed24f1cf879df8"
+    },
+    {
+      "bytes": 603043,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_6.png",
+      "sha256": "5efc7f4dceccf033d77ec237da0dcccb5bf52223fc8d00312b3273c701afb44f"
+    },
+    {
+      "bytes": 604957,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_7.png",
+      "sha256": "bb24d49305b3af49c4ac444180a5214003e60c9c60b9d219738a7a92bca97746"
+    },
+    {
+      "bytes": 615437,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190207_8.png",
+      "sha256": "84f1ff017fcd90dcfbb5781005bed2e6efa84c268fc575745f9735488d55f301"
+    },
+    {
+      "bytes": 648056,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190208_10.png",
+      "sha256": "63bcaab89738e9ac91c5f9911b5c22d8ab1efe433a96df925918e34c5757a4e9"
+    },
+    {
+      "bytes": 630870,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190208_9.png",
+      "sha256": "820a0d6c9962f3d10a290d5e15f707390b1fc61c62ef4a12a464ec2763be7b84"
+    },
+    {
+      "bytes": 644253,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_11.png",
+      "sha256": "1b7b42c930fb282ddd146e7975a8f784fb70c91a4240536fd8bd5da8ecaf4f7c"
+    },
+    {
+      "bytes": 637417,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_12.png",
+      "sha256": "be1962999c1a4d43d26c420de2485854a55805ae5e8163b46dbaaf4d411bdb5b"
+    },
+    {
+      "bytes": 661057,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190209_13.png",
+      "sha256": "6f372965d6548ebb0fee86c95d4b2ed061aec7385b51bae966e2d433ba295b95"
+    },
+    {
+      "bytes": 650698,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190210_14.png",
+      "sha256": "4438bf3eacf4397b1511a0807241a0789093655390dcbdc4a1aebe9b4687110a"
+    },
+    {
+      "bytes": 627249,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190210_15.png",
+      "sha256": "b15ea8e9052d7a39d3b10689434b78271971a3d3ed9517405c7abff3ae492d84"
+    },
+    {
+      "bytes": 639267,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190211_16.png",
+      "sha256": "f4c993c2d53f00ef2ea2be487e6f234069fe7c0e7b03c65078da3d2a809b1e99"
+    },
+    {
+      "bytes": 583838,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190211_17.png",
+      "sha256": "5cc7948d788a35eab4f12a889b0748b0b016853cfc1806f02431198952b42f5b"
+    },
+    {
+      "bytes": 531423,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/20250108_190212_18.png",
+      "sha256": "31daf51910ac8873d4414336960cdffba5c02450d2e4d6cd802aef399db8fcf0"
+    },
+    {
+      "bytes": 5125,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794/pose.jsonl",
+      "sha256": "61f9bc0a06d205e12138eb76e85b4bd3acdb56d15da9aee4afa1c79c09b0ab7f"
+    },
+    {
+      "bytes": 662718,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194237_0.png",
+      "sha256": "aec8d9302f8876492b3a508872a9d0d048959c44b950a074913b4a4df29ad1dc"
+    },
+    {
+      "bytes": 666252,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194240_1.png",
+      "sha256": "2c0fb200964bda200f28c548e285f23a4260c53e12375786235e147e4eda8b9f"
+    },
+    {
+      "bytes": 659616,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_2.png",
+      "sha256": "bf7e0d45f3da02a0e409ce8c7d2be5c52349843fa194d47a7e45166c8bc4a713"
+    },
+    {
+      "bytes": 665556,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_3.png",
+      "sha256": "e693dff3fbe1647033a4063c71b335612d26143a01b2922beb3df588e2182232"
+    },
+    {
+      "bytes": 669461,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194241_4.png",
+      "sha256": "a02eeb27898a5ac80b62a2e0b4c193649d34961d6eaee4c87218952503d58444"
+    },
+    {
+      "bytes": 671453,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194242_5.png",
+      "sha256": "3ca6751e5b4c62416946f8956b9e18713010d0afebfb66fb1ab912378669d4c3"
+    },
+    {
+      "bytes": 674382,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194242_6.png",
+      "sha256": "4605fb967df3d9377b8602917f16758dadb1c7de4b74e8d4856b71416ce6152b"
+    },
+    {
+      "bytes": 679841,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194243_7.png",
+      "sha256": "62b6aa228256fec7eb882afbad7ff5db400a973830882daa6c4a8cc83640cf17"
+    },
+    {
+      "bytes": 686804,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194243_8.png",
+      "sha256": "83feab1a502bdb9a7a3e420eaaf610a91362f4a9ddf834aeb1fabb924f2ea57a"
+    },
+    {
+      "bytes": 626850,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_10.png",
+      "sha256": "6275b8801ccd338a155bc324ce9d653d9568ac4baf24c31993e6a69e816ae327"
+    },
+    {
+      "bytes": 591885,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_11.png",
+      "sha256": "c311fcf54d78c24bfc9d1d5dd90a96915a24cb1db53dc87d478c3c2b552662e4"
+    },
+    {
+      "bytes": 678231,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194244_9.png",
+      "sha256": "ece5eb8014c57c6e54390c70ec75fc7566101fe2bd0982b1668c547c84f2e421"
+    },
+    {
+      "bytes": 580981,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_12.png",
+      "sha256": "e201cc5c16f809703871e7c0fdbcbaaf2211b72f70b8d6bbcc9b04f9f2705c69"
+    },
+    {
+      "bytes": 605993,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_13.png",
+      "sha256": "6acbc4ed16ae1f070102dab14544ae73d13d76da038e878c6799ccbca4152de7"
+    },
+    {
+      "bytes": 666127,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194245_14.png",
+      "sha256": "7a1bd858e0efc9f49d22a5dbd531566b14b32b96c77a0c80111428036f7dfd48"
+    },
+    {
+      "bytes": 669813,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_15.png",
+      "sha256": "3911d892ff859a9baf8a18c3ebe1c8a2722823d369164562915028a5841a6eba"
+    },
+    {
+      "bytes": 666624,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_16.png",
+      "sha256": "294982a7069f0f008026e84909ffc15cc74accdba851585a78a2228c100a0eaf"
+    },
+    {
+      "bytes": 664598,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194246_17.png",
+      "sha256": "9756d9ffb77d41b2cbe0413d5ca7733d576f13b8d5def575246e91466c7ecc0e"
+    },
+    {
+      "bytes": 658352,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194247_18.png",
+      "sha256": "178df323f39f536d8ca0d8a3e0b9e8ba6e71ab65677255ce5985c249df3a5834"
+    },
+    {
+      "bytes": 662060,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194247_19.png",
+      "sha256": "7744295b80aa924159d862797c3fd71a08375916549b83fbd68bb9004fd850fa"
+    },
+    {
+      "bytes": 651094,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_20.png",
+      "sha256": "23098e5d3d63f806b19a4740b5bdf9cf5f12d5bd1adcc427e17e9a4f7bdad9da"
+    },
+    {
+      "bytes": 648800,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_21.png",
+      "sha256": "e605dd1468811623125220583b4acd4e8d9297b7e9e976a82e155d4c4fee9e2e"
+    },
+    {
+      "bytes": 661666,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194248_22.png",
+      "sha256": "c5c22e0e62780a6d1c20f0220e8c28bcdccdb94fb1ef4939430fc72041cfaa84"
+    },
+    {
+      "bytes": 643245,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194249_23.png",
+      "sha256": "3ab6b936cf943b44422d3431b3c24631bda8a2b06733e7efd8e7d56e23180ec8"
+    },
+    {
+      "bytes": 628123,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194249_24.png",
+      "sha256": "de03ad7d3c0b41dac89983ce78b5627f1114c61962c268314ddef471e785097d"
+    },
+    {
+      "bytes": 607365,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194250_25.png",
+      "sha256": "c778af0290dcc24340dd9d74567fd7f0b04676aca00df92dc4815ea9f27224a0"
+    },
+    {
+      "bytes": 596174,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194250_26.png",
+      "sha256": "3e62bde5d90a572bfaa0c657c8c85862ddb79aa94ddab6151ebc7d310d621293"
+    },
+    {
+      "bytes": 583677,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194251_27.png",
+      "sha256": "5a9b73e3cc1079c9e044ecf6fcb2dfff2bece1b37dec797a4f09648696ad2bc1"
+    },
+    {
+      "bytes": 566366,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194251_28.png",
+      "sha256": "e4c94824329c104df9f8893c2488235685a309d438d1166a96e14db1e7dcc8d7"
+    },
+    {
+      "bytes": 546877,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_29.png",
+      "sha256": "1beb8b36270b09a8579a833afeea4e1a55f66c9df4080b650a2d5a45fe6bb3cb"
+    },
+    {
+      "bytes": 530028,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_30.png",
+      "sha256": "6b08c3eed30003f22c976bd78755e09c56b7eecafbc14cf6f6a2f939d7c64729"
+    },
+    {
+      "bytes": 524437,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194252_31.png",
+      "sha256": "2845822059f1d111b4ea8ae4618836f166bbcbac65ae640c48294b33d36db3ff"
+    },
+    {
+      "bytes": 528636,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_32.png",
+      "sha256": "2b8e80d24b99c51ef53754041a6d3b11a4d34c9b51173fc50e65d9cd111605d5"
+    },
+    {
+      "bytes": 528111,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_33.png",
+      "sha256": "dce3715418e13a41686ab10570da8d64fef452a973fd5e0877487db5d05ccaf2"
+    },
+    {
+      "bytes": 544867,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194253_34.png",
+      "sha256": "b555b61a356eebb0bbb950bddac6b0293153addef6f150aeceb1da24d8438525"
+    },
+    {
+      "bytes": 557765,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194254_35.png",
+      "sha256": "4add8562d1f7ad26440d5eb0ae8f6f541e6b6bd2010278d75b6f3d5004fbda42"
+    },
+    {
+      "bytes": 557441,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/20250108_194254_36.png",
+      "sha256": "f2a5a26e71c5ffd7139b9718119180757737421b8098faaaeb8476f520e91326"
+    },
+    {
+      "bytes": 9541,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516/pose.jsonl",
+      "sha256": "60e05b1e2849de47328ae4ed983aad0db7cb2f8b48a0ba4c39268661bfd78974"
+    },
+    {
+      "bytes": 685112,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235139_0.png",
+      "sha256": "4ef4a84b1c5c5f8d29c0983ea541ac5187de2f698990b697fb1ba1a165fc7696"
+    },
+    {
+      "bytes": 681106,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_1.png",
+      "sha256": "de9e1136feff56496b2834f60ba6c2fd577f58853667245e50a7996a84dfd9aa"
+    },
+    {
+      "bytes": 680973,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_2.png",
+      "sha256": "dc9e46d34d4726c7492cd48e7ae15416eb828712101ab48fac939438eba9e436"
+    },
+    {
+      "bytes": 662568,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235142_3.png",
+      "sha256": "e700930f735421e50c4f1939dc8fe73be78026eb3fe79935f84a60d39b2b8398"
+    },
+    {
+      "bytes": 653491,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235143_4.png",
+      "sha256": "37a729a71277e650a2888bb37832c37a96adf9aae316dbc7d4ec5c5b72ac8302"
+    },
+    {
+      "bytes": 646796,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235143_5.png",
+      "sha256": "9c4e1db212319ef7faec172a60f2eb46b28d879fd8f9746b60ec4c8ec8574b28"
+    },
+    {
+      "bytes": 652157,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235144_6.png",
+      "sha256": "ff603016e0e5073222b770e6f14b62e3449905716af5233c5eda56f1c5da1aa5"
+    },
+    {
+      "bytes": 638484,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235144_7.png",
+      "sha256": "73df199acb5c720945f2b7565c88dcf25a8511f304346f061f93de9be16c801f"
+    },
+    {
+      "bytes": 677811,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_10.png",
+      "sha256": "2081fb16fb56eec98f75943c785d0296c2eb3dbe5cc45969f0048391d69dd209"
+    },
+    {
+      "bytes": 676946,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_8.png",
+      "sha256": "b837decb738ce338532cd9ba3a4d8eec5f94a129cccbd0470f88ebd092faaffd"
+    },
+    {
+      "bytes": 683361,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235145_9.png",
+      "sha256": "aa7825d43cd8e32d1c7a022ae34bc30cf3cb9f395ff43601edfe93e921c98797"
+    },
+    {
+      "bytes": 671595,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235146_11.png",
+      "sha256": "f18a045a0c99fe3f045fe434284e87dfabf6feca6683b4e0e65ce278c54c098d"
+    },
+    {
+      "bytes": 646408,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235146_12.png",
+      "sha256": "a731bc4e3223d7ab18e75a97d9b4d1054dfa0588f17e0c1802863e87ca1b4128"
+    },
+    {
+      "bytes": 635413,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_13.png",
+      "sha256": "a4e732e0245cea5b212dd6cff7b4b717d4962bcd101774e25183cba1a6087d37"
+    },
+    {
+      "bytes": 674289,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_14.png",
+      "sha256": "5bd222d75b3686679a20a95b5e7ab8396223ab9e8c186211de704c77f4fd8dd0"
+    },
+    {
+      "bytes": 659599,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235147_15.png",
+      "sha256": "f1b5a1793865d7d04c0aea8f53b5cf998a601f229eeb9de71c6e06688392ce67"
+    },
+    {
+      "bytes": 618696,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235148_16.png",
+      "sha256": "f7e49677f8be89c53b58ddf6c1118bf792b58f0c00e1b2116649bb1e4220b8b3"
+    },
+    {
+      "bytes": 615236,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235148_17.png",
+      "sha256": "9bbd5b311a1ee7bcb795bcba7631b932ce51f279cc08d51e8109268e005bff6f"
+    },
+    {
+      "bytes": 653266,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_18.png",
+      "sha256": "a2ce358b70967dd070448dc3261bf04c58092da21f4f76059e411d847f537c95"
+    },
+    {
+      "bytes": 661917,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_19.png",
+      "sha256": "dacd0bfa588f1ff900cdd82b6a1c609ae8bfcd9d0dfac5504b28351ee3688731"
+    },
+    {
+      "bytes": 653746,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235149_20.png",
+      "sha256": "8325c63bfbf52e11160901fcc6573cfae3821ece0d03dc411b597e9bac2942e1"
+    },
+    {
+      "bytes": 672964,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235150_21.png",
+      "sha256": "f9906bbff6fff1d2f8cf3d6a658e443bb755dce642b2ee99b2bd46048f5f7b5f"
+    },
+    {
+      "bytes": 672679,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235150_22.png",
+      "sha256": "4fe33aabfd4b76afe5a9453ab095111b4a83049cf17bee2d49230ec59641adff"
+    },
+    {
+      "bytes": 673774,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235151_23.png",
+      "sha256": "cd5278248d28b53557a0f39462217a9066efc03c7b5450b334567460b30fc579"
+    },
+    {
+      "bytes": 688146,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235151_24.png",
+      "sha256": "fc638c4b19c7332a96674c5e5e61068b004fb68d634d1edf6472418a89363b1a"
+    },
+    {
+      "bytes": 717742,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_25.png",
+      "sha256": "53b7b6eb255b8fafeafc682898e5a87198aaa37ffce7cf992b5e5302e4833bd4"
+    },
+    {
+      "bytes": 721187,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_26.png",
+      "sha256": "d99d646225846148145737231935d8c5a19554d0fdc62f01f1d9a96fc4e40fae"
+    },
+    {
+      "bytes": 719208,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235152_27.png",
+      "sha256": "bfe2d460a862b7ac9a38bb1ea25125a6610e5023b367a3e56f51a6c057ef6a0f"
+    },
+    {
+      "bytes": 713739,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235153_28.png",
+      "sha256": "fb429bd5ce30b7c40615f2bc0e6f949daf24b13a520b3491d8633af57af789fe"
+    },
+    {
+      "bytes": 720569,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/20250108_235153_29.png",
+      "sha256": "4239d7996d328d9d42f8df256cd5b97213bffc5b0ac54890efe4490c9daabd7e"
+    },
+    {
+      "bytes": 7866,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Image/env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134/pose.jsonl",
+      "sha256": "a1f409fd43258e5f016369476cb69ba94b583ef6e297ec8c2311a958f8224e64"
+    },
+    {
+      "bytes": 1139,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-0.json",
+      "sha256": "11e5ac7b3b8983b1e1f29a38112ad3c36ee9cbd56c449f5b455da0dfbf06a1a5"
+    },
+    {
+      "bytes": 2117,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-7.json",
+      "sha256": "c374707a84f77ca4d3763d5fa43bb92695eeebb6c84f5dc87258311c6d8e0eae"
+    },
+    {
+      "bytes": 2382,
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/selected/annotation-8.json",
+      "sha256": "ca97821b5161ad3a55037919e41b04ae0261bc58d796333fccc7961157854ee3"
+    },
+    {
+      "bytes": 7080,
+      "path": "configs/training/openfly-multiscene-acquisition-20261008-r2.json",
+      "sha256": "7d84b33d149830e8a5b66807926d2dd151acafac8bbc2b7258ad1c0fe1a4e3db"
+    },
+    {
+      "bytes": 62970,
+      "path": "configs/training/openfly-multiscene-availability-probe-20261008-r1.json",
+      "sha256": "3f5d3c304580bac2c050246f01a562f5b3721b31f50555bf13c7b7beb6bba07c"
+    },
+    {
+      "bytes": 36592,
+      "path": "configs/training/openfly-multiscene-download-20261008-r1.json",
+      "sha256": "d75825abb342ec73ec2d934b7af3814facee9640b170493e5854c33aa352ae20"
+    },
+    {
+      "bytes": 35770,
+      "path": "scripts/build_onboard_openfly_navigation_dataset.py",
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "bytes": 24889,
+      "path": "scripts/fetch_openfly_multiscene_navigation.py",
+      "sha256": "d86e2fd419edcafdc3abc6934aea7e830e548b72157faed85e63005909821439"
+    },
+    {
+      "bytes": 34972,
+      "path": "scripts/fetch_openfly_navigation_pilot.py",
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "bytes": 28565,
+      "path": "scripts/plan_openfly_multiscene_acquisition.py",
+      "sha256": "b20930141a7746bf9ada7f102baec69c3d6fd72b4a1beb4e77006029fa783618"
+    },
+    {
+      "bytes": 22592,
+      "path": "scripts/probe_openfly_multiscene_availability.py",
+      "sha256": "25263370ca4ae9fbb68c65452b22cfff537cf22d4eb1f40fe9f3eb47d5ccb085"
+    },
+    {
+      "bytes": 17481,
+      "path": "scripts/probe_openfly_parquet_publication.py",
+      "sha256": "605303f0bb857419b95d8c373f34e7fd254ff8e0c34b058617bb3d788ea8e7e5"
+    },
+    {
+      "bytes": 52186,
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "src/multidetect/autonomy/serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    },
+    {
+      "bytes": 17728,
+      "path": "tests/test_fetch_openfly_multiscene_navigation.py",
+      "sha256": "384e3b66fcf04c723f679b005c961de89cc7be253e3e4382a8ca9eec9163077b"
+    },
+    {
+      "bytes": 17893,
+      "path": "tests/test_fetch_openfly_navigation_pilot.py",
+      "sha256": "8911a88af5e0f7950fdd5b0e954ceeeaaf4e652e1551c31ce898fce33facc284"
+    },
+    {
+      "bytes": 19390,
+      "path": "tests/test_plan_openfly_multiscene_acquisition.py",
+      "sha256": "a375d5b03898a57ce893367aaacf4a5e48da15ad08eb71c7884627ed44ddabe3"
+    },
+    {
+      "bytes": 11809,
+      "path": "tests/test_probe_openfly_multiscene_availability.py",
+      "sha256": "83d01c0dcf7a2ff6db9f64f3e28a17bdd68122d9764f77b739c6c10923c9a52e"
+    },
+    {
+      "bytes": 9781,
+      "path": "tests/test_probe_openfly_parquet_publication.py",
+      "sha256": "cb927af6bec266cfdc4699359f8b21bacad34b6019b66380187aa9ecd651412b"
+    }
+  ]
+}

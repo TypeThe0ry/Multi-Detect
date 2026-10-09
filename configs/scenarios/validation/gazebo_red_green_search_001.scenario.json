@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_red_green_search_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "gazebo_red_green_search_001.runtime.json",
+      "sha256": "3028b993f50d3a02195552a86a9e202f065573dab0498aa8ab684104811881bd"
+    },
+    "truth": {
+      "path": "gazebo_red_green_search_001.truth.json",
+      "sha256": "d6b77c4a61e9d97d840d86d011399b2f0b7f894c497d5fec6feb3f34aa535100"
+    },
+    "expectations": {
+      "path": "gazebo_red_green_search_001.expectations.json",
+      "sha256": "7d875d4e759b9561d2da8075e3eb90f938cacd44f42c38f0baa4bc15743bfa8c"
+    }
+  }
+}

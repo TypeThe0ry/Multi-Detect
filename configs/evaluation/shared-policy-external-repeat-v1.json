@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "shared-policy-external-repeat-v1",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "minimum_parent_runs": 3,
+  "minimum_candidate_runs": 3,
+  "required_invariants": [
+    "same_scenario_manifest",
+    "same_stable_airframe_profile",
+    "same_campaign_identity",
+    "same_px4_mission_path",
+    "all_gate_passed",
+    "all_cleanup_clean"
+  ],
+  "primary_metric": {
+    "name": "completed_task_count",
+    "path": "campaign.verified_sorties",
+    "aggregation": "count",
+    "direction": "maximize",
+    "minimum_candidate_margin": 1
+  },
+  "promotion_policy": {
+    "require_metric_present_in_every_run": true,
+    "require_minimum_run_counts": true,
+    "require_all_invariants": true,
+    "candidate_promoted_by_evaluator": false
+  }
+}

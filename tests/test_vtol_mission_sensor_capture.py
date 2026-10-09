@@ -28,6 +28,97 @@ from multidetect.px4_mission import (
 from scripts import run_vtol_mission_sensor_capture as capture
 from scripts.run_simulator_docker import build_docker_simulator_plan
 
+
+def _energy_configuration():
+    return dict(
+        capacity_wh=100.0,
+        avionics_power_w=36.0,
+        propulsion_max_power_w=324.0,
+        initial_remaining_wh=90.0,
+        provenance="synthetic-test",
+    )
+
+
+def test_energy_options_roundtrip_to_child_parser():
+    from scripts.vtol_sitl_mission_acceptance import _parser
+
+    options = capture._energy_arguments(_energy_configuration())
+    args, remaining = _parser().parse_known_args(
+        [
+            "--evidence",
+            "test.json",
+            "--container-name",
+            "test",
+            "--expected-container-id",
+            "a" * 64,
+            "--evaluator-port",
+            "14691",
+            "--airframe-profile-sha256",
+            "b" * 64,
+            "--runtime-descriptor-sha256",
+            "c" * 64,
+            "--runtime-provenance-sha256",
+            "d" * 64,
+            *options,
+        ]
+    )
+    assert remaining == []
+    for key, value in _energy_configuration().items():
+        assert getattr(args, "energy_" + key) == value
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("capacity_wh", None),
+        ("capacity_wh", float("nan")),
+        ("initial_remaining_wh", 101.0),
+        ("initial_remaining_wh", -1.0),
+        ("provenance", ""),
+        ("propulsion_max_power_w", -1.0),
+    ],
+)
+def test_bad_energy_configuration_rejected_before_paths_or_docker(tmp_path, key, value):
+    config = _energy_configuration()
+    config[key] = value
+    directory = tmp_path / "must-not-exist"
+    with pytest.raises((ValueError, capture.VtolMissionSensorCaptureError)):
+        capture.run_vtol_mission_sensor_capture(
+            run_directory=directory,
+            energy_configuration=config,
+            command_runner=lambda *a, **kw: pytest.fail("Docker accessed"),
+        )
+    assert not directory.exists()
+
+
+def test_parent_cli_transfers_energy_configuration(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        capture,
+        "run_vtol_mission_sensor_capture",
+        lambda *a, **kw: seen.append(kw) or {"gate_passed": False},
+    )
+    assert capture.main(capture._energy_arguments(_energy_configuration())) == 0
+    assert seen[0]["energy_configuration"] == _energy_configuration()
+
+
+def test_sim_energy_profile_is_explicit_and_never_live_endurance() -> None:
+    configuration = capture._resolve_energy_configuration(
+        None, capture.SIM_ENERGY_PROFILE_ID
+    )
+    assert configuration is not None
+    assert configuration["capacity_wh"] == 100.0
+    assert configuration["initial_remaining_wh"] == 100.0
+    assert "uncalibrated SIM-only" in configuration["provenance"]
+    assert "not BATTERY_STATUS" in configuration["provenance"]
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="cannot be combined"):
+        capture._resolve_energy_configuration(
+            _energy_configuration(), capture.SIM_ENERGY_PROFILE_ID
+        )
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="unknown SIM"):
+        capture._resolve_energy_configuration(None, "not-a-profile")
+
+
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
 CONTAINER_ID = "d" * 64
@@ -434,6 +525,7 @@ def _sensor_payload(
     scenario_id: str = capture.EXPECTED_SCENARIO_ID,
     scenario_manifest_hash: str = SCENARIO_HASH,
     live_timestamps: bool = False,
+    clock=None,
 ) -> dict[str, Any]:
     frame_directory.mkdir(parents=True, exist_ok=False)
     payload_bytes = width * height * 3
@@ -449,14 +541,15 @@ def _sensor_payload(
         frame_name = f"frame-{index:06d}.bgr24"
         (frame_directory / frame_name).write_bytes(raw)
         if live_timestamps:
-            captured_at_s = capture.time.monotonic()
+            captured_at_s = clock.monotonic() if clock is not None else capture.time.monotonic()
             while last_captured_at_s is not None and captured_at_s <= last_captured_at_s:
-                captured_at_s = capture.time.monotonic()
+                captured_at_s = clock.monotonic() if clock is not None else capture.time.monotonic()
         else:
             captured_at_s = READY_MONOTONIC_S + 0.1 + (0.1 * index / max(frame_count - 1, 1))
         last_captured_at_s = captured_at_s
         provenance = {
-            "captured_at_clock": "host_monotonic",
+            "captured_at_clock": "host_perf_counter" if clock is not None else "host_monotonic",
+            **({"host_clock_identity": clock.identity()} if clock is not None else {}),
             "captured_at_s": captured_at_s,
             "sensor_stamp_ns": 1_000_000_000 + index,
             "sequence": index,
@@ -523,6 +616,9 @@ def _sensor_payload(
             "production_model_approval": "not_claimed",
         },
     }
+    if clock is not None:
+        manifest_without_hash["captured_at_clock"] = "host_perf_counter"
+        manifest_without_hash["host_clock_identity"] = clock.identity()
     manifest_hash = canonical_sha256(manifest_without_hash)
     manifest_payload = {**manifest_without_hash, "manifest_sha256": manifest_hash}
     manifest_path = frame_directory / capture.GAZEBO_BGR24_FRAME_SET_MANIFEST
@@ -581,6 +677,7 @@ def _validate_sensor(
     frame_count: int = 3,
     width: int = 2,
     height: int = 2,
+    host_clock_identity=None,
 ) -> dict[str, bool]:
     return capture.validate_sensor_capture(
         payload,
@@ -593,6 +690,7 @@ def _validate_sensor(
         flight_ready_monotonic_s=READY_MONOTONIC_S,
         capture_started_monotonic_s=READY_MONOTONIC_S + 0.1,
         capture_completed_monotonic_s=READY_MONOTONIC_S + 0.2,
+        host_clock_identity=host_clock_identity,
     )
 
 
@@ -721,7 +819,8 @@ def test_capture_paths_are_absolute_distinct_and_no_clobber(tmp_path: Path) -> N
 
     assert paths.run_directory.is_dir()
     assert all(Path(value).is_absolute() for value in paths.to_mapping().values())
-    assert len(set(paths.to_mapping().values())) == 10
+    assert len(set(value for value in paths.to_mapping().values() if value is not None)) == 10
+    assert paths.depth_directory is None
     assert paths.flight_capture_complete.name == "vtol-sensor-capture-complete.json"
     assert not paths.evidence.exists()
 
@@ -731,6 +830,21 @@ def test_capture_paths_are_absolute_distinct_and_no_clobber(tmp_path: Path) -> N
         capture.prepare_capture_paths(tmp_path / "second-run", existing)
     assert existing.read_bytes() == b"preserve-me"
     assert not (tmp_path / "second-run").exists()
+
+
+def test_capture_paths_include_explicit_depth_directory_without_implicit_capture(
+    tmp_path: Path,
+) -> None:
+    paths = capture.prepare_capture_paths(
+        tmp_path / "depth-run",
+        tmp_path / "depth-evidence.json",
+        depth_output_directory=tmp_path / "depth-frames",
+    )
+
+    assert paths.depth_directory == (tmp_path / "depth-frames").resolve()
+    mapping = paths.to_mapping()
+    assert mapping["depth_directory"] == str(paths.depth_directory)
+    assert len(set(mapping.values())) == 11
 
 
 def test_capture_paths_reject_aliases_before_creating_run(tmp_path: Path) -> None:
@@ -837,17 +951,66 @@ def test_hardened_docker_plan_contract_and_weakened_argv_rejection(tmp_path: Pat
         )
 
 
-def test_flight_ready_accepts_only_strict_mission_flight_barrier() -> None:
+@pytest.mark.parametrize("qpc", [False, True])
+def test_flight_ready_accepts_only_strict_mission_flight_barrier(qpc) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
+    payload = _flight_ready_payload()
+    identity = HighResolutionSystemClock(session_id="barrier-parent").identity() if qpc else None
+    if qpc:
+        payload["captured_at_clock"] = "host_perf_counter"
+        payload["host_clock_identity"] = identity
     checks = capture.validate_flight_capture_ready(
-        _flight_ready_payload(),
+        payload,
         container_id=CONTAINER_ID,
+        host_clock_identity=identity,
     )
     assert all(checks.values())
+    if qpc:
+        with pytest.raises(capture.VtolMissionSensorCaptureError):
+            capture.validate_flight_capture_ready(payload, container_id=CONTAINER_ID)
+
+
+def test_campaign_flight_ready_binds_task_descriptor_and_rejects_tampering() -> None:
+    expected = {
+        "task_id": "task-v56",
+        "plan_sha256": "a" * 64,
+        "executable_mission_sha256": "b" * 64,
+        "wire_hash": "c" * 64,
+    }
+    payload = _flight_ready_payload()
+    payload["task_binding"] = dict(expected)
+    checks = capture.validate_flight_capture_ready(
+        payload,
+        container_id=CONTAINER_ID,
+        expected_task_binding=expected,
+    )
+    assert checks["task_binding"] is True
+
+    for field in expected:
+        tampered = copy.deepcopy(payload)
+        tampered["task_binding"][field] = "tampered"
+        with pytest.raises(capture.VtolMissionSensorCaptureError, match="task_binding"):
+            capture.validate_flight_capture_ready(
+                tampered,
+                container_id=CONTAINER_ID,
+                expected_task_binding=expected,
+            )
+
+    missing = copy.deepcopy(payload)
+    del missing["task_binding"]
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="task_binding"):
+        capture.validate_flight_capture_ready(
+            missing,
+            container_id=CONTAINER_ID,
+            expected_task_binding=expected,
+        )
 
 
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     (
+        ("schema_version", True, "schema_version"),
         ("container.id", "e" * 64, "exact_container_id"),
         ("container.exact_id_bound", False, "exact_container_id_bound"),
         ("captured_at_monotonic_s", float("inf"), "host_monotonic_timestamp"),
@@ -880,32 +1043,134 @@ def test_flight_ready_accepts_only_strict_mission_flight_barrier() -> None:
         ("real_camera_contacted", True, "no_real_hardware"),
     ),
 )
+@pytest.mark.parametrize("qpc", [False, True])
 def test_flight_ready_fails_closed_when_any_safety_fact_is_missing(
     path: str,
     value: Any,
     message: str,
+    qpc: bool,
 ) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
     payload = _set_nested(_flight_ready_payload(), path, value)
+    identity = HighResolutionSystemClock(session_id="barrier-parent").identity() if qpc else None
+    if qpc:
+        payload["captured_at_clock"] = "host_perf_counter"
+        payload["host_clock_identity"] = identity
     with pytest.raises(capture.VtolMissionSensorCaptureError, match=message):
-        capture.validate_flight_capture_ready(payload, container_id=CONTAINER_ID)
+        capture.validate_flight_capture_ready(
+            payload, container_id=CONTAINER_ID, host_clock_identity=identity
+        )
 
 
-def test_mission_evidence_requires_completed_vtol_and_same_committed_protocol() -> None:
-    checks = capture.validate_mission_evidence(
-        _mission_payload(),
+@pytest.mark.parametrize("change", ["missing", "null", "session", "label", "resolution"])
+def test_flight_ready_rejects_clock_identity_tampering(change):
+    from multidetect.clock import HighResolutionSystemClock
+
+    identity = HighResolutionSystemClock(session_id="barrier-parent").identity()
+    payload = _flight_ready_payload()
+    payload["captured_at_clock"] = "host_perf_counter"
+    payload["host_clock_identity"] = dict(identity)
+    if change == "missing":
+        del payload["host_clock_identity"]
+    elif change == "null":
+        payload["host_clock_identity"] = None
+    elif change == "session":
+        payload["host_clock_identity"]["session_id"] = "other"
+    elif change == "resolution":
+        payload["host_clock_identity"]["resolution_ns"] += 1
+    else:
+        payload["captured_at_clock"] = "host_monotonic"
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="host_monotonic_timestamp"):
+        capture.validate_flight_capture_ready(
+            payload, container_id=CONTAINER_ID, host_clock_identity=identity
+        )
+
+
+@pytest.mark.parametrize("qpc", [False, True])
+@pytest.mark.parametrize("tamper", [None, "ready", "complete", "interval"])
+def test_mission_evidence_requires_completed_vtol_and_same_committed_protocol(qpc, tamper) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
+    identity = HighResolutionSystemClock(session_id="capture-parent").identity() if qpc else None
+    payload = _mission_payload()
+    ready = _flight_ready_payload()
+    complete = _capture_complete_payload()
+    samples = payload["flight"]["flight_capture_interval_samples"]
+    records = [(ready, "captured_at_clock"), (complete, "clock")]
+    records.extend((sample, "captured_at_clock") for sample in samples)
+    if qpc:
+        for record, label_key in records:
+            record[label_key] = "host_perf_counter"
+            record["host_clock_identity"] = dict(identity)
+    if tamper:
+        record = {"ready": ready, "complete": complete, "interval": samples[0]}[tamper]
+        record["host_clock_identity"] = {"source": "python.perf_counter", "session_id": "wrong"}
+    payload["flight"]["flight_capture_complete_document"] = complete
+    kwargs = dict(
         container_id=CONTAINER_ID,
         scenario_manifest_sha256=SCENARIO_HASH,
         airframe_profile_hash=AIRFRAME_HASH,
         descriptor_hash=DESCRIPTOR_HASH,
         provenance_hash=PROVENANCE_HASH,
         evaluator_port=51_005,
-        barrier=_flight_ready_payload(),
+        barrier=ready,
         flight_ready_path=READY_PATH,
         flight_complete_path=COMPLETE_PATH,
         flight_complete_file_sha256=COMPLETE_FILE_SHA256,
-        flight_complete_document=_capture_complete_payload(),
+        flight_complete_document=complete,
+        host_clock_identity=identity,
     )
+    if tamper:
+        with pytest.raises(
+            capture.VtolMissionSensorCaptureError,
+            match="capture_clock_domain|flight_capture_interval",
+        ):
+            capture.validate_mission_evidence(payload, **kwargs)
+        return
+    checks = capture.validate_mission_evidence(payload, **kwargs)
     assert all(checks.values())
+
+
+def test_mission_evidence_binds_ready_task_descriptor_to_completion() -> None:
+    payload = _mission_payload()
+    ready = _flight_ready_payload()
+    complete = _capture_complete_payload()
+    expected = {
+        "task_id": "task-v56",
+        "plan_sha256": payload["documents"]["platform_neutral_plan"]["sha256"],
+        "executable_mission_sha256": payload["documents"]["executable_mission"]["sha256"],
+        "wire_hash": PROTOCOL_HASH,
+    }
+    ready["task_binding"] = dict(expected)
+    complete.update(expected)
+    complete["capture_deadline_monotonic_s"] = READY_MONOTONIC_S + 1.0
+    payload["flight"]["flight_capture_complete_document"] = complete
+    payload["flight"]["flight_capture_complete_checks"].update(
+        task_binding=True,
+        capture_deadline=True,
+    )
+    kwargs = dict(
+        container_id=CONTAINER_ID,
+        scenario_manifest_sha256=SCENARIO_HASH,
+        airframe_profile_hash=AIRFRAME_HASH,
+        descriptor_hash=DESCRIPTOR_HASH,
+        provenance_hash=PROVENANCE_HASH,
+        evaluator_port=51_005,
+        barrier=ready,
+        flight_ready_path=READY_PATH,
+        flight_complete_path=COMPLETE_PATH,
+        flight_complete_file_sha256=COMPLETE_FILE_SHA256,
+        flight_complete_document=complete,
+        expected_task_binding=expected,
+    )
+    checks = capture.validate_mission_evidence(payload, **kwargs)
+    assert checks["task_binding"] is True
+
+    tampered = copy.deepcopy(ready)
+    tampered["task_binding"]["wire_hash"] = "d" * 64
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="task_binding"):
+        capture.validate_mission_evidence(payload, **{**kwargs, "barrier": tampered})
 
 
 def test_mission_journal_reopens_and_binds_all_mission_identity_fields(
@@ -1159,10 +1424,70 @@ def test_mission_evidence_fails_closed_on_incomplete_or_overclaimed_run(
         )
 
 
-def test_wire_v3_capture_requires_persisted_truth_free_actual_pixels(tmp_path: Path) -> None:
+@pytest.mark.parametrize("clock_case", ["legacy", "qpc", "wrong-parent", "missing-parent"])
+def test_wire_v3_capture_requires_persisted_truth_free_actual_pixels(
+    tmp_path: Path, clock_case
+) -> None:
+    from multidetect.clock import HighResolutionSystemClock
+
     frame_directory = tmp_path / "frames"
-    checks = _validate_sensor(_sensor_payload(frame_directory), frame_directory)
+    payload = _sensor_payload(frame_directory)
+    identity = None
+    if clock_case != "legacy":
+        identity = HighResolutionSystemClock(session_id="parent-pixels").identity()
+        manifest_record = payload["pixel_persistence"]["manifest"]
+        manifest_path = Path(manifest_record["path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["captured_at_clock"] = "host_perf_counter"
+        manifest["host_clock_identity"] = dict(identity)
+        for frame in payload["pixel_persistence"]["files"]:
+            frame["provenance"]["captured_at_clock"] = "host_perf_counter"
+            frame["provenance"]["host_clock_identity"] = dict(identity)
+        manifest["frames"] = payload["pixel_persistence"]["files"]
+        manifest.pop("manifest_sha256")
+        manifest["manifest_sha256"] = canonical_sha256(manifest)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        manifest_record.update(
+            bytes=manifest_path.stat().st_size,
+            file_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            manifest_sha256=manifest["manifest_sha256"],
+        )
+        if clock_case == "wrong-parent":
+            identity = HighResolutionSystemClock(session_id="different-parent").identity()
+        elif clock_case == "missing-parent":
+            identity = None
+    if clock_case in ("wrong-parent", "missing-parent"):
+        with pytest.raises(capture.VtolMissionSensorCaptureError):
+            _validate_sensor(payload, frame_directory, host_clock_identity=identity)
+        return
+    checks = _validate_sensor(payload, frame_directory, host_clock_identity=identity)
     assert all(checks.values())
+
+
+@pytest.mark.parametrize("version", (1, 2, 3, True, 2.0))
+def test_pixel_gate_accepts_known_manifest_versions_only(tmp_path: Path, version) -> None:
+    frame_directory = tmp_path / "frames"
+    payload = _sensor_payload(frame_directory)
+    manifest_path = Path(payload["pixel_persistence"]["manifest"]["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = version
+    unsigned = dict(manifest)
+    unsigned.pop("manifest_sha256")
+    manifest["manifest_sha256"] = canonical_sha256(unsigned)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    record = payload["pixel_persistence"]["manifest"]
+    record.update(
+        {
+            "bytes": manifest_path.stat().st_size,
+            "file_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "manifest_sha256": manifest["manifest_sha256"],
+        }
+    )
+    if type(version) is int and version in (1, 2):
+        assert all(_validate_sensor(payload, frame_directory).values())
+    else:
+        with pytest.raises(capture.VtolMissionSensorCaptureError, match="manifest_content_bound"):
+            _validate_sensor(payload, frame_directory)
 
 
 @pytest.mark.parametrize(
@@ -1382,10 +1707,14 @@ def test_router_thread_uses_all_six_ports_and_stops_via_event() -> None:
     assert observed["evaluator_port"] == 51_005
     assert observed["evaluator_router_port"] == 51_006
     assert observed["acknowledge_owned_disposable_sitl"] is True
+    assert observed["duration_seconds"] == 165.0
+    assert observed["duration_limit_seconds"] == 165.0
 
 
+@pytest.mark.parametrize("reference_profile", ["lifecycle-smoke", "fixed-wing-response"])
 def test_mission_helper_arguments_bind_exact_container_and_flight_ready_file(
     tmp_path: Path,
+    reference_profile: str,
 ) -> None:
     paths = capture.CapturePaths(
         run_directory=tmp_path / "run",
@@ -1409,6 +1738,7 @@ def test_mission_helper_arguments_bind_exact_container_and_flight_ready_file(
         runtime_descriptor_sha256=DESCRIPTOR_HASH,
         runtime_provenance_sha256=PROVENANCE_HASH,
         mission_timeout_s=90.0,
+        reference_profile=reference_profile,
         docker_executable=r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
     )
 
@@ -1423,6 +1753,105 @@ def test_mission_helper_arguments_bind_exact_container_and_flight_ready_file(
         r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
     )
     assert "--acknowledge-owned-disposable-sitl" in arguments
+    if reference_profile == "fixed-wing-response":
+        assert arguments[arguments.index("--reference-profile") + 1] == reference_profile
+    else:
+        assert "--reference-profile" not in arguments
+
+
+def test_campaign_sensor_capture_keeps_first_sortie_barriers_and_owns_journal(
+    tmp_path: Path,
+) -> None:
+    """Combined campaign mode must retain only the paired first-sortie barriers."""
+
+    paths = capture.CapturePaths(
+        run_directory=tmp_path / "run",
+        evidence=tmp_path / "evidence.json",
+        flight_ready=tmp_path / "ready.json",
+        flight_capture_complete=tmp_path / "complete.json",
+        mission_journal=tmp_path / "mission.jsonl",
+        mission_evidence=tmp_path / "mission-evidence.json",
+        mission_stdout=tmp_path / "mission.stdout.jsonl",
+        mission_stderr=tmp_path / "mission.stderr.log",
+        frame_directory=tmp_path / "frames",
+        docker_job_directory=tmp_path / "docker-plan",
+    )
+    arguments = capture._process_arguments(
+        paths=paths,
+        scenario=SCENARIO,
+        container_name="combined-campaign",
+        container_id=CONTAINER_ID,
+        evaluator_port=51_005,
+        airframe_profile_sha256=AIRFRAME_HASH,
+        runtime_descriptor_sha256=DESCRIPTOR_HASH,
+        runtime_provenance_sha256=PROVENANCE_HASH,
+        mission_timeout_s=90.0,
+        docker_executable="docker-test",
+        campaign_file=tmp_path / "campaign.json",
+        capture_campaign_sensors=True,
+    )
+
+    assert arguments[1:3] == ["-m", "scripts.vtol_selected_task_campaign"]
+    assert arguments[arguments.index("--flight-capture-ready-file") + 1] == str(
+        paths.flight_ready
+    )
+    assert arguments[arguments.index("--flight-capture-complete-file") + 1] == str(
+        paths.flight_capture_complete
+    )
+    assert "--mission-journal" not in arguments
+    assert "--campaign-file" in arguments
+    assert "--campaign-output-directory" in arguments
+
+
+def test_combined_campaign_rejects_missing_campaign_or_prebound_manifest_before_external_work(
+    tmp_path: Path,
+) -> None:
+    calls: list[object] = []
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        calls.append(object())
+        raise AssertionError("external work started before validation")
+
+    with pytest.raises(capture.VtolMissionSensorCaptureError, match="requires campaign"):
+        capture.run_vtol_mission_sensor_capture(
+            SCENARIO,
+            tmp_path / "missing-campaign-evidence.json",
+            run_directory=tmp_path / "missing-campaign-run",
+            execute=True,
+            capture_campaign_sensors=True,
+            command_runner=forbidden,
+        )
+
+    campaign_file = tmp_path / "campaign.json"
+    campaign_file.write_text("{}", encoding="utf-8")
+    with pytest.raises(
+        capture.VtolMissionSensorCaptureError,
+        match="cannot prebind a sensor manifest",
+    ):
+        capture.run_vtol_mission_sensor_capture(
+            SCENARIO,
+            tmp_path / "prebound-evidence.json",
+            run_directory=tmp_path / "prebound-run",
+            execute=True,
+            campaign_file=campaign_file,
+            capture_campaign_sensors=True,
+            sensor_transport_manifest=tmp_path / "manifest.json",
+            sensor_frame_map=tmp_path / "frames.json",
+            command_runner=forbidden,
+        )
+
+    assert calls == []
+    assert not (tmp_path / "missing-campaign-run").exists()
+    assert not (tmp_path / "prebound-run").exists()
+
+
+def test_reference_profile_rejected_before_external_work(tmp_path):
+    for options in (
+        {"reference_profile": "typo"},
+        {"reference_profile": "fixed-wing-response", "campaign_file": tmp_path / "missing.json"},
+    ):
+        with pytest.raises(capture.VtolMissionSensorCaptureError, match="reference profile"):
+            capture.run_vtol_mission_sensor_capture(execute=True, **options)
 
 
 def test_exact_id_cleanup_never_targets_mutable_container_name() -> None:
@@ -1477,9 +1906,11 @@ def test_exact_id_cleanup_rejects_daemon_failure_as_absence_proof() -> None:
     assert "did not prove exact container absence" in " ".join(result["errors"])
 
 
+@pytest.mark.parametrize("qpc", [False, True])
 def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container_id(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    qpc: bool,
 ) -> None:
     docker_calls: list[list[str]] = []
     capture_calls: list[dict[str, Any]] = []
@@ -1530,7 +1961,21 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
             self._complete = False
             ready_path = Path(arguments[arguments.index("--flight-capture-ready-file") + 1])
             ready_payload = _flight_ready_payload()
-            ready_payload["captured_at_monotonic_s"] = capture.time.monotonic()
+            from multidetect.clock import HighResolutionSystemClock
+
+            self.clock = (
+                HighResolutionSystemClock(
+                    session_id=arguments[arguments.index("--host-clock-session-id") + 1]
+                )
+                if qpc
+                else None
+            )
+            ready_payload["captured_at_monotonic_s"] = (
+                self.clock.monotonic() if qpc else capture.time.monotonic()
+            )
+            if qpc:
+                ready_payload["captured_at_clock"] = "host_perf_counter"
+                ready_payload["host_clock_identity"] = self.clock.identity()
             ready_path.write_text(
                 json.dumps(ready_payload),
                 encoding="utf-8",
@@ -1574,6 +2019,12 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
             flight["flight_capture_complete_document"] = complete_document
             interval_start = complete_document["capture_started_at_monotonic_s"]
             interval_complete = complete_document["capture_completed_at_monotonic_s"]
+            if qpc:
+                assert complete_document["host_clock_identity"] == self.clock.identity()
+                assert complete_document["clock"] == "host_perf_counter"
+                for sample in flight["flight_capture_interval_samples"]:
+                    sample["captured_at_clock"] = "host_perf_counter"
+                    sample["host_clock_identity"] = self.clock.identity()
             flight["flight_capture_interval_samples"][0]["captured_at_monotonic_s"] = interval_start
             flight["flight_capture_interval_samples"][-1]["captured_at_monotonic_s"] = (
                 interval_complete
@@ -1611,6 +2062,7 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
             scenario_id=kwargs["plan"].scenario_id,
             scenario_manifest_hash=kwargs["plan"].scenario_manifest_hash,
             live_timestamps=True,
+            clock=kwargs.get("clock"),
         )
 
     monkeypatch.setattr(capture, "_container_inspect", inspect_container)
@@ -1622,10 +2074,12 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
         evidence_path,
         run_directory=tmp_path / "run",
         container_name="multidetect-vtol-fake-lifecycle",
+        host_clock="perf_counter" if qpc else "monotonic",
         execute=True,
         frame_count=3,
         frame_width=2,
         frame_height=2,
+        depth_output_directory=tmp_path / "depth-frames",
         mission_timeout_s=30.0,
         ready_timeout_s=10.0,
         ports=_ports(),
@@ -1644,6 +2098,7 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
     assert result["sensor_capture"]["docker_exec_target_is_exact_id"] is True
     assert result["sensor_capture"]["same_container_as_flight_barrier"] is True
     assert capture_calls[0]["plan"].container_name == CONTAINER_ID
+    assert capture_calls[0]["depth_output_directory"] == (tmp_path / "depth-frames").resolve()
     assert mission_arguments[mission_arguments.index("--expected-container-id") + 1] == CONTAINER_ID
     assert docker_calls[-3:] == [
         ["docker-test", "stop", "--timeout", "2", CONTAINER_ID],
@@ -1652,6 +2107,203 @@ def test_fake_full_lifecycle_binds_pixels_mission_and_cleanup_to_exact_container
     ]
     assert result["execution"]["qgc_process_started"] is False
     assert result["execution"]["computer_use_invoked"] is False
+
+
+def test_combined_campaign_fake_lifecycle_captures_first_sortie_and_fails_closed_on_pixel_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The campaign barrier/capture path must not publish tampered pixels."""
+
+    from scripts import vtol_selected_task_campaign as campaign
+
+    campaign_file = tmp_path / "campaign.json"
+    campaign_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        campaign,
+        "load_campaign_definition",
+        lambda _path: ([object()], {}, None),
+    )
+
+    docker_calls: list[list[str]] = []
+    capture_calls: list[dict[str, Any]] = []
+    campaign_validation_calls = 0
+    frame_directory: Path | None = None
+
+    def command_runner(
+        argv: list[str],
+        **_kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        docker_calls.append(argv)
+        command = argv[1:]
+        if command[:2] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                stdout="",
+                stderr=f"Error response from daemon: No such container: {CONTAINER_ID}",
+            )
+        if command and command[0] == "run":
+            return subprocess.CompletedProcess(argv, 0, stdout=f"{CONTAINER_ID}\n", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    def inspect_container(
+        _docker: str,
+        target: str,
+        *,
+        runner: Any,
+    ) -> dict[str, Any]:
+        assert runner is command_runner
+        assert target == CONTAINER_ID
+        return {"Id": CONTAINER_ID}
+
+    def validate_runtime_container(
+        *,
+        record: dict[str, Any],
+        plan: Any,
+        container_id: str,
+    ) -> dict[str, Any]:
+        assert record["Id"] == CONTAINER_ID
+        assert container_id == CONTAINER_ID
+        assert plan.container_name == "combined-campaign-fake"
+        return {"docker_acceptance": {"all": True}, "vtol_mission": {"all": True}}
+
+    def wait_for_ready(*, path: Path, **_kwargs: Any):
+        payload = _flight_ready_payload()
+        payload["captured_at_monotonic_s"] = capture.time.monotonic()
+        binding = {
+            "schema": "multidetect.vtol-campaign-flight-capture-binding",
+            "schema_version": 1,
+            "task_id": "synthetic-east",
+            "context_sha256": "d" * 64,
+            "plan_sha256": "a" * 64,
+            "executable_mission_sha256": "b" * 64,
+            "wire_hash": "c" * 64,
+            "airframe_profile_sha256": "e" * 64,
+            "transaction_id": None,
+            "transaction_binding": "ready_marker_and_mission_evidence",
+            "policy_applied_to_actuator": False,
+            "truth_free": True,
+        }
+        payload["task_binding"] = {
+            key: binding[key]
+            for key in ("task_id", "plan_sha256", "executable_mission_sha256", "wire_hash")
+        }
+        descriptor_path = path.parent / "campaign-missions" / "mission-001.binding.json"
+        descriptor_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor_path.write_text(json.dumps(binding), encoding="utf-8")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return payload, {"all": True}
+
+    class FakeCampaignProcess:
+        def __init__(self, arguments: list[str], **_kwargs: Any) -> None:
+            self.arguments = arguments
+            self.completed = False
+
+        def poll(self) -> int | None:
+            return 0 if self.completed else None
+
+        def wait(self, timeout: float) -> int:
+            assert timeout > 0
+            campaign_directory = Path(
+                self.arguments[self.arguments.index("--campaign-output-directory") + 1]
+            )
+            campaign_directory.mkdir(parents=True, exist_ok=True)
+            (campaign_directory / "mission-001.json").write_text("{}", encoding="utf-8")
+            (campaign_directory / "mission-001.transaction.jsonl").write_text(
+                "fixture\n", encoding="utf-8"
+            )
+            Path(self.arguments[self.arguments.index("--evidence") + 1]).write_text(
+                "{}", encoding="utf-8"
+            )
+            self.completed = True
+            return 0
+
+        def terminate(self) -> None:
+            raise AssertionError("completed fake campaign must not be terminated")
+
+        def kill(self) -> None:
+            raise AssertionError("completed fake campaign must not be killed")
+
+    def router_runner(**kwargs: Any) -> dict[str, Any]:
+        kwargs["ready_event"].set()
+        assert kwargs["stop_event"].wait(5.0)
+        return _router_payload()
+
+    def sensor_capture(**kwargs: Any) -> dict[str, object]:
+        nonlocal frame_directory
+        capture_calls.append(kwargs)
+        frame_directory = Path(kwargs["frame_output_directory"])
+        return _sensor_payload(
+            frame_directory,
+            frame_count=kwargs["frame_count"],
+            width=kwargs["expected_width"],
+            height=kwargs["expected_height"],
+            scenario_id=kwargs["plan"].scenario_id,
+            scenario_manifest_hash=kwargs["plan"].scenario_manifest_hash,
+            live_timestamps=True,
+        )
+
+    def campaign_result(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal campaign_validation_calls
+        campaign_validation_calls += 1
+        if campaign_validation_calls == 1:
+            assert frame_directory is not None
+            tampered = next(frame_directory.glob("frame-*.bgr24"))
+            tampered.write_bytes(b"tampered-pixel")
+        return {"status": "all_tasks_completed", "tamper_check": campaign_validation_calls}
+
+    monkeypatch.setattr(capture, "_container_inspect", inspect_container)
+    monkeypatch.setattr(capture, "_validate_runtime_container", validate_runtime_container)
+    monkeypatch.setattr(capture, "_wait_for_flight_ready", wait_for_ready)
+    monkeypatch.setattr(capture, "validate_flight_capture_ready", lambda *a, **k: {"all": True})
+    monkeypatch.setattr(
+        capture,
+        "validate_mission_evidence",
+        lambda *a, **k: {
+            "flight_capture_interval": True,
+            "vtol_landed": True,
+            "terminal_disarmed": True,
+        },
+    )
+    monkeypatch.setattr(capture, "validate_mission_journal", lambda *a, **k: {"all": True})
+    monkeypatch.setattr(capture, "validate_campaign_result", campaign_result)
+
+    result = capture.run_vtol_mission_sensor_capture(
+        SCENARIO,
+        tmp_path / "combined-evidence.json",
+        run_directory=tmp_path / "combined-run",
+        container_name="combined-campaign-fake",
+        campaign_file=campaign_file,
+        capture_campaign_sensors=True,
+        execute=True,
+        frame_count=3,
+        frame_width=2,
+        frame_height=2,
+        mission_timeout_s=30.0,
+        ready_timeout_s=10.0,
+        ports=_ports(),
+        port_probe=lambda _port: True,
+        docker="docker-test",
+        energy_configuration=_energy_configuration(),
+        command_runner=command_runner,
+        process_factory=FakeCampaignProcess,
+        router_runner=router_runner,
+        sensor_capture=sensor_capture,
+    )
+
+    assert capture_calls[0]["plan"].container_name == CONTAINER_ID
+    assert campaign_validation_calls >= 1
+    assert result["gate_passed"] is False
+    assert result["gates"]["same_container_sensor_capture"] is True
+    assert result["gates"]["wire_v3_pixels"] is True
+    assert result["gates"]["final_artifact_integrity"] is False
+    assert "sensor capture checks failed" in result["failure"]
+    assert docker_calls[-3:] == [
+        ["docker-test", "stop", "--timeout", "2", CONTAINER_ID],
+        ["docker-test", "rm", CONTAINER_ID],
+        ["docker-test", "container", "inspect", CONTAINER_ID],
+    ]
 
 
 def test_dry_run_writes_truthful_nonpassing_evidence_without_external_execution(

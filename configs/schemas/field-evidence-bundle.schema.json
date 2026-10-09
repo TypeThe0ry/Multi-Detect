@@ -59,7 +59,11 @@
       "required": ["maximum_telemetry_age_s", "require_real_domain"],
       "properties": {
         "maximum_telemetry_age_s": {"type": "number", "minimum": 0, "maximum": 1.5},
-        "require_real_domain": {"type": "boolean"}
+        "require_real_domain": {"type": "boolean"},
+        "minimum_distance_regimes": {"type": "integer", "minimum": 0},
+        "distance_regime_separation_m": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_slope_regimes": {"type": "integer", "minimum": 0},
+        "slope_regime_separation_deg": {"type": "number", "exclusiveMinimum": 0}
       }
     },
     "sha256OrNull": {
@@ -118,6 +122,10 @@
         "input_bytes": {"$ref": "#/$defs/inputBytes"},
         "maximum_telemetry_age_s": {"type": "number", "minimum": 0, "maximum": 1.5},
         "require_real_domain": {"type": "boolean"},
+        "minimum_distance_regimes": {"type": "integer", "minimum": 0},
+        "distance_regime_separation_m": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_slope_regimes": {"type": "integer", "minimum": 0},
+        "slope_regime_separation_deg": {"type": "number", "exclusiveMinimum": 0},
         "target_event_bundle_id": {"type": "string", "minLength": 1},
         "target_event_session_id": {"type": "string", "minLength": 1},
         "target_event_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},

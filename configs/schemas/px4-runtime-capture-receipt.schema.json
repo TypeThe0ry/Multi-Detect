@@ -23,12 +23,12 @@
     "schema_version": {"const": 1},
     "event": {"const": "px4_runtime_capture_receipt_created"},
     "runtime_mode": {"enum": ["hil", "real"]},
-    "source_count": {"const": 6},
+    "source_count": {"enum": [6, 7]},
     "capture_summary": {"$ref": "#/$defs/file"},
     "files": {
       "type": "array",
       "minItems": 6,
-      "maxItems": 6,
+      "maxItems": 7,
       "items": {"$ref": "#/$defs/source"}
     },
     "gates": {
@@ -102,7 +102,8 @@
             "runtime_profile",
             "mission_feedback",
             "endpoint_vehicle_identity",
-            "join"
+            "join",
+            "policy_artifact"
           ]
         },
         "path": {"$ref": "#/$defs/portable_path"},

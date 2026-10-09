@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gazebo-3d-mainline-v1",
+  "release_label": "0.3.0-pre.8",
+  "purpose": "Primary repository-owned 3-D flight-simulation asset set for the shared OnboardAI contract.",
+  "claim_boundary": {
+    "deterministic_asset_audit": true,
+    "external_gazebo_runtime": "not_claimed",
+    "hardware_acceptance": "not_claimed",
+    "hil_acceptance": "not_claimed",
+    "outdoor_gnss_acceptance": "not_claimed",
+    "final_release": "not_claimed"
+  },
+  "asset_policy": {
+    "repository_owned_worlds": true,
+    "repository_owned_vehicle_compositions": true,
+    "dynamic_px4_flight_dynamics": true,
+    "billboard_perception_fixtures_excluded": true,
+    "runtime_truth_free": true,
+    "network_assets": false,
+    "upstream_model_provider": "PX4 Gazebo model package supplied by the pinned simulator image"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "urban_inspection_multirotor_001",
+      "scenario_manifest": {
+        "path": "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
+        "sha256": "a03b33f56e3a670ae0b6a92bdbe74995c350dfe8b53c5f2f3cbbf405a25c9c14",
+        "size_bytes": 642
+      },
+      "runtime_input": {
+        "path": "configs/scenarios/urban_inspection_multirotor_001.runtime.json",
+        "sha256": "0c21ee824feb388a8728340b560bfd38f46eed5541256aa66d62762b9b22f17c",
+        "size_bytes": 1575
+      },
+      "world_sdf": {
+        "path": "simulation/gazebo/worlds/urban_inspection_multirotor_001.sdf",
+        "sha256": "0a2aa69f2bc1fd42b70870759267cd2b3fdbb6b0014d1ead7de42d0c4822ecd7",
+        "size_bytes": 10241
+      },
+      "map_asset": {
+        "path": "simulation/maps/urban_inspection_multirotor_001.geojson",
+        "sha256": "8c47c29912f04d578bdfca06073d4c82214b8c92b2adc5f057c354861527b689",
+        "size_bytes": 624
+      },
+      "dem_asset": {
+        "path": "simulation/terrain/urban_inspection_multirotor_001.dem.json",
+        "sha256": "855ce4cc77812b8ff35095ac57b8f9bb1eab58b2130ee75ccaeb77bf29f3c7ff",
+        "size_bytes": 614
+      },
+      "target_model": {
+        "uri": "model://multidetect_search_target_v1",
+        "model": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.sdf",
+          "sha256": "63093b55ea37c9734a4ac3456838619a7034a98863d062cdd7f682d62d1b1803",
+          "size_bytes": 5503
+        },
+        "config": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.config",
+          "sha256": "dd557a4bfefe570a21bfafe265aeacb86f29a3b347763d62175b9e74f7b647aa",
+          "size_bytes": 350
+        },
+        "include_name": "multidetect_search_target_urban_001",
+        "pose": "180 -58 0 0 0 0.45"
+      },
+      "vehicle": {
+        "class": "multirotor",
+        "runtime_model": "px4_multirotor_standard",
+        "airframe_profile_id": "px4_multirotor_gazebo_v1",
+        "composition_model": {
+          "path": "simulation/gazebo/models/x500_mono_cam/model.sdf",
+          "sha256": "06b10175f9306ab36ea40c4d95ee278cf7393afbea9fb5388e445dd8699f9b5d",
+          "size_bytes": 3131
+        },
+        "composition_config": {
+          "path": "simulation/gazebo/models/x500_mono_cam/model.config",
+          "sha256": "e53f67761b4c78589849a6b5963dacf18f7e0f19cac298c6830d60be726267fa",
+          "size_bytes": 300
+        },
+        "upstream_dependencies": ["model://x500", "model://mono_cam"]
+      },
+      "physics": {
+        "type": "ode",
+        "max_step_size": 0.004,
+        "real_time_update_rate": 250.0
+      },
+      "wgs84_origin": {
+        "surface_model": "EARTH_WGS84",
+        "world_frame_orientation": "ENU"
+      },
+      "sensors": [
+        {"sensor_id": "front-camera", "kind": "rgb_camera"},
+        {"sensor_id": "px4-telemetry", "kind": "mavlink_telemetry"},
+        {"sensor_id": "downward-depth", "kind": "depth_camera"}
+      ],
+      "assets": {"aggregate_sha256": "5d03db58a55e7f88234a56041c6434b9680ce0e8783f0556067d24e247895941"}
+    },
+    {
+      "scenario_id": "river_rescue_vtol_001",
+      "scenario_manifest": {
+        "path": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+        "sha256": "ee519c425b36ad8f04355c8e1e16c118ef1e04430d1c9db6b75f992d5450bf9c",
+        "size_bytes": 617
+      },
+      "runtime_input": {
+        "path": "configs/scenarios/river_rescue_vtol_001.runtime.json",
+        "sha256": "ba9568e89d5361224bcf8e656cfa390d9e196df6e6fbfb32aaf7216b337966cf",
+        "size_bytes": 1376
+      },
+      "world_sdf": {
+        "path": "simulation/gazebo/worlds/river_rescue_vtol_001.sdf",
+        "sha256": "ecffcad45457a1529a28b1a93261966a5b37101b832367bb3c413e21f3b6cd28",
+        "size_bytes": 11643
+      },
+      "map_asset": {
+        "path": "simulation/maps/river_rescue_vtol_001.geojson",
+        "sha256": "e0854f2c5de696f434ef0315b957cfa870ab7a54f98d7d096bee7b8420b09b8c",
+        "size_bytes": 609
+      },
+      "dem_asset": {
+        "path": "simulation/terrain/river_rescue_vtol_001.dem.json",
+        "sha256": "8a6af903d214e017f9010cf1f325fd195f25425e9aa42fcd54db06547b198d21",
+        "size_bytes": 576
+      },
+      "target_model": {
+        "uri": "model://multidetect_search_target_v1",
+        "model": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.sdf",
+          "sha256": "63093b55ea37c9734a4ac3456838619a7034a98863d062cdd7f682d62d1b1803",
+          "size_bytes": 5503
+        },
+        "config": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.config",
+          "sha256": "dd557a4bfefe570a21bfafe265aeacb86f29a3b347763d62175b9e74f7b647aa",
+          "size_bytes": 350
+        },
+        "include_name": "multidetect_search_target_river_001",
+        "pose": "210 -30 0 0 0 -0.30"
+      },
+      "vehicle": {
+        "class": "vtol",
+        "runtime_model": "px4_vtol_standard",
+        "airframe_profile_id": "px4_vtol_gazebo_v1",
+        "composition_model": {
+          "path": "simulation/gazebo/models/standard_vtol_mono_cam/model.sdf",
+          "sha256": "070f8a866c28da57d1cf7de8e43327fb17ed349d4b450bed5bf63d5cce7dfb53",
+          "size_bytes": 2807
+        },
+        "composition_config": {
+          "path": "simulation/gazebo/models/standard_vtol_mono_cam/model.config",
+          "sha256": "60cd4d4cef724baf22b7bdeed059f3199668952a17a2d115db7704f2f7d467a8",
+          "size_bytes": 319
+        },
+        "upstream_dependencies": ["model://standard_vtol", "model://mono_cam"]
+      },
+      "physics": {
+        "type": "ode",
+        "max_step_size": 0.004,
+        "real_time_update_rate": 250.0
+      },
+      "wgs84_origin": {
+        "surface_model": "EARTH_WGS84",
+        "world_frame_orientation": "ENU"
+      },
+      "sensors": [
+        {"sensor_id": "front-camera", "kind": "rgb_camera"},
+        {"sensor_id": "front-depth", "kind": "depth_camera"},
+        {"sensor_id": "px4-telemetry", "kind": "mavlink_telemetry"}
+      ],
+      "assets": {"aggregate_sha256": "9d92ffbb66f96c3de34922711147dba3788034e3ea382365d6484d5a398b0355"}
+    },
+    {
+      "scenario_id": "coastal_patrol_fixed_wing_001",
+      "scenario_manifest": {
+        "path": "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
+        "sha256": "8615d8c88f65a9e991ff636b2c91041b7b475709951331142b5ecd7d1a83b89e",
+        "size_bytes": 652
+      },
+      "runtime_input": {
+        "path": "configs/scenarios/coastal_patrol_fixed_wing_001.runtime.json",
+        "sha256": "63c7f4f9c8d33af4f343c96d78063dc921d6c77b560dc6f545be08d5a4d7ab49",
+        "size_bytes": 1971
+      },
+      "world_sdf": {
+        "path": "simulation/gazebo/worlds/coastal_patrol_fixed_wing_001.sdf",
+        "sha256": "3230f3fb8a85268481ce843d781321b7fc991a9a5475114af30cfa9a6d0aa320",
+        "size_bytes": 10556
+      },
+      "map_asset": {
+        "path": "simulation/maps/coastal_patrol_fixed_wing_001.geojson",
+        "sha256": "f16721a0f714b4cec78481ea796a421154c9c0cda2bcafef60fed11adc6defd1",
+        "size_bytes": 622
+      },
+      "dem_asset": {
+        "path": "simulation/terrain/coastal_patrol_fixed_wing_001.dem.json",
+        "sha256": "c6ae63955968ac9a8ed7cf5e8d7387a229cd53682da420a0588ca51745b931f1",
+        "size_bytes": 586
+      },
+      "target_model": {
+        "uri": "model://multidetect_search_target_v1",
+        "model": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.sdf",
+          "sha256": "63093b55ea37c9734a4ac3456838619a7034a98863d062cdd7f682d62d1b1803",
+          "size_bytes": 5503
+        },
+        "config": {
+          "path": "simulation/gazebo/models/multidetect_search_target_v1/model.config",
+          "sha256": "dd557a4bfefe570a21bfafe265aeacb86f29a3b347763d62175b9e74f7b647aa",
+          "size_bytes": 350
+        },
+        "include_name": "multidetect_search_target_coastal_001",
+        "pose": "205 -70 0 0 0 0.15"
+      },
+      "vehicle": {
+        "class": "fixed-wing",
+        "runtime_model": "px4_fixed_wing_standard",
+        "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+        "composition_model": {
+          "path": "simulation/gazebo/models/rc_cessna_mono_cam/model.sdf",
+          "sha256": "2eea3d9aba16ac3c9754f6d3f82ad9702b06a1877ecf5ca28e96028e3607e9df",
+          "size_bytes": 2894
+        },
+        "composition_config": {
+          "path": "simulation/gazebo/models/rc_cessna_mono_cam/model.config",
+          "sha256": "0edf962cda6edf63637b703749a6babd186daccca66b42f974c9975fa7d2bdc3",
+          "size_bytes": 325
+        },
+        "upstream_dependencies": ["model://rc_cessna", "model://mono_cam"]
+      },
+      "physics": {
+        "type": "ode",
+        "max_step_size": 0.004,
+        "real_time_update_rate": 250.0
+      },
+      "wgs84_origin": {
+        "surface_model": "EARTH_WGS84",
+        "world_frame_orientation": "ENU"
+      },
+      "sensors": [
+        {"sensor_id": "front-camera", "kind": "rgb_camera"},
+        {"sensor_id": "forward-depth", "kind": "depth_camera"},
+        {"sensor_id": "px4-telemetry", "kind": "mavlink_telemetry"},
+        {"sensor_id": "airspeed", "kind": "airspeed"}
+      ],
+      "assets": {"aggregate_sha256": "172270fde664b04da3c0db0c2dc0cf1570f6e77df69de4262ae169185329f930"}
+    }
+  ]
+}

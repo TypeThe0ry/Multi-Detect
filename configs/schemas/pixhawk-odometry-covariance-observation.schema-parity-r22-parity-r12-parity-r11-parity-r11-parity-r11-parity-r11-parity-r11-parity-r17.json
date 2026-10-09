@@ -1,0 +1,1150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-odometry-covariance-observation.schema.json",
+  "title": "Multi-Detect Pixhawk ODOMETRY Covariance Observation v3",
+  "description": "Closed receive-only PX4 attitude-covariance evidence. Passing SIM evidence is not HIL, REAL, hardware, visual, or flight acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "release_status",
+    "runtime_mode",
+    "endpoint",
+    "baud",
+    "started_at_utc",
+    "finished_at_utc",
+    "duration_s",
+    "samples_requested",
+    "minimum_odometry_messages",
+    "minimum_accepted_covariances",
+    "odometry_messages_observed",
+    "accepted_covariances_observed",
+    "records",
+    "final_diagnostics",
+    "mode_binding",
+    "checks",
+    "source_binding",
+    "claims",
+    "gate_passed",
+    "evidence_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "multidetect.pixhawk-odometry-covariance-observation/v3"
+    },
+    "schema_version": {
+      "const": 3
+    },
+    "release_status": {
+      "const": "0.3.0-pre.8"
+    },
+    "runtime_mode": {
+      "enum": [
+        "sim",
+        "hil",
+        "real"
+      ]
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baud": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "started_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_s": {
+      "type": "number",
+      "minimum": 0
+    },
+    "samples_requested": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "minimum_odometry_messages": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "minimum_accepted_covariances": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "odometry_messages_observed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted_covariances_observed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/covariance_record"
+      }
+    },
+    "final_diagnostics": {
+      "$ref": "#/$defs/diagnostics"
+    },
+    "mode_binding": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/mode_binding"
+        }
+      ]
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode_valid",
+        "endpoint_policy",
+        "transport_link_current",
+        "qualified_link_current",
+        "odometry_message_count",
+        "accepted_covariance_count",
+        "captured_records_valid",
+        "latest_covariance_attitude_associated",
+        "latest_covariance_source_exact",
+        "odometry_interval_requested",
+        "autopilot_version_identity_observed",
+        "autopilot_version_current_session",
+        "telemetry_requests_only",
+        "runtime_identity_binding"
+      ],
+      "properties": {
+        "runtime_mode_valid": {
+          "type": "boolean"
+        },
+        "endpoint_policy": {
+          "type": "boolean"
+        },
+        "transport_link_current": {
+          "type": "boolean"
+        },
+        "qualified_link_current": {
+          "type": "boolean"
+        },
+        "odometry_message_count": {
+          "type": "boolean"
+        },
+        "accepted_covariance_count": {
+          "type": "boolean"
+        },
+        "captured_records_valid": {
+          "type": "boolean"
+        },
+        "latest_covariance_attitude_associated": {
+          "type": "boolean"
+        },
+        "latest_covariance_source_exact": {
+          "type": "boolean"
+        },
+        "odometry_interval_requested": {
+          "type": "boolean"
+        },
+        "autopilot_version_identity_observed": {
+          "type": "boolean"
+        },
+        "autopilot_version_current_session": {
+          "type": "boolean"
+        },
+        "telemetry_requests_only": {
+          "type": "boolean"
+        },
+        "runtime_identity_binding": {
+          "type": "boolean"
+        }
+      }
+    },
+    "source_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_schema",
+        "observation_schema_sha256",
+        "capture_script",
+        "capture_script_sha256",
+        "provider",
+        "provider_sha256",
+        "release_parity_path",
+        "release_parity_sha256",
+        "release_parity_hashes"
+      ],
+      "properties": {
+        "observation_schema": {
+          "const": "configs/schemas/pixhawk-odometry-covariance-observation.schema-parity-r22-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r17.json"
+        },
+        "observation_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "capture_script": {
+          "const": "scripts/capture_pixhawk_odometry_covariance.py"
+        },
+        "capture_script_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provider": {
+          "const": "src/multidetect/pixhawk.py"
+        },
+        "provider_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_parity_path": {
+          "const": "configs/release-parity.json"
+        },
+        "release_parity_sha256": "f6a924fead44e67ad9cfe8110677145668fd5cb802f41b057bca563de698e71c",
+        "release_parity_hashes": {
+          "$ref": "#/$defs/parity_hashes"
+        }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estimator_attitude_covariance_observed",
+        "sim_acceptance",
+        "hil_covariance_observation",
+        "real_covariance_observation",
+        "hil_acceptance",
+        "real_acceptance",
+        "hardware_acceptance",
+        "flight_acceptance"
+      ],
+      "properties": {
+        "estimator_attitude_covariance_observed": {
+          "type": "boolean"
+        },
+        "sim_acceptance": {
+          "enum": [
+            "passed",
+            "not_claimed"
+          ]
+        },
+        "hil_covariance_observation": {
+          "enum": [
+            "passed",
+            "not_claimed"
+          ]
+        },
+        "real_covariance_observation": {
+          "enum": [
+            "passed",
+            "not_claimed"
+          ]
+        },
+        "hil_acceptance": {
+          "const": "not_claimed"
+        },
+        "real_acceptance": {
+          "const": "not_claimed"
+        },
+        "hardware_acceptance": {
+          "const": "not_claimed"
+        },
+        "flight_acceptance": {
+          "const": "not_claimed"
+        }
+      }
+    },
+    "gate_passed": {
+      "type": "boolean"
+    },
+    "evidence_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullable_number": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "nullable_nonnegative_number": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullable_integer": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "nullable_nonnegative_integer": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullable_string": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullable_boolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "covariance_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_index",
+        "accepted_count",
+        "observed_at_s",
+        "age_s",
+        "associated_with_attitude",
+        "source",
+        "child_frame_id",
+        "reset_counter",
+        "roll_sigma_deg",
+        "pitch_sigma_deg",
+        "heading_sigma_deg",
+        "raw_angular_covariance_rad2"
+      ],
+      "properties": {
+        "sample_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "accepted_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_at_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "age_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "associated_with_attitude": {
+          "const": true
+        },
+        "source": {
+          "const": "mavlink_odometry_pose_covariance_local_ned_with_configured_floor"
+        },
+        "child_frame_id": {
+          "enum": [
+            1,
+            12
+          ]
+        },
+        "reset_counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "roll_sigma_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "pitch_sigma_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "heading_sigma_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "raw_angular_covariance_rad2": {
+          "$ref": "#/$defs/covariance_matrix"
+        }
+      }
+    },
+    "covariance_matrix": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "number"
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured_endpoint",
+        "resolved_endpoint",
+        "read_only",
+        "hardware_control_enabled",
+        "messages_transmitted",
+        "message_type_counts",
+        "transport_link_healthy",
+        "qualified_link_healthy",
+        "qualification",
+        "attitude_uncertainty",
+        "ranging_stream_requests",
+        "autopilot_version_requests",
+        "heartbeat_identity",
+        "autopilot_version_identity",
+        "autopilot_version_observed_at_s",
+        "autopilot_version_age_s"
+      ],
+      "properties": {
+        "configured_endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "read_only": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "hardware_control_enabled": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "messages_transmitted": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "message_type_counts": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "transport_link_healthy": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "qualified_link_healthy": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "qualification": {
+          "$ref": "#/$defs/qualification"
+        },
+        "attitude_uncertainty": {
+          "$ref": "#/$defs/attitude_uncertainty"
+        },
+        "ranging_stream_requests": {
+          "$ref": "#/$defs/ranging_requests"
+        },
+        "autopilot_version_requests": {
+          "$ref": "#/$defs/version_requests"
+        },
+        "heartbeat_identity": {
+          "$ref": "#/$defs/heartbeat"
+        },
+        "autopilot_version_identity": {
+          "$ref": "#/$defs/autopilot_version"
+        },
+        "autopilot_version_observed_at_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "autopilot_version_age_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "passed",
+        "reasons"
+      ],
+      "properties": {
+        "required": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "passed": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "reasons": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        }
+      }
+    },
+    "attitude_uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "roll_sigma_deg",
+        "pitch_sigma_deg",
+        "heading_sigma_deg",
+        "observed_at_s",
+        "age_s",
+        "fresh",
+        "associated_with_attitude",
+        "maximum_attitude_association_s",
+        "raw_angular_covariance_rad2",
+        "configured_floor_deg",
+        "reset_counter",
+        "child_frame_id",
+        "accepted_count",
+        "rejections"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "roll_sigma_deg": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "pitch_sigma_deg": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "heading_sigma_deg": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "observed_at_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "age_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "fresh": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "associated_with_attitude": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "maximum_attitude_association_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "raw_angular_covariance_rad2": {
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "$ref": "#/$defs/covariance_matrix"
+            }
+          ]
+        },
+        "configured_floor_deg": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "roll",
+            "pitch",
+            "heading"
+          ],
+          "properties": {
+            "roll": {
+              "$ref": "#/$defs/nullable_nonnegative_number"
+            },
+            "pitch": {
+              "$ref": "#/$defs/nullable_nonnegative_number"
+            },
+            "heading": {
+              "$ref": "#/$defs/nullable_nonnegative_number"
+            }
+          }
+        },
+        "reset_counter": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "child_frame_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "accepted_count": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "rejections": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "ranging_requests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "last_request_age_s",
+        "requested_message_intervals_us"
+      ],
+      "properties": {
+        "attempts": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "last_request_age_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "requested_message_intervals_us": {
+          "$ref": "#/$defs/requested_intervals"
+        }
+      }
+    },
+    "requested_intervals": {
+      "oneOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ATTITUDE",
+            "ODOMETRY",
+            "SCALED_PRESSURE",
+            "LOCAL_POSITION_NED",
+            "GLOBAL_POSITION_INT",
+            "ALTITUDE",
+            "HOME_POSITION"
+          ],
+          "properties": {
+            "ATTITUDE": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ODOMETRY": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "SCALED_PRESSURE": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "LOCAL_POSITION_NED": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "GLOBAL_POSITION_INT": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ALTITUDE": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "HOME_POSITION": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "version_requests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "attempts",
+        "last_request_age_s",
+        "command_id",
+        "message_id",
+        "response_observed"
+      ],
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "attempts": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "last_request_age_s": {
+          "$ref": "#/$defs/nullable_nonnegative_number"
+        },
+        "command_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "message_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "response_observed": {
+          "$ref": "#/$defs/nullable_boolean"
+        }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_system_id",
+        "source_component_id",
+        "autopilot_id",
+        "autopilot_name",
+        "vehicle_type_id",
+        "vehicle_type_name",
+        "system_status_id",
+        "system_status_name",
+        "mavlink_version"
+      ],
+      "properties": {
+        "source_system_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "source_component_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "autopilot_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "autopilot_name": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "vehicle_type_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "vehicle_type_name": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "system_status_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "system_status_name": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "mavlink_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        }
+      }
+    },
+    "autopilot_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source_system_id",
+        "source_component_id",
+        "capabilities",
+        "flight_sw_version",
+        "middleware_sw_version",
+        "os_sw_version",
+        "board_version",
+        "flight_custom_version_hex",
+        "middleware_custom_version_hex",
+        "os_custom_version_hex",
+        "vendor_id",
+        "product_id",
+        "device_uid_source",
+        "device_uid_hash",
+        "capabilities_hex",
+        "flight_sw_version_text",
+        "flight_sw_version_type",
+        "middleware_sw_version_text",
+        "middleware_sw_version_type",
+        "os_sw_version_text",
+        "os_sw_version_type",
+        "raw_device_uid_serialized",
+        "identity_hash"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "source_system_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "source_component_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "flight_sw_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "middleware_sw_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "os_sw_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "board_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "flight_custom_version_hex": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "middleware_custom_version_hex": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "os_custom_version_hex": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "vendor_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "product_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "device_uid_source": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "device_uid_hash": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        },
+        "capabilities_hex": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "flight_sw_version_text": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "flight_sw_version_type": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "middleware_sw_version_text": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "middleware_sw_version_type": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "os_sw_version_text": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "os_sw_version_type": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "raw_device_uid_serialized": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "identity_hash": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        }
+      }
+    },
+    "parity_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ui_contract_hash",
+        "core_algorithm_hash",
+        "task_contract_hash",
+        "safety_policy_hash",
+        "px4_mission_path_hash"
+      ],
+      "properties": {
+        "ui_contract_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "core_algorithm_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "task_contract_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "safety_policy_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "px4_mission_path_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "mode_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "runtime_mode",
+        "mission",
+        "mission_feedback",
+        "runtime_profile",
+        "current_heartbeat_identity",
+        "current_firmware_identity_hash",
+        "checks",
+        "gate_passed",
+        "binding_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "runtime_mode": {
+          "enum": [
+            "hil",
+            "real"
+          ]
+        },
+        "mission": {
+          "$ref": "#/$defs/mission_binding"
+        },
+        "mission_feedback": {
+          "$ref": "#/$defs/feedback_binding"
+        },
+        "runtime_profile": {
+          "$ref": "#/$defs/profile_binding"
+        },
+        "current_heartbeat_identity": {
+          "$ref": "#/$defs/current_heartbeat"
+        },
+        "current_firmware_identity_hash": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        },
+        "checks": {
+          "$ref": "#/$defs/mode_binding_checks"
+        },
+        "gate_passed": {
+          "type": "boolean"
+        },
+        "binding_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "mission_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "file_sha256",
+        "mission_id",
+        "mission_sha256",
+        "airframe_profile_hash"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mission_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mission_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "airframe_profile_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "feedback_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "file_sha256",
+        "evidence_sha256",
+        "runtime_binding_sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_binding_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "profile_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "file_sha256",
+        "profile_document_sha256",
+        "profile_sha256",
+        "profile_id",
+        "key_id"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile_document_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "current_heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_system_id",
+        "source_component_id",
+        "autopilot_id",
+        "vehicle_type_id",
+        "mavlink_version"
+      ],
+      "properties": {
+        "source_system_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "source_component_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "autopilot_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "vehicle_type_id": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "mavlink_version": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        }
+      }
+    },
+    "mode_binding_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feedback_schema_v2",
+        "feedback_runtime_mode_exact",
+        "feedback_gate_passed",
+        "runtime_binding_gate_passed",
+        "runtime_output_locked",
+        "runtime_flight_control_disabled",
+        "configured_endpoint_exact",
+        "resolved_endpoint_exact",
+        "baud_exact",
+        "heartbeat_identity_exact",
+        "current_firmware_identity_exact",
+        "provider_read_only",
+        "provider_hardware_control_disabled",
+        "provider_transport_link_current",
+        "provider_qualified_link_current",
+        "provider_operational_qualification"
+      ],
+      "properties": {
+        "feedback_schema_v2": {
+          "type": "boolean"
+        },
+        "feedback_runtime_mode_exact": {
+          "type": "boolean"
+        },
+        "feedback_gate_passed": {
+          "type": "boolean"
+        },
+        "runtime_binding_gate_passed": {
+          "type": "boolean"
+        },
+        "runtime_output_locked": {
+          "type": "boolean"
+        },
+        "runtime_flight_control_disabled": {
+          "type": "boolean"
+        },
+        "configured_endpoint_exact": {
+          "type": "boolean"
+        },
+        "resolved_endpoint_exact": {
+          "type": "boolean"
+        },
+        "baud_exact": {
+          "type": "boolean"
+        },
+        "heartbeat_identity_exact": {
+          "type": "boolean"
+        },
+        "current_firmware_identity_exact": {
+          "type": "boolean"
+        },
+        "provider_read_only": {
+          "type": "boolean"
+        },
+        "provider_hardware_control_disabled": {
+          "type": "boolean"
+        },
+        "provider_transport_link_current": {
+          "type": "boolean"
+        },
+        "provider_qualified_link_current": {
+          "type": "boolean"
+        },
+        "provider_operational_qualification": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

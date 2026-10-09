@@ -1,0 +1,1175 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-adapter-recovery-v1",
+  "artifact_root": "D:\\Projects\\Multi-Detect",
+  "entrypoint_sha256": "6d117e4656d285d40483a59c56faef7641ab191b3297e125a566a3c0174dbf3e",
+  "files": {
+    "plan": {
+      "path": "D:\\Projects\\Multi-Detect\\configs\\training\\onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "bytes": 13152,
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    "runtime_manifest": {
+      "path": "D:\\Projects\\Multi-Detect\\configs\\training\\onboard-navigation-importpath-runtime-20261007-r2.json",
+      "bytes": 9763,
+      "sha256": "3d4413dcb69e3671252fbe06ee84e34ad12d242329e3e2bd379952ae59a60c43"
+    },
+    "training_report": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\report.json",
+      "bytes": 57450,
+      "sha256": "996879ac7fc86f818487f2db831c0bdd09bbb61eaf8f181f3624e9148835f430"
+    },
+    "parent_probes": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\parent-probes.json",
+      "bytes": 7927,
+      "sha256": "4f2dd642b15dcd04f5bf3c1c009fd0493d42a357dd249aa43c28d4a4074e7d20"
+    },
+    "candidate_probes": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\candidate-probes.json",
+      "bytes": 7530,
+      "sha256": "4d466c59ee1b100976f757d3dd18588b407febef580d36acdde4ed26725c9580"
+    },
+    "prepared_inputs": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\prepared-inputs.json",
+      "bytes": 164313,
+      "sha256": "97fcad2de2ef954f6ba60ded2e4760d391f8689526d29e2d3721d520fa09ef91"
+    },
+    "training_events": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\training-events.jsonl",
+      "bytes": 117260,
+      "sha256": "fad73463aafb7870d13e417d6323ac515d87795beea6abfaf44c6b910b5b2b4c"
+    },
+    "source_preflight": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-importpath-train-supervisor-20261007-r2\\preflight.json",
+      "bytes": 14280,
+      "sha256": "c7c089538b9147f3b8e95ae4d465221530bc13b49d6b15e0069ddb2269b08dff"
+    },
+    "source_completion": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-importpath-train-supervisor-20261007-r2\\completion.json",
+      "bytes": 28527,
+      "sha256": "9490c1c76a2ac756b4d0d98ff93acc9bd6e57ade89e2162a257e01fac55feefb"
+    }
+  },
+  "source_files": [
+    {
+      "bytes": 28701,
+      "sha256": "d28ac83095d1df286693d57b81219b8a23c2487a8f945964a8fe175b0e28a78d",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch-2.6.0+cu124.dist-info\\METADATA"
+    },
+    {
+      "bytes": 103037,
+      "sha256": "0901a8ad92b30f947405e28fc98dd21c578cfbe8796b0173de931f42079b1f89",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\__init__.py"
+    },
+    {
+      "bytes": 10240,
+      "sha256": "8cc12784367470aa0f3ebe54a0c4593ac52d5bc273ed7ba719cbb10b4a3dbdb8",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\_C.cp312-win_amd64.pyd"
+    },
+    {
+      "bytes": 251258368,
+      "sha256": "9419933b9cc163baf7859092f243de4695b45632f81b96a8d0060ea20d63d6b5",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\lib\\torch_cpu.dll"
+    },
+    {
+      "bytes": 53262,
+      "sha256": "451b1a87bed436deee0ed32f7a88c0241925c418c59adf76996e48639b0a941f",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\storage.py"
+    },
+    {
+      "bytes": 103704,
+      "sha256": "ca60cf785b2314a6d6599eced15bdf094e6db171bec996b97a70b995942c3c37",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+    },
+    {
+      "bytes": 6916376,
+      "sha256": "93488fa7e631cc0a2bd808b9eee8617280ee9b6ff499ab424a1a1cbf24d77dc7",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python312.dll"
+    },
+    {
+      "bytes": 53,
+      "sha256": "6f60ac8ecf6b8d2adeef1d7562660e9c4cae78b26e80407f8ad23af7f3c85448",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\multidetect_original_vlm.pth"
+    },
+    {
+      "bytes": 4249,
+      "sha256": "597731d1baf7a94219753fa0a74abd1a8a18562d50d98b2e25d91e11e3224d36",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors-0.8.0.dist-info\\METADATA"
+    },
+    {
+      "bytes": 1885,
+      "sha256": "49ece9f3aa080032a196042c832e7f271063c673ead998382bb67990ec214866",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors-0.8.0.dist-info\\RECORD"
+    },
+    {
+      "bytes": 221,
+      "sha256": "3bc1e524ebaba28b4de3b3ebad1edfc623190a1d4fc34e76b900fa34e0c37bbd",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\__init__.py"
+    },
+    {
+      "bytes": 734720,
+      "sha256": "80a2b3f7658854ade855c5fb6192ee38fe2c7fbfd38d1c7c1f4d2c44f67125e4",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\_safetensors_rust.pyd"
+    },
+    {
+      "bytes": 20902,
+      "sha256": "81f477f2ab5e05e99308fc55ed26028eb2bf36334404e9c5558e4730184483f0",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\torch.py"
+    },
+    {
+      "bytes": 328,
+      "sha256": "80b87148f29848788ebe7c59d59aca46b157d7028c37b50f783ae41db95a49b1",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\pyvenv.cfg"
+    },
+    {
+      "bytes": 270104,
+      "sha256": "137c474a645a9471ab3a369084e7cd573cd8b7ff8f81cb85363fffdf5904106c",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe"
+    },
+    {
+      "bytes": 19601,
+      "sha256": "31d880e2aa1eaffb50dfecb62bc81d53f0262ed19ff374e7ff7a76b41b87c6b8",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\accelerate-1.12.0.dist-info\\METADATA"
+    },
+    {
+      "bytes": 36931,
+      "sha256": "b38df85d2e081ef89d5117b3fa238a029cb95750e462686cb474abdcb681ea5a",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\accelerate\\big_modeling.py"
+    },
+    {
+      "bytes": 14695,
+      "sha256": "4481a2b864803aca67d1af15a42a575b4b61f06488f007add0add4f93ae1d629",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft-0.17.1.dist-info\\METADATA"
+    },
+    {
+      "bytes": 5523,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\__init__.py",
+      "sha256": "efabc3b44d7326eee59c07910e426fa38ee0c6419b773e8f75af87ae61d3fa32"
+    },
+    {
+      "bytes": 7269,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\auto.py",
+      "sha256": "300c4fbe2891a9388fc112ec4885ddde8e133f34bff12909bb52ffbb13db0f9b"
+    },
+    {
+      "bytes": 14889,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\config.py",
+      "sha256": "398f82a13e8463e9d23de490f6d11951715e9202b27ddccae0d44f5624089951"
+    },
+    {
+      "bytes": 5867,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\import_utils.py",
+      "sha256": "3c955c41595b741ed4828b53d0890dc8a43f5e662fd4227cd4522c7226d654d0"
+    },
+    {
+      "bytes": 6064,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\mapping_func.py",
+      "sha256": "c30533cb009ea60e45a35d564285be65c9778c0c41e0c281dc2dfacd69c2315d"
+    },
+    {
+      "bytes": 3890,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\mapping.py",
+      "sha256": "684bb1eccf0591dcdc4e6dfbb556b40c7fea94b4e17f2f30ff3c87ec99c86584"
+    },
+    {
+      "bytes": 20305,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\mixed_model.py",
+      "sha256": "cd7f09fc48f28290cdff788d17ac4cac2dafea4fa9cffba0dea97275f0096675"
+    },
+    {
+      "bytes": 156704,
+      "sha256": "2307ebeb101baff53b19ce5a0f109885d99b64ab147d67cba19719b6097c3e10",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\peft_model.py"
+    },
+    {
+      "bytes": 3416,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\__init__.py",
+      "sha256": "b24c6a339583aaa3e9033d34c636ae36da339476cd7ed0250b1cb9d732d386fd"
+    },
+    {
+      "bytes": 5464,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\_buffer_dict.py",
+      "sha256": "6c5786edc44122054d9d0495e2baa67919da269008581e499cc6f88c0866c62b"
+    },
+    {
+      "bytes": 1479,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adalora\\__init__.py",
+      "sha256": "5199fd28aa739e2f16d6f6b9686312e677f3d06618d2559bae3495e15eb87e24"
+    },
+    {
+      "bytes": 5689,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adalora\\config.py",
+      "sha256": "d0c1ee84c98da3fb23ada7970885856d00729a1170ac0fd837f43e7cd3a3c7af"
+    },
+    {
+      "bytes": 2701,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adalora\\gptq.py",
+      "sha256": "0578c8efda06cc86f1c884ba18adfc040bde671a6f17d27777d4b23155d72817"
+    },
+    {
+      "bytes": 14827,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adalora\\layer.py",
+      "sha256": "486d90049da76b8411ad06c91700ab8b6da503eae10756a3dd7f9b3aca6b14d5"
+    },
+    {
+      "bytes": 16360,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adalora\\model.py",
+      "sha256": "09fcbd2f47aa679e4df67d8fbb89793106849527d65af6b127598b38d8bb44af"
+    },
+    {
+      "bytes": 949,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adaption_prompt\\__init__.py",
+      "sha256": "0b7beb754c95ef4e3695a9fb6378eb45eafbf84125c4736f77d2ecbf04961c27"
+    },
+    {
+      "bytes": 3157,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adaption_prompt\\config.py",
+      "sha256": "382f51d23b5cf190a412f33853d0c3133afd741635ce7b055162da4ac0b9e6d3"
+    },
+    {
+      "bytes": 10400,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adaption_prompt\\layer.py",
+      "sha256": "771e5dedbdecc2d1273ea8d4245182db8ea46116cb736267f102310d8aa46061"
+    },
+    {
+      "bytes": 7900,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adaption_prompt\\model.py",
+      "sha256": "c82747713b403a8656449616c7a8eebcc7a05821b3453a2d1b6c039ffb887928"
+    },
+    {
+      "bytes": 7391,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\adaption_prompt\\utils.py",
+      "sha256": "bdbe0e607e9f1f0afd451f68fb665e22bdef1f55e82a796e61ac2aeecfc484f8"
+    },
+    {
+      "bytes": 865,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\boft\\__init__.py",
+      "sha256": "339473a7344c721801ba096c192eab02071cd5c393ad98919fe703de273db174"
+    },
+    {
+      "bytes": 8370,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\boft\\config.py",
+      "sha256": "7cc965c90236af320ac4db0c4f62136d7f885a30613bb64dd9bd78bb67a921c9"
+    },
+    {
+      "bytes": 42361,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\boft\\layer.py",
+      "sha256": "4061d2ddfe33fd45d3c832a346986ac6d6cf34b1ee5295af6f932bd980af334f"
+    },
+    {
+      "bytes": 14583,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\boft\\model.py",
+      "sha256": "f6ad6b92dcd105956e979597522f69f1169df626931d5146de8fde3f67d3afa0"
+    },
+    {
+      "bytes": 891,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\bone\\__init__.py",
+      "sha256": "fd5599b7c300c313eb91bdafc78b32082e77cbed16da6c75aabee6725ce50756"
+    },
+    {
+      "bytes": 6632,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\bone\\config.py",
+      "sha256": "fbd021e0e3b3ac853002130de9e870bd5a43d3e4301b9c45d5070fb9924d5633"
+    },
+    {
+      "bytes": 14925,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\bone\\layer.py",
+      "sha256": "98a451dbf0076ece2874780e2d8ac82aeddf61251788e41bf7e8c7b8708a3e5d"
+    },
+    {
+      "bytes": 13269,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\bone\\model.py",
+      "sha256": "e70629b0e988b744c0b89ed94019e7a74a095a61bbb78874cf20aa321ee4a059"
+    },
+    {
+      "bytes": 879,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\c3a\\__init__.py",
+      "sha256": "7eface4871ed6c9d986cb7390773515d38fd297718033ea866aa648060fc1199"
+    },
+    {
+      "bytes": 6939,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\c3a\\config.py",
+      "sha256": "951d006841c5d8bd5d44514dbd0412ba9d6c6fcb0b8aff21c06b7c5c83482bba"
+    },
+    {
+      "bytes": 8513,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\c3a\\layer.py",
+      "sha256": "9282e4f2b6ffde70e1bb9c22b3f9ab373ee7d066c7036add023a4a90b1b4e512"
+    },
+    {
+      "bytes": 11524,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\c3a\\model.py",
+      "sha256": "216beab3003bcd107696be49d0e3c1b4d84453bc8efb8fc1099b2ce88c916380"
+    },
+    {
+      "bytes": 1767,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\c3a\\utils.py",
+      "sha256": "3771cf4f20ea8547a5dee31b4000b31cb2e59fbdf787aa9fc3944fa5669ee07f"
+    },
+    {
+      "bytes": 829,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\cpt\\__init__.py",
+      "sha256": "7917ad754554b711e6ec873f624194bc2ae59a41a31c464e416e3cc254fa9435"
+    },
+    {
+      "bytes": 4465,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\cpt\\config.py",
+      "sha256": "eb9f6eb2553234d02e2cfdee450e40ea50ded53bd888f74f551d775b958048e6"
+    },
+    {
+      "bytes": 8405,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\cpt\\model.py",
+      "sha256": "1f32610da5c50c821c35a17fa65ca5bd8c8e2a9b20dd44a6e1d07724f6e406f4"
+    },
+    {
+      "bytes": 946,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\fourierft\\__init__.py",
+      "sha256": "98cf7f419c7d397ea21afe9b7545f7380ef5ed2e09d765c7075ee89677b2a050"
+    },
+    {
+      "bytes": 12167,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\fourierft\\config.py",
+      "sha256": "7ac49acf7c52a2dac71d7fba543752ba95484033b5c40870c197c72de91a7ca2"
+    },
+    {
+      "bytes": 8459,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\fourierft\\layer.py",
+      "sha256": "ad8b97302b03c339c2d41aa7f23326d9fadf3b6cdb10f983424c14035afe0928"
+    },
+    {
+      "bytes": 14367,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\fourierft\\model.py",
+      "sha256": "77ce9f140b9e451fa05d99f0e524e5de20a3e8adf943e6904ebf8e75c8ef79a0"
+    },
+    {
+      "bytes": 904,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\hra\\__init__.py",
+      "sha256": "60086572c84a4a4539441e7b820b22e10e7bcde18f220290c0bfc56c277c48a8"
+    },
+    {
+      "bytes": 6946,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\hra\\config.py",
+      "sha256": "f1d3bb3cd58204e8780670f54b67eba63d786803fc4760c7fb97bc3c43692bf9"
+    },
+    {
+      "bytes": 19046,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\hra\\layer.py",
+      "sha256": "de68bacae686a47eb5c64a649b684ed1cb4b8ffe4b620527d75572d09ebca478"
+    },
+    {
+      "bytes": 13505,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\hra\\model.py",
+      "sha256": "d5f8c51d5862499818b6e754fe68365a9dc6fcc412f3c816545b4b285017b2ed"
+    },
+    {
+      "bytes": 1349,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ia3\\__init__.py",
+      "sha256": "92e1ff8f50cb46087cb57bf8ceaa5f4de757a55edc1e4530497f10fca3b0cc38"
+    },
+    {
+      "bytes": 5924,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ia3\\config.py",
+      "sha256": "6a576713baf01f25f419d8980c7c318366e171ef561bce0fac5a2d372ac4ddb9"
+    },
+    {
+      "bytes": 14911,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ia3\\layer.py",
+      "sha256": "b6df9d9314b19137cbaeb8feb5adea82f01c108eb5feb0f1c71726700b38a97a"
+    },
+    {
+      "bytes": 21089,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ia3\\model.py",
+      "sha256": "4b8333507906bc544fded37e90c21b9436f0d77b41d43a82336c7511e4d13179"
+    },
+    {
+      "bytes": 852,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ln_tuning\\__init__.py",
+      "sha256": "7924303537b62bbddad74bfc55adf93a06947ef230218743b785f1c3e5bc0cd3"
+    },
+    {
+      "bytes": 3405,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ln_tuning\\config.py",
+      "sha256": "2df6ba068d6330ed2ff8a42b0e8f256ed0ac83d050881e410118a6298f37ed61"
+    },
+    {
+      "bytes": 4422,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ln_tuning\\layer.py",
+      "sha256": "700d32fd4ae75f2d8415b924d273c9847d39e2b8c2180d423d7feed875f24d1e"
+    },
+    {
+      "bytes": 8097,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\ln_tuning\\model.py",
+      "sha256": "7ab87c31448a058684ddcd815f93a9a23fc2bc8402551ebd485141daa654e898"
+    },
+    {
+      "bytes": 943,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\loha\\__init__.py",
+      "sha256": "38da6baa6408cb8e6849af452ed9fe5e4b07c07c8b98f43fade6793a1c0c072f"
+    },
+    {
+      "bytes": 7446,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\loha\\config.py",
+      "sha256": "622a07a4bdd5d296b59a7379aa1572beb5be470900401f75494453bb3dc57190"
+    },
+    {
+      "bytes": 15429,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\loha\\layer.py",
+      "sha256": "0b357023964fa3c808ffbef52df69f90ce1ebe4bcfc619dbf9fb1af77b026e92"
+    },
+    {
+      "bytes": 4771,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\loha\\model.py",
+      "sha256": "4f8be363d113110d6fbbd712d9d88dd5b688802c7c98c809d48295b4cdfb8a6b"
+    },
+    {
+      "bytes": 927,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lokr\\__init__.py",
+      "sha256": "8fc278ddb260f2e6821fe2e0197b49d41f3176d98ab5d22ef24d85afa668b1cc"
+    },
+    {
+      "bytes": 8240,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lokr\\config.py",
+      "sha256": "3d0aaffd38204e3f211722d3e492118b9119dfbc4e003034709d00f53672caed"
+    },
+    {
+      "bytes": 16426,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lokr\\layer.py",
+      "sha256": "0f05e911500a198776bbd89928daa3560beacc8b6b75f5966bc0a8a095a7d14f"
+    },
+    {
+      "bytes": 4898,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lokr\\model.py",
+      "sha256": "e433a2c0f74ee36e59d29419cb07729f5258630213fe9cc2dcdfb9908ee0277d"
+    },
+    {
+      "bytes": 1883,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\__init__.py",
+      "sha256": "6ad2ddc6d9522dcc4203e34c98bb2538ffbb4f4c027a567e09c4be8ca205a2b6"
+    },
+    {
+      "bytes": 3737,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\aqlm.py",
+      "sha256": "67922e7203986f8dffb17c704c881e7f1277fa5fe1d1d86fc8e8df97b68fbc65"
+    },
+    {
+      "bytes": 4133,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\awq.py",
+      "sha256": "7b7861002b96c5e0f864244274627cc3bae98368c3cd817b28733cb288f01f5f"
+    },
+    {
+      "bytes": 42385,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\config.py",
+      "sha256": "85a478bcdfd42f9398d232d5e0ddb49650bd1199148503f864834fdbeca3aebb"
+    },
+    {
+      "bytes": 4137,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\eetq.py",
+      "sha256": "fdd6db27f76eafd95c02feef08df133459234367031cf7bf8e72229be7f57509"
+    },
+    {
+      "bytes": 34252,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\eva.py",
+      "sha256": "f3dde51323a3bbaa8d0cafc0cc6609654869d65e4b9ff471f2e8fc4d7a60b3cd"
+    },
+    {
+      "bytes": 5325,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\gptq.py",
+      "sha256": "6bfe12c38f66460f727fa462eb14085d9693d4536b626b784fb2e35d58c24a9a"
+    },
+    {
+      "bytes": 10397,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\hqq.py",
+      "sha256": "880b30d7c7d62887f0818db4dab531a99b28c0635725fa533ade8d6e6af52103"
+    },
+    {
+      "bytes": 2963,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\inc.py",
+      "sha256": "580abb4c604a178deca595eed19f7873a7eb9ca42c203a35105c1de328e9f064"
+    },
+    {
+      "bytes": 97115,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\layer.py",
+      "sha256": "39e2f6908c9f3faf4d2de2b6ecfdf44c96d2cae67b8155ed1b51bc67fb25b734"
+    },
+    {
+      "bytes": 45130,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\model.py",
+      "sha256": "9eec396e506134e50afa41ff21b2608a3307f8f07207f460506d2da33d7bc2f7"
+    },
+    {
+      "bytes": 6001,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\torchao.py",
+      "sha256": "a3d6ca50662ec8d86ed2acb99bb2e604eaea0dcf5f74f0daef521a1bf98d156d"
+    },
+    {
+      "bytes": 14185,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lora\\tp_layer.py",
+      "sha256": "a67798c11a553d0ac05cdfc9c09c7d4812bbf6c56ce56cd1cb2375cae3e52195"
+    },
+    {
+      "bytes": 17407,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\lycoris_utils.py",
+      "sha256": "6f98e6669fe661ca96182990dde7cde41d82e919c3cd48e65900ffe43ab16b2e"
+    },
+    {
+      "bytes": 891,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\miss\\__init__.py",
+      "sha256": "d24d2e19e82047ce240c4d759dadbe0375d1b167d7f6ce0de21e5aa0bab636ed"
+    },
+    {
+      "bytes": 7682,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\miss\\config.py",
+      "sha256": "eae725e51c2c9c83816f788deb621ed057f6e86ab9f04d91a49e9bd78a033118"
+    },
+    {
+      "bytes": 17053,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\miss\\layer.py",
+      "sha256": "1b90faf38943f282374e4261d4f0ae8074fe93647e242683e0d8a90c36958d8b"
+    },
+    {
+      "bytes": 13463,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\miss\\model.py",
+      "sha256": "627fd28328c5f394d91a1839983d56978638c6a49ceb5620d28d0f70fce40dd6"
+    },
+    {
+      "bytes": 706,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\mixed\\__init__.py",
+      "sha256": "b1e7bb09b3a2249f84f16d5049206d20ae2841f167909394554e71724098cb3c"
+    },
+    {
+      "bytes": 15637,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\mixed\\model.py",
+      "sha256": "17d41fc2dd08fafa43e7fe7af1367e4e765bd2f4c36d46d298c7947dba61c449"
+    },
+    {
+      "bytes": 1000,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\multitask_prompt_tuning\\__init__.py",
+      "sha256": "61169c28f9d1859eb76d6f04993cd48ab66384cc54d2c8af86c2ed8f73620935"
+    },
+    {
+      "bytes": 2478,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\multitask_prompt_tuning\\config.py",
+      "sha256": "58c8ad51f25d3bebbb18079240c915eb8deea4a094e623a552c1dbe4ef92cc36"
+    },
+    {
+      "bytes": 4915,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\multitask_prompt_tuning\\model.py",
+      "sha256": "cc37cc17c942a2c38a3f5e2aacf7bee467df747385be0a1e2e44715df34ae602"
+    },
+    {
+      "bytes": 1529,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\__init__.py",
+      "sha256": "59ea89787dc7a3f8da588fc131bc475d221e0a2f079ed684c2924bff98c1a3c6"
+    },
+    {
+      "bytes": 3291,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\aqlm.py",
+      "sha256": "3896b43e8d52bfc300e4ec969a1ba1823962f45a0f7df30e532aaaba33b4fb38"
+    },
+    {
+      "bytes": 4066,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\awq.py",
+      "sha256": "0cc0dd25550ea1de91425b4ce94c9c7209da48362fd6f91338308ccfb4163926"
+    },
+    {
+      "bytes": 10118,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\config.py",
+      "sha256": "97b7e44d1750e5c8925be5a83582c5a37885dcc649ce553aa11f50c0ba335051"
+    },
+    {
+      "bytes": 4001,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\eetq.py",
+      "sha256": "9f3bcba0af7aaf19fe62357e50553f2be0cc37828bb9b193b33ef3d583fb5818"
+    },
+    {
+      "bytes": 3971,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\gptq.py",
+      "sha256": "cf6cc7e024d5ab30c44d28fc16458753447407e3781a2177314f4e05c2c00a5b"
+    },
+    {
+      "bytes": 7322,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\hqq.py",
+      "sha256": "d4581cba32aaa435441cdc2fa28cba0d5bd1398221d88b3515a66c7f8c40a6db"
+    },
+    {
+      "bytes": 2959,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\inc.py",
+      "sha256": "9de2882b567435b64913957934a538d68efa9398d1186d69f455d456e445785c"
+    },
+    {
+      "bytes": 36343,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\layer.py",
+      "sha256": "b572f4850b6b6913c968935a63f91635038356efd3af55f07c394efccbef3fcc"
+    },
+    {
+      "bytes": 17427,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\oft\\model.py",
+      "sha256": "a3bc1a38268d2723631593e9f355d9997a6fc0f8003ed1925544a601958071db"
+    },
+    {
+      "bytes": 942,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\p_tuning\\__init__.py",
+      "sha256": "12d44ee666f6252264e793c80da990307c302e6bacbd892c99cb353a20ce2c75"
+    },
+    {
+      "bytes": 2142,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\p_tuning\\config.py",
+      "sha256": "33380a28e3d0d6e8ade5e0f0e703794e39091d19d0da63d723347ccc87d5f9a7"
+    },
+    {
+      "bytes": 5575,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\p_tuning\\model.py",
+      "sha256": "aefda66e63ce02b01e7deaa1274f4ecfb5cd19a49c586453d6180a96b7e17c0c"
+    },
+    {
+      "bytes": 883,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\poly\\__init__.py",
+      "sha256": "b6a434e9e0aa5afe6e9cca660585bdc6d7141e251af33f7587bb664965595a8e"
+    },
+    {
+      "bytes": 4569,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\poly\\config.py",
+      "sha256": "a7d8696b5ee9d7a39c2dcba2effc90b6e3f6120d2dbc8a10797952949b1b9cd2"
+    },
+    {
+      "bytes": 6593,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\poly\\layer.py",
+      "sha256": "bff107a8f0cf1c2f2808b2f1338f5ea95748f1b84a1f4945ce5f54e7d581e736"
+    },
+    {
+      "bytes": 6794,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\poly\\model.py",
+      "sha256": "df04c5106819682bd2adf3ba9eb88f3ef48507b29079fdf66f580d2c2665b8b4"
+    },
+    {
+      "bytes": 2784,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\poly\\router.py",
+      "sha256": "a3443787ac8cf45c4958d1a1c0d38ca9a35ebaa6d5da170ec45c540d1ba67390"
+    },
+    {
+      "bytes": 868,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prefix_tuning\\__init__.py",
+      "sha256": "881407b5982bbf9154fe6cf84564f421d0c17dce42fad5fea836319f044bf167"
+    },
+    {
+      "bytes": 1418,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prefix_tuning\\config.py",
+      "sha256": "57b0b197d6d69611a49cf939668f841fadbdba608d362a8cae02cc877f970330"
+    },
+    {
+      "bytes": 3007,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prefix_tuning\\model.py",
+      "sha256": "17213f101b6fbc0f5b6435fe19158deacd0c42d7147b9ecf2c3e2a453d800b0c"
+    },
+    {
+      "bytes": 912,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prompt_tuning\\__init__.py",
+      "sha256": "09e6649bfa9322e712fca13ad113c675ffde714316b57bed58bba9310540753c"
+    },
+    {
+      "bytes": 3504,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prompt_tuning\\config.py",
+      "sha256": "eb9574caf57a82d84f632831b2c873bd1d322d4304c4cc3640cab4136e943e34"
+    },
+    {
+      "bytes": 3747,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\prompt_tuning\\model.py",
+      "sha256": "0fa60f654805905deae043daff402f2c91c90db1340ea223517512445b5e7ca2"
+    },
+    {
+      "bytes": 1353,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\randlora\\__init__.py",
+      "sha256": "7efa3b17adbce15983a821d7714179a72daf2b96df470889df1de8e9e2262343"
+    },
+    {
+      "bytes": 9945,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\randlora\\config.py",
+      "sha256": "30b1418c800d1665bdb54b7b9dee2251941dfce9ec7871fdcd1ffe5755326bf4"
+    },
+    {
+      "bytes": 15314,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\randlora\\layer.py",
+      "sha256": "a3094b6623e23baaa59ae0ff837c9892ea20a7d9dc0ccbccc3eff8f1e0c1b6bb"
+    },
+    {
+      "bytes": 24149,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\randlora\\model.py",
+      "sha256": "8b0e0de7d8eccbc6ee4f0af3acd5bd8108eb57c9b579b81b4fdb66bdcb6b2bc3"
+    },
+    {
+      "bytes": 942,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\shira\\__init__.py",
+      "sha256": "d76f0cb7c3997d53652721c8fbd9a01c2b8893a9a0e8f3f4a28a7e1d35808d94"
+    },
+    {
+      "bytes": 6598,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\shira\\config.py",
+      "sha256": "5c43d3fcb2c00ee940be29b51d5bf73f8cf78b4034540d73d34fb79dabfa7f06"
+    },
+    {
+      "bytes": 9151,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\shira\\layer.py",
+      "sha256": "4898b903752cf8c53d8ac419b5b789c7e2803f6754260d78367a9d91dc3aab6e"
+    },
+    {
+      "bytes": 2985,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\shira\\mask_functions.py",
+      "sha256": "b7d4026455480983e449d5398ed9389d5f238279534fbd56a6c47fc98cc22b08"
+    },
+    {
+      "bytes": 12503,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\shira\\model.py",
+      "sha256": "35a96915fad2e76a20bb1a54ed238103e201195e9d51df915c8c41a0a3a30b58"
+    },
+    {
+      "bytes": 1026,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\trainable_tokens\\__init__.py",
+      "sha256": "9de704967be87cf0802ba2cd80dd3516cc19da1f99bdd7bc5b9f5bc542c4b685"
+    },
+    {
+      "bytes": 4345,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\trainable_tokens\\config.py",
+      "sha256": "671c4cef56506d6a5ae21db11e244c0ad27467e126a2182edd46afacf8ce1aed"
+    },
+    {
+      "bytes": 10772,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\trainable_tokens\\layer.py",
+      "sha256": "c712382e1de4929844258832cbc0d18141f14f2336989603098015834459bc68"
+    },
+    {
+      "bytes": 11755,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\trainable_tokens\\model.py",
+      "sha256": "c82a6c185a08297af6ef8027fa2ab36376b3e814e779cdbc29735661851b52b3"
+    },
+    {
+      "bytes": 67995,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\tuners_utils.py",
+      "sha256": "d5b6a92d8f0b5325951519e81d2ed9debcba6ace1028e887958dd5e5188be66a"
+    },
+    {
+      "bytes": 901,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vblora\\__init__.py",
+      "sha256": "f2fa6cf6560b398e6ef363138e192fffa6d7be48de44f39f3ec5dcd254185e7f"
+    },
+    {
+      "bytes": 10572,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vblora\\config.py",
+      "sha256": "b9165c078780cd6da03e8aeea720f23462511bc2662ba27e524566aa1044b1f8"
+    },
+    {
+      "bytes": 10929,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vblora\\layer.py",
+      "sha256": "415fdb5712c4ff84453afe3720960ed6aeb810daf7bdb74093583d3ff67f3677"
+    },
+    {
+      "bytes": 18457,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vblora\\model.py",
+      "sha256": "a07feafdb68018439e695ca35c34087165b2810d01f80344c464158b25e5601f"
+    },
+    {
+      "bytes": 1320,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vera\\__init__.py",
+      "sha256": "59afe544b6717434886eaeedc1aea17e1dfa045e57ef2e5eea2e21e064b17ee8"
+    },
+    {
+      "bytes": 8093,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vera\\config.py",
+      "sha256": "e7007c8dfe72765a43d26e425f992e4e77ef8317a2636a8c52e003a55a5cf69f"
+    },
+    {
+      "bytes": 12136,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vera\\layer.py",
+      "sha256": "a1ceaf18b2ea64ccf7b7334bb24d40bf557fc6f4d82996d9c3d4377a72e58e43"
+    },
+    {
+      "bytes": 20482,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\vera\\model.py",
+      "sha256": "070cb5685454e11568d4b3ede000637c5b4451882c1b360f19d223c77a3dbf82"
+    },
+    {
+      "bytes": 830,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\xlora\\__init__.py",
+      "sha256": "37bfdc6234eaf8a21a34cac70e4b0bcf4bcc73380ac7dcbaff76f21210e8c604"
+    },
+    {
+      "bytes": 7386,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\xlora\\classifier.py",
+      "sha256": "0f6a0e7f158b76a876925ba3f6c85f894a09bf54dd48cef48ec64391ceee272d"
+    },
+    {
+      "bytes": 4633,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\xlora\\config.py",
+      "sha256": "12b7fae15f9f7b6688408059c2d62e73d2568c87a96feefca3a22a549330cf2f"
+    },
+    {
+      "bytes": 9063,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\xlora\\layer.py",
+      "sha256": "e4533adfe4ab6cfdeb99c879333734d555325678a678e346c86237150b070979"
+    },
+    {
+      "bytes": 20572,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\tuners\\xlora\\model.py",
+      "sha256": "e18fa23e90cf8915648e73557435c618365912ecd3c5a887a529c89498d4d46a"
+    },
+    {
+      "bytes": 4180,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\__init__.py",
+      "sha256": "b83e9b5a87575a476131f5663fbf221b6a4c1653220c069f515a1274448c82f7"
+    },
+    {
+      "bytes": 15695,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\constants.py",
+      "sha256": "37201b78eeb009f8622a5eeb666ecc20e0c2a86a57610535de382160314e98e2"
+    },
+    {
+      "bytes": 14026,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\incremental_pca.py",
+      "sha256": "0bab8d06a39f6dce1e47f8b61d72e393cb31b2a43f6f1878da9197291b7f5dfb"
+    },
+    {
+      "bytes": 10977,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\integrations.py",
+      "sha256": "f795db0fcfe502fec50f8ef226701561ed0dd05e0dedbf8b8a7e0e8430279d11"
+    },
+    {
+      "bytes": 17528,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\loftq_utils.py",
+      "sha256": "b6f6c426e1d877f9497a8b1d01530889f3ac9b30e0e37207243dde0d85f95614"
+    },
+    {
+      "bytes": 9899,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\merge_utils.py",
+      "sha256": "9670e1d1a1efb8f748c2afdcf23598eda4006a93d954d15c689833c466730878"
+    },
+    {
+      "bytes": 58867,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\other.py",
+      "sha256": "9b0cdf3c607d1ffc679f17af2e8b977307b36857b8410bb06ce44bff719e0bdd"
+    },
+    {
+      "bytes": 5420,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\peft_types.py",
+      "sha256": "2ee22855a436a49c82061adc573fe75bbd040f08c79685c3fff97a92e3ee2703"
+    },
+    {
+      "bytes": 34607,
+      "sha256": "849282f01e69b7055cc499e67f279cde3f489421aea212f59f701f45755de26b",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\save_and_load.py"
+    },
+    {
+      "bytes": 2739,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\tokenizers\\__init__.py",
+      "sha256": "510d5e23458612433da9f1fe430b5009fb88ba90508ee4340d2397b32c319080"
+    },
+    {
+      "bytes": 43991,
+      "sha256": "91601044a74fe02571a825356754dbbaa9e1d3e3dd3c2237254c15e903e421e3",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers-4.57.6.dist-info\\METADATA"
+    },
+    {
+      "bytes": 47000,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\__init__.py",
+      "sha256": "aa8cb54da488cf43ba37b9955bb6c0d84d2000db0306f6a5f1c20b6842482d04"
+    },
+    {
+      "bytes": 15881,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_d_fine.py",
+      "sha256": "a72562865535090ada3b352314bacf5c8b15487c47842ba7d92233bce645103b"
+    },
+    {
+      "bytes": 7321,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_deformable_detr.py",
+      "sha256": "a54c30ac05711306b6a9a9b2a1322a971a6597fac14d708e9faedb5bbdd92ae7"
+    },
+    {
+      "bytes": 24581,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_for_object_detection.py",
+      "sha256": "7d9b8b58acda0ad1af0a69697afa479c81a9e011483c920853819c16a0ceeebd"
+    },
+    {
+      "bytes": 11190,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_grounding_dino.py",
+      "sha256": "11f8791a64736478cadd9a0d08d091854d4657da5c06d1c32b115bac9c2bdcad"
+    },
+    {
+      "bytes": 22130,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_rt_detr.py",
+      "sha256": "ac693c7c5875aa83e0b112f4faf1f0dc5ae32f7c11355f35f9741316b1254de3"
+    },
+    {
+      "bytes": 7046,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\loss\\loss_utils.py",
+      "sha256": "fa65f18b3167f45989d7a8ba86432a41d322338f9789cc89b08d5d7f20f110b7"
+    },
+    {
+      "bytes": 308964,
+      "sha256": "bf1c6b2a43cf7c36fb79f37c981424dd6ae78eb863fcaa5d2a37e76c9828611d",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\modeling_utils.py"
+    },
+    {
+      "bytes": 1104,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\__init__.py",
+      "sha256": "69b55a787c302a02fede0548ddce4f4997eba19954e13c44297c1e0ddef90574"
+    },
+    {
+      "bytes": 14827,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\configuration_qwen3_vl.py",
+      "sha256": "177fd0a4dc1b08307c08ca72cf26b8d7dc028ab6ab5975bf650fc14ab8132a83"
+    },
+    {
+      "bytes": 70877,
+      "sha256": "dd63ed3b124232735b3dca1bfa28f9d6b0d3f7182afcb75dde8f3e724b2b22da",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\modeling_qwen3_vl.py"
+    },
+    {
+      "bytes": 17149,
+      "sha256": "efd8d64aaf608aad1ffb3e6d503d6a99e5227d007df95c1d9fa905d998cda4a9",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\processing_qwen3_vl.py"
+    },
+    {
+      "bytes": 11561,
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\video_processing_qwen3_vl.py",
+      "sha256": "a49a83fc45cd9baa3e391a68af79743c70d47b86d7d6c81a262fda4104f89db7"
+    },
+    {
+      "bytes": 5502,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\chat_template.json",
+      "sha256": "6f8a6a55027e3da5160105556cda5dd69f6423f1c32645f6730d32de7773d0c4"
+    },
+    {
+      "bytes": 1505,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\config.json",
+      "sha256": "bec4b3d446efa05807365c9e1cec03ac590836879d02f3a6da879971154bdd3b"
+    },
+    {
+      "bytes": 269,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\generation_config.json",
+      "sha256": "1e241830b48b397cb0900101421df5450baddc7adf01e5fc86b5615865f3bae4"
+    },
+    {
+      "bytes": 1671839,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\merges.txt",
+      "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+    },
+    {
+      "bytes": 4255140312,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\model.safetensors",
+      "sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0"
+    },
+    {
+      "bytes": 390,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\preprocessor_config.json",
+      "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+    },
+    {
+      "bytes": 7136,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\README.md",
+      "sha256": "5fc5be1ca9a3910399bd6239ee5086ab5d82a2a59c5d2b00e887a8835cc110e4"
+    },
+    {
+      "bytes": 10868,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\tokenizer_config.json",
+      "sha256": "c2da771801886ad9ae98181793ffd3dfb7f1af30f6f7c6a4e15d7dbba52e2399"
+    },
+    {
+      "bytes": 7032403,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\tokenizer.json",
+      "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7"
+    },
+    {
+      "bytes": 385,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\video_preprocessor_config.json",
+      "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+    },
+    {
+      "bytes": 2776833,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\huggingface-vlm\\models--Qwen--Qwen3-VL-2B-Instruct\\snapshots\\89644892e4d85e24eaac8bacfd4f463576704203\\vocab.json",
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    {
+      "bytes": 355540,
+      "sha256": "096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f",
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\navigation-safetensors-runtime-20261007-r1\\safetensors-0.8.0-cp310-abi3-win_amd64.whl"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-importpath-train-supervisor-20261007-r2\\completion.json",
+      "bytes": 28527,
+      "sha256": "9490c1c76a2ac756b4d0d98ff93acc9bd6e57ade89e2162a257e01fac55feefb"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-importpath-train-supervisor-20261007-r2\\preflight.json",
+      "bytes": 14280,
+      "sha256": "c7c089538b9147f3b8e95ae4d465221530bc13b49d6b15e0069ddb2269b08dff"
+    },
+    {
+      "bytes": 931,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\adapter\\adapter_config.json",
+      "sha256": "7b6be286e2eb42bbd2eb614c3ea754c2d14d7c394f1db60fa78d82cf949bd10d"
+    },
+    {
+      "bytes": 3227648,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\adapter\\adapter_model.safetensors",
+      "sha256": "1b03638dad5d48eb3fb34a9b2bd4163bc0d3bd96201f56c3509291d6afb362e6"
+    },
+    {
+      "bytes": 5438,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\adapter\\README.md",
+      "sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\candidate-probes.json",
+      "bytes": 7530,
+      "sha256": "4d466c59ee1b100976f757d3dd18588b407febef580d36acdde4ed26725c9580"
+    },
+    {
+      "bytes": 639,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\invocation.json",
+      "sha256": "82a75a06f4e38ba9aa6cd0ca058953ece7eaed23185e0321119f04649f73e2a1"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\parent-probes.json",
+      "bytes": 7927,
+      "sha256": "4f2dd642b15dcd04f5bf3c1c009fd0493d42a357dd249aa43c28d4a4074e7d20"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\prepared-inputs.json",
+      "bytes": 164313,
+      "sha256": "97fcad2de2ef954f6ba60ded2e4760d391f8689526d29e2d3721d520fa09ef91"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\report.json",
+      "bytes": 57450,
+      "sha256": "996879ac7fc86f818487f2db831c0bdd09bbb61eaf8f181f3624e9148835f430"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-vlm-navigation-pilot-importpath-20261007-r2\\training-events.jsonl",
+      "bytes": 117260,
+      "sha256": "fad73463aafb7870d13e417d6323ac515d87795beea6abfaf44c6b910b5b2b4c"
+    },
+    {
+      "bytes": 47422,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\onboard-openfly-navigation-dataset-20261007-r2\\report.json",
+      "sha256": "07b1502334e503884ef403322bbd9ad4d18c9e6a0e4f09676334e267437b45fd"
+    },
+    {
+      "bytes": 402194,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\onboard-openfly-navigation-dataset-20261007-r2\\samples.jsonl",
+      "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+    },
+    {
+      "bytes": 757,
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\training\\onboard-openfly-navigation-dataset-20261007-r2\\training-review.json",
+      "sha256": "add2f7819e14843e57d7df7db1b8712fa377f8efc2b1f2a38e2d0e3c07e92506"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\configs\\training\\onboard-navigation-importpath-runtime-20261007-r2.json",
+      "bytes": 9763,
+      "sha256": "3d4413dcb69e3671252fbe06ee84e34ad12d242329e3e2bd379952ae59a60c43"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\configs\\training\\onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "bytes": 13152,
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "bytes": 35770,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\build_onboard_openfly_navigation_dataset.py",
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\onboard_navigation_streaming_storage.py",
+      "bytes": 14703,
+      "sha256": "c4965fc589430d6a1a4cd37833057ee6f8051cc76ae8ad3cf235e837eb7e098c"
+    },
+    {
+      "bytes": 31713,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\probe_onboard_vlm.py",
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\recover_onboard_navigation_adapter.py",
+      "bytes": 28085,
+      "sha256": "6d117e4656d285d40483a59c56faef7641ab191b3297e125a566a3c0174dbf3e"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_streaming_no_warmup_importpath.py",
+      "bytes": 3341,
+      "sha256": "3dfc47e3d4db1c39fdadc35547baf14584cfc302ed3e5569673ef97b10a73901"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_streaming_no_warmup.py",
+      "bytes": 20413,
+      "sha256": "5e46b8b025175ad53da211b31eef81f7dabb7586ec8b2f7ba35f3e8a249005e2"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_streaming.py",
+      "bytes": 25605,
+      "sha256": "5289c8fa44c342c1b689c702873bdbb7a2924932d51b8486b0ef15bae33a4c66"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_supervised.py",
+      "bytes": 20276,
+      "sha256": "834f9ef07f2e1dfcaf032293e5b4795e9802f0b8c3b59058699f1ea05ac377d2"
+    },
+    {
+      "bytes": 49187,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\train_onboard_vlm_grounding.py",
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\train_onboard_vlm_navigation_pilot.py",
+      "bytes": 40430,
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "bytes": 16642,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\verify_onboard_vlm_grounding_adapter.py",
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "bytes": 52186,
+      "path": "D:\\Projects\\Multi-Detect\\src\\multidetect\\autonomy\\onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "D:\\Projects\\Multi-Detect\\src\\multidetect\\autonomy\\serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_onboard_navigation_streaming_storage.py",
+      "bytes": 16683,
+      "sha256": "96bf280127d1f37869d65260e862ac5d17cf04535e8721bf8076bb0b13ab5f08"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_recover_onboard_navigation_adapter.py",
+      "bytes": 24198,
+      "sha256": "a23ca799740bcfb8d495121ae2786a1eadfb332eef4837d098c2f9bdd8af7726"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_streaming_no_warmup_importpath.py",
+      "bytes": 9887,
+      "sha256": "4ea577bed6010c4e51e4d9d4c8b7aac8923db7116b57393ca60efad09480594b"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_streaming_no_warmup.py",
+      "bytes": 20867,
+      "sha256": "0085be6a3bc9111aaea6b39060623bf850b4b4531763bc7bc493020dfc5e4537"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_streaming.py",
+      "bytes": 27321,
+      "sha256": "54719b931f1e175657ad61164feed96273031c6e16dd0968c5e238a9fa961407"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_supervised.py",
+      "bytes": 17476,
+      "sha256": "495caae269d6df6bd84367b2de90d675a8edc0d9041bccd62f44c93ed93d8c43"
+    },
+    {
+      "bytes": 17669,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_train_onboard_vlm_navigation_pilot.py",
+      "sha256": "216ead9220a2db8d6dd1f3417df6c1bddc82612d91a84eeee83271d08555d86e"
+    }
+  ]
+}

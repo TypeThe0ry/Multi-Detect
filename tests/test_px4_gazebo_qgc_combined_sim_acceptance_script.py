@@ -1,3 +1,4 @@
+# ruff: noqa: E501 -- PowerShell harness snippets are intentionally literal.
 from __future__ import annotations
 
 import re
@@ -110,6 +111,7 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     assert '"--env", "PX4_GZ_WORLD=default"' in text
     assert '"--env", "PX4_GZ_MODELS=/opt/multidetect-gazebo-models"' in text
     assert '"--env", "PX4_SIM_MODEL=gz_standard_vtol_mono_cam"' in text
+    assert '"--env", "PX4_MAVLINK_UDP_PORT=$Px4ContainerInputPort"' in text
     assert '"--env", "PX4_SYS_AUTOSTART=4004"' in text
     assert '"world_sha256=$worldHash"' in text
     assert (
@@ -120,6 +122,8 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     assert "/world/default/model/standard_vtol_mono_cam_0/" in text
     assert "/sensor/camera/image" in text
     assert "/sensor/camera/camera_info" in text
+    assert "/sensor/depth_camera/depth_image" in text
+    assert "/sensor/depth_camera/camera_info" in text
     assert "/sensor/navsat_sensor/navsat" in text
     assert "/model/standard_vtol_mono_cam_0/odometry_with_covariance" in text
 
@@ -132,6 +136,8 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     required_topics = required_topics_match.group(1)
     assert "/sensor/camera/image" in required_topics
     assert "/sensor/camera/camera_info" in required_topics
+    assert "/sensor/depth_camera/depth_image" in required_topics
+    assert "/sensor/depth_camera/camera_info" in required_topics
     assert "/sensor/navsat_sensor/navsat" in required_topics
     assert "/odometry_with_covariance" in required_topics
 
@@ -157,7 +163,9 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     assert "$integratedEvidence.odometry_local_up_used_as_agl -eq $false" in text
     assert "observed_timestamp_frame_count" in text
     assert "No publishers on topic" in text
-    assert "Gazebo camera image/CameraInfo/NavSat/full-odometry topics were not ready" in text
+    assert "Gazebo RGB/depth image+CameraInfo/NavSat/full-odometry topics were not ready" in text
+    assert "depth_enabled" in text
+    assert "depth_companion_count" in text
 
 
 def test_combined_sensor_readiness_requires_stable_gazebo_publishers_before_stream_start() -> None:
@@ -250,6 +258,25 @@ def test_portable_qgc_runs_visible_on_the_native_fly_view_surface() -> None:
     assert "-FilePath $QgcExecutable" in text
     assert "-WorkingDirectory $QgcPortableBin" in text
     assert "-WindowStyle Normal" in text
+
+
+def test_combined_sim_can_bind_the_jetson_equivalent_safety_model_without_replacing_primary_path() -> None:
+    text = _read_script()
+
+    assert '[string]$JetsonSafetyModel = ""' in text
+    assert '[string]$JetsonSafetyModelManifest = ""' in text
+    assert 'must be provided together' in text
+    assert 'build_production_perception' in text or 'production_perception_factory = $true' in text
+    assert '"--safety-onnx-model", $JetsonSafetyModelPath' in text
+    assert '"--safety-model-manifest", $JetsonSafetyModelManifestPath' in text
+    assert '"--safety-model-coco80", "--safety-model-format", "ultralytics_raw"' in text
+    assert '"--safety-output-coordinates", "letterbox_xyxy_px"' in text
+    assert 'jetson_safety_model = [ordered]@{' in text
+    assert 'authorization = "evidence_only_no_flight_control"' in text
+    # The existing synthetic primary fixture remains intentionally present;
+    # the Jetson-equivalent model is an evidence side-channel until governed.
+    assert '"--onnx-model", $OnnxModel, "--model-manifest", $ModelManifest' in text
+    assert '"--allow-synthetic-hil-model"' in text
     assert '"--isolated-hil"' in text
     assert '"--isolated-hil-px4-udp-port"' in text
     assert '"--isolated-hil-px4-target-port"' in text
@@ -378,7 +405,8 @@ def test_native_target_selection_drives_the_real_qgc_overlay_and_geolocation_gat
     assert '[string]$adopted.interaction_state -eq "TRK"' in text
     assert "qgc_operator_tracked_adoption_proved = $true" in text
     assert '"--ranging-calibration"' in text
-    assert '"--require-target-geolocation"' in text
+    assert '"--require-target-geolocation"' not in text
+    assert "target_geolocation_gate_required -ne $true" in text
     assert "$integratedEvidence.target_geolocation_acceptance.gate_passed -eq $true" in text
     assert "native_target_selection = $nativeTargetSelection" in text
     assert "MultiDetectState.selectCandidate" not in text
@@ -580,7 +608,89 @@ def test_sensor_stream_deadline_scales_with_the_frame_budget() -> None:
     text = _read_script()
 
     assert "$SensorStreamTimeoutSeconds = [int][Math]::Max(" in text
-    assert "[Math]::Ceiling($Frames / 2.0) + 30" in text
+    assert "[Math]::Ceiling($Frames * 0.75) + 60" in text
+
+
+def test_combined_acceptance_forwards_and_verifies_sensor_fault_contract() -> None:
+    text = _read_script()
+
+    assert '[ValidateSet("image", "navsat", "odometry")]' in text
+    assert '[string]$FaultSource = ""' in text
+    assert '[int]$FaultStartImage = 0' in text
+    assert '[int]$FaultDurationImages = 0' in text
+    assert "$FaultSource.ToLowerInvariant()" in text
+    assert "[long]$faultWindowEnd = [long]$FaultStartImage + [long]$FaultDurationImages" in text
+    assert "$faultWindowEnd -gt [long]$Frames" in text
+    assert '"--fault-source", $FaultSource' in text
+    assert '"--fault-start-image", "$FaultStartImage"' in text
+    assert '"--fault-duration-images", "$FaultDurationImages"' in text
+    assert "function Assert-CombinedSensorFaultContract" in text
+    assert "$transport.fault_diagnostic" in text
+    assert "$transport.fault_verification" in text
+    assert "$verification.timeline_overflow -eq $false" in text
+    assert "$verification.emitted_during_window_count -eq 0" in text
+    assert "$verification.cache_cleared -eq $true" in text
+    assert "Assert-CombinedSensorFaultContract -IntegratedEvidence $integratedEvidence" in text
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell runtime is unavailable")
+def test_fault_source_normalization_executes_without_overwriting_validated_parameter(
+    tmp_path: Path,
+) -> None:
+    text = _read_script()
+    match = re.search(
+        r"(?ms)^\$FaultSourceValue = if \(\[string\]::IsNullOrWhiteSpace\(\$FaultSource\)\) \{.*?^\$MetricDepthModelPath =",
+        text,
+    )
+    assert match is not None
+    normalization = match.group(0).removesuffix("$MetricDepthModelPath =")
+    harness = (
+        "param(\n"
+        '    [ValidateSet("image", "navsat", "odometry")]\n'
+        '    [string]$FaultSource = "",\n'
+        "    [int]$FaultStartImage = 0,\n"
+        "    [int]$FaultDurationImages = 0\n"
+        ")\n"
+        "$Frames = 10\n"
+        + normalization
+        + "[ordered]@{source=$FaultSourceValue; start=$FaultStartImage; duration=$FaultDurationImages} | ConvertTo-Json -Compress\n"
+    )
+    harness_path = tmp_path / "fault-source-normalization.ps1"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    def run(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                str(POWERSHELL),
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(harness_path),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+
+    assert '"source":null' in run().stdout
+    assert '"source":"image"' in run("-FaultSource", "image", "-FaultStartImage", "2", "-FaultDurationImages", "2").stdout
+    assert '"source":"navsat"' in run("-FaultSource", "navsat", "-FaultStartImage", "2", "-FaultDurationImages", "4").stdout
+    assert run("-FaultStartImage", "2").returncode != 0
+    assert run("-FaultSource", "odometry", "-FaultStartImage", "8", "-FaultDurationImages", "3").returncode != 0
+
+
+def test_metric_depth_wrapper_rejects_gazebo_transport_identity_documents_before_launch() -> None:
+    text = _read_script()
+    guard_start = text.index("$MetricDepthCalibrationMetadata = $null")
+    guard_end = text.index('$ImageReference = ', guard_start)
+    guard = text[guard_start:guard_end]
+    assert "ConvertFrom-Json -ErrorAction Stop" in guard
+    assert '$metricDepthSourceKind.ToLowerInvariant().StartsWith("gazebo_depth_wire")' in guard
+    assert "cannot be passed as -MetricDepthCalibrationDocument" in guard
 
 
 def test_perception_dimensions_are_derived_from_model_manifest() -> None:
@@ -714,7 +824,7 @@ def test_multi_endpoint_router_attached_vtol_and_integrated_sim_share_one_contai
     assert '"--terrain-dem", $TerrainDem' in text
     assert '"--rtsp-helper", $RtspHelper' in text
     assert '"--metadata-acceptance-ack-timeout-seconds", "3"' in text
-    assert '"--maximum-ack-to-metadata-skew-ms", "1000"' in text
+    assert '"--maximum-ack-to-metadata-skew-ms", "2500"' in text
     assert '"--operator-hmac-key-env", "MULTIDETECT_OPERATOR_KEY"' in text
     assert '"--mavlink-signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"' in text
     assert "$integratedEvidence.synchronization.video_frame_count -eq $Frames" in text
@@ -783,7 +893,7 @@ def test_temporary_operator_keys_are_process_only_zeroed_and_never_serialized() 
     assert "$temporarySigningHex = $null" in text
 
     evidence_start = text.index("$evidence = [ordered]@{")
-    evidence_end = text.index("$ProjectionMaximumNodesPerField = 20000", evidence_start)
+    evidence_end = text.index("$ProjectionMaximumNodesPerField = 200000", evidence_start)
     evidence = text[evidence_start:evidence_end]
     for secret_reference in (
         "$temporaryHmac",
@@ -815,12 +925,12 @@ def test_aggregate_evidence_uses_bounded_json_safe_projection() -> None:
     assert "MaximumCollectionItems = 4096" in text
     assert "<dictionary-truncated:$MaximumCollectionItems>" in text
     assert "<unsupported-type:$($type.FullName)>" in text
-    assert "maximum_nodes = 20000" in text
+    assert "maximum_nodes = 200000" in text
     assert "<projection-truncated:$($ProjectionState.maximum_nodes)>" in text
     assert "return [string]::Copy([string]$Value)" in text
     assert "PSPath, PSProvider, ReadCount" in text
     assert "-ProjectionState $ProjectionState" in text
-    assert "$ProjectionMaximumNodesPerField = 20000" in text
+    assert "$ProjectionMaximumNodesPerField = 200000" in text
     assert "$evidence.GetEnumerator()" in text
     assert "mode = 'per_top_level_field'" in text
     assert "maximum_nodes_per_field = $ProjectionMaximumNodesPerField" in text
@@ -906,14 +1016,14 @@ def test_recommended_long_run_parameters_flow_to_unclipped_wait_budgets() -> Non
     assert "[ValidateRange(120, 1800)]" in param_block
     assert "[ValidateRange(30, 600)]" in param_block
     assert "[ValidateRange(2, 30)]" in param_block
-    assert "[ValidateRange(10, 600)]" in param_block
+    assert "[ValidateRange(10, 700)]" in param_block
     assert "[ValidateRange(60, 300)]" in param_block
     assert "[ValidateRange(1, 60)]" in param_block
 
     assert '"--frame-count", "$Frames"' in text
     assert '"--duration-seconds", "$RouterDurationSeconds"' in text
     assert '"--fixed-wing-hold-seconds", "$FixedWingHoldSeconds"' in text
-    assert "[Math]::Ceiling($Frames / 2.0) + 30" in text
+    assert "[Math]::Ceiling($Frames * 0.75) + 60" in text
     assert "($SensorStreamTimeoutSeconds + 45) * 1000" in text
     assert "(($RouterDurationSeconds + 10) * 1000)" in text
     assert "[Math]::Ceiling($FixedWingHoldSeconds + 43.0)" in text
@@ -923,6 +1033,11 @@ def test_recommended_long_run_parameters_flow_to_unclipped_wait_budgets() -> Non
     ) in text
     assert "$MissionSetupAllowanceSeconds + $MissionTimeoutSeconds + 30" in text
     assert '"--mission-timeout-seconds", "$MissionTimeoutSeconds"' in text
+    assert '"--energy-capacity-wh", "100"' in text
+    assert '"--energy-avionics-power-w", "36"' in text
+    assert '"--energy-propulsion-max-power-w", "324"' in text
+    assert '"--energy-initial-remaining-wh", "100"' in text
+    assert '"--energy-provenance", "synthetic-integration-fixture-not-physical-calibration"' in text
     assert (
         "Wait-FileCreated -Path $FixedWingReady "
         "-TimeoutSeconds $FixedWingReadyTimeoutSeconds" in text

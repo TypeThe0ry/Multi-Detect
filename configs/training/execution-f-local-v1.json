@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "split": "train",
+      "family": "river-rescue-vtol-single-mission",
+      "outer": "../../artifacts/evaluation/qpc-camera-20260908-f.json",
+      "outer_sha256": "fd23425ebdcd62e8415ba4e21b1718a0a18cab07c318f8349bfb92b357cb8ee2",
+      "mission": "../../artifacts/evaluation/qpc-camera-20260908-f/vtol-mission-acceptance.json",
+      "mission_sha256": "b9a317e9e1f24a45560643cdcacb8d9875d4dccf1da6889d6f26fad86dd0ac61",
+      "journal": "../../artifacts/evaluation/qpc-camera-20260908-f/vtol-mission.transaction.jsonl",
+      "journal_sha256": "4315c61fd1f06ae906d0433b939cfef26d20d862461c6cdbb9506ffc386fdbb1"
+    }
+  ]
+}

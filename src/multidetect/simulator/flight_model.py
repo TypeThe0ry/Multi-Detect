@@ -284,6 +284,39 @@ class _FlightState:
     mission_started: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SimulationEnergyProfile:
+    """Explicit engineering assumptions, not a calibrated physical battery.
+
+    Power = avionics + armed throttle * propulsion_max. The same simulation
+    dt as motion is integrated; wall time and PX4 disarm percentage are absent.
+    """
+
+    capacity_wh: float
+    avionics_power_w: float
+    propulsion_max_power_w: float
+    provenance: str
+
+    def __post_init__(self) -> None:
+        for name in ("capacity_wh", "avionics_power_w", "propulsion_max_power_w"):
+            value = _finite(getattr(self, name), name)
+            if value < 0 or (name == "capacity_wh" and value == 0):
+                raise FlightModelError(f"invalid {name}")
+        if self.avionics_power_w + self.propulsion_max_power_w <= 0:
+            raise FlightModelError("positive total power required")
+        if not isinstance(self.provenance, str) or not self.provenance.strip():
+            raise FlightModelError("energy provenance required")
+
+    def consumed_wh(self, dt_s: Real, *, armed: bool, throttle: Real) -> float:
+        """One shared constant-load integration primitive for SIM and replay."""
+        dt = _finite(dt_s, "dt_s")
+        load = _finite(throttle, "throttle")
+        if dt < 0 or not 0 <= load <= 1 or type(armed) is not bool:
+            raise FlightModelError("invalid energy interval or load")
+        power = self.avionics_power_w + (self.propulsion_max_power_w * load if armed else 0)
+        return power * dt / 3600.0
+
+
 class DeterministicFlightModel:
     """Bounded deterministic VTOL/multirotor/fixed-wing kinematic model."""
 
@@ -295,6 +328,7 @@ class DeterministicFlightModel:
         wind_mps: Sequence[Real] = (0.0, 0.0),
         config: FlightModelConfig | None = None,
         vehicle_type: FlightMode | str | None = None,
+        energy_profile: SimulationEnergyProfile | None = None,
     ) -> None:
         if vehicle_type is not None:
             if mode != FlightMode.VTOL and FlightMode.parse(mode) != FlightMode.parse(vehicle_type):
@@ -305,6 +339,9 @@ class DeterministicFlightModel:
             raise FlightModelError("seed must be an integer")
         self.seed = seed
         self.config = config or FlightModelConfig()
+        if energy_profile is not None and not isinstance(energy_profile, SimulationEnergyProfile):
+            raise FlightModelError("energy_profile must be SimulationEnergyProfile")
+        self.energy_profile = energy_profile
         self.wind_east_mps, self.wind_north_mps = _wind(wind_mps)
         self._rng = random.Random(seed)
         self._last_timestamp_s: float | None = None
@@ -504,11 +541,54 @@ class DeterministicFlightModel:
         self._last_snapshot = self._snapshot()
 
     def set_battery_remaining(self, value: Real) -> None:
+        if self.energy_profile is not None:
+            raise FlightModelError(
+                "energy-enabled model requires explicit recharge, not telemetry override"
+            )
         remaining = _finite(value, "battery_remaining_pct")
         if not 0.0 <= remaining <= 100.0:
             raise FlightModelError("battery_remaining_pct must be within [0, 100]")
         self._state.battery_remaining_pct = remaining
         self._last_snapshot = self._snapshot()
+
+    def recharge_energy(self, added_wh: Real, *, reason: str) -> None:
+        """Explicit maintenance action; never called by landing/disarming."""
+        profile = self.energy_profile
+        if profile is None:
+            raise FlightModelError("energy profile required")
+        amount = _finite(added_wh, "added_wh")
+        if amount <= 0 or not isinstance(reason, str) or not reason.strip():
+            raise FlightModelError("positive recharge and reason required")
+        if self.armed or self.altitude_m > 0.1 or self.speed_mps > 0.1:
+            raise FlightModelError("recharge requires stationary disarmed ground state")
+        before = self.battery_remaining_pct
+        self._state.battery_remaining_pct = min(
+            100.0, before + 100.0 * amount / profile.capacity_wh
+        )
+        actual = (self.battery_remaining_pct - before) * profile.capacity_wh / 100.0
+        self._record_command("RECHARGE", accepted=True, reason=reason.strip(), added_wh=actual)
+        self._last_snapshot = self._snapshot()
+
+    def energy_observation(self) -> dict[str, object] | None:
+        """Conservative full-power endurance estimate, separately labelled."""
+        profile = self.energy_profile
+        if profile is None:
+            return None
+        remaining = profile.capacity_wh * self.battery_remaining_pct / 100.0
+        return {
+            "source": "simulation_energy_assumption_v1",
+            "provenance": profile.provenance,
+            "capacity_wh": profile.capacity_wh,
+            "avionics_power_w": profile.avionics_power_w,
+            "propulsion_max_power_w": profile.propulsion_max_power_w,
+            "remaining_wh": remaining,
+            "estimated_flight_time_s": remaining
+            * 3600.0
+            / (profile.avionics_power_w + profile.propulsion_max_power_w),
+            "simulation_time_s": self.time_s,
+            "physical_calibration_claimed": False,
+            "reserve_deducted": False,
+        }
 
     def set_mode(self, mode: str | int, *, reason: str = "command") -> bool:
         """Update autopilot mode from a SET_MODE-like command."""
@@ -613,6 +693,15 @@ class DeterministicFlightModel:
                 raise FlightModelError("control timestamp moved backwards")
             self._last_timestamp_s = control.timestamp_s
         self._integrate(control, delta)
+        if self.energy_profile is not None:
+            profile = self.energy_profile
+            self._state.battery_remaining_pct = max(
+                0.0,
+                self.battery_remaining_pct
+                - 100.0
+                * profile.consumed_wh(delta, armed=self.armed, throttle=control.throttle)
+                / profile.capacity_wh,
+            )
         self._state.time_s += delta
         self._state.step_count += 1
         self._last_snapshot = self._snapshot()
@@ -644,6 +733,7 @@ class DeterministicFlightModel:
             },
             "commands": list(self.command_history),
             "telemetry": self.telemetry.to_mapping(),
+            **({"energy": self.energy_observation()} if self.energy_profile is not None else {}),
             "truth_free": True,
         }
 

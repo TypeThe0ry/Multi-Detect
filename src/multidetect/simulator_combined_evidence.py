@@ -38,6 +38,7 @@ from typing import Any
 
 from .autonomy.serialization import strict_json_loads
 from .mission_journal import DurableMissionJournal, MissionJournalError
+from .target_evidence_card import TargetEvidenceCard, TargetEvidenceCardError
 
 COMBINED_SIM_SCHEMA = "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
 COMBINED_SIM_SCHEMA_VERSION = 2
@@ -136,6 +137,110 @@ def _load_object(path: Path, *, name: str) -> dict[str, Any]:
 def _append_reason(reasons: list[str], reason: str) -> None:
     if reason not in reasons:
         reasons.append(reason)
+
+
+def _verify_target_evidence_cards(
+    integrated: Mapping[str, object],
+    *,
+    checks: dict[str, bool],
+    reasons: list[str],
+) -> None:
+    """Verify the optional target-card contract emitted by the live SIM gate.
+
+    Older combined artifacts predate target-card materialization and remain
+    readable.  Once an artifact carries the acceptance object, however, the
+    card list is part of that gate and is checked independently of its summary
+    counters.  This prevents a runner from reporting geolocation success while
+    dropping the read-only map evidence that should accompany it.
+    """
+
+    acceptance = integrated.get("target_geolocation_acceptance")
+    if not isinstance(acceptance, Mapping):
+        checks["target_evidence_cards_contract"] = True
+        return
+    configured = acceptance.get("configured") is True
+    if not configured:
+        # A deliberately unconfigured gate has no observation stream to bind.
+        checks["target_evidence_cards_contract"] = True
+        return
+
+    contract_ok = True
+    if acceptance.get("target_evidence_cards_read_only") is not True:
+        contract_ok = False
+        _append_reason(
+            reasons,
+            "integrated_sim_qgc.target_geolocation_acceptance must mark target "
+            "evidence cards read-only",
+        )
+
+    cards = acceptance.get("target_evidence_cards")
+    if not isinstance(cards, list):
+        contract_ok = False
+        _append_reason(
+            reasons,
+            "integrated_sim_qgc.target_geolocation_acceptance.target_evidence_cards "
+            "must be an array",
+        )
+        cards = []
+
+    count = acceptance.get("target_evidence_card_count")
+    if type(count) is not int or count < 0 or count != len(cards):
+        contract_ok = False
+        _append_reason(
+            reasons,
+            "target evidence card count must be a non-negative integer matching the card array",
+        )
+
+    error_count = acceptance.get("target_evidence_card_error_count")
+    errors = acceptance.get("target_evidence_card_errors")
+    if (
+        type(error_count) is not int
+        or error_count < 0
+        or not isinstance(errors, list)
+        or error_count != len(errors)
+    ):
+        contract_ok = False
+        _append_reason(
+            reasons,
+            "target evidence card error count must match the error array",
+        )
+
+    available_count = acceptance.get("available_geolocation_count")
+    if type(available_count) is int and count != available_count:
+        contract_ok = False
+        _append_reason(
+            reasons,
+            "target evidence card count must match available geolocation count",
+        )
+
+    expected_run_identity = integrated.get("run_identity_hash")
+    if expected_run_identity is not None and not isinstance(expected_run_identity, str):
+        contract_ok = False
+        _append_reason(reasons, "integrated_sim_qgc.run_identity_hash must be text")
+
+    for index, raw_card in enumerate(cards):
+        try:
+            card = TargetEvidenceCard.from_mapping(raw_card)
+        except (TargetEvidenceCardError, TypeError, ValueError) as exc:
+            contract_ok = False
+            _append_reason(reasons, f"target evidence card {index} is invalid: {exc}")
+            continue
+        if expected_run_identity is not None and card.run_identity_sha256 != expected_run_identity:
+            contract_ok = False
+            _append_reason(
+                reasons,
+                f"target evidence card {index} run identity does not match "
+                "integrated SIM run identity",
+            )
+        if card.available and (
+            card.latitude_deg is None
+            or card.longitude_deg is None
+            or card.horizontal_sigma_m is None
+        ):
+            contract_ok = False
+            _append_reason(reasons, f"target evidence card {index} leaks an incomplete coordinate")
+
+    checks["target_evidence_cards_contract"] = contract_ok
 
 
 def _bool_check(
@@ -642,6 +747,11 @@ def verify_evidence(
         sensor_topics.get("required_ready") if isinstance(sensor_topics, Mapping) else None,
     )
     integrated_mapping = integrated if isinstance(integrated, Mapping) else {}
+    _verify_target_evidence_cards(
+        integrated_mapping,
+        checks=checks,
+        reasons=reasons,
+    )
     sensor_transport = integrated_mapping.get("sensor_transport")
     sensor_transport_mapping = sensor_transport if isinstance(sensor_transport, Mapping) else {}
     camera_info_semantics_ok = (

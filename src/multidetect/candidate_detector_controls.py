@@ -698,6 +698,12 @@ def _verify_frame_set_binding(
     without_hash.pop("manifest_sha256", None)
     if canonical_sha256(without_hash) != claimed_manifest_sha:
         raise CandidateDetectorControlsInputError("frame-set manifest_sha256 is invalid")
+    from .backends.gazebo_sim import validate_frame_set_clock
+
+    try:
+        validate_frame_set_clock(raw)
+    except (TypeError, ValueError) as exc:
+        raise CandidateDetectorControlsInputError(f"frame-set clock: {exc}") from exc
     if raw.get("wire_version") != 3 or raw.get("pixel_format") != "BGR24":
         raise CandidateDetectorControlsInputError(
             "frame-set manifest must bind wire_version=3 and pixel_format=BGR24"
@@ -861,10 +867,9 @@ def _verify_frame_set_binding(
         or not isinstance(captured_at_s, (int, float))
         or not math.isfinite(float(captured_at_s))
         or float(captured_at_s) < 0.0
-        or provenance.get("captured_at_clock") != "host_monotonic"
     ):
         raise CandidateDetectorControlsInputError(
-            "selected frame capture clock must be finite host_monotonic"
+            "selected frame capture time must be finite and nonnegative"
         )
     sensor_stamp = _nonnegative_int(provenance.get("sensor_stamp_ns"), "selected sensor_stamp_ns")
     camera_info_stamp = _nonnegative_int(

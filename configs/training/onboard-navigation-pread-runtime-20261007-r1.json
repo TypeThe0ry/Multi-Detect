@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-pread-runtime-v1",
+  "artifact_root": "D:\\Projects\\Multi-Detect",
+  "plan_sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53",
+  "entrypoint_sha256": "9873c81ca9c70fa394a4e164beb00547fe519322a00bc18254079e07bb26303e",
+  "python_executable": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe",
+  "package_versions": {
+    "torch": "2.6.0+cu124",
+    "transformers": "4.57.6",
+    "peft": "0.17.1",
+    "accelerate": "1.12.0",
+    "safetensors": "0.8.0"
+  },
+  "declared_loader_backend": "pread",
+  "package_upgrade_only_claim": false,
+  "source_files": [
+    {
+      "bytes": 328,
+      "sha256": "80b87148f29848788ebe7c59d59aca46b157d7028c37b50f783ae41db95a49b1",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\pyvenv.cfg"
+    },
+    {
+      "bytes": 53,
+      "sha256": "6f60ac8ecf6b8d2adeef1d7562660e9c4cae78b26e80407f8ad23af7f3c85448",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\multidetect_original_vlm.pth"
+    },
+    {
+      "bytes": 270104,
+      "sha256": "137c474a645a9471ab3a369084e7cd573cd8b7ff8f81cb85363fffdf5904106c",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe"
+    },
+    {
+      "bytes": 221,
+      "sha256": "3bc1e524ebaba28b4de3b3ebad1edfc623190a1d4fc34e76b900fa34e0c37bbd",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\__init__.py"
+    },
+    {
+      "bytes": 20902,
+      "sha256": "81f477f2ab5e05e99308fc55ed26028eb2bf36334404e9c5558e4730184483f0",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\torch.py"
+    },
+    {
+      "bytes": 734720,
+      "sha256": "80a2b3f7658854ade855c5fb6192ee38fe2c7fbfd38d1c7c1f4d2c44f67125e4",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors\\_safetensors_rust.pyd"
+    },
+    {
+      "bytes": 4249,
+      "sha256": "597731d1baf7a94219753fa0a74abd1a8a18562d50d98b2e25d91e11e3224d36",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors-0.8.0.dist-info\\METADATA"
+    },
+    {
+      "bytes": 1885,
+      "sha256": "49ece9f3aa080032a196042c832e7f271063c673ead998382bb67990ec214866",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Lib\\site-packages\\safetensors-0.8.0.dist-info\\RECORD"
+    },
+    {
+      "bytes": 355540,
+      "sha256": "096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f",
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\cache\\navigation-safetensors-runtime-20261007-r1\\safetensors-0.8.0-cp310-abi3-win_amd64.whl"
+    },
+    {
+      "bytes": 308964,
+      "sha256": "bf1c6b2a43cf7c36fb79f37c981424dd6ae78eb863fcaa5d2a37e76c9828611d",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\modeling_utils.py"
+    },
+    {
+      "bytes": 70877,
+      "sha256": "dd63ed3b124232735b3dca1bfa28f9d6b0d3f7182afcb75dde8f3e724b2b22da",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\modeling_qwen3_vl.py"
+    },
+    {
+      "bytes": 17149,
+      "sha256": "efd8d64aaf608aad1ffb3e6d503d6a99e5227d007df95c1d9fa905d998cda4a9",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\models\\qwen3_vl\\processing_qwen3_vl.py"
+    },
+    {
+      "bytes": 43991,
+      "sha256": "91601044a74fe02571a825356754dbbaa9e1d3e3dd3c2237254c15e903e421e3",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers-4.57.6.dist-info\\METADATA"
+    },
+    {
+      "bytes": 156704,
+      "sha256": "2307ebeb101baff53b19ce5a0f109885d99b64ab147d67cba19719b6097c3e10",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\peft_model.py"
+    },
+    {
+      "bytes": 34607,
+      "sha256": "849282f01e69b7055cc499e67f279cde3f489421aea212f59f701f45755de26b",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft\\utils\\save_and_load.py"
+    },
+    {
+      "bytes": 14695,
+      "sha256": "4481a2b864803aca67d1af15a42a575b4b61f06488f007add0add4f93ae1d629",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\peft-0.17.1.dist-info\\METADATA"
+    },
+    {
+      "bytes": 36931,
+      "sha256": "b38df85d2e081ef89d5117b3fa238a029cb95750e462686cb474abdcb681ea5a",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\accelerate\\big_modeling.py"
+    },
+    {
+      "bytes": 19601,
+      "sha256": "31d880e2aa1eaffb50dfecb62bc81d53f0262ed19ff374e7ff7a76b41b87c6b8",
+      "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\accelerate-1.12.0.dist-info\\METADATA"
+    },
+    {
+      "bytes": 103704,
+      "sha256": "ca60cf785b2314a6d6599eced15bdf094e6db171bec996b97a70b995942c3c37",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+    },
+    {
+      "bytes": 6916376,
+      "sha256": "93488fa7e631cc0a2bd808b9eee8617280ee9b6ff499ab424a1a1cbf24d77dc7",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python312.dll"
+    },
+    {
+      "bytes": 53262,
+      "sha256": "451b1a87bed436deee0ed32f7a88c0241925c418c59adf76996e48639b0a941f",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\storage.py"
+    },
+    {
+      "bytes": 103037,
+      "sha256": "0901a8ad92b30f947405e28fc98dd21c578cfbe8796b0173de931f42079b1f89",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\__init__.py"
+    },
+    {
+      "bytes": 251258368,
+      "sha256": "9419933b9cc163baf7859092f243de4695b45632f81b96a8d0060ea20d63d6b5",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\lib\\torch_cpu.dll"
+    },
+    {
+      "bytes": 28701,
+      "sha256": "d28ac83095d1df286693d57b81219b8a23c2487a8f945964a8fe175b0e28a78d",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch-2.6.0+cu124.dist-info\\METADATA"
+    },
+    {
+      "bytes": 10240,
+      "sha256": "8cc12784367470aa0f3ebe54a0c4593ac52d5bc273ed7ba719cbb10b4a3dbdb8",
+      "path": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\_C.cp312-win_amd64.pyd"
+    },
+    {
+      "sha256": "9873c81ca9c70fa394a4e164beb00547fe519322a00bc18254079e07bb26303e",
+      "bytes": 16684,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_pread.py"
+    },
+    {
+      "sha256": "ca638d4a9b46d69f84426ca138371c4bfa22db4aa77288a08cfe76b4810d590f",
+      "bytes": 18586,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_pread.py"
+    },
+    {
+      "sha256": "834f9ef07f2e1dfcaf032293e5b4795e9802f0b8c3b59058699f1ea05ac377d2",
+      "bytes": 20276,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\run_onboard_navigation_pilot_supervised.py"
+    },
+    {
+      "sha256": "495caae269d6df6bd84367b2de90d675a8edc0d9041bccd62f44c93ed93d8c43",
+      "bytes": 17476,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_run_onboard_navigation_pilot_supervised.py"
+    }
+  ]
+}

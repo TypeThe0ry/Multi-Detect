@@ -46,6 +46,8 @@ from .operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PolicyRuntimeAction,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeBackendHealth,
@@ -106,6 +108,7 @@ _GNSS_STATUS = struct.Struct(">BBBBBHHH")
 # is 124 bytes total (20-byte header + 88-byte body + 16-byte HMAC), staying
 # below MAVLink TUNNEL's fixed 128-byte payload ceiling.
 _TARGET_OBSERVATION_STATUS = struct.Struct(">QQQBIHH6HhHHiiHBBBBiiHHBBBBBHHHI")
+_POLICY_RUNTIME_STATUS = struct.Struct(">BBHQQQQQQQQQ")
 
 
 class OperatorProtocolError(ValueError):
@@ -139,6 +142,7 @@ class WireMessageType(IntEnum):
     RUNTIME_STATUS_ACK = 24
     GNSS_STATUS = 25
     TARGET_OBSERVATION_STATUS = 26
+    POLICY_RUNTIME_STATUS = 27
 
 
 class SelectionAckReason(IntEnum):
@@ -305,6 +309,7 @@ OperatorMessage: TypeAlias = (
     | PayloadTargetConfirmationAck
     | PayloadTargetStatusMessage
     | RuntimeStatusMessage
+    | PolicyRuntimeStatusMessage
     | RuntimeStatusAck
     | GnssStatusMessage
 )
@@ -862,6 +867,42 @@ class OperatorTunnelCodec:
             body=body,
         )
 
+    def encode_policy_runtime_status(self, status: PolicyRuntimeStatusMessage) -> bytes:
+        action = {PolicyRuntimeAction.SELECT: 1, PolicyRuntimeAction.ABSTAIN: 2}[status.action]
+        flags = (
+            int(status.planner_revalidated)
+            | (int(status.mission_bound) << 1)
+            | (int(status.mission_started) << 2)
+            | (int(status.policy_applied_to_actuator) << 3)
+            | (int(status.truth_free) << 4)
+            | (int(status.selected_task_hash64 is not None) << 5)
+            | (int(status.policy_artifact_hash64 is not None) << 6)
+            | (int(status.ranker_hash64 is not None) << 7)
+            | (int(status.plan_hash64 is not None) << 8)
+            | (int(status.executable_mission_hash64 is not None) << 9)
+            | (int(status.wire_hash64 is not None) << 10)
+        )
+        body = _POLICY_RUNTIME_STATUS.pack(
+            action,
+            0,
+            flags,
+            status.selected_task_hash64 or 0,
+            status.policy_artifact_hash64 or 0,
+            status.ranker_hash64 or 0,
+            status.plan_hash64 or 0,
+            status.executable_mission_hash64 or 0,
+            status.wire_hash64 or 0,
+            status.context_hash64,
+            status.airframe_profile_hash64,
+            status.reason_hash64,
+        )
+        return self._encode_frame(
+            WireMessageType.POLICY_RUNTIME_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
     def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
         timing = {
             ReleaseTimingStatus.INVALID: 1,
@@ -1389,6 +1430,12 @@ class OperatorTunnelCodec:
             )
         elif message_type is WireMessageType.RUNTIME_STATUS_ACK:
             message = self._decode_runtime_status_ack(body)
+        elif message_type is WireMessageType.POLICY_RUNTIME_STATUS:
+            message = self._decode_policy_runtime_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
         elif message_type is WireMessageType.GNSS_STATUS:
             message = self._decode_gnss_status(
                 body,
@@ -1552,6 +1599,67 @@ class OperatorTunnelCodec:
             )
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid runtime-status-ack content: {exc}") from exc
+
+    def _decode_policy_runtime_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> PolicyRuntimeStatusMessage:
+        if len(body) != _POLICY_RUNTIME_STATUS.size:
+            raise OperatorProtocolError("policy-runtime-status body has an invalid size")
+        (
+            action_value,
+            reserved,
+            flags,
+            selected_task_hash64,
+            policy_artifact_hash64,
+            ranker_hash64,
+            plan_hash64,
+            executable_mission_hash64,
+            wire_hash64,
+            context_hash64,
+            airframe_profile_hash64,
+            reason_hash64,
+        ) = _POLICY_RUNTIME_STATUS.unpack(body)
+        if reserved != 0 or flags & ~0x07FF:
+            raise OperatorProtocolError("policy-runtime-status flags are invalid")
+        action = {1: PolicyRuntimeAction.SELECT, 2: PolicyRuntimeAction.ABSTAIN}.get(action_value)
+        if action is None:
+            raise OperatorProtocolError("policy-runtime-status action is invalid")
+        for value, bit, name in (
+            (selected_task_hash64, 5, "selected task"),
+            (policy_artifact_hash64, 6, "policy artifact"),
+            (ranker_hash64, 7, "ranker"),
+            (plan_hash64, 8, "plan"),
+            (executable_mission_hash64, 9, "executable mission"),
+            (wire_hash64, 10, "wire"),
+        ):
+            if not flags & (1 << bit) and value != 0:
+                raise OperatorProtocolError(f"policy-runtime-status absent {name} hash is non-zero")
+        try:
+            return PolicyRuntimeStatusMessage(
+                sequence=sequence,
+                action=action,
+                selected_task_hash64=selected_task_hash64 if flags & (1 << 5) else None,
+                policy_artifact_hash64=policy_artifact_hash64 if flags & (1 << 6) else None,
+                ranker_hash64=ranker_hash64 if flags & (1 << 7) else None,
+                plan_hash64=plan_hash64 if flags & (1 << 8) else None,
+                executable_mission_hash64=executable_mission_hash64 if flags & (1 << 9) else None,
+                wire_hash64=wire_hash64 if flags & (1 << 10) else None,
+                context_hash64=context_hash64,
+                airframe_profile_hash64=airframe_profile_hash64,
+                reason_hash64=reason_hash64,
+                planner_revalidated=bool(flags & (1 << 0)),
+                mission_bound=bool(flags & (1 << 1)),
+                mission_started=bool(flags & (1 << 2)),
+                policy_applied_to_actuator=bool(flags & (1 << 3)),
+                truth_free=bool(flags & (1 << 4)),
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid policy-runtime-status content: {exc}") from exc
 
     def _decode_ack(self, body: bytes) -> SelectionAck:
         if len(body) != _ACK.size:
@@ -3194,6 +3302,7 @@ __all__ = [
     "OperatorTunnelCodec",
     "PayloadTargetConfirmationAck",
     "PayloadTargetConfirmationAckReason",
+    "PolicyRuntimeStatusMessage",
     "RuntimeStatusAck",
     "SelectionAck",
     "SelectionAckReason",

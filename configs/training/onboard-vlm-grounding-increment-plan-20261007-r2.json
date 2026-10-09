@@ -1,0 +1,50 @@
+{
+  "contract": "multidetect.onboard-vlm-grounding-increment-plan-v1",
+  "purpose": "Continue the existing r1 visual-factual adapter using reviewed train-only 3-D RGB examples, without changing the flight policy or claiming action learning.",
+  "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+  "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+  "parent_report_sha256": "6cfb56135f1f2d489565e2eedc8f3e31467b1f073cc6bee15018169f59916871",
+  "parent_adapter_sha256": "e31d71f1b0b89136574728603ef611fbd77bd6d0edb6d4445c803987640120bb",
+  "recovery_report_sha256": "d790559bef872510f0795fe927b7e06c363a2dd0ca7a90174da14a64f6ca8973",
+  "dataset_sha256": "047dcbe737c7bec48b5d5d0a363e4c4cc40cddff2b967b64d1ae23820a89ef6b",
+  "review_receipt_sha256": "d971bcb54ac6deeb95ddb55f10c0f54967a191e82b90b12f50331fc839f259f2",
+  "split_counts": {"train": 154, "val": 41, "test": 43},
+  "optimizer_reads_only_train_split": true,
+  "holdout_inputs_unchanged": true,
+  "fixed_final_checkpoint": true,
+  "budget": {
+    "epochs": 1,
+    "max_optimizer_steps": 200,
+    "max_pixels_per_image": 200704,
+    "max_input_tokens": 4096,
+    "max_new_tokens": 192,
+    "rank": 4,
+    "alpha": 8,
+    "learning_rate": 0.00002,
+    "seed": 20261019,
+    "gradient_checkpointing": true
+  },
+  "predeclared_quality_gates": [
+    "Identical ordered parent/candidate holdout IDs and model-input SHA-256 values",
+    "Strict reply and full exact-match counts must not decrease",
+    "Visible true-positive and not-confirmed true-negative counts must not decrease in either val or test",
+    "At least one additional correct zero-visible-pixel holdout prediction",
+    "All navigation facts remain unknown for all 84 candidate holdout inputs"
+  ],
+  "data_limitations": [
+    "Known development render regression, not a new blind benchmark",
+    "Positive references are visible self-crops, not temporally tracked instance identity",
+    "Negative references are qualified train-only same-world and same-geometry crops, not identity proof",
+    "128 new train examples plus 26 original train replay examples",
+    "No action labels, Gazebo flight trajectory, physical data or execution authority"
+  ],
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "transport_created": false,
+  "execution_authority": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "flight_action_training_performed": false,
+  "checkpoint_selection_performed": false
+}

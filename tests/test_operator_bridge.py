@@ -30,6 +30,8 @@ from multidetect.operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PolicyRuntimeAction,
+    PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeBackendHealth,
@@ -99,6 +101,7 @@ class _Transport:
         self.target_observation_published = []
         self.release_published = []
         self.runtime_published = []
+        self.policy_runtime_published = []
         self.approach_challenges = []
         self.approach_statuses = []
         self.payload_target_challenges = []
@@ -175,6 +178,9 @@ class _Transport:
 
     def publish_runtime_status(self, status, *, peer) -> None:
         self.runtime_published.append((status, peer))
+
+    def publish_policy_runtime_status(self, status, *, peer) -> None:
+        self.policy_runtime_published.append((status, peer))
 
     def publish_approach_challenge(self, status, *, peer) -> None:
         self.approach_challenges.append((status, peer))
@@ -480,6 +486,28 @@ def _runtime_status() -> RuntimeStatusMessage:
         ground_truth_isolated=True,
         hardware_outputs_present=False,
         profile_valid=True,
+        produced_at_s=100.01,
+    )
+
+
+def _policy_runtime_status() -> PolicyRuntimeStatusMessage:
+    return PolicyRuntimeStatusMessage(
+        sequence=1,
+        action=PolicyRuntimeAction.SELECT,
+        selected_task_hash64=0x1111111111111111,
+        policy_artifact_hash64=0x2222222222222222,
+        ranker_hash64=0x3333333333333333,
+        plan_hash64=0x4444444444444444,
+        executable_mission_hash64=0x5555555555555555,
+        wire_hash64=0x6666666666666666,
+        context_hash64=0x7777777777777777,
+        airframe_profile_hash64=0x8888888888888888,
+        reason_hash64=0x9999999999999999,
+        planner_revalidated=True,
+        mission_bound=True,
+        mission_started=False,
+        policy_applied_to_actuator=False,
+        truth_free=True,
         produced_at_s=100.01,
     )
 
@@ -1194,6 +1222,62 @@ def test_bridge_publishes_signed_runtime_identity_on_change_and_one_hz_heartbeat
     assert all(status.metadata_only for status, _peer in transport.runtime_published)
     assert all(not status.direct_pixhawk_writes for status, _peer in transport.runtime_published)
     assert all(not status.physical_release_enabled for status, _peer in transport.runtime_published)
+
+
+def test_bridge_publishes_shared_policy_runtime_on_change_and_one_hz_heartbeat() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+    base = _policy_runtime_status()
+
+    first = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        policy_runtime_status=base,
+    )
+    suppressed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.5,
+        produced_at_s=100.51,
+        policy_runtime_status=replace(base, sequence=2, produced_at_s=100.51),
+    )
+    heartbeat_status = replace(base, sequence=3, produced_at_s=101.01)
+    heartbeat = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-102",
+        captured_at_s=101.0,
+        produced_at_s=101.01,
+        policy_runtime_status=heartbeat_status,
+    )
+    changed_status = replace(
+        base,
+        sequence=4,
+        reason_hash64=0xAAAAAAAAAAAAAAAA,
+        produced_at_s=101.11,
+    )
+    changed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-103",
+        captured_at_s=101.1,
+        produced_at_s=101.11,
+        policy_runtime_status=changed_status,
+    )
+    bridge.close()
+
+    assert first.published_policy_runtime_statuses == (base,)
+    assert suppressed.published_policy_runtime_statuses == ()
+    assert heartbeat.published_policy_runtime_statuses == (heartbeat_status,)
+    assert changed.published_policy_runtime_statuses == (changed_status,)
+    assert transport.policy_runtime_published == [
+        (base, PEER),
+        (heartbeat_status, PEER),
+        (changed_status, PEER),
+    ]
 
 
 def test_bridge_publishes_gnss_before_selection_and_uses_five_hz_heartbeat() -> None:

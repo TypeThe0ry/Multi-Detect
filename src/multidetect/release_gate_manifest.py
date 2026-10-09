@@ -88,6 +88,9 @@ The writer is intentionally fail-closed:
   ``field_evidence_bundle``; its serialized inputs and summary are
   re-evaluated on every read, and the final release channel requires a
   passing real-domain bundle.
+* an optional SharedTaskPolicy SIM-to-HIL/REAL handoff can be hash-bound to
+  ``shared_policy_runtime_handoff``; the writer reopens its canonical digest,
+  runtime transition and fail-closed claims before writing the manifest.
 
 No manifest-generation timestamp is emitted.  A REAL field-link binding does
 carry the source report's observation timestamp and configured freshness
@@ -114,6 +117,7 @@ from typing import Any
 
 from .actuator_safety import verify_actuator_safety_evidence
 from .alert_link_bench import verify_alert_link_bench_report
+from .autonomy.serialization import canonical_sha256
 from .field_evidence_bundle import verify_field_evidence_bundle_report
 from .field_link_preflight import (
     DEFAULT_FIELD_LINK_MAX_AGE_S,
@@ -2442,6 +2446,69 @@ def _model_review_record(
     }
 
 
+def _shared_policy_runtime_handoff_record(
+    handoff_evidence: str | Path,
+    *,
+    output_identity: Path,
+    manifest_directory: Path,
+) -> dict[str, Any]:
+    """Create the portable envelope for a verified SIM-to-HIL/REAL handoff."""
+
+    requested = Path(handoff_evidence).expanduser()
+    if requested.is_symlink():
+        raise ReleaseGateManifestError(
+            "shared-policy runtime handoff must not be a symbolic link"
+        )
+    resolved = _resolve_file(requested, name="shared-policy runtime handoff")
+    if resolved == output_identity:
+        raise ReleaseGateManifestError(
+            "release-gate output cannot also be the shared-policy runtime handoff"
+        )
+    document = _load_json_object(resolved, name="shared-policy runtime handoff")
+    if document.get("schema") != "multidetect.shared-policy-runtime-handoff":
+        raise ReleaseGateManifestError("shared-policy runtime handoff schema is invalid")
+    if document.get("schema_version") != 1:
+        raise ReleaseGateManifestError("shared-policy runtime handoff schema version is invalid")
+    if document.get("gate_passed") is not True:
+        raise ReleaseGateManifestError("shared-policy runtime handoff gate_passed must be true")
+    stored_digest = document.get("handoff_sha256")
+    unsigned = {key: value for key, value in document.items() if key != "handoff_sha256"}
+    if not isinstance(stored_digest, str) or canonical_sha256(unsigned) != stored_digest:
+        raise ReleaseGateManifestError("shared-policy runtime handoff canonical hash is invalid")
+    source = document.get("source")
+    target = document.get("target")
+    claims = document.get("claims")
+    checks = document.get("checks")
+    if not isinstance(source, Mapping) or source.get("runtime_mode") != "SIM":
+        raise ReleaseGateManifestError("shared-policy runtime handoff source must be SIM")
+    if not isinstance(target, Mapping) or target.get("runtime_mode") not in {"hil", "real"}:
+        raise ReleaseGateManifestError("shared-policy runtime handoff target must be HIL or REAL")
+    if not isinstance(claims, Mapping) or any(
+        claims.get(field) is not False
+        for field in (
+            "hardware_acceptance",
+            "hil_acceptance",
+            "real_acceptance",
+            "outdoor_gnss_evidence",
+            "final_release_allowed",
+        )
+    ):
+        raise ReleaseGateManifestError("shared-policy runtime handoff claims are not fail-closed")
+    if not isinstance(checks, Mapping) or not checks or not all(
+        value is True for value in checks.values()
+    ):
+        raise ReleaseGateManifestError("shared-policy runtime handoff checks are not all true")
+    return {
+        "path": _relative_path(resolved, manifest_directory=manifest_directory),
+        "sha256": sha256_file(resolved),
+        "bytes": resolved.stat().st_size,
+        "schema": document["schema"],
+        "schema_version": document["schema_version"],
+        "handoff_sha256": stored_digest.lower(),
+        "gate_passed": True,
+    }
+
+
 def _normalise_mode_mapping(
     values: Mapping[str, Any] | None,
     *,
@@ -2496,6 +2563,7 @@ def build_release_gate_manifest(
     real_gr01_operator_link_max_age_s: float = DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
+    shared_policy_runtime_handoff_evidence: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build a schema-v1 manifest from four explicit evidence paths.
 
@@ -2855,6 +2923,16 @@ def build_release_gate_manifest(
         else None
     )
 
+    shared_policy_runtime_handoff_record = (
+        _shared_policy_runtime_handoff_record(
+            shared_policy_runtime_handoff_evidence,
+            output_identity=output_identity,
+            manifest_directory=manifest_directory,
+        )
+        if shared_policy_runtime_handoff_evidence is not None
+        else None
+    )
+
     # Keep insertion order stable for readable diffs and reproducible bytes.
     document: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -2908,6 +2986,8 @@ def build_release_gate_manifest(
         document["field_evidence_bundle"] = field_evidence_bundle_record
     if model_review_record is not None:
         document["model_review"] = model_review_record
+    if shared_policy_runtime_handoff_record is not None:
+        document["shared_policy_runtime_handoff"] = shared_policy_runtime_handoff_record
     return document
 
 
@@ -2981,6 +3061,7 @@ def create_release_gate_manifest(
     real_gr01_operator_link_max_age_s: float = DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
+    shared_policy_runtime_handoff_evidence: str | Path | None = None,
 ) -> dict[str, Any]:
     """Convenience API that builds and atomically writes the manifest."""
 
@@ -3028,6 +3109,7 @@ def create_release_gate_manifest(
         real_gr01_operator_link_max_age_s=real_gr01_operator_link_max_age_s,
         model_review_bundle=model_review_bundle,
         simulator_scene_stream_set_evidence=simulator_scene_stream_set_evidence,
+        shared_policy_runtime_handoff_evidence=shared_policy_runtime_handoff_evidence,
     )
     write_release_gate_manifest(output_path, document, overwrite=overwrite)
     return document
@@ -3375,6 +3457,16 @@ def build_parser() -> argparse.ArgumentParser:
             "when supplied and required when evaluating a final release"
         ),
     )
+    parser.add_argument(
+        "--shared-policy-runtime-handoff",
+        "--shared-policy-runtime-handoff-evidence",
+        dest="shared_policy_runtime_handoff_evidence",
+        type=Path,
+        help=(
+            "optional hash-bound SIM-to-HIL/REAL SharedTaskPolicy handoff; it is "
+            "required when evaluating a final release"
+        ),
+    )
     parity_group = parser.add_argument_group("shared parity hashes")
     parity_group.add_argument(
         "--parity-json",
@@ -3541,6 +3633,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             simulator_scene_stream_set_evidence=args.simulator_scene_stream_set_evidence,
             field_evidence_bundle=args.field_evidence_bundle,
             model_review_bundle=args.model_review_bundle,
+            shared_policy_runtime_handoff_evidence=args.shared_policy_runtime_handoff_evidence,
         )
         destination = write_release_gate_manifest(
             output,
@@ -3575,6 +3668,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "simulator_scene_stream_set",
             "field_evidence_bundle",
             "model_review",
+            "shared_policy_runtime_handoff",
         ):
             binding = document.get(binding_name)
             if isinstance(binding, Mapping) and binding.get("gate_passed") is not True:

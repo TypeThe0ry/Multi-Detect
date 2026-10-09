@@ -244,6 +244,7 @@ from .short_term_acceptance import (
 from .short_term_tracking import OpenCVShortTermTargetTracker, ShortTermTrackingConfig
 from .simulation import load_runtime_scenario
 from .synthetic_model import create_synthetic_hil_model_bundle
+from .target_evidence_card import TargetEvidenceCard, TargetEvidenceCardError
 from .telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
 from .tensorrt_session import TensorRtEmbeddingSession
 from .terrain_dem import LocalDemGrid, load_local_dem_grid
@@ -297,6 +298,19 @@ _INTEGRATED_REPLAY_PERCEPTION_DESTINATIONS = frozenset(
         "input_height",
         "input_width",
         "lock_model_force_every_frame",
+        "metric_depth_calibration_document",
+        "metric_depth_calibration_offset_m",
+        "metric_depth_calibration_profile",
+        "metric_depth_calibration_scale",
+        "metric_depth_grid_height",
+        "metric_depth_grid_width",
+        "metric_depth_input_size",
+        "metric_depth_maximum_age_seconds",
+        "metric_depth_maximum_depth_m",
+        "metric_depth_minimum_depth_m",
+        "metric_depth_minimum_interval_seconds",
+        "metric_depth_model",
+        "metric_depth_temporal_window",
         "model_manifest",
         "onnx_model",
         "output_coordinates",
@@ -336,6 +350,8 @@ _INTEGRATED_REPLAY_PERCEPTION_DESTINATIONS = frozenset(
         "safety_model_iou_threshold",
         "safety_model_manifest",
         "safety_model_maximum_detections",
+        "safety_input_width",
+        "safety_input_height",
         "safety_onnx_model",
         "safety_output_coordinates",
         "safety_priority_confidence_threshold",
@@ -1217,6 +1233,16 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--safety-class-names", default="person,firefighter")
     live.add_argument("--safety-model-coco80", action="store_true")
     live.add_argument(
+        "--safety-input-width",
+        type=int,
+        help="optional safety-model tensor width; defaults to the primary model width",
+    )
+    live.add_argument(
+        "--safety-input-height",
+        type=int,
+        help="optional safety-model tensor height; defaults to the primary model height",
+    )
+    live.add_argument(
         "--safety-model-format",
         choices=("post_nms_nx6", "ultralytics_raw"),
         default="post_nms_nx6",
@@ -2024,6 +2050,16 @@ def build_parser() -> argparse.ArgumentParser:
     integrated_sim_qgc.add_argument("--gazebo-world", default="default")
     integrated_sim_qgc.add_argument("--frame-count", type=int, default=120)
     integrated_sim_qgc.add_argument("--stream-timeout-seconds", type=float, default=60.0)
+    integrated_sim_qgc.add_argument(
+        "--fault-source",
+        choices=("image", "navsat", "odometry"),
+        help=(
+            "drop one Gazebo sensor source for a bounded received-image window; "
+            "the finished diagnostic is carried into combined evidence"
+        ),
+    )
+    integrated_sim_qgc.add_argument("--fault-start-image", type=int, default=0)
+    integrated_sim_qgc.add_argument("--fault-duration-images", type=int, default=0)
     integrated_sim_qgc.add_argument("--frame-width", type=int, default=1280)
     integrated_sim_qgc.add_argument("--frame-height", type=int, default=960)
     integrated_sim_qgc.add_argument("--rtsp-helper", type=Path, required=True)
@@ -5250,6 +5286,9 @@ def _integrated_sim_ranging_acceptance(
     binding: dict[str, object] | None,
     binding_hash: str | None,
     required: bool,
+    run_identity_sha256: str | None = None,
+    sensor_transport: Mapping[str, object] | None = None,
+    depth_contract: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Summarize what the shared range/geolocation path actually produced."""
 
@@ -5265,9 +5304,17 @@ def _integrated_sim_ranging_acceptance(
             "qualified_primary_solution_count": 0,
             "available_geolocation_count": 0,
             "camera_ground_solution_count": 0,
+            "gazebo_depth_solution_count": 0,
+            "accepted_metric_solution_count": 0,
+            "gazebo_depth_transport_qualified": False,
             "operator_range_publish_count": 0,
             "operator_target_geolocation_publish_count": 0,
             "source_bound_operator_range_geolocation_count": 0,
+            "target_evidence_card_count": 0,
+            "target_evidence_cards": [],
+            "target_evidence_card_error_count": 0,
+            "target_evidence_card_errors": [],
+            "target_evidence_cards_read_only": True,
             "qgc_range_geolocation_adoption": "not_proved",
         }
 
@@ -5285,11 +5332,51 @@ def _integrated_sim_ranging_acceptance(
     camera_ground = tuple(
         event for event in qualified if "camera_ground" in event.details.get("sources", ())
     )
+    # A source label alone is not evidence.  Direct Gazebo depth is accepted
+    # only after the backend has sealed the exact scoped topic/calibration and
+    # consumed one integrity-checked companion for every RGB frame.  This does
+    # not turn the SIM sensor into field calibration or hardware evidence.
+    gazebo_depth_transport_qualified = False
+    if sensor_transport is not None and depth_contract is not None:
+        frame_count = sensor_transport.get("expected_frame_count")
+        depth_hash = depth_contract.get("calibration_sha256")
+        gazebo_depth_transport_qualified = (
+            type(frame_count) is int
+            and frame_count > 0
+            and sensor_transport.get("complete") is True
+            and sensor_transport.get("depth_enabled") is True
+            and sensor_transport.get("received_frame_count") == frame_count
+            and sensor_transport.get("depth_companion_count") == frame_count
+            and isinstance(depth_hash, str)
+            and len(depth_hash) == 64
+            and all(character in "0123456789abcdef" for character in depth_hash)
+            and sensor_transport.get("depth_topic") == depth_contract.get("source_topic")
+            and bool(depth_contract.get("source_topic"))
+            and sensor_transport.get("depth_calibration_id") == depth_contract.get("calibration_id")
+            and bool(depth_contract.get("calibration_id"))
+            and sensor_transport.get("depth_calibration_sha256") == depth_hash
+            and depth_contract.get("registration_mode") == "registered_to_rgb"
+            and depth_contract.get("coordinate_space") == "rgb_pixel_aligned"
+            and depth_contract.get("encoding") == "FLOAT32_M"
+            and depth_contract.get("distance_semantics") == "optical_axis_z_m"
+        )
+    gazebo_depth = tuple(
+        event
+        for event in qualified
+        if gazebo_depth_transport_qualified
+        and "gazebo_depth" in event.details.get("sources", ())
+    )
+    accepted_metric = tuple(
+        event
+        for event in qualified
+        if "camera_ground" in event.details.get("sources", ())
+        or (gazebo_depth_transport_qualified and "gazebo_depth" in event.details.get("sources", ()))
+    )
     # Audit details are immutable MappingProxyType values in normal runs.  Use
     # the Mapping protocol instead of requiring a concrete dict for nested data.
     geolocated = tuple(
         event
-        for event in camera_ground
+        for event in accepted_metric
         if isinstance(event.details.get("target_geolocation"), Mapping)
         and event.details["target_geolocation"].get("available") is True
     )
@@ -5319,6 +5406,51 @@ def _integrated_sim_ranging_acceptance(
         geolocated_source_keys & qualified_operator_range_keys & available_operator_geolocation_keys
     )
 
+    target_evidence_cards: list[dict[str, object]] = []
+    target_evidence_card_errors: list[dict[str, object]] = []
+    for event in geolocated:
+        target_label = event.details.get("target_label")
+        if not isinstance(target_label, str) or not target_label.strip():
+            target_evidence_card_errors.append(
+                {
+                    "target_id": event.details.get("target_id"),
+                    "frame_id": event.details.get("frame_id"),
+                    "reason": "target_label_missing",
+                }
+            )
+            continue
+        try:
+            card_input = dict(event.details)
+            geo_details = event.details["target_geolocation"]
+            for gps_field in ("gps_quality", "gps_sample"):
+                # Production live audits nest GPS qualification in the
+                # geolocation object.  Retain legacy top-level records, but
+                # never let contradictory duplicate fields qualify a card.
+                nested = geo_details.get(gps_field)
+                if nested is not None:
+                    existing = card_input.get(gps_field)
+                    if existing is not None and existing != nested:
+                        raise ValueError(f"conflicting {gps_field} in live observation")
+                    card_input[gps_field] = nested
+            card = TargetEvidenceCard.from_live_observation(
+                card_input,
+                captured_at_s=event.timestamp_s,
+                target_label=target_label,
+                run_identity_sha256=run_identity_sha256,
+            )
+            if not card.available:
+                raise ValueError(f"target evidence card unavailable: {card.unavailable_reason}")
+        except (TargetEvidenceCardError, TypeError, ValueError) as exc:
+            target_evidence_card_errors.append(
+                {
+                    "target_id": event.details.get("target_id"),
+                    "frame_id": event.details.get("frame_id"),
+                    "reason": str(exc),
+                }
+            )
+            continue
+        target_evidence_cards.append(card.to_mapping())
+
     range_publishes = int(getattr(result, "remote_range_status_count", 0))
     geolocation_publishes = int(getattr(result, "remote_target_geolocation_status_count", 0))
     ranging_errors = int(getattr(result, "ranging_error_count", 0))
@@ -5327,11 +5459,12 @@ def _integrated_sim_ranging_acceptance(
         (
             bool(binding_hash),
             bool(qualified),
-            bool(camera_ground),
+            bool(accepted_metric),
             bool(geolocated),
             range_publishes > 0,
             geolocation_publishes > 0,
             bool(source_bound_operator_keys),
+            len(target_evidence_cards) == len(geolocated) and not target_evidence_card_errors,
             ranging_errors == 0,
             transport_errors == 0,
         )
@@ -5340,13 +5473,17 @@ def _integrated_sim_ranging_acceptance(
         reason
         for condition, reason in (
             (bool(qualified), "no_valid_or_degraded_primary_range"),
-            (bool(camera_ground), "no_camera_ground_primary_range"),
+            (bool(accepted_metric), "no_bound_camera_ground_or_gazebo_depth_primary_range"),
             (bool(geolocated), "no_available_wgs84_target_geolocation"),
             (range_publishes > 0, "range_status_not_published"),
             (geolocation_publishes > 0, "target_geolocation_status_not_published"),
             (
                 bool(source_bound_operator_keys),
                 "no_source_bound_operator_range_geolocation",
+            ),
+            (
+                len(target_evidence_cards) == len(geolocated) and not target_evidence_card_errors,
+                "target_evidence_card_not_materialized",
             ),
             (ranging_errors == 0, "ranging_error_observed"),
             (transport_errors == 0, "operator_transport_error_observed"),
@@ -5364,10 +5501,18 @@ def _integrated_sim_ranging_acceptance(
         "primary_solution_count": len(primary_events),
         "qualified_primary_solution_count": len(qualified),
         "camera_ground_solution_count": len(camera_ground),
+        "gazebo_depth_solution_count": len(gazebo_depth),
+        "accepted_metric_solution_count": len(accepted_metric),
+        "gazebo_depth_transport_qualified": gazebo_depth_transport_qualified,
         "available_geolocation_count": len(geolocated),
         "operator_range_publish_count": range_publishes,
         "operator_target_geolocation_publish_count": geolocation_publishes,
         "source_bound_operator_range_geolocation_count": len(source_bound_operator_keys),
+        "target_evidence_card_count": len(target_evidence_cards),
+        "target_evidence_cards": target_evidence_cards,
+        "target_evidence_card_error_count": len(target_evidence_card_errors),
+        "target_evidence_card_errors": target_evidence_card_errors,
+        "target_evidence_cards_read_only": True,
         "ranging_error_count": ranging_errors,
         "operator_transport_error_count": transport_errors,
         # A local UDP publish is not a QGC state-adoption receipt.  A dedicated
@@ -5375,6 +5520,70 @@ def _integrated_sim_ranging_acceptance(
         "qgc_range_geolocation_adoption": "not_proved",
         "operator_visual_acceptance": "not_claimed",
     }
+
+
+def _metric_depth_runner_from_namespace(args: argparse.Namespace) -> AsyncMetricDepthRunner | None:
+    """Build the optional metric-depth runner from the shared live-camera options.
+
+    Integrated SIM must use the exact same estimator/calibration contract as
+    LIVE.  Keeping this construction in one helper prevents the SIM path from
+    silently inventing a different depth configuration.
+    """
+
+    model_path = getattr(args, "metric_depth_model", None)
+    if model_path is None:
+        return None
+    calibration_document_path = getattr(args, "metric_depth_calibration_document", None)
+    calibration_document = (
+        load_calibration_document(calibration_document_path)
+        if calibration_document_path is not None
+        else None
+    )
+    return AsyncMetricDepthRunner(
+        MetricDepthEstimator(
+            MetricDepthConfig(
+                model_path=model_path,
+                input_size=args.metric_depth_input_size,
+                minimum_depth_m=args.metric_depth_minimum_depth_m,
+                maximum_depth_m=args.metric_depth_maximum_depth_m,
+                minimum_interval_s=args.metric_depth_minimum_interval_seconds,
+                maximum_result_age_s=args.metric_depth_maximum_age_seconds,
+                calibration_scale=(
+                    calibration_document.scale
+                    if calibration_document is not None
+                    else args.metric_depth_calibration_scale
+                ),
+                calibration_offset_m=(
+                    calibration_document.offset_m
+                    if calibration_document is not None
+                    else args.metric_depth_calibration_offset_m
+                ),
+                calibration_profile=(
+                    calibration_document.profile
+                    if calibration_document is not None
+                    else args.metric_depth_calibration_profile
+                ),
+                calibration_curve_raw_m=(
+                    calibration_document.raw_breakpoints_m
+                    if calibration_document is not None
+                    else ()
+                ),
+                calibration_curve_actual_m=(
+                    calibration_document.actual_breakpoints_m
+                    if calibration_document is not None
+                    else ()
+                ),
+                calibration_extrapolation_sigma_m=(
+                    calibration_document.extrapolation_sigma_m
+                    if calibration_document is not None
+                    else 0.0
+                ),
+                grid_width=args.metric_depth_grid_width,
+                grid_height=args.metric_depth_grid_height,
+                temporal_window_size=args.metric_depth_temporal_window,
+            )
+        )
+    )
 
 
 def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
@@ -5439,8 +5648,13 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
         timeout_s=args.stream_timeout_seconds,
         expected_width=args.frame_width,
         expected_height=args.frame_height,
+        fault_source=args.fault_source,
+        fault_start_image=args.fault_start_image,
+        fault_duration_images=args.fault_duration_images,
     )
     perception = None
+    metric_depth_runner = None
+    metric_depth_runner_attached = False
     audit_log = None
     synchronized_bridge = None
     try:
@@ -5456,6 +5670,13 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             raise ValueError(
                 "integrated SIM QGC excludes asynchronous semantic context until it shares "
                 "the runtime clock and bounded shutdown contract"
+            )
+        metric_depth_runner = _metric_depth_runner_from_namespace(perception_args)
+        if metric_depth_runner is not None and ranging_engine is None:
+            metric_depth_runner.close()
+            raise ValueError(
+                "integrated SIM metric depth requires --ranging-calibration and the shared "
+                "multimodal ranging path"
             )
 
         mission_config_hash = _sha256_file(args.config)
@@ -5556,6 +5777,8 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
                     "adaptive_ranging_policy": adaptive_ranging_policy,
                 }
             )
+        if metric_depth_runner is not None:
+            ranging_runner_options["metric_depth_runner"] = metric_depth_runner
         session = build_integrated_sim_session(
             backend=backend,
             mission=mission,
@@ -5578,6 +5801,7 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             rgb_fire_corroborator=perception.rgb_fire_corroborator,
             **ranging_runner_options,
         )
+        metric_depth_runner_attached = metric_depth_runner is not None
         if session.identity != expected_identity:
             raise RuntimeError("integrated SIM QGC identity changed during session binding")
         _emit(
@@ -5620,6 +5844,30 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
         )
         result, sensor_transport = session.run()
         synchronization = synchronized_bridge.require_complete()
+        sensor_transport_mapping = sensor_transport.to_mapping()
+        sensor_fault_verification: dict[str, object] | None = None
+        if args.fault_source is not None:
+            diagnostic = sensor_transport_mapping.get("fault_diagnostic")
+            if not isinstance(diagnostic, dict):
+                raise RuntimeError(
+                    "combined SIM sensor fault was requested but the helper finished "
+                    "diagnostic was not captured"
+                )
+            # Reuse the external acceptance verifier as the single fault
+            # contract.  The combined QGC path therefore cannot silently
+            # accept a stale-source recovery that the standalone external
+            # campaign would reject.
+            from multidetect.gazebo_fault_verification import verify_sensor_fault_diagnostic
+
+            sensor_fault_verification = verify_sensor_fault_diagnostic(
+                json.dumps(diagnostic, sort_keys=True),
+                fault_source=args.fault_source,
+                fault_start_image=args.fault_start_image,
+                fault_duration_images=args.fault_duration_images,
+            )
+            sensor_transport_mapping["fault_verification"] = sensor_fault_verification
+        else:
+            sensor_transport_mapping["fault_verification"] = None
         expected_runtime_run_hash64_hex = session.identity.run_identity_hash[:16].lower()
         if synchronization.acknowledged_runtime_run_hash64_hex != expected_runtime_run_hash64_hex:
             raise RuntimeError(
@@ -5634,7 +5882,7 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
                 "synchronization_protocol": _qgc_synchronization_protocol(),
                 "rtsp_publisher": frame_publisher.stats.to_mapping(),
                 "live_frame_pacer": synchronized_bridge.pacer.stats.to_mapping(),
-                "sensor_transport": sensor_transport.to_mapping(),
+                "sensor_transport": sensor_transport_mapping,
                 "terrain_dem_sha256": terrain_dem.source_sha256,
                 "terrain_agl_reference": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
                 "odometry_local_up_used_as_agl": False,
@@ -5654,7 +5902,14 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             audit_log=mission.audit,
             binding=ranging_binding,
             binding_hash=ranging_identity_hash,
+            run_identity_sha256=session.identity.run_identity_hash,
             required=args.require_target_geolocation,
+            sensor_transport=sensor_transport_mapping,
+            depth_contract=(
+                getattr(getattr(backend, "frame_source", None), "depth_contract", None)
+                if ranging_binding is not None
+                else None
+            ),
         )
         gate_passed = (
             target_geolocation_acceptance["gate_passed"] is True
@@ -5704,7 +5959,7 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             "synchronization": synchronization.to_mapping(),
             "rtsp_publisher": frame_publisher.stats.to_mapping(),
             "live_frame_pacer": synchronized_bridge.pacer.stats.to_mapping(),
-            "sensor_transport": sensor_transport.to_mapping(),
+            "sensor_transport": sensor_transport_mapping,
             "result": result_mapping,
         }
         if args.result_out is not None:
@@ -5727,6 +5982,8 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
                     if perception is not None:
                         perception.close()
                 finally:
+                    if metric_depth_runner is not None and not metric_depth_runner_attached:
+                        metric_depth_runner.close()
                     if audit_log is not None:
                         audit_log.close()
 

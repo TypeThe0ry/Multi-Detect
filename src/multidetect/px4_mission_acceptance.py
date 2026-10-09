@@ -89,6 +89,10 @@ def _build_transaction_documents(
     policy: Px4MissionSafetyPolicy | Px4FixedWingSafetyPolicy | Px4MultirotorSafetyPolicy,
     transaction_id: str,
     now_utc: datetime,
+    runtime_mode: str = "SIM",
+    transport: str = "in_process_mission_item_int",
+    runtime_provenance_source: str = "repository-runtime-channel-fixture",
+    physical_output_enabled: bool = False,
 ) -> tuple[ValidationReport, MissionTransactionBindings, OperatorGrant]:
     """Build the hash-bound validation/grant documents for one fixture."""
 
@@ -120,17 +124,17 @@ def _build_transaction_documents(
     )
     runtime_descriptor_hash = canonical_sha256(
         {
-            "runtime_mode": "SIM",
-            "transport": "in_process_mission_item_int",
+            "runtime_mode": runtime_mode,
+            "transport": transport,
             "dispatcher": "compile_executable_mission",
             "vehicle_class": normalized,
         }
     )
     runtime_provenance_hash = canonical_sha256(
         {
-            "source": "repository-runtime-channel-fixture",
+            "source": runtime_provenance_source,
             "truth_free": True,
-            "physical_output_enabled": False,
+            "physical_output_enabled": physical_output_enabled,
             "vehicle_class": normalized,
         }
     )

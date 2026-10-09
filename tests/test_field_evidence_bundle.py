@@ -521,6 +521,51 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
     )
 
 
+def test_accuracy_coverage_policy_is_enforced_at_bundle_boundary(tmp_path: Path) -> None:
+    target_path = _target_manifest(tmp_path)
+    accuracy_result = build_accuracy_report_from_target_event_replay(
+        target_path,
+        [
+            {
+                "sample_id": "event-0",
+                "ground_truth_latitude_deg": 1.3001,
+                "ground_truth_longitude_deg": 103.8001,
+                "target_id": "target-a",
+                "survey_range_m": 12.5,
+                "survey_slope_deg": 4.0,
+            }
+        ],
+        minimum_samples=1,
+        minimum_distance_regimes=1,
+        minimum_slope_regimes=1,
+    )
+    accuracy_path = tmp_path / "accuracy-coverage.json"
+    _write_json(accuracy_path, accuracy_result.report)
+
+    rejected = bundle_module.check_field_evidence_bundle(
+        target_event_manifest=target_path,
+        accuracy_report=accuracy_path,
+        minimum_distance_regimes=2,
+        minimum_slope_regimes=1,
+    )
+    assert rejected["strata"]["accuracy"]["gate_passed"] is False
+    assert any(
+        "accuracy selection coverage minimum_distance_regimes does not match bundle policy"
+        in reason
+        for reason in rejected["blocking_reasons"]
+    )
+
+    accepted = bundle_module.check_field_evidence_bundle(
+        target_event_manifest=target_path,
+        accuracy_report=accuracy_path,
+        minimum_distance_regimes=1,
+        minimum_slope_regimes=1,
+    )
+    assert accepted["strata"]["accuracy"]["gate_passed"] is True
+    assert accepted["policy"]["minimum_distance_regimes"] == 1
+    assert accepted["bindings"]["minimum_slope_regimes"] == 1
+
+
 def test_tampered_sidecar_closes_only_media_timeline_and_overall_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

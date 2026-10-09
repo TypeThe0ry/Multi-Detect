@@ -82,6 +82,9 @@
     },
     "model_review": {
       "$ref": "#/$defs/modelReviewRecord"
+    },
+    "shared_policy_runtime_handoff": {
+      "$ref": "#/$defs/sharedPolicyRuntimeHandoffRecord"
     }
   },
   "$defs": {
@@ -1706,6 +1709,28 @@
           "type": "array",
           "items": {"type": "string"}
         }
+      }
+    },
+    "sharedPolicyRuntimeHandoffRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "schema",
+        "schema_version",
+        "handoff_sha256",
+        "gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "multidetect.shared-policy-runtime-handoff"},
+        "schema_version": {"const": 1},
+        "handoff_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"const": true}
       }
     }
   }

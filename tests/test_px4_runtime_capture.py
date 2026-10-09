@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from multidetect.autonomy.contracts import (
     MissionFrame,
     MissionItem,
 )
+from multidetect.autonomy.policy_artifact import PolicyArtifact
 from multidetect.compat import UTC
 from multidetect.live_runtime_observation_mission_binding import (
     verify_runtime_endpoint_vehicle_identity_sidecar,
@@ -157,6 +159,20 @@ def _write_json(path: Path, value: object) -> Path:
     return path
 
 
+def _policy_artifact() -> PolicyArtifact:
+    mission = _mission()
+    return PolicyArtifact(
+        policy_id="px4-runtime-capture-test-policy",
+        policy_version="0.3.0-pre.8",
+        ranker_sha256="c" * 64,
+        airframe_profile_hash=mission.airframe_profile_hash,
+        mission_contract_hash="d" * 64,
+        safety_policy_hash="e" * 64,
+        parent_model_sha256="f" * 64,
+        training_dataset_sha256="1" * 64,
+    )
+
+
 def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, object]:
     base = tmp_path / "capture"
     base.mkdir()
@@ -273,6 +289,84 @@ def test_capture_keeps_application_output_fail_closed(tmp_path: Path) -> None:
     assert summary["join"]["gate_passed"] is False
     assert summary["transport"]["application_messages_transmitted"] == 1
     assert "one or more joined sources are not output locked" in summary["join"]["reasons"]
+
+
+def test_capture_binds_policy_artifact_and_receipt_source(tmp_path: Path) -> None:
+    base, mission_path, live_path, profile_path = _fixture(tmp_path)
+    artifact = _policy_artifact()
+    artifact_path = _write_json(base / "policy" / "policy-artifact.json", artifact.to_mapping())
+    artifact_sha256 = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+    def factory(config, *, mission_feedback_tracker):
+        return _Provider(config, mission_feedback_tracker=mission_feedback_tracker)
+
+    summary = capture_px4_runtime_sidecars(
+        base_directory=base,
+        mission=mission_path,
+        runtime_observation=live_path,
+        runtime_profile=profile_path,
+        policy_artifact=artifact_path,
+        policy_artifact_file_sha256=artifact_sha256,
+        runtime_mode="hil",
+        endpoint="udpin:127.0.0.1:14999",
+        runtime_profile_hmac_key=KEY,
+        runtime_profile_key_id=KEY_ID,
+        capture_summary_out=base / "capture-summary.json",
+        duration_seconds=0.0,
+        clock=lambda: 10.0,
+        observed_at=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=UTC),
+        provider_factory=factory,
+    )
+
+    assert summary["policy_artifact"]["file_sha256"] == artifact_sha256
+    assert summary["policy_artifact"]["canonical_sha256"] == artifact.canonical_hash
+    receipt = build_px4_runtime_capture_receipt(
+        base / "capture-summary.json", base, base / "capture-receipt.json"
+    )
+    assert receipt["source_count"] == 7
+    assert any(item["role"] == "policy_artifact" for item in receipt["files"])
+    assert (
+        verify_px4_runtime_capture_receipt(
+            base / "capture-receipt.json", base_directory=base
+        )
+        == receipt
+    )
+
+
+def test_capture_rejects_policy_airframe_mismatch_before_provider_start(tmp_path: Path) -> None:
+    base, mission_path, live_path, profile_path = _fixture(tmp_path)
+    artifact = _policy_artifact()
+    mismatched = PolicyArtifact(
+        policy_id=artifact.policy_id,
+        policy_version=artifact.policy_version,
+        ranker_sha256=artifact.ranker_sha256,
+        airframe_profile_hash="9" * 64,
+        mission_contract_hash=artifact.mission_contract_hash,
+        safety_policy_hash=artifact.safety_policy_hash,
+    )
+    artifact_path = _write_json(base / "policy" / "mismatched.json", mismatched.to_mapping())
+    started = False
+
+    def factory(config, *, mission_feedback_tracker):
+        nonlocal started
+        started = True
+        return _Provider(config, mission_feedback_tracker=mission_feedback_tracker)
+
+    with pytest.raises(ValueError, match="airframe profile"):
+        capture_px4_runtime_sidecars(
+            base_directory=base,
+            mission=mission_path,
+            runtime_observation=live_path,
+            runtime_profile=profile_path,
+            policy_artifact=artifact_path,
+            runtime_mode="hil",
+            endpoint="udpin:127.0.0.1:14999",
+            runtime_profile_hmac_key=KEY,
+            runtime_profile_key_id=KEY_ID,
+            duration_seconds=0.0,
+            provider_factory=factory,
+        )
+    assert started is False
 
 
 def test_capture_rejects_sources_outside_base(tmp_path: Path) -> None:

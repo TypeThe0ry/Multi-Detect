@@ -17,7 +17,86 @@ from multidetect.simulator import (
     FlightModelError,
     FlightTelemetrySnapshot,
 )
+from multidetect.simulator.flight_model import SimulationEnergyProfile
 from multidetect.target_geolocation import wgs84_forward_from_ned
+
+
+@pytest.mark.parametrize("mode", list(FlightMode))
+def test_energy_persists_across_disarm_and_multiple_sorties(mode) -> None:
+    profile = SimulationEnergyProfile(10.0, 36.0, 324.0, "test assumption, not calibrated")
+    model = DeterministicFlightModel(mode, energy_profile=profile)
+    model.set_armed(True)
+    model.step({"throttle": 1.0}, 10.0)
+    assert model.battery_remaining_pct == pytest.approx(90.0)
+    model.set_armed(False)
+    assert model.battery_remaining_pct == pytest.approx(90.0)
+    model.step({"throttle": 1.0}, 10.0)
+    assert model.battery_remaining_pct == pytest.approx(89.0)
+    model.set_armed(True)
+    model.step({"throttle": 0.5}, 10.0)
+    assert model.battery_remaining_pct == pytest.approx(83.5)
+    assert model.telemetry.battery_remaining_pct == pytest.approx(83.5)
+    energy = model.energy_observation()
+    assert energy["remaining_wh"] == pytest.approx(8.35)
+    assert energy["estimated_flight_time_s"] == pytest.approx(83.5)
+    assert energy["reserve_deducted"] is False
+    assert energy["physical_calibration_claimed"] is False
+    assert model.evidence()["energy"] == energy
+
+
+def test_energy_recharge_is_explicit_guarded_and_audited() -> None:
+    model = DeterministicFlightModel(
+        config=FlightModelConfig(initial_altitude_m=0.0, initial_battery_remaining_pct=50),
+        energy_profile=SimulationEnergyProfile(10, 36, 324, "fixture"),
+    )
+    model.recharge_energy(2, reason="explicit test charge")
+    assert model.battery_remaining_pct == 70
+    assert model.command_history[-1]["added_wh"] == pytest.approx(2)
+    model.recharge_energy(100, reason="fill")
+    assert model.battery_remaining_pct == 100
+    assert model.command_history[-1]["added_wh"] == pytest.approx(3)
+    model.set_armed(True)
+    before = model.evidence_hash
+    with pytest.raises(FlightModelError, match="ground"):
+        model.recharge_energy(1, reason="invalid")
+    assert model.evidence_hash == before
+    with pytest.raises(FlightModelError, match="override"):
+        model.set_battery_remaining(100)
+
+
+def test_energy_dt_replay_and_episode_reset_are_deterministic() -> None:
+    def run():
+        model = DeterministicFlightModel(
+            energy_profile=SimulationEnergyProfile(1, 360, 0, "fixture")
+        )
+        initial = model.evidence_hash
+        model.step({}, 10)
+        assert model.battery_remaining_pct == 0
+        model.step({}, 10)
+        assert model.battery_remaining_pct == 0
+        digest = model.evidence_hash
+        model.reset()  # Explicit whole-episode reset, not a sortie boundary.
+        assert model.evidence_hash == initial
+        return digest
+
+    assert run() == run()
+
+
+@pytest.mark.parametrize(
+    "capacity,idle,propulsion,source",
+    [
+        (0, 1, 1, "fixture"),
+        (float("nan"), 1, 1, "fixture"),
+        (True, 1, 1, "fixture"),
+        (1, -1, 1, "fixture"),
+        (1, 0, 0, "fixture"),
+        (1, 1, float("inf"), "fixture"),
+        (1, 1, 1, ""),
+    ],
+)
+def test_energy_profile_rejects_invalid_assumptions(capacity, idle, propulsion, source) -> None:
+    with pytest.raises(FlightModelError):
+        SimulationEnergyProfile(capacity, idle, propulsion, source)
 
 
 def _run(mode: FlightMode) -> tuple[object, str]:

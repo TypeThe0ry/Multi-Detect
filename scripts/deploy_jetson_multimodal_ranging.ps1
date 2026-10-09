@@ -22,6 +22,7 @@ $files = @(
     "scripts/export_outdoor_depth_calibration_candidates.py",
     "scripts/fit_outdoor_depth_calibration.py",
     "scripts/validate_outdoor_depth_calibration.py",
+    "scripts/verify_outdoor_depth_calibration_report.py",
     "scripts/run_jetson_fire_patrol.sh",
     "src/multidetect/adaptive_ranging.py",
     "src/multidetect/depth_calibration.py",
@@ -175,7 +176,9 @@ grep -Fq 'gps_horizontal_accuracy_m' "`$root/src/multidetect/pixhawk.py"
 grep -Fq 'CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1' "`$root/src/multidetect/depth_calibration.py"
 grep -Fq 'geometry-accepted target depth events' "`$root/scripts/export_outdoor_depth_calibration_candidates.py"
 grep -Fq 'automatic_calibration_update=false' "`$root/scripts/validate_outdoor_depth_calibration.py"
+grep -Fq 'calibration_report_verified=true' "`$root/scripts/verify_outdoor_depth_calibration_report.py"
 grep -Fq -- '--metric-depth-calibration-document' "`$root/scripts/run_jetson_fire_patrol.sh"
+grep -Fq 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION' "`$root/scripts/run_jetson_fire_patrol.sh"
 grep -Fq 'minimum_range_m: float = 0.4' "`$root/src/multidetect/rgb_slam_range.py"
 grep -Fq 'maximum_range_m: float = 800.0' "`$root/src/multidetect/rgb_slam_range.py"
 

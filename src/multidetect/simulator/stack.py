@@ -57,6 +57,21 @@ SimulatorStackIsolationError = SimulatorStackError
 StackPlanError = SimulatorStackError
 
 
+def airframe_profile_hash(document: Mapping[str, object]) -> str:
+    """Hash stable aircraft identity, excluding per-run stack wiring.
+
+    ``stack_plan_sha256`` records a concrete launch instance (ports, paths and
+    process wiring). It must remain in evidence, but cannot be part of the
+    policy's reusable airframe identity because those values intentionally
+    change between runs.
+    """
+    if not isinstance(document, Mapping):
+        raise TypeError("airframe profile document must be a mapping")
+    identity = dict(document)
+    identity.pop("stack_plan_sha256", None)
+    return canonical_sha256(identity)
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinWorldReference:
     """A parsed ``builtin://gazebo`` URI and its local SDF path."""
@@ -1275,9 +1290,14 @@ def _validate_world_sdf(path: Path, *, expected_name: str) -> None:
         raise SimulatorStackError(f"world SDF must define world name {expected_name!r}")
     if world.find("spherical_coordinates") is None:
         raise SimulatorStackError("world SDF must define WGS-84 spherical_coordinates")
+    # Mainline worlds may include the repository-owned neutral 3-D target.
+    # Vehicle composition remains the job's explicit model; allowing this one
+    # local scene asset keeps target geometry reusable without accepting Fuel,
+    # network, or arbitrary model URIs into a deterministic stack plan.
+    allowed_repository_models = {"model://multidetect_search_target_v1"}
     for include in world.findall(".//include"):
         uri = (include.findtext("uri") or "").strip()
-        if uri and not uri.startswith("builtin://"):
+        if uri and not uri.startswith("builtin://") and uri not in allowed_repository_models:
             raise SimulatorStackError(f"world include is not repository-owned: {uri}")
 
 
@@ -1685,6 +1705,7 @@ __all__ = [
     "StackAsset",
     "StackPlan",
     "StackPorts",
+    "airframe_profile_hash",
     "build_stack_plan",
     "create_stack_plan",
     "main",

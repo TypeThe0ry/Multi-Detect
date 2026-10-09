@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-model-reference-v1",
+  "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+  "model_version": "0.3.0-pre.8-onboard-policy-r33-balanced-bearing-3d-dev",
+  "model": {
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "training_config": {
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/training-config.json",
+    "sha256": "5f412788f1caacfb7596f17a1c3375b5a6ae5208d410b5afbb6aeaab6c49c50d"
+  },
+  "training_report": {
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/training-report.json",
+    "sha256": "d125229c209c855d433d4750f358753403ff96fc50361a8c06e057e7f3cacd8c"
+  },
+  "gazebo_3d_manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c"
+  },
+  "feature_width": 40,
+  "status": "development_reference_not_promoted",
+  "selected": true,
+  "claim_boundary": {
+    "final_release_allowed": false,
+    "physical_performance_claimed": false,
+    "jetson_evidence": false,
+    "external_gazebo_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false
+  }
+}

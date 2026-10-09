@@ -1,0 +1,97 @@
+{
+  "schema": "multidetect.gazebo-3d-capture-plan-v1",
+  "schema_version": 1,
+  "manifest_path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+  "manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+  "purpose": "offline initial-mission capture route only; route is derived from the scene envelope and target pose is not a runtime observation or model feature",
+  "enu_convention": "Gazebo world ENU: +X east, +Y north, +Z up",
+  "mission_convention": "route offsets are north/east metres relative to live PX4 home; the reviewed scene spawn must remain at ENU 0,0",
+  "scenarios": [
+    {
+      "scenario_id": "urban_inspection_multirotor_001",
+      "vehicle_class": "multirotor",
+      "world_frame": "ENU",
+      "scenario_manifest": "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
+      "camera_calibration": "",
+      "target_model_id": "model://multidetect_search_target_v1",
+      "target_pose_enu_m": {
+        "east_m": 180.0,
+        "north_m": -58.0,
+        "up_m": 0.0,
+        "yaw_rad": 0.45
+      },
+      "capture_route": [
+        {
+          "north_m": -80.0,
+          "east_m": -30.0,
+          "altitude_m": 12.0
+        },
+        {
+          "north_m": -80.0,
+          "east_m": 280.0,
+          "altitude_m": 12.0
+        },
+        {
+          "north_m": 110.0,
+          "east_m": 280.0,
+          "altitude_m": 12.0
+        },
+        {
+          "north_m": 110.0,
+          "east_m": -30.0,
+          "altitude_m": 12.0
+        },
+        {
+          "north_m": 15.0,
+          "east_m": 125.0,
+          "altitude_m": 12.0
+        }
+      ],
+      "status": "ready_to_execute",
+      "truth_free_runtime_input": true,
+      "target_pose_used_for_runtime_model_input": false,
+      "target_pose_used_for_capture_route": false
+    },
+    {
+      "scenario_id": "river_rescue_vtol_001",
+      "vehicle_class": "vtol",
+      "world_frame": "ENU",
+      "scenario_manifest": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+      "camera_calibration": "",
+      "target_model_id": "model://multidetect_search_target_v1",
+      "target_pose_enu_m": {
+        "east_m": 210.0,
+        "north_m": -30.0,
+        "up_m": 0.0,
+        "yaw_rad": -0.3
+      },
+      "capture_route": [],
+      "status": "blocked_unsupported_vehicle_runner",
+      "truth_free_runtime_input": true,
+      "target_pose_used_for_runtime_model_input": false,
+      "target_pose_used_for_capture_route": false
+    },
+    {
+      "scenario_id": "coastal_patrol_fixed_wing_001",
+      "vehicle_class": "fixed-wing",
+      "world_frame": "ENU",
+      "scenario_manifest": "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
+      "camera_calibration": "",
+      "target_model_id": "model://multidetect_search_target_v1",
+      "target_pose_enu_m": {
+        "east_m": 205.0,
+        "north_m": -70.0,
+        "up_m": 0.0,
+        "yaw_rad": 0.15
+      },
+      "capture_route": [],
+      "status": "blocked_unsupported_vehicle_runner",
+      "truth_free_runtime_input": true,
+      "target_pose_used_for_runtime_model_input": false,
+      "target_pose_used_for_capture_route": false
+    }
+  ],
+  "external_gazebo_runtime": "not_executed",
+  "candidate_promoted": false,
+  "final_release_allowed": false
+}

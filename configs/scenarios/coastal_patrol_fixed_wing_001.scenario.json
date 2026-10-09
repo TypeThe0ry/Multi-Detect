@@ -5,7 +5,7 @@
   "channels": {
     "runtime_input": {
       "path": "coastal_patrol_fixed_wing_001.runtime.json",
-      "sha256": "5f35086a67a7fffe295a62c9057562633aa9ddc2eb33eaed55162dea92807c3f"
+      "sha256": "6935904651ec6948608d942b3868f2c448e3d03d10a91a8f1caf267d0cd03c82"
     },
     "truth": {
       "path": "coastal_patrol_fixed_wing_001.truth.json",

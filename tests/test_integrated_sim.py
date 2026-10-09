@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import struct
 import sys
 from pathlib import Path
 
@@ -24,7 +25,8 @@ from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator import SimulatorPerceptionBridge
 from multidetect.terrain_dem import load_local_dem_grid
 from multidetect.unified_tracking import UnifiedTargetPool
-from scripts.gazebo_sensor_stream import build_wire_frame
+from scripts.gazebo_depth_wire import build_depth_wire_record
+from scripts.gazebo_sensor_stream import WIRE_HEADER_BYTES, build_wire_frame, unpack_header
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
@@ -97,6 +99,36 @@ def _wire(sequence: int, stamp_ns: int) -> bytes:
     )
 
 
+def _depth_companion(backend: GazeboSimBackend, rgb_record: bytes) -> bytes:
+    """Build the required depth companion for the current scenario fixture."""
+
+    contract = dict(backend.frame_source.depth_contract or {})
+    assert contract
+    contract.pop("sensor_id")
+    header = unpack_header(rgb_record[:WIRE_HEADER_BYTES])
+    contract.update(
+        {
+            "sequence": header.sequence,
+            "rgb_sensor_stamp_ns": header.sensor_stamp_ns,
+            "rgb_record_sha256": header.sha256.hex(),
+            "source_stamp_ns": header.sensor_stamp_ns,
+            "stride_bytes": 8,
+        }
+    )
+    return build_depth_wire_record(
+        metadata=contract,
+        payload=struct.pack("<ff", 5.0, 5.0),
+    )
+
+
+def _wire_stream(backend: GazeboSimBackend) -> bytes:
+    records = []
+    for sequence, stamp_ns in enumerate((1_000_000_000, 1_033_333_333)):
+        rgb = _wire(sequence, stamp_ns)
+        records.extend((rgb, _depth_companion(backend, rgb)))
+    return b"".join(records)
+
+
 def _backend(process: _Process, *, frame_count: int = 2) -> GazeboSimBackend:
     runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
     terrain_dem = TERRAIN_GRID
@@ -134,8 +166,9 @@ def _build_kwargs(backend: GazeboSimBackend) -> dict[str, object]:
 
 
 def test_integrated_sim_uses_shared_core_with_required_full_odometry() -> None:
-    process = _Process(_wire(0, 1_000_000_000) + _wire(1, 1_033_333_333))
+    process = _Process(b"")
     backend = _backend(process)
+    process.stdout = io.BytesIO(_wire_stream(backend))
     detector = _Detector()
     mission = MissionController(MissionConfig.from_json(MISSION))
     session = build_integrated_sim_session(
@@ -190,8 +223,9 @@ def test_integrated_sim_accepts_one_explicit_perception_bridge() -> None:
 
 
 def test_integrated_sim_accepts_custom_sink_without_creating_a_bridge() -> None:
-    process = _Process(_wire(0, 1_000_000_000) + _wire(1, 1_033_333_333))
+    process = _Process(b"")
     backend = _backend(process)
+    process.stdout = io.BytesIO(_wire_stream(backend))
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def sink(*args: object, **kwargs: object) -> None:

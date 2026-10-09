@@ -31,8 +31,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,10 +62,16 @@ from multidetect.backends.gazebo_sim import (
     gazebo_sim_ned_frd_kinematics,
     reconstruct_gazebo_sim_wire_frame,
 )
+from multidetect.gazebo_depth import GazeboDepthFrame
+from multidetect.gazebo_fault_verification import (
+    SensorFaultDiagnosticError,
+    verify_sensor_fault_diagnostic,
+)
 from multidetect.multimodal_ranging import CameraCalibration, load_camera_calibration
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario
+from multidetect.simulator.stack import airframe_profile_hash as stable_airframe_profile_hash
 from multidetect.simulator.stack import resolve_repository_model_asset_bundle
 from multidetect.terrain_dem import load_local_dem_grid
 from multidetect.vision import CapturedFrame
@@ -94,6 +101,11 @@ except ModuleNotFoundError:  # direct ``python scripts/...`` invocation
         build_docker_simulator_plan,
     )
 
+try:  # pytest imports ``scripts`` as a namespace package
+    from scripts.gazebo_depth_wire import build_depth_wire_record
+except ModuleNotFoundError:  # direct ``python scripts/...`` invocation
+    from gazebo_depth_wire import build_depth_wire_record  # type: ignore[no-redef]
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EVIDENCE = ROOT / "artifacts" / "evaluation" / "simulator-docker-acceptance.json"
@@ -116,6 +128,63 @@ SimulatorDockerAcceptanceError = DockerSimulatorAcceptanceError
 
 GAZEBO_BGR24_FRAME_SET_MANIFEST = "gazebo-bgr24-frame-set.manifest.json"
 GAZEBO_BGR24_FRAME_SET_SCHEMA_VERSION = 2
+GAZEBO_DEPTH_FRAME_SET_MANIFEST = "gazebo-depth-companion-set.manifest.json"
+GAZEBO_DEPTH_FRAME_SET_SCHEMA_VERSION = 1
+GAZEBO_SENSOR_FAULT_SOURCES = ("image", "navsat", "odometry")
+
+
+def _validate_sensor_fault_window(
+    *,
+    frame_count: int,
+    fault_source: str | None,
+    fault_start_image: int,
+    fault_duration_images: int,
+) -> None:
+    if fault_source is None:
+        if fault_start_image != 0 or fault_duration_images != 0:
+            raise DockerSimulatorAcceptanceError(
+                "sensor fault window options require sensor_fault_source"
+            )
+        return
+    if fault_source not in GAZEBO_SENSOR_FAULT_SOURCES:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_fault_source must be image, navsat, or odometry"
+        )
+    minimum_frames = 2 if fault_source == "image" else 4
+    if frame_count < minimum_frames:
+        raise DockerSimulatorAcceptanceError(
+            "sensor fault exercise requires at least "
+            f"{minimum_frames} frames for {fault_source} recovery"
+        )
+    if (
+        type(fault_start_image) is not int
+        or fault_start_image < 1
+        or type(fault_duration_images) is not int
+        or fault_duration_images < 1
+    ):
+        raise DockerSimulatorAcceptanceError(
+            "sensor fault start and duration must be positive integer image counts"
+        )
+
+
+def _verified_sensor_fault_diagnostic(
+    stderr_tail: str,
+    *,
+    fault_source: str,
+    fault_start_image: int,
+    fault_duration_images: int,
+) -> dict[str, object]:
+    """Compatibility entry point; validation lives in the installed core."""
+
+    try:
+        return verify_sensor_fault_diagnostic(
+            stderr_tail,
+            fault_source=fault_source,
+            fault_start_image=fault_start_image,
+            fault_duration_images=fault_duration_images,
+        )
+    except SensorFaultDiagnosticError as exc:
+        raise DockerSimulatorAcceptanceError(str(exc)) from exc
 
 
 def _utc_now() -> str:
@@ -281,6 +350,10 @@ def _empty_sensor_transport(
     execute: bool,
     frame_count: int,
     frame_output_directory: Path | None,
+    depth_output_directory: Path | None,
+    fault_source: str | None = None,
+    fault_start_image: int = 0,
+    fault_duration_images: int = 0,
 ) -> dict[str, object]:
     requested = frame_count > 0
     persistence_requested = frame_output_directory is not None
@@ -324,6 +397,37 @@ def _empty_sensor_transport(
             "manual_visual_acceptance": "not_claimed",
             "hardware": "not_claimed",
         },
+        "depth_persistence": {
+            "requested": depth_output_directory is not None,
+            "status": (
+                "disabled"
+                if depth_output_directory is None and not requested
+                else "not_started"
+                if execute
+                else "planned_not_executed"
+            ),
+            "output_directory": (
+                str(depth_output_directory) if depth_output_directory is not None else None
+            ),
+            "persisted_frame_count": 0,
+            "total_payload_bytes": 0,
+            "raw_bytes_sha256_matches_wire_payload": None,
+            "manifest": None,
+            "actual_gazebo_depth_persisted": False,
+            "metric_depth_model_calibration": "not_claimed",
+            "outdoor_calibration": "not_claimed",
+            "hardware": "not_claimed",
+            "hil": "not_claimed",
+            "real": "not_claimed",
+        },
+        "fault_injection": {
+            "enabled": fault_source is not None,
+            "source": fault_source,
+            "start_image": fault_start_image if fault_source is not None else None,
+            "duration_images": fault_duration_images if fault_source is not None else 0,
+            "window_key": "received_image_index",
+            "recovery_observed": None,
+        },
     }
 
 
@@ -360,6 +464,62 @@ def _resolve_frame_output_directory(
         if first_entry is not None:
             raise DockerSimulatorAcceptanceError(
                 f"sensor frame output directory must be empty: {destination}"
+            )
+    return destination
+
+
+def _resolve_depth_output_directory(
+    value: str | Path | None,
+    *,
+    evidence_path: Path,
+    frame_count: int,
+    frame_output_directory: Path | None,
+) -> Path | None:
+    """Validate the opt-in exclusive raw-depth destination.
+
+    Depth persistence is intentionally a sibling output contract.  Requiring
+    the RGB frame set at the same time guarantees that a later metric-depth
+    replay can reproduce the exact RGB/Depth pair instead of retaining only a
+    sensor payload with no image companion.
+    """
+
+    if value is None:
+        return None
+    if frame_count <= 0:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_depth_output_dir requires sensor_frame_count > 0"
+        )
+    if frame_output_directory is None:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_depth_output_dir requires sensor_frame_output_dir"
+        )
+    destination = Path(value).expanduser().resolve()
+    if destination == evidence_path or destination in evidence_path.parents:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_depth_output_dir must not contain the acceptance evidence file"
+        )
+    if destination == frame_output_directory or destination in frame_output_directory.parents:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_depth_output_dir must be separate from sensor_frame_output_dir"
+        )
+    if frame_output_directory == destination or frame_output_directory in destination.parents:
+        raise DockerSimulatorAcceptanceError(
+            "sensor_depth_output_dir must be separate from sensor_frame_output_dir"
+        )
+    if destination.exists():
+        if not destination.is_dir():
+            raise DockerSimulatorAcceptanceError(
+                f"sensor depth output path is not a directory: {destination}"
+            )
+        try:
+            first_entry = next(destination.iterdir(), None)
+        except OSError as exc:
+            raise DockerSimulatorAcceptanceError(
+                f"sensor depth output directory cannot be inspected: {destination}"
+            ) from exc
+        if first_entry is not None:
+            raise DockerSimulatorAcceptanceError(
+                f"sensor depth output directory must be empty: {destination}"
             )
     return destination
 
@@ -467,6 +627,219 @@ def _persist_gazebo_frame(
         "wire_record_sha256": provenance.record_sha256,
         "provenance": provenance.to_mapping(),
     }
+
+
+def _depth_file_suffix(encoding: str) -> str:
+    suffixes = {"FLOAT32_M": "float32_m", "UINT16_MM": "uint16_mm"}
+    try:
+        return suffixes[encoding]
+    except KeyError as exc:
+        raise DockerSimulatorAcceptanceError(
+            f"unsupported persisted Gazebo depth encoding: {encoding!r}"
+        ) from exc
+
+
+def _depth_wire_metadata(
+    *,
+    depth: GazeboDepthFrame,
+    provenance: GazeboSimFrameProvenance,
+) -> dict[str, object]:
+    """Rebuild the exact MDGZDEP1 metadata from the validated host objects."""
+
+    if depth.frame_id != provenance.frame_id:
+        raise DockerSimulatorAcceptanceError("Gazebo depth/RGB frame_id binding mismatch")
+    if provenance.depth_record_sha256 is None or provenance.depth_payload_sha256 is None:
+        raise DockerSimulatorAcceptanceError("Gazebo depth provenance is incomplete")
+    if provenance.depth_source_stamp_ns != depth.source_stamp_ns:
+        raise DockerSimulatorAcceptanceError("Gazebo depth source timestamp binding mismatch")
+    if depth.frame_sensor_stamp_ns != provenance.sensor_stamp_ns:
+        raise DockerSimulatorAcceptanceError("Gazebo depth/RGB sensor timestamp mismatch")
+    if provenance.depth_source_skew_ns != (provenance.sensor_stamp_ns - depth.source_stamp_ns):
+        raise DockerSimulatorAcceptanceError("Gazebo depth source skew binding mismatch")
+    if provenance.depth_topic != depth.source_topic:
+        raise DockerSimulatorAcceptanceError("Gazebo depth source topic binding mismatch")
+    if provenance.depth_calibration_id != depth.calibration_id:
+        raise DockerSimulatorAcceptanceError("Gazebo depth calibration ID binding mismatch")
+    if provenance.depth_geometry != (
+        depth.width,
+        depth.height,
+        depth.stride_bytes,
+    ):
+        raise DockerSimulatorAcceptanceError("Gazebo depth geometry binding mismatch")
+    if provenance.depth_encoding != depth.encoding:
+        raise DockerSimulatorAcceptanceError("Gazebo depth encoding binding mismatch")
+    if provenance.depth_distance_semantics != depth.distance_semantics:
+        raise DockerSimulatorAcceptanceError("Gazebo depth semantics binding mismatch")
+    calibration_sha256 = provenance.depth_calibration_sha256
+    if calibration_sha256 is None:
+        raise DockerSimulatorAcceptanceError("Gazebo depth calibration digest is missing")
+    return {
+        "sequence": provenance.sequence,
+        "rgb_sensor_stamp_ns": provenance.sensor_stamp_ns,
+        "rgb_record_sha256": provenance.record_sha256,
+        "source_stamp_ns": depth.source_stamp_ns,
+        "source_topic": depth.source_topic,
+        "calibration_id": depth.calibration_id,
+        "calibration_sha256": calibration_sha256,
+        "registration_mode": "registered_to_rgb",
+        "coordinate_space": "rgb_pixel_aligned",
+        "encoding": depth.encoding,
+        "distance_semantics": depth.distance_semantics,
+        "width": depth.width,
+        "height": depth.height,
+        "stride_bytes": depth.stride_bytes,
+        "minimum_depth_m": depth.minimum_depth_m,
+        "maximum_depth_m": depth.maximum_depth_m,
+        "fx_px": depth.fx_px,
+        "fy_px": depth.fy_px,
+        "cx_px": depth.cx_px,
+        "cy_px": depth.cy_px,
+    }
+
+
+def _persist_gazebo_depth_frame(
+    *,
+    output_directory: Path,
+    depth: GazeboDepthFrame,
+    provenance: GazeboSimFrameProvenance,
+) -> dict[str, object]:
+    """Persist one exact MDGZDEP1 payload and bind it to the RGB record."""
+
+    if not isinstance(depth, GazeboDepthFrame):
+        raise DockerSimulatorAcceptanceError("Gazebo depth companion has an invalid type")
+    try:
+        payload = memoryview(depth.payload).cast("B")
+    except (TypeError, ValueError) as exc:
+        raise DockerSimulatorAcceptanceError(
+            "Gazebo depth payload is not byte-addressable"
+        ) from exc
+    if hashlib.sha256(payload).hexdigest() != depth.payload_sha256:
+        raise DockerSimulatorAcceptanceError("Gazebo depth payload no longer matches its SHA-256")
+    if provenance.depth_payload_sha256 != depth.payload_sha256:
+        raise DockerSimulatorAcceptanceError("Gazebo depth payload/RGB provenance digest mismatch")
+    metadata = _depth_wire_metadata(depth=depth, provenance=provenance)
+    try:
+        wire_record = build_depth_wire_record(metadata=metadata, payload=payload)
+    except (TypeError, ValueError) as exc:
+        raise DockerSimulatorAcceptanceError(
+            f"Gazebo depth companion failed MDGZDEP1 reconstruction: {exc}"
+        ) from exc
+    # The digest is the signed header digest, not sha256(record bytes).  Build
+    # returns the exact bytes, so decode the fixed header field without making
+    # the payload itself part of the manifest a second time.
+    import struct
+
+    digest = struct.unpack_from("<8sHHQQQIIIII32s", wire_record, 0)[-1].hex()
+    if digest != provenance.depth_record_sha256:
+        raise DockerSimulatorAcceptanceError("Gazebo depth wire digest reconstruction mismatch")
+    file_name = f"depth-{provenance.sequence:06d}.{_depth_file_suffix(depth.encoding)}"
+    depth_path = output_directory / file_name
+    _write_exclusive_bytes(depth_path, payload)
+    observed_bytes = depth_path.stat().st_size
+    observed_sha256 = _sha256(depth_path)
+    if observed_bytes != len(payload) or observed_sha256 != depth.payload_sha256:
+        raise DockerSimulatorAcceptanceError(
+            f"persisted Gazebo depth payload failed integrity verification: {depth_path}"
+        )
+    return {
+        "frame_id": provenance.frame_id,
+        "sequence": provenance.sequence,
+        "file": file_name,
+        "bytes": observed_bytes,
+        "sha256": observed_sha256,
+        "wire_payload_sha256": depth.payload_sha256,
+        "raw_bytes_sha256_matches_wire_payload": True,
+        "wire_record_sha256": provenance.depth_record_sha256,
+        "rgb_sensor_stamp_ns": provenance.sensor_stamp_ns,
+        "rgb_record_sha256": provenance.record_sha256,
+        "source_stamp_ns": depth.source_stamp_ns,
+        "source_topic": depth.source_topic,
+        "calibration_id": depth.calibration_id,
+        "calibration_sha256": provenance.depth_calibration_sha256,
+        "registration_mode": metadata["registration_mode"],
+        "coordinate_space": metadata["coordinate_space"],
+        "encoding": depth.encoding,
+        "distance_semantics": depth.distance_semantics,
+        "width": depth.width,
+        "height": depth.height,
+        "stride_bytes": depth.stride_bytes,
+        "minimum_depth_m": depth.minimum_depth_m,
+        "maximum_depth_m": depth.maximum_depth_m,
+        "fx_px": depth.fx_px,
+        "fy_px": depth.fy_px,
+        "cx_px": depth.cx_px,
+        "cy_px": depth.cy_px,
+    }
+
+
+def _verify_persisted_gazebo_depth(
+    output_directory: Path,
+    record: Mapping[str, object],
+) -> None:
+    """Re-hash a persisted depth payload and reconstruct its signed wire digest."""
+
+    file_name = record.get("file")
+    expected_bytes = record.get("bytes")
+    expected_sha256 = record.get("sha256")
+    if (
+        not isinstance(file_name, str)
+        or Path(file_name).name != file_name
+        or isinstance(expected_bytes, bool)
+        or not isinstance(expected_bytes, int)
+        or expected_bytes <= 0
+        or not isinstance(expected_sha256, str)
+        or len(expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha256)
+    ):
+        raise DockerSimulatorAcceptanceError("persisted Gazebo depth record is invalid")
+    depth_path = output_directory / file_name
+    if depth_path.is_symlink() or not depth_path.is_file():
+        raise DockerSimulatorAcceptanceError(
+            f"persisted Gazebo depth payload is missing: {depth_path}"
+        )
+    payload = depth_path.read_bytes()
+    if len(payload) != expected_bytes or hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise DockerSimulatorAcceptanceError(
+            f"persisted Gazebo depth payload failed post-write integrity verification: {depth_path}"
+        )
+    metadata = {
+        key: record.get(key)
+        for key in (
+            "sequence",
+            "rgb_sensor_stamp_ns",
+            "rgb_record_sha256",
+            "source_stamp_ns",
+            "source_topic",
+            "calibration_id",
+            "calibration_sha256",
+            "registration_mode",
+            "coordinate_space",
+            "encoding",
+            "distance_semantics",
+            "width",
+            "height",
+            "stride_bytes",
+            "minimum_depth_m",
+            "maximum_depth_m",
+            "fx_px",
+            "fy_px",
+            "cx_px",
+            "cy_px",
+        )
+    }
+    try:
+        wire_record = build_depth_wire_record(metadata=metadata, payload=payload)
+        import struct
+
+        digest = struct.unpack_from("<8sHHQQQIIIII32s", wire_record, 0)[-1].hex()
+    except (TypeError, ValueError, struct.error) as exc:
+        raise DockerSimulatorAcceptanceError(
+            f"persisted Gazebo depth wire record is invalid: {depth_path}: {exc}"
+        ) from exc
+    if digest != record.get("wire_record_sha256"):
+        raise DockerSimulatorAcceptanceError(
+            f"persisted Gazebo depth wire digest mismatch: {depth_path}"
+        )
 
 
 def _verify_persisted_gazebo_frame(
@@ -597,6 +970,7 @@ def _write_frame_set_manifest(
     records: list[dict[str, object]],
     camera_calibration: dict[str, object] | None = None,
     terrain_dem: dict[str, object] | None = None,
+    host_clock_identity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Seal the exclusive raw-frame set with a canonical, self-declared hash."""
 
@@ -683,6 +1057,16 @@ def _write_frame_set_manifest(
         "frames": records,
         "source_attribution": source_attribution,
         "repository_model_assets": model_assets,
+            # The rendered-data builder compares this binding with the pinned
+            # repository mainline before a capture can enter OnboardAI training.
+            # It is provenance only; the runtime still exposes no world truth.
+            "mainline_asset_binding": {
+                "world_sdf_sha256": plan.assets.world.sha256,
+                "vehicle_model_sha256": plan.assets.model.sha256,
+                "vehicle_config_sha256": plan.assets.model_config.sha256,
+                "stack_assets_sha256": plan.assets.aggregate_sha256,
+                "model_root_assets_sha256": plan.assets.model_root.aggregate_sha256,
+            },
         "claims": claims,
     }
     if per_frame_telemetry_bound:
@@ -716,6 +1100,20 @@ def _write_frame_set_manifest(
             },
             "agl_source": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
         }
+    from multidetect.backends.gazebo_sim import validate_frame_set_clock
+    from multidetect.clock import validate_host_identity
+
+    try:
+        if host_clock_identity is not None:
+            manifest_without_hash["captured_at_clock"] = "host_perf_counter"
+            manifest_without_hash["host_clock_identity"] = validate_host_identity(
+                host_clock_identity
+            )
+        validate_frame_set_clock(manifest_without_hash)
+    except (ValueError, TypeError) as exc:
+        raise DockerSimulatorAcceptanceError(
+            f"Gazebo frame-set clock binding failed: {exc}"
+        ) from exc
     manifest_sha256 = canonical_sha256(manifest_without_hash)
     manifest = {**manifest_without_hash, "manifest_sha256": manifest_sha256}
     manifest_path = output_directory / GAZEBO_BGR24_FRAME_SET_MANIFEST
@@ -747,6 +1145,156 @@ def _write_frame_set_manifest(
     }
 
 
+def _write_depth_companion_manifest(
+    *,
+    output_directory: Path,
+    plan: DockerSimulatorPlan,
+    sensor_binding_hash: str,
+    records: list[dict[str, object]],
+    rgb_records: list[dict[str, object]] | None,
+    rgb_manifest: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Seal persisted MDGZDEP1 payloads without changing the RGB manifest contract."""
+
+    if rgb_records is None or rgb_manifest is None:
+        raise DockerSimulatorAcceptanceError(
+            "Gazebo depth manifest requires the paired RGB frame-set manifest"
+        )
+    if len(rgb_records) != len(records):
+        raise DockerSimulatorAcceptanceError("Gazebo RGB/depth frame counts do not match")
+    if not records:
+        raise DockerSimulatorAcceptanceError("Gazebo depth manifest cannot contain zero frames")
+    encodings = {record.get("encoding") for record in records}
+    if len(encodings) != 1 or None in encodings:
+        raise DockerSimulatorAcceptanceError("Gazebo depth manifest encodings are inconsistent")
+    encoding = next(iter(encodings))
+    pair_binding: list[dict[str, object]] = []
+    for index, (depth_record, rgb_record) in enumerate(zip(records, rgb_records, strict=True)):
+        rgb_provenance = rgb_record.get("provenance")
+        if not isinstance(rgb_provenance, dict):
+            raise DockerSimulatorAcceptanceError(
+                f"Gazebo RGB provenance is missing for depth frame {index}"
+            )
+        expected = {
+            "frame_id": rgb_record.get("frame_id"),
+            "sequence": rgb_record.get("sequence"),
+            "rgb_sensor_stamp_ns": rgb_provenance.get("sensor_stamp_ns"),
+            "rgb_record_sha256": rgb_record.get("wire_record_sha256"),
+        }
+        observed = {
+            key: depth_record.get(key)
+            for key in ("frame_id", "sequence", "rgb_sensor_stamp_ns", "rgb_record_sha256")
+        }
+        if observed != expected:
+            raise DockerSimulatorAcceptanceError(
+                f"Gazebo RGB/depth pair binding mismatch at frame {index}"
+            )
+        pair_binding.append(
+            {**observed, "depth_record_sha256": depth_record.get("wire_record_sha256")}
+        )
+    manifest_sha = rgb_manifest.get("manifest_sha256")
+    manifest_file_sha = rgb_manifest.get("file_sha256")
+    if (
+        not isinstance(manifest_sha, str)
+        or len(manifest_sha) != 64
+        or any(character not in "0123456789abcdef" for character in manifest_sha)
+        or not isinstance(manifest_file_sha, str)
+        or len(manifest_file_sha) != 64
+        or any(character not in "0123456789abcdef" for character in manifest_file_sha)
+    ):
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest binding is incomplete")
+    rgb_manifest_path_value = rgb_manifest.get("path")
+    if not isinstance(rgb_manifest_path_value, str):
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest path binding is missing")
+    rgb_manifest_path = Path(rgb_manifest_path_value).expanduser().resolve()
+    if rgb_manifest_path.is_symlink() or not rgb_manifest_path.is_file():
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest file is missing")
+    if _sha256(rgb_manifest_path) != manifest_file_sha:
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest file digest changed")
+    try:
+        rgb_manifest_document = json.loads(rgb_manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest is not valid JSON") from exc
+    if not isinstance(rgb_manifest_document, dict):
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest must be an object")
+    observed_rgb_manifest_sha = rgb_manifest_document.pop("manifest_sha256", None)
+    if (
+        observed_rgb_manifest_sha != manifest_sha
+        or canonical_sha256(rgb_manifest_document) != manifest_sha
+    ):
+        raise DockerSimulatorAcceptanceError("Gazebo RGB manifest canonical digest changed")
+    for record in records:
+        _verify_persisted_gazebo_depth(output_directory, record)
+    expected_files = {str(record["file"]) for record in records}
+    observed_files = {entry.name for entry in output_directory.iterdir()}
+    manifest_name = GAZEBO_DEPTH_FRAME_SET_MANIFEST
+    if observed_files != expected_files:
+        raise DockerSimulatorAcceptanceError(
+            "Gazebo depth output directory contains an unexpected or missing entry"
+        )
+    manifest_without_hash: dict[str, object] = {
+        "schema": "multidetect.gazebo-depth-companion-set",
+        "schema_version": GAZEBO_DEPTH_FRAME_SET_SCHEMA_VERSION,
+        "generated_at_utc": _utc_now(),
+        "release_label": PRODUCT_VERSION.release_label,
+        "scenario_id": plan.scenario_id,
+        "scenario_manifest_hash": plan.scenario_manifest_hash,
+        "sensor_binding_hash": sensor_binding_hash,
+        "wire": "MDGZDEP1",
+        "encoding": encoding,
+        "frame_count": len(records),
+        "total_payload_bytes": sum(int(record["bytes"]) for record in records),
+        "frames": records,
+        "source_attribution": {
+            "depth": "actual_gazebo_depth_sensor_output",
+            "environment": "software_simulation",
+            "rgb_binding": "MDGZSIM3_record_sha256",
+            "truth_loaded_by_runtime": False,
+        },
+        "claims": {
+            "actual_gazebo_depth_persisted": True,
+            "metric_depth_model_calibration": "not_claimed",
+            "outdoor_calibration": "not_claimed",
+            "hardware": "not_claimed",
+            "hil": "not_claimed",
+            "real": "not_claimed",
+            "final_release": "not_claimed",
+        },
+        "rgb_frame_set_manifest": rgb_manifest,
+        "rgb_depth_pair_binding_sha256": canonical_sha256(pair_binding),
+        "rgb_depth_pair_binding": pair_binding,
+    }
+    manifest_sha256 = canonical_sha256(manifest_without_hash)
+    manifest = {**manifest_without_hash, "manifest_sha256": manifest_sha256}
+    manifest_path = output_directory / manifest_name
+    try:
+        with manifest_path.open("x", encoding="utf-8", newline="\n") as stream:
+            json.dump(manifest, stream, ensure_ascii=False, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError as exc:
+        raise DockerSimulatorAcceptanceError(
+            f"refusing to overwrite existing Gazebo depth manifest: {manifest_path}"
+        ) from exc
+    observed = json.loads(manifest_path.read_text(encoding="utf-8"))
+    observed_claim = observed.pop("manifest_sha256", None)
+    if observed_claim != manifest_sha256 or canonical_sha256(observed) != manifest_sha256:
+        raise DockerSimulatorAcceptanceError("Gazebo depth manifest hash verification failed")
+    sealed_files = {entry.name for entry in output_directory.iterdir()}
+    if sealed_files != expected_files | {manifest_path.name}:
+        raise DockerSimulatorAcceptanceError(
+            "Gazebo depth output directory changed while the manifest was sealed"
+        )
+    return {
+        "path": str(manifest_path),
+        "file": manifest_path.name,
+        "bytes": manifest_path.stat().st_size,
+        "file_sha256": _sha256(manifest_path),
+        "manifest_sha256": manifest_sha256,
+    }
+
+
 def _capture_gazebo_sensor_transport(
     *,
     plan: DockerSimulatorPlan,
@@ -757,9 +1305,20 @@ def _capture_gazebo_sensor_transport(
     expected_height: int,
     timeout_s: float,
     frame_output_directory: Path | None = None,
+    depth_output_directory: Path | None = None,
+    clock=None,
+    fault_source: str | None = None,
+    fault_start_image: int = 0,
+    fault_duration_images: int = 0,
+    frame_callback: Callable[[CapturedFrame, GazeboSimFrameProvenance, object | None], None]
+    | None = None,
 ) -> dict[str, object]:
     """Capture real Gazebo pixels/NavSat/odometry through production wire v2."""
 
+    from multidetect.clock import HighResolutionSystemClock
+
+    if clock is not None and not isinstance(clock, HighResolutionSystemClock):
+        raise DockerSimulatorAcceptanceError("capture clock must be HighResolutionSystemClock")
     scenario_input = load_runtime_scenario(manifest_path, mode=RuntimeMode.SIM)
     terrain_dem = load_local_dem_grid(plan.dem_path)
     camera_calibration = _camera_calibration_provenance(
@@ -781,7 +1340,7 @@ def _capture_gazebo_sensor_transport(
         repository_root=plan.repository_root,
     )
     model_assets_sha256 = str(model_assets["assets_sha256"])
-    airframe_profile_sha256 = canonical_sha256(
+    airframe_profile_sha256 = stable_airframe_profile_hash(
         {
             "schema_version": 1,
             "airframe_profile_id": plan.airframe_profile_id,
@@ -792,6 +1351,7 @@ def _capture_gazebo_sensor_transport(
     )
     backend = GazeboSimBackend(
         scenario_input=scenario_input,
+        **({"clock": clock} if clock is not None else {}),
         camera_calibration=camera_calibration_profile,
         docker_executable=Path(docker_executable).resolve(),
         container_name=plan.container_name,
@@ -806,11 +1366,21 @@ def _capture_gazebo_sensor_transport(
         timeout_s=timeout_s,
         expected_width=expected_width,
         expected_height=expected_height,
+        fault_source=fault_source,
+        fault_start_image=fault_start_image,
+        fault_duration_images=fault_duration_images,
     )
     if frame_output_directory is not None:
         _prepare_frame_output_directory(frame_output_directory)
+    if depth_output_directory is not None:
+        if frame_output_directory is None:
+            raise DockerSimulatorAcceptanceError(
+                "depth output requires the paired RGB frame output directory"
+            )
+        _prepare_frame_output_directory(depth_output_directory)
     frames: list[dict[str, object]] = []
     persisted_records: list[dict[str, object]] = []
+    persisted_depth_records: list[dict[str, object]] = []
     telemetry = None
     stats = None
     capture_error: Exception | None = None
@@ -831,6 +1401,31 @@ def _capture_gazebo_sensor_transport(
                     provenance=provenance,
                 )
                 persisted_records.append(persisted_record)
+            if depth_output_directory is not None:
+                depth_frame = backend.frame_source.latest_depth_frame
+                if depth_frame is None:
+                    raise DockerSimulatorAcceptanceError(
+                        "depth output was requested but no validated Gazebo depth "
+                        "companion was bound"
+                    )
+                if (
+                    depth_frame.width != expected_width
+                    or depth_frame.height != expected_height
+                    or depth_frame.stride_bytes != expected_width * 4
+                    or depth_frame.encoding != "FLOAT32_M"
+                ):
+                    raise DockerSimulatorAcceptanceError(
+                        "Gazebo depth geometry/encoding does not match the RGB contract"
+                    )
+                persisted_depth_records.append(
+                    _persist_gazebo_depth_frame(
+                        output_directory=depth_output_directory,
+                        depth=depth_frame,
+                        provenance=provenance,
+                    )
+                )
+            if frame_callback is not None:
+                frame_callback(frame, provenance, backend.frame_source.latest_depth_frame)
             frame_record = {
                 **provenance.to_mapping(),
                 "bgr_shape": list(frame.image_bgr.shape),
@@ -889,6 +1484,14 @@ def _capture_gazebo_sensor_transport(
         raise DockerSimulatorAcceptanceError(
             "Gazebo sensor transport did not satisfy wire-v3 gates"
         )
+    fault_evidence = None
+    if fault_source is not None:
+        fault_evidence = _verified_sensor_fault_diagnostic(
+            stats.stderr_tail,
+            fault_source=fault_source,
+            fault_start_image=fault_start_image,
+            fault_duration_images=fault_duration_images,
+        )
     if len(backend.frame_source.frame_provenance) != frame_count:
         raise DockerSimulatorAcceptanceError(
             "Gazebo sensor transport provenance count did not match the frame count"
@@ -908,6 +1511,7 @@ def _capture_gazebo_sensor_transport(
             "manual_visual_acceptance": "not_claimed",
             "hardware": "not_claimed",
         }
+        rgb_manifest_record = None
     else:
         if len(persisted_records) != frame_count:
             raise DockerSimulatorAcceptanceError(
@@ -921,6 +1525,7 @@ def _capture_gazebo_sensor_transport(
             records=persisted_records,
             camera_calibration=camera_calibration,
             terrain_dem=terrain_dem_provenance,
+            host_clock_identity=clock.identity() if clock is not None else None,
         )
         pixel_persistence = {
             "requested": True,
@@ -940,6 +1545,55 @@ def _capture_gazebo_sensor_transport(
             "manual_visual_acceptance": "not_claimed",
             "hardware": "not_claimed",
         }
+        rgb_manifest_record = manifest_record
+    if depth_output_directory is None:
+        depth_persistence: dict[str, object] = {
+            "requested": False,
+            "status": "disabled",
+            "output_directory": None,
+            "persisted_frame_count": 0,
+            "total_payload_bytes": 0,
+            "raw_bytes_sha256_matches_wire_payload": None,
+            "manifest": None,
+            "actual_gazebo_depth_persisted": False,
+            "metric_depth_model_calibration": "not_claimed",
+            "outdoor_calibration": "not_claimed",
+            "hardware": "not_claimed",
+            "hil": "not_claimed",
+            "real": "not_claimed",
+        }
+    else:
+        if len(persisted_depth_records) != frame_count:
+            raise DockerSimulatorAcceptanceError(
+                "persisted Gazebo depth count did not match the requested frame count"
+            )
+        depth_manifest_record = _write_depth_companion_manifest(
+            output_directory=depth_output_directory,
+            plan=plan,
+            sensor_binding_hash=backend.sensor_binding_hash,
+            records=persisted_depth_records,
+            rgb_records=persisted_records,
+            rgb_manifest=rgb_manifest_record,
+        )
+        depth_persistence = {
+            "requested": True,
+            "status": "passed",
+            "output_directory": str(depth_output_directory),
+            "persisted_frame_count": len(persisted_depth_records),
+            "total_payload_bytes": sum(int(record["bytes"]) for record in persisted_depth_records),
+            "raw_bytes_sha256_matches_wire_payload": all(
+                record["raw_bytes_sha256_matches_wire_payload"] is True
+                and record["sha256"] == record["wire_payload_sha256"]
+                for record in persisted_depth_records
+            ),
+            "manifest": depth_manifest_record,
+            "actual_gazebo_depth_persisted": True,
+            "metric_depth_model_calibration": "not_claimed",
+            "outdoor_calibration": "not_claimed",
+            "hardware": "not_claimed",
+            "hil": "not_claimed",
+            "real": "not_claimed",
+        }
     return {
         "status": "passed",
         "requested": True,
@@ -952,6 +1606,17 @@ def _capture_gazebo_sensor_transport(
         "odometry_required": True,
         "full_odometry_pose_velocity_fusion_claimed": True,
         "truth_free": True,
+        "fault_injection": {
+            "enabled": fault_source is not None,
+            "source": fault_source,
+            "start_image": fault_start_image if fault_source is not None else None,
+            "duration_images": fault_duration_images if fault_source is not None else 0,
+            "window_key": "received_image_index",
+            "recovery_observed": (
+                fault_evidence["recovery_observed"] if fault_evidence is not None else None
+            ),
+            **({"diagnostic": fault_evidence} if fault_evidence is not None else {}),
+        },
         "sensor_binding_hash": backend.sensor_binding_hash,
         "stream_script_sha256": stream_script_sha256,
         "model_assets_sha256": model_assets_sha256,
@@ -964,6 +1629,7 @@ def _capture_gazebo_sensor_transport(
         "airframe_profile_sha256": airframe_profile_sha256,
         "frames": frames,
         "pixel_persistence": pixel_persistence,
+        "depth_persistence": depth_persistence,
         "transport": stats.to_mapping(),
         "latest_telemetry": {
             "latitude_deg": telemetry.latitude_deg,
@@ -1484,13 +2150,32 @@ def run_acceptance(
     sensor_width: int = 1280,
     sensor_height: int = 960,
     sensor_frame_output_dir: str | Path | None = None,
+    sensor_depth_output_dir: str | Path | None = None,
+    sensor_fault_source: str | None = None,
+    sensor_fault_start_image: int = 0,
+    sensor_fault_duration_images: int = 0,
     runner: Callable[..., object] | None = None,
     telemetry_probe_factory: Callable[[str], DockerTelemetryProbe] | None = None,
+    mission_transaction_runner: Callable[..., Mapping[str, object]] | None = None,
+    sensor_frame_callback: Callable[[CapturedFrame, GazeboSimFrameProvenance, object | None], None]
+    | None = None,
+    sensor_capture_concurrent: bool = False,
+    sensor_capture_start_event: threading.Event | None = None,
 ) -> dict[str, object]:
     """Run the Docker SIM gate, or emit a no-I/O preflight evidence record."""
 
     if isinstance(execute, bool) is False:
         raise DockerSimulatorAcceptanceError("execute must be bool")
+    if not isinstance(sensor_capture_concurrent, bool):
+        raise DockerSimulatorAcceptanceError("sensor_capture_concurrent must be bool")
+    if sensor_capture_start_event is not None and not isinstance(
+        sensor_capture_start_event, threading.Event
+    ):
+        raise DockerSimulatorAcceptanceError("sensor_capture_start_event must be a threading.Event")
+    if sensor_capture_concurrent and sensor_frame_count <= 0:
+        raise DockerSimulatorAcceptanceError(
+            "concurrent sensor capture requires sensor_frame_count > 0"
+        )
     if not math.isfinite(timeout_s) or not 1.0 <= timeout_s <= 3600.0:
         raise DockerSimulatorAcceptanceError("timeout_s must be finite in [1, 3600]")
     for value, name, minimum, maximum in (
@@ -1502,12 +2187,24 @@ def run_acceptance(
             raise DockerSimulatorAcceptanceError(
                 f"{name} must be an integer in [{minimum}, {maximum}]"
             )
+    _validate_sensor_fault_window(
+        frame_count=sensor_frame_count,
+        fault_source=sensor_fault_source,
+        fault_start_image=sensor_fault_start_image,
+        fault_duration_images=sensor_fault_duration_images,
+    )
     evidence = Path(evidence_path).expanduser().resolve()
     source = Path(manifest_path).expanduser().resolve()
     frame_output_directory = _resolve_frame_output_directory(
         sensor_frame_output_dir,
         evidence_path=evidence,
         frame_count=sensor_frame_count,
+    )
+    depth_output_directory = _resolve_depth_output_directory(
+        sensor_depth_output_dir,
+        evidence_path=evidence,
+        frame_count=sensor_frame_count,
+        frame_output_directory=frame_output_directory,
     )
     started = time.monotonic()
     plan = build_docker_simulator_plan(
@@ -1533,10 +2230,21 @@ def run_acceptance(
         "qualified": False,
         "truth_free": True,
     }
+    mission_transaction: dict[str, object] = {
+        "status": "not_requested" if mission_transaction_runner is None else "not_started",
+        "requested": mission_transaction_runner is not None,
+        "gate_passed": None,
+        "flight_started": False,
+        "physical_output_enabled": False,
+    }
     sensor_transport = _empty_sensor_transport(
         execute=execute,
         frame_count=sensor_frame_count,
         frame_output_directory=frame_output_directory,
+        depth_output_directory=depth_output_directory,
+        fault_source=sensor_fault_source,
+        fault_start_image=sensor_fault_start_image,
+        fault_duration_images=sensor_fault_duration_images,
     )
     failure: str | None = None
     container_started = False
@@ -1646,7 +2354,31 @@ def run_acceptance(
                 runtime["external_process_started"] = True
                 runtime["external_io_opened"] = True
                 runtime["status"] = "running"
-                if sensor_frame_count > 0:
+                # A normal sensor gate is intentionally batch-oriented.  The
+                # autonomous actual-detector path opts into the concurrent
+                # variant so the telemetry probe can open a start gate only
+                # after the vehicle is armed and at the qualified altitude.
+                # This prevents preflight RGB/Depth frames from being replayed
+                # as if they were flight-time observations.
+                if telemetry_probe_factory is not None:
+                    probe = telemetry_probe_factory(f"udpin:127.0.0.1:{telemetry_port}")
+                else:
+                    probe = DockerTelemetryProbe(f"udpin:127.0.0.1:{telemetry_port}")
+                sensor_thread: threading.Thread | None = None
+                sensor_thread_error: list[str] = []
+
+                def capture_sensor_transport() -> None:
+                    nonlocal sensor_transport
+                    if (
+                        sensor_capture_start_event is not None
+                        and not sensor_capture_start_event.wait(
+                            max(1.0, deadline - time.monotonic())
+                        )
+                    ):
+                        sensor_thread_error.append(
+                            "sensor capture start gate was not opened by qualified live telemetry"
+                        )
+                        return
                     try:
                         sensor_transport = _capture_gazebo_sensor_transport(
                             plan=plan,
@@ -1657,6 +2389,11 @@ def run_acceptance(
                             expected_height=sensor_height,
                             timeout_s=max(1.0, deadline - time.monotonic()),
                             frame_output_directory=frame_output_directory,
+                            depth_output_directory=depth_output_directory,
+                            fault_source=sensor_fault_source,
+                            fault_start_image=sensor_fault_start_image,
+                            fault_duration_images=sensor_fault_duration_images,
+                            frame_callback=sensor_frame_callback,
                         )
                     except (OSError, RuntimeError, TypeError, ValueError) as exc:
                         sensor_transport = {
@@ -1665,12 +2402,29 @@ def run_acceptance(
                             "qualified": False,
                             "error": str(exc),
                         }
-                        raise
-                if telemetry_probe_factory is not None:
-                    probe = telemetry_probe_factory(f"udpin:127.0.0.1:{telemetry_port}")
-                else:
-                    probe = DockerTelemetryProbe(f"udpin:127.0.0.1:{telemetry_port}")
+                        sensor_thread_error.append(str(exc))
+
+                if sensor_frame_count > 0 and sensor_capture_concurrent:
+                    sensor_thread = threading.Thread(
+                        target=capture_sensor_transport,
+                        name=f"{container_name}-sensor-capture",
+                        daemon=True,
+                    )
+                    sensor_thread.start()
+                elif sensor_frame_count > 0:
+                    capture_sensor_transport()
+                    if sensor_thread_error:
+                        raise DockerSimulatorAcceptanceError(sensor_thread_error[0])
+
                 telemetry = probe.observe(max(1.0, deadline - time.monotonic()))
+                if sensor_thread is not None:
+                    sensor_thread.join(max(0.0, deadline - time.monotonic()))
+                    if sensor_thread.is_alive():
+                        sensor_thread_error.append(
+                            "sensor capture worker did not stop before deadline"
+                        )
+                    if sensor_thread_error:
+                        raise DockerSimulatorAcceptanceError(sensor_thread_error[0])
                 # Docker Desktop's Windows UDP proxy owns the published
                 # 127.0.0.1 socket with an exclusive bind.  pymavlink can
                 # still receive the same host-loopback publication through a
@@ -1697,19 +2451,62 @@ def run_acceptance(
                     raise DockerSimulatorAcceptanceError(
                         str(telemetry.get("error") or "Docker SIM telemetry was not qualified")
                     )
+                if mission_transaction_runner is not None:
+                    # The hook runs only after the exact container contract and
+                    # truth-free MAVLink telemetry have passed.  It receives
+                    # the live inspect record and endpoint so the caller can
+                    # construct ExternalRuntimeAttestation and execute the
+                    # shared MISSION_ITEM_INT transaction on that same
+                    # disposable runtime.  The hook is forbidden from
+                    # silently turning this gate into an arm/takeoff path.
+                    mission_transaction["status"] = "running"
+                    transaction_result = mission_transaction_runner(
+                        plan=plan,
+                        inspect_record=inspect_record,
+                        telemetry=telemetry,
+                        control_endpoint=f"udp:127.0.0.1:{control_port}",
+                        telemetry_endpoint=f"udpin:127.0.0.1:{telemetry_port}",
+                        evidence_path=evidence,
+                    )
+                    if not isinstance(transaction_result, Mapping):
+                        raise DockerSimulatorAcceptanceError(
+                            "Mission transaction runner returned a non-object"
+                        )
+                    mission_transaction = {
+                        **dict(transaction_result),
+                        "status": "passed"
+                        if transaction_result.get("gate_passed") is True
+                        else "failed",
+                        "requested": True,
+                    }
+                    if transaction_result.get("gate_passed") is not True:
+                        raise DockerSimulatorAcceptanceError(
+                            "external Mission transaction gate was not passed"
+                        )
+                    if transaction_result.get("flight_started") is not False:
+                        raise DockerSimulatorAcceptanceError(
+                            "Mission transaction runner must not start flight"
+                        )
+                    if transaction_result.get("physical_output_enabled") is not False:
+                        raise DockerSimulatorAcceptanceError(
+                            "Mission transaction runner enabled physical output"
+                        )
                 runtime["status"] = "passed"
-            except (
-                DockerSimulatorAcceptanceError,
-                OSError,
-                RuntimeError,
-                ValueError,
-                IndexError,
-                subprocess.SubprocessError,
-            ) as exc:
+            except Exception as exc:
                 failure = str(exc)
                 runtime["status"] = "failed"
                 if telemetry.get("status") == "not_started":
                     telemetry["status"] = "not_run"
+                if mission_transaction_runner is not None and mission_transaction.get("status") in {
+                    "not_started",
+                    "running",
+                }:
+                    if mission_transaction["status"] == "running":
+                        mission_transaction["status"] = "failed"
+                        mission_transaction["gate_passed"] = False
+                        mission_transaction["error"] = failure
+                    else:
+                        mission_transaction["status"] = "not_run"
 
     cleanup_errors: list[str] = []
     if container_started and docker_executable is not None:
@@ -1770,11 +2567,29 @@ def run_acceptance(
         or not container_started
         or (isinstance(cleanup_record, dict) and cleanup_record.get("removed") is True)
     )
-    sensor_gate_passed = sensor_frame_count == 0 or sensor_transport.get("qualified") is True
+    depth_persistence_record = sensor_transport.get("depth_persistence")
+    depth_gate_passed = (
+        depth_output_directory is None
+        or not execute
+        or (
+            isinstance(depth_persistence_record, dict)
+            and depth_persistence_record.get("status") == "passed"
+            and depth_persistence_record.get("actual_gazebo_depth_persisted") is True
+        )
+    )
+    sensor_gate_passed = (
+        sensor_frame_count == 0 or sensor_transport.get("qualified") is True
+    ) and depth_gate_passed
+    mission_gate_passed = (
+        mission_transaction_runner is None
+        or mission_transaction.get("status") == "passed"
+        and mission_transaction.get("gate_passed") is True
+    )
     runtime_gate_passed = (not execute) or (
         failure is None
         and runtime.get("status") == "passed"
         and sensor_gate_passed
+        and mission_gate_passed
         and cleanup_passed
     )
     payload: dict[str, object] = {
@@ -1804,8 +2619,21 @@ def run_acceptance(
         "docker": runtime,
         "container_runtime": runtime,
         "telemetry": telemetry,
+        "mission_transaction": mission_transaction,
+        "mission_transaction_gate_passed": mission_gate_passed if execute else None,
         "sensor_transport": sensor_transport,
+        "sensor_capture": {
+            "concurrent": sensor_capture_concurrent,
+            "start_gate_requested": sensor_capture_start_event is not None,
+            "start_gate_opened": (
+                sensor_capture_start_event.is_set()
+                if sensor_capture_start_event is not None
+                else None
+            ),
+            "flight_time_capture_contract": sensor_capture_concurrent,
+        },
         "pixel_persistence": sensor_transport.get("pixel_persistence"),
+        "depth_persistence": depth_persistence_record,
         "visual": {
             "status": "not_claimed",
             "qgc_fly_view_visual_acceptance": "not_claimed",
@@ -1821,7 +2649,7 @@ def run_acceptance(
         "safety": {
             "flight_control_output_enabled": False,
             "flight_control_commands_sent": 0,
-            "gcs_heartbeat_only": True,
+            "gcs_heartbeat_only": mission_transaction_runner is None,
             "real_pixhawk_contacted": False,
             "hardware_control_enabled": False,
             "truth_free": True,
@@ -1831,6 +2659,11 @@ def run_acceptance(
                 "passed" if runtime.get("status") == "passed" else runtime.get("status")
             ),
             "telemetry": "passed" if telemetry.get("qualified") else telemetry.get("status"),
+            "mission_transaction": (
+                "passed"
+                if mission_transaction.get("status") == "passed"
+                else mission_transaction.get("status")
+            ),
             "sensor_transport": (
                 "passed" if sensor_transport.get("qualified") else sensor_transport.get("status")
             ),
@@ -1874,6 +2707,21 @@ def _parser() -> argparse.ArgumentParser:
             "disabled by default"
         ),
     )
+    parser.add_argument(
+        "--sensor-depth-output-dir",
+        type=Path,
+        help=(
+            "explicit empty sibling directory for exact raw FLOAT32_M Gazebo depth payloads "
+            "and a hash-bound MDGZDEP1 companion manifest; requires --sensor-frame-output-dir"
+        ),
+    )
+    parser.add_argument(
+        "--sensor-fault-source",
+        choices=GAZEBO_SENSOR_FAULT_SOURCES,
+        help="drop one live Gazebo sensor source for a bounded recovery exercise",
+    )
+    parser.add_argument("--sensor-fault-start-image", type=int, default=0)
+    parser.add_argument("--sensor-fault-duration-images", type=int, default=0)
     parser.add_argument("--docker", type=Path)
     parser.add_argument(
         "--execute",
@@ -1907,6 +2755,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             sensor_width=args.sensor_width,
             sensor_height=args.sensor_height,
             sensor_frame_output_dir=args.sensor_frame_output_dir,
+            sensor_depth_output_dir=args.sensor_depth_output_dir,
+            sensor_fault_source=args.sensor_fault_source,
+            sensor_fault_start_image=args.sensor_fault_start_image,
+            sensor_fault_duration_images=args.sensor_fault_duration_images,
         )
     except (
         DockerSimulatorAcceptanceError,

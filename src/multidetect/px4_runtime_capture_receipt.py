@@ -2,13 +2,15 @@
 
 The capture producer emits a semantic summary with absolute paths because it
 is primarily a local diagnostic.  This module turns that summary into a
-portable, byte-exact receipt: six source/sidecar files are listed by role,
+portable, byte-exact receipt: the legacy six source/sidecar files, plus an
+optional policy artifact, are listed by role,
 their relative paths and SHA-256 digests are recorded, and the summary itself
 is hashed separately.  Verification re-resolves every path beneath one base
-directory and refuses moved, replaced, symlinked, or tampered files.
+directory and refuses missing, replaced, symlinked, or tampered files. Moving
+the whole directory preserves the receipt and the original summary bytes.
 
 The receipt is evidence of a software receive-only capture and a passed
-five-source join.  It deliberately carries no hardware, flight, or release
+capture-source join.  It deliberately carries no hardware, flight, or release
 claim.
 """
 
@@ -21,7 +23,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -68,6 +70,32 @@ _MAX_JSON_BYTES = 2 * 1024 * 1024
 
 class Px4RuntimeCaptureReceiptError(AutonomyContractError):
     """Raised when a capture receipt or its file closure is not trustworthy."""
+
+
+def _roles_for_summary(summary: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Return the legacy six sources plus an optional policy artifact source."""
+
+    policy = summary.get("policy_artifact")
+    if policy is None:
+        return _ROLES
+    if not isinstance(policy, Mapping):
+        raise Px4RuntimeCaptureReceiptError("capture summary policy_artifact section is invalid")
+    for field in (
+        "path",
+        "file_sha256",
+        "canonical_sha256",
+        "policy_id",
+        "policy_version",
+        "ranker_sha256",
+        "airframe_profile_hash",
+        "mission_contract_hash",
+        "safety_policy_hash",
+    ):
+        if field not in policy:
+            raise Px4RuntimeCaptureReceiptError(
+                f"capture summary policy_artifact.{field} is required"
+            )
+    return (*_ROLES, ("policy_artifact", "policy_artifact"))
 
 
 def _regular_directory(value: str | Path, *, label: str) -> Path:
@@ -242,7 +270,7 @@ def _load_capture_summary(
 def _source_entries(summary: Mapping[str, Any], *, base: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for role, section_name in _ROLES:
+    for role, section_name in _roles_for_summary(summary):
         section = summary.get(section_name)
         if not isinstance(section, Mapping):
             raise Px4RuntimeCaptureReceiptError(
@@ -271,13 +299,51 @@ def _source_entries(summary: Mapping[str, Any], *, base: Path) -> list[dict[str,
                 "sha256": _sha256_file(resolved),
             }
         )
-    if len(entries) != SOURCE_COUNT:
-        raise Px4RuntimeCaptureReceiptError("PX4 capture receipt must contain exactly six sources")
+    if len(entries) not in {SOURCE_COUNT, SOURCE_COUNT + 1}:
+        raise Px4RuntimeCaptureReceiptError("PX4 capture receipt source count is invalid")
     return entries
 
 
 def _claims() -> dict[str, bool]:
     return {name: False for name in _CLAIM_NAMES}
+
+
+def _relocated_summary(
+    summary: Mapping[str, Any], files: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Bind receipt paths to one original root without accessing that root.
+
+    Absolute source paths are historical metadata. Their suffix must match the
+    role's receipt path and every absolute source must share the same prefix.
+    Pure paths allow Windows captures to be verified on POSIX and vice versa.
+    Only the returned relative paths are opened, under the destination base.
+    This is an integrity check, not authentication of the receipt's author.
+    """
+
+    relocated = dict(summary)
+    origin = None
+    roles = _roles_for_summary(summary)
+    for (role, section), entry in zip(roles, files, strict=True):
+        if entry["role"] != role:
+            raise Px4RuntimeCaptureReceiptError("capture receipt source roles must match order")
+        raw = require_text(summary[section]["path"], f"capture summary {section}.path")
+        source = PureWindowsPath(raw) if PureWindowsPath(raw).drive else PurePosixPath(raw)
+        relative = PurePosixPath(entry["path"])
+        if ".." in source.parts or relative.as_posix() != entry["path"]:
+            raise Px4RuntimeCaptureReceiptError("capture source paths must be canonical")
+        if source.is_absolute():
+            suffix = type(source)(*relative.parts)
+            count = len(suffix.parts)
+            if type(source)(*source.parts[-count:]) != suffix:
+                raise Px4RuntimeCaptureReceiptError("capture source path does not match receipt")
+            prefix = type(source)(*source.parts[:-count])
+            if not prefix.is_absolute() or (origin is not None and origin != prefix):
+                raise Px4RuntimeCaptureReceiptError("capture source paths must share one origin")
+            origin = prefix
+        elif source.as_posix() != relative.as_posix():
+            raise Px4RuntimeCaptureReceiptError("capture source path does not match receipt")
+        relocated[section] = {**summary[section], "path": entry["path"]}
+    return relocated
 
 
 def _gates() -> dict[str, bool]:
@@ -302,7 +368,7 @@ def _assemble_document(
         "schema_version": SCHEMA_VERSION,
         "event": EVENT,
         "runtime_mode": runtime_mode,
-        "source_count": SOURCE_COUNT,
+        "source_count": len(files),
         "capture_summary": {
             "path": summary_relative,
             "bytes": summary_bytes,
@@ -418,18 +484,20 @@ def verify_px4_runtime_capture_receipt(
     base_directory: str | Path | None = None,
     expected_runtime_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Recompute every receipt digest and verify the closed six-file set."""
+    """Recompute every receipt digest and verify the closed capture source set."""
 
     receipt_candidate = Path(receipt).expanduser()
-    if receipt_candidate.is_symlink() or not receipt_candidate.is_file():
-        raise Px4RuntimeCaptureReceiptError("receipt must be a regular non-symbolic-link file")
     receipt_anchor = receipt_candidate.absolute()
     base = (
         _regular_directory(base_directory, label="base directory")
         if base_directory is not None
         else receipt_anchor.parent
     )
-    receipt_path = _resolve_input(receipt_candidate, base=base, label="receipt")
+    receipt_path = _resolve_input(
+        receipt_candidate if base_directory is not None else receipt_anchor,
+        base=base,
+        label="receipt",
+    )
     _, document = _read_json(receipt_path, label="capture receipt")
     _validate_document_schema(document, path=SCHEMA_PATH, label="capture receipt")
     required = frozenset(
@@ -455,13 +523,12 @@ def verify_px4_runtime_capture_receipt(
         raise Px4RuntimeCaptureReceiptError("capture receipt gate is not passed")
     if require_bool(document["portable"], "portable") is not True:
         raise Px4RuntimeCaptureReceiptError("capture receipt must be portable")
-    if (
-        require_int(
-            document["source_count"], "source_count", minimum=SOURCE_COUNT, maximum=SOURCE_COUNT
-        )
-        != SOURCE_COUNT
-    ):
-        raise Px4RuntimeCaptureReceiptError("capture receipt source_count must be six")
+    source_count = require_int(
+        document["source_count"],
+        "source_count",
+        minimum=SOURCE_COUNT,
+        maximum=SOURCE_COUNT + 1,
+    )
     runtime_mode = require_text(document["runtime_mode"], "runtime_mode").lower()
     if runtime_mode not in {"hil", "real"}:
         raise Px4RuntimeCaptureReceiptError("runtime_mode must be hil or real")
@@ -492,7 +559,7 @@ def verify_px4_runtime_capture_receipt(
     expected = _expected_document(
         summary_path,
         summary_payload,
-        summary,
+        _relocated_summary(summary, document["files"]),
         base=base,
         expected_runtime_mode=runtime_mode,
     )
@@ -502,8 +569,9 @@ def verify_px4_runtime_capture_receipt(
         )
 
     files = document["files"]
-    if not isinstance(files, list) or len(files) != SOURCE_COUNT:
-        raise Px4RuntimeCaptureReceiptError("capture receipt files must contain six entries")
+    if not isinstance(files, list) or len(files) != source_count:
+        raise Px4RuntimeCaptureReceiptError("capture receipt files do not match source_count")
+    roles = {name for name, _ in _roles_for_summary(summary)}
     seen: set[str] = set()
     for index, entry in enumerate(files):
         item = strict_object(
@@ -524,7 +592,7 @@ def verify_px4_runtime_capture_receipt(
         digest = require_sha256(item["sha256"], f"files[{index}].sha256")
         if digest != _sha256_file(source):
             raise Px4RuntimeCaptureReceiptError(f"files[{index}] SHA-256 does not match")
-        if role not in {name for name, _ in _ROLES}:
+        if role not in roles:
             raise Px4RuntimeCaptureReceiptError(f"files[{index}] has an unknown role")
     return document
 

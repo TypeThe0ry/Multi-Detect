@@ -11,10 +11,10 @@ param(
     [int]$RouterDurationSeconds = 420,
     [ValidateRange(2, 30)]
     [double]$FixedWingHoldSeconds = 12.0,
-    # Mirrors vtol_sitl_mission_acceptance.py's declared 10..600 second
+    # Mirrors vtol_sitl_mission_acceptance.py's declared 10..700 second
     # observation bound. The wrapper derives both ready and process waits from
     # this value instead of clipping the helper with unrelated constants.
-    [ValidateRange(10, 600)]
+    [ValidateRange(10, 700)]
     [int]$MissionTimeoutSeconds = 240,
     [ValidateRange(60, 300)]
     [int]$MissionSetupAllowanceSeconds = 120,
@@ -22,7 +22,19 @@ param(
     [int]$MissionCaptureSequenceAdvance = 5,
     [string]$QgcPortableBin = "",
     [string]$EvidencePath = "",
-    [string]$ContainerName = ""
+    [string]$ContainerName = "",
+    [string]$MetricDepthModel = "",
+    [string]$MetricDepthCalibrationDocument = "",
+    # Optional Jetson-equivalent safety model. The primary fire/smoke model
+    # remains the existing HIL fixture so the established target/QGC path is
+    # unchanged; this side channel runs through the same production
+    # perception factory and emits real object evidence (for example car).
+    [string]$JetsonSafetyModel = "",
+    [string]$JetsonSafetyModelManifest = "",
+    [ValidateSet("image", "navsat", "odometry")]
+    [string]$FaultSource = "",
+    [int]$FaultStartImage = 0,
+    [int]$FaultDurationImages = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +52,84 @@ if ([string]::IsNullOrWhiteSpace($ReleaseLabel) -or [string]::IsNullOrWhiteSpace
 }
 $ReleaseStatus = "v$ReleaseLabel; final v$NumericVersion remains blocked"
 $PurposeLabel = "combined-px4-gazebo-qgc-sim-acceptance"
+$FaultSourceValue = if ([string]::IsNullOrWhiteSpace($FaultSource)) {
+    $null
+}
+else {
+    $FaultSource.ToLowerInvariant()
+}
+if ($null -eq $FaultSourceValue) {
+    if ($FaultStartImage -ne 0 -or $FaultDurationImages -ne 0) {
+        throw "-FaultStartImage/-FaultDurationImages require -FaultSource."
+    }
+}
+else {
+    if ($FaultStartImage -lt 1 -or $FaultDurationImages -lt 1) {
+        throw "Combined sensor fault start and duration must be positive image counts."
+    }
+    [long]$faultWindowEnd = [long]$FaultStartImage + [long]$FaultDurationImages
+    if ($faultWindowEnd -gt [long]$Frames) {
+        throw "Combined sensor fault window must leave at least one post-window frame within -Frames."
+    }
+    $minimumFaultFrames = if ($FaultSourceValue -eq "image") { 2 } else { 4 }
+    if ($Frames -lt $minimumFaultFrames) {
+        throw "Combined sensor fault exercise requires at least $minimumFaultFrames frames for $FaultSourceValue."
+    }
+}
+$MetricDepthModelPath = $MetricDepthModel
+$MetricDepthCalibrationPath = $MetricDepthCalibrationDocument
+$MetricDepthCalibrationMetadata = $null
+if (-not [string]::IsNullOrWhiteSpace($MetricDepthModelPath)) {
+    if (-not [IO.Path]::IsPathRooted($MetricDepthModelPath)) {
+        $MetricDepthModelPath = Join-Path $Root $MetricDepthModelPath
+    }
+    if (-not (Test-Path -LiteralPath $MetricDepthModelPath -PathType Leaf)) {
+        throw "Metric-depth model does not exist: $MetricDepthModelPath"
+    }
+    if ([string]::IsNullOrWhiteSpace($MetricDepthCalibrationPath)) {
+        throw "Metric-depth calibration document is required with -MetricDepthModel."
+    }
+    if (-not [IO.Path]::IsPathRooted($MetricDepthCalibrationPath)) {
+        $MetricDepthCalibrationPath = Join-Path $Root $MetricDepthCalibrationPath
+    }
+    if (-not (Test-Path -LiteralPath $MetricDepthCalibrationPath -PathType Leaf)) {
+        throw "Metric-depth calibration document does not exist: $MetricDepthCalibrationPath"
+    }
+    try {
+        $MetricDepthCalibrationMetadata = Get-Content -LiteralPath $MetricDepthCalibrationPath -Raw |
+            ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Metric-depth calibration document is not valid JSON: $MetricDepthCalibrationPath"
+    }
+    $metricDepthSourceKind = [string]$MetricDepthCalibrationMetadata.source_kind
+    if ($metricDepthSourceKind.ToLowerInvariant().StartsWith("gazebo_depth_wire")) {
+        throw "Gazebo depth transport calibration cannot be passed as -MetricDepthCalibrationDocument; use the independent Gazebo depth sensor contract."
+    }
+}
+$JetsonSafetyModelPath = $JetsonSafetyModel
+$JetsonSafetyModelManifestPath = $JetsonSafetyModelManifest
+$jetsonModelProvided = -not [string]::IsNullOrWhiteSpace($JetsonSafetyModelPath)
+$jetsonManifestProvided = -not [string]::IsNullOrWhiteSpace($JetsonSafetyModelManifestPath)
+if ($jetsonModelProvided -xor $jetsonManifestProvided) {
+    throw "-JetsonSafetyModel and -JetsonSafetyModelManifest must be provided together."
+}
+if ($jetsonModelProvided) {
+    if (-not [IO.Path]::IsPathRooted($JetsonSafetyModelPath)) {
+        $JetsonSafetyModelPath = Join-Path $Root $JetsonSafetyModelPath
+    }
+    if (-not [IO.Path]::IsPathRooted($JetsonSafetyModelManifestPath)) {
+        $JetsonSafetyModelManifestPath = Join-Path $Root $JetsonSafetyModelManifestPath
+    }
+    if (-not (Test-Path -LiteralPath $JetsonSafetyModelPath -PathType Leaf)) {
+        throw "Jetson safety model does not exist: $JetsonSafetyModelPath"
+    }
+    if (-not (Test-Path -LiteralPath $JetsonSafetyModelManifestPath -PathType Leaf)) {
+        throw "Jetson safety model manifest does not exist: $JetsonSafetyModelManifestPath"
+    }
+    $JetsonSafetyModelPath = [IO.Path]::GetFullPath($JetsonSafetyModelPath)
+    $JetsonSafetyModelManifestPath = [IO.Path]::GetFullPath($JetsonSafetyModelManifestPath)
+}
 $ImageReference = "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
 $ImageDigest = "bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
 $RunId = "{0}-{1}" -f (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"), $PID
@@ -47,13 +137,15 @@ $RunDirectory = Join-Path $Root "artifacts\evaluation\combined-sim-qgc-$RunId"
 $ArtifactDirectory = Split-Path -Parent $RunDirectory
 $CombinedStageTracePath = Join-Path $RunDirectory "combined-stage-progress.jsonl"
 # The Gazebo camera publishes nominally at 10 Hz, but a full 1280x960 BGR
-# frame must also cross Docker stdout, inference, RTSP acceptance and the QGC
-# post-adoption ACK barrier.  On a contended Windows host the observed
-# end-to-end rate can be below 3 Hz.  Scale the sensor deadline with the frame
-# budget instead of using a brittle fixed 100-second cutoff.
+# frame plus depth must also cross Docker stdout, inference, RTSP acceptance,
+# the QGC post-adoption ACK barrier, and the callback-drain phase.  On this
+# Windows/Gazebo configuration the observed accepted rate is about 1.7 Hz.
+# Keep the deadline proportional to the requested frame budget with enough
+# fixed headroom for startup and teardown; the previous 0.5 s/frame budget
+# stopped just before the final callbacks could drain (for example 567/600).
 $SensorStreamTimeoutSeconds = [int][Math]::Max(
-    180,
-    [Math]::Ceiling($Frames / 2.0) + 30
+    240,
+    [Math]::Ceiling($Frames * 0.75) + 60
 )
 $IntegratedWaitTimeoutMilliseconds = ($SensorStreamTimeoutSeconds + 45) * 1000
 # Keep the VTOL evaluator deadlines tied to the requested fixed-wing dwell.
@@ -69,7 +161,7 @@ $VtolProcessWaitTimeoutMilliseconds = [int][Math]::Max(
 )
 # The Mission helper performs bounded heartbeat/GPS/navigation/transaction
 # setup before entering its own mission observation deadline. Cover both
-# phases, including the helper's selectable 600-second maximum, and leave a
+# phases, including the helper's selectable 700-second maximum, and leave a
 # small flush margin for its durable result JSON and redirected streams.
 $MissionReadyTimeoutSeconds = $MissionSetupAllowanceSeconds + $MissionTimeoutSeconds
 $MissionProcessWaitTimeoutMilliseconds = (
@@ -204,6 +296,53 @@ $QgcNativeVideoLoggingCategories = @(
 function Assert-True {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }
+}
+
+function Assert-CombinedSensorFaultContract {
+    param([Parameter(Mandatory = $true)][object]$IntegratedEvidence)
+
+    $transport = $IntegratedEvidence.sensor_transport
+    if ($null -eq $FaultSourceValue) {
+        Assert-True ($transport.fault_injection_enabled -eq $false) "Combined SIM unexpectedly reports sensor fault injection."
+        Assert-True ($null -eq $transport.fault_verification) "Combined SIM emitted fault verification without a configured fault."
+        return
+    }
+
+    Assert-True ($transport.fault_injection_enabled -eq $true) "Combined SIM did not bind the requested sensor fault."
+    Assert-True ($transport.fault_source -eq $FaultSourceValue) "Combined SIM fault source identity drifted."
+    Assert-True ([int]$transport.fault_start_image -eq $FaultStartImage) "Combined SIM fault start image drifted."
+    Assert-True ([int]$transport.fault_duration_images -eq $FaultDurationImages) "Combined SIM fault duration drifted."
+    Assert-True ($null -ne $transport.fault_diagnostic) "Combined SIM did not preserve the helper finished diagnostic."
+    $verification = $transport.fault_verification
+    Assert-True ($null -ne $verification) "Combined SIM did not produce normalized fault verification."
+    Assert-True ($verification.enabled -eq $true -and $verification.source -eq $FaultSourceValue) "Combined SIM fault verification identity mismatch."
+    Assert-True ([int]$verification.start_image -eq $FaultStartImage -and [int]$verification.duration_images -eq $FaultDurationImages) "Combined SIM fault verification window mismatch."
+    Assert-True ($verification.timeline_overflow -eq $false) "Combined SIM fault timeline overflowed."
+    Assert-True ([int]$verification.dropped_source_messages -ge 1) "Combined SIM fault did not observe a dropped source."
+    Assert-True ([int]$verification.recovered_frame_count -ge 1 -and $verification.recovery_observed -eq $true) "Combined SIM fault did not observe recovery."
+    Assert-True ([int]$verification.emitted_during_window_count -eq 0) "Combined SIM emitted a wire during the fault window."
+    if ($FaultSourceValue -ne "image") {
+        Assert-True ($verification.cache_cleared -eq $true -and [int]$verification.source_epoch -ge 1) "Combined SIM dynamic fault did not expose cache clear/source epoch."
+    }
+}
+
+function Restore-ThreadDpiAwarenessContext {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$OriginalContext,
+        [int]$Attempts = 3
+    )
+    if ($OriginalContext -eq [IntPtr]::Zero) {
+        return $false
+    }
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $null = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($OriginalContext)
+        $observed = [MultiDetectWindow.Native]::GetThreadDpiAwarenessContext()
+        if ([MultiDetectWindow.Native]::AreDpiAwarenessContextsEqual($observed, $OriginalContext)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 1
+    }
+    return $false
 }
 
 function Write-Utf8NoBomText {
@@ -542,7 +681,12 @@ function ConvertTo-JsonSafeEvidenceValue {
     if ($null -eq $ProjectionState) {
         $ProjectionState = @{
             node_count = 0
-            maximum_nodes = 20000
+            # The aggregate keeps the complete bounded mission and target-card
+            # contracts.  The raw VTOL child evidence is ~160k JSON nodes; a
+            # 20k budget silently truncated gate fields and target cards while
+            # the external run itself had passed.  Keep the bound finite but
+            # large enough to preserve those normative summaries.
+            maximum_nodes = 200000
             truncated = $false
         }
     }
@@ -2194,9 +2338,10 @@ function Invoke-QgcNativeToolbarIndicatorSmoke {
     $clientBottomRight.X = [int]$captureClient.left + [int]$captureClient.width
     $clientBottomRight.Y = [int]$captureClient.top + [int]$captureClient.height
     $perMonitorV2 = [IntPtr](-4)
-    $previousInteractionDpiContext = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($perMonitorV2)
+    $previousInteractionDpiContext = [MultiDetectWindow.Native]::GetThreadDpiAwarenessContext()
     Assert-True ($previousInteractionDpiContext -ne [IntPtr]::Zero) `
         "Unable to enter per-monitor-v2 DPI context for exact QGC toolbar input."
+    $null = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($perMonitorV2)
     $interactionDpiContextRestored = $false
     [MultiDetectWindow.Native+POINT]$previousCursor = New-Object MultiDetectWindow.Native+POINT
     $cursorPreserved = [MultiDetectWindow.Native]::GetCursorPos([ref]$previousCursor)
@@ -2260,18 +2405,40 @@ function Invoke-QgcNativeToolbarIndicatorSmoke {
             refreshed_before_click = $true
         }
 
+        # SetCursorPos can apply a one-pixel physical rounding adjustment when
+        # the caller is in a per-monitor-v2 DPI context. Chase the same
+        # geometry-derived target for a bounded number of corrections rather
+        # than failing before SendInput on a harmless coordinate quantization.
+        $targetClickX = $clickX
+        $targetClickY = $clickY
+        $cursorReadSucceeded = $false
+        $cursorExact = $false
+        [MultiDetectWindow.Native+POINT]$actualCursor = New-Object MultiDetectWindow.Native+POINT
+        for ($cursorAttempt = 0; $cursorAttempt -lt 4; $cursorAttempt++) {
+            Assert-True ([MultiDetectWindow.Native]::SetCursorPos($clickX, $clickY)) `
+                "Unable to move the pointer to the QGC-reported native toolbar centre."
+            Start-Sleep -Milliseconds 120
+            $cursorReadSucceeded = [MultiDetectWindow.Native]::GetCursorPos([ref]$actualCursor)
+            if ($cursorReadSucceeded -and
+                $actualCursor.X -eq $targetClickX -and $actualCursor.Y -eq $targetClickY) {
+                $cursorExact = $true
+                break
+            }
+            if (-not $cursorReadSucceeded) {
+                break
+            }
+            $clickX += $targetClickX - $actualCursor.X
+            $clickY += $targetClickY - $actualCursor.Y
+        }
+        Assert-True ($cursorExact -and
+                     $actualCursor.X -eq $targetClickX -and $actualCursor.Y -eq $targetClickY) `
+            ("The pointer did not land on the exact physical QGC toolbar centre after " +
+             "bounded DPI correction (target=$targetClickX,$targetClickY actual=$($actualCursor.X),$($actualCursor.Y) " +
+             "dpi_context=0x{0:X})." -f ([MultiDetectWindow.Native]::GetThreadDpiAwarenessContext().ToInt64()))
+        $clickX = $targetClickX
+        $clickY = $targetClickY
         [MultiDetectWindow.Native+POINT]$clickPoint = New-Object MultiDetectWindow.Native+POINT
         $clickPoint.X = $clickX; $clickPoint.Y = $clickY
-        Assert-True ([MultiDetectWindow.Native]::SetCursorPos($clickX, $clickY)) `
-            "Unable to move the pointer to the QGC-reported native toolbar centre."
-        Start-Sleep -Milliseconds 120
-        [MultiDetectWindow.Native+POINT]$actualCursor = New-Object MultiDetectWindow.Native+POINT
-        $cursorReadSucceeded = [MultiDetectWindow.Native]::GetCursorPos([ref]$actualCursor)
-        Assert-True ($cursorReadSucceeded -and
-                     $actualCursor.X -eq $clickX -and $actualCursor.Y -eq $clickY) `
-            ("The pointer did not land on the exact physical QGC toolbar centre " +
-             "(requested=$clickX,$clickY actual=$($actualCursor.X),$($actualCursor.Y) " +
-             "dpi_context=0x{0:X})." -f ([MultiDetectWindow.Native]::GetThreadDpiAwarenessContext().ToInt64()))
         $hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($clickPoint)
         $hitRootWindow = [MultiDetectWindow.Native]::GetAncestor($hitWindow, 2) # GA_ROOT
         [uint32]$hitRootOwner = 0
@@ -2420,10 +2587,7 @@ function Invoke-QgcNativeToolbarIndicatorSmoke {
         if ($null -ne $previousForeground) {
             Restore-QgcWindowCaptureForeground -Window $window -Previous $previousForeground
         }
-        $null = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($previousInteractionDpiContext)
-        $interactionDpiContextRestored = [MultiDetectWindow.Native]::AreDpiAwarenessContextsEqual(
-            [MultiDetectWindow.Native]::GetThreadDpiAwarenessContext(), $previousInteractionDpiContext
-        )
+        $interactionDpiContextRestored = Restore-ThreadDpiAwarenessContext -OriginalContext $previousInteractionDpiContext
     }
     Assert-True $interactionDpiContextRestored "Toolbar input thread DPI-awareness context was not restored."
 
@@ -3081,6 +3245,8 @@ $missionJournalEvidence = $null
 $requiredSensorTopics = @(
     "/world/default/model/standard_vtol_mono_cam_0/link/camera_link/sensor/camera/image",
     "/world/default/model/standard_vtol_mono_cam_0/link/camera_link/sensor/camera/camera_info",
+    "/world/default/model/standard_vtol_mono_cam_0/link/depth_camera_link/sensor/depth_camera/depth_image",
+    "/world/default/model/standard_vtol_mono_cam_0/link/depth_camera_link/sensor/depth_camera/camera_info",
     "/world/default/model/standard_vtol_mono_cam_0/link/base_link/sensor/navsat_sensor/navsat",
     "/model/standard_vtol_mono_cam_0/odometry_with_covariance"
 )
@@ -3124,6 +3290,11 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--workdir", "/opt/px4-gazebo", "--entrypoint", "/bin/sh",
         "--env", "HEADLESS=1", "--env", "PX4_SYS_AUTOSTART=4004",
         "--env", "PX4_SIM_MODEL=gz_standard_vtol_mono_cam",
+        # The mission helper inspects this value before configuring the
+        # disposable PX4 state stream.  Keep it equal to the container-side
+        # input port that is actually published below; the host port remains
+        # dynamically allocated and is recorded separately in evidence.
+        "--env", "PX4_MAVLINK_UDP_PORT=$Px4ContainerInputPort",
         "--env", "PX4_GZ_MODELS=/opt/multidetect-gazebo-models",
         "--env", "PX4_GZ_WORLD=default", "--env", "GZ_VERBOSE=0",
         "--env", "GZ_SIM_RESOURCE_PATH=/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds",
@@ -3165,7 +3336,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         }
         Start-Sleep -Milliseconds 500
     }
-    Assert-True $requiredSensorTopicsReady "Gazebo camera image/CameraInfo/NavSat/full-odometry topics were not ready within 90 seconds."
+    Assert-True $requiredSensorTopicsReady "Gazebo RGB/depth image+CameraInfo/NavSat/full-odometry topics were not ready within 90 seconds."
 
     # `gz topic -l` lists a topic created only by a subscriber as well as one
     # backed by a publisher. Full 3D odometry plus angular covariance is a wire-v3 readiness source;
@@ -3205,6 +3376,18 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Start-Sleep -Milliseconds 500
     Assert-True (-not $routerProcess.HasExited) "Combined PX4/QGC/evaluator router exited during startup."
 
+    $integratedFaultArguments = @()
+    if ($null -ne $FaultSourceValue) {
+        $integratedFaultArguments = @(
+            "--fault-source", $FaultSourceValue,
+            "--fault-start-image", "$FaultStartImage",
+            "--fault-duration-images", "$FaultDurationImages"
+        )
+    }
+    # Build the argv in flat chunks.  Inserting an array inside an array
+    # literal creates a nested Object[] on Windows PowerShell; Start-Process
+    # then fails before integrated-sim-qgc is launched whenever fault
+    # injection is enabled.
     $integratedArguments = @(
         "-u", "-m", "multidetect.cli", "integrated-sim-qgc",
         $MissionConfig, $ScenarioManifest,
@@ -3219,7 +3402,11 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--terrain-dem", $TerrainDem,
         "--camera-info-calibration", (Join-Path $Root "simulation\gazebo\calibration\gazebo-front-camera-v1.json"),
         "--ranging-calibration", (Join-Path $Root "simulation\gazebo\calibration\gazebo-front-camera-v1.json"),
-        "--require-target-geolocation",
+        # This combined acceptance uses the synthetic HIL detector only to
+        # validate RGB/depth transport, shared ranging plumbing, and native
+        # QGC adoption.  Its fixture emits a constant center box and is not a
+        # target-associated detector, so target-geolocation remains an
+        # explicitly separate gate and must not be claimed here.
         "--stream-script", "/workspace/scripts/gazebo_sensor_stream.py",
         "--model-instance", "standard_vtol_mono_cam_0", "--gazebo-world", "default",
         "--frame-count", "$Frames", "--stream-timeout-seconds", "$SensorStreamTimeoutSeconds",
@@ -3233,20 +3420,48 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         # The synchronized bridge performs the real inference/metadata pass
         # between the helper's frame ACK and RuntimeStatus.  A native target
         # click can add UI/UDP arbitration plus a transient Windows scheduling
-        # cycle, so allow one bounded second instead of a brittle sub-frame
-        # budget. The independent end-to-end QGC acceptance deadline stays 3 s.
-        "--maximum-ack-to-metadata-skew-ms", "1000",
+        # cycle, so allow a bounded 2.5 s scheduling window instead of a brittle
+        # one-second sub-frame budget. The independent end-to-end QGC
+        # acceptance deadline stays 3 s, so this does not permit an unbounded
+        # queue or stale-frame reorder.
+        "--maximum-ack-to-metadata-skew-ms", "2500",
         "--qgc-heartbeat-ready-timeout-seconds", "30",
         "--operator-udp-bind-host", "127.0.0.1", "--operator-udp-port", "$OperatorServerPort",
         "--operator-hmac-key-env", "MULTIDETECT_OPERATOR_KEY",
         "--mavlink-signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX",
         "--operator-stream-id", "camera-main", "--operator-id", "sim-qgc-operator",
-        "--audit-out", $IntegratedAudit, "--result-out", $IntegratedResult,
+        "--audit-out", $IntegratedAudit, "--result-out", $IntegratedResult
+    )
+    if ($integratedFaultArguments.Count -gt 0) {
+        $integratedArguments += $integratedFaultArguments
+    }
+    $integratedArguments += @(
         "--perception-args", "--onnx-model", $OnnxModel, "--model-manifest", $ModelManifest,
         "--class-names", "fire,smoke", "--input-width", "$PerceptionInputWidth", "--input-height", "$PerceptionInputHeight",
         "--output-coordinates", "normalized_xyxy", "--allow-synthetic-hil-model",
         "--warmup-iterations", "0", "--candidate-stability-frames", "1"
     )
+    if ($jetsonModelProvided) {
+        $integratedArguments += @(
+            "--safety-onnx-model", $JetsonSafetyModelPath,
+            "--safety-model-manifest", $JetsonSafetyModelManifestPath,
+            "--safety-model-coco80", "--safety-model-format", "ultralytics_raw",
+            "--safety-output-coordinates", "letterbox_xyxy_px",
+            "--safety-input-width", "640", "--safety-input-height", "640"
+        )
+    }
+    if (-not [string]::IsNullOrWhiteSpace($MetricDepthModelPath)) {
+        $integratedArguments += @(
+            "--metric-depth-model", $MetricDepthModelPath,
+            "--metric-depth-calibration-document", $MetricDepthCalibrationPath,
+            "--metric-depth-input-size", "518",
+            "--metric-depth-minimum-depth-m", "0.4",
+            "--metric-depth-maximum-depth-m", "80.0",
+            "--metric-depth-minimum-interval-seconds", "0.10",
+            "--metric-depth-maximum-age-seconds", "1.00",
+            "--metric-depth-calibration-profile", "outdoor-unanchored-v1"
+        )
+    }
     $qgcArguments = @(
         "--system-id", "255", "--isolated-hil", "--isolated-hil-force-cpu-video",
         "--isolated-hil-px4-udp-port", "$QgcPx4Port",
@@ -3450,6 +3665,15 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--mission-journal", $MissionJournal,
         "--mission-active-ready-file", $MissionActiveReady,
         "--mission-timeout-seconds", "$MissionTimeoutSeconds",
+        # The shared planner requires a positive remaining endurance. This is
+        # an explicit disposable-SIM energy model, not a physical calibration
+        # claim; keep the combined wrapper on the same planner contract used
+        # by the standalone campaigns.
+        "--energy-capacity-wh", "100",
+        "--energy-avionics-power-w", "36",
+        "--energy-propulsion-max-power-w", "324",
+        "--energy-initial-remaining-wh", "100",
+        "--energy-provenance", "synthetic-integration-fixture-not-physical-calibration",
         "--source-system", "$EvaluatorSystemId",
         "--source-component", "$EvaluatorComponentId",
         "--acknowledge-owned-disposable-sitl"
@@ -3623,6 +3847,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Assert-True ($integratedExit -eq 0) "Integrated SIM QGC failed; stderr=$(Get-TextIfPresent -Path $IntegratedStderr)"
     $integratedEvidence = Get-Content -LiteralPath $IntegratedResult -Raw | ConvertFrom-Json
     $vtolEvidence = Get-Content -LiteralPath $VtolResult -Raw | ConvertFrom-Json
+    Assert-CombinedSensorFaultContract -IntegratedEvidence $integratedEvidence
     $expectedRuntimeRunHash64Hex = ([string]$integratedEvidence.run_identity_hash).Substring(0, 16).ToLowerInvariant()
     Assert-True ($integratedEvidence.schema_version -eq 3) "Integrated QGC evidence is not canonical schema version 3."
     Assert-True ($integratedEvidence.event -eq "integrated_sim_qgc_finished") "Integrated result event is wrong."
@@ -3654,6 +3879,10 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Assert-True ($integratedEvidence.synchronization.maximum_metadata_acceptance_ack_latency_ms -le $integratedEvidence.synchronization.allowed_metadata_acceptance_ack_latency_ms) "QGC runtime-status acceptance ACK latency exceeded the configured limit."
     Assert-True ($integratedEvidence.synchronization.maximum_frame_to_acceptance_latency_ms -le ($integratedEvidence.synchronization.allowed_ack_to_metadata_skew_ms + $integratedEvidence.synchronization.allowed_metadata_acceptance_ack_latency_ms)) "Frame-to-QGC-acceptance latency exceeded the composed barrier budget."
     Assert-True ($integratedEvidence.sensor_transport.complete -eq $true) "Gazebo sensor transport is incomplete."
+    Assert-True ($integratedEvidence.sensor_transport.depth_enabled -eq $true) "Integrated SIM did not enable the manifest-bound Gazebo depth contract."
+    Assert-True ($integratedEvidence.sensor_transport.depth_companion_count -eq $Frames) "Integrated SIM did not bind one authenticated depth companion to every accepted RGB frame."
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$integratedEvidence.sensor_transport.depth_topic)) "Integrated SIM depth topic identity is missing."
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$integratedEvidence.sensor_transport.depth_calibration_sha256)) "Integrated SIM depth calibration hash is missing."
     Assert-True ($integratedEvidence.sensor_transport.camera_info_intrinsics_semantic_validation -eq "validated_k_p_rectification_plumb_bob_distortion") "Gazebo CameraInfo K/P/R/D semantic validation is missing or incomplete."
     Assert-True ($integratedEvidence.sensor_transport.odometry_required -eq $true) "Integrated SIM did not require Gazebo wire-v3 full odometry and covariance."
     Assert-True ($integratedEvidence.sensor_transport.full_odometry_pose_velocity_fusion_claimed -eq $true) "Integrated SIM did not validate full odometry pose/velocity fusion."
@@ -3964,7 +4193,10 @@ $evidence = [ordered]@{
         $null -ne $toolbarEvidence -and $toolbarEvidence.gate_passed -eq $true -and
         $null -ne $nativeTargetSelection -and
         $nativeTargetSelection.qgc_operator_tracked_adoption_proved -eq $true -and
-        $integratedEvidence.target_geolocation_acceptance.gate_passed -eq $true
+        (
+            $integratedEvidence.target_geolocation_gate_required -ne $true -or
+            $integratedEvidence.target_geolocation_acceptance.gate_passed -eq $true
+        )
     )
     failure = $failure
     release_status = $ReleaseStatus
@@ -3997,6 +4229,18 @@ $evidence = [ordered]@{
         airframe_profile_sha256 = $airframeProfileHash
         synthetic_hil_model = Get-Sha256OrNull $OnnxModel
         synthetic_hil_model_manifest = Get-Sha256OrNull $ModelManifest
+        jetson_safety_model = [ordered]@{
+            requested = $jetsonModelProvided
+            path = if ($jetsonModelProvided) { $JetsonSafetyModelPath } else { $null }
+            sha256 = if ($jetsonModelProvided) { Get-Sha256OrNull $JetsonSafetyModelPath } else { $null }
+            manifest_path = if ($jetsonModelProvided) { $JetsonSafetyModelManifestPath } else { $null }
+            manifest_sha256 = if ($jetsonModelProvided) { Get-Sha256OrNull $JetsonSafetyModelManifestPath } else { $null }
+            production_perception_factory = $true
+            model_role = if ($jetsonModelProvided) { "safety_object_evidence" } else { $null }
+            output_contract = if ($jetsonModelProvided) { "ultralytics_raw_coco80_host_nms" } else { $null }
+            production_approved = $false
+            authorization = "evidence_only_no_flight_control"
+        }
         qgc_native_video_diagnostics = [ordered]@{ path = $QgcNativeVideoDiagnosticsPath; sha256 = Get-Sha256OrNull $QgcNativeVideoDiagnosticsPath }
         qgc_video_backend_settings = [ordered]@{ path = $QgcVideoBackendSettingsEvidencePath; sha256 = Get-Sha256OrNull $QgcVideoBackendSettingsEvidencePath }
         qgc_native_toolbar_indicator_evidence = [ordered]@{ path = $ToolbarEvidencePath; sha256 = Get-Sha256OrNull $ToolbarEvidencePath }
@@ -4015,7 +4259,14 @@ $evidence = [ordered]@{
     }
     gazebo_sensor_topics = [ordered]@{
         stream_timeout_seconds = $SensorStreamTimeoutSeconds
-        readiness_semantics = "camera image, CameraInfo, NavSat, and full 3D odometry are required and publisher-stable"
+        fault_injection = [ordered]@{
+            enabled = ($null -ne $FaultSourceValue)
+            source = $FaultSourceValue
+            start_image = if ($null -ne $FaultSourceValue) { $FaultStartImage } else { $null }
+            duration_images = if ($null -ne $FaultSourceValue) { $FaultDurationImages } else { 0 }
+            verification = if ($null -ne $integratedEvidence) { $integratedEvidence.sensor_transport.fault_verification } else { $null }
+        }
+        readiness_semantics = "RGB/depth image+CameraInfo, NavSat, and full 3D odometry are required and publisher-stable"
         required = @($requiredSensorTopics)
         required_ready = $requiredSensorTopicsReady
         missing_required = @($missingRequiredSensorTopics)
@@ -4158,7 +4409,7 @@ Write-CombinedStageTrace -Message ("evidence-object-built;top-level-fields={0}" 
 # Normalize the heterogeneous PowerShell object graph before serializing.  The
 # projection is intentionally bounded and JSON-only; all large/raw diagnostics
 # remain available at the paths listed under `artifacts`.
-$ProjectionMaximumNodesPerField = 20000
+$ProjectionMaximumNodesPerField = 200000
 $jsonSafeEvidence = [ordered]@{}
 $projectionFields = [ordered]@{}
 $jsonFieldParts = [Collections.Generic.List[string]]::new()

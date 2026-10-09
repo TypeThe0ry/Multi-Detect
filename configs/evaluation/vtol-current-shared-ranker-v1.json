@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "extension": "linear-feasible-task-ranker-v1",
+  "base": "shared-planner-baseline-v1",
+  "provenance": "untrained integration fixture reversing priority; not a trained or production model",
+  "coefficients": {
+    "priority": -1.0,
+    "total_distance_m": 0.0,
+    "estimated_duration_s": 0.0
+  }
+}

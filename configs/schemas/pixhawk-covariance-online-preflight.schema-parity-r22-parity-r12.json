@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-covariance-online-preflight.schema.json",
+  "title": "Multi-Detect Pixhawk Covariance Online Preflight v2",
+  "description": "Closed, expiring operational identity observation. It is not release, hardware, HIL, REAL, or flight acceptance evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "release_label",
+    "observed_at_utc",
+    "runtime_mode",
+    "vehicle_class",
+    "endpoint",
+    "baud",
+    "probe",
+    "transport",
+    "identity_query",
+    "heartbeat_identity",
+    "autopilot_version_identity",
+    "mode_binding",
+    "source_preflight",
+    "source_binding",
+    "reasons",
+    "gate_passed",
+    "claims",
+    "evidence_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "multidetect.pixhawk-covariance-online-preflight/v2"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "release_label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runtime_mode": {
+      "enum": [
+        "hil",
+        "real"
+      ]
+    },
+    "vehicle_class": {
+      "enum": [
+        "fixed-wing",
+        "multirotor",
+        "vtol"
+      ]
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baud": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "probe": {
+      "$ref": "#/$defs/probe"
+    },
+    "transport": {
+      "$ref": "#/$defs/transport"
+    },
+    "identity_query": {
+      "$ref": "#/$defs/identity_query"
+    },
+    "heartbeat_identity": {
+      "$ref": "pixhawk-odometry-covariance-observation.schema.json#/$defs/heartbeat"
+    },
+    "autopilot_version_identity": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "pixhawk-odometry-covariance-observation.schema.json#/$defs/autopilot_version"
+        }
+      ]
+    },
+    "mode_binding": {
+      "$ref": "pixhawk-odometry-covariance-observation.schema.json#/$defs/mode_binding"
+    },
+    "source_preflight": {
+      "$ref": "#/$defs/source_preflight"
+    },
+    "source_binding": {
+      "$ref": "#/$defs/source_binding"
+    },
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "gate_passed": {
+      "type": "boolean"
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_eligible",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "flight_acceptance"
+      ],
+      "properties": {
+        "release_eligible": {
+          "const": false
+        },
+        "hardware_acceptance": {
+          "const": false
+        },
+        "hil_acceptance": {
+          "const": false
+        },
+        "real_acceptance": {
+          "const": false
+        },
+        "flight_acceptance": {
+          "const": false
+        }
+      }
+    },
+    "evidence_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullable_boolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "nullable_nonnegative_integer": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullable_nonnegative_number": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples_requested",
+        "sample_count",
+        "interval_seconds",
+        "started_at_s",
+        "completed_at_s",
+        "duration_seconds",
+        "receive_errors"
+      ],
+      "properties": {
+        "samples_requested": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "interval_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "started_at_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "completed_at_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "receive_errors": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "error_type",
+              "message"
+            ],
+            "properties": {
+              "error_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          }
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured_endpoint",
+        "resolved_endpoint",
+        "read_only",
+        "hardware_control_enabled",
+        "messages_received",
+        "messages_transmitted",
+        "transport_link_healthy",
+        "qualified_link_healthy",
+        "qualification"
+      ],
+      "properties": {
+        "configured_endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "read_only": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "hardware_control_enabled": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "messages_received": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "messages_transmitted": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "transport_link_healthy": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "qualified_link_healthy": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "qualification": {
+          "$ref": "pixhawk-odometry-covariance-observation.schema.json#/$defs/qualification"
+        }
+      }
+    },
+    "identity_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_ranging_streams",
+        "request_autopilot_version",
+        "attempts",
+        "maximum_attempts",
+        "response_observed",
+        "budget_valid"
+      ],
+      "properties": {
+        "request_ranging_streams": {
+          "const": false
+        },
+        "request_autopilot_version": {
+          "const": true
+        },
+        "attempts": {
+          "$ref": "#/$defs/nullable_nonnegative_integer"
+        },
+        "maximum_attempts": {
+          "const": 3
+        },
+        "response_observed": {
+          "$ref": "#/$defs/nullable_boolean"
+        },
+        "budget_valid": {
+          "type": "boolean"
+        }
+      }
+    },
+    "source_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schema_version",
+        "release_label",
+        "config_path",
+        "config_sha256",
+        "ready_count",
+        "blocked_count",
+        "gate_passed"
+      ],
+      "properties": {
+        "schema": {
+          "const": "multidetect.pixhawk-covariance-field-source-preflight/v1"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "release_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ready_count": {
+          "const": 6
+        },
+        "blocked_count": {
+          "const": 0
+        },
+        "gate_passed": {
+          "const": true
+        }
+      }
+    },
+    "source_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "campaign_config_path",
+        "campaign_config_sha256",
+        "mission_path",
+        "mission_sha256",
+        "mission_feedback_path",
+        "mission_feedback_sha256",
+        "runtime_profile_path",
+        "runtime_profile_sha256",
+        "online_preflight_schema_path",
+        "online_preflight_schema_sha256",
+        "campaign_runner_path",
+        "campaign_runner_sha256",
+        "covariance_binding_path",
+        "covariance_binding_sha256",
+        "release_parity_path",
+        "release_parity_sha256",
+        "release_parity_hashes"
+      ],
+      "properties": {
+        "campaign_config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "campaign_config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mission_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mission_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mission_feedback_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mission_feedback_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_profile_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "online_preflight_schema_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "online_preflight_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "campaign_runner_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "campaign_runner_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "covariance_binding_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "covariance_binding_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_parity_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "release_parity_sha256": "ef1cc97f238c01c4b89b83aea849dd641f4164eeb9b0fe46c8c55f6bd2ddb088",
+        "release_parity_hashes": {
+          "$ref": "pixhawk-odometry-covariance-observation.schema.json#/$defs/parity_hashes"
+        }
+      }
+    }
+  }
+}

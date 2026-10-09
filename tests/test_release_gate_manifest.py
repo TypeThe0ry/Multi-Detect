@@ -616,6 +616,52 @@ def test_build_hashes_evidence_and_uses_manifest_relative_paths(tmp_path: Path) 
     assert report["release_allowed"] is False  # canonical product is still prerelease
 
 
+def test_shared_policy_runtime_handoff_is_hash_bound_in_manifest(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    unsigned = {
+        "schema": "multidetect.shared-policy-runtime-handoff",
+        "schema_version": 1,
+        "source": {"runtime_mode": "SIM", "release_parity": {
+            "release_label": "0.3.0-pre.8", "hashes": PARITY
+        }},
+        "target": {"runtime_mode": "hil"},
+        "claims": {
+            "hardware_acceptance": False,
+            "hil_acceptance": False,
+            "real_acceptance": False,
+            "outdoor_gnss_evidence": False,
+            "final_release_allowed": False,
+        },
+        "checks": {"identity": True, "outputs_locked": True},
+        "gate_passed": True,
+    }
+    handoff = {**unsigned, "handoff_sha256": canonical_sha256(unsigned)}
+    handoff_path = tmp_path / "handoff" / "handoff.json"
+    handoff_path.parent.mkdir(parents=True)
+    handoff_path.write_text(json.dumps(handoff, sort_keys=True), encoding="utf-8")
+    output = tmp_path / "manifests" / "release-gate.json"
+
+    document = create_release_gate_manifest(
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        output_path=output,
+        version_manifest_path=VERSION_MANIFEST,
+        shared_policy_runtime_handoff_evidence=handoff_path,
+    )
+
+    binding = document["shared_policy_runtime_handoff"]
+    assert binding["path"] == "../handoff/handoff.json"
+    assert binding["sha256"] == sha256_file(handoff_path)
+    assert binding["handoff_sha256"] == handoff["handoff_sha256"]
+    assert binding["gate_passed"] is True
+    report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert report["shared_policy_runtime_handoff"]["passed"] is True
+
+
 def test_real_field_link_binding_is_hash_bound_and_rechecked(tmp_path: Path) -> None:
     evidence = _evidence(tmp_path)
     link = _field_link_report(tmp_path)

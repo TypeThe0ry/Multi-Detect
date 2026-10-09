@@ -6,6 +6,8 @@ param(
     [string]$Mission,
     [Parameter(Mandatory = $true)]
     [string]$RuntimeObservation,
+    [string]$PolicyArtifact = '',
+    [string]$PolicyArtifactFileSha256 = '',
     [Parameter(Mandatory = $true)]
     [string]$RuntimeProfile,
     [Parameter(Mandatory = $true)]
@@ -78,6 +80,11 @@ Assert-NonEmpty -Value $RuntimeProfileKeyId -Name 'RuntimeProfileKeyId'
 Assert-NonEmpty -Value $CaptureSummaryOut -Name 'CaptureSummaryOut'
 Assert-NonEmpty -Value $CaptureReceiptOut -Name 'CaptureReceiptOut'
 $RuntimeMode = $RuntimeMode.ToLowerInvariant()
+
+if (-not [string]::IsNullOrWhiteSpace($PolicyArtifactFileSha256) -and
+    [string]::IsNullOrWhiteSpace($PolicyArtifact)) {
+    throw 'PolicyArtifactFileSha256 requires PolicyArtifact'
+}
 
 foreach ($number in @(
         $ProviderStaleAfterSeconds,
@@ -154,6 +161,15 @@ $arguments.Add('--mission')
 $arguments.Add($Mission)
 $arguments.Add('--runtime-observation')
 $arguments.Add($RuntimeObservation)
+$hasPolicyArtifact = -not [string]::IsNullOrWhiteSpace($PolicyArtifact)
+if ($hasPolicyArtifact) {
+    $arguments.Add('--policy-artifact')
+    $arguments.Add($PolicyArtifact)
+    if (-not [string]::IsNullOrWhiteSpace($PolicyArtifactFileSha256)) {
+        $arguments.Add('--policy-artifact-file-sha256')
+        $arguments.Add($PolicyArtifactFileSha256)
+    }
+}
 $arguments.Add('--runtime-profile')
 $arguments.Add($RuntimeProfile)
 $arguments.Add('--runtime-mode')

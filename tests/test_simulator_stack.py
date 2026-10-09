@@ -229,7 +229,7 @@ def test_mavlink_sensor_cannot_bind_an_unrelated_owned_port() -> None:
     )
     unsafe = replace(
         runtime,
-        sensors=(replace(runtime.sensors[1], stream_uri="udp://127.0.0.1:14649"),),
+        sensors=(replace(runtime.sensors[2], stream_uri="udp://127.0.0.1:14649"),),
     )
     with pytest.raises(StackPlanError, match="selected PX4 telemetry port"):
         build_stack_plan(unsafe, repository_root=ROOT)

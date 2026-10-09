@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/gazebo-3d-annotation-capture.schema.json",
+  "title": "Multi-Detect capture-only Gazebo 3-D annotation contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "contract",
+    "purpose",
+    "mainline_manifest",
+    "base_world",
+    "vehicle_wrapper",
+    "target_wrapper",
+    "sensors",
+    "label_mapping",
+    "runtime_boundary"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.gazebo-3d-annotation-capture"},
+    "schema_version": {"const": 1},
+    "contract": {"const": "multidetect.gazebo-3d-annotation-capture-v1"},
+    "purpose": {"const": "offline_3d_annotation_only"},
+    "mainline_manifest": {"$ref": "#/$defs/file"},
+    "base_world": {"$ref": "#/$defs/file"},
+    "vehicle_wrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_uri", "annotation_uri", "path", "sha256", "vehicle_class"],
+      "properties": {
+        "base_uri": {"const": "model://x500_mono_cam"},
+        "annotation_uri": {"const": "model://multidetect_annotation_x500_v1"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "vehicle_class": {"const": "multirotor"}
+      }
+    },
+    "target_wrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_uri", "annotation_uri", "path", "sha256", "label_id"],
+      "properties": {
+        "base_uri": {"const": "model://multidetect_search_target_v1"},
+        "annotation_uri": {"const": "model://multidetect_annotation_target_v1"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "label_id": {"const": 42}
+      }
+    },
+    "sensors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounding_box", "segmentation"],
+      "properties": {
+        "bounding_box": {"$ref": "#/$defs/sensor"},
+        "segmentation": {"$ref": "#/$defs/sensor"}
+      }
+    },
+    "label_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_id", "class_name", "source"],
+      "properties": {
+        "label_id": {"const": 42},
+        "class_name": {"const": "search_target"},
+        "source": {"const": "capture_only_gazebo_label_plugin"}
+      }
+    },
+    "runtime_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_consumes_annotation_topics",
+        "truth_injected_into_policy",
+        "policy_input_contract",
+        "training_requires_independent_review"
+      ],
+      "properties": {
+        "runtime_consumes_annotation_topics": {"const": false},
+        "truth_injected_into_policy": {"const": false},
+        "policy_input_contract": {"const": "rgb_depth_camera_info_pose_telemetry_only"},
+        "training_requires_independent_review": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "sensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "topic", "width", "height", "update_rate_hz"],
+      "properties": {
+        "type": {"enum": ["boundingbox_camera", "segmentation"]},
+        "topic": {"type": "string", "pattern": "^multidetect/annotation/"},
+        "width": {"const": 1280},
+        "height": {"const": 960},
+        "update_rate_hz": {"const": 30}
+      }
+    }
+  }
+}

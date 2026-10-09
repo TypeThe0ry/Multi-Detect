@@ -215,6 +215,11 @@ def test_native_gimbal_tracking_pointer_chain_is_preserved() -> None:
 
     overlay = _qml_code(VIDEO_OVERLAY)
     assert "function _hasStablePointerHitAt(pixelX, pixelY)" in overlay
+    assert "function _renderedCandidateHitAt(pixelX, pixelY)" in overlay
+    assert "id: renderTargetRepeater" in overlay
+    assert "renderTargetRepeater.itemAt(index)" in overlay
+    assert "renderTargetPool.itemAt(index)" not in overlay
+    assert "const renderedHit = _renderedCandidateHitAt(pixelX, pixelY);" in overlay
     assert "const stableHit = root._hasStablePointerHitAt(mouse.x, mouse.y);" in overlay
     assert "mouse.accepted = stableHit;" in overlay
     assert "const handled = root._handleStablePointerAt(mouse.x, mouse.y);" in overlay
@@ -297,6 +302,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "readonly property bool _targetGeolocationQualified" in layer
     for required_gate in (
         "MultiDetectState.targetGeolocationAvailable",
+        "_gnssEvidenceQualified",
         'MultiDetectState.targetGeolocationTargetId !== ""',
         'MultiDetectState.targetId !== ""',
         "MultiDetectState.targetGeolocationTargetId === MultiDetectState.targetId",
@@ -324,17 +330,28 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     geolocation_text = state[geolocation_text_start:geolocation_text_end]
     assert 'if (targetId === "")' in geolocation_text
     assert "if (targetGeolocationTargetId !== targetId)" in geolocation_text
+    assert "if (!targetGeolocationGnssQualified)" in geolocation_text
+    assert "readonly property bool targetGeolocationGnssQualified" in state
     assert "onTargetIdChanged" in state
 
-    projection_start = layer.index("function _updateTargetMapProjection()")
+    projection_start = layer.index("function _projectMapCoordinate(latitude, longitude, sigmaM)")
     projection_end = layer.index("function _requestExecutionPopup", projection_start)
     projection = layer[projection_start:projection_end]
     assert "QtPositioning.coordinate(latitude, longitude)" in projection
-    assert "if (!_targetMapVisible || !_mapControlReady ||" in projection
+    assert "function _updateTargetMapProjection()" in projection
+    assert "function _updateReplayMapProjection()" in projection
+    assert "function _previewReplayEvent(event)" in projection
+    assert "_replayMapPreviewEvent = event" in projection
+    assert "gps.coordinates_included === true" in projection
+    assert (
+        'if (!_mapControlReady || typeof mapControl.fromCoordinate !== "function")' in projection
+    )
     assert "mapControl.fromCoordinate(targetCoordinate, false)" in projection
     assert "root.mapFromItem(mapControl, targetMapPoint.x, targetMapPoint.y)" in projection
     assert "_targetMapPoint = Qt.point(-1, -1)" in projection
     assert "_targetMapSigmaRadiusPx = 0.0" in projection
+    assert "_replayMapPoint = Qt.point(-1, -1)" in projection
+    assert "_replayMapSigmaRadiusPx = 0.0" in projection
     assert "const metersPerDegree = _wgs84MetersPerDegree(latitude)" in projection
     assert "const northLatitude = latitude + latitudeOffsetDeg" in projection
     assert (
@@ -346,7 +363,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "_wgs84EccentricitySquared" in layer
     assert "111132.0" not in projection
     assert "111320.0" not in projection
-    assert "_targetMapSigmaRadiusPx = Math.max" in projection
+    assert "sigmaRadiusPx = Math.max" in projection
     assert "function _snapshotRangeValidity()" in layer
     assert "function _snapshotRangeM()" in layer
     assert "function _snapshotBearingDeg()" in layer
@@ -388,6 +405,13 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "id: targetUncertaintyRing" in indicator
     assert "root._targetMapSigmaRadiusPx * 2.0" in indicator
     assert 'qsTr("目标 ±%1 m (1σ)")' in indicator
+
+    replay_indicator_start = layer.index("id: replayMapPreviewIndicator")
+    replay_indicator_end = layer.index("id: targetGeolocationCard", replay_indicator_start)
+    replay_indicator = layer[replay_indicator_start:replay_indicator_end]
+    assert "root._replayMapPreviewQualified" in replay_indicator
+    assert "root._replayMapSigmaRadiusPx * 2.0" in replay_indicator
+    assert 'qsTr("回放预览 · ±%1 m (1σ)")' in replay_indicator
 
     card_start = layer.index("id: targetGeolocationCard")
     card = layer[card_start:]
@@ -544,8 +568,11 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         'qsTr("✓ 有效测距")',
         'qsTr("✓ 有媒体")',
         'qsTr("复制证据")',
+        'qsTr("落图预览")',
+        'qsTr("清除落图预览")',
+        'qsTr("地图预览：%1 · 只读 · 不改变当前目标")',
         "SHA-256 %6",
-        'qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")',
+        'qsTr("回放查看器只读取已校验证据；落图预览仅为只读核对，不选目标、发送任务或产生飞控指令")',
         "multiDetectTargetEventReplayStore.events",
     ):
         assert text in dialog
@@ -784,6 +811,7 @@ def test_multidetect_status_extends_the_native_qgc_toolbar_and_drawer() -> None:
         'label: qsTr("GPS/GNSS")',
         'label: qsTr("RANGE_STATUS")',
         'label: "Depth Anything V2"',
+        'label: qsTr("Gazebo 深度")',
         'label: qsTr("深度图")',
         'label: qsTr("标定")',
     ):

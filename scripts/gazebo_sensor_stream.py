@@ -30,6 +30,11 @@ from collections import deque
 from dataclasses import dataclass, replace
 from typing import Any, BinaryIO
 
+try:  # ``python scripts/gazebo_sensor_stream.py`` inside the container.
+    from scripts.gazebo_depth_wire import build_depth_wire_record
+except ModuleNotFoundError:  # pragma: no cover - standalone helper launch
+    from gazebo_depth_wire import build_depth_wire_record
+
 WIRE_MAGIC = b"MDGZSIM3"
 WIRE_VERSION = 3
 GAZEBO_SOURCE_ROW_ORDER = "top_to_bottom"
@@ -79,10 +84,27 @@ MAX_FRAME_COUNT = 100_000
 # causal, but it does not expire like dynamic telemetry.
 MAX_SOURCE_SKEW_NS = 1_500_000_000
 MAX_SOURCE_HISTORY_SAMPLES = 256
+# A 1280x960 R_FLOAT32 depth image is 4,915,200 bytes before Python object
+# overhead.  The depth stream only needs to cover the 100 ms causal-skew
+# window, so retaining the generic 256-sample history would keep roughly
+# 1.25 GiB of payloads alive and can let the disposable Gazebo helper be OOM
+# killed while writing a companion record.  Keep a small bounded history that
+# covers several 30 Hz samples and leaves room for callback jitter.
+MAX_DEPTH_HISTORY_SAMPLES = 8
 MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
 MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 8
+# A fault diagnostic needs one bounded event slot per requested image plus a
+# small boundary budget for drops, fresh-source callbacks, and recovery
+# markers.  Keeping the extra budget explicit preserves fail-closed overflow
+# detection without making the normal 900-frame combined run overflow by
+# construction.
+MAX_FAULT_TIMELINE_EVENTS = 64
 QUATERNION_NORM_TOLERANCE = 1.0e-3
+FAULT_SOURCES = ("image", "navsat", "odometry")
+DEPTH_MAX_SOURCE_SKEW_NS = 100_000_000
+DEPTH_CAMERA_INFO_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/camera_info"
+DEPTH_IMAGE_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/depth_image"
 # Gazebo derives the matrix from an SDF floating-point horizontal FOV.  The
 # published value differs from the host-side double calculation by roughly
 # 3.6e-5 px, so 1e-4 px covers transport/model quantization while remaining
@@ -199,6 +221,12 @@ class CausalSourceBuffer:
         self.maximum_samples = maximum_samples
         self._samples: deque[dict[str, object]] = deque(maxlen=maximum_samples)
         self._last_stamp_ns: int | None = None
+        # A source epoch changes whenever a fault campaign invalidates the
+        # buffered history.  Keeping the last callback stamp is intentional:
+        # callbacks must remain strictly monotonic across a cache boundary,
+        # while consumers must be able to distinguish pre-fault samples from
+        # the first post-fault sample.
+        self._epoch = 0
 
     @property
     def ready(self) -> bool:
@@ -207,6 +235,26 @@ class CausalSourceBuffer:
     @property
     def last_stamp_ns(self) -> int | None:
         return self._last_stamp_ns
+
+    @property
+    def epoch(self) -> int:
+        """Return the cache epoch for this source."""
+
+        return self._epoch
+
+    def clear_samples(self) -> int:
+        """Invalidate buffered samples without weakening timestamp ordering.
+
+        A bounded source history is useful during normal operation, but a
+        fault-injection window must not let an image consume a sample received
+        before the fault.  Clearing only the deque makes that boundary
+        explicit and retains ``_last_stamp_ns`` so a later callback cannot
+        smuggle a duplicate or out-of-order sample across the boundary.
+        """
+
+        self._samples.clear()
+        self._epoch += 1
+        return self._epoch
 
     def append(self, sample: dict[str, object]) -> None:
         if not isinstance(sample, dict):
@@ -399,6 +447,208 @@ def _parse_expected_camera_calibration(raw: str | None) -> dict[str, object] | N
             for index, value in enumerate(distortion)
         ),
     }
+
+
+def _reject_json_constant(value: str) -> object:
+    raise ValueError(f"depth contract JSON does not allow {value}")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"depth contract JSON contains duplicate field: {key}")
+        result[key] = value
+    return result
+
+
+def _depth_topic(*, world: str, model: str, suffix: str) -> str:
+    if not isinstance(world, str) or not world or "/" in world:
+        raise ValueError("world must be a single Gazebo name")
+    if not isinstance(model, str) or not model or "/" in model:
+        raise ValueError("model-instance must be a single Gazebo name")
+    return f"/world/{world}/model/{model}{suffix}"
+
+
+def _parse_depth_contract(
+    raw: str | None,
+    *,
+    world: str,
+    model: str,
+) -> dict[str, object] | None:
+    """Parse the optional depth binding without inventing a transport source.
+
+    The contract is deliberately exact.  It is a run-time binding between one
+    depth camera and the RGB camera; no sensor truth or flight-control field is
+    accepted here.
+    """
+
+    if raw is None:
+        return None
+    try:
+        document = json.loads(
+            raw,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError("depth contract is not strict JSON") from exc
+    required = {
+        "sensor_id",
+        "source_topic",
+        "calibration_id",
+        "calibration_sha256",
+        "registration_mode",
+        "coordinate_space",
+        "encoding",
+        "distance_semantics",
+        "width",
+        "height",
+        "minimum_depth_m",
+        "maximum_depth_m",
+        "fx_px",
+        "fy_px",
+        "cx_px",
+        "cy_px",
+    }
+    if not isinstance(document, dict) or set(document) != required:
+        missing = (
+            sorted(required - set(document))
+            if isinstance(document, dict)
+            else sorted(required)
+        )
+        unknown = sorted(set(document) - required) if isinstance(document, dict) else []
+        raise ValueError(
+            "depth contract field set mismatch: "
+            f"missing={missing}, unknown={unknown}"
+        )
+    text_fields = ("sensor_id", "source_topic", "calibration_id")
+    for name in text_fields:
+        value = document[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"depth contract {name} must be a non-empty string")
+    expected_topic = _depth_topic(world=world, model=model, suffix=DEPTH_IMAGE_TOPIC_SUFFIX)
+    if document["source_topic"] != expected_topic:
+        raise ValueError(
+            "depth contract source_topic must be the exact scoped depth topic: "
+            f"{expected_topic}"
+        )
+    calibration_sha256 = document["calibration_sha256"]
+    if (
+        not isinstance(calibration_sha256, str)
+        or len(calibration_sha256) != 64
+        or calibration_sha256 != calibration_sha256.lower()
+        or any(character not in "0123456789abcdef" for character in calibration_sha256)
+    ):
+        raise ValueError("depth contract calibration_sha256 must be lowercase SHA-256")
+    exact_text = {
+        "registration_mode": "registered_to_rgb",
+        "coordinate_space": "rgb_pixel_aligned",
+        "encoding": "FLOAT32_M",
+        "distance_semantics": "optical_axis_z_m",
+    }
+    for name, expected in exact_text.items():
+        if document[name] != expected:
+            raise ValueError(f"depth contract {name} must be {expected!r}")
+    normalized = dict(document)
+    for name in ("width", "height"):
+        value = document[name]
+        normalized[name] = _uint(f"depth contract {name}", value, bits=32)
+        if normalized[name] <= 0 or normalized[name] > MAX_DIMENSION:
+            raise ValueError(f"depth contract {name} is outside the safety bound")
+    for name in (
+        "minimum_depth_m",
+        "maximum_depth_m",
+        "fx_px",
+        "fy_px",
+        "cx_px",
+        "cy_px",
+    ):
+        normalized[name] = _finite(f"depth contract {name}", document[name])
+    if not 0.0 < normalized["minimum_depth_m"] < normalized["maximum_depth_m"]:
+        raise ValueError("depth contract depth range is invalid")
+    if normalized["fx_px"] <= 0.0 or normalized["fy_px"] <= 0.0:
+        raise ValueError("depth contract focal lengths must be positive")
+    normalized["depth_camera_info_topic"] = _depth_topic(
+        world=world, model=model, suffix=DEPTH_CAMERA_INFO_TOPIC_SUFFIX
+    )
+    return normalized
+
+
+def _validate_depth_contract_matches_rgb(
+    contract: dict[str, object] | None,
+    expected_camera_calibration: dict[str, object] | None,
+) -> None:
+    if contract is None or expected_camera_calibration is None:
+        return
+    pairs = (
+        ("width", "expected_width"),
+        ("height", "expected_height"),
+        ("fx_px", "expected_fx_px"),
+        ("fy_px", "expected_fy_px"),
+        ("cx_px", "expected_cx_px"),
+        ("cy_px", "expected_cy_px"),
+    )
+    for depth_name, rgb_name in pairs:
+        if not math.isclose(
+            float(contract[depth_name]),
+            float(expected_camera_calibration[rgb_name]),
+            rel_tol=0.0,
+            abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+        ):
+            raise ValueError(
+                "depth contract geometry/intrinsics do not match the RGB calibration: "
+                f"{depth_name}={contract[depth_name]!r}, "
+                f"{rgb_name}={expected_camera_calibration[rgb_name]!r}"
+            )
+
+
+def _runtime_pixel_format_name(message: Any) -> str:
+    """Resolve ``Image.pixel_format_type`` through Gazebo's runtime descriptor."""
+
+    descriptor = getattr(message, "DESCRIPTOR", None)
+    fields = getattr(descriptor, "fields_by_name", None)
+    field = fields.get("pixel_format_type") if fields is not None else None
+    enum_type = getattr(field, "enum_type", None)
+    values_by_number = getattr(enum_type, "values_by_number", None)
+    value = None
+    if values_by_number is not None:
+        value = values_by_number.get(int(message.pixel_format_type))
+    name = getattr(value, "name", None)
+    if not isinstance(name, str) or not name:
+        raise ValueError("depth Image pixel_format_type has no runtime descriptor name")
+    return name
+
+
+def _normalize_depth_float32(message: Any, *, contract: dict[str, object]) -> bytes:
+    """Copy a packed little-endian R_FLOAT32 image without filling invalid pixels."""
+
+    if _runtime_pixel_format_name(message) != "R_FLOAT32":
+        raise ValueError("depth Image pixel_format_type must be R_FLOAT32")
+    width = _uint("depth image width", int(message.width), bits=32)
+    height = _uint("depth image height", int(message.height), bits=32)
+    if (width, height) != (contract["width"], contract["height"]):
+        raise ValueError("depth Image geometry does not match the depth contract")
+    expected_stride = width * 4
+    if int(message.step) != expected_stride:
+        raise ValueError(
+            "depth Image step must be packed little-endian FLOAT32: "
+            f"expected {expected_stride}, received {message.step}"
+        )
+    try:
+        view = memoryview(message.data)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("depth Image data must be bytes-like") from exc
+    if view.ndim != 1 or view.itemsize != 1:
+        view = view.cast("B")
+    if not view.contiguous:
+        raise ValueError("depth Image data must be contiguous")
+    expected_bytes = expected_stride * height
+    if expected_bytes > MAX_PAYLOAD_BYTES or view.nbytes != expected_bytes:
+        raise ValueError("depth Image payload does not match packed geometry")
+    # The exact bytes are retained, including zero/invalid pixels.  Replacing
+    # them with a fabricated value would turn a missing measurement into data.
+    return bytes(view)
 
 
 def _validate_source_skew(
@@ -1110,6 +1360,23 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--navsat-topic")
     parser.add_argument("--odometry-topic")
     parser.add_argument("--expected-camera-calibration-json")
+    parser.add_argument(
+        "--depth-contract-json",
+        help=(
+            "strict JSON binding for an RGB-registered Gazebo R_FLOAT32 depth camera; "
+            "when configured, each accepted RGB record is followed by MDGZDEP1"
+        ),
+    )
+    parser.add_argument(
+        "--fault-source",
+        choices=FAULT_SOURCES,
+        help=(
+            "drop one Gazebo sensor source for a bounded image-index window; "
+            "used only for explicit external-SIM fault campaigns"
+        ),
+    )
+    parser.add_argument("--fault-start-image", type=int, default=0)
+    parser.add_argument("--fault-duration-images", type=int, default=0)
     return parser
 
 
@@ -1119,10 +1386,24 @@ def main() -> int:
         raise SystemExit(f"--frames must be between 1 and {MAX_FRAME_COUNT}")
     if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
         raise SystemExit("--timeout-seconds must be a positive finite number")
+    if args.fault_source is None:
+        if args.fault_start_image != 0 or args.fault_duration_images != 0:
+            raise SystemExit("fault window options require --fault-source")
+    else:
+        if args.fault_start_image < 1:
+            raise SystemExit("--fault-start-image must be positive")
+        if args.fault_duration_images <= 0:
+            raise SystemExit("--fault-duration-images must be positive with --fault-source")
     try:
         expected_camera_calibration = _parse_expected_camera_calibration(
             args.expected_camera_calibration_json
         )
+        depth_contract = _parse_depth_contract(
+            args.depth_contract_json,
+            world=args.world,
+            model=args.model_instance,
+        )
+        _validate_depth_contract_matches_rgb(depth_contract, expected_camera_calibration)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -1145,6 +1426,12 @@ def main() -> int:
         f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
     )
     odometry_topic = args.odometry_topic or f"/model/{model}/odometry_with_covariance"
+    depth_topic = (
+        str(depth_contract["source_topic"]) if depth_contract is not None else None
+    )
+    depth_camera_info_topic = (
+        str(depth_contract["depth_camera_info_topic"]) if depth_contract is not None else None
+    )
 
     state_lock = threading.Lock()
     image_lock = threading.Lock()
@@ -1155,6 +1442,17 @@ def main() -> int:
         "navsat": CausalSourceBuffer("NavSat"),
         "odometry": CausalSourceBuffer("Odometry"),
     }
+    if depth_contract is not None:
+        source_buffers.update(
+            {
+                "depth_camera_info": CausalSourceBuffer(
+                    "DepthCameraInfo", maximum_samples=MAX_DEPTH_HISTORY_SAMPLES
+                ),
+                "depth": CausalSourceBuffer(
+                    "DepthImage", maximum_samples=MAX_DEPTH_HISTORY_SAMPLES
+                ),
+            }
+        )
     counts = {
         "image": 0,
         "ignored_before_ready": 0,
@@ -1167,12 +1465,71 @@ def main() -> int:
         "odometry": 0,
         "odometry_invalid": 0,
         "odometry_startup_velocity_rejected": 0,
+        "fault_dropped_image": 0,
+        "fault_dropped_navsat": 0,
+        "fault_dropped_odometry": 0,
+        "fault_window_rejected_navsat": 0,
+        "fault_window_rejected_odometry": 0,
+        "fault_stale_navsat_rejections": 0,
+        "fault_stale_odometry_rejections": 0,
+        "depth_camera_info": 0,
+        "depth": 0,
+        "depth_missing_for_rgb": 0,
+        "depth_stale_for_rgb": 0,
     }
     accepted = 0
     odometry_timestamp_frame_count = 0
     last_sensor_stamp_ns: int | None = None
     first_error: str | None = None
     camera_info_semantic_validation: dict[str, object] | None = None
+    fault_last_dropped_source_stamp_ns: int | None = None
+    fault_source_epoch: int | None = None
+    fault_cache_cleared = False
+    fault_recovered_frame_count = 0
+    fault_window_rejected_frame_count = 0
+    fault_stale_source_rejection_count = 0
+    fault_emitted_during_window_count = 0
+    fault_timeline: list[dict[str, object]] = []
+    fault_timeline_overflow = False
+    # Keep one bounded record per emitted frame plus finite diagnostic
+    # headroom. Dynamic-source callback churn is counted separately and only
+    # its first recovery-boundary records are retained in the timeline.
+    fault_timeline_limit = MAX_FAULT_TIMELINE_EVENTS + max(0, args.frames)
+    fault_fresh_source_recorded = False
+    fault_window_rejection_recorded = False
+    fault_waiting_rejection_recorded = False
+    fault_cached_rejection_recorded = False
+
+    def record_fault_timeline_locked(event: str, **fields: object) -> None:
+        nonlocal fault_timeline_overflow
+        if args.fault_source is None:
+            return
+        if len(fault_timeline) >= fault_timeline_limit:
+            fault_timeline_overflow = True
+            return
+        fault_timeline.append(
+            {
+                "event": event,
+                "source": args.fault_source,
+                **fields,
+            }
+        )
+
+    def fault_active(source: str) -> bool:
+        """Return whether *source* is dropped for the current image window.
+
+        The window is keyed to the received-image counter rather than wall
+        time.  That keeps a campaign reproducible across host load while the
+        normal causal-source freshness gates still decide whether recovery is
+        acceptable.
+        """
+
+        if args.fault_source != source:
+            return False
+        image_index = counts["image"]
+        return args.fault_start_image <= image_index < (
+            args.fault_start_image + args.fault_duration_images
+        )
 
     def fail(message: str) -> None:
         nonlocal first_error
@@ -1180,6 +1537,53 @@ def main() -> int:
             if first_error is None:
                 first_error = message
         error_event.set()
+
+    def on_depth_camera_info(message: CameraInfo) -> None:
+        if depth_contract is None:
+            return
+        try:
+            stamp_ns = _stamp_ns(message)
+            semantic_validation = validate_camera_info_semantics(
+                message,
+                expected_width=int(depth_contract["width"]),
+                expected_height=int(depth_contract["height"]),
+                expected_fx_px=float(depth_contract["fx_px"]),
+                expected_fy_px=float(depth_contract["fy_px"]),
+                expected_cx_px=float(depth_contract["cx_px"]),
+                expected_cy_px=float(depth_contract["cy_px"]),
+                expected_distortion=(0.0, 0.0, 0.0, 0.0, 0.0),
+            )
+            with state_lock:
+                source_buffers["depth_camera_info"].append(
+                    {
+                        "stamp_ns": stamp_ns,
+                        "width": int(semantic_validation["width"]),
+                        "height": int(semantic_validation["height"]),
+                    }
+                )
+                counts["depth_camera_info"] += 1
+        except Exception as exc:
+            fail(f"Depth CameraInfo rejected: {exc}")
+
+    def on_depth_image(message: Image) -> None:
+        if depth_contract is None:
+            return
+        try:
+            stamp_ns = _stamp_ns(message)
+            payload = _normalize_depth_float32(message, contract=depth_contract)
+            with state_lock:
+                source_buffers["depth"].append(
+                    {
+                        "stamp_ns": stamp_ns,
+                        "width": int(depth_contract["width"]),
+                        "height": int(depth_contract["height"]),
+                        "stride_bytes": int(depth_contract["width"]) * 4,
+                        "payload": payload,
+                    }
+                )
+                counts["depth"] += 1
+        except Exception as exc:
+            fail(f"Depth Image rejected: {exc}")
 
     def on_camera_info(message: CameraInfo) -> None:
         nonlocal camera_info_semantic_validation
@@ -1194,6 +1598,21 @@ def main() -> int:
                 semantic_validation = validate_camera_info_semantics(
                     message,
                     **expected_camera_calibration,
+                )
+            elif depth_contract is not None:
+                # A depth binding is explicitly RGB-pixel registered.  When
+                # no separate RGB calibration argument is supplied, use the
+                # contract's intrinsic pinhole values to validate RGB too;
+                # otherwise a mismatched RGB/depth pair could pass silently.
+                semantic_validation = validate_camera_info_semantics(
+                    message,
+                    expected_width=int(depth_contract["width"]),
+                    expected_height=int(depth_contract["height"]),
+                    expected_fx_px=float(depth_contract["fx_px"]),
+                    expected_fy_px=float(depth_contract["fy_px"]),
+                    expected_cx_px=float(depth_contract["cx_px"]),
+                    expected_cy_px=float(depth_contract["cy_px"]),
+                    expected_distortion=(0.0, 0.0, 0.0, 0.0, 0.0),
                 )
             with state_lock:
                 source_buffers["camera_info"].append(
@@ -1210,6 +1629,9 @@ def main() -> int:
             fail(f"CameraInfo rejected: {exc}")
 
     def on_navsat(message: NavSat) -> None:
+        nonlocal fault_last_dropped_source_stamp_ns, fault_source_epoch
+        nonlocal fault_cache_cleared
+        nonlocal fault_fresh_source_recorded
         try:
             stamp_ns = _stamp_ns(message)
             latitude, longitude, altitude = _validate_navsat(
@@ -1218,6 +1640,51 @@ def main() -> int:
                 message.altitude,
             )
             with state_lock:
+                if fault_active("navsat"):
+                    previous_stamp = source_buffers["navsat"].last_stamp_ns
+                    if (
+                        previous_stamp is not None and stamp_ns <= previous_stamp
+                    ) or (
+                        fault_last_dropped_source_stamp_ns is not None
+                        and stamp_ns <= fault_last_dropped_source_stamp_ns
+                    ):
+                        raise ValueError(
+                            "NavSat timestamps must remain strictly increasing "
+                            "during fault injection"
+                        )
+                    if not fault_cache_cleared:
+                        fault_source_epoch = source_buffers["navsat"].clear_samples()
+                        fault_cache_cleared = True
+                    fault_last_dropped_source_stamp_ns = stamp_ns
+                    counts["fault_dropped_navsat"] += 1
+                    record_fault_timeline_locked(
+                        "source_dropped",
+                        received_image_index=counts["image"],
+                        source_stamp_ns=stamp_ns,
+                        fault_active=True,
+                        wire_sequence=None,
+                        source_epoch=source_buffers["navsat"].epoch,
+                    )
+                    return
+                if (
+                    args.fault_source == "navsat"
+                    and fault_last_dropped_source_stamp_ns is not None
+                    and not fault_fresh_source_recorded
+                ):
+                    if stamp_ns <= fault_last_dropped_source_stamp_ns:
+                        raise ValueError(
+                            "NavSat timestamps must be strictly newer than "
+                            "the last dropped fault sample"
+                        )
+                    record_fault_timeline_locked(
+                        "source_fresh_after_window",
+                        received_image_index=counts["image"],
+                        source_stamp_ns=stamp_ns,
+                        fault_active=False,
+                        wire_sequence=None,
+                        source_epoch=source_buffers["navsat"].epoch,
+                    )
+                    fault_fresh_source_recorded = True
                 source_buffers["navsat"].append(
                     {
                         "stamp_ns": stamp_ns,
@@ -1231,12 +1698,60 @@ def main() -> int:
             fail(f"NavSat rejected: {exc}")
 
     def on_odometry(message: OdometryWithCovariance) -> None:
+        nonlocal fault_last_dropped_source_stamp_ns, fault_source_epoch
+        nonlocal fault_cache_cleared
+        nonlocal fault_fresh_source_recorded
         try:
             stamp_ns = _stamp_ns(message)
             if stamp_ns <= 0:
                 raise ValueError("Odometry timestamp must be positive when present")
             odometry = _odometry_from_message(message)
             with state_lock:
+                if fault_active("odometry"):
+                    previous_stamp = source_buffers["odometry"].last_stamp_ns
+                    if (
+                        previous_stamp is not None and stamp_ns <= previous_stamp
+                    ) or (
+                        fault_last_dropped_source_stamp_ns is not None
+                        and stamp_ns <= fault_last_dropped_source_stamp_ns
+                    ):
+                        raise ValueError(
+                            "Odometry timestamps must remain strictly increasing "
+                            "during fault injection"
+                        )
+                    if not fault_cache_cleared:
+                        fault_source_epoch = source_buffers["odometry"].clear_samples()
+                        fault_cache_cleared = True
+                    fault_last_dropped_source_stamp_ns = stamp_ns
+                    counts["fault_dropped_odometry"] += 1
+                    record_fault_timeline_locked(
+                        "source_dropped",
+                        received_image_index=counts["image"],
+                        source_stamp_ns=stamp_ns,
+                        fault_active=True,
+                        wire_sequence=None,
+                        source_epoch=source_buffers["odometry"].epoch,
+                    )
+                    return
+                if (
+                    args.fault_source == "odometry"
+                    and fault_last_dropped_source_stamp_ns is not None
+                    and not fault_fresh_source_recorded
+                ):
+                    if stamp_ns <= fault_last_dropped_source_stamp_ns:
+                        raise ValueError(
+                            "Odometry timestamps must be strictly newer than "
+                            "the last dropped fault sample"
+                        )
+                    record_fault_timeline_locked(
+                        "source_fresh_after_window",
+                        received_image_index=counts["image"],
+                        source_stamp_ns=stamp_ns,
+                        fault_active=False,
+                        wire_sequence=None,
+                        source_epoch=source_buffers["odometry"].epoch,
+                    )
+                    fault_fresh_source_recorded = True
                 source_buffers["odometry"].append(
                     {
                         "stamp_ns": stamp_ns,
@@ -1272,6 +1787,13 @@ def main() -> int:
 
     def on_image(message: Image) -> None:
         nonlocal accepted, last_sensor_stamp_ns, odometry_timestamp_frame_count
+        nonlocal fault_recovered_frame_count
+        nonlocal fault_window_rejected_frame_count
+        nonlocal fault_stale_source_rejection_count
+        nonlocal fault_emitted_during_window_count
+        nonlocal fault_window_rejection_recorded
+        nonlocal fault_waiting_rejection_recorded
+        nonlocal fault_cached_rejection_recorded
         with image_lock:
             try:
                 stamp_ns = _stamp_ns(message)
@@ -1288,14 +1810,75 @@ def main() -> int:
                 last_sensor_stamp_ns = stamp_ns
                 with state_lock:
                     counts["image"] += 1
+                    if fault_active("image"):
+                        counts["fault_dropped_image"] += 1
+                        fault_window_rejected_frame_count += 1
+                        record_fault_timeline_locked(
+                            "frame_rejected_fault_window",
+                            received_image_index=counts["image"],
+                            source_stamp_ns=None,
+                            fault_active=True,
+                            wire_sequence=None,
+                        )
+                        return
                     if error_event.is_set() or accepted >= args.frames:
+                        return
+                    # A bounded dynamic-source fault must never silently reuse
+                    # the last pre-fault sample. Reject the whole image while
+                    # the window is active, then keep rejecting until a source
+                    # callback with a strictly newer stamp has arrived.
+                    dynamic_fault_source = args.fault_source
+                    if dynamic_fault_source in {"navsat", "odometry"} and fault_active(
+                        dynamic_fault_source
+                    ):
+                        counts[f"fault_window_rejected_{dynamic_fault_source}"] += 1
+                        fault_window_rejected_frame_count += 1
+                        if not fault_window_rejection_recorded:
+                            record_fault_timeline_locked(
+                                "frame_rejected_fault_window",
+                                received_image_index=counts["image"],
+                                source_stamp_ns=None,
+                                fault_active=True,
+                                wire_sequence=None,
+                            )
+                            fault_window_rejection_recorded = True
                         return
                     selected = {
                         name: buffer.latest_at_or_before(stamp_ns)
                         for name, buffer in source_buffers.items()
+                        if name in {"camera_info", "navsat", "odometry"}
                     }
                     if any(sample is None for sample in selected.values()):
                         counts["ignored_before_ready"] += 1
+                        if (
+                            dynamic_fault_source in {"navsat", "odometry"}
+                            and fault_cache_cleared
+                            and fault_last_dropped_source_stamp_ns is not None
+                            and selected[dynamic_fault_source] is None
+                        ):
+                            # Clearing the source history is stronger than
+                            # merely comparing the selected sample's stamp:
+                            # there is no pre-fault sample left to select.
+                            # Keep this as an explicit stale-source rejection
+                            # in the timeline so an external verifier can
+                            # prove that recovery waited for a fresh callback.
+                            counts[
+                                f"fault_stale_{dynamic_fault_source}_rejections"
+                            ] += 1
+                            fault_stale_source_rejection_count += 1
+                            if not fault_waiting_rejection_recorded:
+                                record_fault_timeline_locked(
+                                    "frame_rejected_waiting_for_fresh_source",
+                                    received_image_index=counts["image"],
+                                    source_stamp_ns=None,
+                                    dropped_source_stamp_ns=(
+                                        fault_last_dropped_source_stamp_ns
+                                    ),
+                                    fault_active=False,
+                                    wire_sequence=None,
+                                    source_epoch=fault_source_epoch,
+                                )
+                                fault_waiting_rejection_recorded = True
                         if any(
                             source_buffers[name].ready and sample is None
                             for name, sample in selected.items()
@@ -1306,6 +1889,27 @@ def main() -> int:
                     navsat = selected["navsat"]
                     odometry = selected["odometry"]
                     assert camera is not None and navsat is not None and odometry is not None
+                    if dynamic_fault_source in {"navsat", "odometry"}:
+                        selected_source = selected[dynamic_fault_source]
+                        dropped_stamp = fault_last_dropped_source_stamp_ns
+                        if (
+                            dropped_stamp is not None
+                            and int(selected_source["stamp_ns"]) <= dropped_stamp
+                        ):
+                            counts[f"fault_stale_{dynamic_fault_source}_rejections"] += 1
+                            fault_stale_source_rejection_count += 1
+                            if not fault_cached_rejection_recorded:
+                                record_fault_timeline_locked(
+                                    "frame_rejected_cached_source",
+                                    received_image_index=counts["image"],
+                                    source_stamp_ns=int(selected_source["stamp_ns"]),
+                                    dropped_source_stamp_ns=dropped_stamp,
+                                    fault_active=False,
+                                    wire_sequence=None,
+                                    source_epoch=fault_source_epoch,
+                                )
+                                fault_cached_rejection_recorded = True
+                            return
                     stale_dynamic_sources = tuple(
                         source
                         for source, sample in (("navsat", navsat), ("odometry", odometry))
@@ -1322,6 +1926,25 @@ def main() -> int:
                         for source in stale_dynamic_sources:
                             counts[f"stale_{source}_rejections"] += 1
                         return
+                    depth_sample = None
+                    if depth_contract is not None:
+                        depth_sample = source_buffers["depth"].latest_at_or_before(stamp_ns)
+                        if depth_sample is None:
+                            counts["depth_missing_for_rgb"] += 1
+                            return
+                        depth_info = source_buffers["depth_camera_info"].latest_at_or_before(
+                            int(depth_sample["stamp_ns"])
+                        )
+                        if depth_info is None:
+                            counts["depth_missing_for_rgb"] += 1
+                            return
+                        depth_age_ns = stamp_ns - int(depth_sample["stamp_ns"])
+                        if depth_age_ns > DEPTH_MAX_SOURCE_SKEW_NS:
+                            counts["depth_stale_for_rgb"] += 1
+                            return
+                        if int(depth_sample["stamp_ns"]) > stamp_ns:
+                            counts["depth_missing_for_rgb"] += 1
+                            return
                     sequence = accepted
                 width = int(message.width)
                 height = int(message.height)
@@ -1365,26 +1988,143 @@ def main() -> int:
                     ),
                     bgr_payload=bgr_payload,
                 )
+                if depth_contract is not None:
+                    if depth_sample is None:  # pragma: no cover - guarded above
+                        raise ValueError("depth sample disappeared before packet assembly")
+                    rgb_header = unpack_header(packet[:WIRE_HEADER_BYTES])
+                    depth_metadata = {
+                        "sequence": sequence,
+                        "rgb_sensor_stamp_ns": stamp_ns,
+                        "rgb_record_sha256": rgb_header.sha256.hex(),
+                        "source_stamp_ns": int(depth_sample["stamp_ns"]),
+                        "source_topic": str(depth_contract["source_topic"]),
+                        "calibration_id": str(depth_contract["calibration_id"]),
+                        "calibration_sha256": str(depth_contract["calibration_sha256"]),
+                        "registration_mode": str(depth_contract["registration_mode"]),
+                        "coordinate_space": str(depth_contract["coordinate_space"]),
+                        "encoding": str(depth_contract["encoding"]),
+                        "distance_semantics": str(depth_contract["distance_semantics"]),
+                        "width": int(depth_sample["width"]),
+                        "height": int(depth_sample["height"]),
+                        "stride_bytes": int(depth_sample["stride_bytes"]),
+                        "minimum_depth_m": float(depth_contract["minimum_depth_m"]),
+                        "maximum_depth_m": float(depth_contract["maximum_depth_m"]),
+                        "fx_px": float(depth_contract["fx_px"]),
+                        "fy_px": float(depth_contract["fy_px"]),
+                        "cx_px": float(depth_contract["cx_px"]),
+                        "cy_px": float(depth_contract["cy_px"]),
+                    }
+                    depth_record = build_depth_wire_record(
+                        metadata=depth_metadata,
+                        payload=bytes(depth_sample["payload"]),
+                    )
+                else:
+                    depth_record = b""
                 with state_lock:
+                    if (
+                        args.fault_source is not None
+                        and fault_active(args.fault_source)
+                    ):
+                        fault_emitted_during_window_count += 1
+                    if args.fault_source is not None:
+                        record_fault_timeline_locked(
+                            "wire_emitted",
+                            received_image_index=counts["image"],
+                            source_stamp_ns=(
+                                None
+                                if args.fault_source == "image"
+                                else int(selected[args.fault_source]["stamp_ns"])
+                            ),
+                            dropped_source_stamp_ns=(
+                                None
+                                if args.fault_source == "image"
+                                else fault_last_dropped_source_stamp_ns
+                            ),
+                            fault_active=fault_active(args.fault_source),
+                            wire_sequence=sequence,
+                            source_epoch=(
+                                None
+                                if args.fault_source == "image"
+                                else source_buffers[args.fault_source].epoch
+                            ),
+                        )
+                    if (
+                        args.fault_source is not None
+                        and fault_recovered_frame_count == 0
+                        and counts["image"] >= (
+                            args.fault_start_image + args.fault_duration_images
+                        )
+                        and counts[f"fault_dropped_{args.fault_source}"] > 0
+                        and (
+                            args.fault_source == "image"
+                            or (
+                                fault_last_dropped_source_stamp_ns is not None
+                                and int(selected[args.fault_source]["stamp_ns"])
+                                > fault_last_dropped_source_stamp_ns
+                            )
+                        )
+                    ):
+                        record_fault_timeline_locked(
+                            "wire_emitted_after_recovery",
+                            received_image_index=counts["image"],
+                            source_stamp_ns=(
+                                None
+                                if args.fault_source == "image"
+                                else int(selected[args.fault_source]["stamp_ns"])
+                            ),
+                            fault_active=False,
+                            wire_sequence=sequence,
+                            source_epoch=(
+                                None
+                                if args.fault_source == "image"
+                                else source_buffers[args.fault_source].epoch
+                            ),
+                        )
                     accepted += 1
                     odometry_timestamp_frame_count += 1
-                packets.put(packet)
+                    if (
+                        args.fault_source is not None
+                        and counts["image"] >= (
+                            args.fault_start_image + args.fault_duration_images
+                        )
+                        and counts[f"fault_dropped_{args.fault_source}"] > 0
+                        and (
+                            args.fault_source == "image"
+                            or (
+                                fault_last_dropped_source_stamp_ns is not None
+                                and int(selected[args.fault_source]["stamp_ns"])
+                                > fault_last_dropped_source_stamp_ns
+                            )
+                        )
+                    ):
+                        fault_recovered_frame_count += 1
+                # Queue one atomic stdout blob: once an RGB frame is accepted,
+                # its companion must be the immediately following record.
+                packets.put(packet + depth_record)
             except Exception as exc:
                 fail(f"Image rejected: {exc}")
 
     node = Node()
-    subscription_topics = (
-        image_topic,
-        camera_info_topic,
-        navsat_topic,
-        odometry_topic,
+    required_subscriptions: list[tuple[type[object], str, object]] = []
+    if depth_contract is not None:
+        assert depth_topic is not None and depth_camera_info_topic is not None
+        # Subscribe depth first so the first RGB callback cannot race ahead of
+        # the optional causal source during deterministic test/container start.
+        required_subscriptions.extend(
+            [
+                (CameraInfo, depth_camera_info_topic, on_depth_camera_info),
+                (Image, depth_topic, on_depth_image),
+            ]
+        )
+    required_subscriptions.extend(
+        [
+            (Image, image_topic, on_image),
+            (CameraInfo, camera_info_topic, on_camera_info),
+            (NavSat, navsat_topic, on_navsat),
+            (OdometryWithCovariance, odometry_topic, on_odometry),
+        ]
     )
-    required_subscriptions = [
-        (Image, image_topic, on_image),
-        (CameraInfo, camera_info_topic, on_camera_info),
-        (NavSat, navsat_topic, on_navsat),
-        (OdometryWithCovariance, odometry_topic, on_odometry),
-    ]
+    subscription_topics = tuple(topic for _message_type, topic, _callback in required_subscriptions)
     for message_type, topic, callback in required_subscriptions:
         if not node.subscribe(message_type, topic, callback):
             _diagnostic("gazebo_sensor_stream_subscription_failed", topic=topic)
@@ -1408,6 +2148,10 @@ def main() -> int:
         camera_info_topic=camera_info_topic,
         navsat_topic=navsat_topic,
         odometry_topic=odometry_topic,
+        depth_enabled=depth_contract is not None,
+        depth_topic=depth_topic,
+        depth_camera_info_topic=depth_camera_info_topic,
+        depth_contract=depth_contract,
         wire_magic=WIRE_MAGIC.decode("ascii"),
         wire_version=WIRE_VERSION,
         header_bytes=WIRE_HEADER_BYTES,
@@ -1416,12 +2160,14 @@ def main() -> int:
         wire_row_order=WIRE_ROW_ORDER,
         vertical_flip_applied=GAZEBO_VERTICAL_FLIP_APPLIED,
         required_sources=["image", "camera_info", "navsat", "odometry_pose_velocity"],
-        optional_sources=[],
+        optional_sources=(
+            ["depth_r_float32"] if depth_contract is not None else []
+        ),
         source_association_policy="nearest_source_at_or_before_image",
         camera_info_freshness_policy="session_static_geometry_bound_causal_timestamp",
         camera_info_intrinsics_semantic_validation=(
             "configured_fail_closed"
-            if expected_camera_calibration is not None
+            if expected_camera_calibration is not None or depth_contract is not None
             else "pending_k_p_distortion_validation"
         ),
         maximum_dynamic_source_skew_ns=MAX_SOURCE_SKEW_NS,
@@ -1437,6 +2183,21 @@ def main() -> int:
             "discard_before_first_valid_odometry_and_before_first_accepted_frame"
         ),
         maximum_startup_odometry_velocity_rejections=(MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS),
+        fault_injection={
+            "enabled": args.fault_source is not None,
+            "source": args.fault_source,
+            "start_image": args.fault_start_image if args.fault_source is not None else None,
+            "duration_images": (
+                args.fault_duration_images if args.fault_source is not None else 0
+            ),
+            "window_key": "received_image_index",
+            "dynamic_source_policy": (
+                "reject_during_window_and_until_post_window_fresh_sample"
+            ),
+            "cache_boundary_policy": (
+                "clear_source_history_on_first_dropped_callback_keep_stamp_order"
+            ),
+        },
     )
     emitted = 0
     deadline = time.monotonic() + args.timeout_seconds
@@ -1481,6 +2242,13 @@ def main() -> int:
         accepted_snapshot = accepted
         odometry_timestamp_frame_count_snapshot = odometry_timestamp_frame_count
         camera_info_semantic_validation_snapshot = camera_info_semantic_validation
+        fault_counts = {
+            key: value for key, value in count_snapshot.items() if key.startswith("fault_")
+        }
+        fault_recovered_frame_count_snapshot = fault_recovered_frame_count
+        fault_window_rejected_frame_count_snapshot = fault_window_rejected_frame_count
+        fault_stale_source_rejection_count_snapshot = fault_stale_source_rejection_count
+        fault_emitted_during_window_count_snapshot = fault_emitted_during_window_count
     gate_passed = error is None and emitted == args.frames and accepted_snapshot == args.frames
     _diagnostic(
         "gazebo_sensor_stream_finished",
@@ -1506,7 +2274,43 @@ def main() -> int:
             else "pending_k_p_distortion_validation"
         ),
         camera_info_semantics=camera_info_semantic_validation_snapshot,
+        depth_enabled=depth_contract is not None,
+        depth_topic=depth_topic,
+        depth_camera_info_topic=depth_camera_info_topic,
+        depth_contract=depth_contract,
+        depth_timestamp_frame_count=count_snapshot.get("depth", 0),
         message_counts=count_snapshot,
+        fault_injection={
+            "enabled": args.fault_source is not None,
+            "source": args.fault_source,
+            "start_image": args.fault_start_image if args.fault_source is not None else None,
+            "duration_images": (
+                args.fault_duration_images if args.fault_source is not None else 0
+            ),
+            "window_key": "received_image_index",
+            "dynamic_source_policy": (
+                "reject_during_window_and_until_post_window_fresh_sample"
+            ),
+            "cache_boundary_policy": (
+                "clear_source_history_on_first_dropped_callback_keep_stamp_order"
+            ),
+            "source_epoch": fault_source_epoch,
+            "cache_cleared": fault_cache_cleared,
+            "dropped_counts": fault_counts,
+            "window_rejected_frame_count": fault_window_rejected_frame_count_snapshot,
+            "stale_source_rejection_count": fault_stale_source_rejection_count_snapshot,
+            "emitted_during_window_count": fault_emitted_during_window_count_snapshot,
+            "timeline": list(fault_timeline),
+            "timeline_overflow": fault_timeline_overflow,
+            "recovered_frame_count": fault_recovered_frame_count_snapshot,
+            "recovery_observed": (
+                args.fault_source is not None
+                and (
+                    fault_counts.get(f"fault_dropped_{args.fault_source}", 0) > 0
+                    and fault_recovered_frame_count_snapshot > 0
+                )
+            ),
+        },
         error=error,
     )
     return 0 if gate_passed else 2

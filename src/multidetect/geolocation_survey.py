@@ -33,6 +33,7 @@ from .geolocation_accuracy import (
     GeolocationAccuracySample,
     evaluate_geolocation_accuracy,
 )
+from .sensor_transport_binding import load_sensor_transport_manifest
 from .target_event_replay import TargetEvent, load_target_event_replay_manifest
 
 _TRUTH_LATITUDE_KEYS = (
@@ -52,6 +53,8 @@ _TRUTH_LONGITUDE_KEYS = (
 _TRUTH_ID_KEYS = ("sample_id", "event_id", "frame_id", "id")
 _TARGET_ID_KEYS = ("target_id", "source_target_id")
 _CAPTURE_TIME_KEYS = ("captured_at_s", "timestamp_s", "observed_at_s")
+_RANGE_KEYS = ("survey_range_m", "ground_range_m", "range_m")
+_SLOPE_KEYS = ("survey_slope_deg", "terrain_slope_deg", "slope_deg")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +93,8 @@ class _TruthRow:
     longitude_deg: float
     target_id: str | None
     captured_at_s: float | None
+    range_m: float | None
+    slope_deg: float | None
 
 
 def load_survey_truth(path: str | Path) -> tuple[_TruthRow, ...]:
@@ -115,6 +120,8 @@ def load_survey_truth(path: str | Path) -> tuple[_TruthRow, ...]:
         latitude, longitude = _coordinate_values(row, index)
         target_id = _optional_text(_first(row, _TARGET_ID_KEYS), "target_id", index)
         captured_at_s = _optional_number(_first(row, _CAPTURE_TIME_KEYS), "captured_at_s", index)
+        range_m = _optional_number(_first(row, _RANGE_KEYS), "range_m", index)
+        slope_deg = _optional_signed_number(_first(row, _SLOPE_KEYS), "slope_deg", index)
         parsed.append(
             _TruthRow(
                 key=key,
@@ -122,6 +129,8 @@ def load_survey_truth(path: str | Path) -> tuple[_TruthRow, ...]:
                 longitude_deg=longitude,
                 target_id=target_id,
                 captured_at_s=captured_at_s,
+                range_m=range_m,
+                slope_deg=slope_deg,
             )
         )
     if not parsed:
@@ -141,6 +150,11 @@ def build_accuracy_report_from_target_event_replay(
     allow_unmatched_events: bool = False,
     allow_extra_truth: bool = False,
     max_truth_time_delta_s: float | None = None,
+    minimum_distance_regimes: int = 0,
+    distance_regime_separation_m: float = 5.0,
+    minimum_slope_regimes: int = 0,
+    slope_regime_separation_deg: float = 3.0,
+    sensor_transport_manifest: str | Path | None = None,
 ) -> GeolocationSurveyResult:
     """Join a verified replay bundle with independent truth and evaluate it.
 
@@ -157,6 +171,14 @@ def build_accuracy_report_from_target_event_replay(
         raise ValueError("allow_unmatched_events must be a boolean")
     if type(allow_extra_truth) is not bool:
         raise ValueError("allow_extra_truth must be a boolean")
+    _validate_regime_requirement(minimum_distance_regimes, "minimum_distance_regimes")
+    _validate_regime_requirement(minimum_slope_regimes, "minimum_slope_regimes")
+    distance_regime_separation_m = _finite_positive(
+        distance_regime_separation_m, "distance_regime_separation_m"
+    )
+    slope_regime_separation_deg = _finite_positive(
+        slope_regime_separation_deg, "slope_regime_separation_deg"
+    )
     if target_id is not None:
         target_id = _required_text(target_id, "target_id")
     if max_truth_time_delta_s is not None:
@@ -166,6 +188,11 @@ def build_accuracy_report_from_target_event_replay(
 
     manifest_path = Path(replay_manifest).expanduser().resolve()
     bundle = load_target_event_replay_manifest(manifest_path)
+    sensor_transport = (
+        load_sensor_transport_manifest(sensor_transport_manifest)
+        if sensor_transport_manifest is not None
+        else None
+    )
     truth_rows = (
         load_survey_truth(truth)
         if isinstance(truth, (str, Path))
@@ -187,8 +214,18 @@ def build_accuracy_report_from_target_event_replay(
     unmatched_event_ids: list[str] = []
     skipped_event_count = 0
     eligible_event_count = 0
+    distance_values: list[float] = []
+    slope_values: list[float] = []
+    sensor_frame_ids: list[str] = []
 
     for event in selected_events:
+        if sensor_transport is not None:
+            sensor_frame = sensor_transport.frame_for_ids(event.frame_id, event.source_frame_id)
+            if sensor_frame is None:
+                raise ValueError(
+                    f"event {event.event_id!r} has no matching persisted sensor frame"
+                )
+            sensor_frame_ids.append(sensor_frame.frame_id)
         # A qualified status with an omitted timestamp is legacy evidence, not
         # a contemporaneous outdoor measurement.  Requiring ``fresh`` here
         # keeps this report stricter than the backwards-compatible replay
@@ -245,6 +282,12 @@ def build_accuracy_report_from_target_event_replay(
                 captured_at_s=event.captured_at_s,
             )
         )
+        if truth_row.range_m is not None:
+            distance_values.append(truth_row.range_m)
+        elif event.ranging.range_m is not None:
+            distance_values.append(event.ranging.range_m)
+        if truth_row.slope_deg is not None:
+            slope_values.append(truth_row.slope_deg)
 
     unused_truth_keys = sorted(set(truth_by_key).difference(matched_truth_keys))
     if unmatched_event_ids and not allow_unmatched_events:
@@ -261,6 +304,19 @@ def build_accuracy_report_from_target_event_replay(
         minimum_one_sigma_coverage=minimum_one_sigma_coverage,
         minimum_two_sigma_coverage=minimum_two_sigma_coverage,
     )
+    distance_regimes = _separated_regimes(distance_values, distance_regime_separation_m)
+    slope_regimes = _separated_regimes(slope_values, slope_regime_separation_deg)
+    coverage_reasons: list[str] = []
+    if len(distance_regimes) < minimum_distance_regimes:
+        coverage_reasons.append(
+            f"distance_regimes<{minimum_distance_regimes} (got {len(distance_regimes)})"
+        )
+    if len(slope_regimes) < minimum_slope_regimes:
+        coverage_reasons.append(
+            f"slope_regimes<{minimum_slope_regimes} (got {len(slope_regimes)})"
+        )
+    report["reasons"] = [*report["reasons"], *coverage_reasons]
+    report["gate_passed"] = not report["reasons"]
     source_payload = manifest_path.read_bytes()
     report["selection"] = {
         "source_manifest_sha256": hashlib.sha256(source_payload).hexdigest(),
@@ -276,7 +332,23 @@ def build_accuracy_report_from_target_event_replay(
         "allow_unmatched_events": allow_unmatched_events,
         "allow_extra_truth": allow_extra_truth,
         "max_truth_time_delta_s": max_truth_time_delta_s,
+        "coverage": {
+            "minimum_distance_regimes": minimum_distance_regimes,
+            "distance_regime_separation_m": distance_regime_separation_m,
+            "distance_sample_count": len(distance_values),
+            "distance_regimes_m": distance_regimes,
+            "minimum_slope_regimes": minimum_slope_regimes,
+            "slope_regime_separation_deg": slope_regime_separation_deg,
+            "slope_sample_count": len(slope_values),
+            "slope_regimes_deg": slope_regimes,
+        },
     }
+    if sensor_transport is not None:
+        if len(set(sensor_frame_ids)) != len(sensor_frame_ids):
+            raise ValueError("selected replay events share a persisted sensor frame")
+        report["selection"]["sensor_transport"] = sensor_transport.selection_mapping(
+            sensor_frame_ids
+        )
     return GeolocationSurveyResult(
         report=report,
         source_manifest=manifest_path,
@@ -305,6 +377,11 @@ def main(argv: list[str] | None = None) -> int:
             allow_unmatched_events=args.allow_unmatched_events,
             allow_extra_truth=args.allow_extra_truth,
             max_truth_time_delta_s=args.max_truth_time_delta_s,
+            minimum_distance_regimes=args.minimum_distance_regimes,
+            distance_regime_separation_m=args.distance_regime_separation_m,
+            minimum_slope_regimes=args.minimum_slope_regimes,
+            slope_regime_separation_deg=args.slope_regime_separation_deg,
+            sensor_transport_manifest=args.sensor_transport_manifest,
         )
         _write_report(args.output, result.report)
     except (AutonomyContractError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -358,6 +435,38 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="optional maximum absolute difference from event captured_at_s",
     )
+    parser.add_argument(
+        "--minimum-distance-regimes",
+        type=int,
+        default=0,
+        help="require this many separated range regimes (0 disables the gate)",
+    )
+    parser.add_argument(
+        "--distance-regime-separation-m",
+        type=float,
+        default=5.0,
+        help="minimum separation between range regime representatives",
+    )
+    parser.add_argument(
+        "--minimum-slope-regimes",
+        type=int,
+        default=0,
+        help="require this many separated surveyed slope regimes (0 disables the gate)",
+    )
+    parser.add_argument(
+        "--slope-regime-separation-deg",
+        type=float,
+        default=3.0,
+        help="minimum separation between slope regime representatives",
+    )
+    parser.add_argument(
+        "--sensor-transport-manifest",
+        type=Path,
+        help=(
+            "optional hash-bound Gazebo wire-v3 BGR24 manifest; every selected "
+            "replay frame must resolve to one sealed sensor frame"
+        ),
+    )
     return parser
 
 
@@ -385,6 +494,8 @@ def _truth_rows_from_mappings(
                 captured_at_s=_optional_number(
                     _first(row, _CAPTURE_TIME_KEYS), "captured_at_s", index
                 ),
+                range_m=_optional_number(_first(row, _RANGE_KEYS), "range_m", index),
+                slope_deg=_optional_signed_number(_first(row, _SLOPE_KEYS), "slope_deg", index),
             )
         )
     if not parsed:
@@ -514,6 +625,34 @@ def _optional_number(value: object | None, name: str, index: int) -> float | Non
     if converted < 0.0:
         raise ValueError(f"{name} must be non-negative (row {index})")
     return converted
+
+
+def _optional_signed_number(value: object | None, name: str, index: int) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _number(value, name, index)
+
+
+def _validate_regime_requirement(value: object, name: str) -> None:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+
+
+def _finite_positive(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite positive number")
+    converted = float(value)
+    if not math.isfinite(converted) or converted <= 0.0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return converted
+
+
+def _separated_regimes(values: Sequence[float], separation: float) -> list[float]:
+    representatives: list[float] = []
+    for value in sorted(values):
+        if not representatives or value - representatives[-1] >= separation:
+            representatives.append(value)
+    return representatives
 
 
 def _finite_non_negative(value: object, name: str) -> float:

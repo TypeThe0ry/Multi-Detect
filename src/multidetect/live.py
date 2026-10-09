@@ -996,6 +996,14 @@ class LiveMissionRunner:
         self._metric_depth_last_result_frame_id: str | None = None
         self._metric_depth_last_failure_count = 0
         self._metric_depth_association_fingerprints: dict[str, tuple[object, ...]] = {}
+        # Gazebo depth diagnostics are state-change events, not per-frame spam.
+        # The first frame in a new failure state still carries the exact RGB
+        # frame and bounded error details for later evidence inspection.
+        self._gazebo_depth_diagnostic_fingerprints: dict[str, tuple[object, ...]] = {}
+        # Direct-source candidate diagnostics use the same state-change bound;
+        # values are still retained in the event payload for the first frame of
+        # each acceptance/rejection state.
+        self._direct_range_candidate_fingerprints: dict[str, tuple[object, ...]] = {}
         self._latest_metric_depth_result: MetricDepthResult | None = None
         self._metric_depth_submission_cursor = 0
         self._target_world_speed = (
@@ -2692,6 +2700,14 @@ class LiveMissionRunner:
                                 frame_event_at_s,
                                 _range_solution_details(
                                     latest_ranging_solution,
+                                    target_label=next(
+                                        (
+                                            track.label
+                                            for track in unified_update.tracks
+                                            if track.track_id == latest_ranging_solution.target_id
+                                        ),
+                                        None,
+                                    ),
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
                                     source_captured_at_s=captured.captured_at_s,
@@ -4906,11 +4922,125 @@ class LiveMissionRunner:
                     bbox=track.bbox,
                     now_s=now_s,
                 )
+        gazebo_depth_direct = None
+        gazebo_depth_reader = getattr(self.frame_source, "depth_measurement_for", None)
+        gazebo_depth_failure: tuple[str, str | None, str | None] | None = None
+        if callable(gazebo_depth_reader):
+            try:
+                gazebo_depth_direct = gazebo_depth_reader(
+                    target_id=track.track_id,
+                    bbox=(track.bbox.x1, track.bbox.y1, track.bbox.x2, track.bbox.y2),
+                    frame_id=captured.frame_id,
+                )
+            except (ValueError, TypeError) as exc:
+                # A malformed, stale or insufficient depth ROI is unavailable
+                # for this frame; never turn it into a guessed range or let it
+                # bypass the existing multi-modal fail-closed path.
+                gazebo_depth_direct = None
+                gazebo_depth_failure = (
+                    "depth_sample_rejected",
+                    type(exc).__name__,
+                    str(exc)[:240],
+                )
+        if callable(gazebo_depth_reader) and gazebo_depth_direct is None:
+            depth_contract = getattr(self.frame_source, "depth_contract", None)
+            latest_depth = None
+            try:
+                latest_depth = getattr(self.frame_source, "latest_depth_frame", None)
+            except (AttributeError, RuntimeError, TypeError):
+                latest_depth = None
+            latest_depth_frame_id = getattr(latest_depth, "frame_id", None)
+            if depth_contract is None:
+                status = "depth_contract_unavailable"
+            elif latest_depth_frame_id != captured.frame_id:
+                status = "depth_frame_missing_for_rgb_frame"
+            elif gazebo_depth_failure is not None:
+                status = gazebo_depth_failure[0]
+            else:
+                status = "depth_measurement_not_returned"
+            error_type = gazebo_depth_failure[1] if gazebo_depth_failure else None
+            error_message = gazebo_depth_failure[2] if gazebo_depth_failure else None
+            fingerprint = (track.track_id, status, error_type, error_message)
+            if self._gazebo_depth_diagnostic_fingerprints.get(track.track_id) != fingerprint:
+                self._gazebo_depth_diagnostic_fingerprints[track.track_id] = fingerprint
+                self.mission.audit.append(
+                    "ranging.gazebo_depth_unavailable",
+                    now_s,
+                    {
+                        "frame_id": captured.frame_id,
+                        "target_id": track.track_id,
+                        "status": status,
+                        "depth_contract_enabled": depth_contract is not None,
+                        "depth_frame_present_for_rgb": latest_depth_frame_id == captured.frame_id,
+                        "depth_frame_id": latest_depth_frame_id,
+                        "error_type": error_type,
+                        "error": error_message,
+                        "truth_free": True,
+                        "advisory_only": True,
+                        "flight_control_enabled": False,
+                        "physical_release_enabled": False,
+                    },
+                )
         direct_measurements = tuple(
             measurement
-            for measurement in (visual_direct, rgb_slam_direct, metric_direct)
+            for measurement in (
+                visual_direct,
+                rgb_slam_direct,
+                metric_direct,
+                gazebo_depth_direct,
+            )
             if measurement is not None
         )
+        candidate_diagnostics: list[dict[str, object]] = []
+        candidate_fingerprint: list[tuple[object, ...]] = []
+        for measurement in direct_measurements:
+            source_value = getattr(measurement.source, "value", measurement.source)
+            age_s = now_s - measurement.captured_at_s
+            reasons: list[str] = []
+            if measurement.target_id != track.track_id:
+                reasons.append("target_id_mismatch")
+            if not measurement.absolute_scale_valid:
+                reasons.append("absolute_scale_invalid")
+            if age_s < 0.0 or age_s > engine.config.maximum_direct_range_age_s:
+                reasons.append("age_out_of_bounds")
+            if (
+                measurement.slant_range_m < engine.config.minimum_slant_range_m
+                or measurement.slant_range_m > engine.config.maximum_slant_range_m
+            ):
+                reasons.append("range_out_of_bounds")
+            candidate_diagnostics.append(
+                {
+                    "source": str(source_value),
+                    "target_id": measurement.target_id,
+                    "captured_at_s": measurement.captured_at_s,
+                    "age_s": age_s,
+                    "slant_range_m": measurement.slant_range_m,
+                    "sigma_m": measurement.sigma_m,
+                    "absolute_scale_valid": measurement.absolute_scale_valid,
+                    "accepted_by_candidate_filter": not reasons,
+                    "rejection_reasons": reasons,
+                }
+            )
+            candidate_fingerprint.append((str(source_value), tuple(reasons)))
+        candidate_state = tuple(candidate_fingerprint)
+        if self._direct_range_candidate_fingerprints.get(track.track_id) != candidate_state:
+            self._direct_range_candidate_fingerprints[track.track_id] = candidate_state
+            self.mission.audit.append(
+                "ranging.direct_range_candidates",
+                now_s,
+                {
+                    "frame_id": captured.frame_id,
+                    "target_id": track.track_id,
+                    "maximum_direct_range_age_s": engine.config.maximum_direct_range_age_s,
+                    "minimum_slant_range_m": engine.config.minimum_slant_range_m,
+                    "maximum_slant_range_m": engine.config.maximum_slant_range_m,
+                    "measurements": candidate_diagnostics,
+                    "truth_free": True,
+                    "advisory_only": True,
+                    "flight_control_enabled": False,
+                    "physical_release_enabled": False,
+                },
+            )
         pose = aircraft_pose_from_telemetry(
             telemetry,
             fallback_roll_sigma_deg=config.roll_sigma_deg,
@@ -5048,7 +5178,7 @@ class LiveMissionRunner:
                 now_s=now_s,
                 **fusion_metadata,
             )
-        return engine.solve(
+        solved = engine.solve(
             calibration=config.calibration,
             pose=replace(pose, captured_at_s=pose_timestamp_s),
             target=target,
@@ -5059,6 +5189,28 @@ class LiveMissionRunner:
             now_s=now_s,
             **fusion_metadata,
         )
+        # A qualified Gazebo depth frame is an image-time metric observation,
+        # not a replacement for the terrain datum.  If the shared ground-ray
+        # solver rejects only because the DEM uncertainty envelope is
+        # unbounded, preserve that authenticated direct measurement as the
+        # existing degraded advisory path.  All other INVALID reasons (stale
+        # pose/image, horizon crossing, inconsistent direct sources, invalid
+        # geometry) remain fail-closed.
+        if (
+            solved.validity is RangeValidity.INVALID
+            and solved.reasons == ("terrain_uncertainty_unbounded",)
+            and direct_measurements
+        ):
+            return engine.solve_direct(
+                calibration=config.calibration,
+                pose=pose,
+                target=target,
+                direct_measurements=direct_measurements,
+                source_weight_multipliers=source_weight_multipliers,
+                now_s=now_s,
+                **fusion_metadata,
+            )
+        return solved
 
     def _estimate_target_speed_mps(
         self,
@@ -5238,6 +5390,7 @@ def _invalid_live_range_solution(
 def _range_solution_details(
     solution: RangeSolution,
     *,
+    target_label: str | None = None,
     telemetry: VehicleTelemetry | None = None,
     now_s: float | None = None,
     source_captured_at_s: float | None = None,
@@ -5272,6 +5425,8 @@ def _range_solution_details(
         "flight_control_enabled": False,
         "physical_release_enabled": False,
     }
+    if target_label is not None:
+        details["target_label"] = target_label
     if telemetry is not None:
         details["ranging_input"] = _ranging_input_details(telemetry, now_s=now_s)
         details["target_geolocation"] = _target_geolocation_details(

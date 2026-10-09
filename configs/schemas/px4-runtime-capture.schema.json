@@ -34,6 +34,37 @@
         "mission_hash": {"$ref": "#/$defs/sha256"}
       }
     },
+    "policy_artifact": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+        "path",
+        "file_sha256",
+        "canonical_sha256",
+        "policy_id",
+        "policy_version",
+        "ranker_sha256",
+        "airframe_profile_hash",
+        "mission_contract_hash",
+        "safety_policy_hash"
+      ],
+          "properties": {
+        "path": {"type": ["string", "null"], "minLength": 1},
+        "file_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "canonical_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "policy_id": {"type": ["string", "null"], "minLength": 1},
+        "policy_version": {"type": ["string", "null"], "minLength": 1},
+        "ranker_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "airframe_profile_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "mission_contract_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "safety_policy_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+          }
+        }
+      ]
+    },
     "runtime_observation": {
       "type": "object",
       "additionalProperties": false,

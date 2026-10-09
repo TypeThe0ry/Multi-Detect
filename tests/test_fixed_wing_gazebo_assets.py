@@ -84,7 +84,9 @@ def test_fixed_wing_world_has_runway_wgs84_wind_and_local_primitives() -> None:
     assert world is not None
     assert world.attrib.get("name") == "default"
     assert world.find("gui") is None
-    assert not world.findall(".//include")
+    includes = world.findall(".//include")
+    assert len(includes) == 1
+    assert includes[0].findtext("uri") == "model://multidetect_search_target_v1"
 
     physics = world.find("physics")
     assert physics is not None
@@ -138,7 +140,7 @@ def test_fixed_wing_world_has_runway_wgs84_wind_and_local_primitives() -> None:
         "http://",
         "https://",
         "fuel://",
-        "model://",
+            "model://remote-not-allowed",
         "target_id",
         "ground_truth",
         "expected_answer",

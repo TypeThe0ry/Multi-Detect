@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-recovery-process-identity-v1",
+  "entrypoint_sha256": "a092e36b685addbd7e27d135b23264421efbe3917b72074a75899cc145afa5b5",
+  "files": {
+    "recovery_manifest": {
+      "path": "D:\\Projects\\Multi-Detect\\configs\\training\\onboard-navigation-adapter-recovery-20261007-r1.json",
+      "bytes": 54442,
+      "sha256": "ca135b422985cd5c26d14d676c7c00449c9dd95f012977c65d9b8de9e0e9d9b5"
+    },
+    "preflight": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-supervisor-20261007-r1\\preflight.json",
+      "bytes": 46845,
+      "sha256": "c4f93f5e8865412f65b8bcfffa91c374ed3b63bbd4ea0505a1d313a72c56860d"
+    },
+    "completion": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-supervisor-20261007-r1\\completion.json",
+      "bytes": 92158,
+      "sha256": "493900cebb2580bc0ca2ed525d1a5e8c974e454f4bb9d75d256cfdce247283a5"
+    },
+    "process_observation": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-supervisor-20261007-r1\\process-observation.json",
+      "bytes": 3037,
+      "sha256": "6bc1767d31cf2eb71895d3ed2c0200722634280d7d0e8f082bb9a2ae6575c408"
+    },
+    "stdout": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-supervisor-20261007-r1\\stdout.bin",
+      "bytes": 213136,
+      "sha256": "ae4994c766a55ed65d87ab8dabd9988eda79cb577e3064eaed91e60e53517dc7"
+    },
+    "stderr": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-supervisor-20261007-r1\\stderr.bin",
+      "bytes": 204,
+      "sha256": "c692c5a771c2a5e2c4a69229330f155aed0f90c6205983f7202387bb32d7c5a9"
+    },
+    "report": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-20261007-r1\\report.json",
+      "bytes": 49034,
+      "sha256": "838977aad1408e5a767c8639cdd1a2ccde8632172b5a29f10c10773a93f7e90b"
+    },
+    "loader_report": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-20261007-r1\\streaming-loader-report.json",
+      "bytes": 151586,
+      "sha256": "1f318401cdb2d578eeb430b4e7f222b49029e8d124b2fee94db485b468e6dd00"
+    },
+    "warmup_report": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-navigation-adapter-recovery-20261007-r1\\allocator-warmup-report.json",
+      "bytes": 2924,
+      "sha256": "f099b7b07ca43009763f630a3edf50b897c189e31d1018a7ea1c2ea4a09f8d78"
+    }
+  },
+  "source_files": [
+    {
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\verify_onboard_navigation_recovery_identity.py",
+      "bytes": 18212,
+      "sha256": "a092e36b685addbd7e27d135b23264421efbe3917b72074a75899cc145afa5b5"
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_verify_onboard_navigation_recovery_identity.py",
+      "bytes": 11776,
+      "sha256": "6b3af1b93117a62fdb13b9db4ee3ef54e70aa8b9608bfc356c3942dd9b0f69e9"
+    }
+  ]
+}

@@ -18,6 +18,7 @@ from multidetect.release_mode_evidence import (
     write_release_mode_evidence,
 )
 from multidetect.simulator_combined_evidence import main, verify_file
+from multidetect.target_evidence_card import TargetEvidenceCard
 
 
 def _combined_document() -> dict[str, object]:
@@ -43,6 +44,31 @@ def _combined_document() -> dict[str, object]:
         "all_test_ports_released": True,
     }
     ports.update(dict(zip(port_names, allocated, strict=True)))
+    run_identity_hash = "a" * 64
+    card = TargetEvidenceCard(
+        card_id="live-frame-12-card",
+        event_id="live-frame-12",
+        frame_id="frame-12",
+        target_id="target-a",
+        target_label="person",
+        captured_at_s=12.0,
+        available=True,
+        unavailable_reason=None,
+        latitude_deg=31.2,
+        longitude_deg=121.5,
+        horizontal_sigma_m=2.0,
+        gps_status="qualified",
+        gps_freshness="fresh",
+        gps_fix_type=3,
+        gps_satellites_visible=12,
+        gps_horizontal_accuracy_m=1.5,
+        gps_vertical_accuracy_m=2.5,
+        range_validity="VALID",
+        range_m=40.0,
+        relative_bearing_deg=3.0,
+        source_frame_id="frame-12",
+        run_identity_sha256=run_identity_hash,
+    ).to_mapping()
     return {
         "schema": "multidetect.px4-gazebo-qgc-combined-sim-acceptance",
         "schema_version": 2,
@@ -68,6 +94,17 @@ def _combined_document() -> dict[str, object]:
         "integrated_sim_qgc": {
             "gate_passed": True,
             "runtime_mode": "sim",
+            "run_identity_hash": run_identity_hash,
+            "target_geolocation_acceptance": {
+                "configured": True,
+                "gate_passed": True,
+                "available_geolocation_count": 1,
+                "target_evidence_card_count": 1,
+                "target_evidence_cards": [card],
+                "target_evidence_card_error_count": 0,
+                "target_evidence_card_errors": [],
+                "target_evidence_cards_read_only": True,
+            },
             "sensor_transport": {
                 "camera_info_intrinsics_semantic_validation": (
                     "validated_k_p_rectification_plumb_bob_distortion"
@@ -325,6 +362,41 @@ def test_combined_sim_verifier_rejects_incomplete_sensor_semantics(
 
     assert result["gate_passed"] is False
     assert result["checks"][failed_check] is False
+
+
+def test_combined_sim_verifier_rejects_tampered_target_evidence_card(
+    tmp_path: Path,
+) -> None:
+    document = _combined_document()
+    card = document["integrated_sim_qgc"]["target_geolocation_acceptance"]["target_evidence_cards"][
+        0
+    ]
+    card["claims"]["contains_flight_control"] = True  # type: ignore[index]
+    evidence_path = tmp_path / "combined-tampered-target-card.json"
+    evidence_path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = verify_file(evidence_path, expected_release_label="0.3.0-pre.8")
+
+    assert result["gate_passed"] is False
+    assert result["checks"]["target_evidence_cards_contract"] is False
+    assert any("target evidence card 0 is invalid" in reason for reason in result["reasons"])
+
+
+def test_combined_sim_verifier_rejects_target_card_run_identity_drift(
+    tmp_path: Path,
+) -> None:
+    document = _combined_document()
+    document["integrated_sim_qgc"]["target_geolocation_acceptance"]["target_evidence_cards"][0][
+        "run_identity_sha256"
+    ] = "b" * 64  # type: ignore[index]
+    evidence_path = tmp_path / "combined-target-card-identity-drift.json"
+    evidence_path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = verify_file(evidence_path, expected_release_label="0.3.0-pre.8")
+
+    assert result["gate_passed"] is False
+    assert result["checks"]["target_evidence_cards_contract"] is False
+    assert any("run identity" in reason for reason in result["reasons"])
 
 
 def test_combined_sim_verifier_rejects_hardware_or_visual_claims(tmp_path: Path) -> None:

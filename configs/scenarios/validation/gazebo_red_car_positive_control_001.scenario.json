@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_red_car_positive_control_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "gazebo_red_car_positive_control_001.runtime.json",
+      "sha256": "3f78d958b2ba936dda1959b38f771744dd5763078ab8f3ffeaf5adfeabd94d8d"
+    },
+    "truth": {
+      "path": "gazebo_red_car_positive_control_001.truth.json",
+      "sha256": "464d9880e343500f46f4c5c9b94116c890f65b7022f41066b1540300daae2b25"
+    },
+    "expectations": {
+      "path": "gazebo_red_car_positive_control_001.expectations.json",
+      "sha256": "71928bff35654f8d34f3079bf687133441080738214515ed698d3aed14562911"
+    }
+  }
+}

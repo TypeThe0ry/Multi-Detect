@@ -563,6 +563,17 @@ def _profile_from_document(
     }:
         raise DepthCalibrationError("unsupported calibration document schema")
     profile = document.get("profile")
+    # Gazebo's depth wire reports optical-axis Z (and is converted to a ray
+    # slant distance by ``gazebo_depth.py`` using camera intrinsics).  It is a
+    # different sensor contract from a monocular model's dense prediction.
+    # Do not allow a simulator transport identity document to silently become
+    # a Depth Anything calibration profile merely because its JSON shape has
+    # four samples and an affine scale of one.
+    source_kind = document.get("source_kind")
+    if isinstance(source_kind, str) and source_kind.lower().startswith("gazebo_depth_wire"):
+        raise DepthCalibrationError(
+            "Gazebo depth transport calibration cannot be used as a metric-depth model calibration"
+        )
     calibration = document.get("calibration")
     fit = document.get("fit")
     samples = document.get("samples")

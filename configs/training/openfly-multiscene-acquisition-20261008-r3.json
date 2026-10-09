@@ -1,0 +1,177 @@
+{
+  "acquisition_root": "artifacts/training/openfly-multiscene-source-20261008-r1",
+  "annotation_records_inspected": 100226,
+  "budget": {
+    "max_file_bytes": 8388608,
+    "max_raw_images": 1024,
+    "max_routes": 12,
+    "max_scene_config_bytes": 65536,
+    "max_total_payload_bytes": 268435456,
+    "max_tree_bytes": 2097152
+  },
+  "claims": {
+    "action_class_coverage_claimed": false,
+    "candidate_promoted": false,
+    "download_performed": false,
+    "execution_authority": false,
+    "final_release_allowed": false,
+    "gpu_used": false,
+    "hil_real_evidence": false,
+    "model_loaded": false,
+    "optimizer_performed": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "quality_claim": false,
+    "samples_created": false,
+    "training_ready": false
+  },
+  "code_revision": "c075075497a7122bad82f5b76b9be926ad5a81b3",
+  "contract": "multidetect.openfly-multiscene-acquisition-plan-v1",
+  "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "download_authorized": false,
+  "historical_train_scene": "env_airsim_18",
+  "official_seen_unseen_reserved_untouched": true,
+  "optimizer_authorized": false,
+  "routes": [
+    {
+      "annotation_index": 0,
+      "annotation_record_sha256": "413be14d06ff423c04acd9757fad0748dd98068d7175a8da6fc8ddf36ad0fb45",
+      "episode_tree": {
+        "bytes": 7147,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-0-tree.json",
+        "sha256": "bb55276e34417e2d2708ad9caadff0723682dd35ea492c3a3ef2013411676e7b"
+      },
+      "historical_training_route": true,
+      "image_path": "env_airsim_18/astar_data/low_short/2025-1-8_19-2-1_816504794",
+      "partition": "train",
+      "raw_root": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw",
+      "scene_config": {
+        "bytes": 767,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/configs/env_airsim_18.yaml",
+        "sha256": "ad8bc6917927809056ce95ed7f9d9015d0c247f930cc6850bf74d11b89437067"
+      },
+      "scene_id": "env_airsim_18"
+    },
+    {
+      "annotation_index": 7,
+      "annotation_record_sha256": "2f99a671057ec6a5271cc0cc5976797be76e176502908f2646cd35c78622d7bc",
+      "episode_tree": {
+        "bytes": 11257,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-7-tree.json",
+        "sha256": "ac190ec244fefe3a4aa1ba7ee2f141b973731198ffd4758e1d6143924ed8899d"
+      },
+      "historical_training_route": true,
+      "image_path": "env_airsim_18/astar_data/low_short/2025-1-8_23-51-39_162403134",
+      "partition": "train",
+      "raw_root": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw",
+      "scene_config": {
+        "bytes": 767,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/configs/env_airsim_18.yaml",
+        "sha256": "ad8bc6917927809056ce95ed7f9d9015d0c247f930cc6850bf74d11b89437067"
+      },
+      "scene_id": "env_airsim_18"
+    },
+    {
+      "annotation_index": 8,
+      "annotation_record_sha256": "cc975ff928cfba29f1a3c9d9f4e12ef78bdbfea1ea753665109d8459cc3c3cee",
+      "episode_tree": {
+        "bytes": 13885,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/metadata/episode-8-tree.json",
+        "sha256": "1eb6662592f8e9669cb79e1c893c0f8a2475ddae6f4bc75031a154149b3215cd"
+      },
+      "historical_training_route": true,
+      "image_path": "env_airsim_18/astar_data/low_short/2025-1-8_19-42-37_2004187516",
+      "partition": "train",
+      "raw_root": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw",
+      "scene_config": {
+        "bytes": 767,
+        "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/code/configs/env_airsim_18.yaml",
+        "sha256": "ad8bc6917927809056ce95ed7f9d9015d0c247f930cc6850bf74d11b89437067"
+      },
+      "scene_id": "env_airsim_18"
+    },
+    {
+      "annotation_index": 139,
+      "annotation_record_sha256": "7f226a9ad42f5279e9c0b8e1b18636aa20b488871569495705e8a71b25862e81",
+      "episode_tree": {
+        "bytes": 167,
+        "path": "artifacts/training/openfly-multiscene-source-20261008-r1/metadata/episode-139-tree.json",
+        "sha256": "7bfb10db290aab13e750ffef2adbca40b1a46a79deae07d321db5ba5dcf83c9e"
+      },
+      "historical_training_route": false,
+      "image_path": "env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383",
+      "partition": "train",
+      "raw_root": "artifacts/training/openfly-multiscene-source-20261008-r1/raw",
+      "scene_config": null,
+      "scene_id": "env_airsim_26"
+    },
+    {
+      "annotation_index": 220,
+      "annotation_record_sha256": "92a5782796a89c6643c2cf1aaf7fff84562d9d3c3dbf1703e615e80bf5c22ac6",
+      "episode_tree": null,
+      "historical_training_route": false,
+      "image_path": "env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921",
+      "partition": "dev-validation",
+      "raw_root": "artifacts/training/openfly-multiscene-source-20261008-r1/raw",
+      "scene_config": null,
+      "scene_id": "env_airsim_16"
+    },
+    {
+      "annotation_index": 90,
+      "annotation_record_sha256": "5c14d05378d8364099761b9501a1266343897630d6ce6f8149dae7ccda650d0b",
+      "episode_tree": null,
+      "historical_training_route": false,
+      "image_path": "env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985",
+      "partition": "dev-test",
+      "raw_root": "artifacts/training/openfly-multiscene-source-20261008-r1/raw",
+      "scene_config": null,
+      "scene_id": "env_airsim_23"
+    }
+  ],
+  "scene_assignment": {
+    "env_airsim_16": "dev-validation",
+    "env_airsim_18": "train",
+    "env_airsim_23": "dev-test",
+    "env_airsim_26": "train"
+  },
+  "schema_version": 1,
+  "source_files": [
+    {
+      "bytes": 28565,
+      "path": "scripts/plan_openfly_multiscene_acquisition.py",
+      "sha256": "b20930141a7746bf9ada7f102baec69c3d6fd72b4a1beb4e77006029fa783618"
+    },
+    {
+      "bytes": 19390,
+      "path": "tests/test_plan_openfly_multiscene_acquisition.py",
+      "sha256": "a375d5b03898a57ce893367aaacf4a5e48da15ad08eb71c7884627ed44ddabe3"
+    },
+    {
+      "bytes": 34972,
+      "path": "scripts/fetch_openfly_navigation_pilot.py",
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "bytes": 35770,
+      "path": "scripts/build_onboard_openfly_navigation_dataset.py",
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "bytes": 52186,
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "src/multidetect/autonomy/serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    }
+  ],
+  "source_manifest": {
+    "bytes": 142534,
+    "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+    "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+  },
+  "split_policy": "explicit_scenes_historical_and_visual_train_anchor_no_hash_reassignment"
+}

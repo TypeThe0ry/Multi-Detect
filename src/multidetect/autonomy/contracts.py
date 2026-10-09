@@ -20,6 +20,7 @@ from .serialization import (
     canonical_json,
     canonical_sha256,
     optional_real,
+    optional_sha256,
     optional_text,
     require_array,
     require_aware_timestamp,
@@ -274,7 +275,153 @@ class PromptEnvelope(_CanonicalDocument):
 
 
 @dataclass(frozen=True, slots=True)
+class ContextValueSource(_CanonicalDocument):
+    """A source declaration/binding, not authentication or sensor qualification."""
+
+    kind: str
+    evidence_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "kind", require_text(self.kind, "source.kind"))
+        object.__setattr__(
+            self, "evidence_sha256", optional_sha256(self.evidence_sha256, "evidence_sha256")
+        )
+        if (self.kind == "unknown") != (self.evidence_sha256 is None):
+            raise AutonomyContractError("unknown sources alone must have null evidence_sha256")
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> ContextValueSource:
+        value = strict_object(
+            raw, name="ContextValueSource", required=frozenset({"kind", "evidence_sha256"})
+        )
+        return cls(value["kind"], value["evidence_sha256"])
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"kind": self.kind, "evidence_sha256": self.evidence_sha256}
+
+
+def _context_runtime(value: object) -> str:
+    runtime = require_text(value, "runtime_kind")
+    if runtime not in {"SIM", "HIL", "REAL", "REPLAY"}:
+        raise AutonomyContractError("runtime_kind must be SIM, HIL, REAL, or REPLAY")
+    return runtime
+
+
+@dataclass(frozen=True, slots=True)
+class ContextProvenance(_CanonicalDocument):
+    """Explicit v2 sources for the quantities used by the energy/wind planner."""
+
+    runtime_kind: str
+    airspeed: ContextValueSource
+    endurance: ContextValueSource
+    wind: ContextValueSource
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "runtime_kind", _context_runtime(self.runtime_kind))
+        allowed = {
+            "airspeed": {"unknown", "air_relative_sensor", "air_relative_estimator"},
+            "endurance": {"unknown", "autopilot_reported", "explicit_SIM_energy_model"},
+            "wind": {"unknown", "observed_wind_estimate", "explicit_SIM_wind_model"},
+        }
+        for name, kinds in allowed.items():
+            source = getattr(self, name)
+            if not isinstance(source, ContextValueSource) or source.kind not in kinds:
+                raise AutonomyContractError(f"unsupported {name} source declaration")
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> ContextProvenance:
+        value = strict_object(
+            raw,
+            name="ContextProvenance",
+            required=frozenset({"runtime_kind", "airspeed", "endurance", "wind"}),
+        )
+        return cls(
+            value["runtime_kind"],
+            ContextValueSource.from_mapping(value["airspeed"]),
+            ContextValueSource.from_mapping(value["endurance"]),
+            ContextValueSource.from_mapping(value["wind"]),
+        )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "runtime_kind": self.runtime_kind,
+            "airspeed": self.airspeed.to_mapping(),
+            "endurance": self.endurance.to_mapping(),
+            "wind": self.wind.to_mapping(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ConservativeFlightCapability(_CanonicalDocument):
+    """Declared sustainable air-relative cruise capability for one exact scope.
+
+    This is not a current speed measurement. The caller must supply qualified
+    model evidence; the SHA binds that declaration, it does not certify it.
+    """
+
+    airframe_profile_id: str
+    airframe_profile_hash: str
+    vehicle_class: str
+    runtime_kind: str
+    cruise_airspeed_mps: float
+    model_sha256: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "airframe_profile_id",
+            require_text(self.airframe_profile_id, "airframe_profile_id"),
+        )
+        for name in ("airframe_profile_hash", "model_sha256"):
+            object.__setattr__(self, name, require_sha256(getattr(self, name), name))
+        object.__setattr__(self, "vehicle_class", require_text(self.vehicle_class, "vehicle_class"))
+        if self.vehicle_class not in {"multirotor", "fixed-wing", "vtol"}:
+            raise AutonomyContractError("capability vehicle_class must be an exact canonical class")
+        object.__setattr__(self, "runtime_kind", _context_runtime(self.runtime_kind))
+        speed = require_real(self.cruise_airspeed_mps, "cruise_airspeed_mps", minimum=0.0)
+        if speed <= 0.0:
+            raise AutonomyContractError("cruise_airspeed_mps must be positive")
+        object.__setattr__(self, "cruise_airspeed_mps", speed)
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> ConservativeFlightCapability:
+        value = strict_object(
+            raw,
+            name="ConservativeFlightCapability",
+            required=frozenset(
+                {
+                    "airframe_profile_id",
+                    "airframe_profile_hash",
+                    "vehicle_class",
+                    "runtime_kind",
+                    "cruise_airspeed_mps",
+                    "model_sha256",
+                }
+            ),
+        )
+        return cls(**value)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "airframe_profile_id": self.airframe_profile_id,
+            "airframe_profile_hash": self.airframe_profile_hash,
+            "vehicle_class": self.vehicle_class,
+            "runtime_kind": self.runtime_kind,
+            "cruise_airspeed_mps": self.cruise_airspeed_mps,
+            "model_sha256": self.model_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ContextSnapshot(_CanonicalDocument):
+    """v1 finite legacy inputs, or v2 explicit absence and planning provenance.
+
+    Remaining endurance is evaluated at the snapshot's current battery level;
+    the planner reserves a conservative fraction for return and battery margin.
+    A v2 source SHA is only an identity binding. Upstream observation admission
+    must still establish source quality, timing and runtime provenance.
+    """
+
     snapshot_id: str
     captured_at_s: float
     captured_at_utc: str
@@ -282,11 +429,11 @@ class ContextSnapshot(_CanonicalDocument):
     home_position: GeoPoint
     airframe_profile_id: str
     battery_remaining_pct: float
-    estimated_flight_time_s: float
+    estimated_flight_time_s: float | None
     ground_speed_mps: float
-    airspeed_mps: float
-    wind_north_mps: float
-    wind_east_mps: float
+    airspeed_mps: float | None
+    wind_north_mps: float | None
+    wind_east_mps: float | None
     gps_fix_type: int
     gps_horizontal_accuracy_m: float
     geofence_valid: bool
@@ -295,9 +442,27 @@ class ContextSnapshot(_CanonicalDocument):
     map_cache_available: bool
     dem_available: bool
     schema_version: int = 1
+    # Optional for backwards compatibility with v1 context documents.  New
+    # training/evaluation paths populate this with the exact runtime airframe
+    # profile identity and fail closed on mismatches.
+    airframe_profile_hash: str | None = None
+    provenance: ContextProvenance | None = None
+    flight_capability: ConservativeFlightCapability | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
+        version = require_int(self.schema_version, "schema_version", minimum=1, maximum=2)
+        object.__setattr__(self, "schema_version", version)
+        if version == 1:
+            if self.provenance is not None or self.flight_capability is not None:
+                raise AutonomyContractError("v1 context cannot contain v2 planning declarations")
+        elif not isinstance(self.provenance, ContextProvenance):
+            raise AutonomyContractError("v2 context requires ContextProvenance")
+        if self.flight_capability is not None and not isinstance(
+            self.flight_capability, ConservativeFlightCapability
+        ):
+            raise AutonomyContractError(
+                "flight_capability must be ConservativeFlightCapability or null"
+            )
         object.__setattr__(self, "snapshot_id", require_text(self.snapshot_id, "snapshot_id"))
         object.__setattr__(
             self,
@@ -320,6 +485,11 @@ class ContextSnapshot(_CanonicalDocument):
         )
         object.__setattr__(
             self,
+            "airframe_profile_hash",
+            optional_sha256(self.airframe_profile_hash, "airframe_profile_hash"),
+        )
+        object.__setattr__(
+            self,
             "battery_remaining_pct",
             require_real(
                 self.battery_remaining_pct,
@@ -331,16 +501,41 @@ class ContextSnapshot(_CanonicalDocument):
         object.__setattr__(
             self,
             "estimated_flight_time_s",
-            require_real(self.estimated_flight_time_s, "estimated_flight_time_s", minimum=0.0),
+            (optional_real if version == 2 else require_real)(
+                self.estimated_flight_time_s, "estimated_flight_time_s", minimum=0.0
+            ),
         )
         for name in (
             "ground_speed_mps",
-            "airspeed_mps",
             "gps_horizontal_accuracy_m",
         ):
             object.__setattr__(self, name, require_real(getattr(self, name), name, minimum=0.0))
+        object.__setattr__(
+            self,
+            "airspeed_mps",
+            (optional_real if version == 2 else require_real)(
+                self.airspeed_mps, "airspeed_mps", minimum=0.0
+            ),
+        )
         for name in ("wind_north_mps", "wind_east_mps"):
-            object.__setattr__(self, name, require_real(getattr(self, name), name))
+            object.__setattr__(
+                self,
+                name,
+                (optional_real if version == 2 else require_real)(getattr(self, name), name),
+            )
+        if version == 2:
+            assert self.provenance is not None
+            if (self.wind_north_mps is None) != (self.wind_east_mps is None):
+                raise AutonomyContractError("v2 wind components must be known or unknown together")
+            for source, measured, name in (
+                (self.provenance.airspeed, self.airspeed_mps, "airspeed"),
+                (self.provenance.endurance, self.estimated_flight_time_s, "endurance"),
+                (self.provenance.wind, self.wind_north_mps, "wind"),
+            ):
+                if (source.kind == "unknown") != (measured is None):
+                    raise AutonomyContractError(
+                        f"{name} unknown source must correspond to null value"
+                    )
         object.__setattr__(
             self,
             "gps_fix_type",
@@ -384,7 +579,19 @@ class ContextSnapshot(_CanonicalDocument):
             "map_cache_available",
             "dem_available",
         }
-        value = strict_object(raw, name="ContextSnapshot", required=frozenset(names))
+        value = strict_object(
+            raw,
+            name="ContextSnapshot",
+            required=frozenset(names),
+            optional=frozenset({"airframe_profile_hash", "provenance", "flight_capability"}),
+        )
+        version = require_int(value["schema_version"], "schema_version", minimum=1, maximum=2)
+        if version == 1 and ({"provenance", "flight_capability"} & value.keys()):
+            raise AutonomyContractError("v1 context cannot contain v2 fields")
+        if version == 2 and not {"provenance", "flight_capability"} <= value.keys():
+            raise AutonomyContractError(
+                "v2 context requires explicit provenance and flight_capability"
+            )
         return cls(
             snapshot_id=require_text(value["snapshot_id"], "snapshot_id"),
             captured_at_s=require_real(value["captured_at_s"], "captured_at_s", minimum=0.0),
@@ -392,21 +599,30 @@ class ContextSnapshot(_CanonicalDocument):
             aircraft_position=GeoPoint.from_mapping(value["aircraft_position"]),
             home_position=GeoPoint.from_mapping(value["home_position"]),
             airframe_profile_id=require_text(value["airframe_profile_id"], "airframe_profile_id"),
+            airframe_profile_hash=optional_sha256(
+                value.get("airframe_profile_hash"), "airframe_profile_hash"
+            ),
             battery_remaining_pct=require_real(
                 value["battery_remaining_pct"],
                 "battery_remaining_pct",
                 minimum=0.0,
                 maximum=100.0,
             ),
-            estimated_flight_time_s=require_real(
+            estimated_flight_time_s=(optional_real if version == 2 else require_real)(
                 value["estimated_flight_time_s"], "estimated_flight_time_s", minimum=0.0
             ),
             ground_speed_mps=require_real(
                 value["ground_speed_mps"], "ground_speed_mps", minimum=0.0
             ),
-            airspeed_mps=require_real(value["airspeed_mps"], "airspeed_mps", minimum=0.0),
-            wind_north_mps=require_real(value["wind_north_mps"], "wind_north_mps"),
-            wind_east_mps=require_real(value["wind_east_mps"], "wind_east_mps"),
+            airspeed_mps=(optional_real if version == 2 else require_real)(
+                value["airspeed_mps"], "airspeed_mps", minimum=0.0
+            ),
+            wind_north_mps=(optional_real if version == 2 else require_real)(
+                value["wind_north_mps"], "wind_north_mps"
+            ),
+            wind_east_mps=(optional_real if version == 2 else require_real)(
+                value["wind_east_mps"], "wind_east_mps"
+            ),
             gps_fix_type=require_int(
                 value["gps_fix_type"],
                 "gps_fix_type",
@@ -425,11 +641,19 @@ class ContextSnapshot(_CanonicalDocument):
             ),
             map_cache_available=require_bool(value["map_cache_available"], "map_cache_available"),
             dem_available=require_bool(value["dem_available"], "dem_available"),
-            schema_version=require_schema_version(value["schema_version"]),
+            schema_version=version,
+            provenance=(
+                ContextProvenance.from_mapping(value["provenance"]) if version == 2 else None
+            ),
+            flight_capability=(
+                ConservativeFlightCapability.from_mapping(value["flight_capability"])
+                if version == 2 and value["flight_capability"] is not None
+                else None
+            ),
         )
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping = {
             "schema_version": self.schema_version,
             "snapshot_id": self.snapshot_id,
             "captured_at_s": self.captured_at_s,
@@ -451,6 +675,15 @@ class ContextSnapshot(_CanonicalDocument):
             "map_cache_available": self.map_cache_available,
             "dem_available": self.dem_available,
         }
+        if self.airframe_profile_hash is not None:
+            mapping["airframe_profile_hash"] = self.airframe_profile_hash
+        if self.schema_version == 2:
+            assert self.provenance is not None
+            mapping["provenance"] = self.provenance.to_mapping()
+            mapping["flight_capability"] = (
+                self.flight_capability.to_mapping() if self.flight_capability is not None else None
+            )
+        return mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -1405,7 +1638,10 @@ def _require_sha256(value: object, name: str) -> str:
 
 __all__ = [
     "AutonomyContractError",
+    "ConservativeFlightCapability",
+    "ContextProvenance",
     "ContextSnapshot",
+    "ContextValueSource",
     "EpisodeArtifact",
     "EpisodeBundle",
     "EpisodeOutcome",

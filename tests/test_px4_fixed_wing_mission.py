@@ -20,6 +20,7 @@ from multidetect.px4_mission import (
     Px4FixedWingSafetyPolicy,
     Px4MissionError,
     compile_fixed_wing_executable_mission,
+    px4_wire_hash,
 )
 
 HASH_A = "a" * 64
@@ -137,6 +138,47 @@ def test_fixed_wing_compile_is_deterministic_and_binds_plan_hash() -> None:
     assert first.executable_mission.canonical_hash == second.executable_mission.canonical_hash
     assert first.wire_hash == second.wire_hash
     assert first.executable_mission.platform_plan_hash == kwargs["platform_plan"].canonical_hash
+
+
+def test_fixed_wing_wire_hash_matches_px4_readback_normalization() -> None:
+    context = _context()
+    compiled = compile_fixed_wing_executable_mission(
+        platform_plan=_plan(context),
+        context_snapshot=context,
+        geometry=_geometry(),
+        policy=_policy(),
+        airframe_profile_hash=PROFILE_HASH,
+    )
+    observed = tuple(
+        replace(
+            item,
+            param1=0.0 if item.sequence == 0 else item.param1,
+            param4=270.0 if item.sequence == len(compiled.wire_items) - 1 else item.param4,
+        )
+        for item in compiled.wire_items
+    )
+    assert px4_wire_hash(observed) == compiled.protocol_hash
+
+
+def test_fixed_wing_wire_hash_accepts_px4_float32_roundtrip() -> None:
+    context = _context()
+    compiled = compile_fixed_wing_executable_mission(
+        platform_plan=_plan(context),
+        context_snapshot=context,
+        geometry=_geometry(),
+        policy=_policy(),
+        airframe_profile_hash=PROFILE_HASH,
+    )
+    observed = tuple(
+        replace(
+            item,
+            param2=float(f"{item.param2:.9g}"),
+            param3=float(f"{item.param3:.9g}"),
+            z=float(f"{item.z:.9g}"),
+        )
+        for item in compiled.wire_items
+    )
+    assert px4_wire_hash(observed) == compiled.protocol_hash
 
 
 @pytest.mark.parametrize(

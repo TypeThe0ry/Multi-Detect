@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from multidetect.autonomy.serialization import AutonomyContractError
+from multidetect.autonomy.serialization import AutonomyContractError, canonical_sha256
 from multidetect.geolocation_accuracy import verify_geolocation_accuracy_report
 from multidetect.geolocation_survey import (
     build_accuracy_report_from_target_event_replay,
@@ -94,6 +95,56 @@ def _truth_for(count: int = 10, *, key_name: str = "sample_id") -> list[dict[str
     return rows
 
 
+def _sensor_transport_manifest(tmp_path: Path, count: int = 2) -> Path:
+    root = tmp_path / "sensor-transport"
+    root.mkdir()
+    frames = []
+    for index in range(count):
+        payload = bytes((index + 1, 2, 3, 4))
+        file_name = f"frame-{index:02d}.bgr24"
+        (root / file_name).write_bytes(payload)
+        frame_hash = hashlib.sha256(payload).hexdigest()
+        frames.append(
+            {
+                "frame_id": f"frame-{index:02d}",
+                "sequence": index,
+                "file": file_name,
+                "bytes": len(payload),
+                "sha256": frame_hash,
+                "wire_payload_sha256": frame_hash,
+                "wire_record_sha256": "b" * 64,
+                "raw_bytes_sha256_matches_wire_payload": True,
+                "provenance": {
+                    "captured_at_s": float(index + 1),
+                    "captured_at_clock": "host_monotonic_since_collector_start",
+                    "frame_telemetry": {},
+                    "wire_telemetry": {},
+                },
+            }
+        )
+    manifest: dict[str, object] = {
+        "schema": "multidetect.gazebo-bgr24-frame-set",
+        "schema_version": 1,
+        "wire_version": 3,
+        "pixel_format": "BGR24",
+        "scenario_id": "fixture",
+        "sensor_binding_hash": "a" * 64,
+        "frame_count": count,
+        "frames": frames,
+        "source_attribution": {"truth_loaded_by_runtime": False},
+        "claims": {"per_frame_sensor_geolocation_input": "passed"},
+        "per_frame_sensor_evidence": {
+            "record_count": count,
+            "derived_ned_values_recomputed_before_seal": True,
+            "gps_and_pose_values_covered_by_wire_record_sha256": True,
+        },
+    }
+    manifest["manifest_sha256"] = canonical_sha256(manifest)
+    path = root / "gazebo-bgr24-frame-set.manifest.json"
+    path.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    return path
+
+
 def test_replay_truth_join_uses_verified_event_ids_and_fresh_gps(tmp_path: Path) -> None:
     manifest = _bundle(tmp_path)
     result = build_accuracy_report_from_target_event_replay(
@@ -123,6 +174,76 @@ def test_replay_truth_join_uses_verified_event_ids_and_fresh_gps(tmp_path: Path)
         verify_geolocation_accuracy_report(result.report, require_gate_passed=False)["passed"]
         is True
     )
+
+
+def test_replay_truth_join_can_bind_hash_verified_sensor_transport(tmp_path: Path) -> None:
+    manifest = _bundle(tmp_path, count=2)
+    sensor_manifest = _sensor_transport_manifest(tmp_path, count=2)
+    result = build_accuracy_report_from_target_event_replay(
+        manifest,
+        _truth_for(2),
+        minimum_samples=2,
+        sensor_transport_manifest=sensor_manifest,
+    )
+    binding = result.report["selection"]["sensor_transport"]  # type: ignore[index]
+    assert binding["matched_frame_ids"] == ["frame-00", "frame-01"]
+    assert binding["raw_bytes_sha256_verified"] is True
+    assert verify_geolocation_accuracy_report(
+        result.report, require_gate_passed=False
+    )["passed"] is True
+
+
+def test_sensor_transport_binding_rejects_missing_event_frame(tmp_path: Path) -> None:
+    manifest = _bundle(tmp_path, count=2)
+    sensor_manifest = _sensor_transport_manifest(tmp_path, count=1)
+    with pytest.raises(ValueError, match="no matching persisted sensor frame"):
+        build_accuracy_report_from_target_event_replay(
+            manifest,
+            _truth_for(2),
+            minimum_samples=1,
+            sensor_transport_manifest=sensor_manifest,
+        )
+
+
+def test_replay_truth_records_range_slope_coverage_and_gates_missing_regimes(
+    tmp_path: Path,
+) -> None:
+    manifest = _bundle(tmp_path, count=3)
+    truth = _truth_for(3)
+    for index, row in enumerate(truth):
+        row["slope_deg"] = float(index) * 4.0
+
+    result = build_accuracy_report_from_target_event_replay(
+        manifest,
+        truth,
+        minimum_samples=3,
+        minimum_distance_regimes=2,
+        minimum_slope_regimes=2,
+    )
+
+    coverage = result.report["selection"]["coverage"]  # type: ignore[index]
+    assert coverage["distance_sample_count"] == 3
+    assert coverage["distance_regimes_m"] == [20.0]
+    assert coverage["slope_sample_count"] == 3
+    assert coverage["slope_regimes_deg"] == [0.0, 4.0, 8.0]
+    assert result.report["gate_passed"] is False
+    assert any("distance_regimes<2" in reason for reason in result.report["reasons"])
+    assert verify_geolocation_accuracy_report(result.report, require_gate_passed=False)["passed"]
+
+    surveyed_truth = _truth_for(3)
+    for index, row in enumerate(surveyed_truth):
+        row["survey_range_m"] = 10.0 + index * 10.0
+        row["survey_slope_deg"] = float(index) * 4.0
+    surveyed = build_accuracy_report_from_target_event_replay(
+        manifest,
+        surveyed_truth,
+        minimum_samples=3,
+        minimum_distance_regimes=3,
+        minimum_slope_regimes=2,
+    )
+    surveyed_coverage = surveyed.report["selection"]["coverage"]  # type: ignore[index]
+    assert surveyed_coverage["distance_regimes_m"] == [10.0, 20.0, 30.0]
+    assert surveyed.report["gate_passed"] is True
 
 
 def test_replay_truth_join_accepts_frame_id_labels(tmp_path: Path) -> None:
@@ -322,3 +443,5 @@ def test_target_accuracy_report_schema_declares_offline_contract() -> None:
     selection = schema["$defs"]["selection"]
     assert selection["additionalProperties"] is False
     assert selection["properties"]["source_manifest_sha256"]["pattern"] == ("^[0-9a-fA-F]{64}$")
+    assert selection["properties"]["sensor_transport"]["$ref"] == "#/$defs/sensorTransport"
+    assert schema["$defs"]["sensorTransport"]["properties"]["wire_version"]["const"] == 3

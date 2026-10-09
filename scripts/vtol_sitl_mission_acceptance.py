@@ -35,12 +35,17 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from audit_mission_energy_window import audit_window as audit_mission_energy_window
+from mission_dynamics_capture import MissionDynamicsCapture
+from mission_loop_timing import MissionLoopTiming
+from mission_position_capture import MissionPositionCapture
 from vtol_sitl_scenario_acceptance import (
     GCS_SOURCE_COMPONENT,
     GCS_SOURCE_SYSTEM,
@@ -56,10 +61,10 @@ from vtol_sitl_scenario_acceptance import (
 
 from multidetect.autonomy import (
     ContextSnapshot,
+    ExecutableMission,
     GeoPoint,
     OperatorGrant,
     PlanAction,
-    PlanStep,
     PlatformNeutralPlan,
     PromptEnvelope,
     ResolvedTaskSpec,
@@ -70,11 +75,15 @@ from multidetect.autonomy import (
     ValidationReport,
     ValidationVerdict,
 )
+from multidetect.autonomy.mission_outcome import MissionOutcomeMonitor
+from multidetect.autonomy.planner import plan_task
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.clock import Clock, HighResolutionSystemClock, ManualClock, SystemClock
 from multidetect.mission_journal import (
     DurableMissionJournal,
     PersistentPx4MissionTransaction,
 )
+from multidetect.mission_planning import PlannedMissionCompilation
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.px4_mission import (
     MAV_MISSION_TYPE_MISSION,
@@ -97,6 +106,8 @@ from multidetect.px4_mission import (
 )
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario
+from multidetect.simulation.energy_replay import CumulativeSimulationEnergy
+from multidetect.simulator.flight_model import SimulationEnergyProfile
 from multidetect.simulator.stack import resolve_simulator_assets
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,7 +115,9 @@ DEFAULT_MANIFEST = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scena
 EXPECTED_CONTAINER_LABEL = "combined-px4-gazebo-qgc-sim-acceptance"
 PROTECTED_GROUND_STATION_PORT = 14550
 DEFAULT_MISSION_TIMEOUT_S = 240.0
-MAXIMUM_MISSION_TIMEOUT_S = 600.0
+# The fixed-wing response route needs a bounded return/landing tail beyond
+# the historical 600 s limit. Keep this below the 720 s router ceiling.
+MAXIMUM_MISSION_TIMEOUT_S = 700.0
 MAXIMUM_FLIGHT_STATE_AGE_S = 1.5
 RELEASE_STATUS = (
     f"v{PRODUCT_VERSION.release_label}; final v{PRODUCT_VERSION.numeric} remains blocked"
@@ -115,6 +128,18 @@ _DOCKER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class VtolMissionAcceptanceError(RuntimeError):
     """A fail-closed owned-SITL mission acceptance invariant failed."""
+
+
+class TaskSelectionRejected(VtolMissionAcceptanceError):
+    """Preserve the exact planning input when no remaining task is feasible."""
+
+    def __init__(self, context: ContextSnapshot, reasons: list[dict[str, str]]) -> None:
+        super().__init__("no feasible remaining task")
+        self.evidence = {
+            "context": context.to_mapping(),
+            "context_sha256": context.canonical_hash,
+            "rejected": [dict(item) for item in reasons],
+        }
 
 
 def _utc_iso(value: datetime) -> str:
@@ -192,6 +217,42 @@ def _validate_ready_file_targets(
         )
 
 
+def validate_flight_capture_binding_descriptor(
+    payload: Mapping[str, Any],
+) -> dict[str, bool]:
+    """Validate the campaign-owned, pre-flight task/mission binding descriptor."""
+
+    checks = {
+        "schema": payload.get("schema")
+        == "multidetect.vtol-campaign-flight-capture-binding",
+        "schema_version": type(payload.get("schema_version")) is int
+        and payload.get("schema_version") == 1,
+        "task_id": isinstance(payload.get("task_id"), str)
+        and bool(str(payload.get("task_id")).strip()),
+        "context_sha256": _SHA256_RE.fullmatch(str(payload.get("context_sha256"))) is not None,
+        "plan_sha256": _SHA256_RE.fullmatch(str(payload.get("plan_sha256"))) is not None,
+        "executable_mission_sha256": _SHA256_RE.fullmatch(
+            str(payload.get("executable_mission_sha256"))
+        )
+        is not None,
+        "wire_hash": _SHA256_RE.fullmatch(str(payload.get("wire_hash"))) is not None,
+        "airframe_profile_sha256": _SHA256_RE.fullmatch(
+            str(payload.get("airframe_profile_sha256"))
+        )
+        is not None,
+        "transaction_binding": payload.get("transaction_id") is None
+        and payload.get("transaction_binding") == "ready_marker_and_mission_evidence",
+        "policy_applied_to_actuator": payload.get("policy_applied_to_actuator") is False,
+        "truth_free": payload.get("truth_free") is True,
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise VtolMissionAcceptanceError(
+            "flight-capture binding descriptor checks failed: " + ", ".join(failed)
+        )
+    return checks
+
+
 def _flight_capture_ready_gate(
     *,
     transaction_state: str,
@@ -234,6 +295,24 @@ def _observation_age_s(now_monotonic_s: float, observed_at_monotonic_s: object) 
     return age
 
 
+def capture_clock_matches(payload, *, label_key, expected_identity=None):
+    """Require an externally selected domain; a marker cannot select its own clock."""
+    from multidetect.clock import validate_host_identity
+
+    if expected_identity is None:
+        legacy = {"source": "python.monotonic", "session_id": None}
+        return (
+            payload.get(label_key) == "host_monotonic"
+            and payload.get("host_clock_identity", legacy) == legacy
+        )
+    try:
+        identity = validate_host_identity(expected_identity)
+        actual = validate_host_identity(payload.get("host_clock_identity"))
+    except (ValueError, TypeError):
+        return False
+    return payload.get(label_key) == "host_perf_counter" and actual == identity
+
+
 def validate_flight_capture_complete_marker(
     payload: Mapping[str, Any],
     *,
@@ -243,6 +322,9 @@ def validate_flight_capture_complete_marker(
     committed_protocol_sha256: str,
     scenario_id: str,
     scenario_manifest_hash: str,
+    host_clock_identity: dict[str, Any] | None = None,
+    expected_task_binding: Mapping[str, Any] | None = None,
+    capture_deadline_monotonic_s: float | None = None,
 ) -> dict[str, bool]:
     """Bind the parent capture completion marker to this live mission interval."""
 
@@ -254,8 +336,11 @@ def validate_flight_capture_complete_marker(
         completed = math.nan
     checks = {
         "schema": payload.get("schema") == "multidetect.vtol-sensor-capture-complete",
-        "schema_version": payload.get("schema_version") == 1,
-        "host_monotonic_clock": payload.get("clock") == "host_monotonic"
+        "schema_version": type(payload.get("schema_version")) is int
+        and payload.get("schema_version") == 1,
+        "host_monotonic_clock": capture_clock_matches(
+            payload, label_key="clock", expected_identity=host_clock_identity
+        )
         and math.isfinite(flight_ready_monotonic_s)
         and flight_ready_monotonic_s > 0.0
         and math.isfinite(started)
@@ -276,6 +361,26 @@ def validate_flight_capture_complete_marker(
         and _SHA256_RE.fullmatch(str(payload.get("frame_set_manifest_sha256"))) is not None,
         "truth_free": payload.get("ground_truth_used_for_runtime_or_capture") is False,
     }
+    if expected_task_binding is not None:
+        checks["task_binding"] = (
+            payload.get("task_id") == expected_task_binding.get("task_id")
+            and payload.get("executable_mission_sha256")
+            == expected_task_binding.get("executable_mission_sha256")
+            and payload.get("plan_sha256") == expected_task_binding.get("plan_sha256")
+            and payload.get("wire_hash") == expected_task_binding.get("wire_hash")
+            and expected_task_binding.get("truth_free") is True
+            and expected_task_binding.get("policy_applied_to_actuator") is False
+        )
+    if capture_deadline_monotonic_s is not None:
+        checks["capture_deadline"] = (
+            isinstance(payload.get("capture_deadline_monotonic_s"), (int, float))
+            and not isinstance(payload.get("capture_deadline_monotonic_s"), bool)
+            and math.isfinite(float(payload["capture_deadline_monotonic_s"]))
+            and math.isfinite(capture_deadline_monotonic_s)
+            and float(payload["capture_deadline_monotonic_s"])
+            == float(capture_deadline_monotonic_s)
+            and completed <= capture_deadline_monotonic_s
+        )
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
         raise VtolMissionAcceptanceError(
@@ -373,6 +478,304 @@ def _targets_evaluator(message: Any) -> bool:
     return target == (GCS_SOURCE_SYSTEM, GCS_SOURCE_COMPONENT)
 
 
+class MissionTelemetrySession:
+    """Own one loopback connection/collector across sequential SIM missions.
+
+    Container lifetime remains owned by the outer orchestrator. A failed
+    mission poisons reuse; this class neither clears faults nor rearms PX4.
+    """
+
+    def __init__(
+        self,
+        *,
+        container_id: str,
+        evaluator_port: int,
+        energy_history_limit: int = 65536,
+        energy_profile: SimulationEnergyProfile | None = None,
+        initial_remaining_wh: float | None = None,
+        clock: Clock | None = None,
+    ) -> None:
+        if clock is not None and not isinstance(clock, Clock):
+            raise TypeError("mission session clock must implement Clock")
+        if (energy_profile is None) != (initial_remaining_wh is None):
+            raise VtolMissionAcceptanceError(
+                "energy profile and initial Wh must be supplied together"
+            )
+        self.energy_state = (
+            CumulativeSimulationEnergy(
+                energy_profile, session_id=container_id, initial_remaining_wh=initial_remaining_wh
+            )
+            if energy_profile is not None
+            else None
+        )
+        if type(energy_history_limit) is not int or not 1 <= energy_history_limit <= 131072:
+            raise VtolMissionAcceptanceError("energy history limit must be an integer in 1..131072")
+        self.container_id = _require_sha256(container_id, "container_id")
+        if type(evaluator_port) is not int or not 1024 <= evaluator_port <= 65535:
+            raise VtolMissionAcceptanceError("invalid evaluator port")
+        if evaluator_port == PROTECTED_GROUND_STATION_PORT:
+            raise VtolMissionAcceptanceError("protected evaluator port")
+        self.endpoint = f"udpin:127.0.0.1:{evaluator_port}"
+        self.connection = mavutil.mavlink_connection(
+            self.endpoint,
+            source_system=GCS_SOURCE_SYSTEM,
+            source_component=GCS_SOURCE_COMPONENT,
+            autoreconnect=False,
+        )
+        try:
+            self.collector = TelemetryCollector(
+                self.connection,
+                energy_history_limit=energy_history_limit,
+                **({"clock": clock} if clock is not None else {}),
+            )
+        except BaseException:
+            self.connection.close()
+            raise
+        self.active = False
+        self.failed = False
+        self.closed = False
+        self.missions_started = 0
+        self._planning_home: GeoPoint | None = None
+
+    def bind_planning_home(self, observed_position: GeoPoint) -> GeoPoint:
+        """Keep the first qualified GPS origin for this exact container session."""
+        if self.closed or self.failed or not self.active:
+            raise VtolMissionAcceptanceError("active healthy session required to bind home")
+        if not isinstance(observed_position, GeoPoint):
+            raise VtolMissionAcceptanceError("qualified GeoPoint required")
+        if self._planning_home is None:
+            self._planning_home = observed_position
+        return self._planning_home
+
+    def acquire(self, *, container_id: str, endpoint: str) -> None:
+        if self.closed or self.failed or self.active:
+            raise VtolMissionAcceptanceError("telemetry session unavailable for another mission")
+        if container_id != self.container_id or endpoint != self.endpoint:
+            raise VtolMissionAcceptanceError("telemetry session identity mismatch")
+        self.active = True
+        self.missions_started += 1
+
+    def release(self, *, succeeded: bool) -> None:
+        if not self.active:
+            raise VtolMissionAcceptanceError("no active telemetry session mission")
+        self.failed = self.failed or succeeded is not True
+        self.active = False
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.connection.close()
+
+    def publish_completed(self, evidence_path: Path, payload: dict[str, Any]) -> None:
+        """Keep the mission lease until durable report and stdout publication finish."""
+        if self.closed or self.failed or not self.active or payload.get("gate_passed") is not True:
+            raise VtolMissionAcceptanceError("completed active mission required for publication")
+
+        def publish() -> None:
+            _atomic_write_json(evidence_path, payload, overwrite=False)
+            print(json.dumps(payload, sort_keys=True))
+
+        succeeded = False
+        try:
+            _prepare_while_collecting(self.collector, publish)
+            succeeded = True
+        finally:
+            self.release(succeeded=succeeded)
+
+    def __enter__(self):
+        if self.closed:
+            raise VtolMissionAcceptanceError("telemetry session is closed")
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+
+def _mission_now(collector: Any) -> float:
+    """Production collectors own the clock; legacy test adapters retain their source."""
+    read = getattr(collector, "now_s", None)
+    return read() if callable(read) else time.monotonic()
+
+
+def _mission_clock_identity(collector: Any) -> dict[str, Any]:
+    clock = getattr(collector, "clock", None)
+    if isinstance(clock, HighResolutionSystemClock):
+        return clock.identity()
+    return {
+        "source": "python.monotonic"
+        if clock is None or isinstance(clock, SystemClock)
+        else "injected_clock",
+        "session_id": None,
+    }
+
+
+def _mission_clock_label(collector: Any) -> str:
+    return {
+        "python.perf_counter": "host_perf_counter",
+        "python.monotonic": "host_monotonic",
+        "injected_clock": "injected_clock",
+    }[_mission_clock_identity(collector)["source"]]
+
+
+def _mission_observation(collector: Any, *, now_s: float | None = None) -> dict[str, Any]:
+    if _mission_clock_label(collector) == "host_perf_counter":
+        return collector.post_mission_observation()
+    return collector.post_mission_observation(
+        now_s=_mission_now(collector) if now_s is None else now_s
+    )
+
+
+def _mission_receive_window(
+    origin: Any, arm_request: Any, completed: Any, *, collector: Any = None
+) -> dict[str, Any]:
+    """Bind host events to the collector clock without asserting boot coverage."""
+    values = (origin, arm_request, completed)
+    valid = all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values)
+    valid = valid and origin <= arm_request <= completed
+    return {
+        "schema_version": 1,
+        "available": valid,
+        "clock": f"{_mission_clock_label(collector)}_since_collector_start",
+        # The numeric values below are absolute readings from the collector's
+        # clock.  Keep the legacy ``clock`` label for energy/replay consumers,
+        # but expose the actual domain so independently captured sensor frames
+        # can bind without relabelling an absolute timestamp as elapsed time.
+        "clock_domain": _mission_clock_label(collector),
+        "clock_values_semantics": "absolute_collector_clock",
+        "host_clock_identity": _mission_clock_identity(collector),
+        "receive_origin_host_monotonic_s": origin,
+        "arm_request_host_monotonic_s": arm_request,
+        "completed_host_monotonic_s": completed,
+        "start_receive_s": arm_request - origin if valid else None,
+        "end_receive_s": completed - origin if valid else None,
+        "start_semantics": "before_ARM_command_after_permit",
+        "end_semantics": "accepted_landed_disarmed_observation",
+        "boot_time_mapping_claimed": False,
+        "energy_coverage_claimed": False,
+        "authorizes_next_task": False,
+    }
+
+
+def _validate_sensor_transport_binding_window(
+    binding: Mapping[str, Any],
+    mission_receive_window: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed unless one sealed frame is inside this Mission's clock window."""
+
+    required = {
+        "manifest_file_sha256",
+        "manifest_sha256",
+        "schema_version",
+        "wire_version",
+        "pixel_format",
+        "frame_id",
+        "frame_sequence",
+        "frame_sha256",
+        "frame_bytes",
+        "frame_captured_at_s",
+        "frame_captured_at_clock",
+        "raw_bytes_sha256_verified",
+        "truth_free",
+    }
+    missing = sorted(required.difference(binding))
+    if missing:
+        raise ValueError(f"missing field(s): {missing!r}")
+    _require_sha256(str(binding["manifest_file_sha256"]), "manifest_file_sha256")
+    _require_sha256(str(binding["manifest_sha256"]), "manifest_sha256")
+    _require_sha256(str(binding["frame_sha256"]), "frame_sha256")
+    if binding["schema_version"] not in (1, 2):
+        raise ValueError("unsupported sensor schema_version")
+    if binding["wire_version"] != 3 or binding["pixel_format"] != "BGR24":
+        raise ValueError("sensor wire identity is not wire-v3 BGR24")
+    if type(binding["frame_sequence"]) is not int or binding["frame_sequence"] < 0:
+        raise ValueError("frame_sequence must be a non-negative integer")
+    if type(binding["frame_bytes"]) is not int or binding["frame_bytes"] < 1:
+        raise ValueError("frame_bytes must be a positive integer")
+    if binding["raw_bytes_sha256_verified"] is not True or binding["truth_free"] is not True:
+        raise ValueError("sensor raw bytes/truth-free gates are not satisfied")
+    captured_at_s = binding["frame_captured_at_s"]
+    if (
+        isinstance(captured_at_s, bool)
+        or not isinstance(captured_at_s, (int, float))
+        or not math.isfinite(float(captured_at_s))
+    ):
+        raise ValueError("frame_captured_at_s must be finite")
+    captured_clock = binding["frame_captured_at_clock"]
+    if not isinstance(captured_clock, str) or not captured_clock.strip():
+        raise ValueError("frame_captured_at_clock is required")
+    if mission_receive_window.get("available") is not True:
+        raise ValueError("Mission receive window is unavailable")
+    legacy_clock = mission_receive_window.get("clock")
+    clock_domain = mission_receive_window.get("clock_domain")
+    same_absolute_domain = (
+        mission_receive_window.get("clock_values_semantics")
+        == "absolute_collector_clock"
+        and isinstance(clock_domain, str)
+        and captured_clock == clock_domain
+    )
+    if captured_clock != legacy_clock and not same_absolute_domain:
+        raise ValueError("sensor frame and Mission use different clock domains")
+    arm = mission_receive_window.get("arm_request_host_monotonic_s")
+    completed = mission_receive_window.get("completed_host_monotonic_s")
+    if (
+        type(arm) not in (int, float)
+        or type(completed) not in (int, float)
+        or not math.isfinite(float(arm))
+        or not math.isfinite(float(completed))
+        or not float(arm) <= float(captured_at_s) <= float(completed)
+    ):
+        raise ValueError("sensor frame timestamp is outside the Mission receive window")
+    result = dict(binding)
+    result["mission_receive_window"] = {
+        "clock": mission_receive_window["clock"],
+        "clock_domain": clock_domain,
+        "clock_values_semantics": mission_receive_window.get("clock_values_semantics"),
+        "arm_request_host_monotonic_s": arm,
+        "completed_host_monotonic_s": completed,
+    }
+    return result
+
+
+def _prepare_while_collecting(
+    collector: TelemetryCollector, operation: Callable[..., Any], *args: Any, **kwargs: Any
+) -> Any:
+    """Run non-MAVLink preparation while the caller remains the sole receiver.
+
+    Operations must be finite (subprocess calls retain their own timeout) and
+    must not access the collector or connection. Joining the worker on every
+    exit prevents preparation from outliving container cleanup on failure.
+    """
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sitl-preparation") as executor:
+        future = executor.submit(operation, *args, **kwargs)
+        while not future.done():
+            collector.pump(0.05)
+        return future.result()
+
+
+def _receive_protocol_message(
+    connection: Any,
+    message_types: Sequence[str],
+    timeout_s: float,
+    receive: Callable[[float], Any | None] | None,
+    collector: Any = None,
+) -> Any | None:
+    """Keep telemetry observable while waiting within one protocol timeout.
+
+    The collector owns recording and heartbeat maintenance. Unrelated packets
+    must not reset the deadline or consume protocol retries.
+    """
+    if receive is None:
+        return connection.recv_match(type=list(message_types), blocking=True, timeout=timeout_s)
+    deadline = _mission_now(collector) + timeout_s
+    while (remaining := deadline - _mission_now(collector)) > 0:
+        message = receive(remaining)
+        if message is None:
+            return None
+        if str(message.get_type()) in message_types:
+            return message
+    return None
+
+
 def upload_int_only_mission(
     connection: Any,
     transaction: Px4MissionTransaction,
@@ -381,6 +784,8 @@ def upload_int_only_mission(
     message_timeout_s: float = 1.5,
     maximum_duration_s: float = 30.0,
     maximum_idle_retries: int = 6,
+    receive: Callable[[float], Any | None] | None = None,
+    collector: Any = None,
 ) -> dict[str, Any]:
     """Run ``MISSION_COUNT -> REQUEST_INT -> ITEM_INT -> ACK`` exactly once."""
 
@@ -391,12 +796,14 @@ def upload_int_only_mission(
     idle_retries = 0
     total_idle_retries = 0
     ignored_foreign_target_messages = 0
-    deadline = time.monotonic() + maximum_duration_s
-    while time.monotonic() < deadline:
-        message = connection.recv_match(
-            type=["MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"],
-            blocking=True,
-            timeout=message_timeout_s,
+    deadline = _mission_now(collector) + maximum_duration_s
+    while _mission_now(collector) < deadline:
+        message = _receive_protocol_message(
+            connection,
+            ("MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"),
+            min(message_timeout_s, max(0.0, deadline - _mission_now(collector))),
+            receive,
+            collector,
         )
         if message is None:
             idle_retries += 1
@@ -475,6 +882,58 @@ def _wire_item_from_int_message(message: Any) -> Px4MissionItemInt:
     )
 
 
+def owned_mavlink_control_port(record: Mapping[str, Any]) -> int:
+    values = [
+        entry.split("=", 1)[1]
+        for entry in record.get("Config", {}).get("Env", [])
+        if isinstance(entry, str) and entry.startswith("PX4_MAVLINK_UDP_PORT=")
+    ]
+    if len(values) != 1 or not values[0].isdigit():
+        raise VtolMissionAcceptanceError("one inspected MAVLink control port required")
+    port = int(values[0])
+    bindings = record.get("HostConfig", {}).get("PortBindings", {})
+    if (
+        not 1024 <= port <= 65535
+        or port == PROTECTED_GROUND_STATION_PORT
+        or f"{port}/udp" not in bindings
+    ):
+        raise VtolMissionAcceptanceError("MAVLink control port is not bound to owned container")
+    return port
+
+
+def reset_uploaded_mission_current(collector: TelemetryCollector) -> None:
+    """Reset the uploaded mission cursor only while freshly landed/disarmed."""
+    now = _mission_now(collector)
+    for kind, stamp in (
+        ("HEARTBEAT", collector.last_heartbeat_observed_at_monotonic_s),
+        ("EXTENDED_SYS_STATE", collector.last_extended_state_observed_at_monotonic_s),
+    ):
+        if (
+            stamp is None
+            or not 0 <= now - stamp <= MAXIMUM_FLIGHT_STATE_AGE_S
+            or collector.observation_sources.get(kind)
+            != (PX4_SYSTEM_ID, PX4_AUTOPILOT_COMPONENT_ID)
+        ):
+            raise VtolMissionAcceptanceError(
+                "fresh same-source ground state required for cursor reset"
+            )
+    if (
+        not collector.last_heartbeat
+        or collector.last_heartbeat["base_mode"] & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
+        or collector.last_landed_state != 1
+    ):
+        raise VtolMissionAcceptanceError("landed disarmed state required for cursor reset")
+    collector.connection.mav.mission_set_current_send(PX4_SYSTEM_ID, PX4_AUTOPILOT_COMPONENT_ID, 0)
+    deadline = _mission_now(collector) + 3.0
+    while _mission_now(collector) < deadline:
+        message = collector.pump(0.1)
+        if message is not None and message.get_type() == "MISSION_CURRENT":
+            _require_px4_source(message, "MISSION_CURRENT")
+            if int(message.seq) == 0:
+                return
+    raise VtolMissionAcceptanceError("uploaded mission cursor zero was not confirmed")
+
+
 def readback_int_only_mission(
     connection: Any,
     transaction: Px4MissionTransaction,
@@ -482,6 +941,8 @@ def readback_int_only_mission(
     *,
     message_timeout_s: float = 1.5,
     maximum_retries_per_item: int = 5,
+    receive: Callable[[float], Any | None] | None = None,
+    collector: Any = None,
 ) -> dict[str, Any]:
     """Request the stored mission using only REQUEST_INT and verify its wire hash."""
 
@@ -491,11 +952,15 @@ def readback_int_only_mission(
         MAV_MISSION_TYPE_MISSION,
     )
     ignored_foreign_target_messages = 0
-    count_deadline = time.monotonic() + max(3.0, message_timeout_s * 4.0)
+    count_deadline = _mission_now(collector) + max(3.0, message_timeout_s * 4.0)
     count_message: Any | None = None
-    while time.monotonic() < count_deadline:
-        candidate = connection.recv_match(
-            type="MISSION_COUNT", blocking=True, timeout=message_timeout_s
+    while _mission_now(collector) < count_deadline:
+        candidate = _receive_protocol_message(
+            connection,
+            ("MISSION_COUNT",),
+            min(message_timeout_s, max(0.0, count_deadline - _mission_now(collector))),
+            receive,
+            collector,
         )
         if candidate is None:
             continue
@@ -526,10 +991,12 @@ def readback_int_only_mission(
                 expected_sequence,
                 MAV_MISSION_TYPE_MISSION,
             )
-            message = connection.recv_match(
-                type=["MISSION_ITEM_INT", "MISSION_ITEM", "MISSION_ACK"],
-                blocking=True,
-                timeout=message_timeout_s,
+            message = _receive_protocol_message(
+                connection,
+                ("MISSION_ITEM_INT", "MISSION_ITEM", "MISSION_ACK"),
+                message_timeout_s,
+                receive,
+                collector,
             )
             if message is None:
                 retries += 1
@@ -593,13 +1060,137 @@ def _offset_coordinate(
     return latitude, longitude
 
 
+def configure_sim_state_streams(collector, docker, expected_container_id, stream_port):
+    """Configure the exact disposable SITL stream; keep host freshness unchanged."""
+    if re.fullmatch(r"[0-9a-f]{64}", expected_container_id) is None:
+        raise VtolMissionAcceptanceError("exact container ID required")
+    if type(stream_port) is not int or not 1 <= stream_port <= 65535:
+        raise VtolMissionAcceptanceError("valid owned stream port required")
+    observations = {}
+    for message_name in (
+        "HEARTBEAT",
+        # Energy replay requires a bounded throttle sample alongside the
+        # heartbeat and position streams.  Make it explicit on the combined
+        # router instance instead of relying on firmware defaults that can be
+        # disturbed by the preceding attached VTOL evaluator.
+        "VFR_HUD",
+        "EXTENDED_SYS_STATE",
+        "NAV_CONTROLLER_OUTPUT",
+        "ATTITUDE_TARGET",
+        # The mission observer computes route progress, displacement, and
+        # landing evidence from the authenticated PX4 position stream.  Do
+        # not rely on firmware defaults here: the preceding attached VTOL
+        # run can leave the disposable MAVLink instance with a reduced
+        # stream set.
+        "GLOBAL_POSITION_INT",
+    ):
+        result = _prepare_while_collecting(
+            collector,
+            _run,
+            docker,
+            [
+                "exec",
+                expected_container_id,
+                "/opt/px4-gazebo/bin/px4-mavlink",
+                "stream",
+                "-u",
+                str(stream_port),
+                "-s",
+                message_name,
+                "-r",
+                "10",
+            ],
+            timeout_s=10.0,
+        )
+        if result.returncode != 0 or any(
+            text in result.stdout.lower() for text in ("not running", "error")
+        ):
+            raise VtolMissionAcceptanceError(f"PX4 rejected {message_name} stream configuration")
+        observations[f"SIM_{message_name}_STREAM_HZ"] = {
+            "value": 10,
+            "stdout": result.stdout[:4096].strip(),
+            "output_truncated": len(result.stdout) > 4096,
+            "scope": f"exact owned disposable SITL MAVLink instance {stream_port}",
+            "freshness_threshold_changed": False,
+            "host_receive_rate_proven": False,
+        }
+    return observations
+
+
+def read_sim_dynamics_parameters(collector, docker, expected_container_id):
+    """Read actual owned-SITL parameter output without changing a parameter.
+
+    PX4 versions differ in parameter names. Keep missing/error output visible;
+    neither a process success nor text output is an airframe capability proof.
+    """
+    observations = {}
+    for name in (
+        "FW_R_LIM",
+        "FW_AIRSPD_TRIM",
+        "FW_AIRSPD_MIN",
+        "FW_AIRSPD_MAX",
+        "NPFG_PERIOD",
+        "VT_B_TRANS_DUR",
+        "VT_TRANS_MIN_TM",
+        "VT_F_TRANS_DUR",
+        "MPC_XY_CRUISE",
+        "MPC_LAND_SPEED",
+    ):
+        result = _prepare_while_collecting(
+            collector,
+            _run,
+            docker,
+            ["exec", expected_container_id, "/opt/px4-gazebo/bin/px4-param", "show", name],
+            timeout_s=10.0,
+            check=False,
+        )
+        observations[name] = {
+            "returncode": result.returncode,
+            "stdout": result.stdout[:4096],
+            "stderr": result.stderr[:4096],
+            "output_truncated": len(result.stdout) > 4096 or len(result.stderr) > 4096,
+        }
+    version = _prepare_while_collecting(
+        collector,
+        _run,
+        docker,
+        ["exec", expected_container_id, "/opt/px4-gazebo/bin/px4-ver", "all"],
+        timeout_s=10.0,
+        check=False,
+    )
+    return {
+        "schema_version": 1,
+        "container_id": expected_container_id,
+        "operation": "read_only_px4_param_show",
+        "parameters": observations,
+        "firmware_version_observation": {
+            "operation": "read_only_px4_ver_all",
+            "returncode": version.returncode,
+            "stdout": version.stdout[:4096],
+            "stderr": version.stderr[:4096],
+            "output_truncated": len(version.stdout) > 4096 or len(version.stderr) > 4096,
+            "reproducible_binary_source_binding_proven": False,
+        },
+        "numeric_values_validated": False,
+        "airframe_capability_proven": False,
+        "changes_parameters": False,
+    }
+
+
 def build_live_runtime_geometry(
-    *, home_latitude_deg: float, home_longitude_deg: float
+    *,
+    home_latitude_deg: float,
+    home_longitude_deg: float,
+    reference_profile: str = "lifecycle-smoke",
 ) -> VtolMissionGeometry:
     """Build a bounded route from live home only; no evaluator coordinate is accepted."""
 
-    first = _offset_coordinate(home_latitude_deg, home_longitude_deg, north_m=70.0, east_m=0.0)
-    second = _offset_coordinate(home_latitude_deg, home_longitude_deg, north_m=70.0, east_m=70.0)
+    if reference_profile not in ("lifecycle-smoke", "fixed-wing-response"):
+        raise VtolMissionAcceptanceError("unknown mission reference profile")
+    response = reference_profile == "fixed-wing-response"
+    north, east = (180.0, 80.0) if response else (70.0, 70.0)
+    first = _offset_coordinate(home_latitude_deg, home_longitude_deg, north_m=north, east_m=0.0)
+    second = _offset_coordinate(home_latitude_deg, home_longitude_deg, north_m=north, east_m=east)
     runtime_mapping = {
         "home_position": {
             "latitude_deg": home_latitude_deg,
@@ -607,8 +1198,8 @@ def build_live_runtime_geometry(
         },
         "mission_geometry": {
             "takeoff_altitude_m": 20.0,
-            "loiter_time_s": 5.0,
-            "loiter_radius_m": 30.0,
+            "loiter_time_s": 30.0 if response else 5.0,
+            "loiter_radius_m": 50.0 if response else 30.0,
             "acceptance_radius_m": 8.0,
             "waypoints": [
                 {
@@ -636,6 +1227,15 @@ def build_live_runtime_geometry(
 
 
 @dataclass(frozen=True, slots=True)
+class SelectedMissionInputs:
+    task: ResolvedTaskSpec
+    compilation: PlannedMissionCompilation
+    geometry: VtolMissionGeometry
+    policy: Px4MissionSafetyPolicy
+    prompt: PromptEnvelope | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AcceptanceDocuments:
     prompt: PromptEnvelope
     task_spec: ResolvedTaskSpec
@@ -647,6 +1247,7 @@ class AcceptanceDocuments:
     bindings: MissionTransactionBindings
     operator_grant: OperatorGrant
     vehicle_identity_hash: str
+    energy_evidence: dict[str, Any] | None = None
 
 
 def build_acceptance_documents(
@@ -659,6 +1260,13 @@ def build_acceptance_documents(
     runtime_provenance_hash: str,
     now_utc: datetime,
     maximum_duration_s: float,
+    energy_projection: Callable[[ContextSnapshot], tuple[ContextSnapshot, dict]] | None = None,
+    planning_home: GeoPoint | None = None,
+    selection_provider: Callable[[ContextSnapshot], SelectedMissionInputs] | None = None,
+    receive_clock: Callable[[], float] | None = None,
+    reference_profile: str = "lifecycle-smoke",
+    original_prompt: PromptEnvelope | None = None,
+    require_original_prompt: bool = False,
 ) -> AcceptanceDocuments:
     """Build every hash-bound autonomy document from runtime/live inputs."""
 
@@ -669,14 +1277,20 @@ def build_acceptance_documents(
     airframe_hash = _require_sha256(airframe_profile_hash, "airframe_profile_hash")
     descriptor_hash = _require_sha256(runtime_descriptor_hash, "runtime_descriptor_hash")
     provenance_hash = _require_sha256(runtime_provenance_hash, "runtime_provenance_hash")
-    home = GeoPoint(
+    aircraft_position = GeoPoint(
         float(live_telemetry["latitude_deg"]),
         float(live_telemetry["longitude_deg"]),
     )
+    if planning_home is not None and not isinstance(planning_home, GeoPoint):
+        raise VtolMissionAcceptanceError("planning_home must be a GeoPoint")
+    home = aircraft_position if planning_home is None else planning_home
     geometry = build_live_runtime_geometry(
         home_latitude_deg=home.latitude_deg,
         home_longitude_deg=home.longitude_deg,
+        reference_profile=reference_profile,
     )
+    if selection_provider is not None and reference_profile != "lifecycle-smoke":
+        raise VtolMissionAcceptanceError("reference profile cannot override selected campaign")
     route_points = (home, *geometry.waypoints, geometry.landing)
     route_length = sum(
         _haversine_m(
@@ -690,7 +1304,11 @@ def build_acceptance_documents(
     timestamp = _utc_iso(now_utc)
     run_token = f"{runtime_input.scenario_id}-{int(now_utc.timestamp())}"
     aircraft_id = f"owned-sitl-{container_id[:12]}"
-    prompt = PromptEnvelope(
+    if original_prompt is not None and not isinstance(original_prompt, PromptEnvelope):
+        raise VtolMissionAcceptanceError("original_prompt must be a PromptEnvelope")
+    if require_original_prompt and original_prompt is None:
+        raise VtolMissionAcceptanceError("original_prompt is required")
+    prompt = original_prompt or PromptEnvelope(
         prompt_id=f"prompt-{run_token}",
         text=(
             "Test-only owned disposable SITL acceptance fixture: execute the bounded "
@@ -727,11 +1345,12 @@ def build_acceptance_documents(
         snapshot_id=f"context-{run_token}",
         captured_at_s=float(live_telemetry["captured_at_s"]),
         captured_at_utc=timestamp,
-        aircraft_position=home,
+        aircraft_position=aircraft_position,
         home_position=home,
         airframe_profile_id=runtime_input.vehicle.airframe_profile_id,
+        airframe_profile_hash=airframe_hash,
         battery_remaining_pct=float(live_telemetry["battery_remaining_pct"]),
-        estimated_flight_time_s=maximum_duration_s,
+        estimated_flight_time_s=float(live_telemetry.get("estimated_flight_time_s") or 0.0),
         ground_speed_mps=float(live_telemetry.get("ground_speed_mps", 0.0)),
         airspeed_mps=float(live_telemetry.get("airspeed_mps", 0.0)),
         wind_north_mps=runtime_input.world.wind_north_mps,
@@ -744,17 +1363,9 @@ def build_acceptance_documents(
         map_cache_available=runtime_assets.map_path.is_file(),
         dem_available=runtime_assets.dem_path.is_file(),
     )
-    plan = PlatformNeutralPlan(
-        plan_id=f"plan-{run_token}",
-        task_spec_hash=task_spec.canonical_hash,
-        context_snapshot_hash=context.canonical_hash,
-        steps=(
-            PlanStep(0, PlanAction.TAKEOFF),
-            PlanStep(1, PlanAction.TRANSIT),
-            PlanStep(2, PlanAction.SEARCH_CORRIDOR),
-            PlanStep(3, PlanAction.LAND),
-        ),
-    )
+    energy_evidence = None
+    if energy_projection is not None:
+        context, energy_evidence = energy_projection(context)
     policy = Px4MissionSafetyPolicy(
         geofence_center=home,
         geofence_radius_m=350.0,
@@ -767,6 +1378,55 @@ def build_acceptance_documents(
         maximum_landing_offset_m=5.0,
         home_match_tolerance_m=1.0,
     )
+    if selection_provider is not None:
+        if receive_clock is None:
+            raise VtolMissionAcceptanceError("selected mission requires collector receive clock")
+        selected = selection_provider(context)
+        if not isinstance(selected, SelectedMissionInputs):
+            raise VtolMissionAcceptanceError("selection provider must return SelectedMissionInputs")
+        if (
+            original_prompt is not None
+            and selected.prompt is not None
+            and selected.prompt != original_prompt
+        ):
+            raise VtolMissionAcceptanceError(
+                "selection provider replaced the original PromptEnvelope"
+            )
+        if require_original_prompt and selected.prompt != original_prompt:
+            raise VtolMissionAcceptanceError(
+                "selection provider did not preserve the original PromptEnvelope"
+            )
+        center_offset_m = _haversine_m(
+            selected.policy.geofence_center.latitude_deg,
+            selected.policy.geofence_center.longitude_deg,
+            home.latitude_deg,
+            home.longitude_deg,
+        )
+        if (
+            replace(selected.policy, geofence_center=home) != policy
+            or center_offset_m > policy.home_match_tolerance_m
+        ):
+            raise VtolMissionAcceptanceError("selection cannot change the acceptance safety policy")
+        if selected.task.constraints.maximum_duration_s > maximum_duration_s:
+            raise VtolMissionAcceptanceError("selected task exceeds execution time budget")
+        documents = build_selected_acceptance_documents(
+            selection=selected.compilation,
+            task_spec=selected.task,
+            context=context,
+            geometry=selected.geometry,
+            policy=selected.policy,
+            runtime_input=runtime_input,
+            container_id=container_id,
+            airframe_profile_hash=airframe_hash,
+            runtime_descriptor_hash=descriptor_hash,
+            runtime_provenance_hash=provenance_hash,
+            now_utc=datetime.now(timezone.utc),
+            now_receive_s=receive_clock(),
+            prompt=selected.prompt if selected.prompt is not None else original_prompt,
+            require_original_prompt=require_original_prompt,
+        )
+        return replace(documents, energy_evidence=energy_evidence)
+    plan = plan_task(task_spec, context, "vtol")
     compiled = compile_executable_mission(
         vehicle_class="vtol",
         platform_plan=plan,
@@ -776,6 +1436,44 @@ def build_acceptance_documents(
         airframe_profile_hash=airframe_hash,
         mission_id=f"mission-{run_token}",
     )
+    return _bind_acceptance_documents(
+        prompt=prompt,
+        task_spec=task_spec,
+        context=context,
+        plan=plan,
+        compiled=compiled,
+        policy=policy,
+        runtime_input=runtime_input,
+        container_id=container_id,
+        airframe_hash=airframe_hash,
+        descriptor_hash=descriptor_hash,
+        provenance_hash=provenance_hash,
+        now_utc=now_utc,
+        run_token=run_token,
+        aircraft_id=aircraft_id,
+        energy_evidence=energy_evidence,
+    )
+
+
+def _bind_acceptance_documents(
+    *,
+    prompt,
+    task_spec,
+    context,
+    plan,
+    compiled,
+    policy,
+    runtime_input,
+    container_id,
+    airframe_hash,
+    descriptor_hash,
+    provenance_hash,
+    now_utc,
+    run_token,
+    aircraft_id,
+    energy_evidence,
+) -> AcceptanceDocuments:
+    """Bind already validated artifacts to the existing SIM transaction/grant."""
     report = ValidationReport(
         report_id=f"validation-{run_token}",
         executable_mission_hash=compiled.executable_mission.canonical_hash,
@@ -841,7 +1539,107 @@ def build_acceptance_documents(
         bindings=bindings,
         operator_grant=grant,
         vehicle_identity_hash=vehicle_identity_hash,
+        energy_evidence=energy_evidence,
     )
+
+
+def build_selected_acceptance_documents(
+    *,
+    selection: PlannedMissionCompilation,
+    task_spec: ResolvedTaskSpec,
+    context: ContextSnapshot,
+    geometry: VtolMissionGeometry,
+    policy: Px4MissionSafetyPolicy,
+    runtime_input: Any,
+    container_id: str,
+    airframe_profile_hash: str,
+    runtime_descriptor_hash: str,
+    runtime_provenance_hash: str,
+    now_utc: datetime,
+    now_receive_s: float,
+    prompt: PromptEnvelope | None = None,
+    require_original_prompt: bool = False,
+) -> AcceptanceDocuments:
+    """Verify an exact selected compilation before binding a SIM transaction.
+
+    Verification recompiles for equality only; it never replaces the selected
+    wire mission or refreshes its context. Transport ownership remains outside.
+    """
+    if not isinstance(selection, PlannedMissionCompilation) or selection.vehicle_class != "vtol":
+        raise VtolMissionAcceptanceError("selected VTOL compilation required")
+    age = now_receive_s - context.captured_at_s
+    utc_age = (
+        now_utc - datetime.fromisoformat(context.captured_at_utc.replace("Z", "+00:00"))
+    ).total_seconds()
+    if not (0 <= age <= MAXIMUM_FLIGHT_STATE_AGE_S and 0 <= utc_age <= MAXIMUM_FLIGHT_STATE_AGE_S):
+        raise VtolMissionAcceptanceError("selected context is stale or from another clock")
+    container_id = _require_sha256(container_id, "container_id")
+    airframe_hash = _require_sha256(airframe_profile_hash, "airframe_profile_hash")
+    descriptor_hash = _require_sha256(runtime_descriptor_hash, "runtime_descriptor_hash")
+    provenance_hash = _require_sha256(runtime_provenance_hash, "runtime_provenance_hash")
+    resolve_simulator_assets(runtime_input, repository_root=ROOT)
+    if context.airframe_profile_id != runtime_input.vehicle.airframe_profile_id:
+        raise VtolMissionAcceptanceError("selected airframe does not match runtime")
+    if selection.plan != plan_task(task_spec, context, "vtol"):
+        raise VtolMissionAcceptanceError("selected plan does not match task/context")
+    verified = compile_executable_mission(
+        vehicle_class="vtol",
+        platform_plan=selection.plan,
+        context_snapshot=context,
+        geometry=geometry,
+        policy=policy,
+        airframe_profile_hash=airframe_hash,
+        mission_id=selection.compiled_mission.executable_mission.mission_id,
+    )
+    if verified != selection.compiled_mission:
+        raise VtolMissionAcceptanceError("selected compilation differs from runtime verification")
+    aircraft_id = f"owned-sitl-{container_id[:12]}"
+    run_token = selection.compiled_mission.executable_mission.mission_id
+    if prompt is not None and not isinstance(prompt, PromptEnvelope):
+        raise VtolMissionAcceptanceError("selected prompt must be a PromptEnvelope")
+    if require_original_prompt and prompt is None:
+        raise VtolMissionAcceptanceError("selected campaign requires the original PromptEnvelope")
+    if prompt is None:
+        prompt = PromptEnvelope(
+            prompt_id=f"prompt-{run_token}",
+            text="Test-only selected task SIM acceptance fixture",
+            language="en",
+            issued_at=_utc_iso(now_utc),
+            operator_id="test-only-acceptance-fixture",
+            aircraft_id=aircraft_id,
+        )
+    return _bind_acceptance_documents(
+        prompt=prompt,
+        task_spec=task_spec,
+        context=context,
+        plan=selection.plan,
+        compiled=selection.compiled_mission,
+        policy=policy,
+        runtime_input=runtime_input,
+        container_id=container_id,
+        airframe_hash=airframe_hash,
+        descriptor_hash=descriptor_hash,
+        provenance_hash=provenance_hash,
+        now_utc=now_utc,
+        run_token=run_token,
+        aircraft_id=aircraft_id,
+        energy_evidence=None,
+    )
+
+
+def _qualified_observed_endurance(collector: Any, now_s: float) -> int | None:
+    value = getattr(collector, "last_battery_time_remaining_s", None)
+    at = getattr(collector, "last_battery_observed_at_monotonic_s", None)
+    source = getattr(collector, "observation_sources", {}).get("BATTERY_STATUS")
+    if (
+        type(value) is int
+        and value > 0
+        and type(at) in (int, float)
+        and 0 <= now_s - at <= MAXIMUM_FLIGHT_STATE_AGE_S
+        and source == (PX4_SYSTEM_ID, PX4_AUTOPILOT_COMPONENT_ID)
+    ):
+        return value
+    return None
 
 
 def _collect_live_context(
@@ -849,8 +1647,8 @@ def _collect_live_context(
 ) -> dict[str, Any]:
     latest_gps: Any | None = None
     latest_vfr: Any | None = None
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    deadline = _mission_now(collector) + timeout_s
+    while _mission_now(collector) < deadline:
         message = collector.pump(0.2)
         if message is not None:
             message_type = str(message.get_type())
@@ -905,7 +1703,7 @@ def _collect_live_context(
     ground_speed_mps = max(0.0, raw_ground_speed_mps)
     airspeed_mps = max(0.0, raw_airspeed_mps)
     return {
-        "captured_at_s": round(collector.elapsed_s, 6),
+        "captured_at_s": collector.elapsed_s,
         "latitude_deg": latitude_deg,
         "longitude_deg": longitude_deg,
         "gps_fix_type": fix_type,
@@ -914,6 +1712,9 @@ def _collect_live_context(
         "gps_accuracy_source": accuracy_source,
         "gps_estimator_disagreement_m": round(disagreement_m, 3),
         "battery_remaining_pct": float(collector.last_battery_remaining),
+        "estimated_flight_time_s": _qualified_observed_endurance(
+            collector, _mission_now(collector)
+        ),
         "ground_speed_mps": ground_speed_mps,
         "airspeed_mps": airspeed_mps,
         "raw_ground_speed_mps": raw_ground_speed_mps,
@@ -928,8 +1729,8 @@ def _collect_live_context(
 def _wait_for_disarmed_ground_state(
     collector: TelemetryCollector, *, timeout_s: float = 12.0
 ) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    deadline = _mission_now(collector) + timeout_s
+    while _mission_now(collector) < deadline:
         collector.pump(0.2)
         armed = bool(
             collector.last_heartbeat
@@ -950,8 +1751,8 @@ def _wait_for_disarmed_ground_state(
 def _wait_for_exact_auto_mission(
     collector: TelemetryCollector, *, timeout_s: float = 10.0
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    deadline = _mission_now(collector) + timeout_s
+    while _mission_now(collector) < deadline:
         message = collector.pump(0.2)
         if message is None or str(message.get_type()) != "HEARTBEAT":
             continue
@@ -982,8 +1783,8 @@ def _send_command_long_exact(
         0,
         *values[:7],
     )
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    deadline = _mission_now(collector) + timeout_s
+    while _mission_now(collector) < deadline:
         message = collector.pump(0.2)
         if message is None or str(message.get_type()) != "COMMAND_ACK":
             continue
@@ -1000,8 +1801,8 @@ def _send_command_long_exact(
 
 
 def _wait_for_armed(collector: TelemetryCollector, *, timeout_s: float = 8.0) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    deadline = _mission_now(collector) + timeout_s
+    while _mission_now(collector) < deadline:
         message = collector.pump(0.2)
         if message is None or str(message.get_type()) != "HEARTBEAT":
             continue
@@ -1013,6 +1814,163 @@ def _wait_for_armed(collector: TelemetryCollector, *, timeout_s: float = 8.0) ->
         ):
             return
     raise VtolMissionAcceptanceError("post-permit ARM was accepted but armed state was absent")
+
+
+def collect_terminal_observation_tail(
+    collector: Any, *, completed_at_s: float, timeout_s: float = 2.0
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Receive a bounded tail without moving the accepted completion boundary.
+
+    A later position sample is only a candidate right boundary. Canonical
+    replay must still verify load freshness and continuity; this does not
+    claim complete energy coverage or authorize the next sortie.
+    """
+    if (
+        type(completed_at_s) not in (int, float)
+        or not math.isfinite(completed_at_s)
+        or completed_at_s < 0
+        or type(timeout_s) not in (int, float)
+        or not math.isfinite(timeout_s)
+        or not 0 < timeout_s <= 5
+    ):
+        raise ValueError("finite completion and tail timeout in (0, 5] required")
+    adapter = getattr(collector, "post_mission_observation", None)
+    evidence = {
+        "schema_version": 1,
+        "completed_host_monotonic_s": completed_at_s,
+        "timeout_s": timeout_s,
+        "pump_calls": 0,
+        "end_position_sample_received": False,
+        "full_energy_coverage_claimed": False,
+        "authorizes_next_task": False,
+    }
+    if not callable(adapter):
+        evidence["reason"] = "collector_observation_adapter_unavailable"
+        return {
+            "telemetry_complete_and_fresh": False,
+            "missing_reasons": [evidence["reason"]],
+            "authorizes_next_task": False,
+        }, evidence
+    started = _mission_now(collector)
+    deadline = started + timeout_s
+    observation = _mission_observation(collector, now_s=started)
+    while True:
+        history = observation.get("energy_input_history", {})
+        origin = history.get("receive_origin_host_monotonic_s")
+        if (
+            type(origin) in (int, float)
+            and math.isfinite(origin)
+            and 0 <= origin <= completed_at_s
+            and history.get("receive_clock")
+            == f"{_mission_clock_label(collector)}_since_collector_start"
+            and (
+                (
+                    "host_clock_identity" not in history
+                    and _mission_clock_label(collector) == "host_monotonic"
+                )
+                or history.get("host_clock_identity") == _mission_clock_identity(collector)
+            )
+        ):
+            for sample in reversed(history.get("samples", [])):
+                stamp = sample.get("at_s")
+                boot = sample.get("value")
+                if (
+                    sample.get("type") == "GLOBAL_POSITION_INT"
+                    and sample.get("field") == "time_boot_ms"
+                    and sample.get("source_system") == 1
+                    and sample.get("source_component") == 1
+                    and type(stamp) in (int, float)
+                    and math.isfinite(stamp)
+                    and completed_at_s - origin < stamp <= observation["observed_at_s"] - origin
+                    and type(boot) is int
+                    and 0 <= boot <= 0xFFFFFFFF
+                    and sample.get("field_valid", True) is True
+                    and sample.get("source_is_expected_px4", True) is True
+                ):
+                    evidence.update(
+                        reason="end_position_sample_received",
+                        end_position_sample_received=True,
+                        end_position_sample=dict(sample),
+                    )
+                    return observation, evidence
+        now = _mission_now(collector)
+        if now >= deadline or evidence["pump_calls"] >= 256:
+            evidence["reason"] = "tail_timeout_or_pump_limit"
+            return observation, evidence
+        collector.pump(min(0.2, deadline - now))
+        evidence["pump_calls"] += 1
+        observation = _mission_observation(collector)
+
+
+def snapshot_failed_observer(buffers):
+    """Export partial bounded observations without asserting flight completion."""
+    if not buffers:
+        return None
+    positions = buffers["positions"].snapshot()
+    samples = positions.get("samples", [])
+    valid_samples = [
+        sample
+        for sample in samples
+        if (
+            isinstance(sample, Mapping)
+            and not sample.get("missing_integer_fields")
+            and type(sample.get("lat")) is int
+            and type(sample.get("lon")) is int
+            and type(sample.get("relative_alt")) is int
+        )
+    ]
+    position_summary: dict[str, Any] = {
+        "position_samples_seen": positions.get("samples_seen", 0),
+        "valid_position_samples": len(valid_samples),
+        "first_observed_position": None,
+        "last_observed_position": None,
+        "maximum_displacement_from_first_observed_position_m": 0.0,
+        "maximum_relative_altitude_m": 0.0,
+        "mission_progress_not_proven": True,
+    }
+    if valid_samples:
+        first = valid_samples[0]
+        first_lat = int(first["lat"]) / 10_000_000.0
+        first_lon = int(first["lon"]) / 10_000_000.0
+
+        def compact(sample: Mapping[str, Any]) -> dict[str, Any]:
+            return {
+                "received_at_s": sample.get("received_at_s"),
+                "latitude_deg": int(sample["lat"]) / 10_000_000.0,
+                "longitude_deg": int(sample["lon"]) / 10_000_000.0,
+                "relative_altitude_m": int(sample["relative_alt"]) / 1000.0,
+                "time_boot_ms": sample.get("time_boot_ms"),
+            }
+
+        position_summary["first_observed_position"] = compact(first)
+        position_summary["last_observed_position"] = compact(valid_samples[-1])
+        position_summary["maximum_displacement_from_first_observed_position_m"] = round(
+            max(
+                _haversine_m(
+                    first_lat,
+                    first_lon,
+                    int(sample["lat"]) / 10_000_000.0,
+                    int(sample["lon"]) / 10_000_000.0,
+                )
+                for sample in valid_samples
+            ),
+            3,
+        )
+        position_summary["maximum_relative_altitude_m"] = round(
+            max(int(sample["relative_alt"]) / 1000.0 for sample in valid_samples),
+            3,
+        )
+    return {
+        "status": "partial_observation_from_failed_mission",
+        "host_clock_identity": buffers["host_clock_identity"],
+        "observer_origin_host_monotonic_s": buffers["origin"],
+        "phase_position_observations": positions,
+        "phase_dynamics_observations": buffers["dynamics"].snapshot(),
+        "position_summary": position_summary,
+        "capture_complete": False,
+        "training_label_eligible": False,
+        "affects_acceptance_gate": False,
+    }
 
 
 def observe_mission_flight(
@@ -1032,9 +1990,57 @@ def observe_mission_flight(
     committed_protocol_sha256: str | None = None,
     scenario_id: str | None = None,
     scenario_manifest_hash: str | None = None,
+    flight_capture_binding: Mapping[str, Any] | None = None,
+    flight_capture_deadline_s: float | None = None,
+    executable_mission: ExecutableMission | None = None,
+    outcome_evidence: dict[str, Any] | None = None,
+    capture_diagnostics: dict[str, Any] | None = None,
+    observation_buffers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Observe real PX4 mission progress, VTOL lifecycle, landing, and disarm."""
 
+    shadow_clock = ManualClock()
+    if flight_capture_deadline_s is not None and (
+        isinstance(flight_capture_deadline_s, bool)
+        or not math.isfinite(float(flight_capture_deadline_s))
+        or not 1.0 <= float(flight_capture_deadline_s) <= 300.0
+    ):
+        raise VtolMissionAcceptanceError(
+            "flight capture deadline must be between 1 and 300 seconds"
+        )
+    if flight_capture_binding is not None:
+        validate_flight_capture_binding_descriptor(flight_capture_binding)
+    diagnostics = capture_diagnostics if capture_diagnostics is not None else {}
+    diagnostics.update(
+        {
+            "schema_version": 1,
+            "status": "observer_started",
+            "affects_acceptance_gate": False,
+            "sample_count": 0,
+            "invalid_sample_count": 0,
+            "first_invalid_sample": None,
+        }
+    )
+    shadow = None
+    shadow_evidence = outcome_evidence if outcome_evidence is not None else {}
+    if executable_mission is not None:
+        if len(executable_mission.items) != item_count:
+            raise VtolMissionAcceptanceError("shadow Mission item count mismatch")
+        shadow = MissionOutcomeMonitor(
+            executable_mission,
+            shadow_clock,
+            timeout_s=mission_timeout_s,
+            expected_system_id=PX4_SYSTEM_ID,
+            expected_component_id=PX4_AUTOPILOT_COMPONENT_ID,
+        )
+        shadow_evidence.update(
+            {
+                "mode": "shadow_receive_only",
+                "events": [],
+                "outcome": asdict(shadow.poll()),
+                "affects_acceptance_gate": False,
+            }
+        )
     current_sequences: list[int] = []
     reached_sequences: list[int] = []
     maximum_distance_m = 0.0
@@ -1048,6 +2054,7 @@ def observe_mission_flight(
     ready_written = False
     flight_capture_ready_written = False
     flight_capture_ready_monotonic_s: float | None = None
+    flight_capture_deadline_monotonic_s: float | None = None
     flight_capture_complete_observed = False
     flight_capture_complete_document: dict[str, Any] | None = None
     flight_capture_complete_checks: dict[str, bool] | None = None
@@ -1076,14 +2083,58 @@ def observe_mission_flight(
             scenario_manifest_hash or "", "scenario_manifest_hash"
         )
     terminal_landed_at: float | None = None
-    started = time.monotonic()
+    loop_timing = MissionLoopTiming(_mission_clock_identity(collector))
+    phase_positions = MissionPositionCapture()
+    phase_dynamics = MissionDynamicsCapture()
+    previous_shadow_end = None
+    started = _mission_now(collector)
+    if observation_buffers is not None:
+        observation_buffers.update(
+            positions=phase_positions,
+            dynamics=phase_dynamics,
+            origin=started,
+            host_clock_identity=_mission_clock_identity(collector),
+        )
     deadline = started + mission_timeout_s
-    while time.monotonic() < deadline:
+    while _mission_now(collector) < deadline:
+        pump_started = _mission_now(collector)
+        if previous_shadow_end is not None:
+            loop_timing.record("other", previous_shadow_end, pump_started)
         message = collector.pump(0.2)
-        observed_now_monotonic_s = time.monotonic()
+        observed_now_monotonic_s = _mission_now(collector)
+        loop_timing.record("pump", pump_started, observed_now_monotonic_s)
         now_elapsed = observed_now_monotonic_s - started
+        if shadow is not None:
+            shadow_clock.advance_to(now_elapsed)
+            if message is not None and message.get_type() in {
+                "MISSION_CURRENT",
+                "MISSION_ITEM_REACHED",
+                "HEARTBEAT",
+                "EXTENDED_SYS_STATE",
+            }:
+                event = {
+                    "message_type": message.get_type(),
+                    "source_system_id": message.get_srcSystem(),
+                    "source_component_id": message.get_srcComponent(),
+                }
+                for field in ("seq", "base_mode", "landed_state", "vtol_state"):
+                    if hasattr(message, field):
+                        event[field] = getattr(message, field)
+                accepted = shadow.ingest_message(event)
+                shadow_evidence["events"].append(
+                    {
+                        "received_at_s": now_elapsed,
+                        "message": event,
+                        "accepted": accepted,
+                    }
+                )
+            shadow_evidence["outcome"] = asdict(shadow.poll())
+            shadow_evidence["reconciliations"] = list(shadow.reconciliations)
+        previous_shadow_end = _mission_now(collector)
+        loop_timing.record("shadow", observed_now_monotonic_s, previous_shadow_end)
         if message is not None:
             message_type = str(message.get_type())
+            phase_dynamics.record(message, now_elapsed)
             if message_type in {
                 "HEARTBEAT",
                 "GLOBAL_POSITION_INT",
@@ -1092,6 +2143,8 @@ def observe_mission_flight(
                 "MISSION_ITEM_REACHED",
             }:
                 _require_px4_source(message, message_type)
+            if message_type == "GLOBAL_POSITION_INT":
+                phase_positions.record(message, now_elapsed)
             if message_type == "MISSION_CURRENT":
                 sequence = int(message.seq)
                 if 0 <= sequence < item_count and sequence not in current_sequences:
@@ -1135,7 +2188,7 @@ def observe_mission_flight(
             and collector.last_landed_state == mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND
         ):
             landed_observed = True
-            terminal_landed_at = terminal_landed_at or time.monotonic()
+            terminal_landed_at = terminal_landed_at or _mission_now(collector)
         armed = bool(
             collector.last_heartbeat
             and int(collector.last_heartbeat["base_mode"])
@@ -1186,6 +2239,7 @@ def observe_mission_flight(
                 "container_id": container_id,
                 "transaction_state": transaction_state,
                 "auto_mission_confirmed": True,
+                "host_clock_identity": _mission_clock_identity(collector),
                 "auto_mission_active": auto_mission_active,
                 "auto_mission_custom_mode": PX4_AUTO_MISSION_CUSTOM_MODE,
                 "armed_after_permit": armed,
@@ -1254,13 +2308,20 @@ def observe_mission_flight(
             # serialized in the ready marker. Keep the in-memory comparison
             # value identical to that six-decimal contract value; otherwise a
             # round-down by less than one microsecond can reject an exact echo.
-            flight_capture_ready_monotonic_s = round(time.monotonic(), 6)
+            flight_capture_ready_monotonic_s = round(_mission_now(collector), 6)
+            if flight_capture_deadline_s is not None:
+                flight_capture_deadline_monotonic_s = round(
+                    flight_capture_ready_monotonic_s + float(flight_capture_deadline_s),
+                    6,
+                )
             flight_capture_payload = {
                 "schema": "multidetect.px4-vtol-flight-capture-ready",
                 "schema_version": 1,
                 "generated_at_utc": _utc_now(),
-                "captured_at_clock": "host_monotonic",
+                "captured_at_clock": _mission_clock_label(collector),
+                "host_clock_identity": _mission_clock_identity(collector),
                 "captured_at_monotonic_s": flight_capture_ready_monotonic_s,
+                "capture_deadline_monotonic_s": flight_capture_deadline_monotonic_s,
                 "container": {
                     "id": container_id,
                     "exact_id_bound": True,
@@ -1289,6 +2350,7 @@ def observe_mission_flight(
                         "current_sequences": list(current_sequences),
                         "reached_sequences": list(reached_sequences),
                     },
+                    "capture_deadline_monotonic_s": flight_capture_deadline_monotonic_s,
                     "telemetry_fresh": True,
                     "maximum_telemetry_age_s": MAXIMUM_FLIGHT_STATE_AGE_S,
                     "telemetry_ages_s": {
@@ -1302,6 +2364,15 @@ def observe_mission_flight(
                 "real_jetson_contacted": False,
                 "real_camera_contacted": False,
             }
+            if flight_capture_binding is not None:
+                flight_capture_payload["task_binding"] = {
+                    "task_id": flight_capture_binding["task_id"],
+                    "plan_sha256": flight_capture_binding["plan_sha256"],
+                    "executable_mission_sha256": flight_capture_binding[
+                        "executable_mission_sha256"
+                    ],
+                    "wire_hash": flight_capture_binding["wire_hash"],
+                }
             _atomic_write_json(
                 flight_capture_ready_file,
                 flight_capture_payload,
@@ -1310,7 +2381,7 @@ def observe_mission_flight(
             flight_capture_ready_written = True
 
         if flight_capture_ready_written and not flight_capture_complete_observed:
-            sample_monotonic_s = time.monotonic()
+            sample_monotonic_s = _mission_now(collector)
             interval_state_valid = bool(
                 auto_mission_active
                 and armed
@@ -1320,7 +2391,8 @@ def observe_mission_flight(
             )
             flight_capture_interval_samples.append(
                 {
-                    "captured_at_clock": "host_monotonic",
+                    "captured_at_clock": _mission_clock_label(collector),
+                    "host_clock_identity": _mission_clock_identity(collector),
                     "captured_at_monotonic_s": round(sample_monotonic_s, 6),
                     "auto_mission_active": auto_mission_active,
                     "armed": armed,
@@ -1342,6 +2414,17 @@ def observe_mission_flight(
             )
             if not interval_state_valid:
                 flight_capture_interval_violation = True
+            # Retain a bounded failure witness even if this observer raises
+            # before returning its normal flight report. Do not infer a root
+            # cause from a stale state; retain the ages and actual flags.
+            diagnostics["status"] = "capture_observed"
+            diagnostics["sample_count"] += 1
+            diagnostics["last_sample"] = dict(flight_capture_interval_samples[-1])
+            if not interval_state_valid:
+                diagnostics["invalid_sample_count"] += 1
+                if diagnostics["first_invalid_sample"] is None:
+                    diagnostics["first_invalid_sample"] = dict(flight_capture_interval_samples[-1])
+                    diagnostics["loop_timing_at_first_invalid"] = loop_timing.snapshot()
             if flight_capture_complete_file is not None and flight_capture_complete_file.is_file():
                 try:
                     marker_value = json.loads(
@@ -1363,6 +2446,13 @@ def observe_mission_flight(
                         committed_protocol_sha256=flight_capture_protocol_hash or "",
                         scenario_id=scenario_id or "",
                         scenario_manifest_hash=scenario_manifest_hash or "",
+                        host_clock_identity=(
+                            _mission_clock_identity(collector)
+                            if _mission_clock_label(collector) == "host_perf_counter"
+                            else None
+                        ),
+                        expected_task_binding=flight_capture_binding,
+                        capture_deadline_monotonic_s=flight_capture_deadline_monotonic_s,
                     )
                     if not interval_state_valid or flight_capture_interval_violation:
                         raise VtolMissionAcceptanceError(
@@ -1380,6 +2470,17 @@ def observe_mission_flight(
                     VtolMissionAcceptanceError,
                 ) as exc:
                     flight_capture_complete_last_error = f"{type(exc).__name__}: {exc}"
+                    diagnostics["last_marker_error"] = flight_capture_complete_last_error
+
+            if (
+                flight_capture_ready_written
+                and not flight_capture_complete_observed
+                and flight_capture_deadline_monotonic_s is not None
+                and _mission_now(collector) > flight_capture_deadline_monotonic_s
+            ):
+                raise VtolMissionAcceptanceError(
+                    "flight-capture completion deadline exceeded before a valid marker"
+                )
 
         terminal_item_reached = item_count - 1 in reached_sequences
         terminal_item_current = item_count - 1 in current_sequences
@@ -1389,7 +2490,7 @@ def observe_mission_flight(
             and armed
             and terminal_landed_at is not None
             and not terminal_disarm_command_sent
-            and time.monotonic() - terminal_landed_at >= 8.0
+            and _mission_now(collector) - terminal_landed_at >= 8.0
         ):
             result = _send_command_long_exact(
                 collector,
@@ -1453,8 +2554,22 @@ def observe_mission_flight(
                 raise VtolMissionAcceptanceError(
                     "vehicle left current FW/armed/in-air/AUTO.MISSION state during capture"
                 )
+            loop_timing.record("other", previous_shadow_end, _mission_now(collector))
+            post_observation, tail_evidence = collect_terminal_observation_tail(
+                collector, completed_at_s=observed_now_monotonic_s
+            )
             return {
                 "auto_mission_confirmed": True,
+                "host_clock_identity": _mission_clock_identity(collector),
+                "observer_origin_host_monotonic_s": started,
+                "loop_timing": loop_timing.snapshot(),
+                "phase_position_observations": phase_positions.snapshot(),
+                "phase_dynamics_observations": phase_dynamics.snapshot(),
+                "trajectory_tracking_quality_proven": False,
+                "acceptance_scope": "mission_lifecycle_and_capture_not_tracking_error_bounds",
+                "completed_host_monotonic_s": observed_now_monotonic_s,
+                "post_mission_observation": post_observation,
+                "post_terminal_tail": tail_evidence,
                 "armed_after_permit": True,
                 "mission_current_sequences": current_sequences,
                 "mission_item_reached_sequences": reached_sequences,
@@ -1482,6 +2597,11 @@ def observe_mission_flight(
                 "flight_capture_complete_file_sha256": flight_capture_complete_file_sha256,
                 "flight_capture_complete_document": flight_capture_complete_document,
                 "flight_capture_complete_checks": flight_capture_complete_checks,
+                "flight_capture_deadline_s": flight_capture_deadline_s,
+                "flight_capture_deadline_monotonic_s": flight_capture_deadline_monotonic_s,
+                "flight_capture_binding": (
+                    dict(flight_capture_binding) if flight_capture_binding is not None else None
+                ),
                 "flight_capture_interval_state_source": "live MAVLink state observer",
                 "flight_capture_interval_samples": flight_capture_interval_samples,
                 "flight_capture_interval_sample_count": len(flight_capture_interval_samples),
@@ -1494,6 +2614,9 @@ def observe_mission_flight(
                 ),
                 "duration_s": round(now_elapsed, 6),
             }
+    if shadow is not None:
+        shadow_clock.advance_to(max(mission_timeout_s, _mission_now(collector) - started))
+        shadow_evidence["outcome"] = asdict(shadow.poll())
     raise VtolMissionAcceptanceError(
         "VTOL mission did not prove progress, movement, flight, FW/MC, VTOL_LAND, and disarm "
         f"within {mission_timeout_s:.1f}s"
@@ -1571,9 +2694,29 @@ def run_mission_acceptance(
     acknowledge_owned_disposable_sitl: bool,
     flight_capture_ready_file: Path | None = None,
     flight_capture_complete_file: Path | None = None,
+    flight_capture_binding_file: Path | None = None,
+    flight_capture_deadline_s: float | None = None,
+    telemetry_session: MissionTelemetrySession | None = None,
+    selection_provider: Callable[[ContextSnapshot], SelectedMissionInputs] | None = None,
+    reference_profile: str = "lifecycle-smoke",
+    sensor_transport_binding: Mapping[str, Any] | None = None,
+    original_prompt: PromptEnvelope | None = None,
+    require_original_prompt: bool = False,
 ) -> dict[str, Any]:
     """Execute and evidence the real attached PX4/Gazebo VTOL mission gate."""
 
+    if reference_profile not in ("lifecycle-smoke", "fixed-wing-response"):
+        raise VtolMissionAcceptanceError("unknown mission reference profile")
+    if selection_provider is not None and reference_profile != "lifecycle-smoke":
+        raise VtolMissionAcceptanceError("reference profile cannot override selected campaign")
+    if sensor_transport_binding is not None and not isinstance(
+        sensor_transport_binding, Mapping
+    ):
+        raise VtolMissionAcceptanceError("sensor_transport_binding must be a mapping")
+    if original_prompt is not None and not isinstance(original_prompt, PromptEnvelope):
+        raise VtolMissionAcceptanceError("original_prompt must be a PromptEnvelope")
+    if require_original_prompt and original_prompt is None and selection_provider is None:
+        raise VtolMissionAcceptanceError("original_prompt is required")
     if not acknowledge_owned_disposable_sitl:
         raise VtolMissionAcceptanceError(
             "--acknowledge-owned-disposable-sitl is required for the evaluator writer"
@@ -1583,7 +2726,15 @@ def run_mission_acceptance(
             "evaluator port must be in 1024..65535 and cannot be protected UDP 14550"
         )
     if not 10.0 <= mission_timeout_s <= MAXIMUM_MISSION_TIMEOUT_S:
-        raise VtolMissionAcceptanceError("mission timeout must be in 10..600 seconds")
+        raise VtolMissionAcceptanceError("mission timeout must be in 10..700 seconds")
+    if flight_capture_deadline_s is not None and (
+        isinstance(flight_capture_deadline_s, bool)
+        or not math.isfinite(float(flight_capture_deadline_s))
+        or not 1.0 <= float(flight_capture_deadline_s) <= 300.0
+    ):
+        raise VtolMissionAcceptanceError(
+            "flight capture deadline must be between 1 and 300 seconds"
+        )
     if (source_system, source_component) != (GCS_SOURCE_SYSTEM, GCS_SOURCE_COMPONENT):
         raise VtolMissionAcceptanceError(
             "mission evaluator requires the exact bound MAVLink identity 250/191"
@@ -1592,15 +2743,36 @@ def run_mission_acceptance(
     descriptor_hash = _require_sha256(runtime_descriptor_sha256, "runtime_descriptor_sha256")
     provenance_hash = _require_sha256(runtime_provenance_sha256, "runtime_provenance_sha256")
     source = manifest_path.resolve(strict=True)
+    if evidence_path.exists():
+        raise VtolMissionAcceptanceError(f"mission evidence already exists: {evidence_path}")
     # This is the sole scenario loader imported by this adapter.  It verifies
     # and reads runtime_input only; evaluator truth and expectations stay closed.
-    runtime_input = load_runtime_scenario(source, mode=RuntimeMode.SIM)
+    if telemetry_session is not None:
+        if (
+            telemetry_session.closed
+            or telemetry_session.failed
+            or telemetry_session.active
+            or telemetry_session.container_id != expected_container_id
+            or telemetry_session.endpoint != f"udpin:127.0.0.1:{evaluator_port}"
+        ):
+            raise VtolMissionAcceptanceError("invalid reused session before preflight")
+        runtime_input = _prepare_while_collecting(
+            telemetry_session.collector, load_runtime_scenario, source, mode=RuntimeMode.SIM
+        )
+    else:
+        runtime_input = load_runtime_scenario(source, mode=RuntimeMode.SIM)
     if runtime_input.vehicle.model != "px4_vtol_standard":
         raise VtolMissionAcceptanceError("mission gate requires px4_vtol_standard")
     # Inspect and operate on the immutable ID supplied by the lifecycle owner.
     # The human-readable name remains an independently validated metadata
     # field, never the execution authority after ownership is established.
-    record = _container_inspect(docker, expected_container_id)
+    record = (
+        _container_inspect(docker, expected_container_id)
+        if telemetry_session is None
+        else _prepare_while_collecting(
+            telemetry_session.collector, _container_inspect, docker, expected_container_id
+        )
+    )
     ownership_checks = validate_owned_container_record(
         record,
         container_name=container_name,
@@ -1612,6 +2784,17 @@ def run_mission_acceptance(
         flight_capture_ready_file,
         flight_capture_complete_file,
     )
+    flight_capture_binding: dict[str, Any] | None = None
+    flight_capture_binding_path: Path | None = None
+    if flight_capture_binding_file is not None:
+        # A selected campaign creates this descriptor inside its selection
+        # callback.  Resolve the destination during preflight, but defer the
+        # read until the callback has produced and atomically sealed it below.
+        flight_capture_binding_path = flight_capture_binding_file.resolve()
+    elif flight_capture_deadline_s is not None:
+        raise VtolMissionAcceptanceError(
+            "flight capture deadline requires a task binding descriptor"
+        )
     resolved_journal_path = (
         (evidence_path.parent / f"{evidence_path.stem}.mission.jsonl")
         if mission_journal_path is None
@@ -1625,17 +2808,26 @@ def run_mission_acceptance(
     endpoint = f"udpin:127.0.0.1:{evaluator_port}"
     connection: Any | None = None
     collector: TelemetryCollector | None = None
+    session_acquired = False
     documents: AcceptanceDocuments | None = None
     transaction: Any | None = None
     mission_journal: DurableMissionJournal | None = None
     transaction_events: list[dict[str, Any]] = []
     control_command_events: list[dict[str, Any]] = []
     parameter_overrides: dict[str, Any] = {}
+    dynamics_parameter_observations: dict[str, Any] = {}
+    observation_buffers: dict[str, Any] = {}
     protocol: dict[str, Any] = {
         "upload_acknowledged": False,
         "readback_hash_match": False,
         "mission_item_count": 0,
     }
+    outcome_evidence: dict[str, Any] = {"mode": "not_started", "affects_acceptance_gate": False}
+    capture_diagnostics: dict[str, Any] = {
+        "status": "not_started",
+        "affects_acceptance_gate": False,
+    }
+    arm_request_host_monotonic_s: float | None = None
     flight: dict[str, Any] = {
         "auto_mission_confirmed": False,
         "armed_after_permit": False,
@@ -1664,15 +2856,36 @@ def run_mission_acceptance(
     }
     live_context: dict[str, Any] | None = None
     failure: str | None = None
-    started_at = time.monotonic()
+    selection_rejection: dict[str, Any] | None = None
+    planning_energy_input: dict[str, Any] | None = None
+    projected_energy_evidence: dict[str, Any] | None = None
+    gate_passed = False
+    started_at = _mission_now(collector)
     try:
-        connection = mavutil.mavlink_connection(
-            endpoint,
-            source_system=source_system,
-            source_component=source_component,
-            autoreconnect=False,
-        )
-        collector = TelemetryCollector(connection)
+        if telemetry_session is None:
+            connection = mavutil.mavlink_connection(
+                endpoint,
+                source_system=source_system,
+                source_component=source_component,
+                autoreconnect=False,
+            )
+            collector = TelemetryCollector(connection)
+        else:
+            telemetry_session.acquire(container_id=expected_container_id, endpoint=endpoint)
+            session_acquired = True
+            connection = telemetry_session.connection
+            collector = telemetry_session.collector
+        if _mission_clock_label(collector) != "host_monotonic":
+            started_at = _mission_now(collector)
+        if _mission_clock_label(collector) not in ("host_monotonic", "host_perf_counter") and any(
+            path is not None
+            for path in (
+                mission_active_ready_file,
+                flight_capture_ready_file,
+                flight_capture_complete_file,
+            )
+        ):
+            raise VtolMissionAcceptanceError("capture barriers require host clock domain migration")
         collector.wait_for_heartbeat(45.0)
         raw_heartbeat = (getattr(connection, "messages", {}) or {}).get("HEARTBEAT")
         if raw_heartbeat is None:
@@ -1680,10 +2893,18 @@ def run_mission_acceptance(
         _require_px4_source(raw_heartbeat, "HEARTBEAT")
         if int(getattr(connection, "target_system", 0)) != PX4_SYSTEM_ID:
             raise VtolMissionAcceptanceError("connected MAVLink vehicle identity is not PX4 1/1")
+        if (
+            telemetry_session is not None
+            and telemetry_session.energy_state is not None
+            and telemetry_session.missions_started == 1
+        ):
+            stream_port = owned_mavlink_control_port(record)
+            parameter_overrides.update(
+                configure_sim_state_streams(collector, docker, expected_container_id, stream_port)
+            )
         collector.wait_for_gps_fix(25.0)
         collector.wait_for_navigation_settle()
         _wait_for_disarmed_ground_state(collector)
-        live_context = _collect_live_context(collector)
 
         # Test-only PX4 parameters are scoped to the exact owned disposable
         # container.  They do not traverse the product runtime or a hardware link.
@@ -1693,7 +2914,9 @@ def run_mission_acceptance(
             ("CBRK_VTOLARMING", "22027"),
             ("NAV_DLL_ACT", "0"),
         ):
-            result = _run(
+            result = _prepare_while_collecting(
+                collector,
+                _run,
                 docker,
                 [
                     "exec",
@@ -1712,8 +2935,46 @@ def run_mission_acceptance(
                 "scope": "exact owned disposable combined PX4/Gazebo SITL only",
             }
 
+        dynamics_parameter_observations = read_sim_dynamics_parameters(
+            collector, docker, expected_container_id
+        )
+        live_context = _collect_live_context(collector)
         now_utc = datetime.now(timezone.utc)
-        documents = build_acceptance_documents(
+        planning_home = None
+        if telemetry_session is not None:
+            planning_home = telemetry_session.bind_planning_home(
+                GeoPoint(live_context["latitude_deg"], live_context["longitude_deg"])
+            )
+        energy_projection = None
+        if telemetry_session is not None and telemetry_session.energy_state is not None:
+            energy_history = _mission_observation(collector)["energy_input_history"]
+
+            class ReceiveClock:
+                def monotonic(self):
+                    return collector.elapsed_s
+
+                def utc_now(self):
+                    return datetime.now(timezone.utc)
+
+            def energy_projection(context):
+                nonlocal planning_energy_input, projected_energy_evidence
+                planning_energy_input = {
+                    "history": energy_history,
+                    "input_context": context.to_mapping(),
+                }
+                projected, energy = telemetry_session.energy_state.project_context(
+                    context,
+                    energy_history,
+                    session_id=expected_container_id,
+                    clock=ReceiveClock(),
+                    runtime_mode=RuntimeMode.SIM,
+                )
+                projected_energy_evidence = energy
+                return projected, energy
+
+        documents = _prepare_while_collecting(
+            collector,
+            build_acceptance_documents,
             runtime_input=runtime_input,
             live_telemetry=live_context,
             container_id=expected_container_id,
@@ -1722,7 +2983,44 @@ def run_mission_acceptance(
             runtime_provenance_hash=provenance_hash,
             now_utc=now_utc,
             maximum_duration_s=mission_timeout_s,
+            reference_profile=reference_profile,
+            energy_projection=energy_projection,
+            planning_home=planning_home,
+            selection_provider=selection_provider,
+            receive_clock=lambda: collector.elapsed_s,
+            original_prompt=original_prompt,
+            require_original_prompt=require_original_prompt,
         )
+        if flight_capture_binding_path is not None:
+            try:
+                raw_binding = json.loads(
+                    flight_capture_binding_path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise VtolMissionAcceptanceError(
+                    "flight-capture binding descriptor is unreadable: "
+                    f"{flight_capture_binding_path}"
+                ) from exc
+            if not isinstance(raw_binding, dict):
+                raise VtolMissionAcceptanceError(
+                    "flight-capture binding descriptor must be one JSON object"
+                )
+            validate_flight_capture_binding_descriptor(raw_binding)
+            expected_binding = {
+                "task_id": documents.task_spec.task_id,
+                "context_sha256": documents.context.canonical_hash,
+                "plan_sha256": documents.plan.canonical_hash,
+                "executable_mission_sha256": (
+                    documents.compiled.executable_mission.canonical_hash
+                ),
+                "wire_hash": documents.compiled.wire_hash,
+                "airframe_profile_sha256": airframe_hash,
+            }
+            if any(raw_binding.get(key) != value for key, value in expected_binding.items()):
+                raise VtolMissionAcceptanceError(
+                    "flight-capture binding descriptor does not match selected mission"
+                )
+            flight_capture_binding = raw_binding
         transaction = Px4MissionTransaction(
             transaction_id=documents.operator_grant.transaction_id,
             compiled=documents.compiled,
@@ -1738,28 +3036,51 @@ def run_mission_acceptance(
         )
         transaction = PersistentPx4MissionTransaction(transaction, mission_journal)
         transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
         )
         upload_plan = transaction.begin_upload()
         transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
         )
-        upload_evidence = upload_int_only_mission(connection, transaction, upload_plan)
-        transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+        upload_evidence = upload_int_only_mission(
+            connection, transaction, upload_plan, receive=collector.pump, collector=collector
         )
-        readback_evidence = readback_int_only_mission(connection, transaction, upload_plan)
         transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
+        )
+        readback_evidence = readback_int_only_mission(
+            connection, transaction, upload_plan, receive=collector.pump, collector=collector
+        )
+        transaction_events.append(
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
         )
         committed_hash = transaction.commit()
         transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
         )
         permit = transaction.permit_start()
         transaction_events.append(
-            {"state": transaction.state.value, "at_s": round(time.monotonic() - started_at, 6)}
+            {
+                "state": transaction.state.value,
+                "at_s": round(_mission_now(collector) - started_at, 6),
+            }
         )
+        cursor_reset = None
         protocol = {
             "upload_acknowledged": bool(upload_evidence["acknowledged"]),
             "readback_hash_match": bool(readback_evidence["hash_match"]),
@@ -1769,6 +3090,7 @@ def run_mission_acceptance(
             "uploaded_protocol_sha256": upload_plan.protocol_hash,
             "readback_protocol_sha256": readback_evidence["readback_protocol_sha256"],
             "committed_protocol_sha256": committed_hash,
+            "cursor_reset": cursor_reset,
             "request_sequences": upload_evidence["request_sequences"],
             "request_message_types": upload_evidence["request_message_types"],
             "upload_ignored_foreign_target_messages": upload_evidence[
@@ -1785,6 +3107,20 @@ def run_mission_acceptance(
         # Exact mode first, then ARM; both are downstream of permit_start.
         connection.mav.set_mode_send(*permit.to_set_mode_args())
         mode_evidence = _wait_for_exact_auto_mission(collector)
+        if telemetry_session is not None and telemetry_session.missions_started > 1:
+            # A reused PX4 container may restore the previous mission cursor
+            # while processing readback/commit.  Reset only after commit and
+            # mode confirmation, immediately before ARM, so this sortie starts
+            # at sequence zero instead of hovering on a stale cursor.
+            reset_uploaded_mission_current(collector)
+            cursor_reset = {
+                "message": "MISSION_SET_CURRENT",
+                "sequence": 0,
+                "confirmed": True,
+                "landed_disarmed_required": True,
+                "after_commit_and_mode_before_arm": True,
+            }
+            protocol["cursor_reset"] = cursor_reset
         control_command_events.append(
             {
                 "message": "SET_MODE",
@@ -1796,6 +3132,7 @@ def run_mission_acceptance(
             }
         )
         flight["auto_mission_confirmed"] = True
+        arm_request_host_monotonic_s = _mission_now(collector)
         arm_result = _send_command_long_exact(
             collector,
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
@@ -1816,6 +3153,10 @@ def run_mission_acceptance(
         flight["armed_after_permit"] = True
         flight = observe_mission_flight(
             collector,
+            executable_mission=documents.compiled.executable_mission,
+            outcome_evidence=outcome_evidence,
+            capture_diagnostics=capture_diagnostics,
+            observation_buffers=observation_buffers,
             item_count=upload_plan.item_count,
             home_latitude_deg=float(live_context["latitude_deg"]),
             home_longitude_deg=float(live_context["longitude_deg"]),
@@ -1830,6 +3171,8 @@ def run_mission_acceptance(
             committed_protocol_sha256=committed_hash,
             scenario_id=runtime_input.scenario_id,
             scenario_manifest_hash=runtime_input.scenario_manifest_hash,
+            flight_capture_binding=flight_capture_binding,
+            flight_capture_deadline_s=flight_capture_deadline_s,
         )
         flight["mode_confirmation"] = mode_evidence
         if transaction.state is not MissionTransactionState.START_PERMITTED:
@@ -1854,9 +3197,13 @@ def run_mission_acceptance(
         gate_passed = True
     except Exception as exc:  # noqa: BLE001 - evidence every fail-closed adapter error
         failure = f"{type(exc).__name__}: {exc}"
+        if isinstance(exc, TaskSelectionRejected):
+            selection_rejection = exc.evidence
         gate_passed = False
     finally:
-        if connection is not None:
+        if telemetry_session is not None and session_acquired and not gate_passed:
+            telemetry_session.release(succeeded=False)
+        if connection is not None and telemetry_session is None:
             try:
                 connection.close()
             except Exception:
@@ -1874,16 +3221,72 @@ def run_mission_acceptance(
         transaction_events.append(
             {
                 "state": transaction.state.value,
-                "at_s": round(time.monotonic() - started_at, 6),
+                "at_s": round(_mission_now(collector) - started_at, 6),
                 "failure_transition": True,
             }
         )
+    mission_receive_window = _mission_receive_window(
+        collector.started if collector is not None else None,
+        arm_request_host_monotonic_s,
+        flight.get("completed_host_monotonic_s"),
+        collector=collector,
+    )
+    mission_energy_window = None
+    profile = (
+        getattr(getattr(telemetry_session, "energy_state", None), "profile", None)
+        if telemetry_session is not None
+        else None
+    )
+    if profile is not None:
+        try:
+            provisional = {
+                "flight": flight,
+                "mission_receive_window": mission_receive_window,
+            }
+            mission_energy_window = audit_mission_energy_window(provisional, profile)
+            for key in (
+                "window_energy_wh",
+                "window_energy_method",
+                "full_mission_energy_claimed",
+                "full_mission_energy_semantics",
+                "authorizes_next_task",
+            ):
+                mission_receive_window[key] = mission_energy_window.get(key)
+        except (KeyError, TypeError, ValueError) as exc:
+            mission_energy_window = {
+                "schema_version": 1,
+                "available": False,
+                "reason": f"energy_window_audit_failed:{type(exc).__name__}:{exc}",
+                "full_mission_energy_claimed": False,
+                "authorizes_next_task": False,
+            }
+            mission_receive_window.update(
+                {
+                    "window_energy_wh": None,
+                    "window_energy_method": None,
+                    "full_mission_energy_claimed": False,
+                    "full_mission_energy_semantics": None,
+                    "authorizes_next_task": False,
+                }
+            )
+    bound_sensor_transport: dict[str, Any] | None = None
+    if sensor_transport_binding is not None:
+        try:
+            bound_sensor_transport = _validate_sensor_transport_binding_window(
+                sensor_transport_binding,
+                mission_receive_window,
+            )
+        except (TypeError, ValueError) as exc:
+            gate_passed = False
+            failure = f"sensor_transport_binding_invalid: {exc}"
     payload: dict[str, Any] = {
         "schema": "multidetect.px4-vtol-sitl-mission-acceptance",
         "schema_version": 1,
         "generated_at_utc": _utc_now(),
         "gate_passed": gate_passed,
         "failure": failure,
+        "selection_rejection": selection_rejection,
+        "sensor_transport": bound_sensor_transport,
         "release_status": RELEASE_STATUS,
         "scenario": {
             "manifest": str(source),
@@ -1894,6 +3297,7 @@ def run_mission_acceptance(
             "truth_loaded_by_runtime": False,
             "expectations_loaded_by_runtime": False,
             "mission_geometry_source": "qualified live GPS home plus bounded offsets",
+            "reference_profile": reference_profile,
         },
         "container": {
             "name": container_name,
@@ -1905,6 +3309,10 @@ def run_mission_acceptance(
             "stopped_by_this_helper": False,
         },
         "live_context": live_context,
+        "planning_energy": (
+            documents.energy_evidence if documents is not None else projected_energy_evidence
+        ),
+        "planning_energy_input": planning_energy_input,
         "documents": _document_evidence(documents) if documents is not None else None,
         "transaction": {
             "id": (documents.operator_grant.transaction_id if documents is not None else None),
@@ -1945,6 +3353,20 @@ def run_mission_acceptance(
         ),
         "protocol": protocol,
         "flight": flight,
+        "flight_capture_diagnostics": capture_diagnostics,
+        "failed_observer_capture": snapshot_failed_observer(observation_buffers)
+        if not gate_passed
+        else None,
+        "telemetry_session": {
+            "externally_owned": telemetry_session is not None,
+            "mission_number": telemetry_session.missions_started if session_acquired else None,
+            "reuse_failed": telemetry_session.failed if telemetry_session is not None else None,
+            "collector_origin_host_monotonic_s": collector.started if collector else None,
+            "connection_closed_by_mission": telemetry_session is None,
+        },
+        "mission_receive_window": mission_receive_window,
+        "mission_energy_window": mission_energy_window,
+        "shared_outcome_shadow": outcome_evidence,
         "mavlink": {
             "endpoint": endpoint,
             "loopback_only": True,
@@ -1957,6 +3379,7 @@ def run_mission_acceptance(
             "channel": "test-only combined-SIM evaluator",
         },
         "parameter_overrides": parameter_overrides,
+        "dynamics_parameter_observations": dynamics_parameter_observations,
         "safety": {
             "operator_visual_acceptance": "not_claimed",
             "qgc_fly_view_visual_acceptance": "not_claimed",
@@ -1974,8 +3397,11 @@ def run_mission_acceptance(
         },
         "telemetry_tail": collector.messages[-300:] if collector is not None else [],
     }
-    _atomic_write_json(evidence_path, payload, overwrite=False)
-    print(json.dumps(payload, sort_keys=True))
+    if telemetry_session is not None and session_acquired and gate_passed:
+        telemetry_session.publish_completed(evidence_path, payload)
+    else:
+        _atomic_write_json(evidence_path, payload, overwrite=False)
+        print(json.dumps(payload, sort_keys=True))
     if not gate_passed:
         raise SystemExit(1)
     return payload
@@ -2013,6 +3439,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--mission-active-ready-file", type=Path)
     parser.add_argument("--flight-capture-ready-file", type=Path)
     parser.add_argument("--flight-capture-complete-file", type=Path)
+    parser.add_argument("--flight-capture-binding-file", type=Path)
+    parser.add_argument("--flight-capture-deadline-seconds", type=float)
     parser.add_argument(
         "--docker",
         help="exact Docker CLI selected by the parent lifecycle owner",
@@ -2023,17 +3451,90 @@ def _parser() -> argparse.ArgumentParser:
         help="path for the append-only PX4 Mission transaction journal",
     )
     parser.add_argument("--mission-timeout-seconds", type=float, default=DEFAULT_MISSION_TIMEOUT_S)
+    parser.add_argument(
+        "--reference-profile",
+        choices=("lifecycle-smoke", "fixed-wing-response"),
+        default="lifecycle-smoke",
+    )
     parser.add_argument("--source-system", type=int, default=GCS_SOURCE_SYSTEM)
     parser.add_argument("--source-component", type=int, default=GCS_SOURCE_COMPONENT)
     parser.add_argument("--acknowledge-owned-disposable-sitl", action="store_true")
+    parser.add_argument("--energy-capacity-wh", type=float)
+    parser.add_argument("--energy-avionics-power-w", type=float)
+    parser.add_argument("--energy-propulsion-max-power-w", type=float)
+    parser.add_argument("--energy-initial-remaining-wh", type=float)
+    parser.add_argument("--energy-provenance")
+    parser.add_argument("--host-clock", choices=("monotonic", "perf_counter"), default="monotonic")
+    parser.add_argument("--host-clock-session-id")
     return parser
 
 
+def _cli_host_clock(args: argparse.Namespace, parser: argparse.ArgumentParser):
+    """Validate new-domain options before opening a telemetry connection."""
+    from multidetect.clock import validate_host_identity
+
+    if args.host_clock == "monotonic":
+        if args.host_clock_session_id is not None:
+            parser.error("--host-clock-session-id requires --host-clock perf_counter")
+        return None
+    if not args.acknowledge_owned_disposable_sitl:
+        parser.error("explicit owned disposable SITL acknowledgement required")
+    if args.host_clock_session_id is None:
+        parser.error("perf_counter requires explicit --host-clock-session-id")
+    try:
+        clock = HighResolutionSystemClock(session_id=args.host_clock_session_id)
+        validate_host_identity(clock.identity())
+    except (ValueError, TypeError) as exc:
+        parser.error(str(exc))
+    return clock
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    run_mission_acceptance(
-        args.scenario_manifest.resolve(),
-        args.evidence.resolve(),
+    parser = _parser()
+    args = parser.parse_args(argv)
+    clock = _cli_host_clock(args, parser)
+    profile = None
+    values = (
+        args.energy_capacity_wh,
+        args.energy_avionics_power_w,
+        args.energy_propulsion_max_power_w,
+        args.energy_initial_remaining_wh,
+        args.energy_provenance,
+    )
+    if any(value is not None for value in values):
+        if any(value is None for value in values):
+            parser.error("all five --energy-* options must be supplied together")
+        if not args.acknowledge_owned_disposable_sitl:
+            parser.error("explicit owned disposable SITL acknowledgement required")
+        profile = SimulationEnergyProfile(
+            capacity_wh=args.energy_capacity_wh,
+            avionics_power_w=args.energy_avionics_power_w,
+            propulsion_max_power_w=args.energy_propulsion_max_power_w,
+            provenance=args.energy_provenance,
+        )
+    if profile is not None or clock is not None:
+        with MissionTelemetrySession(
+            container_id=args.expected_container_id,
+            evaluator_port=args.evaluator_port,
+            energy_profile=profile,
+            initial_remaining_wh=args.energy_initial_remaining_wh,
+            **({"clock": clock} if clock is not None else {}),
+        ) as session:
+            return _run_cli(args, telemetry_session=session)
+    return _run_cli(args)
+
+
+def _run_cli(
+    args: argparse.Namespace, *, telemetry_session: MissionTelemetrySession | None = None
+) -> int:
+    run_mission_acceptance(**_mission_cli_options(args), telemetry_session=telemetry_session)
+    return 0
+
+
+def _mission_cli_options(args: argparse.Namespace) -> dict[str, Any]:
+    return dict(
+        manifest_path=args.scenario_manifest.resolve(),
+        evidence_path=args.evidence.resolve(),
         docker=_resolve_docker_cli(args.docker),
         container_name=args.container_name,
         expected_container_id=args.expected_container_id,
@@ -2057,15 +3558,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.flight_capture_complete_file is not None
             else None
         ),
+        flight_capture_binding_file=(
+            args.flight_capture_binding_file.resolve()
+            if args.flight_capture_binding_file is not None
+            else None
+        ),
+        flight_capture_deadline_s=args.flight_capture_deadline_seconds,
         mission_journal_path=(
             args.mission_journal.resolve() if args.mission_journal is not None else None
         ),
         mission_timeout_s=args.mission_timeout_seconds,
+        reference_profile=args.reference_profile,
         source_system=args.source_system,
         source_component=args.source_component,
         acknowledge_owned_disposable_sitl=args.acknowledge_owned_disposable_sitl,
     )
-    return 0
 
 
 if __name__ == "__main__":
