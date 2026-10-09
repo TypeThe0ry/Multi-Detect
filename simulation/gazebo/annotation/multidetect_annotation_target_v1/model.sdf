@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <!--
+    The label plugin is deliberately confined to this capture-only wrapper.
+    It provides class/instance IDs to Gazebo annotation sensors and is not a
+    runtime perception input. RGB/depth/telemetry remain truth-free.
+  -->
+  <model name="multidetect_annotation_target_v1">
+    <include merge="true">
+      <uri>model://multidetect_search_target_v1</uri>
+    </include>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">
+      <label>42</label>
+    </plugin>
+  </model>
+</sdf>

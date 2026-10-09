@@ -13,6 +13,61 @@
       <child>camera_link</child>
       <pose relative_to="base_link">0.35 0 -0.02 0 0.6108652381980153 0</pose>
     </joint>
+    <!--
+      Co-located metric depth source.  Gazebo's camera frame looks along +X;
+      consumers that use an optical +Z convention must apply that explicit
+      frame transform before interpreting the R_FLOAT32 image.  This SDF does
+      not assert whether a depth scalar is optical-axis or ray-slant distance;
+      the transport contract must bind and normalize that semantics.
+    -->
+    <link name="depth_camera_link">
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+      <!--
+        This is a transport-only sensor fixture.  A fixed child link without
+        inertial data makes Gazebo assign a 1 kg default; even a realistic
+        camera mass changes the PX4 standard_vtol mass/inertia and can make
+        fixed-wing route tracking non-repeatable.  Keep the child effectively
+        massless so depth transport cannot silently change flight dynamics.
+      -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.000001</mass>
+        <inertia>
+          <ixx>0.000000001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000000001</iyy>
+          <iyz>0</iyz>
+          <izz>0.000000001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="depth_camera" type="depth_camera">
+        <gz_frame_id>depth_camera_link</gz_frame_id>
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.74</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>960</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>3000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+      </sensor>
+      <gravity>false</gravity>
+      <velocity_decay />
+    </link>
+    <joint name="DepthCameraJoint" type="fixed">
+      <parent>camera_link</parent>
+      <child>depth_camera_link</child>
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+    </joint>
     <plugin
       filename="gz-sim-odometry-publisher-system"
       name="gz::sim::systems::OdometryPublisher">

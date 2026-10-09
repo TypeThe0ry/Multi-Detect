@@ -276,5 +276,12 @@
         </visual>
       </link>
     </model>
+
+    <!-- Neutral structural target for RGB/Depth training; identity is not encoded in color. -->
+    <include>
+      <uri>model://multidetect_search_target_v1</uri>
+      <name>multidetect_search_target_coastal_001</name>
+      <pose>205 -70 0 0 0 0.15</pose>
+    </include>
   </world>
 </sdf>

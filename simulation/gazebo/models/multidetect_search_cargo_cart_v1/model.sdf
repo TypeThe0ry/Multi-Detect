@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!-- Low-poly development asset. Units: meters; +X front, +Y left, +Z up.
+       The local z=0 plane is the wheel contact plane. Static, no wheel actuation.
+       Solid primitives and collision geometry only; no billboard or external mesh.
+       Shape, material, model name and pose are not runtime task labels. -->
+  <model name="multidetect_search_cargo_cart_v1">
+    <static>true</static>
+    <pose>0 0 0 0 0 0</pose>
+    <link name="underframe">
+      <pose>0 0 0.45 0 0 0</pose>
+      <collision name="underframe_collision"><geometry><box><size>1.8 1.08 0.16</size></box></geometry></collision>
+      <visual name="underframe_visual">
+        <geometry><box><size>1.8 1.08 0.16</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="lower_shelf">
+      <pose>0 0 0.56 0 0 0</pose>
+      <collision name="lower_shelf_collision"><geometry><box><size>1.8 1.12 0.16</size></box></geometry></collision>
+      <visual name="lower_shelf_visual">
+        <geometry><box><size>1.8 1.12 0.16</size></box></geometry>
+        <material><ambient>0.56 0.61 0.65 1</ambient><diffuse>0.56 0.61 0.65 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_post_0_0">
+      <pose>-0.76 -0.5 1.18 0 0 0</pose>
+      <collision name="rack_post_0_0_collision"><geometry><box><size>0.08 0.08 1.08</size></box></geometry></collision>
+      <visual name="rack_post_0_0_visual">
+        <geometry><box><size>0.08 0.08 1.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_post_0_1">
+      <pose>-0.76 0.5 1.18 0 0 0</pose>
+      <collision name="rack_post_0_1_collision"><geometry><box><size>0.08 0.08 1.08</size></box></geometry></collision>
+      <visual name="rack_post_0_1_visual">
+        <geometry><box><size>0.08 0.08 1.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_post_1_0">
+      <pose>0.76 -0.5 1.18 0 0 0</pose>
+      <collision name="rack_post_1_0_collision"><geometry><box><size>0.08 0.08 1.08</size></box></geometry></collision>
+      <visual name="rack_post_1_0_visual">
+        <geometry><box><size>0.08 0.08 1.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_post_1_1">
+      <pose>0.76 0.5 1.18 0 0 0</pose>
+      <collision name="rack_post_1_1_collision"><geometry><box><size>0.08 0.08 1.08</size></box></geometry></collision>
+      <visual name="rack_post_1_1_visual">
+        <geometry><box><size>0.08 0.08 1.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="upper_shelf">
+      <pose>0 0 1.12 0 0 0</pose>
+      <collision name="upper_shelf_collision"><geometry><box><size>1.52 1 0.08</size></box></geometry></collision>
+      <visual name="upper_shelf_visual">
+        <geometry><box><size>1.52 1 0.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_left_top">
+      <pose>0 0.50 1.76 0 0 0</pose>
+      <collision name="rack_left_top_collision"><geometry><box><size>1.6 0.08 0.12</size></box></geometry></collision>
+      <visual name="rack_left_top_visual">
+        <geometry><box><size>1.6 0.08 0.12</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_right_top">
+      <pose>0 -0.50 1.76 0 0 0</pose>
+      <collision name="rack_right_top_collision"><geometry><box><size>1.6 0.08 0.12</size></box></geometry></collision>
+      <visual name="rack_right_top_visual">
+        <geometry><box><size>1.6 0.08 0.12</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_front_top">
+      <pose>0.76 0 1.76 0 0 0</pose>
+      <collision name="rack_front_top_collision"><geometry><box><size>0.08 1.08 0.12</size></box></geometry></collision>
+      <visual name="rack_front_top_visual">
+        <geometry><box><size>0.08 1.08 0.12</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rack_rear_top">
+      <pose>-0.76 0 1.76 0 0 0</pose>
+      <collision name="rack_rear_top_collision"><geometry><box><size>0.08 1.08 0.12</size></box></geometry></collision>
+      <visual name="rack_rear_top_visual">
+        <geometry><box><size>0.08 1.08 0.12</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="lower_crate_left">
+      <pose>-0.40 0.15 0.87 0 0 0</pose>
+      <collision name="lower_crate_left_collision"><geometry><box><size>0.6 0.55 0.46</size></box></geometry></collision>
+      <visual name="lower_crate_left_visual">
+        <geometry><box><size>0.6 0.55 0.46</size></box></geometry>
+        <material><ambient>0.54 0.42 0.28 1</ambient><diffuse>0.54 0.42 0.28 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="lower_crate_right">
+      <pose>0.35 -0.12 0.82 0 0 0</pose>
+      <collision name="lower_crate_right_collision"><geometry><box><size>0.54 0.56 0.36</size></box></geometry></collision>
+      <visual name="lower_crate_right_visual">
+        <geometry><box><size>0.54 0.56 0.36</size></box></geometry>
+        <material><ambient>0.54 0.42 0.28 1</ambient><diffuse>0.54 0.42 0.28 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="upper_parcel">
+      <pose>-0.15 0 1.33 0 0 0</pose>
+      <collision name="upper_parcel_collision"><geometry><box><size>0.82 0.7 0.34</size></box></geometry></collision>
+      <visual name="upper_parcel_visual">
+        <geometry><box><size>0.82 0.7 0.34</size></box></geometry>
+        <material><ambient>0.54 0.42 0.28 1</ambient><diffuse>0.54 0.42 0.28 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="handle_left_mount">
+      <pose>1.075 0.35 0.65 0 0 0</pose>
+      <collision name="handle_left_mount_collision"><geometry><box><size>0.45 0.08 0.08</size></box></geometry></collision>
+      <visual name="handle_left_mount_visual">
+        <geometry><box><size>0.45 0.08 0.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="handle_right_mount">
+      <pose>1.075 -0.35 0.65 0 0 0</pose>
+      <collision name="handle_right_mount_collision"><geometry><box><size>0.45 0.08 0.08</size></box></geometry></collision>
+      <visual name="handle_right_mount_visual">
+        <geometry><box><size>0.45 0.08 0.08</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="handle_left_post">
+      <pose>1.30 0.35 0.86 0 0 0</pose>
+      <collision name="handle_left_post_collision"><geometry><cylinder><radius>0.035</radius><length>0.38</length></cylinder></geometry></collision>
+      <visual name="handle_left_post_visual">
+        <geometry><cylinder><radius>0.035</radius><length>0.38</length></cylinder></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="handle_right_post">
+      <pose>1.30 -0.35 0.86 0 0 0</pose>
+      <collision name="handle_right_post_collision"><geometry><cylinder><radius>0.035</radius><length>0.38</length></cylinder></geometry></collision>
+      <visual name="handle_right_post_visual">
+        <geometry><cylinder><radius>0.035</radius><length>0.38</length></cylinder></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="handle_grip">
+      <pose>1.30 0 1.05 1.5707963267948966 0 0</pose>
+      <collision name="handle_grip_collision"><geometry><cylinder><radius>0.045</radius><length>0.8</length></cylinder></geometry></collision>
+      <visual name="handle_grip_visual">
+        <geometry><cylinder><radius>0.045</radius><length>0.8</length></cylinder></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_left_0">
+      <pose>-0.62 0.58 0.24 1.5707963267948966 0 0</pose>
+      <collision name="wheel_left_0_collision"><geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry></collision>
+      <visual name="wheel_left_0_visual">
+        <geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_right_0">
+      <pose>-0.62 -0.58 0.24 1.5707963267948966 0 0</pose>
+      <collision name="wheel_right_0_collision"><geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry></collision>
+      <visual name="wheel_right_0_visual">
+        <geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_left_1">
+      <pose>0.62 0.58 0.24 1.5707963267948966 0 0</pose>
+      <collision name="wheel_left_1_collision"><geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry></collision>
+      <visual name="wheel_left_1_visual">
+        <geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_right_1">
+      <pose>0.62 -0.58 0.24 1.5707963267948966 0 0</pose>
+      <collision name="wheel_right_1_collision"><geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry></collision>
+      <visual name="wheel_right_1_visual">
+        <geometry><cylinder><radius>0.24</radius><length>0.16</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+

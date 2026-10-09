@@ -173,5 +173,12 @@
         <visual name="canopy_c"><pose>32 145 6 0 0 0</pose><geometry><sphere><radius>3.8</radius></sphere></geometry><material><ambient>0.10 0.34 0.14 1</ambient><diffuse>0.15 0.50 0.20 1</diffuse></material></visual>
       </link>
     </model>
+
+    <!-- Neutral structural target for RGB/Depth training; identity is not encoded in color. -->
+    <include>
+      <uri>model://multidetect_search_target_v1</uri>
+      <name>multidetect_search_target_urban_001</name>
+      <pose>180 -58 0 0 0 0.45</pose>
+    </include>
   </world>
 </sdf>

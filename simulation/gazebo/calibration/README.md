@@ -29,3 +29,41 @@ sensor, check width and height against the received wire frame, and bind the
 calibration file SHA-256 into the integrated run identity. A real camera must
 still use its own ChArUco calibration and physical lever-arm survey; these
 Gazebo contracts cannot satisfy the REAL or outdoor-GNSS release gates.
+
+The Gazebo depth wire is a separate simulator-only sensor contract for
+`optical_axis_z_m`. The runtime converts that value to a ray/slant distance
+with the checked-in camera intrinsics before it enters multimodal ranging. It
+must not be passed to `--metric-depth-calibration-document`: that option is
+reserved for a monocular model's own raw-output-to-slant calibration, with
+paired measurements, model identity, preprocessing/output semantics, and an
+independent holdout. The loader rejects documents whose `source_kind` starts
+with `gazebo_depth_wire` so a zero-error simulator identity mapping cannot be
+mistaken for Depth Anything or outdoor-camera accuracy evidence.
+
+No model calibration is claimed by the Gazebo sensor contract. A valid
+simulator run may exercise the independent Gazebo depth transport and a raw
+monocular model smoke path, but it must keep their calibration hashes and
+distance semantics separate. Neither path closes the REAL, HIL, hardware, or
+outdoor-GNSS release gates.
+
+## Opt-in depth companion capture
+
+`scripts/run_simulator_docker_acceptance.py` can persist the validated depth
+payloads with `--sensor-depth-output-dir` when
+`--sensor-frame-output-dir` is also supplied. The two directories are kept
+separate so the existing RGB frame-set manifest and VTOL exact-directory
+consumer remain unchanged. Each depth directory contains files such as
+`depth-000000.float32_m` and a
+`gazebo-depth-companion-set.manifest.json`.
+
+The files are raw `FLOAT32_M` payloads, not standalone `MDGZDEP1` records. The
+manifest stores the canonical metadata, RGB wire digest, depth wire digest,
+geometry, timestamps, calibration identity and a per-frame RGB/Depth pair
+binding. The capture code reconstructs the signed `MDGZDEP1` digest from the
+payload and metadata before sealing the manifest, and verifies it again when
+the manifest is written. This makes the pair replayable without pretending
+that a simulator sensor identity is a monocular metric-depth calibration.
+
+The resulting evidence is software-SIM sensor provenance only. It does not
+claim an outdoor calibration, physical distance accuracy, HIL/REAL behavior,
+hardware contact or final-release eligibility.

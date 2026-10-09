@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!-- Low-poly development asset. Units: meters; +X front, +Y left, +Z up.
+       The local z=0 plane is the wheel contact plane. Static, no wheel actuation.
+       Solid primitives and collision geometry only; no billboard or external mesh.
+       Shape, material, model name and pose are not runtime task labels. -->
+  <model name="multidetect_search_rover_long_v1">
+    <static>true</static>
+    <pose>0 0 0 0 0 0</pose>
+    <link name="chassis">
+      <pose>0 0 0.53 0 0 0</pose>
+      <collision name="chassis_collision"><geometry><box><size>4 1.5 0.26</size></box></geometry></collision>
+      <visual name="chassis_visual">
+        <geometry><box><size>4 1.5 0.26</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="front_bumper">
+      <pose>2.12 0 0.51 0 0 0</pose>
+      <collision name="front_bumper_collision"><geometry><box><size>0.28 1.64 0.22</size></box></geometry></collision>
+      <visual name="front_bumper_visual">
+        <geometry><box><size>0.28 1.64 0.22</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="rear_bumper">
+      <pose>-2.12 0 0.51 0 0 0</pose>
+      <collision name="rear_bumper_collision"><geometry><box><size>0.28 1.64 0.22</size></box></geometry></collision>
+      <visual name="rear_bumper_visual">
+        <geometry><box><size>0.28 1.64 0.22</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="front_cabin">
+      <pose>1.10 0 1.11 0 0 0</pose>
+      <collision name="front_cabin_collision"><geometry><box><size>1.5 1.36 0.94</size></box></geometry></collision>
+      <visual name="front_cabin_visual">
+        <geometry><box><size>1.5 1.36 0.94</size></box></geometry>
+        <material><ambient>0.56 0.61 0.65 1</ambient><diffuse>0.56 0.61 0.65 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="front_window">
+      <pose>1.862 0 1.25 0 0 0</pose>
+      <collision name="front_window_collision"><geometry><box><size>0.024 0.96 0.38</size></box></geometry></collision>
+      <visual name="front_window_visual">
+        <geometry><box><size>0.024 0.96 0.38</size></box></geometry>
+        <material><ambient>0.12 0.21 0.27 1</ambient><diffuse>0.12 0.21 0.27 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="left_window">
+      <pose>1.10 0.692 1.25 0 0 0</pose>
+      <collision name="left_window_collision"><geometry><box><size>1.02 0.024 0.38</size></box></geometry></collision>
+      <visual name="left_window_visual">
+        <geometry><box><size>1.02 0.024 0.38</size></box></geometry>
+        <material><ambient>0.12 0.21 0.27 1</ambient><diffuse>0.12 0.21 0.27 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="right_window">
+      <pose>1.10 -0.692 1.25 0 0 0</pose>
+      <collision name="right_window_collision"><geometry><box><size>1.02 0.024 0.38</size></box></geometry></collision>
+      <visual name="right_window_visual">
+        <geometry><box><size>1.02 0.024 0.38</size></box></geometry>
+        <material><ambient>0.12 0.21 0.27 1</ambient><diffuse>0.12 0.21 0.27 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="bed_floor">
+      <pose>-0.92 0 0.75 0 0 0</pose>
+      <collision name="bed_floor_collision"><geometry><box><size>2.16 1.4 0.18</size></box></geometry></collision>
+      <visual name="bed_floor_visual">
+        <geometry><box><size>2.16 1.4 0.18</size></box></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="bed_left_rail">
+      <pose>-0.92 0.67 1.02 0 0 0</pose>
+      <collision name="bed_left_rail_collision"><geometry><box><size>2.16 0.1 0.36</size></box></geometry></collision>
+      <visual name="bed_left_rail_visual">
+        <geometry><box><size>2.16 0.1 0.36</size></box></geometry>
+        <material><ambient>0.56 0.61 0.65 1</ambient><diffuse>0.56 0.61 0.65 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="bed_right_rail">
+      <pose>-0.92 -0.67 1.02 0 0 0</pose>
+      <collision name="bed_right_rail_collision"><geometry><box><size>2.16 0.1 0.36</size></box></geometry></collision>
+      <visual name="bed_right_rail_visual">
+        <geometry><box><size>2.16 0.1 0.36</size></box></geometry>
+        <material><ambient>0.56 0.61 0.65 1</ambient><diffuse>0.56 0.61 0.65 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="bed_rear_rail">
+      <pose>-1.95 0 1.02 0 0 0</pose>
+      <collision name="bed_rear_rail_collision"><geometry><box><size>0.1 1.4 0.36</size></box></geometry></collision>
+      <visual name="bed_rear_rail_visual">
+        <geometry><box><size>0.1 1.4 0.36</size></box></geometry>
+        <material><ambient>0.56 0.61 0.65 1</ambient><diffuse>0.56 0.61 0.65 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="sensor_dome">
+      <pose>1.10 0 1.72 0 0 0</pose>
+      <collision name="sensor_dome_collision"><geometry><sphere><radius>0.14</radius></sphere></geometry></collision>
+      <visual name="sensor_dome_visual">
+        <geometry><sphere><radius>0.14</radius></sphere></geometry>
+        <material><ambient>0.34 0.39 0.43 1</ambient><diffuse>0.34 0.39 0.43 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_left_0">
+      <pose>-1.4 0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_left_0_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_left_0_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_right_0">
+      <pose>-1.4 -0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_right_0_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_right_0_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_left_1">
+      <pose>0 0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_left_1_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_left_1_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_right_1">
+      <pose>0 -0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_right_1_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_right_1_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_left_2">
+      <pose>1.4 0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_left_2_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_left_2_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+    <link name="wheel_right_2">
+      <pose>1.4 -0.83 0.40 1.5707963267948966 0 0</pose>
+      <collision name="wheel_right_2_collision"><geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry></collision>
+      <visual name="wheel_right_2_visual">
+        <geometry><cylinder><radius>0.4</radius><length>0.24</length></cylinder></geometry>
+        <material><ambient>0.055 0.065 0.075 1</ambient><diffuse>0.055 0.065 0.075 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+
