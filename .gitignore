@@ -5,6 +5,9 @@ __pycache__/
 .ruff_cache/
 .venv/
 .venv-train/
+.venv-vlm/
+.venv-vlm-navigation/
+.venv-gazebo-navigation-20261008-r1/
 venv/
 dist/
 build/
@@ -83,3 +86,8 @@ models/**/*.plan
 /ground-control/MultiDetectGCS/staging-*/
 /ground-control/MultiDetectGCS/artifacts/
 /ground-control/MultiDetectGCS/*.log
+
+# Local caches and ad-hoc logs
+/.cache/
+/rebind-*.log
+/multidetect-sim-acceptance-ai-job/
