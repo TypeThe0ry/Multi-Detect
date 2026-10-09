@@ -231,3 +231,10 @@ VLM 输入原文、当前 RGB、最多 8 个 track crop/metadata、短 history �
 - SIM holdout 胜出不等于 HIL、Pixhawk、Jetson thermal、通信丢包、真实障碍或动态目标已通过。
 - VLM/learned policy 不接 ARM、PWM、MAVLink，也不绕过 SafetyRuleEngine、planner、Mission compiler、geofence、battery reserve 或 task-state gates。
 - 没有独立 world/episode holdout、可复现 hashes、latency/memory 证据和完整 executed/completed receipt，不得称候选为 production、field-proven 或 final release。
+
+## 11. 实现状态
+
+- 已实现任务 1 Contract freeze：`src/multidetect/autonomy/policy_v2/contracts.py`，包含 TaskSpec v1、StructuredSceneState v2、PolicyAction v2 的冻结 dataclass、严格 JSON、规范化哈希、有限值与边界校验。
+- 已实现任务 3 StructuredSceneStateBuilder：`src/multidetect/autonomy/policy_v2/state_builder.py`，提供运行时输入和 `steps.jsonl` observation 的统一适配，缺失 range/GPS 使用 mask，状态保持 truth-free。
+- 已实现任务 4 SearchMemoryGrid：`src/multidetect/autonomy/policy_v2/search_memory.py`，提供 5 m、16×16、5 通道的确定性记忆、reset、覆盖归一化，以及时间倒退和越界拒绝。
+- 包导出位于 `src/multidetect/autonomy/policy_v2/__init__.py`；对应快速测试位于 `tests/test_policy_v2_contracts.py`、`tests/test_policy_v2_state_builder.py`、`tests/test_policy_v2_search_memory.py`。
