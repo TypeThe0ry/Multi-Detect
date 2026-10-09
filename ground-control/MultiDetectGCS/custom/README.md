@@ -80,6 +80,12 @@ target offset qualify. A snapshot contains only target metadata (ID/class, coord
 range, bearing, source frame and local UTC save time) in the application-local
 `snapshots/target-snapshots.jsonl` file. It is neither a video/depth capture nor a network upload.
 
+The verified target-event replay dialog also offers **落图预览** for a selected event whose GPS
+coordinates passed the native hash/freshness checks. The orange marker and its `1σ` circle are a
+read-only preview of that historical event; the action does not change `MultiDetectState`, does not
+select a live target, and cannot create a Mission, Guided action or flight-control packet. Loading a
+new manifest or pressing **清除落图预览** removes the preview.
+
 ## LCK and Mode 3 audio cues
 
 - The authoritative target-pool transition to a primary `LCK` emits the bundled `LOCKED` voice once.

@@ -57,6 +57,7 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(QVariantMap targetObservationRecordingQualitySummary READ targetObservationRecordingQualitySummary NOTIFY targetObservationRecordingChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
+    Q_PROPERTY(QVariantMap policyRuntimeStatus READ policyRuntimeStatus NOTIFY policyRuntimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
     Q_PROPERTY(QString runtimeDisplayMode READ runtimeDisplayMode NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QVariantMap approachChallenge READ approachChallenge NOTIFY approachChallengeChanged)
@@ -143,6 +144,8 @@ public:
 
     QVariantMap runtimeStatus() const { return _runtimeStatus; }
 
+    QVariantMap policyRuntimeStatus() const { return _policyRuntimeStatus; }
+
     QString expectedRuntimeMode() const { return _expectedRuntimeMode; }
 
     QString runtimeDisplayMode() const;
@@ -207,6 +210,7 @@ signals:
     void targetObservationRecordingChanged();
     void releaseStatusChanged();
     void runtimeStatusChanged();
+    void policyRuntimeStatusChanged();
     void approachChallengeChanged();
     void approachStatusChanged();
     void payloadTargetChallengeChanged();
@@ -369,6 +373,7 @@ private:
     quint64 _lastGnssStatusAtMs = 0;
     quint64 _lastReleaseStatusAtMs = 0;
     quint64 _lastRuntimeStatusAtMs = 0;
+    quint64 _lastPolicyRuntimeStatusAtMs = 0;
     quint64 _lastApproachStatusAtMs = 0;
     quint64 _lastPayloadTargetStatusAtMs = 0;
     quint64 _lastTargetPoolStatusAtMs = 0;
@@ -397,6 +402,7 @@ private:
     QHash<QString, quint64> _targetGeolocationLatestCaptureAtMs;
     QVariantMap _releaseStatus;
     QVariantMap _runtimeStatus;
+    QVariantMap _policyRuntimeStatus;
     QVariantMap _approachChallenge;
     QVariantMap _approachStatus;
     QVariantMap _payloadTargetChallenge;

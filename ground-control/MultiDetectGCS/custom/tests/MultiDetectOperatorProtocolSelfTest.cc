@@ -191,6 +191,33 @@ int main(int argc, char* argv[])
                           !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
                       "runtime status must remain display-only");
 
+    const QByteArray policyRuntimeStatus = vector(
+        "4d44011b00000000000100000000000186aa004c010007f311111111111111112222222222222222"
+        "33333333333333334444444444444444555555555555555566666666666666667777777777777777"
+        "888888888888888899999999999999995ff0c70c6993d9ee9ed3e38cd48db09b");
+    failures += check(policyRuntimeStatus.size() == 112,
+                      "policy runtime status must fit the MAVLink TUNNEL payload");
+    failures += check(protocol.decode(policyRuntimeStatus, &packet, &error),
+                      "policy runtime status golden vector must decode");
+    failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::PolicyRuntimeStatus,
+                      "policy runtime status message type mismatch");
+    failures += check(packet.fields.value(QStringLiteral("action")).toString() == QStringLiteral("SELECT") &&
+                          packet.fields.value(QStringLiteral("selectedTaskHash64")).toString() ==
+                              QStringLiteral("1111111111111111") &&
+                          packet.fields.value(QStringLiteral("policyArtifactHash64")).toString() ==
+                              QStringLiteral("2222222222222222"),
+                      "policy runtime status selection identity mismatch");
+    failures += check(packet.fields.value(QStringLiteral("plannerRevalidated")).toBool() &&
+                          packet.fields.value(QStringLiteral("missionBound")).toBool() &&
+                          packet.fields.value(QStringLiteral("truthFree")).toBool() &&
+                          !packet.fields.value(QStringLiteral("missionStarted")).toBool() &&
+                          !packet.fields.value(QStringLiteral("policyAppliedToActuator")).toBool(),
+                      "policy runtime status safety flags mismatch");
+    failures += check(packet.fields.value(QStringLiteral("metadataOnly")).toBool() &&
+                          !packet.fields.value(QStringLiteral("directPixhawkWrites")).toBool() &&
+                          !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
+                      "policy runtime status must remain display-only");
+
     const QByteArray expectedRuntimeStatusAck = vector(
         "4d4401180000000000750000000000018aa1000c000000740123456789abcdef"
         "4cd881cb1e13f077518cd60dd837383e");

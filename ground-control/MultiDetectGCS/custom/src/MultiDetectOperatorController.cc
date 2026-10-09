@@ -1005,6 +1005,10 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         qCInfo(MultiDetectOperatorLog).nospace()
             << "runtime status adopted and acknowledged sequence=" << packet.sequence
             << " run_hash64=" << fields.value(QStringLiteral("runHash64")).toString();
+    } else if (packet.type == MultiDetectOperatorProtocol::MessageType::PolicyRuntimeStatus) {
+        _policyRuntimeStatus = fields;
+        _lastPolicyRuntimeStatusAtMs = _lastAuthenticatedAtMs;
+        emit policyRuntimeStatusChanged();
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetPoolStatus) {
         const quint32 revision = fields.value(QStringLiteral("poolRevision")).toUInt();
         const int pageIndex = fields.value(QStringLiteral("pageIndex")).toInt();
@@ -1278,6 +1282,11 @@ void MultiDetectOperatorController::_poll()
             _lastRuntimeStatusAtMs = 0;
             emit runtimeStatusChanged();
         }
+        if (!_policyRuntimeStatus.isEmpty()) {
+            _policyRuntimeStatus.clear();
+            _lastPolicyRuntimeStatusAtMs = 0;
+            emit policyRuntimeStatusChanged();
+        }
         if (!_approachChallenge.isEmpty()) {
             _approachChallenge.clear();
             emit approachChallengeChanged();
@@ -1381,6 +1390,13 @@ void MultiDetectOperatorController::_poll()
         if (!_runtimeStatus.isEmpty()) {
             _runtimeStatus.clear();
             emit runtimeStatusChanged();
+        }
+    }
+    if (_lastPolicyRuntimeStatusAtMs != 0 && nowMs - _lastPolicyRuntimeStatusAtMs > kRuntimeStatusStaleMs) {
+        _lastPolicyRuntimeStatusAtMs = 0;
+        if (!_policyRuntimeStatus.isEmpty()) {
+            _policyRuntimeStatus.clear();
+            emit policyRuntimeStatusChanged();
         }
     }
 

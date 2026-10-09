@@ -300,6 +300,20 @@ Item {
         return MultiDetectState.runtimeBackendHealth;
     }
 
+    function _policyRuntimeText() {
+        const action = String(MultiDetectState.policyRuntimeAction || "UNKNOWN").toUpperCase();
+        if (action === "SELECT") {
+            if (MultiDetectState.policyRuntimeMissionBound &&
+                    MultiDetectState.policyRuntimePlannerRevalidated &&
+                    MultiDetectState.policyRuntimeTruthFree)
+                return qsTr("选择 · planner 已重验 · Mission 已绑定 · 只读");
+            return qsTr("选择 · 绑定或重验不完整");
+        }
+        if (action === "ABSTAIN")
+            return qsTr("弃权 · 不绑定 Mission · 只读");
+        return qsTr("未知 · 等待策略状态");
+    }
+
     function _classLabel(label) {
         const normalized = String(label || "").toLowerCase();
         if (["flame", "fire", "hotspot", "burned_area"].indexOf(normalized) >= 0)
@@ -516,6 +530,8 @@ Item {
     function _activeAlgorithmCount() {
         let activeCount = 0;
         if (_rangingAlgorithmActive(["monocular_metric", "monocular_size"]))
+            activeCount += 1;
+        if (_rangingAlgorithmActive(["gazebo_depth"]))
             activeCount += 1;
         if (_rangingAlgorithmActive(["vio"]))
             activeCount += 1;
@@ -809,6 +825,11 @@ Item {
                             }
 
                             LabelledLabel {
+                                label: qsTr("共享策略")
+                                labelText: control._policyRuntimeText()
+                            }
+
+                            LabelledLabel {
                                 label: qsTr("物理动作")
                                 labelText: MultiDetectState.physicalActionIsolationActive ?
                                                qsTr("已隔离") : qsTr("按授权门控")
@@ -885,6 +906,12 @@ Item {
                                 label: "Depth Anything V2"
                                 labelText: control._rangingAlgorithmValue(
                                                ["monocular_metric", "monocular_size"], qsTr("等待深度"))
+                            }
+
+                            LabelledLabel {
+                                label: qsTr("Gazebo 深度")
+                                labelText: control._rangingAlgorithmValue(
+                                               ["gazebo_depth"], qsTr("等待仿真深度"))
                             }
 
                             LabelledLabel {

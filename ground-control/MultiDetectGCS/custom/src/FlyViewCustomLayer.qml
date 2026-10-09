@@ -32,6 +32,11 @@ Item {
     property double _pendingExecutionStartedAtMs: 0
     property var _targetEvidenceHistoryDialog: null
     property var _targetEventReplayDialog: null
+    // Replay preview is presentation-only. It never mutates MultiDetectState
+    // and therefore cannot become a live selected target or a Mission input.
+    property var _replayMapPreviewEvent: null
+    property point _replayMapPoint: Qt.point(-1, -1)
+    property real _replayMapSigmaRadiusPx: 0.0
     property var _producerEpochDiagnosticsDialog: null
     property var _targetObservationDiagnosticsDialog: null
     property var _payloadActionDialog: null
@@ -45,6 +50,7 @@ Item {
     readonly property real _wgs84EccentricitySquared: 0.0066943799901413165
     readonly property bool _targetGeolocationQualified: MultiDetectState.targetGeolocationAvailable &&
                                                        MultiDetectState.targetGeolocationSourceFresh &&
+                                                       _gnssEvidenceQualified &&
                                                        MultiDetectState.targetGeolocationTargetId !== "" &&
                                                        MultiDetectState.targetId !== "" &&
                                                        MultiDetectState.targetGeolocationTargetId === MultiDetectState.targetId &&
@@ -100,6 +106,17 @@ Item {
     property bool _targetEvidenceFeedbackIsError: false
     readonly property bool _targetMapPointInView: _targetMapPoint.x >= 0.0 && _targetMapPoint.y >= 0.0 &&
                                                   _targetMapPoint.x <= width && _targetMapPoint.y <= height
+    readonly property bool _replayMapPreviewQualified:
+        _replayMapPreviewEvent !== null &&
+        _mapControlReady &&
+        mapControl.pipState.state === mapControl.pipState.fullState &&
+        typeof multiDetectTargetEventReplayStore !== "undefined" &&
+        multiDetectTargetEventReplayStore !== null &&
+        multiDetectTargetEventReplayStore.loaded &&
+        multiDetectTargetEventReplayStore.integrityVerified
+    readonly property bool _replayMapPreviewPointInView:
+        _replayMapPoint.x >= 0.0 && _replayMapPoint.y >= 0.0 &&
+        _replayMapPoint.x <= width && _replayMapPoint.y <= height
     readonly property var _recordingQualitySummary: MultiDetectState.targetObservationRecordingQualitySummary || ({})
     readonly property var _recordingCurrentStatus: _recordingQualitySummary.current_status || ({})
     readonly property bool _recordingQualityHasSamples:
@@ -529,65 +546,119 @@ Item {
         return ((longitudeDeg + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
     }
 
-    function _updateTargetMapProjection() {
-        if (!_targetMapVisible || !_mapControlReady ||
-                typeof mapControl.fromCoordinate !== "function") {
-            _targetMapPoint = Qt.point(-1, -1);
-            _targetMapSigmaRadiusPx = 0.0;
-            return;
-        }
-
-        const latitude = MultiDetectState.targetLatitudeDeg;
-        const longitude = MultiDetectState.targetLongitudeDeg;
-        const sigmaM = Number(MultiDetectState.targetHorizontalSigmaM);
+    function _projectMapCoordinate(latitude, longitude, sigmaM) {
+        if (!_mapControlReady || typeof mapControl.fromCoordinate !== "function")
+            return null;
         if (!Number.isFinite(latitude) || latitude <= -90.0 || latitude >= 90.0 ||
                 !Number.isFinite(longitude) || longitude < -180.0 || longitude > 180.0 ||
-                !Number.isFinite(sigmaM) || sigmaM < 0.0) {
-            _targetMapPoint = Qt.point(-1, -1);
-            _targetMapSigmaRadiusPx = 0.0;
-            return;
-        }
+                !Number.isFinite(sigmaM) || sigmaM < 0.0)
+            return null;
         const targetCoordinate = QtPositioning.coordinate(latitude, longitude);
         const targetMapPoint = mapControl.fromCoordinate(targetCoordinate, false);
+        if (targetMapPoint === null || typeof targetMapPoint === "undefined" ||
+                !Number.isFinite(targetMapPoint.x) || !Number.isFinite(targetMapPoint.y))
+            return null;
         const targetOverlayPoint = root.mapFromItem(mapControl, targetMapPoint.x, targetMapPoint.y);
-        if (!Number.isFinite(targetOverlayPoint.x) || !Number.isFinite(targetOverlayPoint.y)) {
-            _targetMapPoint = Qt.point(-1, -1);
-            _targetMapSigmaRadiusPx = 0.0;
-            return;
-        }
-
-        _targetMapPoint = targetOverlayPoint;
-        _targetMapSigmaRadiusPx = 0.0;
+        if (!Number.isFinite(targetOverlayPoint.x) || !Number.isFinite(targetOverlayPoint.y))
+            return null;
+        let sigmaRadiusPx = 0.0;
         if (sigmaM === 0.0)
-            return;
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
 
         // Convert the reported one-sigma horizontal uncertainty to the current
         // map scale. The circle is a display of uncertainty, not a command or a
         // navigation radius. Use both axes so it remains useful on rotated maps.
         const metersPerDegree = _wgs84MetersPerDegree(latitude);
         if (metersPerDegree === null)
-            return;
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
         const latitudeOffsetDeg = sigmaM / metersPerDegree.north;
         const northLatitude = latitude + latitudeOffsetDeg;
         if (!Number.isFinite(northLatitude) || northLatitude <= -90.0 || northLatitude >= 90.0)
-            return;
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
         const longitudeOffsetDeg = sigmaM / metersPerDegree.east;
         const eastLongitude = _normalizeLongitudeDeg(longitude + longitudeOffsetDeg);
         if (!Number.isFinite(eastLongitude))
-            return;
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
         const northMapPoint = mapControl.fromCoordinate(
                     QtPositioning.coordinate(northLatitude, longitude), false);
         const eastMapPoint = mapControl.fromCoordinate(
                     QtPositioning.coordinate(latitude, eastLongitude), false);
+        if (northMapPoint === null || typeof northMapPoint === "undefined" ||
+                eastMapPoint === null || typeof eastMapPoint === "undefined" ||
+                !Number.isFinite(northMapPoint.x) || !Number.isFinite(northMapPoint.y) ||
+                !Number.isFinite(eastMapPoint.x) || !Number.isFinite(eastMapPoint.y))
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
         const northOverlayPoint = root.mapFromItem(mapControl, northMapPoint.x, northMapPoint.y);
         const eastOverlayPoint = root.mapFromItem(mapControl, eastMapPoint.x, eastMapPoint.y);
         if (!Number.isFinite(northOverlayPoint.x) || !Number.isFinite(northOverlayPoint.y) ||
                 !Number.isFinite(eastOverlayPoint.x) || !Number.isFinite(eastOverlayPoint.y))
-            return;
-        _targetMapSigmaRadiusPx = Math.max(
+            return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
+        sigmaRadiusPx = Math.max(
                     0.0,
                     Math.abs(northOverlayPoint.y - targetOverlayPoint.y),
                     Math.abs(eastOverlayPoint.x - targetOverlayPoint.x));
+        return {"point": targetOverlayPoint, "radiusPx": sigmaRadiusPx};
+    }
+
+    function _updateTargetMapProjection() {
+        const projection = _targetMapVisible ?
+                               _projectMapCoordinate(
+                                   MultiDetectState.targetLatitudeDeg,
+                                   MultiDetectState.targetLongitudeDeg,
+                                   Number(MultiDetectState.targetHorizontalSigmaM)) : null;
+        if (projection === null) {
+            _targetMapPoint = Qt.point(-1, -1);
+            _targetMapSigmaRadiusPx = 0.0;
+            return;
+        }
+        _targetMapPoint = projection.point;
+        _targetMapSigmaRadiusPx = projection.radiusPx;
+    }
+
+    function _updateReplayMapProjection() {
+        const event = _replayMapPreviewEvent;
+        const gps = event !== null ? (event.gps || ({})) : ({});
+        const projection = _replayMapPreviewQualified && gps.coordinates_included === true ?
+                               _projectMapCoordinate(
+                                   Number(gps.latitude_deg),
+                                   Number(gps.longitude_deg),
+                                   Number(gps.horizontal_sigma_m)) : null;
+        if (projection === null) {
+            _replayMapPoint = Qt.point(-1, -1);
+            _replayMapSigmaRadiusPx = 0.0;
+            return;
+        }
+        _replayMapPoint = projection.point;
+        _replayMapSigmaRadiusPx = projection.radiusPx;
+    }
+
+    function _clearReplayMapPreview() {
+        _replayMapPreviewEvent = null;
+        _replayMapPoint = Qt.point(-1, -1);
+        _replayMapSigmaRadiusPx = 0.0;
+    }
+
+    function _previewReplayEvent(event) {
+        _clearReplayMapPreview();
+        if (event === null || event === undefined) {
+            _setTargetEvidenceFeedback(qsTr("回放事件不可用"), true);
+            return;
+        }
+        const gps = event.gps || ({});
+        if (gps.coordinates_included !== true ||
+                !Number.isFinite(Number(gps.latitude_deg)) ||
+                Number(gps.latitude_deg) <= -90.0 || Number(gps.latitude_deg) >= 90.0 ||
+                !Number.isFinite(Number(gps.longitude_deg)) ||
+                Number(gps.longitude_deg) < -180.0 || Number(gps.longitude_deg) > 180.0 ||
+                !Number.isFinite(Number(gps.horizontal_sigma_m)) ||
+                Number(gps.horizontal_sigma_m) < 0.0) {
+            _setTargetEvidenceFeedback(qsTr("回放事件不可定位：没有可预览的合格坐标"), true);
+            return;
+        }
+        _replayMapPreviewEvent = event;
+        _updateReplayMapProjection();
+        _setTargetEvidenceFeedback(
+            qsTr("回放事件已做只读落图预览：%1").arg(event.event_id || "--"), false);
     }
 
     function _requestExecutionPopup(kind) {
@@ -652,6 +723,7 @@ Item {
             _setTargetEvidenceFeedback(qsTr("目标事件回放校验器不可用"), true);
             return;
         }
+        _clearReplayMapPreview();
         if (multiDetectTargetEventReplayStore.loadManifest(path)) {
             _setTargetEvidenceFeedback(
                 qsTr("回放清单已验证：%1 个事件").arg(
@@ -675,6 +747,7 @@ Item {
     }
 
     function _clearTargetEventReplay() {
+        _clearReplayMapPreview();
         if (typeof multiDetectTargetEventReplayStore !== "undefined" &&
                 multiDetectTargetEventReplayStore !== null) {
             multiDetectTargetEventReplayStore.clear();
@@ -746,9 +819,12 @@ Item {
 
         interval: 150
         repeat: true
-        running: root._targetMapVisible
+        running: root._targetMapVisible || root._replayMapPreviewQualified
 
-        onTriggered: root._updateTargetMapProjection()
+        onTriggered: {
+            root._updateTargetMapProjection();
+            root._updateReplayMapProjection();
+        }
     }
 
     Timer {
@@ -991,6 +1067,52 @@ Item {
             color: qgcPal.warningText
             font.bold: true
             text: qsTr("目标 ±%1 m (1σ)").arg(MultiDetectState.targetHorizontalSigmaM.toFixed(1))
+        }
+    }
+
+    // A replay point is visually distinct from the live target and has no
+    // interaction handler. It is only a map sanity-check for a hash-verified
+    // event selected in the read-only replay dialog.
+    Item {
+        id: replayMapPreviewIndicator
+
+        height: Math.max(18, ScreenTools.defaultFontPixelHeight * 1.2)
+        visible: root._replayMapPreviewQualified && root._replayMapPreviewPointInView
+        width: height
+        x: root._replayMapPoint.x - width * 0.5
+        y: root._replayMapPoint.y - height * 0.5
+        z: 14
+
+        Rectangle {
+            anchors.centerIn: parent
+            border.color: qgcPal.warningText
+            border.width: Math.max(1, ScreenTools.defaultFontPixelWidth * 0.16)
+            color: Qt.transparent
+            height: Math.max(2, root._replayMapSigmaRadiusPx * 2.0)
+            radius: width * 0.5
+            visible: root._replayMapSigmaRadiusPx > 0.0
+            width: height
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            border.color: qgcPal.text
+            border.width: 1
+            color: qgcPal.colorOrange
+            height: parent.height
+            radius: width * 0.5
+            width: height
+        }
+
+        QGCLabel {
+            anchors.bottom: parent.top
+            anchors.bottomMargin: ScreenTools.defaultFontPixelHeight * 0.25
+            anchors.horizontalCenter: parent.horizontalCenter
+            color: qgcPal.warningText
+            font.bold: true
+            text: qsTr("回放预览 · ±%1 m (1σ)").arg(
+                      root._replayMapPreviewEvent !== null ?
+                          Number(root._replayMapPreviewEvent.gps.horizontal_sigma_m).toFixed(1) : "--")
         }
     }
 
@@ -1424,6 +1546,12 @@ Item {
                     }
 
                     QGCButton {
+                        text: qsTr("清除落图预览")
+                        enabled: root._replayMapPreviewEvent !== null
+                        onClicked: root._clearReplayMapPreview()
+                    }
+
+                    QGCButton {
                         text: qsTr("复制全量摘要")
                         enabled: typeof multiDetectTargetEventReplayStore !== "undefined" &&
                                  multiDetectTargetEventReplayStore !== null &&
@@ -1446,6 +1574,16 @@ Item {
                                   qsTr("回放校验器不可用")
                         wrapMode: Text.WordWrap
                     }
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: root._replayMapPreviewQualified ? qgcPal.colorGreen : qgcPal.warningText
+                    text: root._replayMapPreviewQualified && root._replayMapPreviewEvent !== null ?
+                              qsTr("地图预览：%1 · 只读 · 不改变当前目标")
+                                  .arg(root._replayMapPreviewEvent.event_id || "--") :
+                              qsTr("地图预览：选择一条可定位事件后显示")
+                    wrapMode: Text.WordWrap
                 }
 
                 Rectangle {
@@ -1647,12 +1785,23 @@ Item {
                                     wrapMode: Text.WrapAnywhere
                                 }
 
-                                QGCButton {
-                                    Layout.alignment: Qt.AlignLeft
-                                    text: qsTr("复制证据")
-                                    onClicked: QGroundControl.copyToClipboard(
-                                                   targetEventReplayDialog.eventClipboardText(
-                                                       parent.parent.modelData))
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: root._margin * 0.35
+
+                                    QGCButton {
+                                        text: qsTr("复制证据")
+                                        onClicked: QGroundControl.copyToClipboard(
+                                                       targetEventReplayDialog.eventClipboardText(
+                                                           parent.parent.parent.modelData))
+                                    }
+
+                                    QGCButton {
+                                        enabled: parent.parent.parent.modelData.gps.coordinates_included === true
+                                        text: qsTr("落图预览")
+                                        onClicked: root._previewReplayEvent(
+                                                       parent.parent.parent.modelData)
+                                    }
                                 }
 
                                 QGCLabel {
@@ -1688,7 +1837,7 @@ Item {
                 QGCLabel {
                     Layout.fillWidth: true
                     color: qgcPal.warningText
-                    text: qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")
+                    text: qsTr("回放查看器只读取已校验证据；落图预览仅为只读核对，不选目标、发送任务或产生飞控指令")
                     wrapMode: Text.WordWrap
                 }
             }

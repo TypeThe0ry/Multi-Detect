@@ -439,7 +439,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::TargetObservationStatus)) {
+        typeValue > static_cast<quint8>(MessageType::PolicyRuntimeStatus)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
@@ -789,11 +789,11 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             QStringLiteral("ground_plane"),   QStringLiteral("camera_ground"),
             QStringLiteral("laser"),          QStringLiteral("vio"),
             QStringLiteral("monocular_size"), QStringLiteral("monocular_metric"),
-            QStringLiteral("rgb_slam"),
+            QStringLiteral("rgb_slam"),      QStringLiteral("gazebo_depth"),
         };
         constexpr quint16 kUnavailable = std::numeric_limits<quint16>::max();
         constexpr quint32 kReasonMask = 0xFFFFFFFFU;
-        constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 9) - 1;
+        constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 10) - 1;
         static const QStringList vehicleProfiles = {
             QStringLiteral("auto"),
             QStringLiteral("fixed-wing"),
@@ -1091,7 +1091,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             QStringLiteral("ground_plane"),   QStringLiteral("camera_ground"),
             QStringLiteral("laser"),          QStringLiteral("vio"),
             QStringLiteral("monocular_size"), QStringLiteral("monocular_metric"),
-            QStringLiteral("rgb_slam"),
+            QStringLiteral("rgb_slam"),      QStringLiteral("gazebo_depth"),
         };
         static const QStringList vehicleProfiles = {
             QStringLiteral("auto"), QStringLiteral("fixed-wing"), QStringLiteral("multirotor"),
@@ -1129,7 +1129,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         constexpr quint8 kUnavailableU8 = std::numeric_limits<quint8>::max();
         constexpr quint16 kUnavailableU16 = std::numeric_limits<quint16>::max();
         constexpr qint32 kCoordinateUnavailable = std::numeric_limits<qint32>::min();
-        constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 9) - 1;
+        constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 10) - 1;
         const QString validity = advisoryValidity(validityValue);
         const quint8 vehicleCode = rangeFlags & 0x03U;
         const quint8 navigationCode = (rangeFlags >> 2U) & 0x07U;
@@ -1336,6 +1336,69 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         }
         fields.insert(QStringLiteral("acknowledgedRuntimeSequence"), acknowledgedRuntimeSequence);
         fields.insert(QStringLiteral("runHash64"), hex64(runHash64));
+    } else if (type == MessageType::PolicyRuntimeStatus) {
+        quint8 actionValue = 0, reserved = 0;
+        quint16 flags = 0;
+        quint64 selectedTaskHash = 0, policyArtifactHash = 0, rankerHash = 0, planHash = 0;
+        quint64 executableMissionHash = 0, wireHash = 0, contextHash = 0, airframeProfileHash = 0;
+        quint64 reasonHash = 0;
+        if (!reader.readU8(&actionValue) || !reader.readU8(&reserved) || !reader.readU16(&flags) ||
+            !reader.readU64(&selectedTaskHash) || !reader.readU64(&policyArtifactHash) ||
+            !reader.readU64(&rankerHash) || !reader.readU64(&planHash) ||
+            !reader.readU64(&executableMissionHash) || !reader.readU64(&wireHash) ||
+            !reader.readU64(&contextHash) || !reader.readU64(&airframeProfileHash) ||
+            !reader.readU64(&reasonHash) || !reader.atEnd()) {
+            return fail(error, QStringLiteral("policy-runtime-status body has an invalid size"));
+        }
+        if (reserved != 0 || (flags & ~static_cast<quint16>(0x07FFU)) || actionValue < 1 || actionValue > 2 ||
+            contextHash == 0 || airframeProfileHash == 0 || reasonHash == 0) {
+            return fail(error, QStringLiteral("policy-runtime-status content is invalid"));
+        }
+        const bool plannerRevalidated = (flags & 0x0001U) != 0;
+        const bool missionBound = (flags & 0x0002U) != 0;
+        const bool missionStarted = (flags & 0x0004U) != 0;
+        const bool actuatorApplied = (flags & 0x0008U) != 0;
+        const bool truthFree = (flags & 0x0010U) != 0;
+        const bool selectedPresent = (flags & 0x0020U) != 0;
+        const bool policyPresent = (flags & 0x0040U) != 0;
+        const bool rankerPresent = (flags & 0x0080U) != 0;
+        const bool planPresent = (flags & 0x0100U) != 0;
+        const bool executablePresent = (flags & 0x0200U) != 0;
+        const bool wirePresent = (flags & 0x0400U) != 0;
+        if ((!selectedPresent && selectedTaskHash != 0) || (!policyPresent && policyArtifactHash != 0) ||
+            (!rankerPresent && rankerHash != 0) || (!planPresent && planHash != 0) ||
+            (!executablePresent && executableMissionHash != 0) || (!wirePresent && wireHash != 0) ||
+            (selectedPresent && selectedTaskHash == 0) || (policyPresent && policyArtifactHash == 0) ||
+            (rankerPresent && rankerHash == 0) || (planPresent && planHash == 0) ||
+            (executablePresent && executableMissionHash == 0) || (wirePresent && wireHash == 0) ||
+            missionStarted || actuatorApplied || !truthFree) {
+            return fail(error, QStringLiteral("policy-runtime-status safety flags are invalid"));
+        }
+        if (actionValue == 1 && (!selectedPresent || !missionBound || !plannerRevalidated || !planPresent ||
+                                 !executablePresent)) {
+            return fail(error, QStringLiteral("selected policy-runtime-status binding is incomplete"));
+        }
+        if (actionValue == 2 && (selectedPresent || missionBound || plannerRevalidated)) {
+            return fail(error, QStringLiteral("abstained policy-runtime-status binding is inconsistent"));
+        }
+        fields.insert(QStringLiteral("action"), actionValue == 1 ? QStringLiteral("SELECT") : QStringLiteral("ABSTAIN"));
+        fields.insert(QStringLiteral("selectedTaskHash64"), selectedPresent ? hex64(selectedTaskHash) : QString());
+        fields.insert(QStringLiteral("policyArtifactHash64"), policyPresent ? hex64(policyArtifactHash) : QString());
+        fields.insert(QStringLiteral("rankerHash64"), rankerPresent ? hex64(rankerHash) : QString());
+        fields.insert(QStringLiteral("planHash64"), planPresent ? hex64(planHash) : QString());
+        fields.insert(QStringLiteral("executableMissionHash64"), executablePresent ? hex64(executableMissionHash) : QString());
+        fields.insert(QStringLiteral("wireHash64"), wirePresent ? hex64(wireHash) : QString());
+        fields.insert(QStringLiteral("contextHash64"), hex64(contextHash));
+        fields.insert(QStringLiteral("airframeProfileHash64"), hex64(airframeProfileHash));
+        fields.insert(QStringLiteral("reasonHash64"), hex64(reasonHash));
+        fields.insert(QStringLiteral("plannerRevalidated"), plannerRevalidated);
+        fields.insert(QStringLiteral("missionBound"), missionBound);
+        fields.insert(QStringLiteral("missionStarted"), missionStarted);
+        fields.insert(QStringLiteral("policyAppliedToActuator"), actuatorApplied);
+        fields.insert(QStringLiteral("truthFree"), truthFree);
+        fields.insert(QStringLiteral("metadataOnly"), true);
+        fields.insert(QStringLiteral("directPixhawkWrites"), false);
+        fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
     } else if (type == MessageType::ReleaseStatus) {
         quint64 targetId = 0, rangeTargetId = 0, rangeFrameId = 0, calibrationId = 0;
         quint8 timingValue = 0, statusFlags = 0, consistency = 0;

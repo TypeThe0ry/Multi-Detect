@@ -339,7 +339,37 @@ Item {
                "  " + qsTr("速") + " " + speedText;
     }
 
+    function _renderedCandidateHitAt(pixelX, pixelY) {
+        const entries = MultiDetectState.selectableTargetPoolEntries;
+        if (entries === undefined || entries === null)
+            return null;
+        // The native video MouseArea delivers coordinates in this overlay's
+        // local space.  Use the actual Repeater delegate geometry first: it
+        // includes the current letterbox/PIP layout and any in-flight target
+        // smoothing, so a pool update between the exported scene geometry and
+        // the physical click cannot move the hit test to a different space.
+        for (let index = renderTargetPool.count - 1; index >= 0; --index) {
+            // renderTargetPool is a ListModel and only exposes get()/setProperty().
+            // The rendered Item geometry belongs to the Repeater delegate, whose
+            // itemAt() API reflects the actual letterboxed/smoothed scene layout.
+            const visual = renderTargetRepeater.itemAt(index);
+            if (visual === null || visual === undefined || visual.visible !== true)
+                continue;
+            const entry = visual.entry;
+            if (entry === undefined || entry === null || !entry.bboxValid ||
+                    MultiDetectState.isCancellationPendingTarget(entry))
+                continue;
+            if (pixelX >= visual.x && pixelX <= visual.x + visual.width &&
+                    pixelY >= visual.y && pixelY <= visual.y + visual.height)
+                return entry;
+        }
+        return null;
+    }
+
     function _candidateHitAt(pixelX, pixelY) {
+        const renderedHit = _renderedCandidateHitAt(pixelX, pixelY);
+        if (renderedHit !== null)
+            return renderedHit;
         const entries = MultiDetectState.selectableTargetPoolEntries;
         if (entries === undefined || entries === null)
             return null;
@@ -675,6 +705,7 @@ Item {
     }
 
     Repeater {
+        id: renderTargetRepeater
         model: renderTargetPool
 
         delegate: Item {

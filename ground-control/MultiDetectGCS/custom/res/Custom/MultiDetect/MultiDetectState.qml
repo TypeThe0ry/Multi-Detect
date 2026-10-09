@@ -180,6 +180,12 @@ QtObject {
     // authenticated RuntimeStatus packet. Missing or expired metadata is
     // cleared by C++ and therefore always renders UNKNOWN here.
     readonly property var runtimeStatus: _operator !== null ? _operator.runtimeStatus : ({})
+    readonly property var policyRuntimeStatus: _operator !== null ? _operator.policyRuntimeStatus : ({})
+    readonly property string policyRuntimeAction: policyRuntimeStatus.action !== undefined ?
+                                                      policyRuntimeStatus.action : "UNKNOWN"
+    readonly property bool policyRuntimeMissionBound: policyRuntimeStatus.missionBound === true
+    readonly property bool policyRuntimePlannerRevalidated: policyRuntimeStatus.plannerRevalidated === true
+    readonly property bool policyRuntimeTruthFree: policyRuntimeStatus.truthFree === true
     readonly property string expectedRuntimeMode: _operator !== null ? _operator.expectedRuntimeMode : ""
     readonly property string runtimeDisplayMode: _operator !== null ? _operator.runtimeDisplayMode : "UNKNOWN"
     readonly property string runtimeRemoteMode: runtimeStatus.mode !== undefined ? runtimeStatus.mode : "UNKNOWN"
@@ -1275,6 +1281,30 @@ QtObject {
                                                          targetGeolocationSourceAgeMs <= maximumTargetGeolocationSourceAgeMs &&
                                                          rangeStatusFresh &&
                                                          targetGeolocationRangeBindingValid
+    // A target coordinate is displayable only when the GNSS quality record is
+    // from the same atomic producer observation as range and geolocation.  Do
+    // not let a plausible coordinate survive a weak, stale, or missing GNSS
+    // packet; the map and the text card must share this fail-closed gate.
+    readonly property bool targetGeolocationGnssQualified: gnssStatusAvailable &&
+                                                           targetGeolocationGnssBindingValid &&
+                                                           gnssQualified &&
+                                                           gnssReason === "gps_qualified" &&
+                                                           gnssPositionHealthyAvailable &&
+                                                           gnssPositionHealthy &&
+                                                           Number.isFinite(gnssSequence) &&
+                                                           gnssSequence >= 0 &&
+                                                           Math.floor(gnssSequence) === gnssSequence &&
+                                                           Number.isFinite(gnssSentAtMs) &&
+                                                           gnssSentAtMs >= 0 &&
+                                                           gnssFixType >= 3 &&
+                                                           gnssSatellitesVisible >= 6 &&
+                                                           gnssHorizontalAccuracyM >= 0.0 &&
+                                                           gnssHorizontalAccuracyM <= 6.0 &&
+                                                           gnssVerticalAccuracyM >= 0.0 &&
+                                                           gnssVerticalAccuracyM <= 10.0 &&
+                                                           Number.isFinite(gnssSourceAgeMs) &&
+                                                           gnssSourceAgeMs >= 0.0 &&
+                                                           gnssSourceAgeMs <= 1500.0
     property real targetGeolocationSourceAgeMs: NaN
     property string targetGeolocationSourceFrameId: ""
     property string targetGeolocationTargetId: ""
@@ -2376,6 +2406,8 @@ QtObject {
             return qsTr("不可定位：等待 Jetson 目标坐标状态");
         if (targetGeolocationTargetId !== targetId)
             return qsTr("不可定位：等待当前目标匹配");
+        if (!targetGeolocationGnssQualified)
+            return qsTr("不可定位：等待合格 GNSS");
         if (targetGeolocationAvailable && targetGeolocationSourceFresh && Number.isFinite(targetLatitudeDeg) &&
                 Number.isFinite(targetLongitudeDeg) && targetHorizontalSigmaM >= 0.0) {
             return "GPS " + targetLatitudeDeg.toFixed(7) + ", " + targetLongitudeDeg.toFixed(7) +
@@ -2410,6 +2442,7 @@ QtObject {
         }
         const labels = {
             "monocular_metric": "DEP",
+            "gazebo_depth": "GZ-DEP",
             "rgb_slam": "RGB",
             "vio": "VI",
             "camera_ground": "AGL",
