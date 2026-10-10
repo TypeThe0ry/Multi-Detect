@@ -51,6 +51,7 @@ PINNED_IMAGE = (
     "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
 )
 DEFAULT_TIMEOUT_S = 300.0
+SENSOR_FRAME_WAIT_S = 15.0
 DEFAULT_CAMERA_INFO = {
     "width": 1280,
     "height": 960,
@@ -215,9 +216,10 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "python3",
         "/workspace/scripts/gazebo_sensor_stream.py",
         "--frames",
-        str(max(64, int(plan.max_episode_s * 30.0))),
+        str(min(100_000, max(64, int(plan.max_episode_s * 30.0)))),
         "--timeout-seconds",
-        f"{min(plan.max_episode_s, 120.0):.3f}",
+        # The stream must outlive the whole episode; the episode budget bounds it.
+        f"{plan.max_episode_s + 60.0:.3f}",
         "--world",
         world,
         "--model-instance",
@@ -804,15 +806,19 @@ def _fresh_sensor_snapshot(
     previous_ns: int,
     timeout_s: float,
 ):
-    """Wait for a received frame newer than the step's before observation."""
+    """Wait for a frame received strictly after ``previous_ns`` (monotonic ns).
+
+    SIM rendering in Docker is slow (a frame every few seconds), so frame age is
+    recorded in the observation instead of refusing the step.
+    """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         reader.raise_if_failed()
-        sample = reader.snapshot(max_age_s=3.0)
-        if sample.received_monotonic_ns > previous_ns:
+        sample = reader.latest
+        if sample is not None and sample.received_monotonic_ns > previous_ns:
             return sample
         time.sleep(0.02)
-    raise TimeoutError("sensor stream produced no fresh frame for obs_after")
+    raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
 
 
 def _arm(
@@ -1243,7 +1249,9 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 mav_reader.raise_if_failed()
                 if time.monotonic() - started > plan.max_episode_s:
                     raise TimeoutError("episode wall-clock timeout")
-                before_sample = sensor_reader.snapshot(max_age_s=3.0)
+                before_sample = _fresh_sensor_snapshot(
+                    sensor_reader, time.monotonic_ns(), SENSOR_FRAME_WAIT_S
+                )
                 before = build_observation(
                     before_sample, mav_reader.state, camera_info=DEFAULT_CAMERA_INFO
                 )
@@ -1259,15 +1267,15 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 commanded_delta = primitive_to_ned(action, yaw)[:3]
                 _progress("primitive_start", step=index, action=action.to_dict())
                 result = executor.execute(action)
+                primitive_end_ns = time.monotonic_ns()
                 mav_reader.raise_if_failed()
                 _progress(
                     "primitive_end", step=index, status=result.status, elapsed_s=result.elapsed_s
                 )
                 mav_reader.raise_if_failed()
+                # obs_after must be rendered after the primitive completed, not mid-motion.
                 after_sample = _fresh_sensor_snapshot(
-                    sensor_reader,
-                    int(before["frame_received_monotonic_ns"]),
-                    min(10.0, plan.max_episode_s),
+                    sensor_reader, primitive_end_ns, SENSOR_FRAME_WAIT_S
                 )
                 after = build_observation(
                     after_sample, mav_reader.state, camera_info=DEFAULT_CAMERA_INFO
