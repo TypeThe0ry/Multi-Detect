@@ -1470,18 +1470,15 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     _progress("policy_stop", step=index)
                     break
             mav_reader.raise_if_failed()
-            _progress("rtl")
-            executor.rtl()
-            # RTL may keep the vehicle armed until it reaches home.  Give the
-            # commander a bounded return window, then request LAND and wait
-            # for the disarmed heartbeat as the terminal safety proof.
-            time.sleep(min(5.0, max(0.5, plan.max_episode_s - (time.monotonic() - started))))
+            # Teardown lands in place from the hover altitude.  PX4 RTL first climbs to
+            # its return altitude (30 m+), which made the LAND wait time out and the
+            # data is not affected by where the vehicle lands.
             mav_reader.raise_if_failed()
             _progress("land")
             executor.land()
             _wait_for(
                 lambda: not (int(_field(mav_reader.state.get("HEARTBEAT"), "base_mode", 0)) & 128),
-                _episode_budget(started, plan.max_episode_s, 60.0),
+                _episode_budget(started, plan.max_episode_s, 120.0),
                 phase="land",
                 health_check=mav_reader.raise_if_failed,
             )
