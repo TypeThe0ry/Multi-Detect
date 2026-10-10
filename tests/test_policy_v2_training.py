@@ -135,3 +135,42 @@ def test_training_loader_joins_before_perception_without_truth(tmp_path: Path) -
     assert state.valid_mask["range"] is True
     assert state.tracks[0]["label"] == "car"
     assert "privileged_target" not in state.to_json()
+
+
+def test_training_loader_skips_only_over_skew_transitions(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset)
+    episode = dataset / "episodes" / "episode-0"
+    row = json.loads((episode / "steps.jsonl").read_text(encoding="utf-8").strip())
+    row["obs_before"]["sim_skew_ms"] = 300.0
+    row["obs_after"]["sim_skew_ms"] = 300.0
+    good = json.loads(json.dumps(row))
+    good["step_index"] = 1
+    good["obs_before"]["sim_skew_ms"] = 0.0
+    good["obs_after"]["sim_skew_ms"] = 0.0
+    (episode / "steps.jsonl").write_text(
+        json.dumps(row) + "\n" + json.dumps(good) + "\n", encoding="utf-8", newline="\n"
+    )
+
+    loaded = load_episodes(dataset, max_sim_skew_ms=250.0, skip_over_skew=True)
+    first = next(item for item in loaded if item[0] == "episode-0")
+    assert len(first[3]) == 1
+    assert first[3][0]["step_index"] == 1
+    assert first[2]["sim_skew_skipped_steps"] == 1
+
+
+def test_training_loader_rejects_dataset_when_every_step_is_over_skew_limit(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset)
+    episodes = dataset / "episodes"
+    for sibling in (episodes / "episode-1", episodes / "episode-2"):
+        import shutil
+        shutil.rmtree(sibling)
+    episode = episodes / "episode-0"
+    row = json.loads((episode / "steps.jsonl").read_text(encoding="utf-8").strip())
+    row["obs_before"]["sim_skew_ms"] = 300.0
+    row["obs_after"]["sim_skew_ms"] = 300.0
+    (episode / "steps.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8", newline="\n")
+
+    with pytest.raises(DatasetAdmissionError, match="no episodes found"):
+        load_episodes(dataset, max_sim_skew_ms=250.0, skip_over_skew=True)

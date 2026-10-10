@@ -1382,6 +1382,7 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     SENSOR_FRAME_WAIT_S,
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
                 )
+                before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
                 before = build_observation(
                     before_sample,
                     before_state,
@@ -1422,6 +1423,7 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     SENSOR_FRAME_WAIT_S,
                     min_sensor_stamp_ns=after_pose_sim_stamp_ns,
                 )
+                after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
                 after = build_observation(
                     after_sample,
                     after_state,

@@ -168,6 +168,58 @@ def test_live_admission_rejects_sim_skew_over_limit() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_auditor_reports_per_episode_and_global_sim_skew_counts() -> None:
+    root = _dataset_dir()
+    try:
+        good = EpisodeRecorder(root, "live-good", sensor_status="live")
+        good_obs = _live_obs()
+        good.record_step(
+            good_obs,
+            ActionPrimitive.hold(0.1),
+            ack={"action_ack": True},
+            obs_after={**good_obs},
+        )
+
+        bad = EpisodeRecorder(root, "live-bad-skew", sensor_status="live")
+        bad.record_step(
+            good_obs,
+            ActionPrimitive.hold(0.1),
+            ack={"action_ack": True},
+            obs_after={**good_obs},
+        )
+        offending = _live_obs()
+        offending["frame_sensor_stamp_ns"] = 1_300_000_000
+        offending["sim_skew_ms"] = 300.0
+        bad.record_step(
+            offending,
+            ActionPrimitive.stop(),
+            ack={"action_ack": True},
+            obs_after={**offending},
+        )
+
+        # ``record_step`` can legitimately be called twice within one clock
+        # tick on a fast filesystem; make the fixture's receive ordering
+        # deterministic for the auditor's monotonicity check.
+        bad_steps = root / "episodes" / "live-bad-skew" / "steps.jsonl"
+        bad_rows = [json.loads(line) for line in bad_steps.read_text().splitlines()]
+        bad_rows[1]["receive_monotonic_ns"] = bad_rows[0]["receive_monotonic_ns"] + 1
+        bad_steps.write_text(
+            "\n".join(json.dumps(row) for row in bad_rows) + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(DatasetAuditError, match="over-limit steps by episode"):
+            audit_dataset(root)
+
+        report = json.loads((root / "audit.json").read_text(encoding="utf-8"))
+        assert report["episodes"]["live-good"]["sim_skew_over_limit_steps"] == 0
+        assert report["episodes"]["live-bad-skew"]["sim_skew_over_limit_steps"] == 1
+        assert report["episodes"]["live-bad-skew"]["sim_skew_over_limit_count"] == 1
+        assert report["sim_skew_ms"]["over_limit_count"] == 1
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_live_admission_rejects_stuck_frames_when_pose_moves() -> None:
     root = _dataset_dir()
     try:

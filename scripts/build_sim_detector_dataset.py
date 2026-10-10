@@ -201,6 +201,19 @@ def _perceptual_key(image: Any) -> str:
     return hashlib.sha1(small.tobytes()).hexdigest()
 
 
+def _step_sim_skew_ms(step: dict[str, Any]) -> list[float]:
+    """Return finite simulation skews carried by either observation."""
+    values: list[float] = []
+    for side in ("before", "after"):
+        obs = step.get("obs_" + side)
+        if not isinstance(obs, dict):
+            continue
+        value = _num(obs.get("sim_skew_ms"))
+        if value is not None:
+            values.append(value)
+    return values
+
+
 def build_dataset(
     campaign_roots: list[Path],
     output: Path,
@@ -210,7 +223,11 @@ def build_dataset(
     negative_ratio: float = 0.15,
     seed: int = 20261011,
     preview: int = 0,
+    max_sim_skew_ms: float = 250.0,
+    skip_over_skew: bool = True,
 ) -> dict[str, Any]:
+    if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
+        raise ValueError("max_sim_skew_ms must be finite and non-negative")
     rng = random.Random(seed)
     splits = _split_map(index_path)
     output.mkdir(parents=True, exist_ok=True)
@@ -221,6 +238,7 @@ def build_dataset(
                 shutil.rmtree(directory)
             directory.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
+    skipped_sim_skew_steps = 0
     seen_sha: set[str] = set()
     seen_perceptual: set[str] = set()
     for campaign in campaign_roots:
@@ -255,6 +273,12 @@ def build_dataset(
                 continue
             for step in steps:
                 if not isinstance(step, dict):
+                    continue
+                skew_values = _step_sim_skew_ms(step)
+                if skip_over_skew and any(
+                    abs(value) > float(max_sim_skew_ms) for value in skew_values
+                ):
+                    skipped_sim_skew_steps += 1
                     continue
                 for side in ("before", "after"):
                     obs = step.get("obs_" + side)
@@ -425,6 +449,11 @@ def build_dataset(
         "classes": list(CLASS_NAMES),
         "negative_ratio": negative_ratio,
         "min_box_px": min_box_px,
+        "sim_skew": {
+            "limit_ms": float(max_sim_skew_ms),
+            "skip_over_limit": bool(skip_over_skew),
+            "skipped_steps": skipped_sim_skew_steps,
+        },
         "index_sha256": _sha(index_path) if index_path.is_file() else None,
         "counts": {
             "frames": len(manifest_rows),
@@ -453,6 +482,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--negative-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--preview", type=int, default=0)
+    parser.add_argument(
+        "--max-sim-skew-ms", type=float, default=250.0,
+        help="skip steps whose observation sim_skew_ms exceeds this limit (default: 250)",
+    )
+    parser.add_argument(
+        "--no-skip-over-skew", action="store_true",
+        help="retain steps over the simulation-skew limit",
+    )
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -462,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
         negative_ratio=args.negative_ratio,
         seed=args.seed,
         preview=args.preview,
+        max_sim_skew_ms=args.max_sim_skew_ms,
+        skip_over_skew=not args.no_skip_over_skew,
     )
     print(
         json.dumps(

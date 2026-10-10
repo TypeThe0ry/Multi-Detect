@@ -287,6 +287,7 @@ def _live_sim_alignment(
     max_sim_skew_ms: float,
     step_index: int,
     name: str,
+    enforce_limit: bool = True,
 ) -> tuple[int, float, tuple[float, float, float]]:
     """Validate and normalize simulation clock fields on one observation."""
     frame_stamp = obs.get("frame_sensor_stamp_ns")
@@ -305,7 +306,7 @@ def _live_sim_alignment(
         raise DatasetAuditError(
             f"live step {step_index} {name} sim_skew_ms does not match frame and pose stamps"
         )
-    if abs(float(sim_skew)) > max_sim_skew_ms:
+    if enforce_limit and abs(float(sim_skew)) > max_sim_skew_ms:
         raise DatasetAuditError(
             f"live step {step_index} {name} sim_skew_ms exceeds {max_sim_skew_ms:g} ms"
         )
@@ -373,6 +374,7 @@ def audit_dataset(
     position_errors: list[float] = []
     yaw_errors: list[float] = []
     episode_reports: dict[str, dict[str, Any]] = {}
+    over_limit_episodes: list[tuple[str, int]] = []
     if not episodes.is_dir():
         raise DatasetAuditError("episodes directory missing")
     for file in sorted(p for p in episodes.rglob("*") if p.is_file()):
@@ -411,6 +413,7 @@ def audit_dataset(
         ep_successes = 0
         ep_positions: list[float] = []
         ep_yaws: list[float] = []
+        ep_sim_skew_over_limit = 0
         previous_frame_stamp_ns: int | None = None
         previous_pose: tuple[float, float, float] | None = None
         for line_no, line in enumerate(steps_file.read_text(encoding="utf-8").splitlines(), 1):
@@ -459,8 +462,11 @@ def audit_dataset(
                         max_sim_skew_ms=float(max_sim_skew_ms),
                         step_index=idx,
                         name=name,
+                        enforce_limit=False,
                     )
                     sim_skews.append(sim_skew)
+                    # Count offending transitions once even when both before and
+                    # after observations exceed the limit.
                     if previous_frame_stamp_ns is not None and previous_pose is not None:
                         moved = math.sqrt(
                             sum(
@@ -481,6 +487,11 @@ def audit_dataset(
                 ack = row.get("ack")
                 if not _has_action_ack(ack):
                     raise DatasetAuditError(f"live step {idx} in {ep.name} has no action ACK")
+                if any(
+                    abs(float(obs.get("sim_skew_ms"))) > float(max_sim_skew_ms)
+                    for obs in (before, after)
+                ):
+                    ep_sim_skew_over_limit += 1
             else:
                 for obs in (before, after or {}):
                     for key in ("rgb_path", "depth_path"):
@@ -518,7 +529,11 @@ def audit_dataset(
                 "mean": sum(ep_yaws) / len(ep_yaws) if ep_yaws else 0.0,
                 "max": max(ep_yaws, default=0.0),
             },
+            "sim_skew_over_limit_count": ep_sim_skew_over_limit,
+            "sim_skew_over_limit_steps": ep_sim_skew_over_limit,
         }
+        if ep_sim_skew_over_limit:
+            over_limit_episodes.append((ep.name, ep_sim_skew_over_limit))
     audit = {
         "files": manifest,
         "step_count": total_steps,
@@ -534,6 +549,9 @@ def audit_dataset(
             "max_abs": max((abs(value) for value in sim_skews), default=0.0),
             "mean": sum(sim_skews) / len(sim_skews) if sim_skews else 0.0,
             "limit": float(max_sim_skew_ms),
+            "over_limit_count": sum(
+                report["sim_skew_over_limit_count"] for report in episode_reports.values()
+            ),
         },
         "achieved_vs_commanded_error": {
             "position_m": {
@@ -552,6 +570,12 @@ def audit_dataset(
     previous_path.write_text(
         json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    if over_limit_episodes:
+        details = ", ".join(f"{name}: {count}" for name, count in over_limit_episodes)
+        raise DatasetAuditError(
+            f"live episodes have sim_skew_ms exceeds {max_sim_skew_ms:g} ms "
+            f"(over-limit steps by episode: {details})"
+        )
     return audit
 
 

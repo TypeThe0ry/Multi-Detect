@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import threading
 import time
+from bisect import bisect_left
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -290,12 +291,16 @@ class MavlinkState:
     received_wall_time: dict[str, float] = field(default_factory=dict)
     count: int = 0
     last_preflight_failure_ns: int = 0
+    pose_alignment: dict[str, Any] | None = None
 
     def get(self, name: str) -> Any | None:
         return self.messages.get(name)
 
 
 class MavlinkReader:
+    POSE_TYPES = frozenset({"LOCAL_POSITION_NED", "ATTITUDE", "GLOBAL_POSITION_INT"})
+    POSE_HISTORY_MS = 5_000
+    POSE_HISTORY_MAX_SAMPLES = 1_024
     TRACKED = frozenset(
         {
             "LOCAL_POSITION_NED",
@@ -332,6 +337,86 @@ class MavlinkReader:
         self.message_counts: Counter[str] = Counter()
         self.parse_errors = 0
         self.bad_crc = 0
+        self._pose_condition = threading.Condition()
+        self._pose_history: dict[str, list[tuple[int, dict[str, Any], int, float]]] = {
+            name: [] for name in self.POSE_TYPES
+        }
+
+    def _record_pose_message(
+        self, name: str, message: Any, mono: int, wall: float
+    ) -> None:
+        """Copy timestamped pose data while the receiver owns the message."""
+        raw_stamp = _field(message, "time_boot_ms", None)
+        if isinstance(raw_stamp, bool) or not isinstance(raw_stamp, int) or raw_stamp < 0:
+            return
+        row = self._mapping(message)
+        with self._pose_condition:
+            history = self._pose_history[name]
+            stamps = [sample[0] for sample in history]
+            index = bisect_left(stamps, raw_stamp)
+            sample = (raw_stamp, row, mono, wall)
+            if index < len(history) and history[index][0] == raw_stamp:
+                history[index] = sample
+            else:
+                history.insert(index, sample)
+            newest = history[-1][0]
+            cutoff = newest - self.POSE_HISTORY_MS
+            while history and (
+                history[0][0] < cutoff or len(history) > self.POSE_HISTORY_MAX_SAMPLES
+            ):
+                history.pop(0)
+            self._pose_condition.notify_all()
+
+    def aligned_state(
+        self, frame_sensor_stamp_ns: int, *, timeout_s: float = 0.5
+    ) -> MavlinkState:
+        """Return a pose sampled at the frame's simulation time.
+
+        A bounded wait lets PX4 telemetry catch up when Gazebo delivers a frame
+        ahead of the newest MAVLink message. On timeout, the closest available
+        sample is retained and its actual residual skew is reported.
+        """
+        target_ms = frame_sensor_stamp_ns / 1_000_000.0
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        with self._pose_condition:
+            while any(
+                not samples or samples[-1][0] < target_ms
+                for samples in self._pose_history.values()
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or self.done.is_set() or self._stop.is_set():
+                    break
+                self._pose_condition.wait(remaining)
+            selected = {
+                name: _select_pose_sample(samples, target_ms)
+                for name, samples in self._pose_history.items()
+            }
+            # The rest of the state is read under the same lock as receiver updates.
+            snapshot = MavlinkState(
+                messages=dict(self.state.messages),
+                received_monotonic_ns=dict(self.state.received_monotonic_ns),
+                received_wall_time=dict(self.state.received_wall_time),
+                count=self.state.count,
+                last_preflight_failure_ns=self.state.last_preflight_failure_ns,
+            )
+        for name, result in selected.items():
+            if result is None:
+                continue
+            row, mono, wall, _, _ = result
+            snapshot.messages[name] = row
+            snapshot.received_monotonic_ns[name] = mono
+            snapshot.received_wall_time[name] = wall
+        local = selected["LOCAL_POSITION_NED"]
+        if local is not None:
+            _, _, _, method, source_ms = local
+            snapshot.pose_alignment = {
+                "method": method,
+                "source_time_boot_ms": source_ms,
+                "residual_skew_ms": 0.0
+                if method == "interpolated"
+                else target_ms - float(source_ms),
+            }
+        return snapshot
 
     @property
     def stats(self) -> dict[str, Any]:
@@ -429,14 +514,17 @@ class MavlinkReader:
                 mono = self.clock()
                 wall = time.time()
                 if name in self.TRACKED:
-                    self.state.messages[name] = message
-                    self.state.received_monotonic_ns[name] = mono
-                    self.state.received_wall_time[name] = wall
-                    if (
-                        name == "STATUSTEXT"
-                        and "preflight fail" in str(_field(message, "text", "")).lower()
-                    ):
-                        self.state.last_preflight_failure_ns = mono
+                    with self._pose_condition:
+                        self.state.messages[name] = message
+                        self.state.received_monotonic_ns[name] = mono
+                        self.state.received_wall_time[name] = wall
+                        if (
+                            name == "STATUSTEXT"
+                            and "preflight fail" in str(_field(message, "text", "")).lower()
+                        ):
+                            self.state.last_preflight_failure_ns = mono
+                    if name in self.POSE_TYPES:
+                        self._record_pose_message(name, message, mono, wall)
                 if self.on_message is not None:
                     row = self._mapping(message)
                     row.update(
@@ -456,6 +544,8 @@ class MavlinkReader:
                 self.error = exc
         finally:
             self.done.set()
+            with self._pose_condition:
+                self._pose_condition.notify_all()
 
 
 def _field(message: Any, name: str, default: Any = None) -> Any:
@@ -464,6 +554,49 @@ def _field(message: Any, name: str, default: Any = None) -> Any:
     if isinstance(message, Mapping):
         return message.get(name, default)
     return getattr(message, name, default)
+
+
+def _select_pose_sample(
+    history: list[tuple[int, dict[str, Any], int, float]], target_ms: float
+) -> tuple[dict[str, Any], int, float, str, int | list[int]] | None:
+    """Select/interpolate one message history at ``target_ms``."""
+    if not history:
+        return None
+    stamps = [sample[0] for sample in history]
+    index = bisect_left(stamps, target_ms)
+    if index == 0:
+        stamp, row, mono, wall = history[0]
+        return dict(row), mono, wall, "nearest_after", stamp
+    if index == len(history):
+        stamp, row, mono, wall = history[-1]
+        return dict(row), mono, wall, "nearest_before", stamp
+    before = history[index - 1]
+    after = history[index]
+    if before[0] == after[0] or abs(target_ms - before[0]) <= 0.5:
+        return dict(before[1]), before[2], before[3], "nearest_before", before[0]
+    if abs(after[0] - target_ms) <= 0.5:
+        return dict(after[1]), after[2], after[3], "nearest_after", after[0]
+    ratio = (target_ms - before[0]) / (after[0] - before[0])
+    row = dict(before[1])
+    for key, value in before[1].items():
+        other = after[1].get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        if not isinstance(other, (int, float)) or isinstance(other, bool):
+            continue
+        if not math.isfinite(float(value)) or not math.isfinite(float(other)):
+            continue
+        if key == "yaw":
+            delta = (float(other) - float(value) + math.pi) % (2.0 * math.pi) - math.pi
+            row[key] = float(value) + ratio * delta
+        else:
+            row[key] = float(value) + ratio * (float(other) - float(value))
+    mono = round(before[2] + ratio * (after[2] - before[2]))
+    wall = before[3] + ratio * (after[3] - before[3])
+    # The aligned pose represents the requested simulation instant.  Keep the
+    # metadata field scalar (rather than exposing the two interpolation
+    # brackets) so consumers can use it as a normal PX4 ``time_boot_ms``.
+    return row, mono, wall, "interpolated", int(round(target_ms))
 
 
 def simulation_stamp_skew_ms(
@@ -546,7 +679,17 @@ def build_observation(
     )
     pose_time_boot_ms_raw = _field(local, "time_boot_ms", None)
     pose_time_boot_ms: int | None
-    if (
+    alignment = mavlink.pose_alignment
+    if alignment is not None:
+        # Interpolation uses the frame timestamp; nearest samples retain their
+        # actual source timestamp so the residual is an honest diagnostic.
+        source_time = alignment.get("source_time_boot_ms")
+        if isinstance(source_time, (int, float)) and not isinstance(source_time, bool):
+            pose_time_boot_ms = int(round(float(source_time)))
+        else:
+            pose_time_boot_ms = int(round(sensor.sensor_stamp_ns / 1_000_000.0))
+        sim_skew_ms = simulation_stamp_skew_ms(sensor.sensor_stamp_ns, pose_time_boot_ms)
+    elif (
         isinstance(pose_time_boot_ms_raw, (int, float))
         and not isinstance(pose_time_boot_ms_raw, bool)
         and math.isfinite(float(pose_time_boot_ms_raw))
@@ -582,6 +725,12 @@ def build_observation(
         if pose_time_boot_ms is None
         else pose_time_boot_ms * 1_000_000,
         "sim_skew_ms": sim_skew_ms,
+        "pose_alignment": alignment
+        or {
+            "method": "legacy_latest",
+            "source_time_boot_ms": pose_time_boot_ms,
+            "residual_skew_ms": sim_skew_ms,
+        },
         "frame_received_monotonic_ns": sensor.received_monotonic_ns,
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,

@@ -44,6 +44,25 @@ class DatasetAdmissionError(ValueError):
     """Raised when a dataset does not meet the live sensor admission gate."""
 
 
+DEFAULT_MAX_SIM_SKEW_MS = 250.0
+
+
+def _sim_skew_values(row: dict[str, Any]) -> list[float]:
+    values: list[float] = []
+    for side in ("before", "after"):
+        observation = row.get("obs_" + side)
+        if not isinstance(observation, dict):
+            continue
+        value = observation.get("sim_skew_ms")
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        ):
+            values.append(float(value))
+    return values
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -82,7 +101,10 @@ def _real_depth(ep: Path, value: object) -> bool:
         return False
 
 
-def _admit_episode(ep: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _admit_episode(
+    ep: Path, *, max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
+    skip_over_skew: bool = True,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     try:
         metadata = json.loads((ep / "episode.json").read_text(encoding="utf-8"))
     except Exception as exc:
@@ -93,6 +115,7 @@ def _admit_episode(ep: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not steps_path.is_file():
         raise DatasetAdmissionError(f"episode {ep.name} lacks steps.jsonl")
     rows: list[dict[str, Any]] = []
+    skipped_sim_skew_steps = 0
     perception_by_key: dict[tuple[int, str], dict[str, Any]] = {}
     perception_path = ep / "perception.jsonl"
     if perception_path.is_file():
@@ -130,31 +153,47 @@ def _admit_episode(ep: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 )
         if not isinstance(row.get("action"), dict):
             raise DatasetAdmissionError(f"live episode {ep.name} has no action")
+        if skip_over_skew and any(
+            abs(value) > float(max_sim_skew_ms) for value in _sim_skew_values(row)
+        ):
+            skipped_sim_skew_steps += 1
+            continue
         step_index = int(row.get("step_index", len(rows)))
         for observation_name, observation in (("before", before), ("after", after)):
             perception = perception_by_key.get((step_index, observation_name))
             if perception is not None:
                 observation["perception"] = perception
         rows.append(row)
+    metadata["sim_skew_skipped_steps"] = skipped_sim_skew_steps
     if not rows:
+        if skipped_sim_skew_steps and skip_over_skew:
+            return metadata, rows
         raise DatasetAdmissionError(f"episode {ep.name} contains no steps")
     return metadata, rows
 
 
-def load_episodes(root: str | Path) -> list[tuple[str, Path, dict[str, Any], list[dict[str, Any]]]]:
+def load_episodes(
+    root: str | Path, *, max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
+    skip_over_skew: bool = True,
+) -> list[tuple[str, Path, dict[str, Any], list[dict[str, Any]]]]:
     """Load and strictly admit all episodes below ``root/episodes``.
 
     Returning an episode at a time makes it impossible for a row-level random
     split to leak adjacent windows between train and validation.
     """
+    if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
+        raise ValueError("max_sim_skew_ms must be finite and non-negative")
     root_path = Path(root)
     episodes_dir = root_path / "episodes"
     if not episodes_dir.is_dir():
         raise DatasetAdmissionError(f"episodes directory missing: {episodes_dir}")
     result = []
     for ep in sorted(path for path in episodes_dir.iterdir() if path.is_dir()):
-        metadata, rows = _admit_episode(ep)
-        result.append((ep.name, ep, metadata, rows))
+        metadata, rows = _admit_episode(
+            ep, max_sim_skew_ms=max_sim_skew_ms, skip_over_skew=skip_over_skew
+        )
+        if rows:
+            result.append((ep.name, ep, metadata, rows))
     if not result:
         raise DatasetAdmissionError("no episodes found")
     return result
@@ -330,10 +369,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--max-sim-skew-ms", type=float, default=DEFAULT_MAX_SIM_SKEW_MS,
+        help="skip steps whose observation sim_skew_ms exceeds this limit (default: 250)",
+    )
+    parser.add_argument(
+        "--no-skip-over-skew", action="store_true",
+        help="retain steps over the simulation-skew limit",
+    )
     args = parser.parse_args(argv)
     if torch is None:
         parser.error("PyTorch is required; install a training environment with torch")
-    episodes = load_episodes(args.dataset_root)
+    episodes = load_episodes(
+        args.dataset_root,
+        max_sim_skew_ms=args.max_sim_skew_ms,
+        skip_over_skew=not args.no_skip_over_skew,
+    )
     splits = split_episodes(episodes, seed=args.seed)
     transitions = {name: build_transitions(items) for name, items in splits.items()}
     if not transitions["train"]:
@@ -362,6 +413,12 @@ def main(argv: list[str] | None = None) -> int:
             "batch_size": args.batch_size,
             "seed": args.seed,
             "device": args.device,
+            "max_sim_skew_ms": args.max_sim_skew_ms,
+            "skip_over_skew": not args.no_skip_over_skew,
+            "skipped_sim_skew_steps": sum(
+                int(metadata.get("sim_skew_skipped_steps", 0))
+                for _id, _path, metadata, _rows in episodes
+            ),
         },
         "split": {name: [item[0] for item in value] for name, value in splits.items()},
         "counts": {name: len(value) for name, value in transitions.items()},

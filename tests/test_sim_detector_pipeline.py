@@ -156,3 +156,26 @@ def test_trainer_cli_passes_arguments_and_quarantines_manifest(
     assert candidate["export"]["artifact_sha256"] == hashlib.sha256(onnx.read_bytes()).hexdigest()
     assert candidate["output"]["native_export"]["nms_embedded"] is False
     assert [item["source_name"] for item in candidate["classes"]] == ["vehicle", "rover"]
+
+
+def test_builder_skips_only_steps_over_sim_skew_limit(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    _make_world(campaign, "gen_w0000", count=2, seed=901)
+    steps_path = campaign / "gen_w0000" / "20261012" / "episodes" / "episode-0000" / "steps.jsonl"
+    rows = [json.loads(line) for line in steps_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["obs_before"]["sim_skew_ms"] = 300.0
+    rows[0]["obs_after"]["sim_skew_ms"] = 300.0
+    steps_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8", newline="\n"
+    )
+    index_path = tmp_path / "index.json"
+    _write_json(index_path, {"worlds": [{"world_id": "gen_w0000", "split": "train"}]})
+
+    report = build_dataset(
+        [campaign], tmp_path / "dataset", index_path=index_path, negative_ratio=0.0,
+        max_sim_skew_ms=250.0, skip_over_skew=True,
+    )
+
+    assert report["sim_skew"]["skipped_steps"] == 1
+    assert report["counts"]["frames"] == 1
+    assert all(frame["world_id"] == "gen_w0000" for frame in report["frames"])
