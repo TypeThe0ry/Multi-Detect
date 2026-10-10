@@ -1,4 +1,5 @@
 ## [Unreleased]
+- 2026-10-10：`29d893e` 之前的 Gazebo image frames 是 FIFO backlog，和 pose 时间错位；`urban-explore-r12`、`urban-expert-r1..r5` 以及更早的 Codex Gazebo image evidence（包括 8/8 STOP shadow 结果）不能支持结论。latest-wins frame server 加入 sim-time 对齐后修复该问题；`aligned-explore-r1` 的最大 `|sim skew|` 为 44 ms。
 
 - 2026-10-10：新增 SIM 教师数据采集与离线审计分离的首个完整 Gazebo PX4 SITL 闭环记录。urban-explore-r12 含 5 步、10 张 RGB、10 张深度、17789 行 MAVLink；审计时长 118.484 s，位置误差均值/最大值 0.114270/0.217683 m，偏航误差均值/最大值 2.497954/5.485699°。保留 r1-r11 控制链修复历史；仅 SIM，不声明 HIL、真实硬件、户外飞行、训练或晋升。
 

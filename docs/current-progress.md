@@ -1,5 +1,10 @@
 # Multi-Detect 当前进度
 
+
+## SIM 教师数据图像对齐说明（2026-10-10）
+
+在 commit `29d893e` 之前，Gazebo image frames 是 FIFO backlog，和 pose 时间错位；因此 `urban-explore-r12`、`urban-expert-r1..r5` 以及更早的 Codex Gazebo image evidence（包括 8/8 STOP shadow 结果）都不能支持结论。latest-wins frame server 加入 sim-time 对齐后修复该问题；`aligned-explore-r1` 的最大 `|sim skew|` 为 44 ms。
+
 ## 最新：首个完整 REAL 闭环 Gazebo PX4 SITL 教师架次（2026-10-10）
 
 SIM 教师采集已与离线审计解耦；urban-explore-r12 完成 5 个动作步骤，保存 10 张 RGB、10 张 float32 深度图和 17789 行 MAVLink。审计通过：时长 118.484 s，位置误差均值/最大值 0.114270/0.217683 m，偏航误差均值/最大值 2.497954/5.485699°。这里的 REAL 仅指 Gazebo/PX4 软件闭环，仍不代表 HIL、真实硬件、户外飞行、训练或晋升。

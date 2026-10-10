@@ -19993,6 +19993,7 @@
         "hold": 1
       }
     },
-    "next": "继续收集独立 SIM episodes 并保持离线审计；不晋升模型。"
+    "next": "继续收集独立 SIM episodes 并保持离线审计；不晋升模型。",
+    "image_alignment": "invalid_fifo_backlog_superseded_by_29d893e"
   }
 }
