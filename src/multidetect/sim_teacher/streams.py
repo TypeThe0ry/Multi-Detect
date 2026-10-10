@@ -136,10 +136,9 @@ class SensorStreamReader:
 
     def stop(self, timeout_s: float = 2.0) -> None:
         self._stop.set()
-        try:
-            self.stream.close()
-        except Exception:
-            pass
+        # Close the request pipe first: the frame server sees EOF and exits, which ends
+        # its stdout and unblocks the reader thread. Closing ``self.stream`` while the
+        # reader thread is blocked in read() deadlocks on Windows (buffered-IO lock).
         if self.request_stream is not None:
             try:
                 self.request_stream.close()
@@ -147,6 +146,11 @@ class SensorStreamReader:
                 pass
         if self._thread is not None:
             self._thread.join(timeout=max(0.0, timeout_s))
+        if self._thread is None or not self._thread.is_alive():
+            try:
+                self.stream.close()
+            except Exception:
+                pass
 
     def request(self, min_sensor_stamp_ns: int = 0) -> None:
         """Ask a request/response sensor server for its newest frame.
