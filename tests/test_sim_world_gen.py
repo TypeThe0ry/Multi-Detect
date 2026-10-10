@@ -117,3 +117,24 @@ def test_geometry_truth_poses_and_physics(tmp_path: Path) -> None:
         for index_a, (x_a, y_a, radius_a) in enumerate(placed):
             for x_b, y_b, radius_b in placed[index_a + 1 :]:
                 assert ((x_a - x_b) ** 2 + (y_a - y_b) ** 2) ** 0.5 > radius_a + radius_b
+
+
+def test_generated_multirotor_spawn_is_raised_above_home_pad(tmp_path: Path) -> None:
+    index = _generate(tmp_path, count=6, seed=20261010)
+    scenarios = tmp_path / "configs/scenarios/generated"
+    worlds = tmp_path / "simulation/gazebo/worlds"
+    for entry in index["worlds"]:
+        runtime = json.loads(
+            (scenarios / f"{entry['world_id']}.runtime.json").read_text(encoding="utf-8")
+        )
+        assert runtime["vehicle"]["spawn_pose"]["z_up_m"] == pytest.approx(0.20)
+        root = ET.fromstring((worlds / entry["world_file"]).read_text(encoding="utf-8"))
+        pad = root.find("world/model[@name='multirotor_home_pad']")
+        assert pad is not None
+        pad_pose = [float(value) for value in pad.findtext("link/collision/pose").split()]
+        pad_length = float(pad.findtext("link/collision/geometry/cylinder/length"))
+        pad_top = pad_pose[2] + pad_length / 2.0
+        # The audited x500 geometry has a 0.24 m model-to-base offset and
+        # its lowest level collision is 0.227 m below that base origin.
+        x500_collision_bottom = runtime["vehicle"]["spawn_pose"]["z_up_m"] + 0.24 - 0.227
+        assert x500_collision_bottom > pad_top
