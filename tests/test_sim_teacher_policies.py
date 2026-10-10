@@ -61,7 +61,7 @@ def test_expert_search_state_machine() -> None:
     assert policy.state == "done" and action.kind == "stop"
     assert policy.target_in_fov
     labels = policy.labels(pose_ned=(12.0, 0.0, 0.0), yaw_deg=0.0)
-    assert set(labels) == {"target_in_fov", "target_bearing", "target_range"}
+    assert {"phase", "target_in_fov", "target_bearing_deg", "target_range_m"} <= set(labels)
 
 
 def test_expert_search_advances_when_target_not_visible() -> None:
@@ -69,3 +69,4 @@ def test_expert_search_advances_when_target_not_visible() -> None:
     action = policy.next_action(pose_ned=(0.0, 0.0, 0.0), yaw_deg=0.0)
     assert policy.state == "search"
     assert action.kind == "translate"
+

@@ -118,45 +118,170 @@ def target_in_fov(
 
 @dataclass
 class ExpertSearchPolicy:
+    """Bounded, target-blind lawnmower search followed by geometric approach.
+
+    ``target_ned`` is consulted only for FOV labels and approach after a
+    geometric detection. Search waypoints never depend on target location.
+    Occlusion/line-of-sight is intentionally not modelled yet.
+    """
+
     target_ned: tuple[float, float, float]
     intrinsics: Mapping[str, float]
-    image_size: tuple[int, int] = (640, 480)
-    standoff_m: float = 8.0
+    image_size: tuple[int, int] = (1280, 960)
+    standoff_m: float = 15.0
     hold_seconds: float = 2.0
     state: str = "search"
+    search_radius_m: float = 120.0
+    max_detection_range_m: float = 80.0
+    max_translate_m: float = 15.0
+    scan_increment_deg: float = 90.0
+    home_ned: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    def __post_init__(self) -> None:
+        if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
+            raise ValueError("standoff_m must be positive and below detection range")
+        if self.search_radius_m <= 0 or self.max_translate_m <= 0:
+            raise ValueError("search radius and translation bound must be positive")
+        if not 60.0 <= self.scan_increment_deg <= 90.0:
+            raise ValueError("scan increment must be between 60 and 90 degrees")
+        self._commanded_yaw_deg: float | None = None
+        self._scan_remaining = 0
+        self._waypoint_index = 0
+        self._waypoints = self._build_waypoints()
+        self._last_inside = False
+
+    def _build_waypoints(self) -> list[tuple[float, float]]:
+        pitch = min(14.0, self.max_translate_m * 0.9)
+        count = int(math.floor(self.search_radius_m / pitch))
+        rows: list[tuple[float, list[float]]] = []
+        for row_idx, y in enumerate(i * pitch for i in range(-count, count + 1)):
+            xs = [
+                x
+                for x in (i * pitch for i in range(-count, count + 1))
+                if x * x + y * y <= self.search_radius_m**2 + 1e-9
+            ]
+            if xs:
+                rows.append((y, xs if row_idx % 2 == 0 else list(reversed(xs))))
+        rows.sort(key=lambda row: abs(row[0]))
+        home_n, home_e = self.home_ned[:2]
+        return [(home_n + x, home_e + y) for y, xs in rows for x in xs if math.hypot(x, y) > 1e-6]
+
+    def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
+        self.state = state
+        self._commanded_yaw_deg = yaw_deg
+        self._scan_remaining = 0
+        self._waypoint_index = 0
+        self._last_inside = False
 
     @property
     def target_in_fov(self) -> bool:
-        return self.state in {"approach", "hold", "done"}
+        return self.state in {"approach", "hold", "done"} or self._last_inside
+
+    @staticmethod
+    def _wrap(degrees: float) -> float:
+        return (degrees + 180.0) % 360.0 - 180.0
+
+    def _scan_action(self, yaw_deg: float) -> ActionPrimitive:
+        if self._commanded_yaw_deg is None:
+            self._commanded_yaw_deg = yaw_deg
+        self._commanded_yaw_deg += self.scan_increment_deg
+        self._scan_remaining -= 1
+        return ActionPrimitive.turn(self.scan_increment_deg)
+
+    def _bounded_translation(
+        self, pose_ned: tuple[float, float, float], waypoint: tuple[float, float], yaw_deg: float
+    ) -> ActionPrimitive:
+        dn, de = waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]
+        distance = math.hypot(dn, de)
+        if distance <= 1e-6:
+            return ActionPrimitive.hold(0.0)
+        step = min(self.max_translate_m, distance)
+        end_n = pose_ned[0] + dn * step / distance
+        end_e = pose_ned[1] + de * step / distance
+        home_n, home_e = self.home_ned[:2]
+        rel_n, rel_e = end_n - home_n, end_e - home_e
+        radius = math.hypot(rel_n, rel_e)
+        if radius > self.search_radius_m:
+            scale = self.search_radius_m / radius
+            end_n, end_e = home_n + rel_n * scale, home_e + rel_e * scale
+        dn, de = end_n - pose_ned[0], end_e - pose_ned[1]
+        yaw = math.radians(yaw_deg)
+        return ActionPrimitive.translate(
+            dn * math.cos(yaw) + de * math.sin(yaw),
+            -dn * math.sin(yaw) + de * math.cos(yaw),
+            0.0,
+        )
 
     def next_action(
         self, *, pose_ned: tuple[float, float, float], yaw_deg: float = 0.0
     ) -> ActionPrimitive:
+        if self._commanded_yaw_deg is None:
+            self._commanded_yaw_deg = yaw_deg
         inside, bearing, rng = target_in_fov(
-            self.target_ned, pose_ned, yaw_deg, self.intrinsics, self.image_size
+            self.target_ned,
+            pose_ned,
+            yaw_deg,
+            self.intrinsics,
+            self.image_size,
+            max_range_m=self.max_detection_range_m,
         )
-        if self.state == "search":
-            if inside:
-                self.state = "approach"
-            else:
-                return ActionPrimitive.translate(8.0, 0.0, 0.0)
-        if self.state == "approach":
-            if rng > self.standoff_m:
-                return ActionPrimitive.translate(min(8.0, rng - self.standoff_m), 0.0, 0.0)
-            self.state = "hold"
-            return ActionPrimitive.hold(self.hold_seconds)
+        self._last_inside = inside
+        if self.state == "done":
+            return ActionPrimitive.stop()
         if self.state == "hold":
             self.state = "done"
             return ActionPrimitive.stop()
-        return ActionPrimitive.stop()
+        if self.state not in {"approach", "hold", "done"} and inside:
+            self.state = "approach"
+        if self.state == "approach":
+            if rng <= self.standoff_m + 1e-6:
+                self.state = "hold"
+                return ActionPrimitive.hold(self.hold_seconds)
+            if abs(bearing) > 10.0 or not inside:
+                desired = math.degrees(
+                    math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0])
+                )
+                delta = self._wrap(desired - self._commanded_yaw_deg)
+                self._commanded_yaw_deg += delta
+                return ActionPrimitive.turn(delta)
+            return ActionPrimitive.translate(
+                min(8.0, self.max_translate_m, max(0.0, rng - self.standoff_m)), 0.0, 0.0
+            )
+        if self._scan_remaining > 0:
+            self.state = "scan"
+            return self._scan_action(yaw_deg)
+        self.state = "search"
+        if self._waypoint_index >= len(self._waypoints):
+            self._waypoint_index = 0
+        waypoint = self._waypoints[self._waypoint_index]
+        if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 1.0:
+            self._waypoint_index += 1
+            self._scan_remaining = int(round(360.0 / self.scan_increment_deg))
+            self.state = "scan"
+            return self._scan_action(yaw_deg)
+        return self._bounded_translation(pose_ned, waypoint, yaw_deg)
 
     def labels(
         self, *, pose_ned: tuple[float, float, float], yaw_deg: float = 0.0
     ) -> dict[str, Any]:
         inside, bearing, rng = target_in_fov(
-            self.target_ned, pose_ned, yaw_deg, self.intrinsics, self.image_size
+            self.target_ned,
+            pose_ned,
+            yaw_deg,
+            self.intrinsics,
+            self.image_size,
+            max_range_m=self.max_detection_range_m,
         )
-        return {"target_in_fov": inside, "target_bearing": bearing, "target_range": rng}
+        return {
+            "phase": self.state,
+            "target_in_fov": inside,
+            "target_bearing_deg": bearing,
+            "target_range_m": rng,
+        }
 
 
 __all__ = ["ExploreBounds", "ExplorePolicy", "ExpertSearchPolicy", "target_in_fov"]
+
+
+
+

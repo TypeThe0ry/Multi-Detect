@@ -194,6 +194,8 @@ class PymavlinkPrimitiveExecutor:
         self.stream_hz = float(stream_hz)
         self._armed = False
         self.streamer = streamer
+        self._commanded_position: tuple[float, float, float] | None = None
+        self._commanded_yaw: float | None = None
 
     def _mav(self) -> Any:
         mav = getattr(self.vehicle, "mav", None)
@@ -243,13 +245,22 @@ class PymavlinkPrimitiveExecutor:
             arm()
         self._armed = True
         start = self._position()
+        yaw = float(self._yaw())
         target = (float(start[0]), float(start[1]), -float(altitude_m))
-        self._send_setpoint(*target, float(self._yaw()))
+        self._commanded_position = target
+        self._commanded_yaw = yaw
+        self._send_setpoint(*target, yaw)
 
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
         start_time = self._clock()
-        start_pos = tuple(float(x) for x in self._position())
-        start_yaw = float(self._yaw())
+        measured_start = tuple(float(x) for x in self._position())
+        measured_yaw = float(self._yaw())
+        if self._commanded_position is None:
+            self._commanded_position = measured_start
+        if self._commanded_yaw is None:
+            self._commanded_yaw = measured_yaw
+        start_pos = self._commanded_position
+        start_yaw = self._commanded_yaw
         if action.kind == "hold":
             while self._clock() - start_time < action.seconds:
                 self._send_setpoint(*start_pos, start_yaw)
@@ -263,6 +274,8 @@ class PymavlinkPrimitiveExecutor:
         n, e, d, yaw_delta = primitive_to_ned(action, start_yaw)
         target = (start_pos[0] + n, start_pos[1] + e, start_pos[2] + d)
         target_yaw = start_yaw + yaw_delta
+        self._commanded_position = target
+        self._commanded_yaw = target_yaw
         result = "pending"
         while self._clock() - start_time < self.criterion.timeout_s:
             self._send_setpoint(*target, target_yaw)
@@ -303,3 +316,5 @@ class PymavlinkPrimitiveExecutor:
 
 
 __all__ = ["ExecutionResult", "PrimitiveExecutor", "SetpointStreamer", "PymavlinkPrimitiveExecutor"]
+
+

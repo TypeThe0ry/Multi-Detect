@@ -58,3 +58,11 @@ C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe `
 ## 适用范围
 
 这些样本只证明 Gazebo PX4 SITL 采集链路和 SIM 控制执行。它们不声明 Jetson/Pixhawk 实机、户外 GNSS、感知精度或 sim-to-real 性能。scenario truth 只供 privileged expert policy 使用，不会伪装成机载视觉观测。
+
+## expert_search 教师行为（当前实现）
+
+`expert_search` 使用固定的、与隐藏目标坐标无关的搜索先验。默认搜索半径为 120 m，航段长度不超过 15 m；策略沿有界 lawnmower 航线飞行，并在每个航点原地以 90° 增量扫描一整圈。搜索区域来自任务场景配置，不表示教师知道目标位置，也不会在目标尚未进入相机几何视场前直接朝目标飞行。
+
+相机为前视相机，FOV 判断使用采集器的 1280×960 标定内参（`fx=fy=539.936368...`、主点 `(640,480)`），并限制探测距离为 80 m。目标投影进入图像后进入 `approach`：先把机头转到目标方位（允许 ±10°），再以不超过 15 m 的步长接近，直到默认 15 m standoff；随后 `hold` 2 s，最后 `done/stop`。每步标签包含 `phase`、`target_in_fov`、`target_bearing_deg`、`target_range_m`。
+
+位姿执行器保存绝对高度和偏航的上一条**指令参考**，下一条 setpoint 从该参考叠加显式命令，因此测量噪声不会累积成高度或偏航漂移；记录中的 achieved 值仍来自实测遥测。当前几何 FOV 尚未建模遮挡和真实 line-of-sight，这是已知限制；这些样本只声明 Gazebo/PX4 SIM 控制链和 privileged teacher 标签，不声明真实相机、GNSS 或 sim-to-real 性能。
