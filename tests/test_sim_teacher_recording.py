@@ -102,6 +102,11 @@ def _live_obs(value: float = 1.0) -> dict:
         "pose": {"local_ned_m": [0.0, 0.0, -5.0], "lat_deg": 1.3, "lon_deg": 103.8, "alt_m": 5.0},
         "velocity": [0.0, 0.0, 0.0],
         "gps_fix": {"fix_type": 3, "satellites": 10},
+        # Gazebo and PX4 simulation clocks (milliseconds here for a compact
+        # fixture); the auditor derives and verifies this relationship.
+        "frame_sensor_stamp_ns": 1_000_000_000,
+        "pose_time_boot_ms": 1_000,
+        "sim_skew_ms": 0.0,
     }
 
 
@@ -138,6 +143,64 @@ def test_live_admission_rejects_missing_after_and_gps() -> None:
         bad["gps_fix"] = {"fix_type": 1}
         recorder.record_step(bad, ActionPrimitive.stop(), ack={"action_ack": True})
         with pytest.raises(DatasetAuditError, match="obs_after"):
+            audit_dataset(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+
+def test_live_admission_rejects_sim_skew_over_limit() -> None:
+    root = _dataset_dir()
+    try:
+        recorder = EpisodeRecorder(root, "live-skew", sensor_status="live")
+        bad = _live_obs()
+        bad["frame_sensor_stamp_ns"] = 1_300_000_000
+        bad["sim_skew_ms"] = 300.0
+        recorder.record_step(
+            bad,
+            ActionPrimitive.stop(),
+            ack={"action_ack": True},
+            obs_after={**bad},
+        )
+        with pytest.raises(DatasetAuditError, match="sim_skew_ms exceeds"):
+            audit_dataset(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_live_admission_rejects_stuck_frames_when_pose_moves() -> None:
+    root = _dataset_dir()
+    try:
+        recorder = EpisodeRecorder(root, "live-stuck", sensor_status="live")
+        first = _live_obs()
+        recorder.record_step(
+            first,
+            ActionPrimitive.hold(0.1),
+            ack={"action_ack": True},
+            obs_after={**first},
+        )
+        moved = _live_obs()
+        moved["pose"] = {
+            "local_ned_m": [2.0, 0.0, -5.0],
+            "lat_deg": 1.3,
+            "lon_deg": 103.8,
+            "alt_m": 5.0,
+        }
+        # Keep the stale frame stamp near the start of the episode, as in the
+        # r5 backlog evidence; the pose has moved by two metres.
+        recorder.record_step(
+            moved,
+            ActionPrimitive.stop(),
+            ack={"action_ack": True},
+            obs_after={**moved},
+        )
+        # Make the fixture deterministic even on filesystems with coarse clock
+        # resolution: the production recorder normally gets distinct values.
+        steps_path = root / "episodes" / "live-stuck" / "steps.jsonl"
+        rows = [json.loads(line) for line in steps_path.read_text().splitlines()]
+        rows[1]["receive_monotonic_ns"] = rows[0]["receive_monotonic_ns"] + 1
+        steps_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        with pytest.raises(DatasetAuditError, match="frame stamps do not advance"):
             audit_dataset(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)

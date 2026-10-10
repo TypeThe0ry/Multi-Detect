@@ -241,6 +241,13 @@ def _has_action_ack(ack: Any) -> bool:
 
 DEPTH_MIN_FINITE_FRACTION = 0.05
 
+# PX4's LOCAL_POSITION_NED.time_boot_ms and Gazebo's image sensor stamp are
+# simulation clocks. The collector records their difference on each live
+# observation. Keep the admission limit tight enough to catch a queued pipe
+# frame while allowing a small amount of lockstep jitter.
+DEFAULT_MAX_SIM_SKEW_MS = 250.0
+DEFAULT_POSE_MOTION_THRESHOLD_M = 1.0
+
 
 def _depth_finite(ep: Path, value: Any) -> bool:
     if not _real_file(ep, value, ".npy"):
@@ -256,6 +263,56 @@ def _depth_finite(ep: Path, value: Any) -> bool:
         return float(np.isfinite(array).mean()) >= DEPTH_MIN_FINITE_FRACTION
     except Exception:
         return False
+
+
+def _pose_vector(pose: Any) -> tuple[float, float, float] | None:
+    """Return a local NED pose as a finite 3-vector when it is available."""
+    if not isinstance(pose, dict):
+        return None
+    local = pose.get("local_ned_m", pose)
+    if isinstance(local, dict):
+        values = [local.get(k) for k in ("north_m", "east_m", "down_m")]
+    elif isinstance(local, (list, tuple)):
+        values = list(local[:3])
+    else:
+        return None
+    if len(values) != 3 or not all(_finite_number(item) for item in values):
+        return None
+    return tuple(float(item) for item in values)
+
+
+def _live_sim_alignment(
+    obs: dict[str, Any],
+    *,
+    max_sim_skew_ms: float,
+    step_index: int,
+    name: str,
+) -> tuple[int, float, tuple[float, float, float]]:
+    """Validate and normalize simulation clock fields on one observation."""
+    frame_stamp = obs.get("frame_sensor_stamp_ns")
+    if isinstance(frame_stamp, bool) or not isinstance(frame_stamp, int) or frame_stamp <= 0:
+        raise DatasetAuditError(
+            f"live step {step_index} {name} has invalid frame_sensor_stamp_ns"
+        )
+    pose_time = obs.get("pose_time_boot_ms")
+    if isinstance(pose_time, bool) or not isinstance(pose_time, int) or pose_time < 0:
+        raise DatasetAuditError(f"live step {step_index} {name} has invalid pose_time_boot_ms")
+    sim_skew = obs.get("sim_skew_ms")
+    if not _finite_number(sim_skew):
+        raise DatasetAuditError(f"live step {step_index} {name} has invalid sim_skew_ms")
+    expected_skew = frame_stamp / 1_000_000.0 - float(pose_time)
+    if not math.isclose(float(sim_skew), expected_skew, rel_tol=0.0, abs_tol=1e-6):
+        raise DatasetAuditError(
+            f"live step {step_index} {name} sim_skew_ms does not match frame and pose stamps"
+        )
+    if abs(float(sim_skew)) > max_sim_skew_ms:
+        raise DatasetAuditError(
+            f"live step {step_index} {name} sim_skew_ms exceeds {max_sim_skew_ms:g} ms"
+        )
+    pose = _pose_vector(obs.get("pose"))
+    if pose is None:
+        raise DatasetAuditError(f"live step {step_index} {name} has invalid pose")
+    return frame_stamp, float(sim_skew), pose
 
 
 def _commanded_errors(
@@ -288,7 +345,23 @@ def _commanded_errors(
     return position_error, yaw_error
 
 
-def audit_dataset(root: str | Path) -> dict[str, Any]:
+def audit_dataset(
+    root: str | Path,
+    *,
+    max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
+    pose_motion_threshold_m: float = DEFAULT_POSE_MOTION_THRESHOLD_M,
+) -> dict[str, Any]:
+    """Audit a dataset and write its immutable file manifest.
+
+    ``max_sim_skew_ms`` is intentionally configurable for replay fixtures, but
+    live admission defaults to 250 ms. ``pose_motion_threshold_m`` controls the
+    additional stuck-frame check: a live pose movement above this distance must
+    be accompanied by a strictly newer Gazebo frame stamp.
+    """
+    if not _finite_number(max_sim_skew_ms) or float(max_sim_skew_ms) < 0.0:
+        raise ValueError("max_sim_skew_ms must be a finite non-negative number")
+    if not _finite_number(pose_motion_threshold_m) or float(pose_motion_threshold_m) <= 0.0:
+        raise ValueError("pose_motion_threshold_m must be a finite positive number")
     root = Path(root)
     episodes = root / "episodes"
     manifest: dict[str, str] = {}
@@ -296,6 +369,7 @@ def audit_dataset(root: str | Path) -> dict[str, Any]:
     successes = 0
     action_hist: dict[str, int] = {}
     skews: list[float] = []
+    sim_skews: list[float] = []
     position_errors: list[float] = []
     yaw_errors: list[float] = []
     episode_reports: dict[str, dict[str, Any]] = {}
@@ -337,6 +411,8 @@ def audit_dataset(root: str | Path) -> dict[str, Any]:
         ep_successes = 0
         ep_positions: list[float] = []
         ep_yaws: list[float] = []
+        previous_frame_stamp_ns: int | None = None
+        previous_pose: tuple[float, float, float] | None = None
         for line_no, line in enumerate(steps_file.read_text(encoding="utf-8").splitlines(), 1):
             try:
                 row = json.loads(line)
@@ -378,6 +454,30 @@ def audit_dataset(root: str | Path) -> dict[str, Any]:
                         raise DatasetAuditError(f"live step {idx} {name} has invalid pose")
                     if not _has_gps_fix(obs.get("gps_fix")):
                         raise DatasetAuditError(f"live step {idx} {name} has no GPS fix")
+                    frame_stamp, sim_skew, pose = _live_sim_alignment(
+                        obs,
+                        max_sim_skew_ms=float(max_sim_skew_ms),
+                        step_index=idx,
+                        name=name,
+                    )
+                    sim_skews.append(sim_skew)
+                    if previous_frame_stamp_ns is not None and previous_pose is not None:
+                        moved = math.sqrt(
+                            sum(
+                                (pose[axis] - previous_pose[axis]) ** 2
+                                for axis in range(3)
+                            )
+                        )
+                        if (
+                            moved > float(pose_motion_threshold_m)
+                            and frame_stamp <= previous_frame_stamp_ns
+                        ):
+                            raise DatasetAuditError(
+                                f"live episode {ep.name} frame stamps do not advance "
+                                f"while pose moves ({moved:.3f} m)"
+                            )
+                    previous_frame_stamp_ns = frame_stamp
+                    previous_pose = pose
                 ack = row.get("ack")
                 if not _has_action_ack(ack):
                     raise DatasetAuditError(f"live step {idx} in {ep.name} has no action ACK")
@@ -429,6 +529,12 @@ def audit_dataset(root: str | Path) -> dict[str, Any]:
             "max": max(skews, default=0.0),
             "mean": sum(skews) / len(skews) if skews else 0.0,
         },
+        "sim_skew_ms": {
+            "count": len(sim_skews),
+            "max_abs": max((abs(value) for value in sim_skews), default=0.0),
+            "mean": sum(sim_skews) / len(sim_skews) if sim_skews else 0.0,
+            "limit": float(max_sim_skew_ms),
+        },
         "achieved_vs_commanded_error": {
             "position_m": {
                 "count": len(position_errors),
@@ -449,4 +555,10 @@ def audit_dataset(root: str | Path) -> dict[str, Any]:
     return audit
 
 
-__all__ = ["EpisodeRecorder", "DatasetAuditError", "audit_dataset"]
+__all__ = [
+    "EpisodeRecorder",
+    "DatasetAuditError",
+    "DEFAULT_MAX_SIM_SKEW_MS",
+    "DEFAULT_POSE_MOTION_THRESHOLD_M",
+    "audit_dataset",
+]

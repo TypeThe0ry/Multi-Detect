@@ -2,6 +2,16 @@
 
 本工具在固定 digest 的 Gazebo + PX4 SITL 容器中采集真实的 `observation -> action -> next observation` 样本。当前只支持 `x500_mono_cam` 多旋翼。运行时只记录原始流；文件哈希和完整性检查由离线 auditor 完成。
 
+## 2026-10 对齐修复
+
+旧版 `scripts/gazebo_sensor_stream.py` 把完整 RGB（1280×960）和 FLOAT32 深度帧写入有界 FIFO。`docker exec` stdout 消费速度低于 Gazebo 产帧速度时，生产者会阻塞，collector 随后按 FIFO 读到起飞初期的旧图像。PX4 `LOCAL_POSITION_NED.time_boot_ms` 已经前进而图像仍停在起飞垫，导致图像与位姿错配。
+
+该 frozen helper 被 `src/multidetect/release_parity.py` 和 `docs/current-progress.json` 绑定，因此没有修改它。采集器现在启动 collector-owned `scripts/sim_teacher_frame_server.py`：Gazebo 回调只保留一个最新的完整 RGB/depth 同步候选，替换旧候选时计数并丢弃；collector 在每个 `obs_before`/`obs_after` 请求 `GET <pose_sim_stamp_ns>`，服务端只返回模拟时间戳不早于该请求且尚未发送过的帧。默认 RGB 为 640×480、depth 为 320×240 `UINT16_MM`；可用 `--rgb-size`、`--depth-size` 和 `--depth-encoding` 切换，输出 intrinsics 会按缩放比例记录。完整分辨率仍可显式选择。
+
+每个 live observation 记录 `frame_sensor_stamp_ns`、`pose_time_boot_ms`、`pose_sim_stamp_ns` 和 `sim_skew_ms`。auditor 默认拒绝 `abs(sim_skew_ms) > 250`，并拒绝位姿移动超过 1 m 而 frame stamp 没有严格前进的 episode。这个门会直接捕获 r5 的 backlog 模式。
+
+历史 `urban-explore-r12`、`urban-expert-r1` 到 `urban-expert-r5` 的图像已经与位姿错配，禁止用于训练；必须重新采集并通过新的 alignment gate。
+
 ## 运行
 
 单个 5 步 explore episode：
@@ -11,11 +21,11 @@ C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe `
   scripts/collect_sim_teacher_episodes.py `
   --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json `
   --teacher explore --episodes 1 --steps-per-episode 5 --seed 7 `
-  --out artifacts/datasets/sim-teacher/urban-explore-r29 `
+  --out artifacts/datasets/sim-teacher/urban-explore-r30 `
   --max-episode-s 300 --keep-container-on-failure
 ```
 
-`--dry-run` 只打印计划，不启动 Docker。`--max-episode-s` 是单 episode 的硬墙钟上限；`--keep-container-on-failure` 仅用于调试，失败时保留容器。
+`--dry-run` 只打印计划，不启动 Docker。`--max-episode-s` 是单 episode 的硬墙钟上限；`--keep-container-on-failure` 仅用于调试，失败时保留容器。默认输出 RGB 为 `640x480`、depth 为 `320x240 UINT16_MM`；需要原始带宽时显式传 `--rgb-size 1280x960 --depth-size 1280x960 --depth-encoding FLOAT32_M`。
 
 ## 实际控制流程
 
@@ -39,15 +49,17 @@ C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe `
   audit.json
 ```
 
-每个 step 包含真实的 RGB、float32 米制 depth、camera info、NED pose、经纬高、姿态、速度、GPS fix、动作、ACK、执行结果、frame/pose 时间年龄和下一帧 observation。`mavlink.jsonl` 保存每条收到的 MAVLink 报文和接收时间。
+每个 step 包含真实的 RGB、float32 米制 depth、RGB camera info、输出 depth geometry/encoding/intrinsics（`depth_camera_info`）、NED pose、经纬高、姿态、速度、GPS fix、动作、ACK、执行结果、frame/pose 时间年龄和下一帧 observation。`mavlink.jsonl` 保存每条收到的 MAVLink 报文和接收时间。
 
 离线审计：
 
 ```powershell
 C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe `
   scripts/audit_sim_teacher_dataset.py `
-  --dataset artifacts/datasets/sim-teacher/urban-explore-r29
+  --dataset artifacts/datasets/sim-teacher/urban-explore-r30
 ```
+
+alignment gate 的默认上限是 250 ms、位姿移动门槛是 1 m；需要审计回放或调整门槛时可传 `--max-sim-skew-ms` 和 `--pose-motion-threshold-m`。
 
 审计生成 SHA-256 manifest，检查文件、step 配对、有限 pose、GPS、ACK、时间单调性、frame/pose skew、成功率、动作直方图、覆盖范围、episode 时长和 achieved-vs-commanded 误差。发现损坏时返回非零状态。
 

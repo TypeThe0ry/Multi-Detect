@@ -42,6 +42,7 @@ from multidetect.sim_teacher import (  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkReader,
+    MavlinkState,
     SensorStreamReader,
     build_observation,
 )
@@ -60,6 +61,19 @@ DEFAULT_CAMERA_INFO = {
     "cx": 640.0,
     "cy": 480.0,
 }
+DEFAULT_RGB_SIZE = (640, 480)
+DEFAULT_DEPTH_SIZE = (320, 240)
+DEFAULT_DEPTH_ENCODING = "UINT16_MM"
+
+
+def _parse_size(value: str) -> tuple[int, int]:
+    try:
+        width, height = (int(part) for part in value.lower().split("x", 1))
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("size must be WIDTHxHEIGHT") from exc
+    if width <= 0 or height <= 0 or width > 4096 or height > 4096:
+        raise argparse.ArgumentTypeError("size is outside supported range")
+    return width, height
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 DEFAULT_CONTROL_PORT = 14540
 DEFAULT_TELEMETRY_PORT = 14541
@@ -97,8 +111,6 @@ SYS_STATUS_HEALTH_BITS = {
     268435456: "prearm_check",
     33554432: "battery",
 }
-
-
 @dataclass(frozen=True, slots=True)
 class CollectionPlan:
     scenario: str
@@ -117,6 +129,9 @@ class CollectionPlan:
     keep_container_on_failure: bool = False
     control_port: int = DEFAULT_CONTROL_PORT
     telemetry_port: int = DEFAULT_TELEMETRY_PORT
+    rgb_size: tuple[int, int] = DEFAULT_RGB_SIZE
+    depth_size: tuple[int, int] = DEFAULT_DEPTH_SIZE
+    depth_encoding: str = DEFAULT_DEPTH_ENCODING
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -212,14 +227,13 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
     command = [
         _docker_executable(plan),
         "exec",
+        # -i keeps stdin attached; the frame server reads GET requests from it.
+        "-i",
         environment.name,
         "python3",
-        "/workspace/scripts/gazebo_sensor_stream.py",
-        "--frames",
-        str(min(100_000, max(64, int(plan.max_episode_s * 30.0)))),
-        "--timeout-seconds",
-        # The stream must outlive the whole episode; the episode budget bounds it.
-        f"{plan.max_episode_s + 60.0:.3f}",
+        "/workspace/scripts/sim_teacher_frame_server.py",
+        "--request-timeout-s",
+        f"{min(60.0, max(5.0, SENSOR_FRAME_WAIT_S + 2.0)):.3f}",
         "--world",
         world,
         "--model-instance",
@@ -232,6 +246,12 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         navsat_topic,
         "--odometry-topic",
         odometry_topic,
+        "--rgb-size",
+        f"{plan.rgb_size[0]}x{plan.rgb_size[1]}",
+        "--depth-size",
+        f"{plan.depth_size[0]}x{plan.depth_size[1]}",
+        "--depth-encoding",
+        plan.depth_encoding,
     ]
     calibration_path = (
         ROOT / "simulation" / "gazebo" / "calibration" / "gazebo-multirotor-front-camera-v1.json"
@@ -487,6 +507,63 @@ def _state_speed(state: Any) -> float:
     if msg is None:
         return float("inf")
     return math.sqrt(sum(float(_field(msg, key, 0.0)) ** 2 for key in ("vx", "vy", "vz")))
+
+
+def _pose_sim_stamp_ns(state: Any) -> int | None:
+    """Return PX4's simulation/boot timestamp in nanoseconds when available.
+
+    PX4 SITL publishes ``LOCAL_POSITION_NED.time_boot_ms`` from the same
+    lockstep clock as Gazebo.  Keeping this conversion at the collector
+    boundary lets frame acquisition enforce a causal ``sensor >= pose``
+    relation while remaining compatible with lightweight test doubles that do
+    not provide the field.
+    """
+    message = state.get("LOCAL_POSITION_NED")
+    value = _field(message, "time_boot_ms", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return None
+    return int(value * 1_000_000)
+
+
+def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
+    """Freeze the telemetry sample used to request and label one observation."""
+    return MavlinkState(
+        messages=dict(state.messages),
+        received_monotonic_ns=dict(state.received_monotonic_ns),
+        received_wall_time=dict(state.received_wall_time),
+        count=state.count,
+        last_preflight_failure_ns=state.last_preflight_failure_ns,
+    )
+
+
+def _is_terminal_action(action: Any) -> bool:
+    """Return whether a policy action terminates the primitive sequence."""
+    return str(getattr(action, "kind", "")) == "stop"
+
+
+def _record_policy_step(
+    recorder: EpisodeRecorder,
+    before: dict[str, Any],
+    action: Any,
+    *,
+    ack: dict[str, Any],
+    outcome: dict[str, Any],
+    obs_after: dict[str, Any],
+    labels: dict[str, Any],
+) -> bool:
+    """Persist one policy step and report whether the primitive loop continues."""
+    recorder.record_step(
+        before,
+        action,
+        ack=ack,
+        outcome=outcome,
+        obs_after=obs_after,
+        labels=labels,
+    )
+    return not _is_terminal_action(action)
 
 
 def _message_type(message: Any) -> str:
@@ -805,17 +882,30 @@ def _fresh_sensor_snapshot(
     reader: SensorStreamReader,
     previous_ns: int,
     timeout_s: float,
+    *,
+    min_sensor_stamp_ns: int | None = None,
 ):
-    """Wait for a frame received strictly after ``previous_ns`` (monotonic ns).
+    """Wait for a fresh frame at or beyond a requested simulation timestamp.
 
     SIM rendering in Docker is slow (a frame every few seconds), so frame age is
-    recorded in the observation instead of refusing the step.
+    recorded in the observation instead of refusing the step.  ``previous_ns``
+    is a host monotonic receive watermark; ``min_sensor_stamp_ns`` is the
+    optional Gazebo/PX4 lockstep watermark and prevents consuming a backlog
+    frame captured before the pose used for this observation.
     """
+    reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         reader.raise_if_failed()
         sample = reader.latest
-        if sample is not None and sample.received_monotonic_ns > previous_ns:
+        if (
+            sample is not None
+            and sample.received_monotonic_ns > previous_ns
+            and (
+                min_sensor_stamp_ns is None
+                or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
+            )
+        ):
             return sample
         time.sleep(0.02)
     raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
@@ -936,7 +1026,7 @@ def _make_sensor_process(
 ) -> subprocess.Popen[bytes]:
     command = _camera_stream_command(plan, environment)
     process = subprocess.Popen(
-        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
     )
     if process.stdout is None or process.stderr is None:
         process.kill()
@@ -952,6 +1042,9 @@ def _make_sensor_process(
                     event = {"message": line[:500]}
                 if isinstance(event, dict) and event.get("event") == "gazebo_sensor_stream_started":
                     _progress("sensor_stream_started", details=event)
+                else:
+                    # Surface every other diagnostic so a dying frame server is debuggable.
+                    _progress("sensor_stream_stderr", details=event)
 
     threading.Thread(target=drain, name="sim-teacher-sensor-stderr", daemon=True).start()
     return process
@@ -1128,11 +1221,23 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 raise RuntimeError("sensor stream stdout is unavailable")
             sensor_reader = SensorStreamReader(
                 sensor_process.stdout,
+                request_stream=sensor_process.stdin,
                 depth_binding=depth_binding,
-                camera_info=DEFAULT_CAMERA_INFO,
+                camera_info={
+                    **DEFAULT_CAMERA_INFO,
+                    "width": plan.rgb_size[0],
+                    "height": plan.rgb_size[1],
+                    "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                    "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                    "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                    "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                },
                 max_frames=max(64, int(plan.max_episode_s * 30.0)),
                 require_depth=depth_binding is not None,
             ).start()
+            # The collector-owned frame server is request/response based, so
+            # explicitly prime it before waiting for the first decoded frame.
+            sensor_reader.request(0)
             sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
             _wait_for(
@@ -1249,11 +1354,26 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 mav_reader.raise_if_failed()
                 if time.monotonic() - started > plan.max_episode_s:
                     raise TimeoutError("episode wall-clock timeout")
+                before_state = _snapshot_mavlink_state(mav_reader.state)
+                pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 before_sample = _fresh_sensor_snapshot(
-                    sensor_reader, time.monotonic_ns(), SENSOR_FRAME_WAIT_S
+                    sensor_reader,
+                    time.monotonic_ns(),
+                    SENSOR_FRAME_WAIT_S,
+                    min_sensor_stamp_ns=pose_sim_stamp_ns,
                 )
                 before = build_observation(
-                    before_sample, mav_reader.state, camera_info=DEFAULT_CAMERA_INFO
+                    before_sample,
+                    before_state,
+                    camera_info={
+                        **DEFAULT_CAMERA_INFO,
+                        "width": plan.rgb_size[0],
+                        "height": plan.rgb_size[1],
+                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                    },
                 )
                 before = _png_observation(before)
                 pose = tuple(before["pose"]["local_ned_m"])
@@ -1274,11 +1394,26 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 )
                 mav_reader.raise_if_failed()
                 # obs_after must be rendered after the primitive completed, not mid-motion.
+                after_state = _snapshot_mavlink_state(mav_reader.state)
+                after_pose_sim_stamp_ns = _pose_sim_stamp_ns(after_state)
                 after_sample = _fresh_sensor_snapshot(
-                    sensor_reader, primitive_end_ns, SENSOR_FRAME_WAIT_S
+                    sensor_reader,
+                    primitive_end_ns,
+                    SENSOR_FRAME_WAIT_S,
+                    min_sensor_stamp_ns=after_pose_sim_stamp_ns,
                 )
                 after = build_observation(
-                    after_sample, mav_reader.state, camera_info=DEFAULT_CAMERA_INFO
+                    after_sample,
+                    after_state,
+                    camera_info={
+                        **DEFAULT_CAMERA_INFO,
+                        "width": plan.rgb_size[0],
+                        "height": plan.rgb_size[1],
+                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                    },
                 )
                 after = _png_observation(after)
                 ack = {
@@ -1290,7 +1425,8 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     "action_ack": result.status in {"success", "timeout"},
                     "arm": arm_ack,
                 }
-                recorder.record_step(
+                continue_loop = _record_policy_step(
+                    recorder,
                     before,
                     action,
                     ack=ack,
@@ -1304,6 +1440,13 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     obs_after=after,
                     labels=labels,
                 )
+                # STOP is a terminal policy action.  Keep this step in the
+                # episode (including its observation pair), then immediately
+                # leave the primitive loop so we do not execute redundant
+                # STOPs while still performing the normal RTL/LAND teardown.
+                if not continue_loop:
+                    _progress("policy_stop", step=index)
+                    break
             mav_reader.raise_if_failed()
             _progress("rtl")
             executor.rtl()
@@ -1386,6 +1529,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--heartbeat-timeout-s", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_S)
     parser.add_argument("--keep-container-on-failure", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)
+    parser.add_argument("--depth-size", type=_parse_size, default=DEFAULT_DEPTH_SIZE)
+    parser.add_argument(
+        "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
+    )
     return parser
 
 
@@ -1418,6 +1566,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         max_episode_s=max_episode_s,
         heartbeat_timeout_s=args.heartbeat_timeout_s,
         keep_container_on_failure=args.keep_container_on_failure,
+        rgb_size=args.rgb_size,
+        depth_size=args.depth_size,
+        depth_encoding=args.depth_encoding,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

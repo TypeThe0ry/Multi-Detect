@@ -4,7 +4,13 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from multidetect.sim_teacher.streams import MavlinkState, SensorSample, build_observation
+from multidetect.sim_teacher.streams import (
+    LatestWinsBuffer,
+    MavlinkState,
+    SensorSample,
+    build_observation,
+    simulation_stamp_skew_ms,
+)
 
 
 def _collector_module():
@@ -41,6 +47,62 @@ def test_build_observation_uses_live_mavlink_and_converts_rgb() -> None:
     assert observation["pose"]["local_ned_m"] == [1.0, 2.0, -3.0]
     assert observation["rgb"].shape == (1, 2, 3)
     assert observation["frame_pose_skew_ns"] == 10
+    assert observation["pose_time_boot_ms"] is None
+
+
+def test_latest_wins_buffer_drops_old_frames() -> None:
+    buffer = LatestWinsBuffer()
+    for value in range(100):
+        buffer.put(value)
+    assert buffer.wait_for(lambda value: value == 99, timeout_s=0.01) == 99
+    assert buffer.latest == 99
+    assert buffer.published_count == 100
+    assert buffer.dropped_count == 99
+
+
+def test_pose_sim_stamp_helper_converts_px4_boot_time() -> None:
+    collector = _collector_module()
+    state = MavlinkState(messages={"LOCAL_POSITION_NED": {"time_boot_ms": 7_160}})
+    assert collector._pose_sim_stamp_ns(state) == 7_160_000_000
+
+
+def test_simulation_stamp_skew_helper() -> None:
+    assert simulation_stamp_skew_ms(7_160_000_000, 7_000) == 160.0
+    assert simulation_stamp_skew_ms(7_160_000_000, None) is None
+
+
+def test_stop_action_is_terminal() -> None:
+    collector = _collector_module()
+    from multidetect.sim_teacher import ActionPrimitive
+
+    assert collector._is_terminal_action(ActionPrimitive.stop()) is True
+    assert collector._is_terminal_action(ActionPrimitive.hold(0.1)) is False
+
+
+def test_stop_records_step_and_ends_policy_loop() -> None:
+    collector = _collector_module()
+    from multidetect.sim_teacher import ActionPrimitive
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.actions: list[ActionPrimitive] = []
+
+        def record_step(self, before, action, **kwargs) -> None:
+            self.actions.append(action)
+
+    recorder = Recorder()
+    before = {"rgb": b"before", "depth": None}
+    after = {"rgb": b"after", "depth": None}
+    assert collector._record_policy_step(
+        recorder,
+        before,
+        ActionPrimitive.stop(),
+        ack={"action_ack": True},
+        outcome={"status": "success"},
+        obs_after=after,
+        labels={},
+    ) is False
+    assert [action.kind for action in recorder.actions] == ["stop"]
 
 
 def test_setpoint_streamer_rate_target_and_encoding() -> None:

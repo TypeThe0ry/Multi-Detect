@@ -11,6 +11,53 @@ from dataclasses import dataclass, field
 from typing import Any, BinaryIO
 
 
+class LatestWinsBuffer:
+    """Thread-safe one-slot buffer for high-bandwidth sensor frames.
+
+    A producer never waits for a slow consumer: publishing a new item replaces
+    the previous item and increments ``dropped_count``.  Consumers can wait for
+    an item satisfying a predicate (used by the SIM server for a minimum
+    simulation timestamp).
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._latest: Any | None = None
+        self.published_count = 0
+        self.dropped_count = 0
+
+    @property
+    def latest(self) -> Any | None:
+        with self._condition:
+            return self._latest
+
+    def put(self, item: Any) -> None:
+        with self._condition:
+            if self._latest is not None:
+                self.dropped_count += 1
+            self._latest = item
+            self.published_count += 1
+            self._condition.notify_all()
+
+    def wait_for(
+        self,
+        predicate: Callable[[Any], bool] | None = None,
+        *,
+        timeout_s: float | None = None,
+    ) -> Any:
+        deadline = None if timeout_s is None else time.monotonic() + max(0.0, timeout_s)
+        with self._condition:
+            while self._latest is None or (predicate is not None and not predicate(self._latest)):
+                if deadline is None:
+                    self._condition.wait()
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("latest-wins buffer predicate timed out")
+                self._condition.wait(remaining)
+            return self._latest
+
+
 @dataclass(slots=True)
 class SensorSample:
     rgb: bytes
@@ -56,6 +103,7 @@ class SensorStreamReader:
         self,
         stream: BinaryIO,
         *,
+        request_stream: BinaryIO | None = None,
         depth_binding: Mapping[str, object] | None = None,
         camera_info: Mapping[str, object] | None = None,
         max_frames: int | None = None,
@@ -63,12 +111,15 @@ class SensorStreamReader:
         require_depth: bool = True,
     ) -> None:
         self.stream = stream
+        self.request_stream = request_stream
+        self._request_lock = threading.Lock()
         self.depth_binding = dict(depth_binding) if depth_binding else None
         self.camera_info = dict(camera_info or {})
         self.max_frames = max_frames
         self.clock = clock
         self.require_depth = require_depth
         self.latest: SensorSample | None = None
+        self.buffer = LatestWinsBuffer()
         self.frames_received = 0
         self.error: BaseException | None = None
         self.done = threading.Event()
@@ -89,8 +140,34 @@ class SensorStreamReader:
             self.stream.close()
         except Exception:
             pass
+        if self.request_stream is not None:
+            try:
+                self.request_stream.close()
+            except Exception:
+                pass
         if self._thread is not None:
             self._thread.join(timeout=max(0.0, timeout_s))
+
+    def request(self, min_sensor_stamp_ns: int = 0) -> None:
+        """Ask a request/response sensor server for its newest frame.
+
+        The legacy continuous stream leaves ``request_stream`` unset and is
+        still supported for CPU tests and compatibility.  The collector's
+        latest-wins server receives one ``GET <sim_stamp_ns>`` line per
+        observation; flushing here is deliberate so the request reaches the
+        in-container process before we poll ``latest``.
+        """
+        if self.request_stream is None:
+            return
+        stamp = int(min_sensor_stamp_ns)
+        if stamp < 0:
+            raise ValueError("min_sensor_stamp_ns must be non-negative")
+        payload = f"GET {stamp}\n".encode("ascii")
+        with self._request_lock:
+            self.request_stream.write(payload)
+            flush = getattr(self.request_stream, "flush", None)
+            if callable(flush):
+                flush()
 
     def wait_first_frame(self, timeout_s: float) -> SensorSample:
         if not self.first_frame.wait(timeout=max(0.0, timeout_s)):
@@ -108,13 +185,18 @@ class SensorStreamReader:
             raise RuntimeError("sensor stream ended unexpectedly")
 
     def snapshot(self, *, max_age_s: float | None = None) -> SensorSample:
-        if self.latest is None:
+        sample = self.buffer.latest
+        if sample is None:
             raise RuntimeError("sensor stream has no decoded frame")
         if max_age_s is not None:
-            age = (self.clock() - self.latest.received_monotonic_ns) / 1e9
+            age = (self.clock() - sample.received_monotonic_ns) / 1e9
             if age > max_age_s:
                 raise RuntimeError(f"sensor frame is stale: {age:.3f}s > {max_age_s:.3f}s")
-        return self.latest
+        return sample
+
+    @property
+    def frames_dropped(self) -> int:
+        return self.buffer.dropped_count
 
     def _run(self) -> None:
         read_wire_frame, read_depth_wire_frame, np = _import_wire_helpers()
@@ -148,10 +230,12 @@ class SensorStreamReader:
                             .reshape((depth_frame.height, depth_frame.width))
                             .copy()
                         )
+                        if depth_frame.encoding == "UINT16_MM":
+                            depth = depth.astype(np.float32) / 1000.0
                 elif self.require_depth:
                     raise RuntimeError("MDGZSIM3 stream has no MDGZDEP1 depth binding")
                 stamp = self.clock()
-                self.latest = SensorSample(
+                sample = SensorSample(
                     rgb=bytes(payload),
                     width=int(header.width),
                     height=int(header.height),
@@ -184,6 +268,8 @@ class SensorStreamReader:
                     source_header=header,
                     depth_frame=depth_frame,
                 )
+                self.buffer.put(sample)
+                self.latest = sample
                 self.frames_received += 1
                 self.first_frame.set()
         except BaseException as exc:
@@ -376,6 +462,24 @@ def _field(message: Any, name: str, default: Any = None) -> Any:
     return getattr(message, name, default)
 
 
+def simulation_stamp_skew_ms(
+    frame_sensor_stamp_ns: int, pose_time_boot_ms: int | None
+) -> float | None:
+    """Return Gazebo-frame minus PX4 simulation-clock time in milliseconds."""
+    if pose_time_boot_ms is None:
+        return None
+    if (
+        isinstance(frame_sensor_stamp_ns, bool)
+        or not isinstance(frame_sensor_stamp_ns, int)
+        or frame_sensor_stamp_ns < 0
+        or isinstance(pose_time_boot_ms, bool)
+        or not isinstance(pose_time_boot_ms, int)
+        or pose_time_boot_ms < 0
+    ):
+        raise ValueError("simulation stamps must be non-negative integers")
+    return frame_sensor_stamp_ns / 1_000_000.0 - float(pose_time_boot_ms)
+
+
 def build_observation(
     sensor: SensorSample, mavlink: MavlinkState, *, camera_info: Mapping[str, object] | None = None
 ) -> dict[str, Any]:
@@ -411,12 +515,48 @@ def build_observation(
             rgb_value = sensor.rgb
     cam = dict(sensor.camera_info)
     cam.update(camera_info or {})
+    depth_camera_info: dict[str, Any] | None = None
+    if sensor.depth_frame is not None:
+        metadata = getattr(sensor.depth_frame, "metadata", None)
+        if isinstance(metadata, Mapping):
+            depth_camera_info = {
+                key: metadata[key]
+                for key in (
+                    "source_topic",
+                    "calibration_id",
+                    "calibration_sha256",
+                    "encoding",
+                    "width",
+                    "height",
+                    "minimum_depth_m",
+                    "maximum_depth_m",
+                    "fx_px",
+                    "fy_px",
+                    "cx_px",
+                    "cy_px",
+                )
+                if key in metadata
+            }
     pose_stamp = mavlink.received_monotonic_ns.get(
         "LOCAL_POSITION_NED", sensor.received_monotonic_ns
     )
+    pose_time_boot_ms_raw = _field(local, "time_boot_ms", None)
+    pose_time_boot_ms: int | None
+    if (
+        isinstance(pose_time_boot_ms_raw, (int, float))
+        and not isinstance(pose_time_boot_ms_raw, bool)
+        and math.isfinite(float(pose_time_boot_ms_raw))
+        and float(pose_time_boot_ms_raw) >= 0
+    ):
+        pose_time_boot_ms = int(pose_time_boot_ms_raw)
+        sim_skew_ms = simulation_stamp_skew_ms(sensor.sensor_stamp_ns, pose_time_boot_ms)
+    else:
+        pose_time_boot_ms = None
+        sim_skew_ms = None
     return {
         "rgb": rgb_value,
         "depth": sensor.depth,
+        "depth_camera_info": depth_camera_info,
         "camera_info": cam,
         "pose": {
             "local_ned_m": ned,
@@ -433,6 +573,11 @@ def build_observation(
         "gps_fix": gps_fix,
         "sensor_status": "live",
         "frame_sensor_stamp_ns": sensor.sensor_stamp_ns,
+        "pose_time_boot_ms": pose_time_boot_ms,
+        "pose_sim_stamp_ns": None
+        if pose_time_boot_ms is None
+        else pose_time_boot_ms * 1_000_000,
+        "sim_skew_ms": sim_skew_ms,
         "frame_received_monotonic_ns": sensor.received_monotonic_ns,
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,
@@ -441,8 +586,10 @@ def build_observation(
 
 __all__ = [
     "SensorSample",
+    "LatestWinsBuffer",
     "SensorStreamReader",
     "MavlinkState",
     "MavlinkReader",
+    "simulation_stamp_skew_ms",
     "build_observation",
 ]
