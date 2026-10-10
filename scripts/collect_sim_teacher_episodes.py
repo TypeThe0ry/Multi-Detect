@@ -470,7 +470,15 @@ def _truth_target(
     lat0, lon0, alt0 = origin
     lat = float(position.get("latitude_deg", lat0))
     lon = float(position.get("longitude_deg", lon0))
-    alt = float(position.get("altitude_m", alt0))
+    raw_alt = position.get("altitude_m")
+    reference = str(position.get("altitude_reference", "amsl")).lower()
+    if raw_alt is None:
+        alt = alt0
+    elif reference in {"world", "local", "relative", "agl"}:
+        # Generated worlds give altitude relative to the world origin, not AMSL.
+        alt = alt0 + float(raw_alt)
+    else:
+        alt = float(raw_alt)
     return gps_to_local_ned(
         lat,
         lon,

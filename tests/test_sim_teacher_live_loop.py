@@ -342,3 +342,32 @@ def test_mavlink_reader_drains_real_udp_mavlink2_burst() -> None:
     assert reader.state.count >= sent[0] * 0.90
     assert reader.parse_errors == 0
     assert reader.bad_crc == 0
+
+
+def test_truth_target_world_relative_altitude_is_not_treated_as_amsl(tmp_path):
+    import json as _json
+
+    from scripts.collect_sim_teacher_episodes import _truth_target
+
+    truth = tmp_path / "truth.json"
+    truth.write_text(
+        _json.dumps(
+            {
+                "targets": [
+                    {
+                        "label": "box",
+                        "position": {
+                            "latitude_deg": 1.352100,
+                            "longitude_deg": 103.819800,
+                            "altitude_m": 0.75,
+                            "altitude_reference": "world",
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (north, east, down), _ = _truth_target(truth, origin=(1.352100, 103.819800, 18.0))
+    assert abs(north) < 1e-6 and abs(east) < 1e-6
+    assert down == -0.75
