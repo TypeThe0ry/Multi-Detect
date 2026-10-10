@@ -1240,24 +1240,30 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
             sensor_reader.request(0)
             sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
-            _wait_for(
-                lambda: (
-                    all(
-                        mav_reader.state.get(name) is not None
-                        for name in (
-                            "LOCAL_POSITION_NED",
-                            "ATTITUDE",
-                            "GLOBAL_POSITION_INT",
-                            "GPS_RAW_INT",
-                            "HOME_POSITION",
-                        )
-                    )
-                    and int(_field(mav_reader.state.get("GPS_RAW_INT"), "fix_type", 0)) >= 3
-                ),
-                _episode_budget(started, plan.max_episode_s, 45.0),
-                phase="ekf_ok",
-                health_check=mav_reader.raise_if_failed,
+            ekf_required = (
+                "LOCAL_POSITION_NED",
+                "ATTITUDE",
+                "GLOBAL_POSITION_INT",
+                "GPS_RAW_INT",
+                "HOME_POSITION",
             )
+
+            def _ekf_missing() -> list[str]:
+                missing = [name for name in ekf_required if mav_reader.state.get(name) is None]
+                fix = int(_field(mav_reader.state.get("GPS_RAW_INT"), "fix_type", 0))
+                if fix < 3:
+                    missing.append(f"gps_fix_type={fix}")
+                return missing
+
+            try:
+                _wait_for(
+                    lambda: not _ekf_missing(),
+                    _episode_budget(started, plan.max_episode_s, 90.0),
+                    phase="ekf_ok",
+                    health_check=mav_reader.raise_if_failed,
+                )
+            except TimeoutError as exc:
+                raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
             altitude_m = DEFAULT_TAKEOFF_ALTITUDE_M
             start_pos = _state_position(mav_reader.state)
