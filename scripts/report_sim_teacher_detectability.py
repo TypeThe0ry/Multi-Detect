@@ -12,12 +12,226 @@ result.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _manifest_artifact(manifest: dict[str, Any], path: Path) -> tuple[Path, tuple[str, ...]]:
+    export = manifest.get("export", {})
+    artifact = export.get("artifact_path")
+    if not isinstance(artifact, str) or not artifact:
+        raise ValueError("model manifest has no export.artifact_path")
+    model_path = Path(artifact)
+    if not model_path.is_absolute():
+        model_path = (Path.cwd() / model_path).resolve()
+        if not model_path.is_file():
+            model_path = (path.parent / artifact).resolve()
+    if not model_path.is_file():
+        raise FileNotFoundError(model_path)
+    expected = export.get("artifact_sha256")
+    if expected and _sha256(model_path) != expected:
+        raise ValueError(f"ONNX sha256 mismatch: {model_path}")
+    classes = manifest.get("classes", [])
+    names = tuple(item["source_name"] for item in classes)
+    if not names:
+        raise ValueError("model manifest has no classes")
+    return model_path, names
+
+
+def _bbox_iou(left: list[float], right: list[float]) -> float:
+    x1, y1 = max(left[0], right[0]), max(left[1], right[1])
+    x2, y2 = min(left[2], right[2]), min(left[3], right[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area_left = max(0.0, left[2] - left[0]) * max(0.0, left[3] - left[1])
+    area_right = max(0.0, right[2] - right[0]) * max(0.0, right[3] - right[1])
+    union = area_left + area_right - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _source_path(root: Path, value: str) -> Path:
+    path = Path(value.replace("\\", "/"))
+    return path if path.is_absolute() else root / path
+
+
+def evaluate_onnx_test_worlds(
+    dataset_manifest: Path,
+    model_manifest: Path,
+    *,
+    confidence: float = 0.25,
+    iou_threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Run the production raw/Nx6 wrapper on held-out world frames only."""
+    import cv2
+    import numpy as np
+
+    from multidetect.autonomy.policy_v2.perception_bridge import (
+        bearing_from_pixel,
+        robust_depth_median,
+    )
+    from multidetect.vision import (
+        OnnxNx6Config,
+        OnnxNx6Detector,
+        OnnxRawYoloConfig,
+        OnnxRawYoloDetector,
+    )
+
+    data = json.loads(dataset_manifest.read_text(encoding="utf-8"))
+    model = json.loads(model_manifest.read_text(encoding="utf-8"))
+    onnx_path, classes = _manifest_artifact(model, model_manifest)
+    native = model.get("output", {}).get("native_export", {})
+    if native.get("format") == "ultralytics_raw_xywh_class_scores":
+        detector = OnnxRawYoloDetector(
+            OnnxRawYoloConfig(
+                model_path=onnx_path,
+                class_names=classes,
+                confidence_threshold=confidence,
+                model_version=str(model.get("model_version", model_manifest.stem)),
+            )
+        )
+    elif model.get("output", {}).get("adapter_contract", {}).get("format") == "N_x_6":
+        detector = OnnxNx6Detector(
+            OnnxNx6Config(
+                model_path=onnx_path,
+                class_names=classes,
+                confidence_threshold=confidence,
+                model_version=str(model.get("model_version", model_manifest.stem)),
+            )
+        )
+    else:
+        raise ValueError("model manifest output is not compatible with a production wrapper")
+    frames = [item for item in data.get("frames", []) if item.get("split") == "test"]
+    if not frames:
+        return {
+            "schema": "multidetect.sim-detector-test-v1",
+            "dataset_manifest": str(dataset_manifest.resolve()),
+            "model_manifest": str(model_manifest.resolve()),
+            "test_frames": 0,
+            "test_worlds": [],
+            "status": "no_test_frames",
+            "metrics": [],
+        }
+    by_class: dict[str, dict[str, Any]] = {
+        label: {"class": label, "tp": 0, "fp": 0, "fn": 0, "bearing_errors_deg": [], "range_errors_m": []}
+        for label in classes
+    }
+    root = dataset_manifest.parent
+    worlds: set[str] = set()
+    for frame in frames:
+        worlds.add(str(frame.get("world_id", "unknown")))
+        image_path = _source_path(root, frame["image"])
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(image_path)
+        height, width = image.shape[:2]
+        depth = None
+        depth_value = frame.get("depth")
+        if isinstance(depth_value, str) and depth_value:
+            depth_path = _source_path(root, depth_value)
+            if depth_path.is_file():
+                depth = np.load(depth_path)
+        detections = detector.detect(image)
+        truths = [
+            item for item in frame.get("objects", [])
+            if item.get("class") in by_class and isinstance(item.get("bbox_xyxy"), list)
+        ]
+        for label in classes:
+            metric = by_class[label]
+            label_truths = [item for item in truths if item["class"] == label]
+            label_predictions = [item for item in detections if item.label == label]
+            pairs = []
+            for prediction_index, prediction in enumerate(label_predictions):
+                bbox = prediction.bbox
+                px = [bbox.x1 * width, bbox.y1 * height, bbox.x2 * width, bbox.y2 * height]
+                for truth_index, truth in enumerate(label_truths):
+                    overlap = _bbox_iou(px, truth["bbox_xyxy"])
+                    if overlap >= iou_threshold:
+                        pairs.append((overlap, prediction_index, truth_index, px))
+            used_predictions: set[int] = set()
+            used_truths: set[int] = set()
+            for _, prediction_index, truth_index, px in sorted(pairs, reverse=True):
+                if prediction_index in used_predictions or truth_index in used_truths:
+                    continue
+                used_predictions.add(prediction_index)
+                used_truths.add(truth_index)
+                metric["tp"] += 1
+                truth = label_truths[truth_index]
+                camera = frame.get("camera_info")
+                truth_box = truth["bbox_xyxy"]
+                predicted_bearing = bearing_from_pixel(
+                    (px[0] + px[2]) / 2,
+                    camera_info=camera,
+                    image_width=width,
+                    image_height=height,
+                )[0]
+                true_bearing = bearing_from_pixel(
+                    (truth_box[0] + truth_box[2]) / 2,
+                    camera_info=camera,
+                    image_width=width,
+                    image_height=height,
+                )[0]
+                metric["bearing_errors_deg"].append(
+                    abs(_angle_error(predicted_bearing, true_bearing))
+                )
+                target_ned = truth.get("target_ned")
+                pose = frame.get("pose", {})
+                position = pose.get("local_ned_m") if isinstance(pose, dict) else None
+                if depth is not None and isinstance(target_ned, (list, tuple)) and isinstance(position, (list, tuple)) and len(target_ned) >= 3 and len(position) >= 3:
+                    range_m = robust_depth_median(
+                        depth,
+                        px,
+                        rgb_size=(width, height),
+                        depth_camera_info=frame.get("depth_camera_info"),
+                    )
+                    if range_m is not None:
+                        true_range = math.dist(
+                            [float(position[0]), float(position[1]), -float(position[2])],
+                            [float(target_ned[0]), float(target_ned[1]), float(target_ned[2])],
+                        )
+                        metric["range_errors_m"].append(range_m - true_range)
+            metric["fp"] += len(label_predictions) - len(used_predictions)
+            metric["fn"] += len(label_truths) - len(used_truths)
+    metrics = []
+    for metric in by_class.values():
+        tp, fp, fn = metric["tp"], metric["fp"], metric["fn"]
+        bearings = metric.pop("bearing_errors_deg")
+        ranges = metric.pop("range_errors_m")
+        metric["precision"] = tp / (tp + fp) if tp + fp else None
+        metric["recall"] = tp / (tp + fn) if tp + fn else None
+        metric["bearing_error_count"] = len(bearings)
+        metric["bearing_mae_deg"] = sum(bearings) / len(bearings) if bearings else None
+        metric["range_error_count"] = len(ranges)
+        metric["range_mae_m"] = sum(map(abs, ranges)) / len(ranges) if ranges else None
+        metrics.append(metric)
+    return {
+        "schema": "multidetect.sim-detector-test-v1",
+        "dataset_manifest": str(dataset_manifest.resolve()),
+        "model_manifest": str(model_manifest.resolve()),
+        "model_sha256": _sha256(onnx_path),
+        "test_frames": len(frames),
+        "test_worlds": sorted(worlds),
+        "iou_threshold": iou_threshold,
+        "confidence_threshold": confidence,
+        "status": "ok",
+        "metrics": metrics,
+    }
 
 
 def _number(value: object) -> float | None:
@@ -313,12 +527,42 @@ def evaluate_dataset(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path, nargs="+")
+    parser.add_argument(
+        "--dataset-manifest",
+        type=Path,
+        help="builder manifest; with --model-manifest, evaluate only split=test frames",
+    )
+    parser.add_argument(
+        "--model-manifest",
+        type=Path,
+        help="quarantined ONNX model manifest for held-out frame evaluation",
+    )
+    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--tolerance-deg", type=float, default=5.0)
     parser.add_argument("--include-incomplete", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     if not math.isfinite(args.tolerance_deg) or args.tolerance_deg < 0:
         raise ValueError("--tolerance-deg must be finite and non-negative")
+    if args.dataset_manifest or args.model_manifest:
+        if args.dataset_manifest is None or args.model_manifest is None:
+            raise ValueError("--dataset-manifest and --model-manifest must be supplied together")
+        if not 0.0 <= args.confidence <= 1.0:
+            raise ValueError("--confidence must be in [0, 1]")
+        if not 0.0 < args.iou_threshold <= 1.0:
+            raise ValueError("--iou-threshold must be in (0, 1]")
+        output = evaluate_onnx_test_worlds(
+            args.dataset_manifest,
+            args.model_manifest,
+            confidence=args.confidence,
+            iou_threshold=args.iou_threshold,
+        )
+        encoded = json.dumps(output, ensure_ascii=False, indent=2) + "\n"
+        if args.output:
+            args.output.write_text(encoded, encoding="utf-8", newline="\n")
+        print(encoded, end="")
+        return 0
     reports = [
         evaluate_dataset(
             path, tolerance_deg=args.tolerance_deg, include_incomplete=args.include_incomplete
