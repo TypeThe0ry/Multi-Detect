@@ -186,7 +186,13 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         )
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
-    return list(stack_plan.command)
+    command = list(stack_plan.command)
+    # PX4 floods stdout (e.g. "ODOMETRY: estimator_type 8 unsupported"); unbounded
+    # json-file logs grew Docker's WSL disk by tens of GB. Keep a small rolling tail.
+    if "run" in command:
+        at = command.index("run") + 1
+        command[at:at] = ["--log-opt", "max-size=5m", "--log-opt", "max-file=2"]
+    return command
 
 
 def _progress(phase: str, **fields: object) -> None:
