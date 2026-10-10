@@ -91,3 +91,53 @@ def test_auditor_detects_non_monotonic_steps() -> None:
             audit_dataset(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def _live_obs(value: float = 1.0) -> dict:
+    # Minimal valid PNG (1x1 RGB) accepted by live admission checks.
+    return {
+        "rgb": b"\x89PNG\r\n\x1a\n" + b"live-frame",
+        "depth": np.full((2, 3), value, dtype=np.float32),
+        "camera_info": {"fx": 10.0, "fy": 10.0},
+        "pose": {"local_ned_m": [0.0, 0.0, -5.0], "lat_deg": 1.3, "lon_deg": 103.8, "alt_m": 5.0},
+        "velocity": [0.0, 0.0, 0.0],
+        "gps_fix": {"fix_type": 3, "satellites": 10},
+    }
+
+
+def test_live_admission_and_episode_statistics() -> None:
+    root = _dataset_dir()
+    try:
+        recorder = EpisodeRecorder(root, "live-001", sensor_status="live")
+        recorder.record_step(
+            _live_obs(),
+            ActionPrimitive.translate(1.0, 0.0),
+            ack={"action_ack": True},
+            outcome={
+                "status": "success",
+                "commanded_delta_ned": [1.0, 0.0, 0.0],
+                "achieved_delta_ned": [0.8, 0.0, 0.0],
+                "achieved_yaw_delta_deg": 2.0,
+            },
+            obs_after=_live_obs(2.0),
+        )
+        recorder.mark_finished()
+        result = audit_dataset(root)
+        assert result["episodes"]["live-001"]["duration_s"] >= 0.0
+        assert result["achieved_vs_commanded_error"]["position_m"]["count"] == 1
+        assert result["achieved_vs_commanded_error"]["position_m"]["mean"] == pytest.approx(0.2)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_live_admission_rejects_missing_after_and_gps() -> None:
+    root = _dataset_dir()
+    try:
+        recorder = EpisodeRecorder(root, "live-bad", sensor_status="live")
+        bad = _live_obs()
+        bad["gps_fix"] = {"fix_type": 1}
+        recorder.record_step(bad, ActionPrimitive.stop(), ack={"action_ack": True})
+        with pytest.raises(DatasetAuditError, match="obs_after"):
+            audit_dataset(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

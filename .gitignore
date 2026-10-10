@@ -91,3 +91,5 @@ models/**/*.plan
 /.cache/
 /rebind-*.log
 /multidetect-sim-acceptance-ai-job/
+/.pytest-tmp*/
+/.pytest-sim-output.txt

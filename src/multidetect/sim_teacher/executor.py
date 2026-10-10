@@ -1,4 +1,4 @@
-﻿"""Small PX4 offboard executor used by the SIM teacher collector.
+"""Small PX4 offboard executor used by the SIM teacher collector.
 
 The executor accepts a pymavlink-like vehicle (or a test fake), keeps safety
 and transport policy outside the teacher policy, and never chooses a remote
@@ -10,6 +10,7 @@ sensor age.
 from __future__ import annotations
 
 import math
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -37,6 +38,126 @@ class PrimitiveExecutor(Protocol):
     def rtl(self) -> None: ...
 
 
+class SetpointStreamer:
+    """Continuously send a local-NED position/yaw target on one MAVLink link."""
+
+    TYPE_MASK = 0b101111111000
+    FRAME_LOCAL_NED = 1
+
+    def __init__(
+        self,
+        vehicle: Any,
+        *,
+        rate_hz: float = 20.0,
+        target_system: int | None = None,
+        target_component: int | None = None,
+        clock: callable = time.monotonic,
+    ) -> None:
+        if not math.isfinite(rate_hz) or rate_hz < 15.0:
+            raise ValueError("rate_hz must be at least 15 Hz")
+        self.vehicle = vehicle
+        self.rate_hz = float(rate_hz)
+        self._clock = clock
+        self._period = 1.0 / self.rate_hz
+        self._target_system = target_system
+        self._target_component = target_component
+        self._lock = threading.Lock()
+        self._target: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.error: BaseException | None = None
+        self.sent_count = 0
+
+    def set_target(self, north_m: float, east_m: float, down_m: float, yaw_deg: float) -> None:
+        target = tuple(float(value) for value in (north_m, east_m, down_m, yaw_deg))
+        if not all(math.isfinite(value) for value in target):
+            raise ValueError("setpoint target must contain finite values")
+        with self._lock:
+            self._target = target
+
+    update_target = set_target
+
+    @property
+    def target(self) -> tuple[float, float, float, float]:
+        with self._lock:
+            return self._target
+
+    def _mav(self) -> Any:
+        mav = getattr(self.vehicle, "mav", None)
+        if callable(mav):
+            mav = mav()
+        if not callable(getattr(mav, "set_position_target_local_ned_send", None)):
+            raise RuntimeError("vehicle MAVLink sender lacks local NED setpoint method")
+        return mav
+
+    def send_once(self) -> None:
+        """Send the current target immediately (used while waiting for ARM)."""
+        self._send_once()
+
+    def _send_once(self) -> None:
+        north, east, down, yaw_deg = self.target
+        target_system = self._target_system
+        if target_system is None:
+            target_system = int(getattr(self.vehicle, "target_system", 1) or 1)
+        target_component = self._target_component
+        if target_component is None:
+            target_component = int(getattr(self.vehicle, "target_component", 1) or 1)
+        self._mav().set_position_target_local_ned_send(
+            int(self._clock() * 1000) & 0xFFFFFFFF,
+            int(target_system),
+            int(target_component),
+            self.FRAME_LOCAL_NED,
+            self.TYPE_MASK,
+            north,
+            east,
+            down,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            math.radians(yaw_deg),
+            0.0,
+        )
+        self.sent_count += 1
+
+    def _run(self) -> None:
+        next_tick = self._clock()
+        try:
+            while not self._stop.is_set():
+                self._send_once()
+                next_tick += self._period
+                delay = next_tick - self._clock()
+                if delay > 0:
+                    self._stop.wait(delay)
+                else:
+                    next_tick = self._clock()
+        except BaseException as exc:
+            self.error = exc
+            self._stop.set()
+
+    def start(self) -> SetpointStreamer:
+        if self._thread is not None and self._thread.is_alive():
+            return self
+        self.error = None
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="sim-teacher-setpoints", daemon=True)
+        self._thread.start()
+        return self
+
+    def raise_if_failed(self) -> None:
+        if self.error is not None:
+            raise RuntimeError(f"setpoint streamer failed: {self.error}") from self.error
+
+    def stop(self, timeout: float = 2.0) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=max(0.0, float(timeout)))
+        self._thread = None
+
+
 class PymavlinkPrimitiveExecutor:
     """Execute primitives with SET_POSITION_TARGET_LOCAL_NED.
 
@@ -58,6 +179,7 @@ class PymavlinkPrimitiveExecutor:
         clock: callable = time.monotonic,
         sleep: callable = time.sleep,
         stream_hz: float = 10.0,
+        streamer: SetpointStreamer | None = None,
     ) -> None:
         validate_local_endpoint(endpoint)
         if stream_hz <= 2.0 or not math.isfinite(stream_hz):
@@ -71,6 +193,7 @@ class PymavlinkPrimitiveExecutor:
         self._sleep = sleep
         self.stream_hz = float(stream_hz)
         self._armed = False
+        self.streamer = streamer
 
     def _mav(self) -> Any:
         mav = getattr(self.vehicle, "mav", None)
@@ -81,8 +204,12 @@ class PymavlinkPrimitiveExecutor:
         return mav
 
     def _send_setpoint(self, n: float, e: float, d: float, yaw: float) -> None:
+        if self.streamer is not None:
+            self.streamer.set_target(n, e, d, yaw)
+            return
         mav = self._mav()
-        type_mask = 0b101111111000  # ignore velocity/acceleration/yaw-rate
+        # Ignore velocity/acceleration/yaw-rate; keep position and yaw fields.
+        type_mask = 0b101111111000
         sender = getattr(mav, "set_position_target_local_ned_send", None)
         if sender is None:
             raise RuntimeError("vehicle MAVLink sender lacks local NED setpoint method")
@@ -175,6 +302,4 @@ class PymavlinkPrimitiveExecutor:
         self._armed = False
 
 
-__all__ = ["ExecutionResult", "PrimitiveExecutor", "PymavlinkPrimitiveExecutor"]
-
-
+__all__ = ["ExecutionResult", "PrimitiveExecutor", "SetpointStreamer", "PymavlinkPrimitiveExecutor"]
