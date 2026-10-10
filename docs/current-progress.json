@@ -19962,8 +19962,8 @@
     "status": "external_sim_passed",
     "evidence": {
       "path": "docs/evidence/sim-teacher-first-real-episode-20261010-r1.json",
-      "bytes": 3688,
-      "sha256": "1138e4eb57423aa4ca1027df4d22fcaf32a9e2c3331a86950586d9d8abc5bf31"
+      "bytes": 4568,
+      "sha256": "dda3a175c01f33c2302dab022ec4fce9fcdea6d8af5870a219751a159a2ddb2d"
     },
     "claims": {
       "sim_only": true,

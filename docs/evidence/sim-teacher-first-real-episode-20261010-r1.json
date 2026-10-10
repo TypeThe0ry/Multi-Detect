@@ -9,21 +9,44 @@
   "scenario": "urban_inspection_multirotor_001.teacher_spawn_probe_r1",
   "teacher": "explore",
   "seed": 7,
-  "sources": [
+  "source_commit": "3a515d3ba07b75444e01dca2bb0b3b1e12103b87",
+  "source_binding_note": "Code is bound by git commit/blob so later collector changes do not invalidate this run record; docs are not bound.",
+  "sources_at_commit": [
     {
       "path": "scripts/collect_sim_teacher_episodes.py",
-      "bytes": 61158,
-      "sha256": "7ddb16a6a60d2dbe9d3b777b3c2097817f0f72ffdf38f3b152bd039a34888f2b"
+      "git_blob": "b14c0cc44af6f6f00198534325cd6a90f630d588"
     },
     {
       "path": "scripts/audit_sim_teacher_dataset.py",
-      "bytes": 1079,
-      "sha256": "d335b3796adcd0125828a0ed1bac7046819c0cf42fe811b05c7454a2dfc79b22"
+      "git_blob": "1134f3ca8cfb8a01d711fb63ba16d9bd39906530"
     },
     {
-      "path": "docs/sim-teacher-data-collector.md",
-      "bytes": 3598,
-      "sha256": "b46345f13de4defaf20628432986e136d81448270cc2afd39f9b9807bc353fa4"
+      "path": "src/multidetect/sim_teacher/__init__.py",
+      "git_blob": "19b1da933242df95ad6aab07cc80ef529cb8b540"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/executor.py",
+      "git_blob": "0cfb2db8a5bcad51e3b06594fa18398698e26962"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/policies.py",
+      "git_blob": "6fba19ac78ec5118ea1dca6120e68b6517073e70"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/primitives.py",
+      "git_blob": "bbb9569660d5392728224e0397da63ccd69db9d7"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/recording.py",
+      "git_blob": "8e9f8fde12b92e9650624d5db77bc16986a94375"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/streams.py",
+      "git_blob": "0477c50a49c33691ba4767bb80377d7afdefceef"
+    },
+    {
+      "path": "src/multidetect/sim_teacher/isolation.py",
+      "git_blob": "1efe761d653d574800ac6f74e0c696e7a607e9db"
     }
   ],
   "retained_artifact_bindings": [

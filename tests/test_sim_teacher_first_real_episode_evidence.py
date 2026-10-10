@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,10 +21,26 @@ def check_binding(binding):
     return path
 
 
-def test_episode_sources_artifacts_and_index_match_actual_bytes():
+def test_run_code_is_bound_to_git_commit_blobs():
+    stage = read(STAGE)
+    commit = stage["source_commit"]
+    assert len(commit) == 40
+    assert stage["sources_at_commit"]
+    for source in stage["sources_at_commit"]:
+        blob = subprocess.run(
+            ["git", "rev-parse", f"{commit}:{source['path']}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert blob == source["git_blob"]
+
+
+def test_episode_artifacts_and_index_match_actual_bytes():
     stage = read(STAGE)
     paths = set()
-    for binding in (*stage["sources"], *stage["retained_artifact_bindings"], *stage["protected"]):
+    for binding in (*stage["retained_artifact_bindings"], *stage["protected"]):
         path = check_binding(binding)
         assert path not in paths
         paths.add(path)
@@ -54,4 +71,14 @@ def test_complete_sim_episode_counts_and_audit_gate():
 def test_claim_boundaries_remain_sim_only():
     claims = read(STAGE)["claims"]
     assert claims["sim_only"] is True
-    assert all(claims[key] is False for key in ("hil", "real_hardware", "outdoor", "model_trained_on_data", "promotion", "final_release_allowed"))
+    assert all(
+        claims[key] is False
+        for key in (
+            "hil",
+            "real_hardware",
+            "outdoor",
+            "model_trained_on_data",
+            "promotion",
+            "final_release_allowed",
+        )
+    )
