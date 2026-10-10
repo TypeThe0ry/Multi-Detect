@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from multidetect.autonomy.serialization import canonical_sha256
+
 SCHEMA_VERSION = 1
 ORIGIN_LAT = 1.352100
 ORIGIN_LON = 103.819800
@@ -195,7 +197,9 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
         expectations = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl"], "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}
         runtime_path, truth_path, expectations_path = (scenarios_dir / f"{world_id}.{suffix}.json" for suffix in ("runtime", "truth", "expectations"))
         runtime_hash, truth_hash, expectations_hash = (_write(path, value) for path, value in ((runtime_path, runtime), (truth_path, truth), (expectations_path, expectations)))
-        scenario["channels"] = {"runtime_input": {"path": runtime_path.name, "sha256": runtime_hash}, "truth": {"path": truth_path.name, "sha256": truth_hash}, "expectations": {"path": expectations_path.name, "sha256": expectations_hash}}
+        # Channel references are verified with canonical JSON hashes by
+        # multidetect.simulation.index.load_verified_channel; index.json keeps raw file hashes.
+        scenario["channels"] = {"runtime_input": {"path": runtime_path.name, "sha256": canonical_sha256(runtime)}, "truth": {"path": truth_path.name, "sha256": canonical_sha256(truth)}, "expectations": {"path": expectations_path.name, "sha256": canonical_sha256(expectations)}}
         scenario_path = scenarios_dir / f"{world_id}.scenario.json"
         scenario_hash = _write(scenario_path, scenario)
         entries.append({"world_id": world_id, "split": split, "seed": seed + index, "task_text": TASK_TEMPLATES[index % len(TASK_TEMPLATES)].format(color=target_color_cn, kind=target_kind_cn), "world_file": world_path.name, "files": {"world": {"path": world_path.name, "sha256": hashlib.sha256(world_path.read_bytes()).hexdigest()}, "scenario": {"path": scenario_path.name, "sha256": scenario_hash}, "runtime": {"path": runtime_path.name, "sha256": runtime_hash}, "truth": {"path": truth_path.name, "sha256": truth_hash}, "expectations": {"path": expectations_path.name, "sha256": expectations_hash}}, "true_target_id": objects[0].object_id, "target_pose": {"x_east_m": objects[0].x, "y_north_m": objects[0].y, "z_up_m": objects[0].z, "yaw_rad": objects[0].yaw}})
