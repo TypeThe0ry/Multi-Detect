@@ -5,15 +5,18 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
 from multidetect.sim_teacher import ExpertSearchPolicy, body_to_ned
-from multidetect.sim_teacher.policies import target_in_fov
+from multidetect.sim_teacher.policies import SDFObstacle, load_sdf_obstacles, target_in_fov
+from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.collect_sim_teacher_episodes import DEFAULT_CAMERA_INFO
 
 SEARCH_RADIUS_M = 150.0
 STANDOFF_M = 15.0
+CAMERA_PITCH_RAD = 0.18
 TRIALS = 200
 STEP_BUDGET = 60
 MINIMUM_90_PERCENT_BUDGET = 60
@@ -70,6 +73,7 @@ def _policy(target: tuple[float, float, float]) -> ExpertSearchPolicy:
         standoff_m=STANDOFF_M,
         search_radius_m=SEARCH_RADIUS_M,
         max_detection_range_m=80.0,
+        camera_pitch_rad=CAMERA_PITCH_RAD,
     )
 
 
@@ -91,6 +95,7 @@ def _trial(
             DEFAULT_CAMERA_INFO,
             (1280, 960),
             max_range_m=80.0,
+            camera_pitch_rad=CAMERA_PITCH_RAD,
         )
         assert labels["target_in_fov"] == in_fov
         assert labels["target_bearing_deg"] == pytest.approx(bearing)
@@ -151,6 +156,7 @@ def test_hidden_target_does_not_steer_search() -> None:
                 DEFAULT_CAMERA_INFO,
                 (1280, 960),
                 max_range_m=80.0,
+                camera_pitch_rad=CAMERA_PITCH_RAD,
             )[0]
             for policy in policies
         ):
@@ -194,3 +200,86 @@ def test_elevated_generated_target_approach_with_commanded_yaw_reference() -> No
             break
     assert action.kind == "stop"
     assert math.hypot(vehicle.north - target[0], vehicle.east - target[1]) <= STANDOFF_M + 0.5
+
+
+def test_generated_world_sdf_obstacles_parse_with_tops() -> None:
+    worlds = [
+        load_sdf_obstacles(
+            Path("simulation/gazebo/worlds") / f"gen_w000{i}.sdf"
+        )
+        for i in range(10)
+    ]
+    assert all(len(obstacles) > 0 for obstacles in worlds)
+    assert all(obstacle.top_m > 4.0 for obstacles in worlds for obstacle in obstacles)
+    assert max(obstacle.top_m for obstacles in worlds for obstacle in obstacles) == pytest.approx(
+        17.902, abs=1e-3
+    )
+
+
+def test_expert_replans_translate_that_intersects_tall_obstacle() -> None:
+    obstacle = SDFObstacle(
+        north_m=8.0,
+        east_m=0.0,
+        height_m=10.0,
+        size_north_m=4.0,
+        size_east_m=4.0,
+    )
+    policy = _policy((80.0, 0.0, -5.0))
+    policy.obstacles = (obstacle,)
+    action = policy._safe_translation(
+        (0.0, 0.0, -5.0),
+        ActionPrimitive.translate(15.0, 0.0, 0.0),
+        0.0,
+    )
+    assert action.kind == "translate"
+    assert policy.labels(pose_ned=(0.0, 0.0, -5.0))["safety_replanned"] is True
+    end_n, end_e, _ = body_to_ned(action.forward_m, action.right_m, action.up_m, 0.0)
+    assert policy._segment_safe((0.0, 0.0, -5.0), end_n, end_e)
+
+
+def test_expert_generated_world_segments_remain_clear() -> None:
+    world_dir = Path("simulation/gazebo/worlds")
+    for index in range(10):
+        obstacles = load_sdf_obstacles(world_dir / f"gen_w000{index}.sdf")
+        altitude = max(5.0, max(obstacle.top_m for obstacle in obstacles) + 4.0)
+        policy = ExpertSearchPolicy(
+            target_ned=(120.0, 0.0, -altitude),
+            intrinsics=DEFAULT_CAMERA_INFO,
+            image_size=(1280, 960),
+            standoff_m=15.0,
+            search_radius_m=150.0,
+            max_detection_range_m=80.0,
+            altitude_m=altitude,
+            obstacles=obstacles,
+            camera_pitch_rad=CAMERA_PITCH_RAD,
+        )
+        pose = (0.0, 0.0, -altitude)
+        yaw = 0.0
+        for _ in range(60):
+            action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
+            if action.kind == "translate":
+                dn, de, dd = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
+                assert policy._segment_safe(pose, pose[0] + dn, pose[1] + de)
+                pose = (pose[0] + dn, pose[1] + de, pose[2] + dd)
+            elif action.kind == "turn":
+                yaw += action.yaw_delta_deg
+            if action.kind == "stop":
+                break
+
+
+def test_target_in_view_at_altitude_aware_standoff() -> None:
+    altitude = 22.0
+    policy = _policy((0.0, 0.0, 0.0))
+    policy.altitude_m = altitude
+    standoff = policy.effective_standoff_m
+    inside, _bearing, _distance = target_in_fov(
+        (standoff, 0.0, 0.0),
+        (0.0, 0.0, -altitude),
+        0.0,
+        DEFAULT_CAMERA_INFO,
+        (1280, 960),
+        max_range_m=80.0,
+        camera_pitch_rad=CAMERA_PITCH_RAD,
+    )
+    assert standoff > STANDOFF_M
+    assert inside

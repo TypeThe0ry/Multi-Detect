@@ -319,6 +319,7 @@ def _default_runner(**kwargs: Any) -> Any:
         str((output / policy_name / scenario.stem).resolve()),
         episodes=1,
         max_steps=int(kwargs.get("max_steps", 200)),
+        takeoff_altitude_m=kwargs.get("takeoff_altitude_m"),
     )
     if policy_name == "policy_v2":
         policy, detector, metadata = module._build_components(plan, providers=(), confidence=0.25)
@@ -350,6 +351,7 @@ def run_campaign(
     policies: Sequence[str] = POLICY_NAMES,
     runner: Callable[..., Any] | None = None,
     dry_run: bool = False,
+    takeoff_altitude_m: float | None = None,
 ) -> dict[str, Any]:
     """Run each requested policy over every scenario and aggregate metrics."""
     policies = tuple(POLICY_ALIASES.get(name, name) for name in policies)
@@ -379,6 +381,7 @@ def run_campaign(
             "max_steps": max_steps,
             "policy_name": policy_name,
             "policy": baseline_policy,
+            "takeoff_altitude_m": takeoff_altitude_m,
         }
         try:
             return function(**kwargs)
@@ -446,6 +449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output", "--out", type=Path)
     parser.add_argument("--dataset-dir", "--dataset", type=Path)
     parser.add_argument("--max-steps", type=int, default=200)
+    parser.add_argument("--takeoff-altitude-m", type=float)
     parser.add_argument(
         "--policies",
         nargs="+",
@@ -466,6 +470,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_steps=args.max_steps,
         policies=args.policies,
         dry_run=args.dry_run,
+        takeoff_altitude_m=args.takeoff_altitude_m,
     )
     if args.output:
         _write_json(args.output.resolve(), result)

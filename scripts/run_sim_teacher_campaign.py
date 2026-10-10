@@ -262,6 +262,7 @@ def run_campaign(
     split_from_index: Path | None = None,
     max_episode_s: float = 300.0,
     max_retries: int = 1,
+    takeoff_altitude_m: float | None = None,
     command_runner: CommandRunner = subprocess.run,
     cleanup: CleanupRunner | None = None,
     clock: Clock = time.monotonic,
@@ -373,6 +374,8 @@ def run_campaign(
                     "--timeout-s",
                     str(max_episode_s),
                 ]
+                if takeoff_altitude_m is not None:
+                    command.extend(["--takeoff-altitude-m", str(takeoff_altitude_m)])
                 try:
                     result = run(
                         command,
@@ -429,6 +432,7 @@ def run_campaign(
                 out,
                 max_episode_s,
                 max_retries,
+                takeoff_altitude_m,
             )
     episodes = list(by_key.values())
     result = _write_campaign(
@@ -441,6 +445,7 @@ def run_campaign(
         out,
         max_episode_s,
         max_retries,
+        takeoff_altitude_m,
     )
     cleanup_fn()
     return result
@@ -456,6 +461,7 @@ def _write_campaign(
     out: Path,
     max_episode_s: float,
     max_retries: int,
+    takeoff_altitude_m: float | None = None,
 ) -> dict[str, Any]:
     counts = Counter(str(e.get("status")) for e in episodes)
     by_split: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -499,6 +505,7 @@ def _write_campaign(
         "out": str(out),
         "max_episode_s": max_episode_s,
         "max_retries": max_retries,
+        "takeoff_altitude_m": takeoff_altitude_m,
         "control_port": DEFAULT_CONTROL_PORT,
         "telemetry_port": DEFAULT_TELEMETRY_PORT,
         "episodes": sorted(episodes, key=lambda x: (str(x.get("world")), int(x.get("seed", 0)))),
@@ -519,6 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split-from-index", type=Path)
     parser.add_argument("--max-episode-s", type=float, default=300.0)
     parser.add_argument("--max-retries", type=int, default=1)
+    parser.add_argument("--takeoff-altitude-m", type=float, default=None)
     return parser
 
 
@@ -534,6 +542,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         split_from_index=args.split_from_index,
         max_episode_s=args.max_episode_s,
         max_retries=args.max_retries,
+        takeoff_altitude_m=args.takeoff_altitude_m,
     )
     print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
     return 1 if result["summary"]["counts"].get("failed", 0) else 0

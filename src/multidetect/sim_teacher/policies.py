@@ -4,11 +4,110 @@ from __future__ import annotations
 
 import math
 import random
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .primitives import ActionPrimitive
+
+
+@dataclass(frozen=True, slots=True)
+class SDFObstacle:
+    """Horizontal obstacle footprint and top elevation in world ENU/NED coordinates."""
+
+    north_m: float
+    east_m: float
+    height_m: float
+    size_north_m: float
+    size_east_m: float
+    yaw_rad: float = 0.0
+
+    @property
+    def top_m(self) -> float:
+        return self.height_m
+
+
+def segment_clear_of_obstacles(
+    start_ned: tuple[float, float, float],
+    end_ned: tuple[float, float, float],
+    altitude_m: float,
+    obstacles: tuple[SDFObstacle, ...] | list[SDFObstacle],
+    margin_m: float = 3.0,
+) -> bool:
+    """Return whether a horizontal segment clears tall obstacle footprints."""
+    ax, ay = start_ned[:2]
+    bx, by = end_ned[:2]
+    vx, vy = bx - ax, by - ay
+    denom = vx * vx + vy * vy
+    for obstacle in obstacles:
+        if obstacle.top_m <= float(altitude_m) - 2.0:
+            continue
+        t = 0.0 if denom <= 1e-12 else max(
+            0.0,
+            min(
+                1.0,
+                ((obstacle.north_m - ax) * vx + (obstacle.east_m - ay) * vy) / denom,
+            ),
+        )
+        distance = math.hypot(
+            obstacle.north_m - (ax + t * vx), obstacle.east_m - (ay + t * vy)
+        )
+        footprint_radius = math.hypot(obstacle.size_north_m, obstacle.size_east_m) / 2.0
+        if distance < footprint_radius + float(margin_m):
+            return False
+    return True
+
+
+def load_sdf_obstacles(path: str | Path) -> tuple[SDFObstacle, ...]:
+    """Load static ``obstacle_*`` model footprints from an SDF world.
+
+    SDF poses are ENU (x=east, y=north, z=up).  The returned coordinates are
+    the NED horizontal convention used by the teacher.  Unknown geometry is
+    skipped so ordinary, non-generated worlds remain usable.
+    """
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return ()
+    world = root.find("world")
+    if world is None:
+        return ()
+    result: list[SDFObstacle] = []
+    for model in world.findall("model"):
+        name = model.get("name", "")
+        if not name.startswith("obstacle_"):
+            continue
+        pose = model.findtext("pose", "0 0 0 0 0 0").split()
+        try:
+            x, y, z = (float(pose[i]) for i in range(3))
+            yaw = float(pose[5]) if len(pose) > 5 else 0.0
+        except (TypeError, ValueError, IndexError):
+            continue
+        geometry = model.find(".//collision/geometry")
+        if geometry is None:
+            geometry = model.find(".//visual/geometry")
+        if geometry is None:
+            continue
+        box = geometry.find("box/size")
+        cylinder = geometry.find("cylinder")
+        try:
+            if box is not None and box.text:
+                sx, sy, sz = (float(v) for v in box.text.split()[:3])
+                sn, se = sy, sx
+            elif cylinder is not None:
+                radius = float(cylinder.findtext("radius", "0"))
+                sz = float(cylinder.findtext("length", "0"))
+                sn = se = 2.0 * radius
+            else:
+                continue
+            if min(sn, se, sz) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        result.append(SDFObstacle(y, x, z + sz / 2.0, sn, se, yaw))
+    return tuple(result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +186,7 @@ def target_in_fov(
     intrinsics: Mapping[str, float],
     image_size: tuple[int, int],
     max_range_m: float | None = None,
+    camera_pitch_rad: float = 0.0,
 ) -> tuple[bool, float, float]:
     """Return (in_fov, bearing_deg, range_m) for a nadir-ish forward camera."""
     dn, de, dd = (target_ned[i] - pose_ned[i] for i in range(3))
@@ -104,7 +204,9 @@ def target_in_fov(
     yaw = math.radians(yaw_deg)
     x = dn * math.cos(yaw) + de * math.sin(yaw)
     y = -dn * math.sin(yaw) + de * math.cos(yaw)
-    z = dd
+    # Camera +X is pitched down by ``camera_pitch_rad``; NED +Z points down.
+    pitch = float(camera_pitch_rad)
+    x, z = x * math.cos(pitch) + dd * math.sin(pitch), -x * math.sin(pitch) + dd * math.cos(pitch)
     if x <= 0:
         return False, bearing, rng
     px, py = cx + fx * y / x, cy + fy * z / x
@@ -139,6 +241,9 @@ class ExpertSearchPolicy:
     approach_bearing_threshold_deg: float = 10.0
     approach_turn_min_deg: float = 2.0
     approach_progress_m: float = 0.5
+    altitude_m: float = 5.0
+    obstacles: tuple[SDFObstacle, ...] = ()
+    camera_pitch_rad: float = 0.18
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -157,6 +262,7 @@ class ExpertSearchPolicy:
         self._approach_stall_steps = 0
         self._approach_replan_pending = False
         self._approach_replanned = False
+        self._safety_replanned = False
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         spacing = min(70.0, self.search_radius_m / 2.0)
@@ -192,6 +298,7 @@ class ExpertSearchPolicy:
         self._approach_stall_steps = 0
         self._approach_replan_pending = False
         self._approach_replanned = False
+        self._safety_replanned = False
 
     @property
     def target_in_fov(self) -> bool:
@@ -223,9 +330,57 @@ class ExpertSearchPolicy:
             end_n, end_e = home_n + rel_n * scale, home_e + rel_e * scale
         dn, de = end_n - pose_ned[0], end_e - pose_ned[1]
         yaw = math.radians(yaw_deg)
-        return ActionPrimitive.translate(
+        action = ActionPrimitive.translate(
             dn * math.cos(yaw) + de * math.sin(yaw), -dn * math.sin(yaw) + de * math.cos(yaw), 0.0
         )
+        return self._safe_translation(pose_ned, action, yaw_deg)
+
+    @staticmethod
+    def _segment_distance(
+        a: tuple[float, float], b: tuple[float, float], p: tuple[float, float]
+    ) -> float:
+        vx, vy = b[0] - a[0], b[1] - a[1]
+        denom = vx * vx + vy * vy
+        t = 0.0 if denom <= 1e-12 else max(
+            0.0, min(1.0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / denom)
+        )
+        qx, qy = a[0] + t * vx, a[1] + t * vy
+        return math.hypot(p[0] - qx, p[1] - qy)
+
+    def _segment_safe(self, pose_ned, end_n: float, end_e: float) -> bool:
+        return segment_clear_of_obstacles(
+            pose_ned,
+            (end_n, end_e, pose_ned[2]),
+            max(0.0, -float(pose_ned[2])),
+            self.obstacles,
+        )
+
+    def _safe_translation(
+        self, pose_ned, action: ActionPrimitive, yaw_deg: float
+    ) -> ActionPrimitive:
+        yaw = math.radians(yaw_deg)
+        end_n = pose_ned[0] + action.forward_m * math.cos(yaw) - action.right_m * math.sin(yaw)
+        end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
+        if self._segment_safe(pose_ned, end_n, end_e):
+            return action
+        self._safety_replanned = True
+        # A short perpendicular sidestep clears the blocking footprint when possible.
+        length = max(3.5, min(self.max_translate_m, math.hypot(action.forward_m, action.right_m)))
+        for right in (length, -length):
+            candidate = ActionPrimitive.translate(0.0, right, 0.0)
+            cn = pose_ned[0] - right * math.sin(yaw)
+            ce = pose_ned[1] + right * math.cos(yaw)
+            if self._segment_safe(pose_ned, cn, ce):
+                return candidate
+        return ActionPrimitive.hold(0.0)
+
+    @property
+    def effective_standoff_m(self) -> float:
+        vfov = 2.0 * math.atan2(float(self.image_size[1]), 2.0 * float(self.intrinsics["fy"]))
+        geometry = max(0.0, float(self.altitude_m)) / max(
+            1e-6, math.tan(self.camera_pitch_rad + vfov / 2.0)
+        )
+        return max(self.standoff_m, geometry)
 
     def next_action(self, *, pose_ned, yaw_deg: float = 0.0) -> ActionPrimitive:
         if self._commanded_yaw_deg is None:
@@ -237,6 +392,7 @@ class ExpertSearchPolicy:
             self.intrinsics,
             self.image_size,
             max_range_m=self.max_detection_range_m,
+            camera_pitch_rad=self.camera_pitch_rad,
         )
         self._last_inside = inside
         if self.state == "done":
@@ -259,7 +415,8 @@ class ExpertSearchPolicy:
             if self._approach_stall_steps >= 3:
                 self._approach_replan_pending = True
                 self._approach_stall_steps = 0
-            if horizontal_range <= self.standoff_m + 1e-6:
+            standoff = self.effective_standoff_m
+            if horizontal_range <= standoff + 1e-6:
                 self.state = "hold"
                 return ActionPrimitive.hold(self.hold_seconds)
             desired = self._wrap(yaw_deg + bearing)
@@ -277,9 +434,10 @@ class ExpertSearchPolicy:
                 self._commanded_yaw_deg = desired
                 if abs(delta) >= self.approach_turn_min_deg:
                     return ActionPrimitive.turn(delta)
-            return ActionPrimitive.translate(
-                min(self.max_translate_m, max(0.0, horizontal_range - self.standoff_m)), 0.0, 0.0
+            action = ActionPrimitive.translate(
+                min(self.max_translate_m, max(0.0, horizontal_range - standoff)), 0.0, 0.0
             )
+            return self._safe_translation(pose_ned, action, yaw_deg)
         if self._initial_scan_remaining > 0:
             self.state = "scan"
             self._initial_scan_remaining -= 1
@@ -306,6 +464,7 @@ class ExpertSearchPolicy:
             self.intrinsics,
             self.image_size,
             max_range_m=self.max_detection_range_m,
+            camera_pitch_rad=self.camera_pitch_rad,
         )
         return {
             "phase": self.state,
@@ -313,7 +472,17 @@ class ExpertSearchPolicy:
             "target_bearing_deg": bearing,
             "target_range_m": rng,
             "approach_replanned": self._approach_replanned,
+            "safety_replanned": self._safety_replanned,
+            "standoff_m": self.effective_standoff_m,
         }
 
 
-__all__ = ["ExploreBounds", "ExplorePolicy", "ExpertSearchPolicy", "target_in_fov"]
+__all__ = [
+    "ExploreBounds",
+    "ExplorePolicy",
+    "ExpertSearchPolicy",
+    "SDFObstacle",
+    "load_sdf_obstacles",
+    "segment_clear_of_obstacles",
+    "target_in_fov",
+]

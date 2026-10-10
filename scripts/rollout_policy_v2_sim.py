@@ -161,6 +161,7 @@ class PolicyRolloutPlan:
     depth_size: tuple[int, int] = collector.DEFAULT_DEPTH_SIZE
     depth_encoding: str = collector.DEFAULT_DEPTH_ENCODING
     keep_container_on_failure: bool = False
+    takeoff_altitude_m: float | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         value = asdict(self)
@@ -190,6 +191,7 @@ class PolicyRolloutPlan:
                     depth_size=self.depth_size,
                     depth_encoding=self.depth_encoding,
                     keep_container_on_failure=self.keep_container_on_failure,
+                    takeoff_altitude_m=self.takeoff_altitude_m,
                 )
             )
         except Exception as exc:
@@ -213,6 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-container-on-failure", action="store_true")
+    parser.add_argument("--takeoff-altitude-m", type=float, default=None)
     return parser
 
 
@@ -239,6 +242,7 @@ def make_plan(args: argparse.Namespace) -> tuple[PolicyRolloutPlan, Path]:
         args.timeout_s,
         args.control_port,
         args.telemetry_port,
+        takeoff_altitude_m=args.takeoff_altitude_m,
     )
     return plan, truth
 
@@ -334,6 +338,10 @@ def _run_live_episode(
         _task_spec(truth_path),
         target_ned,
         max_steps=plan.max_steps,
+        altitude_m=collector.resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)[0],
+        obstacles=collector.load_sdf_obstacles(
+            collector.scenario_world_path(plan.runtime) or ""
+        ),
     )
     old_factory = collector._policy_for
     old_png = collector._png_observation
@@ -388,6 +396,7 @@ def _run_live_episode(
             rgb_size=plan.rgb_size,
             depth_size=plan.depth_size,
             depth_encoding=plan.depth_encoding,
+            takeoff_altitude_m=plan.takeoff_altitude_m,
         )
         episode_dir = collector.run_episode(collector_plan, truth_path, episode_index)
         _write_perception(episode_dir, perception_rows)
@@ -416,6 +425,8 @@ class _LivePolicyAdapter:
         target_ned: tuple[float, float, float],
         *,
         max_steps: int,
+        altitude_m: float = collector.DEFAULT_TAKEOFF_ALTITUDE_M,
+        obstacles: tuple[Any, ...] = (),
     ) -> None:
         from multidetect.autonomy.policy_v2.state_builder import StructuredSceneStateBuilder
 
@@ -427,7 +438,10 @@ class _LivePolicyAdapter:
         self.metrics = EpisodeMetrics()
         self.config = RolloutConfig(max_steps=max_steps)
         self.expert = collector.ExpertSearchPolicy(
-            target_ned=target_ned, intrinsics=collector.DEFAULT_CAMERA_INFO
+            target_ned=target_ned,
+            intrinsics=collector.DEFAULT_CAMERA_INFO,
+            altitude_m=altitude_m,
+            obstacles=obstacles,
         )
         self.observation: dict[str, Any] | None = None
         self.last_perception: dict[str, Any] | None = None

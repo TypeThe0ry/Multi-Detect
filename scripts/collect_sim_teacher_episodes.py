@@ -40,6 +40,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
+from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
 from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkReader,
     MavlinkState,
@@ -75,6 +76,8 @@ def _parse_size(value: str) -> tuple[int, int]:
         raise argparse.ArgumentTypeError("size is outside supported range")
     return width, height
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
+TAKEOFF_SAFETY_MARGIN_M = 4.0
+MAX_TAKEOFF_ALTITUDE_M = 40.0
 DEFAULT_CONTROL_PORT = 14540
 DEFAULT_TELEMETRY_PORT = 14541
 DEFAULT_HEARTBEAT_TIMEOUT_S = 120.0
@@ -132,9 +135,15 @@ class CollectionPlan:
     rgb_size: tuple[int, int] = DEFAULT_RGB_SIZE
     depth_size: tuple[int, int] = DEFAULT_DEPTH_SIZE
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
+    # ``None`` selects the scenario-derived altitude.  An explicit value is
+    # retained in the plan so campaign wrappers can override it per run.
+    takeoff_altitude_m: float | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
+        altitude, source = _takeoff_altitude_for_plan(self)
+        result["takeoff_altitude_m"] = altitude
+        result["takeoff_altitude_source"] = source
         result["docker_command"] = docker_command(self)
         return result
 
@@ -451,6 +460,63 @@ def _scenario_origin(plan: CollectionPlan) -> tuple[float, float, float]:
     return value("latitude_deg"), value("longitude_deg"), value("elevation")
 
 
+def scenario_world_path(runtime_path: str | Path) -> Path | None:
+    """Resolve the scenario-owned SDF, returning ``None`` for unknown worlds."""
+    try:
+        runtime = json.loads(Path(runtime_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    scenario_id = str(runtime.get("scenario_id", "")) if isinstance(runtime, dict) else ""
+    if not scenario_id:
+        return None
+    world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
+    return world_path if world_path.is_file() else None
+
+
+def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
+    """Return ``(altitude, source)`` from a generated world's obstacle tops.
+
+    Generated worlds are the only worlds with the obstacle layout contract;
+    ordinary fixed worlds therefore retain the historical 5 m default.  SDF
+    parser failures also fall back safely instead of preventing a dry run.
+    """
+    if world_path is None:
+        return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
+    path = Path(world_path)
+    if not path.is_file() or not path.stem.startswith("gen_w"):
+        return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
+    obstacles = load_sdf_obstacles(path)
+    if not obstacles:
+        return DEFAULT_TAKEOFF_ALTITUDE_M, "default_generated_world_no_obstacles"
+    top = max(float(obstacle.top_m) for obstacle in obstacles)
+    altitude = min(
+        MAX_TAKEOFF_ALTITUDE_M,
+        max(DEFAULT_TAKEOFF_ALTITUDE_M, top + TAKEOFF_SAFETY_MARGIN_M),
+    )
+    return altitude, "auto_max_obstacle_top_plus_4m"
+
+
+def resolve_takeoff_altitude(
+    runtime_path: str | Path,
+    explicit_altitude_m: float | None = None,
+) -> tuple[float, str]:
+    """Resolve an explicit or scenario-derived takeoff altitude."""
+    if explicit_altitude_m is not None:
+        altitude = float(explicit_altitude_m)
+        if not math.isfinite(altitude) or altitude < DEFAULT_TAKEOFF_ALTITUDE_M:
+            raise ValueError(
+                f"takeoff altitude must be finite and >= {DEFAULT_TAKEOFF_ALTITUDE_M:g} m"
+            )
+        if altitude > MAX_TAKEOFF_ALTITUDE_M:
+            raise ValueError(f"takeoff altitude must be <= {MAX_TAKEOFF_ALTITUDE_M:g} m")
+        return altitude, "explicit_cli"
+    return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
+
+
+def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
+    return resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+
+
 def _truth_target(
     truth_path: Path,
     origin: tuple[float, float, float] = (1.352100, 103.819800, 18.0),
@@ -493,7 +559,14 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     if plan.teacher == "explore":
         return ExplorePolicy(seed=seed, bounds=ExploreBounds())
     target, label = _truth_target(truth_path, _scenario_origin(plan))
-    return ExpertSearchPolicy(target_ned=target, intrinsics=DEFAULT_CAMERA_INFO), label
+    altitude_m, _ = _takeoff_altitude_for_plan(plan)
+    obstacles = load_sdf_obstacles(scenario_world_path(plan.runtime) or "")
+    return ExpertSearchPolicy(
+        target_ned=target,
+        intrinsics=DEFAULT_CAMERA_INFO,
+        altitude_m=altitude_m,
+        obstacles=obstacles,
+    ), label
 
 
 def _field(message: Any, name: str, default: object = None) -> object:
@@ -1100,6 +1173,12 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
         policy = policy_result
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(plan.out, episode_id, task_text=task_text, sensor_status="live")
+    altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
+    recorder.meta["takeoff_altitude_m"] = altitude_m
+    recorder.meta["takeoff_altitude_source"] = altitude_source
+    world_path = scenario_world_path(plan.runtime)
+    recorder.meta["world_sdf"] = str(world_path) if world_path else None
+    recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     started = time.monotonic()
     telemetry_connection = None
     sensor_process = None
@@ -1279,7 +1358,6 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
             except TimeoutError as exc:
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
-            altitude_m = DEFAULT_TAKEOFF_ALTITUDE_M
             start_pos = _state_position(mav_reader.state)
             setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
             setpoint_streamer.set_target(
@@ -1553,6 +1631,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
     )
+    parser.add_argument(
+        "--takeoff-altitude-m",
+        type=float,
+        default=None,
+        help=(
+            "takeoff altitude in metres; defaults to max generated-world obstacle top + 4 m "
+            f"(clamped to {DEFAULT_TAKEOFF_ALTITUDE_M:g}..{MAX_TAKEOFF_ALTITUDE_M:g} m)"
+        ),
+    )
     return parser
 
 
@@ -1567,6 +1654,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit("--max-episode-s must be between 1 and 86400 seconds")
     if not 1.0 <= args.heartbeat_timeout_s <= 86400.0:
         raise SystemExit("--heartbeat-timeout-s must be between 1 and 86400 seconds")
+    if args.takeoff_altitude_m is not None:
+        try:
+            resolve_takeoff_altitude("", args.takeoff_altitude_m)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     scenario = args.scenario.resolve()
     if not scenario.is_file():
         raise SystemExit(f"scenario not found: {scenario}")
@@ -1588,6 +1680,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         rgb_size=args.rgb_size,
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,
+        takeoff_altitude_m=args.takeoff_altitude_m,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

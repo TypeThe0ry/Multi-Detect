@@ -2,7 +2,15 @@
 
 from .executor import ExecutionResult, PymavlinkPrimitiveExecutor, SetpointStreamer
 from .isolation import SimulationIsolationError, assert_localhost, validate_local_endpoint
-from .policies import ExpertSearchPolicy, ExploreBounds, ExplorePolicy, target_in_fov
+from .policies import (
+    ExpertSearchPolicy,
+    ExploreBounds,
+    ExplorePolicy,
+    SDFObstacle,
+    load_sdf_obstacles,
+    segment_clear_of_obstacles,
+    target_in_fov,
+)
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned, primitive_to_ned
 from .recording import DatasetAuditError, EpisodeRecorder, audit_dataset
 from .streams import (
@@ -21,6 +29,9 @@ __all__ = [
     "ExploreBounds",
     "ExplorePolicy",
     "ExpertSearchPolicy",
+    "SDFObstacle",
+    "load_sdf_obstacles",
+    "segment_clear_of_obstacles",
     "target_in_fov",
     "EpisodeRecorder",
     "DatasetAuditError",
