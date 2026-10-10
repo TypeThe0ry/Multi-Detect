@@ -136,6 +136,9 @@ class ExpertSearchPolicy:
     max_translate_m: float = 15.0
     scan_increment_deg: float = 90.0
     home_ned: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    approach_bearing_threshold_deg: float = 10.0
+    approach_turn_min_deg: float = 2.0
+    approach_progress_m: float = 0.5
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -150,6 +153,10 @@ class ExpertSearchPolicy:
         self._waypoint_index = 0
         self._waypoints = self._build_spiral()
         self._last_inside = False
+        self._last_approach_range: float | None = None
+        self._approach_stall_steps = 0
+        self._approach_replan_pending = False
+        self._approach_replanned = False
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         spacing = min(70.0, self.search_radius_m / 2.0)
@@ -181,6 +188,10 @@ class ExpertSearchPolicy:
         self._scan_remaining = 0
         self._waypoint_index = 0
         self._last_inside = False
+        self._last_approach_range = None
+        self._approach_stall_steps = 0
+        self._approach_replan_pending = False
+        self._approach_replanned = False
 
     @property
     def target_in_fov(self) -> bool:
@@ -236,18 +247,38 @@ class ExpertSearchPolicy:
         if self.state not in {"approach", "hold", "done"} and inside:
             self.state = "approach"
         if self.state == "approach":
-            if rng <= self.standoff_m + 1e-6:
+            dn = self.target_ned[0] - pose_ned[0]
+            de = self.target_ned[1] - pose_ned[1]
+            horizontal_range = math.hypot(dn, de)
+            if self._last_approach_range is not None:
+                if self._last_approach_range - horizontal_range > self.approach_progress_m:
+                    self._approach_stall_steps = 0
+                else:
+                    self._approach_stall_steps += 1
+            self._last_approach_range = horizontal_range
+            if self._approach_stall_steps >= 3:
+                self._approach_replan_pending = True
+                self._approach_stall_steps = 0
+            if horizontal_range <= self.standoff_m + 1e-6:
                 self.state = "hold"
                 return ActionPrimitive.hold(self.hold_seconds)
-            if abs(bearing) > 10.0 or not inside:
-                desired = math.degrees(
-                    math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0])
-                )
-                delta = self._wrap(desired - self._commanded_yaw_deg)
-                self._commanded_yaw_deg += delta
-                return ActionPrimitive.turn(delta)
+            desired = self._wrap(yaw_deg + bearing)
+            delta = self._wrap(desired - self._commanded_yaw_deg)
+            if self._approach_replan_pending:
+                self._approach_replan_pending = False
+                self._approach_replanned = True
+                if (
+                    abs(bearing) >= self.approach_turn_min_deg
+                    and abs(delta) >= self.approach_turn_min_deg
+                ):
+                    self._commanded_yaw_deg = desired
+                    return ActionPrimitive.turn(bearing)
+            if abs(bearing) > self.approach_bearing_threshold_deg:
+                self._commanded_yaw_deg = desired
+                if abs(delta) >= self.approach_turn_min_deg:
+                    return ActionPrimitive.turn(delta)
             return ActionPrimitive.translate(
-                min(self.max_translate_m, max(0.0, rng - self.standoff_m)), 0.0, 0.0
+                min(self.max_translate_m, max(0.0, horizontal_range - self.standoff_m)), 0.0, 0.0
             )
         if self._initial_scan_remaining > 0:
             self.state = "scan"
@@ -281,6 +312,7 @@ class ExpertSearchPolicy:
             "target_in_fov": inside,
             "target_bearing_deg": bearing,
             "target_range_m": rng,
+            "approach_replanned": self._approach_replanned,
         }
 
 

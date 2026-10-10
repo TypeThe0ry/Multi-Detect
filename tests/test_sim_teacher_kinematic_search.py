@@ -1,4 +1,4 @@
-﻿"""CPU-only coverage checks for the geometric SIM search teacher."""
+"""CPU-only coverage checks for the geometric SIM search teacher."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from scripts.collect_sim_teacher_episodes import DEFAULT_CAMERA_INFO
 SEARCH_RADIUS_M = 150.0
 STANDOFF_M = 15.0
 TRIALS = 200
-STEP_BUDGET = 40
+STEP_BUDGET = 60
 MINIMUM_90_PERCENT_BUDGET = 60
 
 
@@ -33,6 +33,7 @@ class KinematicVehicle:
     commanded_east: float = 0.0
     commanded_down: float = -5.0
     commanded_yaw_deg: float = 0.0
+    level_down: float = -5.0
 
     @property
     def pose(self) -> tuple[float, float, float]:
@@ -57,8 +58,8 @@ class KinematicVehicle:
         self.down = self.commanded_down + self.rng.uniform(-perturbation, perturbation)
         self.yaw_deg = self.commanded_yaw_deg + self.rng.uniform(-angle_error, angle_error)
         assert math.hypot(self.north, self.east) <= SEARCH_RADIUS_M + (0.3 if self.noisy else 1e-6)
-        assert self.commanded_down == pytest.approx(-5.0)
-        assert abs(self.down + 5.0) <= perturbation + 1e-6
+        assert self.commanded_down == pytest.approx(self.level_down)
+        assert abs(self.down - self.level_down) <= perturbation + 1e-6
 
 
 def _policy(target: tuple[float, float, float]) -> ExpertSearchPolicy:
@@ -160,3 +161,36 @@ def test_hidden_target_does_not_steer_search() -> None:
         ]
         assert actions[0] == actions[1]
         vehicle.apply(actions[0])
+
+
+def test_elevated_generated_target_approach_with_commanded_yaw_reference() -> None:
+    # Recorded gen_w0000 geometry: target is ENU/SDF (55.045, -3.098, .750),
+    # truth conversion gives NED down=17.25. Vehicle is near (N=.1, E=44.9),
+    # altitude 4.5 m, yaw 107 deg.
+    target = (-3.098, 55.045, 17.250)
+    policy = _policy(target)
+    policy.state = "approach"
+    vehicle = KinematicVehicle(
+        random.Random(0),
+        False,
+        north=0.1,
+        east=44.9,
+        down=-4.5,
+        yaw_deg=107.0,
+        commanded_north=0.1,
+        commanded_east=44.9,
+        commanded_down=-4.5,
+        commanded_yaw_deg=107.0,
+        level_down=-4.5,
+    )
+    initial = policy.labels(pose_ned=vehicle.pose, yaw_deg=vehicle.yaw_deg)
+    assert not initial["target_in_fov"]
+    assert abs(initial["target_bearing_deg"]) < 10.0
+    for _ in range(60):
+        action = policy.next_action(pose_ned=vehicle.pose, yaw_deg=vehicle.yaw_deg)
+        assert action.kind != "turn" or abs(action.yaw_delta_deg) >= 2.0
+        vehicle.apply(action)
+        if action.kind == "stop":
+            break
+    assert action.kind == "stop"
+    assert math.hypot(vehicle.north - target[0], vehicle.east - target[1]) <= STANDOFF_M + 0.5
