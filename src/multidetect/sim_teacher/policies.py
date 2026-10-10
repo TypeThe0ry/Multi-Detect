@@ -118,11 +118,11 @@ def target_in_fov(
 
 @dataclass
 class ExpertSearchPolicy:
-    """Bounded, target-blind lawnmower search followed by geometric approach.
+    """Target-blind bounded search followed by geometric approach.
 
-    ``target_ned`` is consulted only for FOV labels and approach after a
-    geometric detection. Search waypoints never depend on target location.
-    Occlusion/line-of-sight is intentionally not modelled yet.
+    The target is consulted only for the geometric FOV label and after a
+    detection. Search waypoints are a fixed expanding-square prior. Occlusion
+    and line-of-sight are intentionally not modelled yet.
     """
 
     target_ned: tuple[float, float, float]
@@ -131,7 +131,7 @@ class ExpertSearchPolicy:
     standoff_m: float = 15.0
     hold_seconds: float = 2.0
     state: str = "search"
-    search_radius_m: float = 120.0
+    search_radius_m: float = 150.0
     max_detection_range_m: float = 80.0
     max_translate_m: float = 15.0
     scan_increment_deg: float = 90.0
@@ -145,30 +145,39 @@ class ExpertSearchPolicy:
         if not 60.0 <= self.scan_increment_deg <= 90.0:
             raise ValueError("scan increment must be between 60 and 90 degrees")
         self._commanded_yaw_deg: float | None = None
+        self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
         self._waypoint_index = 0
-        self._waypoints = self._build_waypoints()
+        self._waypoints = self._build_spiral()
         self._last_inside = False
 
-    def _build_waypoints(self) -> list[tuple[float, float]]:
-        pitch = min(14.0, self.max_translate_m * 0.9)
-        count = int(math.floor(self.search_radius_m / pitch))
-        rows: list[tuple[float, list[float]]] = []
-        for row_idx, y in enumerate(i * pitch for i in range(-count, count + 1)):
-            xs = [
-                x
-                for x in (i * pitch for i in range(-count, count + 1))
-                if x * x + y * y <= self.search_radius_m**2 + 1e-9
-            ]
-            if xs:
-                rows.append((y, xs if row_idx % 2 == 0 else list(reversed(xs))))
-        rows.sort(key=lambda row: abs(row[0]))
+    def _build_spiral(self) -> list[tuple[float, float]]:
+        spacing = min(70.0, self.search_radius_m / 2.0)
         home_n, home_e = self.home_ned[:2]
-        return [(home_n + x, home_e + y) for y, xs in rows for x in xs if math.hypot(x, y) > 1e-6]
+        points: list[tuple[float, float]] = []
+        north, east = home_n, home_e
+        length, direction_index = spacing, 0
+        directions = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+        while math.hypot(north - home_n, east - home_e) < self.search_radius_m:
+            for _ in range(2):
+                dn, de = directions[direction_index % 4]
+                north += dn * length
+                east += de * length
+                rel_n, rel_e = north - home_n, east - home_e
+                radius = math.hypot(rel_n, rel_e)
+                if radius > self.search_radius_m:
+                    scale = self.search_radius_m / radius
+                    points.append((home_n + rel_n * scale, home_e + rel_e * scale))
+                    return points
+                points.append((north, east))
+                direction_index += 1
+            length += spacing
+        return points
 
     def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
         self.state = state
         self._commanded_yaw_deg = yaw_deg
+        self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
         self._waypoint_index = 0
         self._last_inside = False
@@ -188,16 +197,13 @@ class ExpertSearchPolicy:
         self._scan_remaining -= 1
         return ActionPrimitive.turn(self.scan_increment_deg)
 
-    def _bounded_translation(
-        self, pose_ned: tuple[float, float, float], waypoint: tuple[float, float], yaw_deg: float
-    ) -> ActionPrimitive:
+    def _bounded_translation(self, pose_ned, waypoint, yaw_deg) -> ActionPrimitive:
         dn, de = waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]
         distance = math.hypot(dn, de)
         if distance <= 1e-6:
             return ActionPrimitive.hold(0.0)
         step = min(self.max_translate_m, distance)
-        end_n = pose_ned[0] + dn * step / distance
-        end_e = pose_ned[1] + de * step / distance
+        end_n, end_e = pose_ned[0] + dn * step / distance, pose_ned[1] + de * step / distance
         home_n, home_e = self.home_ned[:2]
         rel_n, rel_e = end_n - home_n, end_e - home_e
         radius = math.hypot(rel_n, rel_e)
@@ -207,14 +213,10 @@ class ExpertSearchPolicy:
         dn, de = end_n - pose_ned[0], end_e - pose_ned[1]
         yaw = math.radians(yaw_deg)
         return ActionPrimitive.translate(
-            dn * math.cos(yaw) + de * math.sin(yaw),
-            -dn * math.sin(yaw) + de * math.cos(yaw),
-            0.0,
+            dn * math.cos(yaw) + de * math.sin(yaw), -dn * math.sin(yaw) + de * math.cos(yaw), 0.0
         )
 
-    def next_action(
-        self, *, pose_ned: tuple[float, float, float], yaw_deg: float = 0.0
-    ) -> ActionPrimitive:
+    def next_action(self, *, pose_ned, yaw_deg: float = 0.0) -> ActionPrimitive:
         if self._commanded_yaw_deg is None:
             self._commanded_yaw_deg = yaw_deg
         inside, bearing, rng = target_in_fov(
@@ -245,8 +247,12 @@ class ExpertSearchPolicy:
                 self._commanded_yaw_deg += delta
                 return ActionPrimitive.turn(delta)
             return ActionPrimitive.translate(
-                min(8.0, self.max_translate_m, max(0.0, rng - self.standoff_m)), 0.0, 0.0
+                min(self.max_translate_m, max(0.0, rng - self.standoff_m)), 0.0, 0.0
             )
+        if self._initial_scan_remaining > 0:
+            self.state = "scan"
+            self._initial_scan_remaining -= 1
+            return self._scan_action(yaw_deg)
         if self._scan_remaining > 0:
             self.state = "scan"
             return self._scan_action(yaw_deg)
@@ -254,16 +260,14 @@ class ExpertSearchPolicy:
         if self._waypoint_index >= len(self._waypoints):
             self._waypoint_index = 0
         waypoint = self._waypoints[self._waypoint_index]
-        if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 1.0:
+        if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 0.5:
             self._waypoint_index += 1
             self._scan_remaining = int(round(360.0 / self.scan_increment_deg))
             self.state = "scan"
             return self._scan_action(yaw_deg)
         return self._bounded_translation(pose_ned, waypoint, yaw_deg)
 
-    def labels(
-        self, *, pose_ned: tuple[float, float, float], yaw_deg: float = 0.0
-    ) -> dict[str, Any]:
+    def labels(self, *, pose_ned, yaw_deg: float = 0.0) -> dict[str, Any]:
         inside, bearing, rng = target_in_fov(
             self.target_ned,
             pose_ned,
@@ -281,7 +285,3 @@ class ExpertSearchPolicy:
 
 
 __all__ = ["ExploreBounds", "ExplorePolicy", "ExpertSearchPolicy", "target_in_fov"]
-
-
-
-
