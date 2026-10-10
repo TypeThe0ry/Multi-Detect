@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0001",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "train",
-  "task_text": "搜索场景中的蓝色探测车，报告坐标"
+  "schema_version": 1
 }

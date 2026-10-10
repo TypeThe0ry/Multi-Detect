@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0003",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "train",
-  "task_text": "在搜索区域找到黄色车辆"
+  "schema_version": 1
 }

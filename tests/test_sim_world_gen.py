@@ -57,6 +57,9 @@ def test_channels_schema_valid_and_index_hashes(tmp_path: Path) -> None:
     ):
         for path in directory.glob(f"*.{suffix}.json"):
             validate(json.loads(path.read_text(encoding="utf-8")), SCHEMAS[schema_name])
+    for path in directory.glob("*.scenario.json"):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert "split" not in document and "task_text" not in document
     index = json.loads((directory / "index.json").read_text(encoding="utf-8"))
     assert len(index["worlds"]) == 6
     for entry in index["worlds"]:

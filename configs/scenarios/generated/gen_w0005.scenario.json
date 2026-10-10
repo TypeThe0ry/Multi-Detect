@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0005",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "test",
-  "task_text": "寻找目标蓝色货运车并完成定位"
+  "schema_version": 1
 }

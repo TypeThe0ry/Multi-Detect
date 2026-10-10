@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0002",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "train",
-  "task_text": "请定位绿色货运车并记录它的位置"
+  "schema_version": 1
 }

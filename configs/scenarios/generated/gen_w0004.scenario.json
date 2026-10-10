@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0004",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "test",
-  "task_text": "识别红色探测车后回报位置"
+  "schema_version": 1
 }

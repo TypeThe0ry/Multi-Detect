@@ -26,8 +26,10 @@ SCHEMA_VERSION = 1
 ORIGIN_LAT = 1.352100
 ORIGIN_LON = 103.819800
 WORLD_RADIUS_M = 150.0
+def _cn(*codes: int) -> str:
+    return "".join(chr(code) for code in codes)
 TASK_TEMPLATES = (
-    "\u627e\u5230{color}\u8272{kind}\u5e76\u8bb0\u5f55\u4f4d\u7f6e",
+    _cn(0x627E, 0x5230) + "{color}" + _cn(0x8272) + "{kind}" + _cn(0x5E76, 0x8BB0, 0x5F55, 0x4F4D, 0x7F6E),
     "\u641c\u7d22\u573a\u666f\u4e2d\u7684{color}\u8272{kind}\uff0c\u62a5\u544a\u5750\u6807",
     "\u8bf7\u5b9a\u4f4d{color}\u8272{kind}\u5e76\u8bb0\u5f55\u5b83\u7684\u4f4d\u7f6e",
     "\u5728\u641c\u7d22\u533a\u57df\u627e\u5230{color}\u8272{kind}",
@@ -40,7 +42,7 @@ TASK_TEMPLATES = (
     "\u5728\u672c\u4e16\u754c\u4e2d\u627e\u5230{color}\u8272{kind}\u7684\u4f4d\u7f6e",
     "\u9501\u5b9a{color}\u8272{kind}\u5e76\u8bb0\u5f55\u5730\u7406\u4f4d\u7f6e",
 )
-COLORS = (("\u7ea2", "red", (0.85, 0.05, 0.04)), ("\u84dd", "blue", (0.04, 0.20, 0.90)),
+COLORS = ((_cn(0x7EA2), "red", (0.85, 0.05, 0.04)), (_cn(0x84DD), "blue", (0.04, 0.20, 0.90)),
           ("\u7eff", "green", (0.05, 0.75, 0.10)), ("\u9ec4", "yellow", (0.90, 0.72, 0.03)))
 KINDS = (("\u8f66\u8f86", "vehicle"), ("\u63a2\u6d4b\u8f66", "rover"), ("\u8d27\u8fd0\u8f66", "cargo_cart"))
 
@@ -187,7 +189,7 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
         for obj in objects:
             lat, lon = _lat_lon(obj.x, obj.y)
             targets.append({"target_id": obj.object_id, "label": obj.label, "class": obj.kind, "color": obj.color_name, "pose": {"x_east_m": round(obj.x, 3), "y_north_m": round(obj.y, 3), "z_up_m": round(obj.z, 3), "yaw_rad": round(obj.yaw, 6)}, "position": {"latitude_deg": round(lat, 8), "longitude_deg": round(lon, 8), "altitude_m": obj.z, "altitude_reference": "world"}, "behavior": "stationary"})
-        scenario = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "split": split, "task_text": TASK_TEMPLATES[index % len(TASK_TEMPLATES)].format(color=target_color_cn, kind=target_kind_cn), "channels": {}}
+        scenario = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "channels": {}}
         runtime = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "seed": seed + index, "world": {"world_asset": f"builtin://gazebo/{world_id}", "map_asset": f"builtin://maps/{world_id}.geojson", "dem_asset": f"builtin://terrain/{world_id}.dem.json", "wind_north_mps": round(rng.uniform(-2, 2), 3), "wind_east_mps": round(rng.uniform(-2, 2), 3), "gust_mps": round(rng.uniform(0, 2), 3)}, "vehicle": {"model": "px4_multirotor_standard", "airframe_profile_id": "px4_multirotor_gazebo_v1", "spawn_id": f"{world_id}_home", "spawn_pose": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.20, "roll_rad": 0.0, "pitch_rad": 0.0, "yaw_rad": 0.0}}, "sensors": [{"sensor_id": "front-camera", "kind": "rgb_camera", "stream_uri": f"gazebo://{world_id}/front-camera", "calibration_id": "gazebo-multirotor-front-camera-v1"}, {"sensor_id": "downward-depth", "kind": "depth_camera", "stream_uri": f"gazebo://{world_id}/downward-depth", "calibration_id": "gazebo-multirotor-depth-v1"}, {"sensor_id": "px4-telemetry", "kind": "mavlink_telemetry", "stream_uri": "udp://127.0.0.1:14541"}], "faults": []}
         truth = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "targets": targets}
         expectations = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl"], "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}

@@ -29,7 +29,8 @@ geometry, a five-metre takeoff pad, a clear corridor around the origin, and
 objects placed within a 150 m search radius.  The scenario directory contains
 `*.scenario.json`, `*.runtime.json`, `*.truth.json`, and
 `*.expectations.json`; `index.json` records world split, seed, Chinese task
-text, target pose, and SHA-256 hashes for every artifact.
+text, target pose, and SHA-256 hashes for every artifact. The strict scenario
+manifest remains unchanged; split and task metadata live in the generated index.
 
 ## Simulation speed
 

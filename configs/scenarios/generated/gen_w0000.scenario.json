@@ -15,7 +15,5 @@
   },
   "scenario_id": "gen_w0000",
   "scenario_version": 1,
-  "schema_version": 1,
-  "split": "train",
-  "task_text": "找到红色车辆并记录位置"
+  "schema_version": 1
 }
