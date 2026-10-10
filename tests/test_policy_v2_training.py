@@ -14,6 +14,7 @@ pytest.importorskip("onnxruntime")
 
 from scripts.train_policy_v2_bc import (  # noqa: E402, I001
     DatasetAdmissionError,
+    build_transitions,
     load_episodes,
     main,
 )
@@ -106,3 +107,31 @@ def test_non_live_episode_is_refused(tmp_path: Path) -> None:
     _write_dataset(dataset, sensor_status="awaiting_live_gazebo_stream")
     with pytest.raises(DatasetAdmissionError, match="sensor_status=live"):
         load_episodes(dataset)
+
+
+def test_training_loader_joins_before_perception_without_truth(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset)
+    episode = dataset / "episodes" / "episode-0"
+    perception = {
+        "step_index": 0,
+        "observation": "before",
+        "detections": [
+            {
+                "class": "car",
+                "confidence": 0.9,
+                "bbox": [0.1, 0.2, 0.3, 0.4],
+                "bearing_deg": 5.0,
+                "range_m": 12.0,
+            }
+        ],
+    }
+    (episode / "perception.jsonl").write_text(
+        json.dumps(perception) + "\n", encoding="utf-8", newline="\n"
+    )
+    loaded = load_episodes(dataset)
+    state = build_transitions([loaded[0]])[0].state
+    assert state.valid_mask["tracks"] is True
+    assert state.valid_mask["range"] is True
+    assert state.tracks[0]["label"] == "car"
+    assert "privileged_target" not in state.to_json()

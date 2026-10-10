@@ -206,6 +206,25 @@ def test_arm_uses_normal_command_encoding_and_same_connection() -> None:
 
 def test_wait_prearm_health_decodes_failures_and_waits_for_clear(monkeypatch) -> None:
     collector = _collector_module()
+    # This loop intentionally waits in 100 ms increments.  A real sleep can
+    # overshoot the one second deadline when the full suite is under CPU load,
+    # making the test intermittently time out before the fake heartbeat gets a
+    # chance to clear HEALTH_REPORT.  Keep the production function untouched
+    # and inject a monotonic clock/sleeper at this test boundary instead.
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def monotonic_ns(self) -> int:
+            return int(self.now * 1_000_000_000)
+
+        def sleep(self, seconds: float) -> None:
+            self.now += max(0.0, float(seconds))
+
+    monkeypatch.setattr(collector, "time", FakeClock())
     events: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(
         collector,

@@ -246,6 +246,12 @@ class StructuredSceneStateBuilder:
         frame = observation.get("frame_id", observation.get("frame_sensor_stamp_ns"))
         if frame is None:
             raise PolicyContractError("sim observation is missing frame_id")
+        # Offline SIM perception is recorded beside the step stream.  Adapt
+        # detector outputs into the same track/range shape used by runtime
+        # callers before entering ``build``.  Privileged labels and outcomes
+        # are deliberately ignored here.
+        perception = observation.get("perception", record.get("perception"))
+        tracks, ranges = self._sim_perception(perception, frame_id=str(frame))
         # labels/outcome/action are deliberately not passed to the state.
         return self.build(
             StateBuilderInput(
@@ -253,11 +259,83 @@ class StructuredSceneStateBuilder:
                 frame_id=str(frame),
                 task_spec=spec,
                 pose=observation,
-                tracks=tuple(observation.get("tracks", ())),
-                ranges=tuple(observation.get("ranges", ())),
+                tracks=tracks
+                if perception is not None
+                else tuple(observation.get("tracks", ())),
+                ranges=ranges
+                if perception is not None
+                else tuple(observation.get("ranges", ())),
                 event=observation.get("event"),
             )
         )
+
+    @staticmethod
+    def _sim_perception(
+        perception: object, *, frame_id: str
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+        """Convert one ``perception.jsonl`` row into runtime-shaped inputs.
+
+        The bridge intentionally has no tracker.  Each detector output is a
+        one-frame track, with a stable row-local id, and its measured bearing
+        and depth are represented by a matching range record.  This keeps the
+        canonical state identical to a runtime frame containing equivalent
+        detections while preserving missing depth as an invalid range.
+        """
+        if not isinstance(perception, Mapping):
+            return (), ()
+        raw = perception.get("detections", ())
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+            return (), ()
+        tracks: list[dict[str, Any]] = []
+        ranges: list[dict[str, Any]] = []
+        for index, detection in enumerate(raw):
+            if not isinstance(detection, Mapping):
+                continue
+            track_id = str(
+                detection.get("track_id", detection.get("detection_id", f"sim-det-{index}"))
+            )
+            box = detection.get("bbox", detection.get("bbox_xyxy_px"))
+            if isinstance(box, Mapping):
+                box = [box.get(key, 0.0) for key in ("x1", "y1", "x2", "y2")]
+            if (
+                not isinstance(box, Sequence)
+                or isinstance(box, (str, bytes, bytearray))
+                or len(box) < 4
+            ):
+                continue
+            confidence = detection.get("confidence", detection.get("conf", 0.0))
+            label = str(detection.get("label", detection.get("class", "")))
+            tracks.append(
+                {
+                    "track_id": track_id,
+                    "frame_id": frame_id,
+                    "label": label,
+                    "state": "TRACKING",
+                    "bbox": list(box[:4]),
+                    "confidence": confidence,
+                    "tracking_quality": confidence,
+                    "primary": bool(detection.get("primary", False)),
+                    "actionable": bool(detection.get("actionable", False)),
+                    "class_match": detection.get("class_match"),
+                    "color_match": detection.get("color_match"),
+                }
+            )
+            range_m = detection.get("range_m")
+            bearing = detection.get("bearing_deg")
+            absolute_bearing = detection.get("absolute_bearing_deg")
+            range_row: dict[str, Any] = {
+                "target_id": track_id,
+                "frame_id": frame_id,
+                "validity": "valid" if range_m is not None else "invalid",
+            }
+            if range_m is not None:
+                range_row["slant_range_m"] = range_m
+            if bearing is not None:
+                range_row["relative_bearing_deg"] = bearing
+            if absolute_bearing is not None:
+                range_row["absolute_bearing_deg"] = absolute_bearing
+            ranges.append(range_row)
+        return tuple(tracks), tuple(ranges)
 
     @staticmethod
     def _task_from_record(record: Mapping[str, Any]) -> TaskSpecV1:

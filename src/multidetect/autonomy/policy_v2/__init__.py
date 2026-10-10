@@ -21,6 +21,13 @@ from .model import (
     state_to_vector,
     states_to_tensors,
 )
+from .perception_bridge import (
+    COCO80_CLASS_NAMES,
+    DetectorSpec,
+    PerceptionBridge,
+    bearing_from_pixel,
+    robust_depth_median,
+)
 from .search_memory import SearchMemoryGrid, SearchMemorySnapshot
 from .state_builder import StateBuilderInput, StructuredSceneStateBuilder
 
@@ -30,6 +37,11 @@ __all__ = [
     "PolicyContractError",
     "SearchMemoryGrid",
     "SearchMemorySnapshot",
+    "COCO80_CLASS_NAMES",
+    "DetectorSpec",
+    "PerceptionBridge",
+    "bearing_from_pixel",
+    "robust_depth_median",
     "StateBuilderInput",
     "StructuredSceneState",
     "StructuredSceneStateBuilder",

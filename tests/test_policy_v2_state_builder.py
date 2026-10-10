@@ -31,6 +31,55 @@ def test_runtime_and_sim_observation_have_same_canonical_state() -> None:
     assert live.canonical_hash == replay.canonical_hash
 
 
+def test_sim_perception_row_adapts_to_runtime_track_and_range_contract() -> None:
+    task = TaskSpecV1(prompt_sha256=hashlib.sha256(b"perception-adapter").hexdigest())
+    observation = {
+        "captured_at_s": 2.0,
+        "frame_id": "frame-perception",
+        "pose": {"local_ned_m": [1.0, 2.0, -3.0]},
+        "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 10.0},
+    }
+    detection = {
+        "detection_id": "sim-det-0",
+        "label": "car",
+        "confidence": 0.85,
+        "bbox": [0.15625, 0.16666666666666666, 0.34375, 0.375],
+        "bbox_xyxy_px": [100.0, 80.0, 220.0, 180.0],
+        "bearing_deg": 14.0,
+        "range_m": 18.0,
+    }
+    runtime = StructuredSceneStateBuilder().from_runtime(
+        captured_at_s=2.0,
+        frame_id="frame-perception",
+        task_spec=task,
+        pose=observation,
+        tracks=[
+            {
+                "track_id": "sim-det-0",
+                "frame_id": "frame-perception",
+                "label": "car",
+                "state": "TRACKING",
+                "bbox": [0.15625, 0.16666666666666666, 0.34375, 0.375],
+                "confidence": 0.85,
+                "tracking_quality": 0.85,
+            }
+        ],
+        ranges=[
+            {
+                "target_id": "sim-det-0",
+                "frame_id": "frame-perception",
+                "validity": "valid",
+                "slant_range_m": 18.0,
+                "relative_bearing_deg": 14.0,
+            }
+        ],
+    )
+    replay = StructuredSceneStateBuilder().from_sim_step_record(
+        {"obs_before": {**observation, "perception": {"detections": [detection]}}}, task
+    )
+    assert runtime.canonical_hash == replay.canonical_hash
+
+
 def test_missing_pose_is_masked_and_labels_do_not_enter_state() -> None:
     builder = StructuredSceneStateBuilder()
     state = builder.from_sim_step_record(

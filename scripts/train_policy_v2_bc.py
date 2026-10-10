@@ -93,6 +93,27 @@ def _admit_episode(ep: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not steps_path.is_file():
         raise DatasetAdmissionError(f"episode {ep.name} lacks steps.jsonl")
     rows: list[dict[str, Any]] = []
+    perception_by_key: dict[tuple[int, str], dict[str, Any]] = {}
+    perception_path = ep / "perception.jsonl"
+    if perception_path.is_file():
+        for line_no, line in enumerate(perception_path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                perception = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise DatasetAdmissionError(f"invalid perception JSON {ep.name}:{line_no}") from exc
+            if not isinstance(perception, dict):
+                raise DatasetAdmissionError(f"invalid perception row {ep.name}:{line_no}")
+            try:
+                key = (
+                    int(perception.get("step_index", -1)),
+                    str(perception.get("observation", "")),
+                )
+            except (TypeError, ValueError) as exc:
+                raise DatasetAdmissionError(f"invalid perception key {ep.name}:{line_no}") from exc
+            if key[0] >= 0 and key[1] in {"before", "after"}:
+                perception_by_key[key] = perception
     for line_no, line in enumerate(steps_path.read_text(encoding="utf-8").splitlines(), 1):
         try:
             row = json.loads(line)
@@ -109,6 +130,11 @@ def _admit_episode(ep: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 )
         if not isinstance(row.get("action"), dict):
             raise DatasetAdmissionError(f"live episode {ep.name} has no action")
+        step_index = int(row.get("step_index", len(rows)))
+        for observation_name, observation in (("before", before), ("after", after)):
+            perception = perception_by_key.get((step_index, observation_name))
+            if perception is not None:
+                observation["perception"] = perception
         rows.append(row)
     if not rows:
         raise DatasetAdmissionError(f"episode {ep.name} contains no steps")
