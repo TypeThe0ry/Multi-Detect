@@ -28,6 +28,7 @@ from .perception_bridge import (
     bearing_from_pixel,
     robust_depth_median,
 )
+from .rollout import EpisodeMetrics, RolloutConfig, rollout_episode, run_rollout
 from .search_memory import SearchMemoryGrid, SearchMemorySnapshot
 from .state_builder import StateBuilderInput, StructuredSceneStateBuilder
 
@@ -58,4 +59,8 @@ __all__ = [
     "export_onnx",
     "state_to_vector",
     "states_to_tensors",
+    "EpisodeMetrics",
+    "RolloutConfig",
+    "rollout_episode",
+    "run_rollout",
 ]
