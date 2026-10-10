@@ -265,7 +265,18 @@ class ExpertSearchPolicy:
         self._safety_replanned = False
 
     def _build_spiral(self) -> list[tuple[float, float]]:
-        spacing = min(70.0, self.search_radius_m / 2.0)
+        # Space legs from the pitched camera ground swath, with overlap.
+        hfov = 2.0 * math.atan2(float(self.image_size[0]), 2.0 * float(self.intrinsics["fx"]))
+        vfov = 2.0 * math.atan2(float(self.image_size[1]), 2.0 * float(self.intrinsics["fy"]))
+        vertical_ratio = math.tan(vfov / 2.0)
+        pitch = self.camera_pitch_rad
+        altitude = max(0.0, self.altitude_m)
+        onset = altitude * (math.cos(pitch) - vertical_ratio * math.sin(pitch)) / max(
+            1e-6, math.sin(pitch) + vertical_ratio * math.cos(pitch)
+        )
+        camera_forward = onset * math.cos(pitch) + altitude * math.sin(pitch)
+        half_swath = math.tan(hfov / 2.0) * max(0.0, camera_forward)
+        spacing = min(70.0, self.search_radius_m / 2.0, max(8.0, 1.6 * half_swath))
         home_n, home_e = self.home_ned[:2]
         points: list[tuple[float, float]] = []
         north, east = home_n, home_e
@@ -299,6 +310,35 @@ class ExpertSearchPolicy:
         self._approach_replan_pending = False
         self._approach_replanned = False
         self._safety_replanned = False
+
+    def _search_leg_action(self, pose_ned, waypoint) -> ActionPrimitive:
+        """Turn onto a spiral leg, then fly it body-forward."""
+        dn = waypoint[0] - pose_ned[0]
+        de = waypoint[1] - pose_ned[1]
+        distance = math.hypot(dn, de)
+        if distance <= 1e-6:
+            return ActionPrimitive.hold(0.0)
+        desired = math.degrees(math.atan2(de, dn))
+        delta = self._wrap(desired - float(self._commanded_yaw_deg or 0.0))
+        if abs(delta) >= self.approach_turn_min_deg:
+            self._commanded_yaw_deg = desired
+            return ActionPrimitive.turn(delta)
+        yaw = float(self._commanded_yaw_deg if self._commanded_yaw_deg is not None else desired)
+        step = min(self.max_translate_m, distance)
+        # Keep the commanded endpoint inside the circular search boundary.
+        heading = math.radians(yaw)
+        vn, ve = math.cos(heading), math.sin(heading)
+        rel_n = pose_ned[0] - self.home_ned[0]
+        rel_e = pose_ned[1] - self.home_ned[1]
+        b = rel_n * vn + rel_e * ve
+        c = rel_n * rel_n + rel_e * rel_e - self.search_radius_m**2
+        disc = max(0.0, b * b - c)
+        boundary_step = -b + math.sqrt(disc)
+        step = min(step, max(0.0, boundary_step))
+        if step <= 1e-6:
+            return ActionPrimitive.hold(0.0)
+        action = ActionPrimitive.translate(step, 0.0, 0.0)
+        return self._safe_translation(pose_ned, action, yaw)
 
     @property
     def target_in_fov(self) -> bool:
@@ -442,19 +482,16 @@ class ExpertSearchPolicy:
             self.state = "scan"
             self._initial_scan_remaining -= 1
             return self._scan_action(yaw_deg)
-        if self._scan_remaining > 0:
-            self.state = "scan"
-            return self._scan_action(yaw_deg)
         self.state = "search"
         if self._waypoint_index >= len(self._waypoints):
             self._waypoint_index = 0
         waypoint = self._waypoints[self._waypoint_index]
         if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 0.5:
             self._waypoint_index += 1
-            self._scan_remaining = int(round(360.0 / self.scan_increment_deg))
-            self.state = "scan"
-            return self._scan_action(yaw_deg)
-        return self._bounded_translation(pose_ned, waypoint, yaw_deg)
+            if self._waypoint_index >= len(self._waypoints):
+                self._waypoint_index = 0
+            waypoint = self._waypoints[self._waypoint_index]
+        return self._search_leg_action(pose_ned, waypoint)
 
     def labels(self, *, pose_ned, yaw_deg: float = 0.0) -> dict[str, Any]:
         inside, bearing, rng = target_in_fov(

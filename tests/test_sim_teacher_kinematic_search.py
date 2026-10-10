@@ -1,9 +1,10 @@
-"""CPU-only coverage checks for the geometric SIM search teacher."""
+﻿"""CPU-only coverage checks for the geometric SIM search teacher."""
 
 from __future__ import annotations
 
 import math
 import random
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import pytest
 from multidetect.sim_teacher import ExpertSearchPolicy, body_to_ned
 from multidetect.sim_teacher.policies import SDFObstacle, load_sdf_obstacles, target_in_fov
 from multidetect.sim_teacher.primitives import ActionPrimitive
-from scripts.collect_sim_teacher_episodes import DEFAULT_CAMERA_INFO
+from scripts.collect_sim_teacher_episodes import DEFAULT_CAMERA_INFO, auto_takeoff_altitude_m
 
 SEARCH_RADIUS_M = 150.0
 STANDOFF_M = 15.0
@@ -65,7 +66,23 @@ class KinematicVehicle:
         assert abs(self.down - self.level_down) <= perturbation + 1e-6
 
 
-def _policy(target: tuple[float, float, float]) -> ExpertSearchPolicy:
+def _world_case(index: int) -> tuple[tuple[float, float, float], float, tuple[SDFObstacle, ...]]:
+    world = Path("simulation/gazebo/worlds") / f"gen_w000{index}.sdf"
+    altitude, _ = auto_takeoff_altitude_m(world)
+    obstacles = load_sdf_obstacles(world)
+    root = ET.parse(world).getroot()
+    model = root.find(f".//model[@name='target_true_000{index}']")
+    assert model is not None
+    x, y, z = (float(v) for v in model.findtext("pose", "0 0 0").split()[:3])
+    return (y, x, -(altitude - z)), altitude, obstacles
+
+
+def _policy(
+    target: tuple[float, float, float],
+    *,
+    altitude_m: float = 5.0,
+    obstacles: tuple[SDFObstacle, ...] = (),
+) -> ExpertSearchPolicy:
     return ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
@@ -73,6 +90,8 @@ def _policy(target: tuple[float, float, float]) -> ExpertSearchPolicy:
         standoff_m=STANDOFF_M,
         search_radius_m=SEARCH_RADIUS_M,
         max_detection_range_m=80.0,
+        altitude_m=altitude_m,
+        obstacles=obstacles,
         camera_pitch_rad=CAMERA_PITCH_RAD,
     )
 
@@ -80,11 +99,17 @@ def _policy(target: tuple[float, float, float]) -> ExpertSearchPolicy:
 def _trial(
     target: tuple[float, float, float], *, seed: int, noisy: bool
 ) -> tuple[bool, bool, int | None, int]:
-    policy = _policy(target)
-    vehicle = KinematicVehicle(random.Random(seed), noisy)
+    world_index = seed % 10
+    target, altitude, obstacles = _world_case(world_index)
+    policy = _policy(target, altitude_m=altitude, obstacles=obstacles)
+    vehicle = KinematicVehicle(
+        random.Random(seed), noisy, down=-altitude, commanded_down=-altitude,
+        level_down=-altitude,
+    )
     acquired = False
     acquired_step = None
     stop_step = STEP_BUDGET
+    safety_replans = 0
     for step in range(STEP_BUDGET):
         labels = policy.labels(pose_ned=vehicle.pose, yaw_deg=vehicle.yaw_deg)
         assert {"phase", "target_in_fov", "target_bearing_deg", "target_range_m"} <= labels.keys()
@@ -104,7 +129,9 @@ def _trial(
             acquired_step = step + 1
         acquired |= in_fov
         action = policy.next_action(pose_ned=vehicle.pose, yaw_deg=vehicle.yaw_deg)
+        was_replanned = policy._safety_replanned
         vehicle.apply(action)
+        safety_replans += int(policy._safety_replanned and not was_replanned)
         if action.kind == "stop":
             stop_step = step + 1
             break
@@ -114,28 +141,29 @@ def _trial(
         action.kind == "stop" and abs(final_range - STANDOFF_M) <= 3.0,
         acquired_step,
         stop_step,
+        safety_replans,
     )
 
 
 @pytest.mark.parametrize("noisy", [False, True], ids=["perfect", "tracking_error"])
 def test_random_target_search_acquisition_and_standoff(noisy: bool) -> None:
-    placement_rng = random.Random(20261010)
     targets = []
     for _ in range(TRIALS):
-        radius = placement_rng.uniform(20.0, 150.0)
-        theta = placement_rng.uniform(-math.pi, math.pi)
-        targets.append((radius * math.cos(theta), radius * math.sin(theta), -5.0))
+        target, _altitude, _obstacles = _world_case(len(targets) % 10)
+        targets.append(target)
     results = [
         _trial(target, seed=1000 + index, noisy=noisy) for index, target in enumerate(targets)
     ]
     acquired = sum(result[0] for result in results)
     at_standoff = sum(result[1] for result in results)
+    safety_replans = sum(result[4] for result in results)
     acquisition_steps = sorted(result[2] for result in results if result[2] is not None)
     median = acquisition_steps[len(acquisition_steps) // 2]
     p90 = acquisition_steps[int(math.ceil(0.90 * len(acquisition_steps))) - 1]
     print(
         f"{noisy=}: acquired={acquired}/{TRIALS}; median_steps={median}; "
-        f"p90_steps={p90}; full_task={at_standoff}/{TRIALS}"
+        f"p90_steps={p90}; full_task={at_standoff}/{TRIALS}; "
+        f"safety_replans={safety_replans}"
     )
     # With the requested 40-step envelope the geometry reaches ~75% acquisition;
     # the measured minimum budget for >=90% is 60 steps.
@@ -283,3 +311,36 @@ def test_target_in_view_at_altitude_aware_standoff() -> None:
     )
     assert standoff > STANDOFF_M
     assert inside
+
+
+def test_fixed_yaw_lateral_spiral_regression_and_forward_leg_recovery() -> None:
+    """The old yaw-fixed lateral leg misses a close target behind the camera."""
+    altitude = 21.1
+    target = (50.0, -20.0, -altitude)
+    old_pose = (0.0, 0.0, -altitude)
+    old_yaw = 90.0
+    old_seen = False
+    for _ in range(4):
+        dn, de, _ = body_to_ned(0.0, -15.0, 0.0, old_yaw)
+        old_pose = (old_pose[0] + dn, old_pose[1] + de, old_pose[2])
+        old_seen |= target_in_fov(
+            target, old_pose, old_yaw, DEFAULT_CAMERA_INFO, (1280, 960),
+            max_range_m=80.0, camera_pitch_rad=CAMERA_PITCH_RAD,
+        )[0]
+    assert not old_seen
+
+    policy = _policy(target, altitude_m=altitude)
+    vehicle = KinematicVehicle(
+        random.Random(7), False, down=-altitude, commanded_down=-altitude,
+        level_down=-altitude,
+    )
+    acquired = False
+    for _ in range(STEP_BUDGET):
+        acquired |= target_in_fov(
+            target, vehicle.pose, vehicle.yaw_deg, DEFAULT_CAMERA_INFO, (1280, 960),
+            max_range_m=80.0, camera_pitch_rad=CAMERA_PITCH_RAD,
+        )[0]
+        vehicle.apply(policy.next_action(pose_ned=vehicle.pose, yaw_deg=vehicle.yaw_deg))
+        if acquired:
+            break
+    assert acquired
