@@ -93,15 +93,18 @@ def test_stop_records_step_and_ends_policy_loop() -> None:
     recorder = Recorder()
     before = {"rgb": b"before", "depth": None}
     after = {"rgb": b"after", "depth": None}
-    assert collector._record_policy_step(
-        recorder,
-        before,
-        ActionPrimitive.stop(),
-        ack={"action_ack": True},
-        outcome={"status": "success"},
-        obs_after=after,
-        labels={},
-    ) is False
+    assert (
+        collector._record_policy_step(
+            recorder,
+            before,
+            ActionPrimitive.stop(),
+            ack={"action_ack": True},
+            outcome={"status": "success"},
+            obs_after=after,
+            labels={},
+        )
+        is False
+    )
     assert [action.kind for action in recorder.actions] == ["stop"]
 
 
@@ -206,6 +209,7 @@ def test_arm_uses_normal_command_encoding_and_same_connection() -> None:
 
 def test_wait_prearm_health_decodes_failures_and_waits_for_clear(monkeypatch) -> None:
     collector = _collector_module()
+
     # This loop intentionally waits in 100 ms increments.  A real sleep can
     # overshoot the one second deadline when the full suite is under CPU load,
     # making the test intermittently time out before the fake heartbeat gets a
