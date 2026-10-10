@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-10-10T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "default_policy": "r33",
+  "status": "external_sim_passed",
+  "runtime": "Gazebo PX4 SITL",
+  "airframe": "multirotor",
+  "scenario": "urban_inspection_multirotor_001.teacher_spawn_probe_r1",
+  "teacher": "explore",
+  "seed": 7,
+  "sources": [
+    {
+      "path": "scripts/collect_sim_teacher_episodes.py",
+      "bytes": 61158,
+      "sha256": "7ddb16a6a60d2dbe9d3b777b3c2097817f0f72ffdf38f3b152bd039a34888f2b"
+    },
+    {
+      "path": "scripts/audit_sim_teacher_dataset.py",
+      "bytes": 1079,
+      "sha256": "d335b3796adcd0125828a0ed1bac7046819c0cf42fe811b05c7454a2dfc79b22"
+    },
+    {
+      "path": "docs/sim-teacher-data-collector.md",
+      "bytes": 3598,
+      "sha256": "b46345f13de4defaf20628432986e136d81448270cc2afd39f9b9807bc353fa4"
+    }
+  ],
+  "retained_artifact_bindings": [
+    {
+      "path": "artifacts/datasets/sim-teacher/urban-explore-r12/episodes/episode-0000-412bcd95/steps.jsonl",
+      "bytes": 13230,
+      "sha256": "232776ee8a3ef1d038251fceabad7df0a8cd609418b3b32bf9bb8b05b9c2ce80"
+    },
+    {
+      "path": "artifacts/datasets/sim-teacher/urban-explore-r12/episodes/episode-0000-412bcd95/mavlink.jsonl",
+      "bytes": 6671240,
+      "sha256": "a861a731318d6ddc715703bca66008582e176a5bedbce8ec357f51747331ce9c"
+    },
+    {
+      "path": "artifacts/datasets/sim-teacher/urban-explore-r12/episodes/episode-0000-412bcd95/episode.json",
+      "bytes": 1233,
+      "sha256": "3e001034561db1f2ff2b09ac03f0719765ffa5a710319b9635efbe0edab6ed19"
+    },
+    {
+      "path": "artifacts/datasets/sim-teacher/urban-explore-r12.log",
+      "bytes": 9840,
+      "sha256": "11eb058f2a2609d6ea3a7b971371c76837664f16f0eac7f6fc221bfb32f4c2fd"
+    }
+  ],
+  "protected": [
+    {
+      "path": "configs/scenarios/urban_inspection_multirotor_001.teacher_spawn_probe_r1.scenario.json",
+      "bytes": 665,
+      "sha256": "1db8fcf516c83d0a574f5c17d14621479b2691d94db6f15741908519d91c0d8c"
+    }
+  ],
+  "dataset": {
+    "path": "artifacts/datasets/sim-teacher/urban-explore-r12/episodes/episode-0000-412bcd95",
+    "file_count": 23,
+    "steps": 5,
+    "rgb_png": 10,
+    "depth_npy": 10,
+    "depth_shape": [
+      960,
+      1280
+    ],
+    "depth_dtype": "float32",
+    "depth_finite_fraction_range": [
+      0.5661954753,
+      0.5724389648
+    ],
+    "mavlink_lines": 17789,
+    "episode_bytes": 56297650
+  },
+  "validation": {
+    "command": "C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe scripts/audit_sim_teacher_dataset.py --dataset artifacts/datasets/sim-teacher/urban-explore-r12",
+    "native_exit_code": 0,
+    "step_count": 5,
+    "success_rate": 1.0,
+    "duration_s": 118.484,
+    "position_error_mean_m": 0.11426998697525384,
+    "position_error_max_m": 0.21768332024481699,
+    "yaw_error_mean_deg": 2.497953953825487,
+    "yaw_error_max_deg": 5.485698914876579,
+    "frame_pose_skew_count": 5,
+    "frame_pose_skew_mean_s": 0.003,
+    "frame_pose_skew_max_s": 0.015,
+    "action_histogram": {
+      "turn": 2,
+      "translate": 2,
+      "hold": 1
+    }
+  },
+  "claims": {
+    "sim_only": true,
+    "hil": false,
+    "real_hardware": false,
+    "outdoor": false,
+    "model_trained_on_data": false,
+    "promotion": false,
+    "final_release_allowed": false
+  },
+  "debug_history": [
+    "r1-r11 fixes: udpout or single socket; BAD_DATA guard; same telemetry/GCS socket identity 255/190; continuous 20 Hz setpoints; OFFBOARD race; raised spawn avoids pad collision"
+  ],
+  "collector_audit_boundary": "collector recording is decoupled from offline audit; refused in-window checkpoint chain is not used for SIM data collection."
+}

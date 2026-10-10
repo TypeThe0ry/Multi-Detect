@@ -19957,5 +19957,42 @@
       "root_combined_CPU_tests": 715,
       "source_inventory_complete_dependency_attestation": false
     }
+  },
+  "sim_teacher_first_real_episode_20261010_r1": {
+    "status": "external_sim_passed",
+    "evidence": {
+      "path": "docs/evidence/sim-teacher-first-real-episode-20261010-r1.json",
+      "bytes": 3688,
+      "sha256": "1138e4eb57423aa4ca1027df4d22fcaf32a9e2c3331a86950586d9d8abc5bf31"
+    },
+    "claims": {
+      "sim_only": true,
+      "hil": false,
+      "real_hardware": false,
+      "outdoor": false,
+      "model_trained_on_data": false,
+      "promotion": false,
+      "final_release_allowed": false
+    },
+    "validation": {
+      "command": "C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe scripts/audit_sim_teacher_dataset.py --dataset artifacts/datasets/sim-teacher/urban-explore-r12",
+      "native_exit_code": 0,
+      "step_count": 5,
+      "success_rate": 1.0,
+      "duration_s": 118.484,
+      "position_error_mean_m": 0.11426998697525384,
+      "position_error_max_m": 0.21768332024481699,
+      "yaw_error_mean_deg": 2.497953953825487,
+      "yaw_error_max_deg": 5.485698914876579,
+      "frame_pose_skew_count": 5,
+      "frame_pose_skew_mean_s": 0.003,
+      "frame_pose_skew_max_s": 0.015,
+      "action_histogram": {
+        "turn": 2,
+        "translate": 2,
+        "hold": 1
+      }
+    },
+    "next": "继续收集独立 SIM episodes 并保持离线审计；不晋升模型。"
   }
 }

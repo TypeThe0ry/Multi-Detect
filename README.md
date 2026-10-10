@@ -4,7 +4,7 @@ Multi-Detect 是一套面向无人机的自主感知与任务执行系统。它�
 
 当前版本：**`v0.3.0-pre.8`**。最终 `0.3.0` 尚未发布，因为真实 Jetson、Pixhawk、室外 GNSS、距离精度和人工视觉验收尚未全部完成。
 
-最新：[教师架次基础](docs/onboard-teacher-sortie-foundation-20261008.md)：预算／账本接线，5轮拒绝保留，未飞行／训练；[出生高度](docs/onboard-teacher-live-checkpoint-and-spawn-20261008.md)、[前轮](docs/onboard-teacher-origin-window-and-normal-mission-20261008.md)。
+最新：[SIM 教师数据采集与首个完整闭环](docs/evidence/sim-teacher-first-real-episode-20261010-r1.json)：Gazebo PX4 SITL 5 步骤离线审计通过；仅 SIM，未训练、未晋升。
 
 [公开模型补查](docs/onboard-pretrained-action-research-20261008-r3.md)：新增小型VLA／动作教师候选，权重可用不等于无人机可飞。
 
