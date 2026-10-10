@@ -1,0 +1,26 @@
+{
+  "scenario_id": "gen_w0029",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "蓝",
+      "label": "blue_cargo_cart",
+      "pose": {
+        "x_east_m": 67.262,
+        "y_north_m": -98.479,
+        "yaw_rad": -1.338118,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35121385,
+        "longitude_deg": 103.82040439
+      },
+      "target_id": "target_true_0029"
+    }
+  ]
+}

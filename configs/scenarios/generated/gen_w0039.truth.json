@@ -1,0 +1,102 @@
+{
+  "scenario_id": "gen_w0039",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "黄",
+      "label": "yellow_vehicle",
+      "pose": {
+        "x_east_m": -132.749,
+        "y_north_m": 45.566,
+        "yaw_rad": -2.705059,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35251002,
+        "longitude_deg": 103.81860717
+      },
+      "target_id": "target_true_0039"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "红",
+      "label": "red_rover",
+      "pose": {
+        "x_east_m": -61.868,
+        "y_north_m": 110.587,
+        "yaw_rad": -1.705153,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35309509,
+        "longitude_deg": 103.81924408
+      },
+      "target_id": "distractor_0039_00"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "蓝",
+      "label": "blue_cargo_cart",
+      "pose": {
+        "x_east_m": 42.466,
+        "y_north_m": -10.031,
+        "yaw_rad": -2.621224,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35200974,
+        "longitude_deg": 103.82018158
+      },
+      "target_id": "distractor_0039_01"
+    },
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "绿",
+      "label": "green_vehicle",
+      "pose": {
+        "x_east_m": 45.569,
+        "y_north_m": 89.75,
+        "yaw_rad": -0.068002,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3529076,
+        "longitude_deg": 103.82020947
+      },
+      "target_id": "distractor_0039_02"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "黄",
+      "label": "yellow_rover",
+      "pose": {
+        "x_east_m": -107.036,
+        "y_north_m": 14.353,
+        "yaw_rad": -2.489175,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35222916,
+        "longitude_deg": 103.81883821
+      },
+      "target_id": "distractor_0039_03"
+    }
+  ]
+}

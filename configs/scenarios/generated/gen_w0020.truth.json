@@ -1,0 +1,83 @@
+{
+  "scenario_id": "gen_w0020",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "红",
+      "label": "red_cargo_cart",
+      "pose": {
+        "x_east_m": -64.869,
+        "y_north_m": -53.184,
+        "yaw_rad": -0.945519,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35162143,
+        "longitude_deg": 103.81921711
+      },
+      "target_id": "target_true_0020"
+    },
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "蓝",
+      "label": "blue_vehicle",
+      "pose": {
+        "x_east_m": 36.727,
+        "y_north_m": -92.4,
+        "yaw_rad": -2.933456,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35126855,
+        "longitude_deg": 103.82013002
+      },
+      "target_id": "distractor_0020_00"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "绿",
+      "label": "green_rover",
+      "pose": {
+        "x_east_m": -17.244,
+        "y_north_m": -14.244,
+        "yaw_rad": 0.482957,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35197183,
+        "longitude_deg": 103.81964505
+      },
+      "target_id": "distractor_0020_01"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "黄",
+      "label": "yellow_cargo_cart",
+      "pose": {
+        "x_east_m": 3.247,
+        "y_north_m": 96.63,
+        "yaw_rad": -0.002757,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35296951,
+        "longitude_deg": 103.81982917
+      },
+      "target_id": "distractor_0020_02"
+    }
+  ]
+}

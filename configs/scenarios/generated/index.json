@@ -1,5 +1,5 @@
 {
-  "count": 6,
+  "count": 40,
   "generator": "multidetect.simulator.world_gen",
   "real_time_factor": 1.0,
   "schema_version": 1,
@@ -178,7 +178,7 @@
         }
       },
       "seed": 20261014,
-      "split": "test",
+      "split": "train",
       "target_pose": {
         "x_east_m": -47.38604808186362,
         "y_north_m": -123.82462692231223,
@@ -214,7 +214,7 @@
         }
       },
       "seed": 20261015,
-      "split": "test",
+      "split": "train",
       "target_pose": {
         "x_east_m": 63.6164655620925,
         "y_north_m": -105.22524953904589,
@@ -225,6 +225,1230 @@
       "true_target_id": "target_true_0005",
       "world_file": "gen_w0005.sdf",
       "world_id": "gen_w0005"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0006.expectations.json",
+          "sha256": "54e1b7462a5bd7f6bc59bc54cd7eaad0164527a739c58805c9c6abd6d4043f60"
+        },
+        "runtime": {
+          "path": "gen_w0006.runtime.json",
+          "sha256": "f9f7f1b98ac8b46ea7d96e115d03f74500596e1877e3881856f84576a555af0b"
+        },
+        "scenario": {
+          "path": "gen_w0006.scenario.json",
+          "sha256": "6b202425725275d955acfa10ea7aa83087ddcf5a9a9a904c47da06cb2a15df29"
+        },
+        "truth": {
+          "path": "gen_w0006.truth.json",
+          "sha256": "41fc4818c3ad53854411dbbaaefa16be0f37cd600c4b23b83e5cd0d5510abfde"
+        },
+        "world": {
+          "path": "gen_w0006.sdf",
+          "sha256": "71b10e995fbb9a8e7c5c8405f70b704615e8ffeb7b7bf7e3f0b77ec534586f2a"
+        }
+      },
+      "seed": 20261016,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -29.481969490250837,
+        "y_north_m": 5.948281361391752,
+        "yaw_rad": -1.395477858357194,
+        "z_up_m": 0.75
+      },
+      "task_text": "巡视区域，找到绿色车辆并记录坐标",
+      "true_target_id": "target_true_0006",
+      "world_file": "gen_w0006.sdf",
+      "world_id": "gen_w0006"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0007.expectations.json",
+          "sha256": "4a8d91e8cb40d2c72a2af4a6a088958450649a00a6b5d362a2857166dc9f7735"
+        },
+        "runtime": {
+          "path": "gen_w0007.runtime.json",
+          "sha256": "60e1f7d4ccc01c99e2024b73ad7abb097ef658d584790a90c12e9148aeb4a792"
+        },
+        "scenario": {
+          "path": "gen_w0007.scenario.json",
+          "sha256": "22c138dc33db73c495afaa42fe73678e575e415d9de5d5dc601556c0f8624a09"
+        },
+        "truth": {
+          "path": "gen_w0007.truth.json",
+          "sha256": "eb2c14a7539399d0f34b76760583308187a0f70c8a8280e17097b69167f16df5"
+        },
+        "world": {
+          "path": "gen_w0007.sdf",
+          "sha256": "486e56fe3fdabb7b5c38951d33ae4144c369b38d2a4c980d07ea921bc7e790e6"
+        }
+      },
+      "seed": 20261017,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 126.1778079437924,
+        "y_north_m": -67.77408386596134,
+        "yaw_rad": -0.3073377354470881,
+        "z_up_m": 0.75
+      },
+      "task_text": "请搜索并标记黄色探测车",
+      "true_target_id": "target_true_0007",
+      "world_file": "gen_w0007.sdf",
+      "world_id": "gen_w0007"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0008.expectations.json",
+          "sha256": "189090789843a4523b9cbec7fbdf6426b3528c442157ce3601133469c28bbd74"
+        },
+        "runtime": {
+          "path": "gen_w0008.runtime.json",
+          "sha256": "3253ddb59ade561f19c8a8f4af71cd06d865ca545d5c5ef81ec055e0c1954deb"
+        },
+        "scenario": {
+          "path": "gen_w0008.scenario.json",
+          "sha256": "f757449ce64556d6a3a6688ad117009057db48649b192adecc4b40237cacfda7"
+        },
+        "truth": {
+          "path": "gen_w0008.truth.json",
+          "sha256": "89425ea71656d693a7ed0ca6a44dc04e91aa3c522b9453fb80117024ada79c16"
+        },
+        "world": {
+          "path": "gen_w0008.sdf",
+          "sha256": "2d24a32b0e2629ff2744ea59a729a4b4755f4e8b02216698c5bffb3f87ac7bca"
+        }
+      },
+      "seed": 20261018,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 75.83768310460859,
+        "y_north_m": 44.376787668680215,
+        "yaw_rad": -0.7023421468573643,
+        "z_up_m": 0.75
+      },
+      "task_text": "发现红色货运车后报告其位置",
+      "true_target_id": "target_true_0008",
+      "world_file": "gen_w0008.sdf",
+      "world_id": "gen_w0008"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0009.expectations.json",
+          "sha256": "742cc7529de4da4397fb51de7b282af6282584b023b1cc20c7afd25eaafff16c"
+        },
+        "runtime": {
+          "path": "gen_w0009.runtime.json",
+          "sha256": "26f905cbf13d7273eb20f479ead6a7ad5ac03dba46e7475b56cff29cafef4d34"
+        },
+        "scenario": {
+          "path": "gen_w0009.scenario.json",
+          "sha256": "9cc871b4173c3592565b5b17a623b5da801b08b9fd4f30d7c9b416aa9d252bbc"
+        },
+        "truth": {
+          "path": "gen_w0009.truth.json",
+          "sha256": "f1049f003c26ea49ada2aeed17acf6fb63878c9d2d2eb470e8c9ecf1aa6ef047"
+        },
+        "world": {
+          "path": "gen_w0009.sdf",
+          "sha256": "83665601b9f9f25bf82c29d8010674e3b1c44a735d12df9d43b82f47d4ed7c5a"
+        }
+      },
+      "seed": 20261019,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -73.12473798298124,
+        "y_north_m": 119.50697347374643,
+        "yaw_rad": 1.3173400473712613,
+        "z_up_m": 0.75
+      },
+      "task_text": "执行搜索任务：定位蓝色车辆",
+      "true_target_id": "target_true_0009",
+      "world_file": "gen_w0009.sdf",
+      "world_id": "gen_w0009"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0010.expectations.json",
+          "sha256": "fd46b6c6a95b24ac8dd51eb3a1764fdc214f04e0632087bb1c446af1c4dbbcf7"
+        },
+        "runtime": {
+          "path": "gen_w0010.runtime.json",
+          "sha256": "02fb15fa5fb5849e9de638f48e3da0c833ab3259b78447343b2cbf2c17e65c8d"
+        },
+        "scenario": {
+          "path": "gen_w0010.scenario.json",
+          "sha256": "d650d60c3fe246a34defbcb79935733da3066a76e95406dc2294843f16fc1054"
+        },
+        "truth": {
+          "path": "gen_w0010.truth.json",
+          "sha256": "fbea945c417f0ef4c3cfcc7c5354a6cd7eaa4a6a1befe9b4e17b1c0a59bf2949"
+        },
+        "world": {
+          "path": "gen_w0010.sdf",
+          "sha256": "b8c488af8eb0afbed3cbbe4a3364a6e8f2012d1fc8fb99584cb77e55f8e10aac"
+        }
+      },
+      "seed": 20261020,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 25.54130741011474,
+        "y_north_m": -33.085419171223485,
+        "yaw_rad": 2.4711295339334853,
+        "z_up_m": 0.75
+      },
+      "task_text": "在本世界中找到绿色探测车的位置",
+      "true_target_id": "target_true_0010",
+      "world_file": "gen_w0010.sdf",
+      "world_id": "gen_w0010"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0011.expectations.json",
+          "sha256": "d22806be428b30082deb32067fbda9f689070846644505c75f0dd6e77e0307ab"
+        },
+        "runtime": {
+          "path": "gen_w0011.runtime.json",
+          "sha256": "c7af582e3b5556ca91feaab49bcb0128ba04c27ff50f2e812af9b99b18383748"
+        },
+        "scenario": {
+          "path": "gen_w0011.scenario.json",
+          "sha256": "3611376f0943f8aa1ea41ff33d0f15173af1e22228f64a4f55eea73dfd684e6b"
+        },
+        "truth": {
+          "path": "gen_w0011.truth.json",
+          "sha256": "5a842a9cdab56c14399d7752da26dc7c3bb0cce541b057b3727960358a79e701"
+        },
+        "world": {
+          "path": "gen_w0011.sdf",
+          "sha256": "a317e97c649aaf3d61737229b5916586388d20e7f6e7c7049146910e995b18f7"
+        }
+      },
+      "seed": 20261021,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -108.63279963341085,
+        "y_north_m": 41.71980987800867,
+        "yaw_rad": -0.139455727037328,
+        "z_up_m": 0.75
+      },
+      "task_text": "锁定黄色货运车并记录地理位置",
+      "true_target_id": "target_true_0011",
+      "world_file": "gen_w0011.sdf",
+      "world_id": "gen_w0011"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0012.expectations.json",
+          "sha256": "bba7094d1c18ecdd088aecb54bc3c8e199efb6e82e78b1aabe8de8ebb2007dca"
+        },
+        "runtime": {
+          "path": "gen_w0012.runtime.json",
+          "sha256": "ab43982aa2ff4cee3a1791caaa49436b64f38713b190adf1c2c54225799abede"
+        },
+        "scenario": {
+          "path": "gen_w0012.scenario.json",
+          "sha256": "eeb90a3ea1e4ed6e4b4d659625b2179247e35114e0bf90aafaa5f38b8a95e89b"
+        },
+        "truth": {
+          "path": "gen_w0012.truth.json",
+          "sha256": "a0ddb07f4ac9abf4f116f0a408534b73c6ba857c6d0978d06fe9a9a01f11060a"
+        },
+        "world": {
+          "path": "gen_w0012.sdf",
+          "sha256": "95cd89cec7c5da5497affb27112d7bea391579252b50b0a75cd1019b056e75e2"
+        }
+      },
+      "seed": 20261022,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -13.69106480490565,
+        "y_north_m": -104.45102372676322,
+        "yaw_rad": 2.060084929769517,
+        "z_up_m": 0.75
+      },
+      "task_text": "找到红色车辆并记录位置",
+      "true_target_id": "target_true_0012",
+      "world_file": "gen_w0012.sdf",
+      "world_id": "gen_w0012"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0013.expectations.json",
+          "sha256": "c8a84e7ac5b5d5b54003ee8020af25058b75c20ecf1c42a1d59fbbb308cb4c83"
+        },
+        "runtime": {
+          "path": "gen_w0013.runtime.json",
+          "sha256": "efe38e5b7038050cfd8addc17fd4def7dc3d11ee94e3a254c58db40d96600442"
+        },
+        "scenario": {
+          "path": "gen_w0013.scenario.json",
+          "sha256": "447781d49e521d69d1625f9553b6eb7465ee45569124cc51b012bd9fb45c1540"
+        },
+        "truth": {
+          "path": "gen_w0013.truth.json",
+          "sha256": "060106c69715933a8d881e905aa42595ed427f41aa46402a15499d9c30cca115"
+        },
+        "world": {
+          "path": "gen_w0013.sdf",
+          "sha256": "e058e7196f6dcf5a84e65528e23fb5985b7452cb74b5fbf043efe02c647994b3"
+        }
+      },
+      "seed": 20261023,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -94.88407423385365,
+        "y_north_m": 38.972422397119786,
+        "yaw_rad": -1.9959892772096754,
+        "z_up_m": 0.75
+      },
+      "task_text": "搜索场景中的蓝色探测车，报告坐标",
+      "true_target_id": "target_true_0013",
+      "world_file": "gen_w0013.sdf",
+      "world_id": "gen_w0013"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0014.expectations.json",
+          "sha256": "77605f0f87e99422e83bd1ac99f6bf76fe1f80e82867560021edae2e6c233f6c"
+        },
+        "runtime": {
+          "path": "gen_w0014.runtime.json",
+          "sha256": "21a55d283ecfc1a45afd3adcca0ae281508699d011ae3dc93d7bf8333743aea0"
+        },
+        "scenario": {
+          "path": "gen_w0014.scenario.json",
+          "sha256": "98e01797bffe8ab00f2488ed1dd80bb4101c3128091088dca943d04e868b1803"
+        },
+        "truth": {
+          "path": "gen_w0014.truth.json",
+          "sha256": "31e4705600106ff871b761ce7424c6e3c221bcddfc2d0bd4cd3e1b9095ac4e1a"
+        },
+        "world": {
+          "path": "gen_w0014.sdf",
+          "sha256": "419e0f9062bb11dddd917d5ed3a8fec0c695727a8ae31da3333d68cd47d80bcb"
+        }
+      },
+      "seed": 20261024,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 57.22193618598726,
+        "y_north_m": 14.321124994405963,
+        "yaw_rad": -2.9267268899699928,
+        "z_up_m": 0.75
+      },
+      "task_text": "请定位绿色货运车并记录它的位置",
+      "true_target_id": "target_true_0014",
+      "world_file": "gen_w0014.sdf",
+      "world_id": "gen_w0014"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0015.expectations.json",
+          "sha256": "02fb2f923a3504e3778d6159778b356e5fc95a8b9e9698bd8f258e4d6d63acf2"
+        },
+        "runtime": {
+          "path": "gen_w0015.runtime.json",
+          "sha256": "29484b891e8090ff4a6222adb4e9332398b84d386ef8eb872582b9de89b7ad48"
+        },
+        "scenario": {
+          "path": "gen_w0015.scenario.json",
+          "sha256": "94e8dd81daf2a2a6c09c8925b0e3d2eb8f59dbefa2cc50d6aad379a10372a6c9"
+        },
+        "truth": {
+          "path": "gen_w0015.truth.json",
+          "sha256": "7e658966081bf8b92e40491b8868cba70ada79979e48ad65f641f6125023311d"
+        },
+        "world": {
+          "path": "gen_w0015.sdf",
+          "sha256": "5b8cbc42530ac9f8137451e609b75641d23ab6576973b3d8a2cfcebd5d2749bb"
+        }
+      },
+      "seed": 20261025,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -43.381670752710114,
+        "y_north_m": -63.04817077618356,
+        "yaw_rad": -0.9670696680318343,
+        "z_up_m": 0.75
+      },
+      "task_text": "在搜索区域找到黄色车辆",
+      "true_target_id": "target_true_0015",
+      "world_file": "gen_w0015.sdf",
+      "world_id": "gen_w0015"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0016.expectations.json",
+          "sha256": "ccbb6185f1925fa257daebb3fc12286b2a385114f3c453059904bb1d56f1eefc"
+        },
+        "runtime": {
+          "path": "gen_w0016.runtime.json",
+          "sha256": "ca804fbb2eba123628a8acadf024f5a5c0ed4d1c917207fcfe9918bca9d2b5e3"
+        },
+        "scenario": {
+          "path": "gen_w0016.scenario.json",
+          "sha256": "c3c8eceba1aab5e8d962289d4e796aa5b81690eab46faa494055e4784362f091"
+        },
+        "truth": {
+          "path": "gen_w0016.truth.json",
+          "sha256": "a1444e55bf57f1f5fcb715b994d4a07d25e0c58180b07e1fdf2656ed5a3ee620"
+        },
+        "world": {
+          "path": "gen_w0016.sdf",
+          "sha256": "70defb42a2916c973599ba479bcd6e85fa64d090ec17562eb434a4e0cd8f836e"
+        }
+      },
+      "seed": 20261026,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 7.420652648236168,
+        "y_north_m": -22.918776943510995,
+        "yaw_rad": 0.6350807269768626,
+        "z_up_m": 0.75
+      },
+      "task_text": "识别红色探测车后回报位置",
+      "true_target_id": "target_true_0016",
+      "world_file": "gen_w0016.sdf",
+      "world_id": "gen_w0016"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0017.expectations.json",
+          "sha256": "806d97c37fa51cbe448e7f51e30eaa7d101e082ae47e285385aa8a48ce3c4aab"
+        },
+        "runtime": {
+          "path": "gen_w0017.runtime.json",
+          "sha256": "1f3d98648cdb35133ed8820445e777e785a1c70694495b2255dea3926dc0f721"
+        },
+        "scenario": {
+          "path": "gen_w0017.scenario.json",
+          "sha256": "dda465b9c0e8a4b46e9793594ca46b471696952882224e2a18185cf19fc10726"
+        },
+        "truth": {
+          "path": "gen_w0017.truth.json",
+          "sha256": "3ed3237b50f16dc06af7489601627a56c0d77dc2e4ed341da96db494f55d3509"
+        },
+        "world": {
+          "path": "gen_w0017.sdf",
+          "sha256": "e7bd02d5a295b418540035e5b41539ffac1efe81512ef90228e49f4f0a16bc3d"
+        }
+      },
+      "seed": 20261027,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -108.43625806302846,
+        "y_north_m": -68.80561946263268,
+        "yaw_rad": 2.9852986109507578,
+        "z_up_m": 0.75
+      },
+      "task_text": "寻找目标蓝色货运车并完成定位",
+      "true_target_id": "target_true_0017",
+      "world_file": "gen_w0017.sdf",
+      "world_id": "gen_w0017"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0018.expectations.json",
+          "sha256": "90a9d8c1253ed78e5e8b52aab8184a4630a507cc271419ebe9124341ef9f9c97"
+        },
+        "runtime": {
+          "path": "gen_w0018.runtime.json",
+          "sha256": "746851f2cc86d80986da9c2a4722f766a0aad7a03c6d51d24d02d503b2d068f6"
+        },
+        "scenario": {
+          "path": "gen_w0018.scenario.json",
+          "sha256": "61a544c41607942595efcda686ebef155553d099e69a2d6d881d21b3d8b3ba18"
+        },
+        "truth": {
+          "path": "gen_w0018.truth.json",
+          "sha256": "2ba0d31349037db00c8f3279aa2654436a155377ffc736230e412a644b557baf"
+        },
+        "world": {
+          "path": "gen_w0018.sdf",
+          "sha256": "a194d0f393c0601c14ee73a9c71220094448130fefc1b717c3abf956d234e15e"
+        }
+      },
+      "seed": 20261028,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 12.116620913081464,
+        "y_north_m": -79.59912743524728,
+        "yaw_rad": 2.5294445206168534,
+        "z_up_m": 0.75
+      },
+      "task_text": "巡视区域，找到绿色车辆并记录坐标",
+      "true_target_id": "target_true_0018",
+      "world_file": "gen_w0018.sdf",
+      "world_id": "gen_w0018"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0019.expectations.json",
+          "sha256": "a510077ac30d822922f55701a8051e4149d2c35e65d2335047f7966cfef3f912"
+        },
+        "runtime": {
+          "path": "gen_w0019.runtime.json",
+          "sha256": "b3f7ee057bfeebd737f7732e5c9b31a7df70f7aae346b76c0639a2278ec46b8c"
+        },
+        "scenario": {
+          "path": "gen_w0019.scenario.json",
+          "sha256": "df19be77b4c52e2d5ccac27435f5743c9975a6cf3a45fa3be05eb2ffee1d9a5b"
+        },
+        "truth": {
+          "path": "gen_w0019.truth.json",
+          "sha256": "32322d8d0470818c50d68d7dd2d5d364fed3a20734c5eae4ba7c499fb0915707"
+        },
+        "world": {
+          "path": "gen_w0019.sdf",
+          "sha256": "7a7757d0fa4f2788370657c1627ee64cbd4086dd8ae704a6b7edc64221303b3f"
+        }
+      },
+      "seed": 20261029,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 50.82945204155159,
+        "y_north_m": -64.65216172305992,
+        "yaw_rad": 1.61488659358103,
+        "z_up_m": 0.75
+      },
+      "task_text": "请搜索并标记黄色探测车",
+      "true_target_id": "target_true_0019",
+      "world_file": "gen_w0019.sdf",
+      "world_id": "gen_w0019"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0020.expectations.json",
+          "sha256": "daff0a5992405771a7b6f3970132c15c3522f95c1d74eddd8014e4f999dcd0b3"
+        },
+        "runtime": {
+          "path": "gen_w0020.runtime.json",
+          "sha256": "f6e8caabb8e5da5abc35d290493f09675e2887e7c2a1e79f719d608d4726b175"
+        },
+        "scenario": {
+          "path": "gen_w0020.scenario.json",
+          "sha256": "fb63878b21b1a8e60411ae2ce7002b716348d8f34f8ff9ab463d81bc23e4d2ac"
+        },
+        "truth": {
+          "path": "gen_w0020.truth.json",
+          "sha256": "82fbb65025c4d56b4d6cf9ff2b589473eb4ddba86589355c1ba2a4c9b8fa7e35"
+        },
+        "world": {
+          "path": "gen_w0020.sdf",
+          "sha256": "be37b1f18761bb2695a3d9ba088a545b6f82b8f9b60986e26d866075431a831f"
+        }
+      },
+      "seed": 20261030,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -64.8693508086766,
+        "y_north_m": -53.1840439685262,
+        "yaw_rad": -0.9455189490549634,
+        "z_up_m": 0.75
+      },
+      "task_text": "发现红色货运车后报告其位置",
+      "true_target_id": "target_true_0020",
+      "world_file": "gen_w0020.sdf",
+      "world_id": "gen_w0020"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0021.expectations.json",
+          "sha256": "f047a4c51bce2c78cf8fd4ffb95d42d913ba7cf7468c9602077829dd89e130e1"
+        },
+        "runtime": {
+          "path": "gen_w0021.runtime.json",
+          "sha256": "7ab774ed1b50e77a5d22cd0e1d705a0ead520fe9d9fc143fd76e1b37dd4df7e9"
+        },
+        "scenario": {
+          "path": "gen_w0021.scenario.json",
+          "sha256": "599f3d88090f44b52bedd743d4b37f9f10c8da5dfc41e4ce6d4ebd2593adc605"
+        },
+        "truth": {
+          "path": "gen_w0021.truth.json",
+          "sha256": "2d8d19518f35209e02392a12a559003a631d970d338d0aa4b373212a0edd513a"
+        },
+        "world": {
+          "path": "gen_w0021.sdf",
+          "sha256": "9bbfea88a85e68ab3f0ec240c337f35f4c5cafae8a4ee07c952c991501d92030"
+        }
+      },
+      "seed": 20261031,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -107.53379736772834,
+        "y_north_m": -54.63634148905117,
+        "yaw_rad": -2.1825196030157845,
+        "z_up_m": 0.75
+      },
+      "task_text": "执行搜索任务：定位蓝色车辆",
+      "true_target_id": "target_true_0021",
+      "world_file": "gen_w0021.sdf",
+      "world_id": "gen_w0021"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0022.expectations.json",
+          "sha256": "fd2fedf34364e37abe505a36dd4a80066358e2d92a5f71d1741e697e6234a162"
+        },
+        "runtime": {
+          "path": "gen_w0022.runtime.json",
+          "sha256": "ea45fa6c99c018f26363f2f00f1b175fd47aad0657d874a0bcfeee0e546e235c"
+        },
+        "scenario": {
+          "path": "gen_w0022.scenario.json",
+          "sha256": "d50f36384a68fd1f29bed0c115cceb3bcf37176ed3a0566a196ee671d44d0b40"
+        },
+        "truth": {
+          "path": "gen_w0022.truth.json",
+          "sha256": "d19c470d5f7c55e1efadccf01ec6581359d7d7e875a5799438dbb2b7d23dbcf2"
+        },
+        "world": {
+          "path": "gen_w0022.sdf",
+          "sha256": "b5167e5a5367506c9235a2fa9986b09b12190cacdc5d74abc1d32debf7c9db9d"
+        }
+      },
+      "seed": 20261032,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -80.34555557093796,
+        "y_north_m": -7.812365034454587,
+        "yaw_rad": -0.6992687742812156,
+        "z_up_m": 0.75
+      },
+      "task_text": "在本世界中找到绿色探测车的位置",
+      "true_target_id": "target_true_0022",
+      "world_file": "gen_w0022.sdf",
+      "world_id": "gen_w0022"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0023.expectations.json",
+          "sha256": "2ea207d025c0c36181996b2e7f34ce59199e27badf5b8e20d0731d584f44adc1"
+        },
+        "runtime": {
+          "path": "gen_w0023.runtime.json",
+          "sha256": "4ed8166884831ca8de871d0492e69d64a6982d343ec157d7396470d45b73d0b0"
+        },
+        "scenario": {
+          "path": "gen_w0023.scenario.json",
+          "sha256": "bb54c992f7aea3d131d0225001a58b559e8eeb80b24c20d70005da58c700db7a"
+        },
+        "truth": {
+          "path": "gen_w0023.truth.json",
+          "sha256": "3d76caa0102586ecaa63487acab5323b938c746f832474f2adacb891c112ca5a"
+        },
+        "world": {
+          "path": "gen_w0023.sdf",
+          "sha256": "384a4790f053ab52544c387d5d92fe0706aa81e68cd1aaca55266f8468194d07"
+        }
+      },
+      "seed": 20261033,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 54.784786054710985,
+        "y_north_m": 41.767003476819994,
+        "yaw_rad": 0.2334309351439532,
+        "z_up_m": 0.75
+      },
+      "task_text": "锁定黄色货运车并记录地理位置",
+      "true_target_id": "target_true_0023",
+      "world_file": "gen_w0023.sdf",
+      "world_id": "gen_w0023"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0024.expectations.json",
+          "sha256": "5f03d448a9d6697ee3f38539cf1dbf662c4dbc4a9f6e4d4f385e98a4450b551f"
+        },
+        "runtime": {
+          "path": "gen_w0024.runtime.json",
+          "sha256": "85c51d01470f0812e146fabbd35bdf9f9d349f722e346e54d1defcbf4202bb53"
+        },
+        "scenario": {
+          "path": "gen_w0024.scenario.json",
+          "sha256": "97a5ac35193d3f03a695db6ecbe844cf73e1a04a3be8482c55cc6f01926e6220"
+        },
+        "truth": {
+          "path": "gen_w0024.truth.json",
+          "sha256": "a72f0862d03dce358772ab48d76633def06ecf194f123ff6162ca21999d8d4c3"
+        },
+        "world": {
+          "path": "gen_w0024.sdf",
+          "sha256": "484318a3fbbe1aeb765fce7c1b04e79d8968bdbf01d27e3f397ea772ba7a6a75"
+        }
+      },
+      "seed": 20261034,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 37.42005528728455,
+        "y_north_m": -43.16063473783108,
+        "yaw_rad": 2.487481367330222,
+        "z_up_m": 0.75
+      },
+      "task_text": "找到红色车辆并记录位置",
+      "true_target_id": "target_true_0024",
+      "world_file": "gen_w0024.sdf",
+      "world_id": "gen_w0024"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0025.expectations.json",
+          "sha256": "b3c04466269276a24b67bdfbeeca27b991d4ead9f461541e21016b088a6098d2"
+        },
+        "runtime": {
+          "path": "gen_w0025.runtime.json",
+          "sha256": "1a9fbc092d5b34cf129852c456dc4ec35cbc5eac370d0b15facdfa7ecda340a8"
+        },
+        "scenario": {
+          "path": "gen_w0025.scenario.json",
+          "sha256": "28489740aa352c5a07ff99f9a7bf105be35338ac2257928226e37df35876addc"
+        },
+        "truth": {
+          "path": "gen_w0025.truth.json",
+          "sha256": "2b59bd3309a5007ed4350465a09de29bfabcf0f92c18658ea7df90a06d1b9d94"
+        },
+        "world": {
+          "path": "gen_w0025.sdf",
+          "sha256": "45031142a6fea4808e3cdeaa0f1d1999248aaf912e369099f5a823f64d0f6012"
+        }
+      },
+      "seed": 20261035,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -97.24798416938633,
+        "y_north_m": 31.77255759966024,
+        "yaw_rad": 0.8530291385377655,
+        "z_up_m": 0.75
+      },
+      "task_text": "搜索场景中的蓝色探测车，报告坐标",
+      "true_target_id": "target_true_0025",
+      "world_file": "gen_w0025.sdf",
+      "world_id": "gen_w0025"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0026.expectations.json",
+          "sha256": "c9eb3d6431cfde08bbbf89bbf3ac8fa4e51cac4b2c286abb2c7b40283f575126"
+        },
+        "runtime": {
+          "path": "gen_w0026.runtime.json",
+          "sha256": "1ee032cef116897068e48c5aa802723d00d22ab799cb4d57966251f7b984d94f"
+        },
+        "scenario": {
+          "path": "gen_w0026.scenario.json",
+          "sha256": "d88867e3fea522e3d914a16e3cdfc86c9bf580779f70fa7e25e27c9994318eda"
+        },
+        "truth": {
+          "path": "gen_w0026.truth.json",
+          "sha256": "1157c6b1a2b3485fcc9ba1d376d7ce61da8c210e040d72248a0e8ca414165e62"
+        },
+        "world": {
+          "path": "gen_w0026.sdf",
+          "sha256": "384507ae199a31792663184d6da0081e05370b38885537b6a13f4bc476c29ea5"
+        }
+      },
+      "seed": 20261036,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": 43.71487871344509,
+        "y_north_m": -71.79438004225055,
+        "yaw_rad": 0.5669408323811993,
+        "z_up_m": 0.75
+      },
+      "task_text": "请定位绿色货运车并记录它的位置",
+      "true_target_id": "target_true_0026",
+      "world_file": "gen_w0026.sdf",
+      "world_id": "gen_w0026"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0027.expectations.json",
+          "sha256": "ec6d4251bc159de82d7bf0b699720e1df4d2204f147f00d6ab0955ac4e5c7aa3"
+        },
+        "runtime": {
+          "path": "gen_w0027.runtime.json",
+          "sha256": "9e6aba1d76d9814468070b1194a54d6ac9e536f69204bb91ebaf1598669baf78"
+        },
+        "scenario": {
+          "path": "gen_w0027.scenario.json",
+          "sha256": "de85de391db4af55ac24eb1c10ad707d3a3972862f1cbbd52815befac2905801"
+        },
+        "truth": {
+          "path": "gen_w0027.truth.json",
+          "sha256": "52d0462506beda2ce2a6dfe97d061d73f550e82a27f1b1401768420ee0e7c863"
+        },
+        "world": {
+          "path": "gen_w0027.sdf",
+          "sha256": "9a9527eb66592670a7edf25d9552e71be565d711ad828a77e7c02ffb86f1db2b"
+        }
+      },
+      "seed": 20261037,
+      "split": "train",
+      "target_pose": {
+        "x_east_m": -108.55673158057601,
+        "y_north_m": -58.69495744091963,
+        "yaw_rad": 1.6080050376655608,
+        "z_up_m": 0.75
+      },
+      "task_text": "在搜索区域找到黄色车辆",
+      "true_target_id": "target_true_0027",
+      "world_file": "gen_w0027.sdf",
+      "world_id": "gen_w0027"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0028.expectations.json",
+          "sha256": "c653d1299aabdbd2b49ccaee8b93db123ebffc2bd41ba801466f8c0564510bfa"
+        },
+        "runtime": {
+          "path": "gen_w0028.runtime.json",
+          "sha256": "7e40bd820ce763b8c391f1766e770d20cc39184a14a85d106b361a03d698482d"
+        },
+        "scenario": {
+          "path": "gen_w0028.scenario.json",
+          "sha256": "b87389bcf5ae8bf3cddfe09049ff0afd1f880a9461daa93bb1932274b86d1316"
+        },
+        "truth": {
+          "path": "gen_w0028.truth.json",
+          "sha256": "a4ef10e3f8648d7cfde017805d65c2f07863a32eed27348a39db2c93dfb22fe8"
+        },
+        "world": {
+          "path": "gen_w0028.sdf",
+          "sha256": "71bdf83b0a41bec873ecc96ae139d0dc07072ab691e7e74c683f82f4e11837d0"
+        }
+      },
+      "seed": 20261038,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": 59.13756344275102,
+        "y_north_m": -17.165287817926767,
+        "yaw_rad": 2.081454736724285,
+        "z_up_m": 0.75
+      },
+      "task_text": "识别红色探测车后回报位置",
+      "true_target_id": "target_true_0028",
+      "world_file": "gen_w0028.sdf",
+      "world_id": "gen_w0028"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0029.expectations.json",
+          "sha256": "7b80576236e7d30ed6073dd6b2caafd4b72c9bd2fd8dcefddab3528c639b7239"
+        },
+        "runtime": {
+          "path": "gen_w0029.runtime.json",
+          "sha256": "193b8f51c04ccfc9607dc9d774a444a345d42260442e36146f25f4d0ad7858dc"
+        },
+        "scenario": {
+          "path": "gen_w0029.scenario.json",
+          "sha256": "a3d66ab774832d9952d382596d2a6a438ff32003214a0de03ac71a8adcec14dd"
+        },
+        "truth": {
+          "path": "gen_w0029.truth.json",
+          "sha256": "95a23efc91532662294e420890f023d62bfa5d9ee8d8cb8fcd3ee09daee2ff2d"
+        },
+        "world": {
+          "path": "gen_w0029.sdf",
+          "sha256": "116a2024a5746864b44cfe2fe9488483db150f42a60fc38cb6753af05050cec1"
+        }
+      },
+      "seed": 20261039,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": 67.26176119724103,
+        "y_north_m": -98.47921950041128,
+        "yaw_rad": -1.3381182838809915,
+        "z_up_m": 0.75
+      },
+      "task_text": "寻找目标蓝色货运车并完成定位",
+      "true_target_id": "target_true_0029",
+      "world_file": "gen_w0029.sdf",
+      "world_id": "gen_w0029"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0030.expectations.json",
+          "sha256": "ba3c344ea48caabc07b759ec3873b93c2051fe4dbd55b3621d523a0cc457c7ef"
+        },
+        "runtime": {
+          "path": "gen_w0030.runtime.json",
+          "sha256": "52d3ea1366f3f149d47e3ac3a1d394417f3fc2fa4696fe03a93e29d0f1a23b6b"
+        },
+        "scenario": {
+          "path": "gen_w0030.scenario.json",
+          "sha256": "b3b90944f0663bdd0aec3c1cb51046c13508967b74ea0c5f190d2f07f821cf86"
+        },
+        "truth": {
+          "path": "gen_w0030.truth.json",
+          "sha256": "18f6424d032cb2d55f20cce06e47a5d243f1219a4926307c0ab669c156c8a7c5"
+        },
+        "world": {
+          "path": "gen_w0030.sdf",
+          "sha256": "e02656b292b39ad3094486f5b4484a09c6181f53d789d686e4d4507e58713c32"
+        }
+      },
+      "seed": 20261040,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": -76.99210796180986,
+        "y_north_m": -74.41527879960196,
+        "yaw_rad": -2.0349515957735616,
+        "z_up_m": 0.75
+      },
+      "task_text": "巡视区域，找到绿色车辆并记录坐标",
+      "true_target_id": "target_true_0030",
+      "world_file": "gen_w0030.sdf",
+      "world_id": "gen_w0030"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0031.expectations.json",
+          "sha256": "adf363294182f80280d21bee6fbfd59e826b9ebdfe9061f45603bd3b302d2197"
+        },
+        "runtime": {
+          "path": "gen_w0031.runtime.json",
+          "sha256": "7e7efdef1c0a6152a0cb3dc5a38885a51f06cc60433001398cc4b9bc6eb60654"
+        },
+        "scenario": {
+          "path": "gen_w0031.scenario.json",
+          "sha256": "a098ac943e88526e4e3003f355731af367169925a6e0273879f06eda21ac42c6"
+        },
+        "truth": {
+          "path": "gen_w0031.truth.json",
+          "sha256": "a7c14d6214441c2b2f830e7b4ee520f6630347a34cbab4fbdeae5ee8c20711d3"
+        },
+        "world": {
+          "path": "gen_w0031.sdf",
+          "sha256": "8ffbc5dd4287b039e64f097ee18e8e52ef302bb033bbf78b4a6bba62ce7d26ca"
+        }
+      },
+      "seed": 20261041,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": 57.94420049400537,
+        "y_north_m": 5.787678554863039,
+        "yaw_rad": 0.27500316474010766,
+        "z_up_m": 0.75
+      },
+      "task_text": "请搜索并标记黄色探测车",
+      "true_target_id": "target_true_0031",
+      "world_file": "gen_w0031.sdf",
+      "world_id": "gen_w0031"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0032.expectations.json",
+          "sha256": "0e5e21576bfa71b9d7e1fd2081f54844e6fe5c1d2d6656b8b2f850d8c207dde6"
+        },
+        "runtime": {
+          "path": "gen_w0032.runtime.json",
+          "sha256": "04dd93a339c081d55c2477e42e6a1082ab60d362296c6c6df84bd62b0a3db124"
+        },
+        "scenario": {
+          "path": "gen_w0032.scenario.json",
+          "sha256": "2553f970020edb8cf19d2c44df42fdb79899bed78c706d391a58b03a612d40e5"
+        },
+        "truth": {
+          "path": "gen_w0032.truth.json",
+          "sha256": "587411353b4d2d7b6e62d3e2462e90e7dc4072b1cb70608cec64e9f588b7af0b"
+        },
+        "world": {
+          "path": "gen_w0032.sdf",
+          "sha256": "95bf28ac407d6950d0d944592ce15d56001e8c2367402fe016931436d9cde395"
+        }
+      },
+      "seed": 20261042,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": -18.142620923704346,
+        "y_north_m": -19.05711117525955,
+        "yaw_rad": 2.038444471240905,
+        "z_up_m": 0.75
+      },
+      "task_text": "发现红色货运车后报告其位置",
+      "true_target_id": "target_true_0032",
+      "world_file": "gen_w0032.sdf",
+      "world_id": "gen_w0032"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0033.expectations.json",
+          "sha256": "7f70c59d33c0b2d739508f34ad12cfa268720344007426c921c5ea0574fd2734"
+        },
+        "runtime": {
+          "path": "gen_w0033.runtime.json",
+          "sha256": "b494eaebce014366b0ca529703aa705be9939415aa03e512c92e922193f43389"
+        },
+        "scenario": {
+          "path": "gen_w0033.scenario.json",
+          "sha256": "c231764bf4af1411352033e7868a8f880f833e10c291b93befb2d6fb0e951ae1"
+        },
+        "truth": {
+          "path": "gen_w0033.truth.json",
+          "sha256": "59e513e94f5f4c5b38fd22013ff082cc2132cd05e9746d9ea2505e5dddbaa032"
+        },
+        "world": {
+          "path": "gen_w0033.sdf",
+          "sha256": "210ec8cefbe9a4aafb3cf7a4d1b207c66f9ca60959f5bce1a0528283568c6050"
+        }
+      },
+      "seed": 20261043,
+      "split": "val",
+      "target_pose": {
+        "x_east_m": -53.56230196571309,
+        "y_north_m": -99.44109433782096,
+        "yaw_rad": 0.0718772553711502,
+        "z_up_m": 0.75
+      },
+      "task_text": "执行搜索任务：定位蓝色车辆",
+      "true_target_id": "target_true_0033",
+      "world_file": "gen_w0033.sdf",
+      "world_id": "gen_w0033"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0034.expectations.json",
+          "sha256": "2755b0d4dbed75543d18f8b7b9b5284956ab616d706204597789a042ae69a17a"
+        },
+        "runtime": {
+          "path": "gen_w0034.runtime.json",
+          "sha256": "3752e2495bb774e75ca7db6cd1ee905405450a3fd78e5c2c70c0cab23991ed7c"
+        },
+        "scenario": {
+          "path": "gen_w0034.scenario.json",
+          "sha256": "ccf1c6d509a30cf8a0cc44c07a27f43301414a29b98e17a7d6ba3a8745b1fe65"
+        },
+        "truth": {
+          "path": "gen_w0034.truth.json",
+          "sha256": "aeb491a96d16b92aeda91e42b251d95ed0ad7ec47abf1530e77b3956ff77c324"
+        },
+        "world": {
+          "path": "gen_w0034.sdf",
+          "sha256": "f00839c0975dccea40bca13c1f9d941676e1fbef255d6d41e0808dc4bac0b3e4"
+        }
+      },
+      "seed": 20261044,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": 90.0030503150769,
+        "y_north_m": 97.44140983639568,
+        "yaw_rad": 0.31860799732064793,
+        "z_up_m": 0.75
+      },
+      "task_text": "在本世界中找到绿色探测车的位置",
+      "true_target_id": "target_true_0034",
+      "world_file": "gen_w0034.sdf",
+      "world_id": "gen_w0034"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0035.expectations.json",
+          "sha256": "817b62a2d6f321c88789e3c4243265a7bb5632c9c742fef79512f3392d59cc84"
+        },
+        "runtime": {
+          "path": "gen_w0035.runtime.json",
+          "sha256": "0b63505a5d1d2da3d492273718ff0b2827a364c10e7477ba8d5784b88cef39cc"
+        },
+        "scenario": {
+          "path": "gen_w0035.scenario.json",
+          "sha256": "ccad2e10024aa784ff01b6c5e473c43c674dbcf7d5497ad13b1dabaf5c1e0dbc"
+        },
+        "truth": {
+          "path": "gen_w0035.truth.json",
+          "sha256": "7266806821be9f2c63d013791205ff183f3a2f8f2f963e43181494c3dd6f4cb0"
+        },
+        "world": {
+          "path": "gen_w0035.sdf",
+          "sha256": "30a9d2f9b6e9abfc43c3905772fa89581c5accee245bc6c6c0b3f32a5eeeabe9"
+        }
+      },
+      "seed": 20261045,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": 14.423146883184351,
+        "y_north_m": -33.21615137971643,
+        "yaw_rad": -0.5459209223786039,
+        "z_up_m": 0.75
+      },
+      "task_text": "锁定黄色货运车并记录地理位置",
+      "true_target_id": "target_true_0035",
+      "world_file": "gen_w0035.sdf",
+      "world_id": "gen_w0035"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0036.expectations.json",
+          "sha256": "c6effbf7c3b03217ebbec0f304512b43986360075b109f57ff6eccd5afa7905d"
+        },
+        "runtime": {
+          "path": "gen_w0036.runtime.json",
+          "sha256": "26250858417ec2f686b2972bc0946db0a1b3efcc291334dae3299dc4e66f97cc"
+        },
+        "scenario": {
+          "path": "gen_w0036.scenario.json",
+          "sha256": "6251e3e4eddb3f15181a46ea26cae574dea466d343150608f0b3445b06e33bdc"
+        },
+        "truth": {
+          "path": "gen_w0036.truth.json",
+          "sha256": "068180f7b17e527f2caed68ecfafabb2b023d0567e4ad7b8b93f361be7319565"
+        },
+        "world": {
+          "path": "gen_w0036.sdf",
+          "sha256": "fe5214b0aa37b89a4ed50c7d173a4b928aeb0bbf45189e0178f7a2b5720fdea7"
+        }
+      },
+      "seed": 20261046,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": 31.697235683702033,
+        "y_north_m": -8.372030859180464,
+        "yaw_rad": 1.0111005036666967,
+        "z_up_m": 0.75
+      },
+      "task_text": "找到红色车辆并记录位置",
+      "true_target_id": "target_true_0036",
+      "world_file": "gen_w0036.sdf",
+      "world_id": "gen_w0036"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0037.expectations.json",
+          "sha256": "0bc176193e599f1cf5cbf3df97e1f04e8c085348dbd198107be41a324ed93545"
+        },
+        "runtime": {
+          "path": "gen_w0037.runtime.json",
+          "sha256": "9b562982ea0f9f3ce5ca7c162583eb2ba0d450ead1a5794ab17732379aad6726"
+        },
+        "scenario": {
+          "path": "gen_w0037.scenario.json",
+          "sha256": "e682a37654a21d9f11ab088aa7493fa5ee0bf9db8cd471906e556d02f7f77dca"
+        },
+        "truth": {
+          "path": "gen_w0037.truth.json",
+          "sha256": "3836cecc0b6ba41999737eabc275d7faff789412f7cb98e717aff03d87125039"
+        },
+        "world": {
+          "path": "gen_w0037.sdf",
+          "sha256": "bb6600c5d327be9cd88576de6921463b619cf47267bf73dacac0c9b0b6660c88"
+        }
+      },
+      "seed": 20261047,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": 106.35716074940598,
+        "y_north_m": 34.10812636494925,
+        "yaw_rad": 2.512416964622952,
+        "z_up_m": 0.75
+      },
+      "task_text": "搜索场景中的蓝色探测车，报告坐标",
+      "true_target_id": "target_true_0037",
+      "world_file": "gen_w0037.sdf",
+      "world_id": "gen_w0037"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0038.expectations.json",
+          "sha256": "2fa6e9097a225b4ea158fb6dcf4150861a742987cf35cdffa68035496bc20b81"
+        },
+        "runtime": {
+          "path": "gen_w0038.runtime.json",
+          "sha256": "3ed9d4ee7abbb0e9c84a7f4151d8385a62fe7191045ff872b596dd31a9c337f0"
+        },
+        "scenario": {
+          "path": "gen_w0038.scenario.json",
+          "sha256": "02b941393dd6263b8d5cc186abb66ee848e7da6ac031cbcecb492585e519cbc3"
+        },
+        "truth": {
+          "path": "gen_w0038.truth.json",
+          "sha256": "97c0cfb08ccff0dced29044bdc780210c841b2f6bbbccd8825fb37fc45cbf667"
+        },
+        "world": {
+          "path": "gen_w0038.sdf",
+          "sha256": "30d0652274e4808381975c2f09be6394c4e3ad9464ee6b84bcfdfe917c5bf068"
+        }
+      },
+      "seed": 20261048,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": -41.722046994660126,
+        "y_north_m": -35.058575294852666,
+        "yaw_rad": -2.177651312910829,
+        "z_up_m": 0.75
+      },
+      "task_text": "请定位绿色货运车并记录它的位置",
+      "true_target_id": "target_true_0038",
+      "world_file": "gen_w0038.sdf",
+      "world_id": "gen_w0038"
+    },
+    {
+      "files": {
+        "expectations": {
+          "path": "gen_w0039.expectations.json",
+          "sha256": "d903d7c871c8970b3360ea51c9c907ae2837497781c40e3952ee4ecc8b5938e8"
+        },
+        "runtime": {
+          "path": "gen_w0039.runtime.json",
+          "sha256": "68add2049c541c6ad27eff5446ac9d44eedd8fcdc2c3f938d1d010716fcfa9d0"
+        },
+        "scenario": {
+          "path": "gen_w0039.scenario.json",
+          "sha256": "3376f48700f16740434bd1efba416e24f911735dc27088410a0f55773fa3e0dd"
+        },
+        "truth": {
+          "path": "gen_w0039.truth.json",
+          "sha256": "fc4d539468ced4e939dff489916295a5e47a7961461a4cf7a1ab0835973d8a9b"
+        },
+        "world": {
+          "path": "gen_w0039.sdf",
+          "sha256": "0c5e75e0ca9e1c0eb606d1c1f4d7b281ef202b22ca1f615d5ca6e2821555d641"
+        }
+      },
+      "seed": 20261049,
+      "split": "test",
+      "target_pose": {
+        "x_east_m": -132.74865334953338,
+        "y_north_m": 45.56636023884194,
+        "yaw_rad": -2.705059460205036,
+        "z_up_m": 0.75
+      },
+      "task_text": "在搜索区域找到黄色车辆",
+      "true_target_id": "target_true_0039",
+      "world_file": "gen_w0039.sdf",
+      "world_id": "gen_w0039"
     }
   ]
 }

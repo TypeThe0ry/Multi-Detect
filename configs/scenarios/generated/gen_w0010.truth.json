@@ -1,0 +1,83 @@
+{
+  "scenario_id": "gen_w0010",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "绿",
+      "label": "green_rover",
+      "pose": {
+        "x_east_m": 25.541,
+        "y_north_m": -33.085,
+        "yaw_rad": 2.47113,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35180229,
+        "longitude_deg": 103.8200295
+      },
+      "target_id": "target_true_0010"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "黄",
+      "label": "yellow_cargo_cart",
+      "pose": {
+        "x_east_m": 42.493,
+        "y_north_m": 9.588,
+        "yaw_rad": 2.86721,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35218627,
+        "longitude_deg": 103.82018183
+      },
+      "target_id": "distractor_0010_00"
+    },
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "红",
+      "label": "red_vehicle",
+      "pose": {
+        "x_east_m": 57.425,
+        "y_north_m": -26.027,
+        "yaw_rad": -1.62366,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3518658,
+        "longitude_deg": 103.820316
+      },
+      "target_id": "distractor_0010_01"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "蓝",
+      "label": "blue_rover",
+      "pose": {
+        "x_east_m": -91.27,
+        "y_north_m": 78.883,
+        "yaw_rad": -1.427606,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35280981,
+        "longitude_deg": 103.81897988
+      },
+      "target_id": "distractor_0010_02"
+    }
+  ]
+}

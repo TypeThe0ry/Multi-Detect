@@ -1,0 +1,83 @@
+{
+  "scenario_id": "gen_w0026",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "绿",
+      "label": "green_cargo_cart",
+      "pose": {
+        "x_east_m": 43.715,
+        "y_north_m": -71.794,
+        "yaw_rad": 0.566941,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35145397,
+        "longitude_deg": 103.82019281
+      },
+      "target_id": "target_true_0026"
+    },
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "黄",
+      "label": "yellow_vehicle",
+      "pose": {
+        "x_east_m": -84.617,
+        "y_north_m": -10.147,
+        "yaw_rad": -2.051367,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35200869,
+        "longitude_deg": 103.81903967
+      },
+      "target_id": "distractor_0026_00"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "红",
+      "label": "red_rover",
+      "pose": {
+        "x_east_m": -132.886,
+        "y_north_m": -40.803,
+        "yaw_rad": -1.337784,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35173284,
+        "longitude_deg": 103.81860594
+      },
+      "target_id": "distractor_0026_01"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "蓝",
+      "label": "blue_cargo_cart",
+      "pose": {
+        "x_east_m": -107.866,
+        "y_north_m": -22.765,
+        "yaw_rad": -1.879443,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35189515,
+        "longitude_deg": 103.81883076
+      },
+      "target_id": "distractor_0026_02"
+    }
+  ]
+}

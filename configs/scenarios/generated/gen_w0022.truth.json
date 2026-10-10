@@ -1,0 +1,102 @@
+{
+  "scenario_id": "gen_w0022",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "绿",
+      "label": "green_rover",
+      "pose": {
+        "x_east_m": -80.346,
+        "y_north_m": -7.812,
+        "yaw_rad": -0.699269,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3520297,
+        "longitude_deg": 103.81907805
+      },
+      "target_id": "target_true_0022"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "黄",
+      "label": "yellow_cargo_cart",
+      "pose": {
+        "x_east_m": -12.462,
+        "y_north_m": 109.231,
+        "yaw_rad": -0.31925,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35308289,
+        "longitude_deg": 103.81968802
+      },
+      "target_id": "distractor_0022_00"
+    },
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "红",
+      "label": "red_vehicle",
+      "pose": {
+        "x_east_m": 124.937,
+        "y_north_m": -36.5,
+        "yaw_rad": 3.140714,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35177156,
+        "longitude_deg": 103.82092264
+      },
+      "target_id": "distractor_0022_01"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "蓝",
+      "label": "blue_rover",
+      "pose": {
+        "x_east_m": 108.487,
+        "y_north_m": 45.547,
+        "yaw_rad": -2.754083,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35250985,
+        "longitude_deg": 103.82077482
+      },
+      "target_id": "distractor_0022_02"
+    },
+    {
+      "behavior": "stationary",
+      "class": "cargo_cart",
+      "color": "绿",
+      "label": "green_cargo_cart",
+      "pose": {
+        "x_east_m": 19.058,
+        "y_north_m": 67.799,
+        "yaw_rad": -2.666656,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35271007,
+        "longitude_deg": 103.81997125
+      },
+      "target_id": "distractor_0022_03"
+    }
+  ]
+}

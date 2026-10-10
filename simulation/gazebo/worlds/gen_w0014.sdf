@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9"><world name="default">
+  <physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor><real_time_update_rate>250</real_time_update_rate></physics>
+  <gravity>0 0 -9.80665</gravity><magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field><atmosphere type="adiabatic"/>
+  <scene><grid>false</grid><ambient>0.372 0.372 0.372 1</ambient><background>0.878 0.938 0.998 1</background><shadows>true</shadows></scene>
+  <spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>1.352100</latitude_deg><longitude_deg>103.819800</longitude_deg><elevation>18</elevation></spherical_coordinates>
+  <light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><cast_shadows>true</cast_shadows><intensity>1.148</intensity><direction>-0.5340 0.2402 -0.8107</direction><diffuse>1 1 1 1</diffuse><specular>0.2 0.2 0.2 1</specular></light>
+  <model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><ambient>0.25 0.38 0.22 1</ambient><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+  <model name="multirotor_home_pad"><static>true</static><link name="pad_link"><collision name="pad_collision"><pose>0 0 0.05 0 0 0</pose><geometry><cylinder><radius>5</radius><length>0.1</length></cylinder></geometry></collision><visual name="pad_visual"><pose>0 0 0.05 0 0 0</pose><geometry><cylinder><radius>5</radius><length>0.1</length></cylinder></geometry><material><ambient>0.15 0.16 0.18 1</ambient><diffuse>0.25 0.27 0.30 1</diffuse></material></visual></link></model>
+    <model name="obstacle_00"><static>true</static><pose>-12.002 -35.033 5.255 0 0 -2.349491</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>13.326 15.557 10.510</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>13.326 15.557 10.510</size></box></geometry><material><ambient>0.537 0.569 0.432 1</ambient><diffuse>0.537 0.569 0.432 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_01"><static>true</static><pose>42.258 -55.885 4.709 0 0 2.990491</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>7.517 9.148 9.419</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>7.517 9.148 9.419</size></box></geometry><material><ambient>0.409 0.588 0.415 1</ambient><diffuse>0.409 0.588 0.415 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_02"><static>true</static><pose>-7.933 87.644 7.493 0 0 2.635543</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>6.528 13.109 14.986</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>6.528 13.109 14.986</size></box></geometry><material><ambient>0.391 0.568 0.440 1</ambient><diffuse>0.391 0.568 0.440 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_03"><static>true</static><pose>-26.068 112.028 3.227 0 0 2.975486</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>6.568 10.442 6.454</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>6.568 10.442 6.454</size></box></geometry><material><ambient>0.476 0.433 0.427 1</ambient><diffuse>0.476 0.433 0.427 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_04"><static>true</static><pose>26.443 16.288 2.767 0 0 -2.054743</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>13.900 15.119 5.534</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>13.900 15.119 5.534</size></box></geometry><material><ambient>0.482 0.406 0.568 1</ambient><diffuse>0.482 0.406 0.568 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_05"><static>true</static><pose>-78.773 -114.949 5.032 0 0 0.054463</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>15.847 6.809 10.063</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>15.847 6.809 10.063</size></box></geometry><material><ambient>0.477 0.610 0.550 1</ambient><diffuse>0.477 0.610 0.550 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="obstacle_06"><static>true</static><pose>-50.182 78.444 2.162 0 0 -1.506882</pose>
+      <link name="obstacle_link"><collision name="collision"><geometry><box><size>11.842 7.147 4.323</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>11.842 7.147 4.323</size></box></geometry><material><ambient>0.495 0.368 0.445 1</ambient><diffuse>0.495 0.368 0.445 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual></link>
+    </model>
+    <model name="target_true_0014">
+      <static>true</static><pose>57.222 14.321 0.750 0 0 -2.926727</pose>
+      <link name="body">
+        <collision name="collision"><geometry><box><size>3.80 1.60 1.70</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.80 1.60 1.70</size></box></geometry><material><ambient>0.050 0.750 0.100 1</ambient><diffuse>0.050 0.750 0.100 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual>
+      </link>
+    </model>
+    <model name="distractor_0014_00">
+      <static>true</static><pose>-6.900 36.013 0.750 0 0 0.878015</pose>
+      <link name="body">
+        <collision name="collision"><geometry><box><size>3.00 1.80 1.50</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.00 1.80 1.50</size></box></geometry><material><ambient>0.900 0.720 0.030 1</ambient><diffuse>0.900 0.720 0.030 1</diffuse><specular>0.08 0.08 0.08 1</specular></material></visual>
+      </link>
+    </model>
+</world></sdf>
