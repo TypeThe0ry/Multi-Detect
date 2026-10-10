@@ -184,17 +184,19 @@ def _run_audit(
 
 
 def _clear_incomplete_dataset(dataset: Path, campaign_root: Path) -> None:
-    """Clear only this campaign episode's incomplete collector output."""
+    """Move this episode's previous incomplete output aside (kept for diagnosis)."""
     root = campaign_root.resolve()
     target = dataset.resolve()
     if target == root or root not in target.parents:
         raise ValueError(f"episode output escapes campaign: {target}")
-    for name in ("episodes", "jobs"):
-        child = (target / name).resolve()
-        if child.parent != target:
-            raise ValueError(f"unsafe episode output: {child}")
-        if child.is_dir():
-            shutil.rmtree(child)
+    stale = [target / name for name in ("episodes", "jobs") if (target / name).is_dir()]
+    if stale:
+        archive = target / "failed_attempts" / f"attempt-{time.time_ns()}"
+        archive.mkdir(parents=True)
+        for child in stale:
+            if child.resolve().parent != target:
+                raise ValueError(f"unsafe episode output: {child}")
+            shutil.move(str(child), str(archive / child.name))
     (target / "audit.json").unlink(missing_ok=True)
 
 
@@ -380,6 +382,9 @@ def run_campaign(
                         timeout=max_episode_s + 60.0,
                     )
                     output = f"{result.stdout}\n{result.stderr}"
+                    attempt_log = Path(dataset) / f"collector-attempt-{attempts}.log"
+                    attempt_log.parent.mkdir(parents=True, exist_ok=True)
+                    attempt_log.write_text(output, encoding="utf-8")
                     if result.returncode == 0:
                         audit_report, last_error = _run_audit(
                             dataset, run, executable, max_episode_s
