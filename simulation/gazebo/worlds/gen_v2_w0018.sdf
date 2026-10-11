@@ -98,14 +98,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_2/materials/scripts</uri>
-            <uri>model://house_2/materials/textures</uri>
-            <uri>model://house_2/materials/textures</uri>
-            <name>House_2/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_2/materials/textures/House_2_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -127,15 +120,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://gas_station/materials/scripts</uri>
-            <uri>model://gas_station/materials/textures</uri>
-            <name>GasStation/Diffuse</name>
-          </script>
-          <shader type="normal_map_object_space">
-            <normal_map>GasStation_Normal.png</normal_map>
-          </shader>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://gas_station/materials/textures/GasStation_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -155,12 +140,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://mailbox/materials/scripts</uri>
-            <uri>model://mailbox/materials/textures</uri>
-            <name>Mailbox/Diffuse</name>
-          </script>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://mailbox/materials/textures/Mailbox_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -181,12 +161,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://stop_sign/materials/scripts</uri>
-            <uri>model://stop_sign/materials/textures</uri>
-            <name>StopSign/Diffuse</name>
-          </script>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://stop_sign/materials/textures/StopSign_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>

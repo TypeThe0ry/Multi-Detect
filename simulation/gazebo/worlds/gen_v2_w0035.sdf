@@ -18,14 +18,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_3/materials/scripts</uri>
-            <uri>model://house_3/materials/textures</uri>
-            <uri>model://house_3/materials/textures</uri>
-            <name>House_3/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_3/materials/textures/House_3_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -49,20 +42,7 @@
           </mesh>
         </geometry>
         <material>
-          <double_sided>true</double_sided>
-          <diffuse>1.0 1.0 1.0</diffuse>
-          <script>
-            <uri>model://pine_tree/materials/scripts/</uri>
-            <uri>model://pine_tree/materials/textures/</uri>
-            <name>PineTree/Branch</name>
-          </script>
-          
-          <pbr>
-            <metal>
-              <albedo_map>model://pine_tree/materials/textures/branch_2_diffuse.png</albedo_map>
-            </metal>
-          </pbr>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://pine_tree/materials/textures/branch_2_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
       <visual name="bark">
         <geometry>
@@ -74,19 +54,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>1.0 1.0 1.0</diffuse>
-          <script>
-            <uri>model://pine_tree/materials/scripts/</uri>
-            <uri>model://pine_tree/materials/textures/</uri>
-            <name>PineTree/Bark</name>
-          </script>
-          
-          <pbr>
-            <metal>
-              <albedo_map>model://pine_tree/materials/textures/bark_diffuse.png</albedo_map>
-            </metal>
-          </pbr>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://pine_tree/materials/textures/bark_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -109,14 +77,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_2/materials/scripts</uri>
-            <uri>model://house_2/materials/textures</uri>
-            <uri>model://house_2/materials/textures</uri>
-            <name>House_2/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_2/materials/textures/House_2_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -177,13 +138,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_1/materials/scripts</uri>
-            <uri>model://house_1/materials/textures</uri>
-            <name>House_1/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_1/materials/textures/House_1_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -226,12 +181,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://mailbox/materials/scripts</uri>
-            <uri>model://mailbox/materials/textures</uri>
-            <name>Mailbox/Diffuse</name>
-          </script>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://mailbox/materials/textures/Mailbox_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>

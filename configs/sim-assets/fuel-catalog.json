@@ -24,7 +24,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.020302
       },
-      "model_sdf_sha256": "57ed57c002c396253ea17a326b2b8bc24b2889255b2cf1e503d67366308661e4",
+      "model_sdf_sha256": "be5653a3e0438bd33a110fb399026aa0419daf010c518c17be0558ed1320fd33",
       "role_eligibility": [
         "target",
         "distractor"
@@ -61,7 +61,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.01132
       },
-      "model_sdf_sha256": "b85af2c0c6b143d6960e98821a8d9bff21c843bd1a3cad002747cd16d169d08b",
+      "model_sdf_sha256": "c543b87cc8c906294bbcf87b523cd97806ad014307b0c393d1148dc05c73c960",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -96,7 +96,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.000165
       },
-      "model_sdf_sha256": "c668779f4381e8d2887e967b6ca901e096c0442c39d43ec3c8cc821e1c78688f",
+      "model_sdf_sha256": "c2a25a8eb1c4e445aa91f091577c864606f28b8126b9085d82d48006207de17f",
       "role_eligibility": [
         "target",
         "distractor"
@@ -133,7 +133,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.000725
       },
-      "model_sdf_sha256": "f59ab80948d2fdcdb2b65e6843bdde800020406569e9b0e7b4af48c6c485c9d2",
+      "model_sdf_sha256": "3218ff5aa80deaa53ce771642308ab394e16b475f0b3e9808060e5b07434de57",
       "role_eligibility": [
         "target",
         "distractor"
@@ -169,7 +169,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.15
       },
-      "model_sdf_sha256": "e3e198104789021ae98cae8acb5570042cb50159153651be5511eb7ba6f36c50",
+      "model_sdf_sha256": "ce7bdd8050479c74f788255c7724089aad9a632feea6644092c71d37d8c82ba1",
       "role_eligibility": [
         "target",
         "distractor"
@@ -206,7 +206,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.0006
       },
-      "model_sdf_sha256": "70a3a24f3b80f6bbd780a05a5a2c10d974e2928bbc50427bb54fcbb000b05222",
+      "model_sdf_sha256": "147b87442db12ac5dbb180fc86bd8c1dd7759bb6e102f14a30761fcf8321f010",
       "role_eligibility": [
         "target",
         "distractor"
@@ -244,7 +244,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.000211
       },
-      "model_sdf_sha256": "206ee647f091ad5f5ca143ec45a4ff8f3b83a3dd4670c9ba8528380e98734a47",
+      "model_sdf_sha256": "a8bba7232781c30d86a27b6caa5db99d5db1c8d13f2c2fbd9dd98afe3d56db3c",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -279,7 +279,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "2e04ba938c29345c13f81472ccdc9d2c7e6490823c80ad5ef32e0cc24688331b",
+      "model_sdf_sha256": "e7ab646dd756c7744b4c24f873de2766e670351c6d61adea9a0ff8685e8e1ec4",
       "role_eligibility": [],
       "semantic_words": [
         "construction barrel",
@@ -313,7 +313,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "c212e83e8fb1a34fd3a90b8a0c8bd77c2c6476f1049713bdec7f25d7b5272d21",
+      "model_sdf_sha256": "ace18f8473c432f17db3c2182bce47d2fd25f77f207fcfe52ce16612a1212814",
       "role_eligibility": [
         "target",
         "distractor"
@@ -350,7 +350,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.001378
       },
-      "model_sdf_sha256": "28b86d41bef8a349e28b461e5cc66d123659b94d3afaf871b9e63d52252f3199",
+      "model_sdf_sha256": "241faa44bc342dd37b6da73ed453d22fcfa81db107f839576aba0dda356bc499",
       "role_eligibility": [
         "target",
         "distractor"
@@ -387,7 +387,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.28
       },
-      "model_sdf_sha256": "eb800d4f6d4e51f23526ac0f75da36aebd8082db70d86c6a9b22479de0da64e5",
+      "model_sdf_sha256": "dd75ade39a8266d12c654158e5c44e242f38817c6153a6bead755d19c6934f55",
       "role_eligibility": [
         "target",
         "distractor"
@@ -424,7 +424,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.002111
       },
-      "model_sdf_sha256": "661b5ceb48ec1fa49e294116979c38166a035cc70fdddc84c6ae35ccea18ae33",
+      "model_sdf_sha256": "fd7a75d16e32b83e34a1bd353ed04efdf76aa67e273a3301645d5b00179c68eb",
       "role_eligibility": [
         "target",
         "distractor"
@@ -461,7 +461,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.00329
       },
-      "model_sdf_sha256": "94517ade5caea4bff18354cd5828a04da597d68a38e16f0094add6c87a048922",
+      "model_sdf_sha256": "ca01877a7f500cb585d15782fbd8a9c62cb06d4eb4087fb457a71cc3a5c6b637",
       "role_eligibility": [
         "target",
         "distractor"
@@ -498,7 +498,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 4.1e-05
       },
-      "model_sdf_sha256": "d5ea27da028371b856b317de09d12a8efabb115cb2e83314c60343b9536068f5",
+      "model_sdf_sha256": "5f168ccf337b55f20c438c7442262e94e4443afc5790a694633deab944798262",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -533,7 +533,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.0
       },
-      "model_sdf_sha256": "3958bfb2ddc0546166749975cdb99e042a7378d5aadf1259be1f177c868f70a7",
+      "model_sdf_sha256": "8218be4538dea54931de478a82135bccf7c8789a4a00f52c130f78a0833cadba",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -568,7 +568,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 1e-06
       },
-      "model_sdf_sha256": "25b0fe71e59ec5e60bb2ae4e669435de347cf7c32d6cd7e0ddf9938516c71513",
+      "model_sdf_sha256": "93da5dfb724b0b564a2455294d816f0ae9a29675c3435c8dcaf2daa223d9d721",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -603,7 +603,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.011341
       },
-      "model_sdf_sha256": "1919fa731880f9b789cef2f3dfb02d9a0cace463c32c8d2a38176cceb996c931",
+      "model_sdf_sha256": "29c1b59186f09b63e20e449ab73340238dc6995f655ed636628a7fc88f15ea93",
       "role_eligibility": [
         "target",
         "distractor"
@@ -640,7 +640,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.011341
       },
-      "model_sdf_sha256": "80ae9b05fbdda47e7afe61a1cc2ab5faeef775ef42cbbec842a6523374d991c1",
+      "model_sdf_sha256": "19de3b9fc06465e8d50a2b20fb8fa7cf883b5f0aad77b57385ae36b9da043276",
       "role_eligibility": [
         "target",
         "distractor"
@@ -677,7 +677,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.011341
       },
-      "model_sdf_sha256": "dc461804a4db66b80f34ac028f1dd9276160ab03cae6e616874227516bd4bba0",
+      "model_sdf_sha256": "9862bc7f79074b7f363e650004b318d23873a449984ddd41568c8338471fc457",
       "role_eligibility": [
         "target",
         "distractor"
@@ -714,7 +714,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.000211
       },
-      "model_sdf_sha256": "0755bd4843cb23cfced8be04f61d815aa07c99c3028bff9d817c0d5b23c5a28a",
+      "model_sdf_sha256": "faa140bd9483172ef4e4b5f06ae7ea3bd5f0913708e87c03ded05e45437aa1f3",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -749,7 +749,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.036369
       },
-      "model_sdf_sha256": "48f91ed2f4f1739db843deecd0c648a058d9e00e97caf90cde36a4f6cd681d90",
+      "model_sdf_sha256": "54058ecc057173437855b0e1ee950ac5779a160c56a64f5dec5cb58ab698b8e1",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -784,7 +784,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 1e-06
       },
-      "model_sdf_sha256": "6330c59d3b78b86192856e876d21002270af743b62ce8ed9de261debc7ae2b26",
+      "model_sdf_sha256": "03a613a8d66c46f24c22b9a95c8ab6490e32feba57aee068abdb176eb9b18deb",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -819,7 +819,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "c1d9ee78110a1e9b06045dec1fa3414c9c8acaa552b1a945f09dfda662232aaf",
+      "model_sdf_sha256": "cb13a8d35654f3707189ff1a1ee9c6135f6d28ac54a4a83d49fbad517d7646f3",
       "role_eligibility": [
         "target",
         "distractor"
@@ -856,7 +856,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "bdc4bcba8f38b8a7ef35f824efaf58d09ba09ade43728edb13015f385f3953cc",
+      "model_sdf_sha256": "288c49ed8124ea06b75a7ec5e741c615aafe75c7708df79a8a3ebe26cbc4de43",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -891,7 +891,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.0
       },
-      "model_sdf_sha256": "779c85c41adbd3f437e352f9b068bc35a92cea1cd4c1229f19251c3e3f9e5063",
+      "model_sdf_sha256": "e172e025de9d9ba99152d5c3d28cff5d25dcefde8110067f0bda08b299235ab7",
       "role_eligibility": [
         "target",
         "distractor"
@@ -927,7 +927,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.001819
       },
-      "model_sdf_sha256": "41e8903d84e0e8e5f0bf32cc1b30d315dc1c36208fbe928be3c6711d216a683f",
+      "model_sdf_sha256": "2bd8d84a3fcc6a2b974ddbb8bebc1ebd3ebe107c1d8dc734c1bc1494049c7150",
       "role_eligibility": [
         "target",
         "distractor"
@@ -965,7 +965,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.070288
       },
-      "model_sdf_sha256": "a73612207941e23e3ff4dc0921847d70572460c5a9ee4b948aa8bf94a2ce2a0f",
+      "model_sdf_sha256": "2fd640dae9b3d5b4114f6ab317c78686201c40666929124a839a07507f73ef4e",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -1000,7 +1000,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 2e-06
       },
-      "model_sdf_sha256": "11d5aef74a493ac098a48b698c088a6b0eea46a8b2a70bdbb8fa064e6741f92e",
+      "model_sdf_sha256": "a2008072e0372289cf27a04bde00fa7ce9366ab2c918f3f8fc92d5b3dde4ebe2",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -1035,7 +1035,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.007348
       },
-      "model_sdf_sha256": "4e7e48c4004a65f4a1b0c654a330001a8a67444461826874b9a6284a8ce8b160",
+      "model_sdf_sha256": "d7b46d9224ce7318a70af658cabe8a8b9b7f8a1069e63c50ba4e468e0ea2fb05",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1072,7 +1072,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "fcee93ac7bf580598d08863349069b1973ddde7a56b381970dbf7c4137558e04",
+      "model_sdf_sha256": "31a72064f814ce614a62d574c715667c709fd24910616e6c126208f01bc0ce40",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -1107,7 +1107,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.014697
       },
-      "model_sdf_sha256": "c7e1d2078ab1e78e4dc4eb15f0fa520c766071ac1fd5e16f8af474b7e4af909b",
+      "model_sdf_sha256": "bd187fdb945ce762720eadae04be756b3b78ceaf1e7c31658293f66e83acf123",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -1142,7 +1142,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "fe03bcd50be7b0dfab32f27ce8fc18c9cfa75e090899f106701e7d64ce9d119a",
+      "model_sdf_sha256": "fd466c6e3ca714674fdce1006adb56a54bb8501893f1d599efa3c96706aef95d",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1179,7 +1179,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 2.103891
       },
-      "model_sdf_sha256": "eae7b0895a9c84bf68b51e2016c791dbf2925d18c3a225bf24520ec540563905",
+      "model_sdf_sha256": "173007816a081285a4bf14e374b4f4a39a8f9b197eca5992103e267e64d2315c",
       "role_eligibility": [],
       "semantic_words": [
         "car",
@@ -1214,7 +1214,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "bd2499f97a041d557881c2303a6b314c15df6e7f16f34413d19ee97834720cec",
+      "model_sdf_sha256": "2180e1ba6568e29b7b25624f54ed1b8124452914726729f2408274c2ce40cfce",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1251,7 +1251,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "94e576855925d6c21159181e5e88b9e67a48b16638b509f08707bc1ffa77e035",
+      "model_sdf_sha256": "d78197a674c6d2bb020791ef0a063573e08dd105f71de4c67289b6016f27cf50",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1288,7 +1288,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.008376
       },
-      "model_sdf_sha256": "0a5c05e4671a65311cce18276e6dc49dd96e1657b33a61cce4186192dac95963",
+      "model_sdf_sha256": "ed6c4cd67c95a53259b7c1fe672f7655a0cabbb2a1f5acc1371eb5c37dcae861",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1325,7 +1325,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "6eb14bb8e8529a6d75379408b0d739cf63d0461e0fed07ea0f7b298d1e0ae327",
+      "model_sdf_sha256": "e01727c70171d0e1a97bd250e3bd48ae39a74256b51101246f188fa91f53af90",
       "role_eligibility": [
         "scenery-obstacle"
       ],
@@ -1360,7 +1360,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": -0.0
       },
-      "model_sdf_sha256": "edebb13dae917fb3f07814e5182d0fca7cdcc61fde918d8b69815391e07b3e59",
+      "model_sdf_sha256": "e2b12ababb59707fce43c5c1ad7532edffe8082fe89366bd89c203b042afaa92",
       "role_eligibility": [
         "target",
         "distractor"
@@ -1398,7 +1398,7 @@
       "mesh_origin_offset_m": {
         "z_bottom": 0.11166
       },
-      "model_sdf_sha256": "1b2f26c0170e7ed8378563e2bd4951f326d901ab88b9b82fe3ef34ab57176ec2",
+      "model_sdf_sha256": "bc280b6b9e0b2826f67cac6ac2604776064350fc116f966644156a1b914814ca",
       "role_eligibility": [
         "scenery-obstacle"
       ],

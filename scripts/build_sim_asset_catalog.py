@@ -351,6 +351,104 @@ def valid(name, s):
     return ok, "" if ok else r
 
 
+def _material_blocks(text):
+    """Return legacy OGRE material blocks keyed by their material name."""
+    blocks = {}
+    for match in re.finditer(r"\bmaterial\s+([^\s{]+)\s*\{", text):
+        depth = 1
+        pos = match.end()
+        while depth and pos < len(text):
+            if text[pos] == "{":
+                depth += 1
+            elif text[pos] == "}":
+                depth -= 1
+            pos += 1
+        block = text[match.end() : pos - 1]
+        texture = re.search(r"\btexture\s+([^\s}]+)", block)
+        diffuse = re.search(r"\bdiffuse\s+([^\n}]+)", block)
+        ambient = re.search(r"\bambient\s+([^\n}]+)", block)
+        blocks[match.group(1)] = {
+            "texture": texture.group(1) if texture else None,
+            "color": (diffuse or ambient).group(1).strip() if (diffuse or ambient) else None,
+        }
+    return blocks
+
+
+def _legacy_materials(asset):
+    materials = {}
+    scripts = asset / "materials" / "scripts"
+    if scripts.is_dir():
+        for path in scripts.rglob("*.material"):
+            materials.update(_material_blocks(path.read_text(encoding="utf-8", errors="ignore")))
+    return materials
+
+
+def _dae_images_resolve(asset, mesh_uri):
+    """Check that a COLLADA mesh's relative init_from images exist in the copied tree."""
+    if not mesh_uri.lower().endswith(".dae"):
+        return False
+    mesh = asset / mesh_uri
+    if not mesh.is_file():
+        return False
+    try:
+        root = ET.parse(mesh).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    images = [
+        e.text.strip()
+        for e in root.iter()
+        if tag(e) == "init_from" and e.text and e.text.strip()
+    ]
+    if not images:
+        return False
+    return all(
+        (mesh.parent / image.replace("\\", "/")).is_file()
+        for image in images
+        if not image.startswith(("file:", "http:"))
+    )
+
+
+def _convert_resolved_materials(asset, root, slug):
+    materials = _legacy_materials(asset)
+    unsupported = []
+    for path in asset.rglob("*"):
+        if path.is_file() and path.suffix.lower() in {".tga", ".dds"}:
+            unsupported.append(path.relative_to(asset).as_posix())
+    for visual in (e for e in root.iter() if tag(e) == "visual"):
+        material = next((e for e in visual if tag(e) == "material"), None)
+        if material is None or not any(tag(e) == "script" for e in material):
+            continue
+        mesh = next((e for e in visual.iter() if tag(e) == "mesh"), None)
+        uri = next((e.text or "" for e in mesh if tag(e) == "uri"), "") if mesh is not None else ""
+        rel_uri = (
+            uri.split("model://", 1)[-1].split("/", 1)[-1]
+            if uri.startswith("model://")
+            else uri
+        )
+        if _dae_images_resolve(asset, rel_uri):
+            visual.remove(material)
+            continue
+        name = next((e.text or "" for e in material.iter() if tag(e) == "name"), "")
+        info = materials.get(name)
+        if info is None and name == "Gazebo/Grey":
+            info = {"texture": None, "color": "0.7 0.7 0.7 1"}
+        if info is None:
+            continue
+        for child in list(material):
+            material.remove(child)
+        if info["texture"]:
+            ET.SubElement(material, "diffuse").text = "1 1 1 1"
+            ET.SubElement(material, "specular").text = "0.1 0.1 0.1 1"
+            pbr = ET.SubElement(material, "pbr")
+            metal = ET.SubElement(pbr, "metal")
+            ET.SubElement(metal, "albedo_map").text = f"model://{slug}/materials/textures/{info['texture']}"
+            ET.SubElement(metal, "roughness").text = "0.8"
+            ET.SubElement(metal, "metalness").text = "0"
+        elif info["color"]:
+            ET.SubElement(material, "diffuse").text = info["color"]
+    return unsupported
+
+
 def build():
     records = []
     for a in sorted(p for p in ASSET_ROOT.iterdir() if p.is_dir()):
@@ -362,13 +460,15 @@ def build():
         )
         good, reason = valid(a.name, size)
         roles = roles if good else []
+        resolved_sdf = ASSET_ROOT.parent / "resolved" / slug / "model.sdf"
+        hash_path = resolved_sdf if resolved_sdf.is_file() else a / "model.sdf"
         records.append(
             {
                 "slug": slug,
                 "source": a.name,
                 "source_url": f"https://fuel.gazebosim.org/1.0/OpenRobotics/models/{a.name}",
                 "license": "CC0-1.0",
-                "model_sdf_sha256": hashlib.sha256((a / "model.sdf").read_bytes()).hexdigest(),
+                "model_sdf_sha256": hashlib.sha256(hash_path.read_bytes()).hexdigest(),
                 "category": cat,
                 "semantic_words": words,
                 "role_eligibility": roles,
@@ -402,7 +502,11 @@ def build_resolved(root=ASSET_ROOT, output=None):
         t = f.read_text(encoding="utf-8-sig")
         t = re.sub(r"model://[^/\\s]+/", f"model://{slug}/", t)
         t = re.sub(r"https?://[^<\\s]+/", f"model://{slug}/", t)
-        f.write_text(t, encoding="utf-8", newline="\n")
+        root_xml = ET.fromstring(t.lstrip())
+        unsupported = _convert_resolved_materials(d, root_xml, slug)
+        ET.ElementTree(root_xml).write(f, encoding="utf-8", xml_declaration=True)
+        if unsupported:
+            print(f"warning: {slug} contains unsupported texture formats: {', '.join(unsupported)}")
     return output
 
 
@@ -410,12 +514,12 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--output", type=Path, default=OUT)
     a = ap.parse_args()
+    build_resolved()
     d = build()
     a.output.parent.mkdir(parents=True, exist_ok=True)
     a.output.write_text(
         json.dumps(d, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    build_resolved()
     print(f"wrote {len(d['assets'])} assets to {a.output}")
     print("slug,size_m,validated,roles")
     [

@@ -37,13 +37,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_1/materials/scripts</uri>
-            <uri>model://house_1/materials/textures</uri>
-            <name>House_1/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_1/materials/textures/House_1_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -66,14 +60,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_3/materials/scripts</uri>
-            <uri>model://house_3/materials/textures</uri>
-            <uri>model://house_3/materials/textures</uri>
-            <name>House_3/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_3/materials/textures/House_3_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -95,15 +82,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://gas_station/materials/scripts</uri>
-            <uri>model://gas_station/materials/textures</uri>
-            <name>GasStation/Diffuse</name>
-          </script>
-          <shader type="normal_map_object_space">
-            <normal_map>GasStation_Normal.png</normal_map>
-          </shader>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://gas_station/materials/textures/GasStation_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -173,12 +152,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://dumpster/materials/scripts</uri>
-            <uri>model://dumpster/materials/textures</uri>
-            <name>Dumpster/Diffuse</name>
-          </script>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://dumpster/materials/textures/Dumpster_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>

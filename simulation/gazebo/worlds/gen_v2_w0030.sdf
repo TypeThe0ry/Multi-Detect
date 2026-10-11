@@ -98,13 +98,7 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://house_1/materials/scripts</uri>
-            <uri>model://house_1/materials/textures</uri>
-            <name>House_1/Diffuse</name>
-          </script>
-          
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_1/materials/textures/House_1_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
@@ -128,20 +122,7 @@
           </mesh>
         </geometry>
         <material>
-          <double_sided>true</double_sided>
-          <diffuse>1.0 1.0 1.0</diffuse>
-          <script>
-            <uri>model://oak_tree/materials/scripts/</uri>
-            <uri>model://oak_tree/materials/textures/</uri>
-            <name>OakTree/Branch</name>
-          </script>
-          
-          <pbr>
-            <metal>
-              <albedo_map>model://oak_tree/materials/textures/branch_diffuse.png</albedo_map>
-            </metal>
-          </pbr>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://oak_tree/materials/textures/branch_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
       <visual name="bark">
         <geometry>
@@ -153,19 +134,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>1.0 1.0 1.0</diffuse>
-          <script>
-            <uri>model://oak_tree/materials/scripts/</uri>
-            <uri>model://oak_tree/materials/textures/</uri>
-            <name>OakTree/Bark</name>
-          </script>
-          
-          <pbr>
-            <metal>
-              <albedo_map>model://oak_tree/materials/textures/bark_diffuse.png</albedo_map>
-            </metal>
-          </pbr>
-        </material>
+          <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://oak_tree/materials/textures/bark_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
       </visual>
     </link>
   </model></model>
