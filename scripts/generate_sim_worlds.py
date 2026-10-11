@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.simulator.world_gen import generate_worlds  # noqa: E402
+from multidetect.simulator.world_gen import generate_fuel_worlds, generate_worlds  # noqa: E402
 
 
 def main() -> int:
@@ -21,9 +21,11 @@ def main() -> int:
     parser.add_argument("--out-worlds", type=Path, default=Path("simulation/gazebo/worlds"))
     parser.add_argument("--out-scenarios", type=Path, default=Path("configs/scenarios/generated"))
     parser.add_argument("--real-time-factor", type=float, default=1.0)
+    parser.add_argument("--asset-mode", choices=("box", "fuel_v1"), default="box")
     args = parser.parse_args()
     ratios = tuple(float(part) for part in args.split_ratios.split(","))
-    document = generate_worlds(args.count, args.seed, ratios, args.out_worlds, args.out_scenarios, args.real_time_factor)
+    fn = generate_fuel_worlds if args.asset_mode == "fuel_v1" else generate_worlds
+    document = fn(args.count, args.seed, ratios, args.out_worlds, args.out_scenarios, args.real_time_factor)
     print(f"generated {document['count']} worlds (seed={document['seed']})")
     return 0
 

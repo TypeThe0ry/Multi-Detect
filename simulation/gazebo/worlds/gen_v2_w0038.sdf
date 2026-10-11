@@ -1,0 +1,298 @@
+<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>1.3521</latitude_deg><longitude_deg>103.8198</longitude_deg><elevation>18</elevation></spherical_coordinates><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+<model name="obstacle_00"><static>true</static><pose>91.045 64.562 4.585930 0 0 -0.570900</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>13.1740 8.7064 9.1719</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.489898 0.016694 -4.585929 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://house_3/meshes/house_3.dae</uri>
+            <scale>1.5 1.5 1.5</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://house_3/meshes/house_3.dae</uri>
+            <scale>1.5 1.5 1.5</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://house_3/materials/scripts</uri>
+            <uri>model://house_3/materials/textures</uri>
+            <uri>model://house_3/materials/textures</uri>
+            <name>House_3/Diffuse</name>
+          </script>
+          
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_01"><static>true</static><pose>4.470 -32.225 4.021678 0 0 1.921681</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>8.1237 8.1237 8.0434</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -4.021676 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <scale>3 3 2.5</scale>
+            <uri>model://gazebo/meshes/gazebo.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <scale>3 3 2.5</scale>
+            <uri>model://gazebo/meshes/gazebo.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_02"><static>true</static><pose>-65.027 54.012 3.299117 0 0 1.462716</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>10.6108 8.4898 6.5982</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.615707 -0.059020 -3.228829 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="branch">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <submesh>
+              <name>Branch</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <double_sided>true</double_sided>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://oak_tree/materials/scripts/</uri>
+            <uri>model://oak_tree/materials/textures/</uri>
+            <name>OakTree/Branch</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://oak_tree/materials/textures/branch_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name="bark">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <submesh>
+              <name>Bark</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://oak_tree/materials/scripts/</uri>
+            <uri>model://oak_tree/materials/textures/</uri>
+            <name>OakTree/Bark</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://oak_tree/materials/textures/bark_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_03"><static>true</static><pose>-29.565 -37.038 2.538904 0 0 2.356593</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>3.1723 3.1723 5.0778</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -2.538904 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="branch">
+        <geometry>
+          <mesh>
+            <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+            <submesh>
+              <name>Branch</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <double_sided>true</double_sided>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://pine_tree/materials/scripts/</uri>
+            <uri>model://pine_tree/materials/textures/</uri>
+            <name>PineTree/Branch</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://pine_tree/materials/textures/branch_2_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name="bark">
+        <geometry>
+          <mesh>
+            <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+            <submesh>
+              <name>Bark</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://pine_tree/materials/scripts/</uri>
+            <uri>model://pine_tree/materials/textures/</uri>
+            <name>PineTree/Bark</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://pine_tree/materials/textures/bark_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_04"><static>true</static><pose>82.974 6.591 7.402295 0 0 -0.441853</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>20.2572 22.2701 14.8046</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -7.390975 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="target_true_gen_v2_w0038"><static>true</static><pose>-13.133 -35.287 0.762000 0 0 -2.866685</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.6818 0.6849 1.5240</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -0.762000 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://postbox/meshes/postbox.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://postbox/meshes/postbox.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0038_00"><static>true</static><pose>27.798 -52.176 0.963151 0 0 0.784443</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.5442 0.3500 1.9263</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.005323 0.100000 -0.963151 0 0 0</pose><static>true</static><link name="link">
+      <inertial>
+        <pose>0 -0.1 0.95 0 0 0</pose>
+        <mass>80.0</mass>
+        <inertia>
+          <ixx>24.88</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>25.73</iyy>
+          <iyz>0</iyz>
+          <izz>2.48</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="bottom">
+        <pose>0 -0.1 0.01 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.5 0.35 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <collision name="person">
+        <pose>0 0 0.02 0.04 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://standing_person/meshes/standing.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <pose>0 0 0.02 0.04 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://standing_person/meshes/standing.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0038_01"><static>true</static><pose>-34.847 2.127 0.937866 0 0 -1.471715</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.5461 0.8820 1.8757</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.000848 -0.035884 -0.937866 0 0 0</pose><static>true</static><link name="link">
+      <inertial>
+        <pose>0 0 0.95 0 0 0</pose>
+        <mass>80.0</mass>
+        <inertia>
+          <ixx>27.82</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>24.88</iyy>
+          <iyz>0</iyz>
+          <izz>4.57</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="bottom">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.35 0.75 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <collision name="person">
+        <pose>0 0 -0.02 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://walking_person/meshes/walking.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <pose>0 0 -0.02 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://walking_person/meshes/walking.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model></world></sdf>

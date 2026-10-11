@@ -1,0 +1,188 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0003",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": 100.048,
+        "y_north_m": -29.194,
+        "yaw_rad": 0.526156,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35183731,
+        "longitude_deg": 103.82069899
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "target_true_gen_v2_w0003",
+      "true_target": true
+    },
+    {
+      "asset_slug": "cardboard_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.15,
+      "category_words": [
+        "cardboard box",
+        "box"
+      ],
+      "class": "cardboard_box",
+      "color": "brown",
+      "label": "cardboard box box",
+      "measured_size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "pose": {
+        "x_east_m": -15.82,
+        "y_north_m": 41.554,
+        "yaw_rad": 0.162398,
+        "z_up_m": 0.15
+      },
+      "position": {
+        "altitude_m": 0.15,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35247392,
+        "longitude_deg": 103.81965785
+      },
+      "size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "target_id": "distractor_0003_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 50.852,
+        "y_north_m": -20.247,
+        "yaw_rad": -1.445703,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35191781,
+        "longitude_deg": 103.82025693
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "distractor_0003_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 46.011,
+        "y_north_m": 69.101,
+        "yaw_rad": 2.765271,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35272179,
+        "longitude_deg": 103.82021344
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0003_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 34.965,
+        "y_north_m": -87.408,
+        "yaw_rad": 2.379306,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35131348,
+        "longitude_deg": 103.82011418
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0003_03",
+      "true_target": false
+    }
+  ]
+}

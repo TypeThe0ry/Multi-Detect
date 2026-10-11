@@ -1,0 +1,652 @@
+{
+  "asset_mode": "fuel_v1",
+  "count": 40,
+  "generator": "multidetect.simulator.world_gen",
+  "held_out_target_combos": [
+    {
+      "category": "stop_sign",
+      "color": "red",
+      "slug": "stop_sign",
+      "split": "test"
+    },
+    {
+      "category": "suv",
+      "color": null,
+      "slug": "suv",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "walking_person",
+      "split": "test"
+    },
+    {
+      "category": "pickup",
+      "color": null,
+      "slug": "pickup",
+      "split": "test"
+    },
+    {
+      "category": "postbox",
+      "color": null,
+      "slug": "postbox",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "standing_person",
+      "split": "test"
+    }
+  ],
+  "schema_version": 1,
+  "seed": 20261011,
+  "split_ratios": [
+    0.7,
+    0.15,
+    0.15
+  ],
+  "worlds": [
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261011,
+      "split": "train",
+      "target_combo": {
+        "category": "ambulance",
+        "color": "white",
+        "slug": "ambulance"
+      },
+      "task_text": "找到白色救护车并记录位置",
+      "task_text_en": "Find the white ambulance emergency vehicle",
+      "true_target_id": "target_true_gen_v2_w0000",
+      "world_file": "gen_v2_w0000.sdf",
+      "world_id": "gen_v2_w0000"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261012,
+      "split": "train",
+      "target_combo": {
+        "category": "electrical_box",
+        "color": null,
+        "slug": "electrical_box"
+      },
+      "task_text": "找到电箱并记录位置",
+      "task_text_en": "Find the electrical box utility box",
+      "true_target_id": "target_true_gen_v2_w0001",
+      "world_file": "gen_v2_w0001.sdf",
+      "world_id": "gen_v2_w0001"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261013,
+      "split": "train",
+      "target_combo": {
+        "category": "mailbox",
+        "color": null,
+        "slug": "mailbox"
+      },
+      "task_text": "找到邮箱并记录位置",
+      "task_text_en": "Find the mailbox",
+      "true_target_id": "target_true_gen_v2_w0002",
+      "world_file": "gen_v2_w0002.sdf",
+      "world_id": "gen_v2_w0002"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261014,
+      "split": "train",
+      "target_combo": {
+        "category": "traffic_cone",
+        "color": "orange",
+        "slug": "construction_cone"
+      },
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone cone",
+      "true_target_id": "target_true_gen_v2_w0003",
+      "world_file": "gen_v2_w0003.sdf",
+      "world_id": "gen_v2_w0003"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261015,
+      "split": "train",
+      "target_combo": {
+        "category": "car",
+        "color": "red",
+        "slug": "hatchback_red"
+      },
+      "task_text": "找到红色轿车并记录位置",
+      "task_text_en": "Find the red car hatchback",
+      "true_target_id": "target_true_gen_v2_w0004",
+      "world_file": "gen_v2_w0004.sdf",
+      "world_id": "gen_v2_w0004"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261016,
+      "split": "train",
+      "target_combo": {
+        "category": "cardboard_box",
+        "color": "brown",
+        "slug": "cardboard_box"
+      },
+      "task_text": "找到棕色纸箱并记录位置",
+      "task_text_en": "Find the brown cardboard box box",
+      "true_target_id": "target_true_gen_v2_w0005",
+      "world_file": "gen_v2_w0005.sdf",
+      "world_id": "gen_v2_w0005"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261017,
+      "split": "train",
+      "target_combo": {
+        "category": "car",
+        "color": null,
+        "slug": "hatchback"
+      },
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car hatchback",
+      "true_target_id": "target_true_gen_v2_w0006",
+      "world_file": "gen_v2_w0006.sdf",
+      "world_id": "gen_v2_w0006"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261018,
+      "split": "train",
+      "target_combo": {
+        "category": "backpack",
+        "color": null,
+        "slug": "backpack"
+      },
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack bag",
+      "true_target_id": "target_true_gen_v2_w0007",
+      "world_file": "gen_v2_w0007.sdf",
+      "world_id": "gen_v2_w0007"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261019,
+      "split": "train",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant hydrant",
+      "true_target_id": "target_true_gen_v2_w0008",
+      "world_file": "gen_v2_w0008.sdf",
+      "world_id": "gen_v2_w0008"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261020,
+      "split": "train",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "male_visitor"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person man",
+      "true_target_id": "target_true_gen_v2_w0009",
+      "world_file": "gen_v2_w0009.sdf",
+      "world_id": "gen_v2_w0009"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261021,
+      "split": "train",
+      "target_combo": {
+        "category": "dumpster",
+        "color": null,
+        "slug": "dumpster"
+      },
+      "task_text": "找到垃圾箱并记录位置",
+      "task_text_en": "Find the dumpster trash container",
+      "true_target_id": "target_true_gen_v2_w0010",
+      "world_file": "gen_v2_w0010.sdf",
+      "world_id": "gen_v2_w0010"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261022,
+      "split": "train",
+      "target_combo": {
+        "category": "jersey_barrier",
+        "color": null,
+        "slug": "jersey_barrier"
+      },
+      "task_text": "找到隔离墩并记录位置",
+      "task_text_en": "Find the jersey barrier road barrier",
+      "true_target_id": "target_true_gen_v2_w0011",
+      "world_file": "gen_v2_w0011.sdf",
+      "world_id": "gen_v2_w0011"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261023,
+      "split": "train",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "casual_female"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person woman",
+      "true_target_id": "target_true_gen_v2_w0012",
+      "world_file": "gen_v2_w0012.sdf",
+      "world_id": "gen_v2_w0012"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261024,
+      "split": "train",
+      "target_combo": {
+        "category": "car",
+        "color": "blue",
+        "slug": "hatchback_blue"
+      },
+      "task_text": "找到蓝色轿车并记录位置",
+      "task_text_en": "Find the blue car hatchback",
+      "true_target_id": "target_true_gen_v2_w0013",
+      "world_file": "gen_v2_w0013.sdf",
+      "world_id": "gen_v2_w0013"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261025,
+      "split": "train",
+      "target_combo": {
+        "category": "bus",
+        "color": null,
+        "slug": "bus"
+      },
+      "task_text": "找到公交车并记录位置",
+      "task_text_en": "Find the bus",
+      "true_target_id": "target_true_gen_v2_w0014",
+      "world_file": "gen_v2_w0014.sdf",
+      "world_id": "gen_v2_w0014"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261026,
+      "split": "train",
+      "target_combo": {
+        "category": "fire_truck",
+        "color": "red",
+        "slug": "fire_truck"
+      },
+      "task_text": "找到红色消防车并记录位置",
+      "task_text_en": "Find the red fire truck truck",
+      "true_target_id": "target_true_gen_v2_w0015",
+      "world_file": "gen_v2_w0015.sdf",
+      "world_id": "gen_v2_w0015"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261027,
+      "split": "train",
+      "target_combo": {
+        "category": "ambulance",
+        "color": "white",
+        "slug": "ambulance"
+      },
+      "task_text": "找到白色救护车并记录位置",
+      "task_text_en": "Find the white ambulance emergency vehicle",
+      "true_target_id": "target_true_gen_v2_w0016",
+      "world_file": "gen_v2_w0016.sdf",
+      "world_id": "gen_v2_w0016"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261028,
+      "split": "train",
+      "target_combo": {
+        "category": "electrical_box",
+        "color": null,
+        "slug": "electrical_box"
+      },
+      "task_text": "找到电箱并记录位置",
+      "task_text_en": "Find the electrical box utility box",
+      "true_target_id": "target_true_gen_v2_w0017",
+      "world_file": "gen_v2_w0017.sdf",
+      "world_id": "gen_v2_w0017"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261029,
+      "split": "train",
+      "target_combo": {
+        "category": "mailbox",
+        "color": null,
+        "slug": "mailbox"
+      },
+      "task_text": "找到邮箱并记录位置",
+      "task_text_en": "Find the mailbox",
+      "true_target_id": "target_true_gen_v2_w0018",
+      "world_file": "gen_v2_w0018.sdf",
+      "world_id": "gen_v2_w0018"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261030,
+      "split": "train",
+      "target_combo": {
+        "category": "traffic_cone",
+        "color": "orange",
+        "slug": "construction_cone"
+      },
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone cone",
+      "true_target_id": "target_true_gen_v2_w0019",
+      "world_file": "gen_v2_w0019.sdf",
+      "world_id": "gen_v2_w0019"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261031,
+      "split": "train",
+      "target_combo": {
+        "category": "car",
+        "color": "red",
+        "slug": "hatchback_red"
+      },
+      "task_text": "找到红色轿车并记录位置",
+      "task_text_en": "Find the red car hatchback",
+      "true_target_id": "target_true_gen_v2_w0020",
+      "world_file": "gen_v2_w0020.sdf",
+      "world_id": "gen_v2_w0020"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261032,
+      "split": "train",
+      "target_combo": {
+        "category": "cardboard_box",
+        "color": "brown",
+        "slug": "cardboard_box"
+      },
+      "task_text": "找到棕色纸箱并记录位置",
+      "task_text_en": "Find the brown cardboard box box",
+      "true_target_id": "target_true_gen_v2_w0021",
+      "world_file": "gen_v2_w0021.sdf",
+      "world_id": "gen_v2_w0021"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261033,
+      "split": "train",
+      "target_combo": {
+        "category": "car",
+        "color": null,
+        "slug": "hatchback"
+      },
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car hatchback",
+      "true_target_id": "target_true_gen_v2_w0022",
+      "world_file": "gen_v2_w0022.sdf",
+      "world_id": "gen_v2_w0022"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261034,
+      "split": "train",
+      "target_combo": {
+        "category": "backpack",
+        "color": null,
+        "slug": "backpack"
+      },
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack bag",
+      "true_target_id": "target_true_gen_v2_w0023",
+      "world_file": "gen_v2_w0023.sdf",
+      "world_id": "gen_v2_w0023"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261035,
+      "split": "train",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant hydrant",
+      "true_target_id": "target_true_gen_v2_w0024",
+      "world_file": "gen_v2_w0024.sdf",
+      "world_id": "gen_v2_w0024"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261036,
+      "split": "train",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "male_visitor"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person man",
+      "true_target_id": "target_true_gen_v2_w0025",
+      "world_file": "gen_v2_w0025.sdf",
+      "world_id": "gen_v2_w0025"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261037,
+      "split": "train",
+      "target_combo": {
+        "category": "dumpster",
+        "color": null,
+        "slug": "dumpster"
+      },
+      "task_text": "找到垃圾箱并记录位置",
+      "task_text_en": "Find the dumpster trash container",
+      "true_target_id": "target_true_gen_v2_w0026",
+      "world_file": "gen_v2_w0026.sdf",
+      "world_id": "gen_v2_w0026"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261038,
+      "split": "train",
+      "target_combo": {
+        "category": "jersey_barrier",
+        "color": null,
+        "slug": "jersey_barrier"
+      },
+      "task_text": "找到隔离墩并记录位置",
+      "task_text_en": "Find the jersey barrier road barrier",
+      "true_target_id": "target_true_gen_v2_w0027",
+      "world_file": "gen_v2_w0027.sdf",
+      "world_id": "gen_v2_w0027"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261039,
+      "split": "val",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "casual_female"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person woman",
+      "true_target_id": "target_true_gen_v2_w0028",
+      "world_file": "gen_v2_w0028.sdf",
+      "world_id": "gen_v2_w0028"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261040,
+      "split": "val",
+      "target_combo": {
+        "category": "car",
+        "color": "blue",
+        "slug": "hatchback_blue"
+      },
+      "task_text": "找到蓝色轿车并记录位置",
+      "task_text_en": "Find the blue car hatchback",
+      "true_target_id": "target_true_gen_v2_w0029",
+      "world_file": "gen_v2_w0029.sdf",
+      "world_id": "gen_v2_w0029"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261041,
+      "split": "val",
+      "target_combo": {
+        "category": "bus",
+        "color": null,
+        "slug": "bus"
+      },
+      "task_text": "找到公交车并记录位置",
+      "task_text_en": "Find the bus",
+      "true_target_id": "target_true_gen_v2_w0030",
+      "world_file": "gen_v2_w0030.sdf",
+      "world_id": "gen_v2_w0030"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261042,
+      "split": "val",
+      "target_combo": {
+        "category": "fire_truck",
+        "color": "red",
+        "slug": "fire_truck"
+      },
+      "task_text": "找到红色消防车并记录位置",
+      "task_text_en": "Find the red fire truck truck",
+      "true_target_id": "target_true_gen_v2_w0031",
+      "world_file": "gen_v2_w0031.sdf",
+      "world_id": "gen_v2_w0031"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261043,
+      "split": "val",
+      "target_combo": {
+        "category": "ambulance",
+        "color": "white",
+        "slug": "ambulance"
+      },
+      "task_text": "找到白色救护车并记录位置",
+      "task_text_en": "Find the white ambulance emergency vehicle",
+      "true_target_id": "target_true_gen_v2_w0032",
+      "world_file": "gen_v2_w0032.sdf",
+      "world_id": "gen_v2_w0032"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261044,
+      "split": "val",
+      "target_combo": {
+        "category": "electrical_box",
+        "color": null,
+        "slug": "electrical_box"
+      },
+      "task_text": "找到电箱并记录位置",
+      "task_text_en": "Find the electrical box utility box",
+      "true_target_id": "target_true_gen_v2_w0033",
+      "world_file": "gen_v2_w0033.sdf",
+      "world_id": "gen_v2_w0033"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261045,
+      "split": "test",
+      "target_combo": {
+        "category": "stop_sign",
+        "color": "red",
+        "slug": "stop_sign"
+      },
+      "task_text": "找到红色停止标志并记录位置",
+      "task_text_en": "Find the red stop sign road sign",
+      "true_target_id": "target_true_gen_v2_w0034",
+      "world_file": "gen_v2_w0034.sdf",
+      "world_id": "gen_v2_w0034"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261046,
+      "split": "test",
+      "target_combo": {
+        "category": "suv",
+        "color": null,
+        "slug": "suv"
+      },
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car suv",
+      "true_target_id": "target_true_gen_v2_w0035",
+      "world_file": "gen_v2_w0035.sdf",
+      "world_id": "gen_v2_w0035"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261047,
+      "split": "test",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "walking_person"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person pedestrian",
+      "true_target_id": "target_true_gen_v2_w0036",
+      "world_file": "gen_v2_w0036.sdf",
+      "world_id": "gen_v2_w0036"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261048,
+      "split": "test",
+      "target_combo": {
+        "category": "pickup",
+        "color": null,
+        "slug": "pickup"
+      },
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup truck",
+      "true_target_id": "target_true_gen_v2_w0037",
+      "world_file": "gen_v2_w0037.sdf",
+      "world_id": "gen_v2_w0037"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261049,
+      "split": "test",
+      "target_combo": {
+        "category": "postbox",
+        "color": null,
+        "slug": "postbox"
+      },
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox mailbox",
+      "true_target_id": "target_true_gen_v2_w0038",
+      "world_file": "gen_v2_w0038.sdf",
+      "world_id": "gen_v2_w0038"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "seed": 20261050,
+      "split": "test",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "standing_person"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person pedestrian",
+      "true_target_id": "target_true_gen_v2_w0039",
+      "world_file": "gen_v2_w0039.sdf",
+      "world_id": "gen_v2_w0039"
+    }
+  ]
+}

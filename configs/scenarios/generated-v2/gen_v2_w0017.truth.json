@@ -1,0 +1,188 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0017",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 5.564,
+        "y_north_m": -78.869,
+        "yaw_rad": -1.022044,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35139032,
+        "longitude_deg": 103.81985
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "target_true_gen_v2_w0017",
+      "true_target": true
+    },
+    {
+      "asset_slug": "standing_person",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.963151,
+      "category_words": [
+        "person",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person pedestrian",
+      "measured_size_m": [
+        0.544229,
+        0.35,
+        1.926302
+      ],
+      "pose": {
+        "x_east_m": -4.771,
+        "y_north_m": 48.55,
+        "yaw_rad": 1.039611,
+        "z_up_m": 0.963
+      },
+      "position": {
+        "altitude_m": 0.963,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35253687,
+        "longitude_deg": 103.81975713
+      },
+      "size_m": [
+        0.544229,
+        0.35,
+        1.926302
+      ],
+      "target_id": "distractor_0017_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "walking_person",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.937866,
+      "category_words": [
+        "person",
+        "pedestrian",
+        "walking person"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person pedestrian",
+      "measured_size_m": [
+        0.546086,
+        0.881986,
+        1.875731
+      ],
+      "pose": {
+        "x_east_m": 93.789,
+        "y_north_m": 33.923,
+        "yaw_rad": -0.864582,
+        "z_up_m": 0.938
+      },
+      "position": {
+        "altitude_m": 0.938,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35240525,
+        "longitude_deg": 103.82064275
+      },
+      "size_m": [
+        0.546086,
+        0.881986,
+        1.875731
+      ],
+      "target_id": "distractor_0017_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "bus",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.849149,
+      "category_words": [
+        "bus"
+      ],
+      "class": "bus",
+      "color": null,
+      "label": "bus",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "pose": {
+        "x_east_m": -28.148,
+        "y_north_m": -86.177,
+        "yaw_rad": -0.887127,
+        "z_up_m": 1.849
+      },
+      "position": {
+        "altitude_m": 1.849,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35132455,
+        "longitude_deg": 103.81954708
+      },
+      "size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "target_id": "distractor_0017_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": 40.856,
+        "y_north_m": -54.288,
+        "yaw_rad": -3.13003,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3516115,
+        "longitude_deg": 103.82016712
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "distractor_0017_03",
+      "true_target": false
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0035",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "suv",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.078269,
+      "category_words": [
+        "car",
+        "suv"
+      ],
+      "class": "suv",
+      "color": null,
+      "label": "car suv",
+      "measured_size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "pose": {
+        "x_east_m": 75.635,
+        "y_north_m": 29.539,
+        "yaw_rad": 0.084102,
+        "z_up_m": 1.078
+      },
+      "position": {
+        "altitude_m": 1.078,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3523658,
+        "longitude_deg": 103.82047963
+      },
+      "size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "target_id": "target_true_gen_v2_w0035",
+      "true_target": true
+    },
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -99.477,
+        "y_north_m": -33.44,
+        "yaw_rad": 3.005895,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35179909,
+        "longitude_deg": 103.81890614
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "distractor_0035_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "postbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.762,
+      "category_words": [
+        "postbox",
+        "mailbox"
+      ],
+      "class": "postbox",
+      "color": null,
+      "label": "postbox mailbox",
+      "measured_size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "pose": {
+        "x_east_m": 56.839,
+        "y_north_m": -23.132,
+        "yaw_rad": -1.141358,
+        "z_up_m": 0.762
+      },
+      "position": {
+        "altitude_m": 0.762,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35189185,
+        "longitude_deg": 103.82031073
+      },
+      "size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "target_id": "distractor_0035_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "walking_person",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.937866,
+      "category_words": [
+        "person",
+        "pedestrian",
+        "walking person"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person pedestrian",
+      "measured_size_m": [
+        0.546086,
+        0.881986,
+        1.875731
+      ],
+      "pose": {
+        "x_east_m": 51.311,
+        "y_north_m": 57.296,
+        "yaw_rad": -1.969961,
+        "z_up_m": 0.938
+      },
+      "position": {
+        "altitude_m": 0.938,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35261557,
+        "longitude_deg": 103.82026107
+      },
+      "size_m": [
+        0.546086,
+        0.881986,
+        1.875731
+      ],
+      "target_id": "distractor_0035_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "bus",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.849149,
+      "category_words": [
+        "bus"
+      ],
+      "class": "bus",
+      "color": null,
+      "label": "bus",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "pose": {
+        "x_east_m": -26.794,
+        "y_north_m": -3.753,
+        "yaw_rad": -2.716102,
+        "z_up_m": 1.849
+      },
+      "position": {
+        "altitude_m": 1.849,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35206623,
+        "longitude_deg": 103.81955924
+      },
+      "size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "target_id": "distractor_0035_03",
+      "true_target": false
+    }
+  ]
+}

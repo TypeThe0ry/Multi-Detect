@@ -1,0 +1,225 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0006",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": -62.12,
+        "y_north_m": 65.306,
+        "yaw_rad": 0.009298,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35268765,
+        "longitude_deg": 103.81924182
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "target_true_gen_v2_w0006",
+      "true_target": true
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": 11.942,
+        "y_north_m": 47.521,
+        "yaw_rad": -0.582566,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35252761,
+        "longitude_deg": 103.81990731
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0006_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": -26.71,
+        "y_north_m": -74.806,
+        "yaw_rad": -0.208976,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35142687,
+        "longitude_deg": 103.81955999
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "distractor_0006_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 32.553,
+        "y_north_m": -25.44,
+        "yaw_rad": 1.542366,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35187109,
+        "longitude_deg": 103.82009251
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0006_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": -53.079,
+        "y_north_m": 8.792,
+        "yaw_rad": -1.476782,
+        "z_up_m": 0.933
+      },
+      "position": {
+        "altitude_m": 0.933,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35217912,
+        "longitude_deg": 103.81932306
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "distractor_0006_03",
+      "true_target": false
+    },
+    {
+      "asset_slug": "stop_sign",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.908798,
+      "category_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "class": "stop_sign",
+      "color": "red",
+      "label": "stop sign road sign",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "pose": {
+        "x_east_m": 72.115,
+        "y_north_m": -67.733,
+        "yaw_rad": 2.212726,
+        "z_up_m": 0.909
+      },
+      "position": {
+        "altitude_m": 0.909,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35149052,
+        "longitude_deg": 103.820448
+      },
+      "size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "target_id": "distractor_0006_04",
+      "true_target": false
+    }
+  ]
+}

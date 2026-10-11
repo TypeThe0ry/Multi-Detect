@@ -1,0 +1,186 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0002",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -13.072,
+        "y_north_m": -60.882,
+        "yaw_rad": -0.837043,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35155217,
+        "longitude_deg": 103.81968254
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "target_true_gen_v2_w0002",
+      "true_target": true
+    },
+    {
+      "asset_slug": "bus",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.849149,
+      "category_words": [
+        "bus"
+      ],
+      "class": "bus",
+      "color": null,
+      "label": "bus",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "pose": {
+        "x_east_m": -67.091,
+        "y_north_m": -49.708,
+        "yaw_rad": -0.138929,
+        "z_up_m": 1.849
+      },
+      "position": {
+        "altitude_m": 1.849,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35165271,
+        "longitude_deg": 103.81919714
+      },
+      "size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "target_id": "distractor_0002_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": -28.943,
+        "y_north_m": -109.882,
+        "yaw_rad": 0.717848,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35111125,
+        "longitude_deg": 103.81953993
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "distractor_0002_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 112.239,
+        "y_north_m": 15.218,
+        "yaw_rad": 1.49701,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35223694,
+        "longitude_deg": 103.82080853
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "distractor_0002_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback_blue",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": "blue",
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 8.91,
+        "y_north_m": 49.172,
+        "yaw_rad": 2.988212,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35254247,
+        "longitude_deg": 103.81988006
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0002_03",
+      "true_target": false
+    }
+  ]
+}

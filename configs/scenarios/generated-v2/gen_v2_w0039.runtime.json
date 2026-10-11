@@ -1,0 +1,39 @@
+{
+  "faults": [],
+  "scenario_id": "gen_v2_w0039",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "seed": 20261050,
+  "sensors": [
+    {
+      "calibration_id": "gazebo-multirotor-front-camera-v1",
+      "kind": "rgb_camera",
+      "sensor_id": "front-camera",
+      "stream_uri": "gazebo://gen_v2_w0039/front-camera"
+    },
+    {
+      "calibration_id": "gazebo-multirotor-depth-v1",
+      "kind": "depth_camera",
+      "sensor_id": "downward-depth",
+      "stream_uri": "gazebo://gen_v2_w0039/downward-depth"
+    }
+  ],
+  "vehicle": {
+    "airframe_profile_id": "px4_multirotor_gazebo_v1",
+    "model": "px4_multirotor_standard",
+    "spawn_id": "gen_v2_w0039_home",
+    "spawn_pose": {
+      "pitch_rad": 0.0,
+      "roll_rad": 0.0,
+      "x_east_m": 0.0,
+      "y_north_m": 0.0,
+      "yaw_rad": 0.0,
+      "z_up_m": 0.2
+    }
+  },
+  "world": {
+    "dem_asset": "builtin://terrain/gen_v2_w0039.dem.json",
+    "map_asset": "builtin://maps/gen_v2_w0039.geojson",
+    "world_asset": "builtin://gazebo/gen_v2_w0039"
+  }
+}

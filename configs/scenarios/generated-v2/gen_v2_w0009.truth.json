@@ -1,0 +1,226 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0009",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "male_visitor",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.887242,
+      "category_words": [
+        "person",
+        "man",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person man",
+      "measured_size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "pose": {
+        "x_east_m": -55.154,
+        "y_north_m": -38.191,
+        "yaw_rad": -2.22295,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35175635,
+        "longitude_deg": 103.81930441
+      },
+      "size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "target_id": "target_true_gen_v2_w0009",
+      "true_target": true
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 10.95,
+        "y_north_m": -105.862,
+        "yaw_rad": 1.098638,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35114742,
+        "longitude_deg": 103.81989839
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "distractor_0009_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 40.392,
+        "y_north_m": 27.131,
+        "yaw_rad": -1.71759,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35234413,
+        "longitude_deg": 103.82016295
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0009_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 4.886,
+        "y_north_m": -73.519,
+        "yaw_rad": 2.079688,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35143846,
+        "longitude_deg": 103.81984391
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0009_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "postbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.762,
+      "category_words": [
+        "postbox",
+        "mailbox"
+      ],
+      "class": "postbox",
+      "color": null,
+      "label": "postbox mailbox",
+      "measured_size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "pose": {
+        "x_east_m": -18.468,
+        "y_north_m": -17.166,
+        "yaw_rad": -0.212461,
+        "z_up_m": 0.762
+      },
+      "position": {
+        "altitude_m": 0.762,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35194553,
+        "longitude_deg": 103.81963405
+      },
+      "size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "target_id": "distractor_0009_03",
+      "true_target": false
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": 81.908,
+        "y_north_m": 48.801,
+        "yaw_rad": -2.256423,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35253913,
+        "longitude_deg": 103.82053599
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0009_04",
+      "true_target": false
+    }
+  ]
+}

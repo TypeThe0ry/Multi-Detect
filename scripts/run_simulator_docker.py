@@ -344,6 +344,8 @@ def build_docker_simulator_plan(
     except (SimulatorStackError, OSError, TypeError, ValueError) as exc:
         raise DockerSimulatorPlanError(f"invalid SIM stack: {exc}") from exc
     model_root = stack.assets.model_path.parent.parent.resolve()
+    resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
+    has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
     scripts_root = (root / "scripts").resolve()
     dem_path = stack.dem_path.resolve()
@@ -374,12 +376,15 @@ def build_docker_simulator_plan(
         "PX4_GZ_MODELS": CONTAINER_MODEL_ROOT,
         "PX4_GZ_WORLDS": CONTAINER_WORLD_ROOT,
         "GZ_SIM_RESOURCE_PATH": ":".join(
-            (
+            value
+            for value in (
+                "/opt/multidetect-gz-fuel-resolved" if has_resolved_root else "",
                 CONTAINER_MODEL_ROOT,
                 CONTAINER_WORLD_ROOT,
                 CONTAINER_IMAGE_MODEL_ROOT,
                 CONTAINER_IMAGE_WORLD_ROOT,
             )
+            if value
         ),
         "PX4_SIM_HOST": "host.docker.internal",
         "PX4_MAVLINK_UDP_PORT": str(control_port),
@@ -432,6 +437,7 @@ def build_docker_simulator_plan(
             "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             "export GZ_SIM_RESOURCE_PATH=",
+            ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
             "exec /opt/px4-gazebo/bin/px4 -i 0 -s etc/init.d-posix/rcS",
@@ -455,6 +461,11 @@ def build_docker_simulator_plan(
         f"127.0.0.1:{control_port}:{control_port}/udp",
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
+        *(
+            ("--mount", _mount(resolved_root, "/opt/multidetect-gz-fuel-resolved"))
+            if has_resolved_root
+            else ()
+        ),
         "--mount",
         _mount(world_path, CONTAINER_WORLD),
         "--mount",

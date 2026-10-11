@@ -1,0 +1,153 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0008",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": -109.713,
+        "y_north_m": 31.983,
+        "yaw_rad": 2.750565,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35238779,
+        "longitude_deg": 103.81881416
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "target_true_gen_v2_w0008",
+      "true_target": true
+    },
+    {
+      "asset_slug": "fire_truck",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.67753,
+      "category_words": [
+        "fire truck",
+        "truck"
+      ],
+      "class": "fire_truck",
+      "color": "red",
+      "label": "fire truck truck",
+      "measured_size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "pose": {
+        "x_east_m": -64.914,
+        "y_north_m": 56.12,
+        "yaw_rad": 2.24136,
+        "z_up_m": 1.678
+      },
+      "position": {
+        "altitude_m": 1.678,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35260499,
+        "longitude_deg": 103.81921671
+      },
+      "size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "target_id": "distractor_0008_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback_red",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": "red",
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": -0.229,
+        "y_north_m": 26.042,
+        "yaw_rad": 0.968359,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35233433,
+        "longitude_deg": 103.81979794
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0008_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "male_visitor",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.887242,
+      "category_words": [
+        "person",
+        "man",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person man",
+      "measured_size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "pose": {
+        "x_east_m": -28.29,
+        "y_north_m": -69.535,
+        "yaw_rad": 2.966141,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35147431,
+        "longitude_deg": 103.8195458
+      },
+      "size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "target_id": "distractor_0008_02",
+      "true_target": false
+    }
+  ]
+}

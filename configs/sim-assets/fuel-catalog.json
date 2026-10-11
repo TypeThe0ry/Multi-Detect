@@ -1,0 +1,1416 @@
+{
+  "asset_mode": "fuel_v1",
+  "asset_root": "artifacts/cache/gz-fuel/OpenRobotics",
+  "assets": [
+    {
+      "bbox_max_m": [
+        1.484158,
+        3.68567,
+        2.873817
+      ],
+      "bbox_min_m": [
+        -1.484158,
+        -3.849492,
+        -0.020302
+      ],
+      "category": "ambulance",
+      "color": "white",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.020302
+      },
+      "model_sdf_sha256": "57ed57c002c396253ea17a326b2b8bc24b2889255b2cf1e503d67366308661e4",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "slug": "ambulance",
+      "source": "Ambulance",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Ambulance",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        10.128618,
+        11.135042,
+        14.79327
+      ],
+      "bbox_min_m": [
+        -10.128618,
+        -11.135042,
+        -0.01132
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        20.257237,
+        22.270085,
+        14.80459
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.01132
+      },
+      "model_sdf_sha256": "b85af2c0c6b143d6960e98821a8d9bff21c843bd1a3cad002747cd16d169d08b",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "apartment"
+      ],
+      "slug": "apartment",
+      "source": "Apartment",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Apartment",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.220788,
+        0.122748,
+        0.522228
+      ],
+      "bbox_min_m": [
+        -0.220788,
+        -0.140867,
+        -0.000165
+      ],
+      "category": "backpack",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.000165
+      },
+      "model_sdf_sha256": "c668779f4381e8d2887e967b6ca901e096c0442c39d43ec3c8cc821e1c78688f",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "backpack",
+        "bag"
+      ],
+      "slug": "backpack",
+      "source": "Backpack",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Backpack",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.353828,
+        6.19143,
+        3.697573
+      ],
+      "bbox_min_m": [
+        -1.353828,
+        -6.294701,
+        -0.000725
+      ],
+      "category": "bus",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.000725
+      },
+      "model_sdf_sha256": "f59ab80948d2fdcdb2b65e6843bdde800020406569e9b0e7b4af48c6c485c9d2",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "bus"
+      ],
+      "slug": "bus",
+      "source": "Bus",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Bus",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.25,
+        0.2,
+        0.15
+      ],
+      "bbox_min_m": [
+        -0.25,
+        -0.2,
+        -0.15
+      ],
+      "category": "cardboard_box",
+      "color": "brown",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.15
+      },
+      "model_sdf_sha256": "e3e198104789021ae98cae8acb5570042cb50159153651be5511eb7ba6f36c50",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "cardboard box",
+        "box"
+      ],
+      "slug": "cardboard_box",
+      "source": "Cardboard_box",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Cardboard_box",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.38,
+        0.165,
+        1.785
+      ],
+      "bbox_min_m": [
+        -0.38,
+        -0.400892,
+        -0.0006
+      ],
+      "category": "person",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.0006
+      },
+      "model_sdf_sha256": "70a3a24f3b80f6bbd780a05a5a2c10d974e2928bbc50427bb54fcbb000b05222",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "slug": "casual_female",
+      "source": "Casual_female",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Casual_female",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        8.085098,
+        6.465303,
+        5.800717
+      ],
+      "bbox_min_m": [
+        -8.085098,
+        -6.465303,
+        -0.000211
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        16.170196,
+        12.930607,
+        5.800929
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.000211
+      },
+      "model_sdf_sha256": "206ee647f091ad5f5ca143ec45a4ff8f3b83a3dd4670c9ba8528380e98734a47",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "collapsed house"
+      ],
+      "slug": "collapsed_house",
+      "source": "Collapsed_House",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Collapsed_House",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.509932,
+        0.509932,
+        1.550042
+      ],
+      "bbox_min_m": [
+        -0.509932,
+        -0.509932,
+        0.0
+      ],
+      "category": "barrel",
+      "color": "orange",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        1.019865,
+        1.019865,
+        1.550042
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "2e04ba938c29345c13f81472ccdc9d2c7e6490823c80ad5ef32e0cc24688331b",
+      "role_eligibility": [],
+      "semantic_words": [
+        "construction barrel",
+        "barrel"
+      ],
+      "slug": "construction_barrel",
+      "source": "Construction_Barrel",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Construction_Barrel",
+      "validated": false,
+      "validation_reason": "barrel height 0.6-1.3m"
+    },
+    {
+      "bbox_max_m": [
+        0.25146,
+        0.25146,
+        1.088889
+      ],
+      "bbox_min_m": [
+        -0.25146,
+        -0.25146,
+        0.0
+      ],
+      "category": "traffic_cone",
+      "color": "orange",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "c212e83e8fb1a34fd3a90b8a0c8bd77c2c6476f1049713bdec7f25d7b5272d21",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "slug": "construction_cone",
+      "source": "Construction_Cone",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Construction_Cone",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.252647,
+        0.767644,
+        1.771915
+      ],
+      "bbox_min_m": [
+        -1.252647,
+        -0.767644,
+        -0.001378
+      ],
+      "category": "dumpster",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        2.505294,
+        1.535287,
+        1.773292
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.001378
+      },
+      "model_sdf_sha256": "28b86d41bef8a349e28b461e5cc66d123659b94d3afaf871b9e63d52252f3199",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "dumpster",
+        "trash container"
+      ],
+      "slug": "dumpster",
+      "source": "Dumpster",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Dumpster",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.2,
+        0.0,
+        0.28
+      ],
+      "bbox_min_m": [
+        -0.234409,
+        -0.331136,
+        -0.28
+      ],
+      "category": "electrical_box",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.28
+      },
+      "model_sdf_sha256": "eb800d4f6d4e51f23526ac0f75da36aebd8082db70d86c6a9b22479de0da64e5",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "slug": "electrical_box",
+      "source": "Electrical_Box",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Electrical_Box",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.211803,
+        0.211802,
+        0.929183
+      ],
+      "bbox_min_m": [
+        -0.211803,
+        -0.211803,
+        -0.002111
+      ],
+      "category": "fire_hydrant",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.002111
+      },
+      "model_sdf_sha256": "661b5ceb48ec1fa49e294116979c38166a035cc70fdddc84c6ae35ccea18ae33",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "slug": "fire_hydrant",
+      "source": "Fire_hydrant",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire_hydrant",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.77311,
+        5.88172,
+        3.35177
+      ],
+      "bbox_min_m": [
+        -1.77311,
+        -6.54769,
+        -0.00329
+      ],
+      "category": "fire_truck",
+      "color": "red",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.00329
+      },
+      "model_sdf_sha256": "94517ade5caea4bff18354cd5828a04da597d68a38e16f0094add6c87a048922",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "fire truck",
+        "truck"
+      ],
+      "slug": "fire_truck",
+      "source": "Fire_truck",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire_truck",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.895127,
+        0.89589,
+        2.651959
+      ],
+      "bbox_min_m": [
+        -0.895691,
+        -0.894928,
+        -4.1e-05
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        1.790818,
+        1.790818,
+        2.652
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 4.1e-05
+      },
+      "model_sdf_sha256": "d5ea27da028371b856b317de09d12a8efabb115cb2e83314c60343b9536068f5",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "fountain"
+      ],
+      "slug": "fountain",
+      "source": "Fountain",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fountain",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        10.285554,
+        5.809031,
+        8.982596
+      ],
+      "bbox_min_m": [
+        -10.285554,
+        -24.17661,
+        -0.0
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        20.571109,
+        29.98564,
+        8.982596
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.0
+      },
+      "model_sdf_sha256": "3958bfb2ddc0546166749975cdb99e042a7378d5aadf1259be1f177c868f70a7",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "gas station"
+      ],
+      "slug": "gas_station",
+      "source": "Gas_station",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gas_station",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        4.061865,
+        4.061865,
+        8.043354
+      ],
+      "bbox_min_m": [
+        -4.061865,
+        -4.061865,
+        -1e-06
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        8.123729,
+        8.123729,
+        8.043356
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 1e-06
+      },
+      "model_sdf_sha256": "25b0fe71e59ec5e60bb2ae4e669435de347cf7c32d6cd7e0ddf9938516c71513",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "gazebo"
+      ],
+      "slug": "gazebo",
+      "source": "Gazebo",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gazebo",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.344102,
+        1.070232,
+        1.556553
+      ],
+      "bbox_min_m": [
+        -1.656999,
+        -1.070232,
+        -0.011341
+      ],
+      "category": "car",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.011341
+      },
+      "model_sdf_sha256": "1919fa731880f9b789cef2f3dfb02d9a0cace463c32c8d2a38176cceb996c931",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "car",
+        "hatchback"
+      ],
+      "slug": "hatchback",
+      "source": "Hatchback",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.344102,
+        1.070232,
+        1.556553
+      ],
+      "bbox_min_m": [
+        -1.656999,
+        -1.070232,
+        -0.011341
+      ],
+      "category": "car",
+      "color": "blue",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.011341
+      },
+      "model_sdf_sha256": "80ae9b05fbdda47e7afe61a1cc2ab5faeef775ef42cbbec842a6523374d991c1",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "car",
+        "hatchback"
+      ],
+      "slug": "hatchback_blue",
+      "source": "Hatchback_blue",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback_blue",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.344102,
+        1.070232,
+        1.556553
+      ],
+      "bbox_min_m": [
+        -1.656999,
+        -1.070232,
+        -0.011341
+      ],
+      "category": "car",
+      "color": "red",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.011341
+      },
+      "model_sdf_sha256": "dc461804a4db66b80f34ac028f1dd9276160ab03cae6e616874227516bd4bba0",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "car",
+        "hatchback"
+      ],
+      "slug": "hatchback_red",
+      "source": "Hatchback_red",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback_red",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        7.847977,
+        6.090452,
+        7.686705
+      ],
+      "bbox_min_m": [
+        -8.641981,
+        -6.840151,
+        -0.000211
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        16.489958,
+        12.930603,
+        7.686917
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.000211
+      },
+      "model_sdf_sha256": "0755bd4843cb23cfced8be04f61d815aa07c99c3028bff9d817c0d5b23c5a28a",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "house 1"
+      ],
+      "slug": "house_1",
+      "source": "House_1",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House_1",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        7.56245,
+        5.662279,
+        7.19047
+      ],
+      "bbox_min_m": [
+        -5.148674,
+        -4.110448,
+        -0.036369
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        12.711124,
+        9.772727,
+        7.226839
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.036369
+      },
+      "model_sdf_sha256": "48f91ed2f4f1739db843deecd0c648a058d9e00e97caf90cde36a4f6cd681d90",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "house 2"
+      ],
+      "slug": "house_2",
+      "source": "House_2",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House_2",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        6.097086,
+        4.336514,
+        9.171859
+      ],
+      "bbox_min_m": [
+        -7.076883,
+        -4.369903,
+        -1e-06
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        13.173969,
+        8.706417,
+        9.171859
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 1e-06
+      },
+      "model_sdf_sha256": "6330c59d3b78b86192856e876d21002270af743b62ce8ed9de261debc7ae2b26",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "house 3"
+      ],
+      "slug": "house_3",
+      "source": "House_3",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House_3",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.032784,
+        0.4064,
+        1.143
+      ],
+      "bbox_min_m": [
+        -2.032784,
+        -0.4064,
+        0.0
+      ],
+      "category": "jersey_barrier",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "c1d9ee78110a1e9b06045dec1fa3414c9c8acaa552b1a945f09dfda662232aaf",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "slug": "jersey_barrier",
+      "source": "Jersey_Barrier",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Jersey_Barrier",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.244034,
+        0.105748,
+        9.271834
+      ],
+      "bbox_min_m": [
+        -0.244034,
+        -3.076346,
+        0.0
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.488068,
+        3.182093,
+        9.271834
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "bdc4bcba8f38b8a7ef35f824efaf58d09ba09ade43728edb13015f385f3953cc",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "lamp post"
+      ],
+      "slug": "lamp_post",
+      "source": "Lamp_Post",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Lamp_Post",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.068758,
+        0.194524,
+        1.067241
+      ],
+      "bbox_min_m": [
+        -0.064658,
+        -0.160561,
+        -0.0
+      ],
+      "category": "mailbox",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.0
+      },
+      "model_sdf_sha256": "779c85c41adbd3f437e352f9b068bc35a92cea1cd4c1229f19251c3e3f9e5063",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "mailbox"
+      ],
+      "slug": "mailbox",
+      "source": "Mailbox",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Mailbox",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.177916,
+        0.822212,
+        1.772664
+      ],
+      "bbox_min_m": [
+        -0.129142,
+        -0.822212,
+        -0.001819
+      ],
+      "category": "person",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.001819
+      },
+      "model_sdf_sha256": "41e8903d84e0e8e5f0bf32cc1b30d315dc1c36208fbe928be3c6711d216a683f",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "person",
+        "man",
+        "pedestrian"
+      ],
+      "slug": "male_visitor",
+      "source": "Male_visitor",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Male_visitor",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        4.689671,
+        4.303941,
+        6.527947
+      ],
+      "bbox_min_m": [
+        -5.921085,
+        -4.185902,
+        -0.070288
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        10.610756,
+        8.489843,
+        6.598235
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.070288
+      },
+      "model_sdf_sha256": "a73612207941e23e3ff4dc0921847d70572460c5a9ee4b948aa8bf94a2ce2a0f",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "oak tree"
+      ],
+      "slug": "oak_tree",
+      "source": "Oak_tree",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Oak_tree",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        8.848579,
+        8.848543,
+        18.65746
+      ],
+      "bbox_min_m": [
+        -8.848583,
+        -8.848544,
+        -2e-06
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        17.697163,
+        17.697087,
+        18.657462
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 2e-06
+      },
+      "model_sdf_sha256": "11d5aef74a493ac098a48b698c088a6b0eea46a8b2a70bdbb8fa064e6741f92e",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "office building"
+      ],
+      "slug": "office_building",
+      "source": "Office_Building",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Office_Building",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.712222,
+        1.23645,
+        1.858195
+      ],
+      "bbox_min_m": [
+        -2.952458,
+        -1.23645,
+        -0.007348
+      ],
+      "category": "pickup",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.007348
+      },
+      "model_sdf_sha256": "4e7e48c4004a65f4a1b0c654a330001a8a67444461826874b9a6284a8ce8b160",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "pickup",
+        "truck"
+      ],
+      "slug": "pickup",
+      "source": "Pickup",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pickup",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.586157,
+        1.586157,
+        5.077808
+      ],
+      "bbox_min_m": [
+        -1.586157,
+        -1.586157,
+        0.0
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        3.172314,
+        3.172314,
+        5.077808
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "fcee93ac7bf580598d08863349069b1973ddde7a56b381970dbf7c4137558e04",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "pine tree"
+      ],
+      "slug": "pine_tree",
+      "source": "Pine_Tree",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pine_Tree",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        5.766486,
+        3.343252,
+        5.97543
+      ],
+      "bbox_min_m": [
+        -5.766483,
+        -3.343252,
+        -0.014697
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        11.53297,
+        6.686503,
+        5.990127
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.014697
+      },
+      "model_sdf_sha256": "c7e1d2078ab1e78e4dc4eb15f0fa520c766071ac1fd5e16f8af474b7e4af909b",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "playground"
+      ],
+      "slug": "playground",
+      "source": "Playground",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Playground",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.340914,
+        0.342432,
+        1.524
+      ],
+      "bbox_min_m": [
+        -0.340914,
+        -0.342432,
+        0.0
+      ],
+      "category": "postbox",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "fe03bcd50be7b0dfab32f27ce8fc18c9cfa75e090899f106701e7d64ce9d119a",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "postbox",
+        "mailbox"
+      ],
+      "slug": "postbox",
+      "source": "Postbox",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Postbox",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.046171,
+        2.349169,
+        2.444183
+      ],
+      "bbox_min_m": [
+        -1.046171,
+        -2.26912,
+        -2.103891
+      ],
+      "category": "car",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        2.092342,
+        4.618289,
+        4.548073
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 2.103891
+      },
+      "model_sdf_sha256": "eae7b0895a9c84bf68b51e2016c791dbf2925d18c3a225bf24520ec540563905",
+      "role_eligibility": [],
+      "semantic_words": [
+        "car",
+        "prius",
+        "hybrid"
+      ],
+      "slug": "prius_hybrid",
+      "source": "Prius_Hybrid",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Prius_Hybrid",
+      "validated": false,
+      "validation_reason": "vehicle length 3.5-13m, height 1.2-4m"
+    },
+    {
+      "bbox_max_m": [
+        0.266791,
+        0.075,
+        1.926302
+      ],
+      "bbox_min_m": [
+        -0.277437,
+        -0.275,
+        0.0
+      ],
+      "category": "person",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.544229,
+        0.35,
+        1.926302
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "bd2499f97a041d557881c2303a6b314c15df6e7f16f34413d19ee97834720cec",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "person",
+        "pedestrian"
+      ],
+      "slug": "standing_person",
+      "source": "Standing_person",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing_person",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.296546,
+        0.011014,
+        1.817596
+      ],
+      "bbox_min_m": [
+        -0.296546,
+        -0.011806,
+        0.0
+      ],
+      "category": "stop_sign",
+      "color": "red",
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "94e576855925d6c21159181e5e88b9e67a48b16638b509f08707bc1ffa77e035",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "slug": "stop_sign",
+      "source": "Stop_sign",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Stop_sign",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        2.57679,
+        1.335756,
+        2.148162
+      ],
+      "bbox_min_m": [
+        -2.443356,
+        -1.267986,
+        -0.008376
+      ],
+      "category": "suv",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.008376
+      },
+      "model_sdf_sha256": "0a5c05e4671a65311cce18276e6dc49dd96e1657b33a61cce4186192dac95963",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "car",
+        "suv"
+      ],
+      "slug": "suv",
+      "source": "SUV",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/SUV",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        1.058029,
+        0.5,
+        9.223499
+      ],
+      "bbox_min_m": [
+        -1.058029,
+        -0.5,
+        0.0
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        2.116059,
+        1.0,
+        9.223499
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "6eb14bb8e8529a6d75379408b0d739cf63d0461e0fed07ea0f7b298d1e0ae327",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "telephone pole"
+      ],
+      "slug": "telephone_pole",
+      "source": "Telephone_pole",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Telephone_pole",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        0.272195,
+        0.476877,
+        1.875731
+      ],
+      "bbox_min_m": [
+        -0.273891,
+        -0.405108,
+        0.0
+      ],
+      "category": "person",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        0.546086,
+        0.881986,
+        1.875731
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": -0.0
+      },
+      "model_sdf_sha256": "edebb13dae917fb3f07814e5182d0fca7cdcc61fde918d8b69815391e07b3e59",
+      "role_eligibility": [
+        "target",
+        "distractor"
+      ],
+      "semantic_words": [
+        "person",
+        "pedestrian",
+        "walking person"
+      ],
+      "slug": "walking_person",
+      "source": "Walking_person",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Walking_person",
+      "validated": true,
+      "validation_reason": ""
+    },
+    {
+      "bbox_max_m": [
+        3.119668,
+        3.119665,
+        23.218615
+      ],
+      "bbox_min_m": [
+        -3.119664,
+        -3.119668,
+        -0.11166
+      ],
+      "category": "scenery",
+      "color": null,
+      "license": "CC0-1.0",
+      "measured_size_m": [
+        6.239332,
+        6.239332,
+        23.330275
+      ],
+      "mesh_origin_offset_m": {
+        "z_bottom": 0.11166
+      },
+      "model_sdf_sha256": "1b2f26c0170e7ed8378563e2bd4951f326d901ab88b9b82fe3ef34ab57176ec2",
+      "role_eligibility": [
+        "scenery-obstacle"
+      ],
+      "semantic_words": [
+        "water tower"
+      ],
+      "slug": "water_tower",
+      "source": "Water_tower",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water_tower",
+      "validated": true,
+      "validation_reason": ""
+    }
+  ],
+  "schema_version": 2
+}

@@ -28,11 +28,16 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 try:
-    from multidetect.simulator.camera_projection import project_target_bbox
+    from multidetect.sim_teacher.policies import load_sdf_obstacles
+    from multidetect.simulator.camera_projection import project_target_bbox, visible_fraction
 except ModuleNotFoundError:  # pragma: no cover - direct script invocation fallback
+    from multidetect.sim_teacher.policies import load_sdf_obstacles
+    from multidetect.simulator.camera_projection import visible_fraction
     from scripts.autolabel_sim_teacher_frames import project_target_bbox
 
-CLASS_NAMES = ("vehicle", "rover", "cargo_cart", "orange_inspection_marker", "blue_survey_pylon")
+LEGACY_CLASS_NAMES = (
+    "vehicle", "rover", "cargo_cart", "orange_inspection_marker", "blue_survey_pylon"
+)
 CLASS_ALIASES = {
     "car": "vehicle",
     "truck": "cargo_cart",
@@ -46,6 +51,39 @@ DEFAULT_SIZES = {
     "orange_inspection_marker": (1.0, 1.0, 2.0),
     "blue_survey_pylon": (1.0, 1.0, 2.0),
 }
+
+
+def _load_fuel_catalog(
+    path: Path = Path("configs/sim-assets/fuel-catalog.json"),
+) -> tuple[tuple[str, ...], dict[str, dict[str, Any]]]:
+    """Return detector classes and asset records, tolerating catalog revisions."""
+    try:
+        document = _load(path)
+    except (OSError, ValueError, TypeError):
+        return LEGACY_CLASS_NAMES, {}
+    rows = document.get("assets", document) if isinstance(document, dict) else document
+    if not isinstance(rows, list):
+        return LEGACY_CLASS_NAMES, {}
+    records: dict[str, dict[str, Any]] = {}
+    classes: list[str] = list(LEGACY_CLASS_NAMES)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        slug = str(row.get("slug") or row.get("asset_slug") or "").strip()
+        words = row.get("category_words", row.get("semantic_category_words", []))
+        if isinstance(words, str):
+            words = [words]
+        detector_class = str(
+            row.get("detector_class") or row.get("category") or (words[0] if words else slug)
+        ).strip()
+        detector_class = detector_class.casefold().replace(" ", "_")
+        if not detector_class:
+            continue
+        if detector_class not in classes:
+            classes.append(detector_class)
+        if slug:
+            records[slug] = {**row, "detector_class": detector_class}
+    return (tuple(classes) or LEGACY_CLASS_NAMES), records
 
 
 def _sha(path: Path) -> str:
@@ -77,7 +115,7 @@ def _episode_dirs(root: Path) -> list[Path]:
 
 def _world_id(ep: Path) -> str:
     for part in ep.parts:
-        if part.startswith("gen_w") or part.startswith("urban_"):
+        if part.startswith("gen_") or part.startswith("urban_"):
             return part
     # campaign layouts occasionally put the world in episode.json only
     try:
@@ -101,6 +139,7 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
                     base / name,
                     base / "scenarios" / name,
                     base / "scenarios" / "generated" / name,
+                    base / "scenarios" / "generated-v2" / name,
                 ):
                     if candidate.is_file():
                         return candidate
@@ -230,10 +269,14 @@ def build_dataset(
     preview: int = 0,
     max_sim_skew_ms: float = 250.0,
     skip_over_skew: bool = True,
+    min_visible_fraction: float = 0.3,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
+    if not 0.0 <= float(min_visible_fraction) <= 1.0:
+        raise ValueError("min_visible_fraction must be in [0, 1]")
     rng = random.Random(seed)
+    class_names, catalog = _load_fuel_catalog()
     splits = _split_map(index_path)
     output.mkdir(parents=True, exist_ok=True)
     for split in ("train", "val", "test"):
@@ -244,6 +287,7 @@ def build_dataset(
             directory.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     skipped_sim_skew_steps = 0
+    dropped_occluded = 0
     seen_sha: set[str] = set()
     seen_perceptual: set[str] = set()
     for campaign in campaign_roots:
@@ -252,7 +296,7 @@ def build_dataset(
             if not metadata_path.is_file() or _load(metadata_path).get("status") != "complete":
                 continue
             world = _world_id(episode)
-            if world.startswith("gen_w") and world not in splits:
+            if world.startswith("gen_") and world not in splits:
                 raise ValueError(f"world {world} is missing from {index_path}")
             split = splits.get(world, "train")
             if split not in ("train", "val", "test"):
@@ -260,6 +304,7 @@ def build_dataset(
             truth_path = _find_truth(world, [campaign, Path.cwd()])
             truth = _load(truth_path) if truth_path else {}
             sdf_path = _find_sdf(world, [campaign, Path.cwd()])
+            obstacles = load_sdf_obstacles(sdf_path) if sdf_path is not None else ()
             targets = (
                 _urban_target(world, sdf_path)
                 if world.startswith("urban_")
@@ -310,19 +355,36 @@ def build_dataset(
                         metric = _target_metric(target)
                         if metric is None:
                             continue
-                        name = str(target.get("class") or target.get("label") or "vehicle")
+                        asset = catalog.get(
+                            str(target.get("asset_slug") or target.get("asset") or ""), {}
+                        )
+                        name = str(
+                            target.get("detector_class")
+                            or asset.get("detector_class")
+                            or target.get("class")
+                            or target.get("label")
+                            or "vehicle"
+                        )
                         name = CLASS_ALIASES.get(name, name)
-                        if name not in CLASS_NAMES:
+                        name = name.casefold().replace(" ", "_")
+                        if name not in class_names:
                             name = "vehicle"
                         pose = {**obs.get("pose", {}), "attitude": obs.get("attitude", {})}
-                        size = tuple(
-                            target.get("size_m")
-                            or sdf.get(
-                                str(target.get("target_id")),
-                                DEFAULT_SIZES.get(name, (3.0, 1.8, 1.5)),
+                        raw_size = target.get("size_m") or target.get("measured_size_m")
+                        if raw_size is None:
+                            raw_size = sdf.get(str(target.get("target_id")))
+                        if raw_size is None:
+                            raw_size = asset.get("size_m")
+                        if not isinstance(raw_size, (list, tuple)) or len(raw_size) != 3:
+                            raw_size = DEFAULT_SIZES.get(name, (3.0, 1.8, 1.5))
+                        size = tuple(float(value) for value in raw_size)
+                        yaw = _num((target.get("pose") or {}).get("yaw_rad")) or 0.0
+                        bottom_offset = _num(
+                            target.get(
+                                "bottom_offset_m",
+                                target.get("mesh_bottom_offset_m", asset.get("bottom_offset_m")),
                             )
                         )
-                        yaw = _num((target.get("pose") or {}).get("yaw_rad")) or 0.0
                         box = project_target_bbox(
                             target_ned=metric,
                             pose=pose,
@@ -330,14 +392,23 @@ def build_dataset(
                             image_size=(w, h),
                             target_size_m=size,
                             target_yaw_rad=yaw,
+                            target_bottom_offset_m=bottom_offset,
                         )
+                        fraction = visible_fraction(
+                            pose=pose, target_ned=metric, target_size_m=size,
+                            target_yaw_rad=yaw, obstacles=obstacles,
+                            target_bottom_offset_m=bottom_offset,
+                        )
+                        if min_visible_fraction > 0.0 and fraction < min_visible_fraction:
+                            dropped_occluded += 1
+                            continue
                         if (
                             box is None
                             or box[2] - box[0] < min_box_px
                             or box[3] - box[1] < min_box_px
                         ):
                             continue
-                        labels.append(_label_line(CLASS_NAMES.index(name), box, (w, h)))
+                        labels.append(_label_line(class_names.index(name), box, (w, h)))
                         classes.append(name)
                         objects.append(
                             {
@@ -346,6 +417,7 @@ def build_dataset(
                                 "bbox_xyxy": [float(value) for value in box],
                                 "target_ned": [float(value) for value in metric],
                                 "size_m": [float(value) for value in size],
+                                "visible_fraction": fraction,
                             }
                         )
                     records.append(
@@ -445,19 +517,23 @@ def build_dataset(
     data_yaml = (
         f"path: {output.resolve().as_posix()}\n"
         "train: images/train\nval: images/val\ntest: images/test\nnames:\n"
-        + "\n".join(f"  {i}: {name}" for i, name in enumerate(CLASS_NAMES))
+        + "\n".join(f"  {i}: {name}" for i, name in enumerate(class_names))
         + "\n"
     )
     (output / "data.yaml").write_text(data_yaml, encoding="utf-8", newline="\n")
     manifest = {
         "schema_version": 1,
-        "classes": list(CLASS_NAMES),
+        "classes": list(class_names),
         "negative_ratio": negative_ratio,
         "min_box_px": min_box_px,
         "sim_skew": {
             "limit_ms": float(max_sim_skew_ms),
             "skip_over_limit": bool(skip_over_skew),
             "skipped_steps": skipped_sim_skew_steps,
+        },
+        "visibility": {
+            "min_visible_fraction": float(min_visible_fraction),
+            "dropped_occluded": dropped_occluded,
         },
         "index_sha256": _sha(index_path) if index_path.is_file() else None,
         "counts": {
@@ -495,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
         "--no-skip-over-skew", action="store_true",
         help="retain steps over the simulation-skew limit",
     )
+    parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -506,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         preview=args.preview,
         max_sim_skew_ms=args.max_sim_skew_ms,
         skip_over_skew=not args.no_skip_over_skew,
+        min_visible_fraction=args.min_visible_fraction,
     )
     print(
         json.dumps(

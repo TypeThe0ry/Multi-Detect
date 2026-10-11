@@ -1,0 +1,152 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0026",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "dumpster",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.886646,
+      "category_words": [
+        "dumpster",
+        "trash container"
+      ],
+      "class": "dumpster",
+      "color": null,
+      "label": "dumpster trash container",
+      "measured_size_m": [
+        2.505294,
+        1.535287,
+        1.773292
+      ],
+      "pose": {
+        "x_east_m": -36.06,
+        "y_north_m": 3.14,
+        "yaw_rad": 1.30697,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35212826,
+        "longitude_deg": 103.81947598
+      },
+      "size_m": [
+        2.505294,
+        1.535287,
+        1.773292
+      ],
+      "target_id": "target_true_gen_v2_w0026",
+      "true_target": true
+    },
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": -41.487,
+        "y_north_m": 31.558,
+        "yaw_rad": -0.304629,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35238397,
+        "longitude_deg": 103.81942721
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "distractor_0026_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_truck",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.67753,
+      "category_words": [
+        "fire truck",
+        "truck"
+      ],
+      "class": "fire_truck",
+      "color": "red",
+      "label": "fire truck truck",
+      "measured_size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "pose": {
+        "x_east_m": -100.167,
+        "y_north_m": -64.98,
+        "yaw_rad": -3.023599,
+        "z_up_m": 1.678
+      },
+      "position": {
+        "altitude_m": 1.678,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35151529,
+        "longitude_deg": 103.81889993
+      },
+      "size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "target_id": "distractor_0026_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback_red",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": "red",
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 65.337,
+        "y_north_m": -27.853,
+        "yaw_rad": -0.133291,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35184937,
+        "longitude_deg": 103.8203871
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0026_02",
+      "true_target": false
+    }
+  ]
+}

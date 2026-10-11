@@ -1,0 +1,150 @@
+<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>1.3521</latitude_deg><longitude_deg>103.8198</longitude_deg><elevation>18</elevation></spherical_coordinates><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+<model name="obstacle_00"><static>true</static><pose>34.442 32.691 4.635917 0 0 2.326295</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4881 3.1821 9.2718</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 1.485299 -4.635917 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://lamp_post/meshes/lamp_post.dae</uri>
+            <scale>3 3 3</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://lamp_post/meshes/lamp_post.dae</uri>
+            <scale>3 3 3</scale>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_01"><static>true</static><pose>-45.783 -96.125 4.491298 0 0 -1.244111</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>20.5711 29.9856 8.9826</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 9.183789 -4.491298 0 0 0</pose><static>true</static>
+    <link name="link">
+      <pose>0 0 0 0 0 0</pose>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://gas_station/meshes/gas_station.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://gas_station/meshes/gas_station.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://gas_station/materials/scripts</uri>
+            <uri>model://gas_station/materials/textures</uri>
+            <name>GasStation/Diffuse</name>
+          </script>
+          <shader type="normal_map_object_space">
+            <normal_map>GasStation_Normal.png</normal_map>
+          </shader>
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_02"><static>true</static><pose>16.543 -75.984 7.402295 0 0 1.894688</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>20.2572 22.2701 14.8046</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -7.390975 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="target_true_gen_v2_w0001"><static>true</static><pose>-10.286 -57.288 0.280000 0 0 -2.466238</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4344 0.3311 0.5600</size></box></geometry></collision></link><model name="mesh">
+        <pose>0.017204 0.165568 0.000000 0 0 0</pose><static>true</static>
+        <link name="link">
+            <pose>0 0 0 1.57 3.14159 0</pose>
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://electrical_box/meshes/Electrical Box.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://electrical_box/meshes/Electrical Box.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    </model></model>
+<model name="distractor_0001_00"><static>true</static><pose>11.397 28.383 0.261196 0 0 2.326571</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4416 0.2636 0.5224</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 0.009059 -0.261031 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://backpack/meshes/Backpack.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://backpack/meshes/Backpack.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0001_01"><static>true</static><pose>32.269 -49.456 0.892800 0 0 -1.129232</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.7600 0.5659 1.7856</size></box></geometry></collision></link><model name="mesh">
+        <pose>-0.000000 0.117946 -0.892200 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="box">
+                <pose>0 0 0.9 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>0.76 0.33 1.77</size>
+                    </box>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <pose>0 0 0.02 0.04 0 0</pose>
+                <geometry>
+                    <mesh>
+                        <uri>model://casual_female/meshes/casual_female.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    </model></model>
+<model name="distractor_0001_02"><static>true</static><pose>-71.620 72.033 0.465647 0 0 -1.766716</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4236 0.4236 0.9313</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 0.000001 -0.463536 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://fire_hydrant/meshes/fire_hydrant.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://fire_hydrant/meshes/fire_hydrant.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model></world></sdf>

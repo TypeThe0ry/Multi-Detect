@@ -1,0 +1,153 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0001",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": -10.286,
+        "y_north_m": -57.288,
+        "yaw_rad": -2.466238,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35158451,
+        "longitude_deg": 103.81970757
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "target_true_gen_v2_w0001",
+      "true_target": true
+    },
+    {
+      "asset_slug": "backpack",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.261196,
+      "category_words": [
+        "backpack",
+        "bag"
+      ],
+      "class": "backpack",
+      "color": null,
+      "label": "backpack bag",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "pose": {
+        "x_east_m": 11.397,
+        "y_north_m": 28.383,
+        "yaw_rad": 2.326571,
+        "z_up_m": 0.261
+      },
+      "position": {
+        "altitude_m": 0.261,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3523554,
+        "longitude_deg": 103.81990241
+      },
+      "size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "target_id": "distractor_0001_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": 32.269,
+        "y_north_m": -49.456,
+        "yaw_rad": -1.129232,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35165498,
+        "longitude_deg": 103.82008996
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0001_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": -71.62,
+        "y_north_m": 72.033,
+        "yaw_rad": -1.766716,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35274818,
+        "longitude_deg": 103.81915645
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "distractor_0001_02",
+      "true_target": false
+    }
+  ]
+}

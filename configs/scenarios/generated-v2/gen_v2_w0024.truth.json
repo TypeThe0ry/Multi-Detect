@@ -1,0 +1,116 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0024",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": -1.368,
+        "y_north_m": -41.86,
+        "yaw_rad": 0.171162,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35172333,
+        "longitude_deg": 103.81978771
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "target_true_gen_v2_w0024",
+      "true_target": true
+    },
+    {
+      "asset_slug": "cardboard_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.15,
+      "category_words": [
+        "cardboard box",
+        "box"
+      ],
+      "class": "cardboard_box",
+      "color": "brown",
+      "label": "cardboard box box",
+      "measured_size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "pose": {
+        "x_east_m": -30.435,
+        "y_north_m": -104.169,
+        "yaw_rad": 1.80408,
+        "z_up_m": 0.15
+      },
+      "position": {
+        "altitude_m": 0.15,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35116265,
+        "longitude_deg": 103.81952652
+      },
+      "size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "target_id": "distractor_0024_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "dumpster",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.886646,
+      "category_words": [
+        "dumpster",
+        "trash container"
+      ],
+      "class": "dumpster",
+      "color": null,
+      "label": "dumpster trash container",
+      "measured_size_m": [
+        2.505294,
+        1.535287,
+        1.773292
+      ],
+      "pose": {
+        "x_east_m": -18.099,
+        "y_north_m": -32.451,
+        "yaw_rad": -2.223305,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35180799,
+        "longitude_deg": 103.81963737
+      },
+      "size_m": [
+        2.505294,
+        1.535287,
+        1.773292
+      ],
+      "target_id": "distractor_0024_01",
+      "true_target": false
+    }
+  ]
+}

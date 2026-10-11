@@ -111,6 +111,111 @@ def _world_to_body_ned(
     return x2, y3, z3
 
 
+def _body_to_world_ned(
+    vector_body_ned: tuple[float, float, float], *, roll_rad: float, pitch_rad: float,
+    yaw_rad: float,
+) -> tuple[float, float, float]:
+    """Apply Rz(yaw) Ry(pitch) Rx(roll), matching ``_world_to_body_ned``."""
+    x, y, z = vector_body_ned
+    cr, sr = math.cos(roll_rad), math.sin(roll_rad)
+    y1, z1 = cr * y - sr * z, sr * y + cr * z
+    cp, sp = math.cos(pitch_rad), math.sin(pitch_rad)
+    x2, z2 = cp * x + sp * z1, -sp * x + cp * z1
+    cy, sy = math.cos(yaw_rad), math.sin(yaw_rad)
+    return cy * x2 - sy * y1, sy * x2 + cy * y1, z2
+
+
+def camera_center_ned_up(pose: Mapping[str, Any]) -> tuple[float, float, float] | None:
+    """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
+    values = _pose_values(pose)
+    if values is None:
+        return None
+    north, east, down, roll_deg, pitch_deg, yaw_deg = values
+    roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
+    mount_world = _body_to_world_ned(
+        (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
+        roll_rad=roll,
+        pitch_rad=pitch,
+        yaw_rad=yaw,
+    )
+    return north + mount_world[0], east + mount_world[1], -(down + mount_world[2])
+
+
+def _segment_intersects_obstacle(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    obstacle: Any,
+) -> bool:
+    """Segment/slab test against an oriented N/E/up box from ground to top."""
+    c, s = math.cos(float(obstacle.yaw_rad)), math.sin(float(obstacle.yaw_rad))
+    # SDF yaw rotates ENU local x/east, y/north. Convert N/E into local y/x.
+    def local(point: tuple[float, float, float]) -> tuple[float, float, float]:
+        dn, de = point[0] - float(obstacle.north_m), point[1] - float(obstacle.east_m)
+        return c * de + s * dn, -s * de + c * dn, point[2]
+
+    a, b = local(start), local(end)
+    direction = tuple(b[i] - a[i] for i in range(3))
+    half = (float(obstacle.size_east_m) / 2.0, float(obstacle.size_north_m) / 2.0)
+    bounds = ((-half[0], half[0]), (-half[1], half[1]), (0.0, float(obstacle.top_m)))
+    t_min, t_max = 0.0, 1.0
+    for index, (lo, hi) in enumerate(bounds):
+        if abs(direction[index]) <= 1e-12:
+            if a[index] < lo or a[index] > hi:
+                return False
+            continue
+        t1, t2 = (lo - a[index]) / direction[index], (hi - a[index]) / direction[index]
+        if t1 > t2:
+            t1, t2 = t2, t1
+        t_min, t_max = max(t_min, t1), min(t_max, t2)
+        if t_min > t_max:
+            return False
+    return True
+
+
+def visible_fraction(
+    *,
+    pose: Mapping[str, Any],
+    target_ned: tuple[float, float, float],
+    target_size_m: tuple[float, float, float],
+    target_yaw_rad: float = 0.0,
+    obstacles: Sequence[Any] = (),
+    target_bottom_offset_m: float | None = None,
+) -> float:
+    """Estimate target visibility by casting a deterministic 3x3x3 target grid.
+
+    Coordinates are N/E/up, while ``pose`` retains the projection API's NED
+    vehicle pose. Obstacles must expose ``north_m/east_m/top_m/size_*_m/yaw_rad``.
+    """
+    if len(target_size_m) != 3 or any(float(value) <= 0.0 for value in target_size_m):
+        raise ValueError("target_size_m must contain three positive dimensions")
+    camera = camera_center_ned_up(pose)
+    if camera is None:
+        return 0.0
+    sx, sy, sz = (float(value) for value in target_size_m)
+    centre_up = float(target_ned[2]) + (
+        float(target_bottom_offset_m) if target_bottom_offset_m is not None else 0.0
+    )
+    if target_bottom_offset_m is not None:
+        centre_up += sz / 2.0
+    c, s = math.cos(float(target_yaw_rad)), math.sin(float(target_yaw_rad))
+    blocked = 0
+    total = 0
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            for iz in (-1, 0, 1):
+                local_x, local_y = ix * sx / 2.0, iy * sy / 2.0
+                east = float(target_ned[1]) + c * local_x - s * local_y
+                north = float(target_ned[0]) + s * local_x + c * local_y
+                point = (north, east, centre_up + iz * sz / 2.0)
+                total += 1
+                if any(
+                    _segment_intersects_obstacle(camera, point, obstacle)
+                    for obstacle in obstacles
+                ):
+                    blocked += 1
+    return max(0.0, min(1.0, 1.0 - blocked / total))
+
+
 def _body_to_camera_optical(
     vector_body_ned: tuple[float, float, float], *,
     mount_pitch_rad: float,
@@ -139,6 +244,7 @@ def project_target_bbox(
     target_size_m: tuple[float, float, float] = (3.0, 1.8, 1.5),
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     target_yaw_rad: float = 0.0,
+    target_bottom_offset_m: float | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Project an upright SDF box and return clipped pixel ``(x1,y1,x2,y2)``.
 
@@ -162,10 +268,20 @@ def project_target_bbox(
         for value in (target_north, target_east, target_up, target_yaw_rad)
     ):
         return None
-    relative_up = float(target_up) + p_down
+    # Legacy truth stores the target centre in ``target_up``.  Asset truth can
+    # instead store the model-origin height and the measured mesh bottom
+    # offset; in that case derive the centre from bottom + half-height.
+    sx, sy, sz = target_size_m
+    if target_bottom_offset_m is None:
+        centre_up = float(target_up)
+    else:
+        bottom_offset = _finite(target_bottom_offset_m)
+        if bottom_offset is None:
+            return None
+        centre_up = float(target_up) + bottom_offset + sz / 2.0
+    relative_up = centre_up + p_down
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
-    sx, sy, sz = target_size_m
     corners: list[tuple[float, float]] = []
     cos_target, sin_target = math.cos(target_yaw_rad), math.sin(target_yaw_rad)
     for dx in (-sx / 2.0, sx / 2.0):
@@ -196,4 +312,4 @@ def project_target_bbox(
     return None if x2 <= x1 or y2 <= y1 else (x1, y1, x2, y2)
 
 
-__all__ = ["project_target_bbox"]
+__all__ = ["camera_center_ned_up", "project_target_bbox", "visible_fraction"]

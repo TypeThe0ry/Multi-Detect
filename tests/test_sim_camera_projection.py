@@ -92,6 +92,20 @@ def test_intrinsics_are_scaled_when_metadata_size_differs() -> None:
     assert scaled == direct
 
 
+def test_asset_bottom_offset_projects_model_origin_as_grounded_object() -> None:
+    camera = {"width": 640, "height": 480, "fx": 270.0, "fy": 270.0, "cx": 320.0, "cy": 240.0}
+    centred = project_target_bbox(
+        target_ned=(20.0, 0.0, 1.0), pose=_pose(), camera_info=camera,
+        image_size=(640, 480), target_size_m=(2.0, 1.0, 2.0),
+    )
+    grounded = project_target_bbox(
+        target_ned=(20.0, 0.0, 0.0), pose=_pose(), camera_info=camera,
+        image_size=(640, 480), target_size_m=(2.0, 1.0, 2.0),
+        target_bottom_offset_m=0.0,
+    )
+    assert centred == grounded
+
+
 def test_real_recorded_red_target_projection_tracks_pixels() -> None:
     """Regression guard against the former 30 px vertical projection error."""
     root = Path("artifacts/datasets/sim-teacher/campaign-20261011-r2")

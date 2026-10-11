@@ -1,0 +1,116 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0015",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "fire_truck",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.67753,
+      "category_words": [
+        "fire truck",
+        "truck"
+      ],
+      "class": "fire_truck",
+      "color": "red",
+      "label": "fire truck truck",
+      "measured_size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "pose": {
+        "x_east_m": -62.27,
+        "y_north_m": -52.87,
+        "yaw_rad": -2.176919,
+        "z_up_m": 1.678
+      },
+      "position": {
+        "altitude_m": 1.678,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35162426,
+        "longitude_deg": 103.81924046
+      },
+      "size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "target_id": "target_true_gen_v2_w0015",
+      "true_target": true
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": 37.857,
+        "y_north_m": -17.055,
+        "yaw_rad": -1.603974,
+        "z_up_m": 0.933
+      },
+      "position": {
+        "altitude_m": 0.933,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35194654,
+        "longitude_deg": 103.82014016
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "distractor_0015_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "stop_sign",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.908798,
+      "category_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "class": "stop_sign",
+      "color": "red",
+      "label": "stop sign road sign",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "pose": {
+        "x_east_m": -36.534,
+        "y_north_m": -78.933,
+        "yaw_rad": 3.059084,
+        "z_up_m": 0.909
+      },
+      "position": {
+        "altitude_m": 0.909,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35138973,
+        "longitude_deg": 103.81947172
+      },
+      "size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "target_id": "distractor_0015_01",
+      "true_target": false
+    }
+  ]
+}

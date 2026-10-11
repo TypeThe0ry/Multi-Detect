@@ -1,0 +1,277 @@
+<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>1.3521</latitude_deg><longitude_deg>103.8198</longitude_deg><elevation>18</elevation></spherical_coordinates><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+<model name="obstacle_00"><static>true</static><pose>79.439 -1.269 3.299117 0 0 3.001569</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>10.6108 8.4898 6.5982</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.615707 -0.059020 -3.228829 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="branch">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <submesh>
+              <name>Branch</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <double_sided>true</double_sided>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://oak_tree/materials/scripts/</uri>
+            <uri>model://oak_tree/materials/textures/</uri>
+            <name>OakTree/Branch</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://oak_tree/materials/textures/branch_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name="bark">
+        <geometry>
+          <mesh>
+            <uri>model://oak_tree/meshes/oak_tree.dae</uri>
+            <submesh>
+              <name>Bark</name>
+            </submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <script>
+            <uri>model://oak_tree/materials/scripts/</uri>
+            <uri>model://oak_tree/materials/textures/</uri>
+            <name>OakTree/Bark</name>
+          </script>
+          
+          <pbr>
+            <metal>
+              <albedo_map>model://oak_tree/materials/textures/bark_diffuse.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_01"><static>true</static><pose>20.166 55.834 4.635917 0 0 -2.923129</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4881 3.1821 9.2718</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 1.485299 -4.635917 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://lamp_post/meshes/lamp_post.dae</uri>
+            <scale>3 3 3</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://lamp_post/meshes/lamp_post.dae</uri>
+            <scale>3 3 3</scale>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_02"><static>true</static><pose>-53.075 57.637 4.021678 0 0 1.581179</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>8.1237 8.1237 8.0434</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -4.021676 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <scale>3 3 2.5</scale>
+            <uri>model://gazebo/meshes/gazebo.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <scale>3 3 2.5</scale>
+            <uri>model://gazebo/meshes/gazebo.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_03"><static>true</static><pose>3.326 24.198 4.611750 0 0 1.142162</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>2.1161 1.0000 9.2235</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -4.611750 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision_pole">
+        <pose>0 0 4.572 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.07794752</radius>
+            <length>9.144</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <collision name="collision_cross">
+        <pose>0 -0.098806 8.048363126 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>2.11605876 0.041763442 0.177805588</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://telephone_pole/meshes/telephone_pole.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_04"><static>true</static><pose>-63.556 9.366 2.995064 0 0 -2.642409</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>11.5330 6.6865 5.9901</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000001 -0.000000 -2.980367 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://playground/meshes/playground.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://playground/meshes/playground.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="obstacle_05"><static>true</static><pose>-78.849 -85.314 1.326000 0 0 2.214685</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>1.7908 1.7908 2.6520</size></box></geometry></collision></link><model name="mesh">
+    <pose>0.000282 -0.000481 -1.325959 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://fountain/meshes/fountain.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://fountain/meshes/fountain.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="target_true_gen_v2_w0007"><static>true</static><pose>24.327 -7.136 0.261196 0 0 2.777058</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4416 0.2636 0.5224</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 0.009059 -0.261031 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://backpack/meshes/Backpack.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://backpack/meshes/Backpack.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0007_00"><static>true</static><pose>-80.197 -47.381 0.465647 0 0 2.113678</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4236 0.4236 0.9313</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 0.000001 -0.463536 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://fire_hydrant/meshes/fire_hydrant.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://fire_hydrant/meshes/fire_hydrant.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0007_01"><static>true</static><pose>-46.734 85.153 0.783947 0 0 -1.533968</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>4.0011 2.1405 1.5679</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.343551 -0.000000 -0.772606 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <pose>0 0 0 0 0 1.57079632679</pose>
+        <geometry>
+          <mesh>
+            <scale>0.0254 0.0254 0.0254</scale>
+            <uri>model://hatchback_blue/meshes/hatchback.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 0 0 1.57079632679</pose>
+        <geometry>
+          <mesh>
+            <scale>0.0254 0.0254 0.0254</scale>
+            <uri>model://hatchback_blue/meshes/hatchback.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0007_02"><static>true</static><pose>-98.571 -30.930 0.533621 0 0 -0.873932</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.1334 0.3551 1.0672</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.002050 -0.016981 -0.533621 0 0 0</pose><static>true</static><link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://mailbox/meshes/mailbox.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://mailbox/meshes/mailbox.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://mailbox/materials/scripts</uri>
+            <uri>model://mailbox/materials/textures</uri>
+            <name>Mailbox/Diffuse</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model></model>
+<model name="distractor_0007_03"><static>true</static><pose>-38.123 -7.348 0.762000 0 0 1.225950</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.6818 0.6849 1.5240</size></box></geometry></collision></link><model name="mesh">
+    <pose>-0.000000 -0.000000 -0.762000 0 0 0</pose><static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://postbox/meshes/postbox.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://postbox/meshes/postbox.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model></model></world></sdf>

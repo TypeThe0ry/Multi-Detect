@@ -1,0 +1,224 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0025",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "male_visitor",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.887242,
+      "category_words": [
+        "person",
+        "man",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person man",
+      "measured_size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "pose": {
+        "x_east_m": 24.764,
+        "y_north_m": -2.619,
+        "yaw_rad": -1.974307,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35207643,
+        "longitude_deg": 103.82002252
+      },
+      "size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "target_id": "target_true_gen_v2_w0025",
+      "true_target": true
+    },
+    {
+      "asset_slug": "backpack",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.261196,
+      "category_words": [
+        "backpack",
+        "bag"
+      ],
+      "class": "backpack",
+      "color": null,
+      "label": "backpack bag",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "pose": {
+        "x_east_m": 44.508,
+        "y_north_m": 63.982,
+        "yaw_rad": 2.531845,
+        "z_up_m": 0.261
+      },
+      "position": {
+        "altitude_m": 0.261,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35267573,
+        "longitude_deg": 103.82019993
+      },
+      "size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "target_id": "distractor_0025_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": 92.059,
+        "y_north_m": -39.087,
+        "yaw_rad": 0.359852,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35174829,
+        "longitude_deg": 103.8206272
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "distractor_0025_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 30.466,
+        "y_north_m": 38.442,
+        "yaw_rad": -1.431806,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35244591,
+        "longitude_deg": 103.82007376
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "distractor_0025_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback_blue",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": "blue",
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": -77.286,
+        "y_north_m": -46.172,
+        "yaw_rad": 3.007691,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35168453,
+        "longitude_deg": 103.81910554
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0025_03",
+      "true_target": false
+    },
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -74.37,
+        "y_north_m": -79.662,
+        "yaw_rad": -1.222689,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35138318,
+        "longitude_deg": 103.81913174
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "distractor_0025_04",
+      "true_target": false
+    }
+  ]
+}

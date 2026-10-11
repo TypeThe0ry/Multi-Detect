@@ -1,0 +1,116 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0019",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": 24.072,
+        "y_north_m": 45.36,
+        "yaw_rad": 0.850306,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35250816,
+        "longitude_deg": 103.82001631
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "target_true_gen_v2_w0019",
+      "true_target": true
+    },
+    {
+      "asset_slug": "suv",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.078269,
+      "category_words": [
+        "car",
+        "suv"
+      ],
+      "class": "suv",
+      "color": null,
+      "label": "car suv",
+      "measured_size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "pose": {
+        "x_east_m": -45.195,
+        "y_north_m": 15.593,
+        "yaw_rad": -1.601479,
+        "z_up_m": 1.078
+      },
+      "position": {
+        "altitude_m": 1.078,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35224031,
+        "longitude_deg": 103.8193939
+      },
+      "size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "target_id": "distractor_0019_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "backpack",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.261196,
+      "category_words": [
+        "backpack",
+        "bag"
+      ],
+      "class": "backpack",
+      "color": null,
+      "label": "backpack bag",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "pose": {
+        "x_east_m": -52.567,
+        "y_north_m": -9.276,
+        "yaw_rad": -2.364054,
+        "z_up_m": 0.261
+      },
+      "position": {
+        "altitude_m": 0.261,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35201653,
+        "longitude_deg": 103.81932765
+      },
+      "size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "target_id": "distractor_0019_01",
+      "true_target": false
+    }
+  ]
+}

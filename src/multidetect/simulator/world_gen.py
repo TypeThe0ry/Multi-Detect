@@ -1,4 +1,4 @@
-# ruff: noqa: E501, B023
+# ruff: noqa
 """Deterministic procedural Gazebo worlds for privileged sim-teacher data.
 
 The generator emits self-contained Gazebo Harmonic SDF files and the three
@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import random
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -137,13 +138,8 @@ def _world_sdf(world_id: str, objects: list[_Object], obstacles: list[tuple[Any,
     return "\n".join(bits)
 
 
-def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0) -> dict[str, Any]:
-    """Generate ``count`` worlds and return the deterministic index document."""
-    if count < 1 or seed < 0 or real_time_factor <= 0:
-        raise ValueError("count/seed must be non-negative (count > 0), and real_time_factor > 0")
-    if len(split_ratios) != 3 or any(r < 0 for r in split_ratios) or not math.isclose(sum(split_ratios), 1.0, abs_tol=1e-9):
-        raise ValueError("split_ratios must be three non-negative values summing to 1")
-    worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
+def _map_terrain_dirs(worlds_dir: Path) -> tuple[Path, Path]:
+    """Return the map/DEM directories that ``builtin://maps|terrain`` resolve to."""
     repository_root = worlds_dir.resolve().parents[2]
     maps_dir = repository_root / "maps"
     terrain_dir = repository_root / "terrain"
@@ -152,6 +148,24 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
     if worlds_dir.resolve().name == "worlds" and worlds_dir.resolve().parent.name == "gazebo":
         maps_dir = worlds_dir.resolve().parents[1] / "maps"
         terrain_dir = worlds_dir.resolve().parents[1] / "terrain"
+    return maps_dir, terrain_dir
+
+
+def _write_map_and_terrain(maps_dir: Path, terrain_dir: Path, world_id: str) -> None:
+    maps_dir.mkdir(parents=True, exist_ok=True)
+    terrain_dir.mkdir(parents=True, exist_ok=True)
+    _write(maps_dir / f"{world_id}.geojson", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "type": "FeatureCollection", "features": [{"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [[[ORIGIN_LON - 0.002, ORIGIN_LAT - 0.002], [ORIGIN_LON + 0.002, ORIGIN_LAT - 0.002], [ORIGIN_LON + 0.002, ORIGIN_LAT + 0.002], [ORIGIN_LON - 0.002, ORIGIN_LAT + 0.002], [ORIGIN_LON - 0.002, ORIGIN_LAT - 0.002]]]}}]})
+    _write(terrain_dir / f"{world_id}.dem.json", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "vertical_datum": "MSL", "origin": {"latitude_deg": ORIGIN_LAT, "longitude_deg": ORIGIN_LON, "elevation_m": 18.0}, "north_origin_m": -200.0, "east_origin_m": -200.0, "north_spacing_m": 100.0, "east_spacing_m": 100.0, "elevation_m": [[18.0] * 5 for _ in range(5)], "vertical_sigma_m": 0.4, "slope_sigma_m_per_m": 0.002})
+
+
+def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0) -> dict[str, Any]:
+    """Generate ``count`` worlds and return the deterministic index document."""
+    if count < 1 or seed < 0 or real_time_factor <= 0:
+        raise ValueError("count/seed must be non-negative (count > 0), and real_time_factor > 0")
+    if len(split_ratios) != 3 or any(r < 0 for r in split_ratios) or not math.isclose(sum(split_ratios), 1.0, abs_tol=1e-9):
+        raise ValueError("split_ratios must be three non-negative values summing to 1")
+    worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
+    maps_dir, terrain_dir = _map_terrain_dirs(worlds_dir)
     rng = random.Random(seed)
     entries: list[dict[str, Any]] = []
     for index in range(count):
@@ -203,11 +217,129 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
         scenario_path = scenarios_dir / f"{world_id}.scenario.json"
         scenario_hash = _write(scenario_path, scenario)
         entries.append({"world_id": world_id, "split": split, "seed": seed + index, "task_text": TASK_TEMPLATES[index % len(TASK_TEMPLATES)].format(color=target_color_cn, kind=target_kind_cn), "world_file": world_path.name, "files": {"world": {"path": world_path.name, "sha256": hashlib.sha256(world_path.read_bytes()).hexdigest()}, "scenario": {"path": scenario_path.name, "sha256": scenario_hash}, "runtime": {"path": runtime_path.name, "sha256": runtime_hash}, "truth": {"path": truth_path.name, "sha256": truth_hash}, "expectations": {"path": expectations_path.name, "sha256": expectations_hash}}, "true_target_id": objects[0].object_id, "target_pose": {"x_east_m": objects[0].x, "y_north_m": objects[0].y, "z_up_m": objects[0].z, "yaw_rad": objects[0].yaw}})
-        maps_dir.mkdir(parents=True, exist_ok=True)
-        terrain_dir.mkdir(parents=True, exist_ok=True)
-        _write(maps_dir / f"{world_id}.geojson", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "type": "FeatureCollection", "features": [{"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [[[ORIGIN_LON - 0.002, ORIGIN_LAT - 0.002], [ORIGIN_LON + 0.002, ORIGIN_LAT - 0.002], [ORIGIN_LON + 0.002, ORIGIN_LAT + 0.002], [ORIGIN_LON - 0.002, ORIGIN_LAT + 0.002], [ORIGIN_LON - 0.002, ORIGIN_LAT - 0.002]]]}}]})
-        _write(terrain_dir / f"{world_id}.dem.json", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "vertical_datum": "MSL", "origin": {"latitude_deg": ORIGIN_LAT, "longitude_deg": ORIGIN_LON, "elevation_m": 18.0}, "north_origin_m": -200.0, "east_origin_m": -200.0, "north_spacing_m": 100.0, "east_spacing_m": 100.0, "elevation_m": [[18.0] * 5 for _ in range(5)], "vertical_sigma_m": 0.4, "slope_sigma_m_per_m": 0.002})
+        _write_map_and_terrain(maps_dir, terrain_dir, world_id)
     index_doc = {"schema_version": 1, "generator": "multidetect.simulator.world_gen", "seed": seed, "count": count, "split_ratios": list(split_ratios), "real_time_factor": real_time_factor, "worlds": entries}
     _write(scenarios_dir / "index.json", index_doc)
     return index_doc
+
+
+def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
+                         split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15),
+                         out_worlds: str | Path = "simulation/gazebo/worlds",
+                         out_scenarios: str | Path = "configs/scenarios/generated-v2",
+                         real_time_factor: float = 1.0,
+                         catalog_path: str | Path = "configs/sim-assets/fuel-catalog.json",
+                         resolved_root: str | Path = "artifacts/cache/gz-fuel/resolved") -> dict[str, Any]:
+    """Generate realistic offline Fuel model worlds while preserving box mode."""
+    catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
+    assets = list(catalog.get("assets", []))
+    eligible = [a for a in assets if "target" in a.get("role_eligibility", [])]
+    scenery = [a for a in assets if "scenery-obstacle" in a.get("role_eligibility", [])]
+    asset_by_slug = {a["slug"]: a for a in assets}
+    if not eligible or not scenery:
+        raise ValueError("fuel catalog has no eligible assets")
+    rng = random.Random(seed); worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
+    worlds_dir.mkdir(parents=True, exist_ok=True); scenarios_dir.mkdir(parents=True, exist_ok=True)
+    entries = []; target_combos = []
+    train_target_slugs = [a["slug"] for a in eligible[: max(1, len(eligible) - 6)]]
+    test_pool = [a for a in eligible if a["slug"] not in train_target_slugs] or eligible
+    zh_words = {"car": "\u8f7f\u8f66", "suv": "SUV", "pickup": "\u76ae\u5361", "ambulance": "\u6551\u62a4\u8f66", "fire_truck": "\u6d88\u9632\u8f66", "bus": "\u516c\u4ea4\u8f66", "person": "\u884c\u4eba", "traffic_cone": "\u4ea4\u901a\u9525", "barrel": "\u8def\u969c\u6876", "jersey_barrier": "\u9694\u79bb\u58a9", "fire_hydrant": "\u6d88\u9632\u6813", "dumpster": "\u5783\u573e\u7bb1", "electrical_box": "\u7535\u7bb1", "mailbox": "\u90ae\u7bb1", "postbox": "\u90ae\u7b52", "cardboard_box": "\u7eb8\u7bb1", "backpack": "\u80cc\u5305", "stop_sign": "\u505c\u6b62\u6807\u5fd7"}
+    def inline_asset(slug: str, object_id: str, x: float, y: float, yaw: float, bottom_z: float) -> str:
+        source = Path(resolved_root) / slug / "model.sdf"
+        root = ET.fromstring(source.read_text(encoding="utf-8-sig").lstrip())
+        model = root.find("model")
+        if model is None and root.find("actor") is not None:
+            actor = root.find("actor")
+            filename = actor.findtext("skin/filename", "")
+            size = asset_by_slug[slug]["measured_size_m"]
+            model = ET.fromstring(
+                f'<model name="{object_id}"><static>true</static><link name="link">'
+                f'<collision name="collision"><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry></collision>'
+                f'<visual name="visual"><geometry><mesh><uri>model://{slug}/{filename}</uri></mesh></geometry></visual>'
+                f'</link></model>'
+            )
+        if model is None:
+            raise ValueError(f"asset {slug} has no model or actor element")
+        if model.findall(".//include"):
+            raise ValueError(f"asset {slug} contains nested include")
+        model = ET.fromstring(ET.tostring(model, encoding="unicode"))
+        model.set("name", "mesh")
+        # The outer model is placed at the measured bbox centre (truth x/y/z),
+        # and its first collision is that box so load_sdf_obstacles and the
+        # depth teacher see real footprints; the mesh is nested with the
+        # inverse offset so its bottom rests on the ground.
+        lo, hi = asset_by_slug[slug]["bbox_min_m"], asset_by_slug[slug]["bbox_max_m"]
+        size = [h - lo_ for lo_, h in zip(lo, hi)]
+        cx, cy = (lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0
+        pose = model.find("pose")
+        if pose is None:
+            pose = ET.Element("pose")
+            model.insert(0, pose)
+        pose.text = f"{-cx:.6f} {-cy:.6f} {-lo[2] - size[2] / 2.0:.6f} 0 0 0"
+        if model.find("static") is None:
+            model.insert(1, ET.fromstring("<static>true</static>"))
+        outer = ET.fromstring(
+            f'<model name="{object_id}"><static>true</static>'
+            f'<pose>{x:.3f} {y:.3f} {size[2] / 2.0:.6f} 0 0 {yaw:.6f}</pose>'
+            f'<link name="bounds"><collision name="bounds_collision"><geometry><box>'
+            f'<size>{size[0]:.4f} {size[1]:.4f} {size[2]:.4f}</size></box></geometry></collision></link>'
+            f'</model>'
+        )
+        outer.append(model)
+        for uri in model.iter("uri"):
+            value = (uri.text or "").strip()
+            if value.startswith("model://"):
+                relative = value.split("/", 3)[-1] if value.count("/") >= 3 else ""
+                uri.text = f"model://{slug}/{relative}" if relative else f"model://{slug}"
+            elif value and not value.startswith(("file://", "http://", "https://")):
+                uri.text = f"model://{slug}/{value.lstrip('./')}"
+            elif value.startswith("http://") or value.startswith("https://"):
+                raise ValueError(f"asset {slug} contains network URI")
+        return ET.tostring(outer, encoding="unicode")
+    def pose_point(used: list[tuple[float, float, float]], radius: float) -> tuple[float, float]:
+        for _ in range(1000):
+            angle, distance = rng.uniform(-math.pi, math.pi), rng.uniform(24.0, 120.0)
+            x, y = math.cos(angle) * distance, math.sin(angle) * distance
+            if all(math.hypot(x - ox, y - oy) > radius + rr + 4 for ox, oy, rr in used):
+                used.append((x, y, radius)); return x, y
+        raise RuntimeError("unable to place fuel asset")
+    for i in range(count):
+        world_id = f"gen_v2_w{i:04d}"; split = _split(i, count, split_ratios); used=[(0,0,8)]
+        train_pool = [a for a in eligible if a["slug"] in train_target_slugs] or eligible
+        pool = test_pool if split == "test" else train_pool
+        target = pool[(i * 7 + (11 if split == "test" else 0)) % len(pool)]
+        target_combos.append({"category": target["category"], "color": target.get("color"), "slug": target["slug"], "split": split})
+        objects=[]
+        tx,ty=pose_point(used, max(target["measured_size_m"][:2])/2)
+        objects.append(("target_true_"+world_id, target, tx, ty, rng.uniform(-math.pi, math.pi), True))
+        same_category = [a for a in eligible if a["slug"] != target["slug"] and a["category"] == target["category"]]
+        distractor_pool = same_category + [a for a in eligible if a["slug"] != target["slug"] and a not in same_category]
+        for j in range(rng.randint(2,5)):
+            asset = distractor_pool[(i+j*3)%len(distractor_pool)]; x,y=pose_point(used,max(asset["measured_size_m"][:2])/2)
+            objects.append((f"distractor_{i:04d}_{j:02d}",asset,x,y,rng.uniform(-math.pi,math.pi),False))
+        models=[]
+        for j,asset in enumerate(rng.sample(scenery, min(len(scenery), rng.randint(3,6)))):
+            x,y=pose_point(used,max(asset["measured_size_m"][:2])/2+2); models.append(inline_asset(asset["slug"], f"obstacle_{j:02d}", x, y, rng.uniform(-math.pi,math.pi), asset["mesh_origin_offset_m"]["z_bottom"]))
+        for oid,asset,x,y,yaw,is_target in objects:
+            z=asset["mesh_origin_offset_m"]["z_bottom"]; models.append(inline_asset(asset["slug"], oid, x, y, yaw, z))
+        sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
+        world_path=worlds_dir/f"{world_id}.sdf"
+        sdf=sdf.replace("<gravity>0 0 -9.80665</gravity>", f"<gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>{ORIGIN_LAT}</latitude_deg><longitude_deg>{ORIGIN_LON}</longitude_deg><elevation>18</elevation></spherical_coordinates>")
+        world_path.write_text(sdf,encoding="utf-8",newline="\n")
+        _write_map_and_terrain(*_map_terrain_dirs(worlds_dir), world_id)
+        target_rows=[]
+        for oid,a,x,y,yaw,is_target in objects:
+            height = float(a["measured_size_m"][2]); center_height = height / 2.0
+            lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target})
+        runtime={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"seed":seed+i,"world":{"world_asset":f"builtin://gazebo/{world_id}","map_asset":f"builtin://maps/{world_id}.geojson","dem_asset":f"builtin://terrain/{world_id}.dem.json","wind_north_mps":0.0,"wind_east_mps":0.0,"gust_mps":0.0},"vehicle":{"model":"px4_multirotor_standard","airframe_profile_id":"px4_multirotor_gazebo_v1","spawn_id":f"{world_id}_home","spawn_pose":{"x_east_m":0.0,"y_north_m":0.0,"z_up_m":0.2,"roll_rad":0.0,"pitch_rad":0.0,"yaw_rad":0.0}},"sensors":[{"sensor_id":"front-camera","kind":"rgb_camera","stream_uri":f"gazebo://{world_id}/front-camera","calibration_id":"gazebo-multirotor-front-camera-v1"},{"sensor_id":"downward-depth","kind":"depth_camera","stream_uri":f"gazebo://{world_id}/downward-depth","calibration_id":"gazebo-multirotor-depth-v1"},{"sensor_id":"px4-telemetry","kind":"mavlink_telemetry","stream_uri":"udp://127.0.0.1:14541"}],"faults":[]}
+        truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}; expectations={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"allowed_terminal_states":["completed","safe_rtl"],"maximum_geofence_violations":0,"maximum_false_geolocations":0,"maximum_unauthorized_commands":0}
+        for suffix,data in (("runtime_input",runtime),("truth",truth),("expectations",expectations)):
+            _write(scenarios_dir/f"{world_id}.{suffix}.json",data)
+        scenario={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"channels":{k:{"path":f"{world_id}.{k}.json","sha256":canonical_sha256(v)} for k,v in (("runtime_input",runtime),("truth",truth),("expectations",expectations))}}
+        _write(scenarios_dir/f"{world_id}.scenario.json",scenario)
+        color_cn = {"red": "红色", "blue": "蓝色", "white": "白色", "orange": "橙色", "brown": "棕色"}.get(target.get("color"), "")
+        category_cn = zh_words.get(target["category"], target["semantic_words"][0])
+        task_text = f"找到{color_cn}{category_cn}并记录位置"
+        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":f"Find the {target.get('color') or ''} {' '.join(target['semantic_words'][:2])}".replace('  ',' ').strip(),"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
+    doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
 

@@ -24,6 +24,27 @@ directory in `GZ_SIM_RESOURCE_PATH`; PX4 starts Gazebo with
 The same planner mounts the repository model directory and sets
 `PX4_GZ_MODELS`, so generated primitive worlds remain Fuel-free.
 
+## Realistic Fuel worlds (`fuel_v1`)
+
+Use the versioned mode for realistic OpenRobotics models:
+
+```powershell
+python scripts/generate_sim_worlds.py --asset-mode fuel_v1 --count 40 --seed 20261011 `
+  --out-worlds simulation/gazebo/worlds --out-scenarios configs/scenarios/generated-v2
+```
+
+`configs/sim-assets/fuel-catalog.json` catalogs all 39 local CC0-1.0 assets,
+including their Fuel source URL (`https://fuel.gazebosim.org/1.0/OpenRobotics/models/<Name>`),
+semantic words, role eligibility, intrinsic color, measured mesh bounds, and
+bottom offset. `python scripts/build_sim_asset_catalog.py` rebuilds the catalog
+and creates `artifacts/cache/gz-fuel/resolved/<slug>/` with rewritten local
+`model://<slug>/...` URIs. The Docker planner mounts this tree read-only and
+prepends it to `GZ_SIM_RESOURCE_PATH`, so simulation never fetches assets.
+
+The v2 index preserves the 28/6/6 train/validation/test proportions. Targets
+and distractors use different subtypes or attributes, and test entries record
+held-out target combinations for open-vocabulary generalization.
+
 Each world has one true target and zero to four distractors, static collision
 geometry, a five-metre takeoff pad, a clear corridor around the origin, and
 objects placed within a 150 m search radius.  The scenario directory contains

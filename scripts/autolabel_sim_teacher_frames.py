@@ -26,7 +26,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
+from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
+from multidetect.simulator.camera_projection import (  # noqa: E402
+    project_target_bbox,
+    visible_fraction,
+)
 
 
 def _finite(value: object) -> float | None:
@@ -98,6 +102,33 @@ def _target_yaw(truth: dict[str, Any]) -> float:
     return 0.0 if yaw is None else yaw
 
 
+def _target_record(truth: dict[str, Any]) -> dict[str, Any]:
+    targets = truth.get("targets")
+    if not isinstance(targets, list) or not targets or not isinstance(targets[0], dict):
+        raise ValueError("truth must contain a nonempty targets list")
+    return targets[0]
+
+
+def _target_geometry(
+    truth: dict[str, Any], default_size: tuple[float, float, float]
+) -> tuple[tuple[float, float, float], float, float | None]:
+    target = _target_record(truth)
+    raw_size = target.get("size_m", target.get("measured_size_m"))
+    try:
+        size = tuple(float(value) for value in raw_size) if raw_size is not None else default_size
+    except (TypeError, ValueError):
+        size = default_size
+    if len(size) != 3 or any(value <= 0.0 or not math.isfinite(value) for value in size):
+        size = default_size
+    pose = target.get("pose")
+    pose = pose if isinstance(pose, dict) else {}
+    yaw = _finite(pose.get("yaw_rad"))
+    offset = _finite(
+        target.get("bottom_offset_m", target.get("mesh_bottom_offset_m", target.get("origin_bottom_z_m")))
+    )
+    return size, 0.0 if yaw is None else yaw, offset
+
+
 def _label_line(
     class_id: int, bbox: tuple[float, float, float, float], image_size: tuple[int, int]
 ) -> str:
@@ -121,9 +152,11 @@ def autolabel_episode(
     target_size_m: tuple[float, float, float] = (3.0, 1.8, 1.5),
     visual_directory: Path | None = None,
     overwrite: bool = True,
+    world_sdf: Path | None = None,
+    min_visible_fraction: float = 0.3,
 ) -> int:
     target = _target_pose(truth, origin=origin)
-    target_yaw = _target_yaw(truth)
+    target_size_m, target_yaw, target_bottom_offset_m = _target_geometry(truth, target_size_m)
     steps = []
     with (episode / "steps.jsonl").open("r", encoding="utf-8") as stream:
         steps = [json.loads(line) for line in stream if line.strip()]
@@ -132,7 +165,16 @@ def autolabel_episode(
     output.mkdir(parents=True, exist_ok=True)
     if visual_directory is not None:
         visual_directory.mkdir(parents=True, exist_ok=True)
+    if min_visible_fraction < 0.0 or min_visible_fraction > 1.0:
+        raise ValueError("min_visible_fraction must be in [0, 1]")
+    if world_sdf is None:
+        scenario = str(truth.get("scenario_id", ""))
+        candidate = ROOT / "simulation/gazebo/worlds" / f"{scenario}.sdf"
+        world_sdf = candidate if candidate.is_file() else None
+    obstacles = load_sdf_obstacles(world_sdf) if world_sdf is not None else ()
     count = 0
+    dropped_occluded = 0
+    label_metadata: list[dict[str, Any]] = []
     for step in steps:
         if not isinstance(step, dict):
             continue
@@ -152,11 +194,32 @@ def autolabel_episode(
                 image_size=(width, height),
                 target_size_m=target_size_m,
                 target_yaw_rad=target_yaw,
+                target_bottom_offset_m=target_bottom_offset_m,
             )
+            fraction = visible_fraction(
+                pose=observation,
+                target_ned=target,
+                target_size_m=target_size_m,
+                target_yaw_rad=target_yaw,
+                obstacles=obstacles,
+                target_bottom_offset_m=target_bottom_offset_m,
+            )
+            occluded = min_visible_fraction > 0.0 and fraction < min_visible_fraction
+            if occluded:
+                dropped_occluded += 1
+                bbox = None
             name = f"{int(step.get('step_index', count)):06d}_{observation_name}"
             label_path = output / f"{name}.txt"
             encoded = "" if bbox is None else _label_line(class_id, bbox, (width, height)) + "\n"
             label_path.write_text(encoded, encoding="utf-8", newline="\n")
+            label_metadata.append(
+                {
+                    "file": label_path.name,
+                    "visible_fraction": fraction,
+                    "occluded": occluded,
+                    "has_label": bbox is not None,
+                }
+            )
             if visual_directory is not None:
                 canvas = image.copy()
                 if bbox is not None:
@@ -164,6 +227,12 @@ def autolabel_episode(
                     cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.imwrite(str(visual_directory / f"{name}.png"), canvas)
             count += 1
+    (output / "manifest.json").write_text(
+        json.dumps({"frames": count, "labels": sum(bool(item["has_label"]) for item in label_metadata),
+                    "dropped_occluded": dropped_occluded, "min_visible_fraction": min_visible_fraction,
+                    "labels_metadata": label_metadata}, indent=2) + "\n",
+        encoding="utf-8", newline="\n",
+    )
     return count
 
 
@@ -189,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         default=(1.352100, 103.819800, 18.0),
     )
     parser.add_argument("--visual-directory", type=Path)
+    parser.add_argument("--world-sdf", type=Path)
+    parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     parser.add_argument("--no-overwrite", action="store_true")
     args = parser.parse_args(argv)
     count = autolabel_episode(
@@ -200,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         target_size_m=tuple(args.target_size_m),
         visual_directory=args.visual_directory,
         overwrite=not args.no_overwrite,
+        world_sdf=args.world_sdf,
+        min_visible_fraction=args.min_visible_fraction,
     )
     print(
         json.dumps(

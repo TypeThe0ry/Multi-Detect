@@ -1,0 +1,115 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_v2_w0018",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": 73.721,
+        "y_north_m": -1.831,
+        "yaw_rad": 2.663497,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35208353,
+        "longitude_deg": 103.82046243
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "target_true_gen_v2_w0018",
+      "true_target": true
+    },
+    {
+      "asset_slug": "stop_sign",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.908798,
+      "category_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "class": "stop_sign",
+      "color": "red",
+      "label": "stop sign road sign",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "pose": {
+        "x_east_m": 88.111,
+        "y_north_m": -43.799,
+        "yaw_rad": 2.886727,
+        "z_up_m": 0.909
+      },
+      "position": {
+        "altitude_m": 0.909,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35170589,
+        "longitude_deg": 103.82059173
+      },
+      "size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "target_id": "distractor_0018_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": 118.884,
+        "y_north_m": 11.547,
+        "yaw_rad": -2.43781,
+        "z_up_m": 1.447
+      },
+      "position": {
+        "altitude_m": 1.447,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35220391,
+        "longitude_deg": 103.82086824
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "distractor_0018_01",
+      "true_target": false
+    }
+  ]
+}
