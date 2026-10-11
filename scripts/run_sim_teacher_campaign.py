@@ -263,6 +263,7 @@ def run_campaign(
     max_episode_s: float = 300.0,
     max_retries: int = 1,
     takeoff_altitude_m: float | None = None,
+    collector_args: Sequence[str] = (),
     command_runner: CommandRunner = subprocess.run,
     cleanup: CleanupRunner | None = None,
     clock: Clock = time.monotonic,
@@ -376,6 +377,8 @@ def run_campaign(
                 ]
                 if takeoff_altitude_m is not None:
                     command.extend(["--takeoff-altitude-m", str(takeoff_altitude_m)])
+                # Extra collector flags (e.g. --rgb-size 1280x960) passed through verbatim.
+                command.extend(str(arg) for arg in collector_args)
                 try:
                     result = run(
                         command,
@@ -527,6 +530,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-episode-s", type=float, default=300.0)
     parser.add_argument("--max-retries", type=int, default=1)
     parser.add_argument("--takeoff-altitude-m", type=float, default=None)
+    parser.add_argument(
+        "--collector-arg",
+        action="append",
+        default=[],
+        help="extra argument passed verbatim to the collector (repeatable)",
+    )
     return parser
 
 
@@ -543,6 +552,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         max_episode_s=args.max_episode_s,
         max_retries=args.max_retries,
         takeoff_altitude_m=args.takeoff_altitude_m,
+        collector_args=args.collector_arg,
     )
     print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
     return 1 if result["summary"]["counts"].get("failed", 0) else 0
