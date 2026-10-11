@@ -31,6 +31,15 @@ from .perception_bridge import (
 from .rollout import EpisodeMetrics, RolloutConfig, rollout_episode, run_rollout
 from .search_memory import SearchMemoryGrid, SearchMemorySnapshot
 from .state_builder import StateBuilderInput, StructuredSceneStateBuilder
+from .vlm_grounding import (
+    AttributeGroundingResult,
+    AttributeGrounder,
+    TaskSpecResolver,
+    VlmGroundingError,
+    VlmOutputError,
+    VlmTimeoutError,
+    deterministic_task_spec,
+)
 
 __all__ = [
     "PolicyAction",
@@ -63,4 +72,11 @@ __all__ = [
     "RolloutConfig",
     "rollout_episode",
     "run_rollout",
+    "AttributeGroundingResult",
+    "AttributeGrounder",
+    "TaskSpecResolver",
+    "VlmGroundingError",
+    "VlmOutputError",
+    "VlmTimeoutError",
+    "deterministic_task_spec",
 ]
