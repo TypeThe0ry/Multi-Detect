@@ -104,3 +104,5 @@ C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe scripts/bench_
 本文件的接口是机载双系统的设计与基准契约；任何模型、engine 或策略的晋升都需要独立的目标机测量、安全准入和真实执行证据。
 
 CPU schema validator 位于 [`onboard_decision.py`](../src/multidetect/autonomy/onboard_decision.py)，覆盖未知字段、重复键、非有限数、参数约束、track／region 前置条件和 20 词 `reason` 限制的测试位于 [`test_onboard_decision.py`](../tests/test_onboard_decision.py)。
+多用途任务计划与 skill 库的扩展设计见 [onboard-multipurpose-mission-design.md](onboard-multipurpose-mission-design.md)。
+
