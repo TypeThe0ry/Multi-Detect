@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision
-from scripts.slow_system_runtime import ROOT, chat_messages, load_jsonl
+from scripts.slow_system_runtime import ROOT, chat_messages, dataset_crop_policy, load_jsonl
 from scripts.train_onboard_vlm_grounding import causal_response_loss, response_only_labels
 
 DEFAULT_CACHE = ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
@@ -46,6 +46,8 @@ class TrainOptions:
     max_side: int = 448
     quantization: str = "auto"
     vision_projector: bool = False
+    crop_policy: str = "none"
+    balance: bool = False
 
     def validate(self) -> None:
         for name in ("epochs", "accumulation", "rank", "alpha", "max_input_tokens", "max_new_tokens", "checkpoint_every", "max_side"):
@@ -112,10 +114,10 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
     return rows, _input_hash(rows)
 
 
-def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: int):
+def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: int, crop_policy: str | None = None):
     import torch
 
-    messages = chat_messages(row, max_side)
+    messages = chat_messages(row, max_side, crop_policy)
     common = {"tokenize": True, "return_dict": True, "return_tensors": "pt"}
     prefix = processor.apply_chat_template(messages, add_generation_prompt=True, **common)
     answer = json.dumps(row["assistant_target"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -134,6 +136,24 @@ def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: in
     }
     labels = response_only_labels(ids, prefix_ids, full["attention_mask"][0].tolist(), image_tokens)
     return full, torch.tensor([labels], dtype=torch.long), len(ids) - len(prefix_ids)
+
+
+def balance_rows(rows: list[dict], *, seed: int) -> list[dict]:
+    """Deterministically oversample decision classes to no more than 2:1."""
+    names = ("confirm_target", "approach_track", "reject_track")
+    groups = {name: [row for row in rows if row["assistant_target"]["decision"] == name] for name in names}
+    present = [group for group in groups.values() if group]
+    if not present:
+        return list(rows)
+    target = max(len(group) for group in present)
+    rng = random.Random(seed)
+    result = [row for row in rows if row["assistant_target"]["decision"] not in names]
+    for name in names:
+        group = groups[name]
+        if group:
+            result.extend(group)
+            result.extend(group[rng.randrange(len(group))] for _ in range(target - len(group)))
+    return result
 
 
 def make_backend(snapshot: Path, options: TrainOptions):
@@ -206,6 +226,10 @@ def run(args, *, backend_factory=make_backend) -> dict:
     )
     options.validate()
     rows, dataset_sha256 = admit_train_rows(args.dataset)
+    crop_policy = dataset_crop_policy(args.dataset, getattr(args, "crop_policy", None))
+    balanced = bool(getattr(args, "balance", False))
+    if balanced:
+        rows = balance_rows(rows, seed=args.seed)
     snapshot = local_snapshot(args.model)
     output = args.output.resolve()
     if output.exists() and not args.resume:
@@ -216,7 +240,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
     torch, model, processor, targets, quantization = backend_factory(snapshot, options)
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=options.learning_rate)
     state = {"epoch": 0, "cursor": 0, "optimizer_steps": 0, "dataset_sha256": dataset_sha256,
-             "options": asdict(options), "snapshot": str(snapshot)}
+             "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "snapshot": str(snapshot)}
     if args.resume:
         prior = json.loads((output / "checkpoint/state.json").read_text(encoding="utf-8"))
         if any(prior[key] != state[key] for key in ("dataset_sha256", "options", "snapshot")):
@@ -242,7 +266,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
                     sample = rows[index]
                     full, labels, response_tokens = encode_response(
                         processor, sample, max_side=options.max_side,
-                        max_input_tokens=options.max_input_tokens,
+                        max_input_tokens=options.max_input_tokens, crop_policy=crop_policy,
                     )
                     inputs = {name: tensor.to("cuda:0") for name, tensor in full.items()}
                     labels = labels.to("cuda:0")
@@ -280,7 +304,11 @@ def run(args, *, backend_factory=make_backend) -> dict:
     report = {
         "schema_version": 1, "dataset_sha256": dataset_sha256, "train_samples": len(rows),
         "train_worlds": len({row["world"] for row in rows}), "snapshot": str(snapshot),
-        "options": asdict(options), "quantization": quantization,
+        "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "quantization": quantization,
+        "optimizer_stream_decision_counts": {
+            name: sum(row["assistant_target"]["decision"] == name for row in rows)
+            for name in ("confirm_target", "approach_track", "reject_track")
+        },
         "target_modules": targets, "optimizer_steps": state["optimizer_steps"],
         "completed": completed, "elapsed_s_this_run": round(time.perf_counter() - started, 3),
         "mean_loss_this_run": sum(losses) / len(losses) if losses else None,
@@ -310,6 +338,8 @@ def main(argv=None) -> int:
     parser.add_argument("--max-side", type=int, default=448)
     parser.add_argument("--quantization", choices=("auto", "4bit", "bf16"), default="auto")
     parser.add_argument("--vision-projector", action="store_true")
+    parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
+    parser.add_argument("--balance", action="store_true")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
     print(json.dumps(run(args), indent=2, sort_keys=True))

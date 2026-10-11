@@ -10,20 +10,29 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from multidetect.autonomy.onboard_decision import DECISION_JSON_SCHEMA, parse_onboard_decision
-from scripts.slow_system_runtime import ROOT, chat_messages, image_jpeg_bytes, load_jsonl, prompt_for_row
+from scripts.slow_system_runtime import (
+    ROOT,
+    chat_messages,
+    dataset_crop_policy,
+    image_jpeg_bytes_list,
+    load_jsonl,
+    prompt_for_row,
+    trained_key_order_schema,
+)
 from scripts.train_slow_system_lora import local_snapshot
 
 DEFAULT_DATASET = ROOT / "artifacts/datasets/slow-system-sft-r1"
@@ -119,14 +128,14 @@ def evaluate_predictor(rows: list[dict[str, Any]], predictor: Callable[[dict[str
 
 
 class HFRunner:
-    def __init__(self, model_path: Path, adapter: Path | None, *, device: str = "cuda:0", max_side: int = 448, max_new_tokens: int = 128):
+    def __init__(self, model_path: Path, adapter: Path | None, *, device: str = "cuda:0", max_side: int = 448, max_new_tokens: int = 128, crop_policy: str = "none"):
         import torch
         import transformers
 
         if device.startswith("cuda") and not torch.cuda.is_available():
             raise RuntimeError("HF evaluation requested CUDA but CUDA is unavailable")
         snapshot = local_snapshot(model_path)
-        self.torch, self.max_new_tokens, self.max_side = torch, max_new_tokens, max_side
+        self.torch, self.max_new_tokens, self.max_side, self.crop_policy = torch, max_new_tokens, max_side, crop_policy
         self.processor = transformers.AutoProcessor.from_pretrained(str(snapshot), local_files_only=True, trust_remote_code=False, max_pixels=max_side * max_side)
         self.model = transformers.Qwen3VLForConditionalGeneration.from_pretrained(
             str(snapshot), local_files_only=True, trust_remote_code=False,
@@ -141,7 +150,7 @@ class HFRunner:
     def __call__(self, row: dict[str, Any]) -> tuple[str, float]:
         torch = self.torch
         inputs = self.processor.apply_chat_template(
-            chat_messages(row, self.max_side), tokenize=True, add_generation_prompt=True,
+            chat_messages(row, self.max_side, self.crop_policy), tokenize=True, add_generation_prompt=True,
             return_dict=True, return_tensors="pt",
         ).to(next(self.model.parameters()).device)
         started = time.perf_counter()
@@ -160,22 +169,28 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 
 
 class LlamaServerRunner:
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0"):
-        self.port, self.max_new_tokens = port, max_new_tokens
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448):
+        self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
         if device == "cpu":
             gpu_layers = "0"
         elif device.startswith("cuda"):
             gpu_layers = "all"
         else:
             raise ValueError("GGUF device must be cpu or cuda[:index]")
+        # llama-server runs with cwd=executable.parent, so relative paths must be resolved first.
+        executable, model, mmproj = Path(executable).resolve(), Path(model).resolve(), Path(mmproj).resolve()
+        adapter = Path(adapter).resolve() if adapter else None
         command = [str(executable), "-m", str(model), "-mm", str(mmproj), "-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"]
         if adapter:
             command.extend(["--lora", str(adapter)])
-        self.process = subprocess.Popen(command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
+        self.process = subprocess.Popen(command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=self.server_log)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
-                raise RuntimeError(f"llama-server exited with {self.process.returncode}")
+                self.server_log.flush()
+                tail = Path(self.server_log.name).read_text(encoding="utf-8", errors="replace")[-2000:]
+                raise RuntimeError(f"llama-server exited with {self.process.returncode}: {tail}")
             try:
                 if _http_json(f"http://127.0.0.1:{port}/health", timeout=2).get("status") == "ok":
                     return
@@ -186,11 +201,13 @@ class LlamaServerRunner:
         raise TimeoutError("llama-server did not become healthy")
 
     def __call__(self, row: dict[str, Any]) -> tuple[str, float]:
-        image = "data:image/jpeg;base64," + base64.b64encode(image_jpeg_bytes(row)).decode("ascii")
+        images = ["data:image/jpeg;base64," + base64.b64encode(value).decode("ascii") for value in image_jpeg_bytes_list(row, self.max_side, self.crop_policy)]
+        content = [{"type": "text", "text": prompt_for_row({**row, "_crop_policy": self.crop_policy})}]
+        content.extend({"type": "image_url", "image_url": {"url": value}} for value in images)
         body = {
             "model": "local", "temperature": 0, "max_tokens": self.max_new_tokens, "stream": False,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_for_row(row)}, {"type": "image_url", "image_url": {"url": image}}]}],
-            "response_format": {"type": "json_schema", "json_schema": {"name": "onboard_decision", "strict": True, "schema": DECISION_JSON_SCHEMA}},
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "onboard_decision", "strict": True, "schema": trained_key_order_schema(DECISION_JSON_SCHEMA)}},
         }
         started = time.perf_counter()
         response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
@@ -208,17 +225,20 @@ class LlamaServerRunner:
 
 def run(args) -> dict[str, Any]:
     rows = load_jsonl(args.dataset / "test.jsonl", split="test")
+    crop_policy = dataset_crop_policy(args.dataset, getattr(args, "crop_policy", None))
     if args.backend == "fake":
-        predictor = lambda row: (json.dumps(row["assistant_target"], separators=(",", ":")), 0.001)
+        def predictor(row):
+            return json.dumps(row["assistant_target"], separators=(",", ":")), 0.001
+
         return evaluate_predictor(rows, predictor)
     runner = None
     try:
         if args.backend == "hf":
-            runner = HFRunner(args.model, args.adapter, device=args.device, max_side=args.max_side, max_new_tokens=args.max_new_tokens)
+            runner = HFRunner(args.model, args.adapter, device=args.device, max_side=args.max_side, max_new_tokens=args.max_new_tokens, crop_policy=crop_policy)
         else:
             if not args.gguf_model or not args.mmproj:
                 raise ValueError("GGUF backend needs --gguf-model and --mmproj")
-            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device)
+            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side)
         return evaluate_predictor(rows, runner)
     finally:
         if isinstance(runner, LlamaServerRunner):
@@ -233,6 +253,7 @@ def main(argv=None) -> int:
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-side", type=int, default=448)
+    parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--gguf-model", type=Path)
     parser.add_argument("--mmproj", type=Path)

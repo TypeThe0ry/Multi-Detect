@@ -279,6 +279,13 @@ def run_model(model: YOLOE, rows: list[dict[str, Any]], *, text: bool, confidenc
     raw_labels: Counter = Counter()
     last_prompts: tuple[str, ...] | None = None
     names = model.names
+    # get_text_pe fails once the first half=True predict has fused the model to fp16,
+    # so every prompt set is encoded up front while the model is still fp32.
+    prompt_embeddings = (
+        {p: model.get_text_pe(list(p)) for p in {tuple(task_prompts(r["task_text"])) for r in rows}}
+        if text
+        else {}
+    )
     for index, row in enumerate(rows):
         image = cv2.imread(row["path"], cv2.IMREAD_COLOR)
         if image is None:
@@ -288,7 +295,8 @@ def run_model(model: YOLOE, rows: list[dict[str, Any]], *, text: bool, confidenc
             if prompts != last_prompts:
                 # YOLOE.set_classes rejects phrases containing spaces in 8.4.92.
                 # The underlying model accepts names such as "red vehicle".
-                embeddings = model.get_text_pe(list(prompts))
+                # After the first half=True predict the fused model is fp16; match it.
+                embeddings = prompt_embeddings[prompts].to(next(model.model.parameters()).dtype)
                 model.model.set_classes(list(prompts), embeddings)
                 if model.predictor:
                     model.predictor.model.names = model.model.names
@@ -376,7 +384,7 @@ def local_text_encoder_status() -> str | None:
     from ultralytics.utils import SETTINGS
 
     weight = "mobileclip_blt.ts"
-    if not Path(weight).is_file() and not (SETTINGS["weights_dir"] / weight).is_file():
+    if not Path(weight).is_file() and not (Path(SETTINGS["weights_dir"]) / weight).is_file():
         return "YOLOE-required MobileCLIP-BLT TorchScript encoder `mobileclip_blt.ts` is not local."
     return None
 

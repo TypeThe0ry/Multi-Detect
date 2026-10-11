@@ -5,6 +5,7 @@ Only task text, an RGB path, detector-like boxes, and short memory enter model
 inputs. Scenario truth and teacher labels are used solely in this offline builder.
 The original images are referenced in place; no image copies are written.
 """
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -27,7 +28,11 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision  # noqa: E402
-from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
+from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
+from multidetect.simulator.camera_projection import (  # noqa: E402
+    project_target_bbox,
+    visible_fraction,
+)
 from scripts.build_sim_detector_dataset import (  # noqa: E402
     CLASS_ALIASES,
     DEFAULT_SIZES,
@@ -129,31 +134,47 @@ def _normalized(box: tuple[float, float, float, float], width: int, height: int)
     return [round(value / (width if index % 2 == 0 else height), 4) for index, value in enumerate(box)]
 
 
-def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float, float]], width: int, height: int) -> list[dict]:
+def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float, float]], width: int, height: int, obstacles=(), min_visible_fraction: float = 0.3, stats: Counter | None = None) -> list[dict]:
     projected = []
     pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
     for target in targets:
         metric = target.get("pose") or {}
         cls = _target_class(target)
         try:
+            size = tuple(target.get("size_m") or sizes.get(str(target.get("target_id"))) or DEFAULT_SIZES.get(cls, (3.0, 1.8, 1.5)))
+            yaw = float(metric.get("yaw_rad", 0.0))
+            bottom_offset = target.get(
+                "bottom_offset_m",
+                target.get("mesh_bottom_offset_m", target.get("origin_bottom_z_m")),
+            )
             box = project_target_bbox(
                 target_ned=(float(metric["y_north_m"]), float(metric["x_east_m"]), float(metric["z_up_m"])),
                 pose=pose,
                 camera_info=obs.get("camera_info") or {},
                 image_size=(width, height),
-                target_size_m=tuple(target.get("size_m") or sizes.get(str(target.get("target_id"))) or DEFAULT_SIZES.get(cls, (3.0, 1.8, 1.5))),
-                target_yaw_rad=float(metric.get("yaw_rad", 0.0)),
+                target_size_m=size,
+                target_yaw_rad=yaw,
+                target_bottom_offset_m=float(bottom_offset) if bottom_offset is not None else None,
             )
         except (KeyError, TypeError, ValueError):
             continue
         if box is None or min(box[2] - box[0], box[3] - box[1]) < 8:
+            continue
+        fraction = visible_fraction(
+            pose=pose, target_ned=(float(metric["y_north_m"]), float(metric["x_east_m"]), float(metric["z_up_m"])),
+            target_size_m=size, target_yaw_rad=yaw, obstacles=obstacles,
+            target_bottom_offset_m=float(bottom_offset) if bottom_offset is not None else None,
+        )
+        if min_visible_fraction > 0.0 and fraction < min_visible_fraction:
+            if stats is not None:
+                stats["dropped_occluded"] += 1
             continue
         pos = (obs.get("pose") or {}).get("local_ned_m") or (0, 0, 0)
         distance = math.hypot(float(metric["y_north_m"]) - float(pos[0]), float(metric["x_east_m"]) - float(pos[1]))
         color = _target_color(target)
         if color is None and cls == "inspection_marker":
             color = "orange"
-        projected.append({"target": target, "box": box, "class": cls, "color": color, "range_m": distance})
+        projected.append({"target": target, "box": box, "class": cls, "color": color, "range_m": distance, "visible_fraction": fraction})
     return projected
 
 
@@ -172,6 +193,7 @@ def _row(
     size: tuple[int, int], target: dict, kind: str, campaign: str, label_type: str,
     candidate_boxes: list[tuple[float, float, float, float]] | None = None,
     focus_index: int | None = None,
+    visible_fraction: float | None = None,
 ) -> dict:
     boxes = candidate_boxes if candidate_boxes is not None else ([] if box is None else [box])
     candidates = [
@@ -189,14 +211,21 @@ def _row(
         "image_path": _relative(frame),
         "task_text": task_text,
         "candidates": candidates,
+        # The track the host asks about (from the FAST event that triggered the
+        # call); chosen per candidate, never from the label.
+        "focus_track_id": (
+            f"track-{focus_index + 1}" if focus_index is not None
+            else (candidates[0]["track_id"] if len(candidates) == 1 else None)
+        ),
         "memory": "No prior confirmed target; search in progress.",
         "assistant_target": target,
         "campaign": campaign,
         "label_type": label_type,
+        "visible_fraction": visible_fraction,
     }
 
 
-def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int):
+def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3):
     seen: dict[str, list[int]] = defaultdict(list)
     stats = Counter()
     for campaign in campaign_roots:
@@ -204,21 +233,22 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
             ep = metadata.parent
             if _json(metadata).get("status") != "complete":
                 continue
-            world = next((part for part in ep.parts if part.startswith("gen_w")), None)
+            world = next((part for part in ep.parts if part.startswith("gen_")), None)
             urban = any(part.startswith("urban_inspection_multirotor_001") for part in ep.parts)
             if urban and world is None:
                 world = "urban_inspection_multirotor_001"
             if world is None or (not urban and world not in world_splits):
                 continue
             split = "train" if urban else world_splits[world]
-            truth_path = ROOT / "configs/scenarios/generated" / f"{world}.truth.json"
-            sdf_path = (ROOT / "simulation/gazebo/worlds" / f"{world}.sdf") if urban else (ROOT / "configs/scenarios/generated" / f"{world}.sdf")
+            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
+            sdf_path = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
             if not urban and not truth_path.is_file():
                 continue
             targets = _urban_target(world, sdf_path) if urban else _json(truth_path).get("targets", [])
             if not targets:
                 continue
             sizes = _sdf_sizes(sdf_path)
+            obstacles = load_sdf_obstacles(sdf_path)
             steps = ep / "steps.jsonl"
             source_hashes[_relative(steps)] = _sha(steps)
             source_hashes[_relative(metadata)] = _sha(metadata)
@@ -255,19 +285,23 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                         continue
                     seen[world].append(signature)
                     source_hashes[_relative(frame)] = _sha(frame)
-                    projected = _project(obs, targets, sizes, width, height)
+                    projected = _project(obs, targets, sizes, width, height, obstacles, min_visible_fraction=min_visible_fraction, stats=stats)
                     stats["eligible_frames"] += 1
                     yield campaign.name, world, split, frame, (width, height), slug, projected, step, side, stats
 
 
 def build_dataset(
     campaigns: list[Path], output: Path, *, index: Path, seed: int = 20261011,
-    negative_ratio: float = 1.5,
+    negative_ratio: float = 1.5, crop_policy: str = "candidate_zoom_v2", min_visible_fraction: float = 0.3,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
     if negative_ratio <= 0 or not math.isfinite(negative_ratio):
         raise ValueError("negative_ratio must be finite and positive")
+    if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
+        raise ValueError("unsupported crop_policy")
+    if not 0.0 <= float(min_visible_fraction) <= 1.0:
+        raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
     world_splits = {str(w["world_id"]): str(w["split"]) for w in index_document["worlds"]}
     if set(world_splits.values()) != set(SPLITS):
@@ -276,7 +310,7 @@ def build_dataset(
     source_hashes = {_relative(index): _sha(index), _relative(Path(__file__)): _sha(Path(__file__))}
     buckets: dict[str, dict[str, list[dict]]] = {split: defaultdict(list) for split in SPLITS}
     stats = Counter()
-    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed):
+    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction):
         stats.update(frame_stats)
         frame_stats.clear()
         variant = int(hashlib.sha256(f"{world}:{frame.name}:{seed}".encode()).hexdigest()[:8], 16)
@@ -321,7 +355,7 @@ def build_dataset(
                 kind = "reject_track"
             else:
                 continue
-            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index))
+            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction")))
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
             if background is not None:
@@ -382,11 +416,13 @@ def build_dataset(
         "schema_version": 1,
         "seed": seed,
         "negative_ratio_requested": negative_ratio,
-        "image_policy": "reference_existing_rgb_png_no_copy; resize_to_448_max_side_at_model_input",
+        "image_policy": "reference_existing_rgb_png_no_copy; full_frame_resize_to_448_max_side_at_model_input; candidate_crop_resize_to_224x224_at_model_input",
+        "crop_policy": crop_policy,
         "dedupe": "per_world_64_bit_dhash_hamming_distance_at_most_3; one_source_frame_can_have_multiple_candidate_labels",
         "world_splits": {"urban_inspection_multirotor_001": "train", **world_splits},
         "counts": {split: {"total": len(rows), "worlds": len({r["world"] for r in rows}), "decisions": dict(Counter(r["assistant_target"]["decision"] for r in rows)), "label_types": dict(Counter(r["label_type"] for r in rows))} for split, rows in selected.items()},
         "source_counts": dict(stats),
+        "visibility": {"min_visible_fraction": float(min_visible_fraction), "dropped_occluded": int(stats.get("dropped_occluded", 0))},
         "source_sha256": dict(sorted(source_hashes.items())),
         "output_sha256": output_hashes,
     }
@@ -401,9 +437,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/datasets/slow-system-sft-r1")
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--negative-ratio", type=float, default=1.5)
+    parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"), default="candidate_zoom_v2")
+    parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

@@ -10,6 +10,11 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
+# candidate_zoom_v1 picks the crop by the row's assistant_target track id, which
+# leaks the label on multi-candidate rows; it is kept only to reproduce LoRA r3.
+# candidate_zoom_v2 crops every candidate in listed order and never reads labels.
+CROP_POLICIES = frozenset({"none", "candidate_zoom_v1", "candidate_zoom_v2"})
+MAX_CANDIDATE_CROPS = 4
 
 
 def image_path_for_row(row: dict[str, Any]) -> Path:
@@ -44,7 +49,28 @@ def prompt_for_row(row: dict[str, Any]) -> str:
         lines.append("Pick the matching candidate and use its track_id in args.track_id.")
     else:
         lines.append("No candidate tracks. Search a region if the task is clear; ask_clarify if ambiguous.")
+    policy = crop_policy_for_row(row)
+    if policy == "candidate_zoom_v1" and candidates:
+        lines.append("Image 2 is a zoomed crop around the candidate box; use it with image 1.")
+    elif policy == "candidate_zoom_v2" and candidates:
+        shown = [c["track_id"] for c in candidates[:MAX_CANDIDATE_CROPS]]
+        if len(shown) == 1:
+            lines.append(f"Image 2 is a zoomed crop around {shown[0]}; use it with image 1.")
+        else:
+            order = ", ".join(f"image {i + 2}={track}" for i, track in enumerate(shown))
+            lines.append(f"Zoomed candidate crops: {order}; use them with image 1.")
+        focus = row.get("focus_track_id")
+        if focus and len(candidates) > 1:
+            lines.remove("Pick the matching candidate and use its track_id in args.track_id.")
+            lines.append(f"Event: decide about focus track_id={focus}; use args.track_id={focus}.")
     return "\n".join(lines)
+
+
+def crop_policy_for_row(row: dict[str, Any], override: str | None = None) -> str:
+    policy = override or row.get("_crop_policy") or row.get("crop_policy") or "none"
+    if policy not in CROP_POLICIES:
+        raise ValueError(f"unsupported crop policy: {policy}")
+    return policy
 
 
 def image_for_row(row: dict[str, Any], max_side: int = 448) -> Image.Image:
@@ -74,22 +100,93 @@ def image_for_row(row: dict[str, Any], max_side: int = 448) -> Image.Image:
     return image
 
 
+def candidate_crop(image: Image.Image, row: dict[str, Any]) -> Image.Image | None:
+    """Return a deterministic padded square crop from original pixel coordinates."""
+    candidates = row.get("candidates") or []
+    if not candidates:
+        return None
+    track_id = ((row.get("assistant_target") or {}).get("args") or {}).get("track_id")
+    selected = next((candidate for candidate in candidates if candidate.get("track_id") == track_id), candidates[0])
+    return _zoom_crop(image, selected)
+
+
+def candidate_crops(image: Image.Image, row: dict[str, Any]) -> list[Image.Image]:
+    """Label-free crops of every candidate (listed order, capped) for candidate_zoom_v2."""
+    return [_zoom_crop(image, candidate) for candidate in (row.get("candidates") or [])[:MAX_CANDIDATE_CROPS]]
+
+
+def _zoom_crop(image: Image.Image, selected: dict[str, Any]) -> Image.Image:
+    width, height = image.size
+    box = selected["box_xyxy_normalized"]
+    if len(box) != 4 or any(not 0 <= float(value) <= 1 for value in box):
+        raise ValueError("candidate boxes must be normalized xyxy")
+    x1, y1, x2, y2 = (float(box[0]) * width, float(box[1]) * height,
+                      float(box[2]) * width, float(box[3]) * height)
+    if x1 >= x2 or y1 >= y2:
+        raise ValueError("candidate box has empty area")
+    side = max(x2 - x1, y2 - y1) * 3.0
+    side = max(64.0, side)
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    left, top = cx - side / 2.0, cy - side / 2.0
+    right, bottom = left + side, top + side
+    out = Image.new("RGB", (max(1, round(side)), max(1, round(side))), (128, 128, 128))
+    src_left, src_top = max(0, int(left)), max(0, int(top))
+    src_right, src_bottom = min(width, int(right + 0.999999)), min(height, int(bottom + 0.999999))
+    if src_right > src_left and src_bottom > src_top:
+        patch = image.crop((src_left, src_top, src_right, src_bottom))
+        out.paste(patch, (src_left - round(left), src_top - round(top)))
+    return out.resize((224, 224), Image.Resampling.LANCZOS)
+
+
+def image_list_for_row(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[Image.Image]:
+    full = image_for_row(row, max_side)
+    policy = crop_policy_for_row(row, crop_policy)
+    if policy == "none" or not row.get("candidates"):
+        return [full]
+    with Image.open(image_path_for_row(row)) as source:
+        original = source.convert("RGB")
+    if policy == "candidate_zoom_v2":
+        return [full, *candidate_crops(original, row)]
+    crop = candidate_crop(original, row)
+    return [full] if crop is None else [full, crop]
+
+
 def image_jpeg_bytes(row: dict[str, Any], max_side: int = 448) -> bytes:
     stream = io.BytesIO()
     image_for_row(row, max_side).save(stream, format="JPEG", quality=85)
     return stream.getvalue()
 
 
-def chat_messages(row: dict[str, Any], max_side: int = 448) -> list[dict[str, Any]]:
+def image_jpeg_bytes_list(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[bytes]:
+    result = []
+    for image in image_list_for_row(row, max_side, crop_policy):
+        stream = io.BytesIO()
+        image.save(stream, format="JPEG", quality=85)
+        result.append(stream.getvalue())
+    return result
+
+
+def chat_messages(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[dict[str, Any]]:
+    images = image_list_for_row(row, max_side, crop_policy)
+    prompt_row = {**row, "_crop_policy": crop_policy_for_row(row, crop_policy)}
     return [
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt_for_row(row)},
-                {"type": "image", "image": image_for_row(row, max_side)},
+                {"type": "text", "text": prompt_for_row(prompt_row)},
+                *({"type": "image", "image": image} for image in images),
             ],
         }
     ]
+
+
+def dataset_crop_policy(dataset: Path, override: str | None = None) -> str:
+    if override:
+        return crop_policy_for_row({}, override)
+    manifest = dataset / "manifest.json"
+    if not manifest.is_file():
+        return "none"
+    return crop_policy_for_row({}, json.loads(manifest.read_text(encoding="utf-8")).get("crop_policy"))
 
 
 def load_jsonl(path: Path, *, split: str | None = None) -> list[dict[str, Any]]:
@@ -97,3 +194,25 @@ def load_jsonl(path: Path, *, split: str | None = None) -> list[dict[str, Any]]:
     if split is not None and any(row.get("split") != split for row in rows):
         raise ValueError(f"{path} contains rows outside {split} split")
     return rows
+
+
+def trained_key_order_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return ``schema`` with object properties in sorted key order.
+
+    Training targets are serialised with ``sort_keys=True``; llama.cpp's
+    json_schema grammar emits properties in schema order, so constrained
+    decoding must use the same order or it forces an unseen token sequence.
+    """
+    result: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            result[key] = {name: trained_key_order_schema(value[name]) for name in sorted(value)}
+        elif key == "required" and isinstance(value, list):
+            result[key] = sorted(value)
+        elif isinstance(value, dict):
+            result[key] = trained_key_order_schema(value)
+        elif isinstance(value, list):
+            result[key] = [trained_key_order_schema(item) if isinstance(item, dict) else item for item in value]
+        else:
+            result[key] = value
+    return result
