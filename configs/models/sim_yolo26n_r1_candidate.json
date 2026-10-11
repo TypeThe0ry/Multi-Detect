@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "model_id": "sim-yolo26n-r1",
+  "model_version": "ultralytics-8.4.92-sim-r1",
+  "status": "quarantined",
+  "production_approved": false,
+  "model_role": "sim_teacher_object_evidence",
+  "source_checkpoint": "D:\\Projects\\Multi-Detect\\yolo26n.pt",
+  "source_checkpoint_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+  "classes": [
+    {
+      "id": 0,
+      "source_name": "vehicle",
+      "canonical_label": "vehicle"
+    },
+    {
+      "id": 1,
+      "source_name": "rover",
+      "canonical_label": "rover"
+    },
+    {
+      "id": 2,
+      "source_name": "cargo_cart",
+      "canonical_label": "cargo_cart"
+    },
+    {
+      "id": 3,
+      "source_name": "orange_inspection_marker",
+      "canonical_label": "orange_inspection_marker"
+    },
+    {
+      "id": 4,
+      "source_name": "blue_survey_pylon",
+      "canonical_label": "blue_survey_pylon"
+    }
+  ],
+  "dataset": {
+    "yaml": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\sim-detector-r1\\data.yaml",
+    "manifest": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\sim-detector-r1\\manifest.json",
+    "manifest_sha256": "14b5b51e434900bed70fb0baf96404daf47df3ec900279840b60f6b6140620b1"
+  },
+  "training": {
+    "epochs": 60,
+    "image_size": 640,
+    "batch": 16,
+    "device": "0",
+    "seed": 20261011,
+    "deterministic": true,
+    "best_checkpoint": "D:\\Projects\\Multi-Detect\\artifacts\\models\\sim-detector-r1\\weights\\best.pt"
+  },
+  "input": {
+    "sensor": "rgb",
+    "color_space": "RGB",
+    "tensor_layout": "NCHW",
+    "dtype": "float32",
+    "shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "resize": "letterbox"
+  },
+  "output": {
+    "native_export": {
+      "format": "ultralytics_raw_xywh_class_scores",
+      "nms_embedded": false
+    },
+    "adapter_contract": {
+      "format": "N_x_6",
+      "fields": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "confidence",
+        "class_id"
+      ],
+      "box_format": "letterbox_xyxy_px"
+    }
+  },
+  "export": {
+    "artifact_format": "onnx",
+    "artifact_path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\sim-detector-r1\\weights\\best.onnx",
+    "artifact_sha256": "2e9247529177f69c4b923c8151b91ff97e655d15461c5eaafc1a5357238f066e",
+    "tool_versions": {
+      "ultralytics": "8.4.92",
+      "opset": 17
+    }
+  },
+  "governance": {
+    "production_approved": false,
+    "reviewer": null,
+    "reviewed_at_utc": null
+  }
+}
