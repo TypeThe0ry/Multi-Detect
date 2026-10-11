@@ -15,6 +15,7 @@ import math
 import os
 import random
 import shutil
+import sys
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -22,10 +23,14 @@ from typing import Any
 
 import cv2
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
 try:
+    from multidetect.simulator.camera_projection import project_target_bbox
+except ModuleNotFoundError:  # pragma: no cover - direct script invocation fallback
     from scripts.autolabel_sim_teacher_frames import project_target_bbox
-except ModuleNotFoundError:
-    from autolabel_sim_teacher_frames import project_target_bbox
 
 CLASS_NAMES = ("vehicle", "rover", "cargo_cart", "orange_inspection_marker", "blue_survey_pylon")
 CLASS_ALIASES = {

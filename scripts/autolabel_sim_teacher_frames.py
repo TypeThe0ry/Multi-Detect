@@ -16,10 +16,17 @@ import argparse
 import json
 import math
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import cv2
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 
 
 def _finite(value: object) -> float | None:
@@ -70,7 +77,15 @@ def _target_pose(
     # Equirectangular approximation is sub-millimetre at these SIM distances.
     north = (lat - lat0) * 111_132.0
     east = (lon - lon0) * 111_320.0 * math.cos(math.radians(lat0))
-    return north, east, (alt if alt is not None else alt0) - alt0
+    altitude_reference = str(position.get("altitude_reference", "")).casefold()
+    if alt is None:
+        up = 0.0
+    elif altitude_reference in {"world", "local", "relative", "relative_home", "agl"}:
+        # Generated truth altitude is relative to the Gazebo WORLD origin.
+        up = alt
+    else:
+        up = alt - alt0
+    return north, east, up
 
 
 def _target_yaw(truth: dict[str, Any]) -> float:
@@ -81,72 +96,6 @@ def _target_yaw(truth: dict[str, Any]) -> float:
     pose = target.get("pose") if isinstance(target, dict) else None
     yaw = _finite(pose.get("yaw_rad")) if isinstance(pose, dict) else None
     return 0.0 if yaw is None else yaw
-
-
-def project_target_bbox(
-    *,
-    target_ned: tuple[float, float, float],
-    pose: dict[str, Any],
-    camera_info: dict[str, Any],
-    image_size: tuple[int, int],
-    target_size_m: tuple[float, float, float] = (3.0, 1.8, 1.5),
-    camera_pitch_rad: float = 0.18,
-    target_yaw_rad: float = 0.0,
-) -> tuple[float, float, float, float] | None:
-    """Project an upright vehicle box; return clipped pixel ``xyxy`` or None."""
-    if any(size <= 0 or not math.isfinite(size) for size in target_size_m):
-        raise ValueError("target_size_m must contain three finite positive dimensions")
-    north, east, up = target_ned
-    position = pose.get("local_ned_m")
-    if not isinstance(position, (list, tuple)) or len(position) < 3:
-        return None
-    pn, pe, p_down = (_finite(position[i]) for i in range(3))
-    yaw_deg = (
-        _finite((pose.get("attitude") or {}).get("yaw_deg"))
-        if isinstance(pose.get("attitude"), dict)
-        else None
-    )
-    if pn is None or pe is None or p_down is None or yaw_deg is None:
-        return None
-    fx = _finite(camera_info.get("fx", camera_info.get("fx_px")))
-    fy = _finite(camera_info.get("fy", camera_info.get("fy_px")))
-    cx = _finite(camera_info.get("cx", camera_info.get("cx_px")))
-    cy = _finite(camera_info.get("cy", camera_info.get("cy_px")))
-    if fx is None or fy is None or cx is None or cy is None:
-        return None
-    width, height = image_size
-    yaw = math.radians(yaw_deg)
-    dn, de, dz_up = north - pn, east - pe, up + p_down
-    # NED vehicle coordinates: x forward, y right, z down. Apply camera pitch
-    # around vehicle-right to account for the x500 downward-tilted camera.
-    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
-    sx, sy, sz = target_size_m
-    corners = []
-    for dx in (-sx / 2.0, sx / 2.0):
-        for dy in (-sy / 2.0, sy / 2.0):
-            for dz in (-sz / 2.0, sz / 2.0):
-                # SDF dimensions are local x/east and y/north extents. Rotate
-                # those extents by the target model yaw before projection.
-                offset_east = math.cos(target_yaw_rad) * dx - math.sin(target_yaw_rad) * dy
-                offset_north = math.sin(target_yaw_rad) * dx + math.cos(target_yaw_rad) * dy
-                corner_north = dn + offset_north
-                corner_east = de + offset_east
-                xx = corner_north * math.cos(yaw) + corner_east * math.sin(yaw)
-                yy = -corner_north * math.sin(yaw) + corner_east * math.cos(yaw)
-                zz = -(dz_up + dz)
-                xx, zz = cp * xx - sp * zz, sp * xx + cp * zz
-                if xx <= 1e-6:
-                    continue
-                corners.append((cx + fx * yy / xx, cy + fy * zz / xx))
-    if not corners:
-        return None
-    x1 = max(0.0, min(point[0] for point in corners))
-    y1 = max(0.0, min(point[1] for point in corners))
-    x2 = min(float(width), max(point[0] for point in corners))
-    y2 = min(float(height), max(point[1] for point in corners))
-    if x2 <= x1 or y2 <= y1:
-        return None
-    return x1, y1, x2, y2
 
 
 def _label_line(

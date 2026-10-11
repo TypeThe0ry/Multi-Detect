@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501
 """Evaluate shadow grounding on aligned recorded SIM teacher frames.
 
 The truth path is used only by this offline evaluator.  Runtime adapters never
@@ -31,7 +32,7 @@ from multidetect.autonomy.policy_v2.vlm_grounding import (  # noqa: E402
 )
 
 try:
-    from scripts.autolabel_sim_teacher_frames import project_target_bbox
+    from multidetect.simulator.camera_projection import project_target_bbox
     from scripts.build_sim_detector_dataset import CLASS_ALIASES, DEFAULT_SIZES
 except ModuleNotFoundError:  # pragma: no cover - direct script invocation fallback
     from autolabel_sim_teacher_frames import project_target_bbox
