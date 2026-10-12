@@ -11,6 +11,7 @@ from pathlib import Path
 from open_vocab_detector import (
     DEFAULT_HOLDOUT,
     DEFAULT_WEIGHTS,
+    HOLDOUT_POLICIES,
     ROOT,
     build_dataset_view,
     configure_offline,
@@ -115,6 +116,7 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--mode", choices=("linear_probe", "full"), default="full")
+    parser.add_argument("--holdout-policy", choices=HOLDOUT_POLICIES, default="background")
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
@@ -122,7 +124,9 @@ def main() -> None:
     args = parser.parse_args()
     if min(args.epochs, args.imgsz, args.batch) <= 0:
         parser.error("epochs, imgsz and batch must be positive")
-    manifest = build_dataset_view(args.data, args.out, holdout_list(args.holdout_classes))
+    manifest = build_dataset_view(
+        args.data, args.out, holdout_list(args.holdout_classes), args.holdout_policy
+    )
     plan = {
         "status": "dry_run" if args.dry_run else "prepared",
         "data": str((args.out / "dataset/data.yaml").resolve()),

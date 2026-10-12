@@ -117,7 +117,20 @@ def read_labels(image: Path, names: list[str]) -> list[tuple[int, list[float]]]:
     return rows
 
 
-def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
+HOLDOUT_POLICIES = ("background", "drop-images")
+
+
+def build_dataset_view(
+    data: Path, out: Path, holdout: list[str], holdout_policy: str = "background"
+) -> dict:
+    """Derive a train/val view without holdout labels.
+
+    ``background`` keeps images that contain holdout objects, which then act as
+    negatives for those objects; ``drop-images`` removes such images so the
+    held-out categories are never shown at all during fine-tuning.
+    """
+    if holdout_policy not in HOLDOUT_POLICIES:
+        raise ValueError(f"Unknown holdout policy: {holdout_policy}")
     names, splits = load_dataset(data)
     unknown = set(holdout) - set(names)
     if unknown:
@@ -135,7 +148,11 @@ def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
     dataset = out.resolve() / "dataset"
     if (dataset / "manifest.json").exists():
         previous = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
-        if previous["source_data"] != str(data.resolve()) or previous["holdout_classes"] != holdout:
+        if (
+            previous["source_data"] != str(data.resolve())
+            or previous["holdout_classes"] != holdout
+            or previous.get("holdout_policy", "background") != holdout_policy
+        ):
             raise ValueError(
                 "Output dataset belongs to a different experiment; choose a fresh --out"
             )
@@ -146,6 +163,7 @@ def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
     manifest = {
         "source_data": str(data.resolve()),
         "holdout_classes": holdout,
+        "holdout_policy": holdout_policy,
         "names": remaining,
         "excluded_unobserved_classes": [
             name for name in names if name not in holdout and name not in observed
@@ -158,6 +176,7 @@ def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
     for split, images in splits.items():
         source, retained, removed = Counter(), Counter(), Counter()
         backgrounds = 0
+        dropped = 0
         for index, image in enumerate(images):
             label = label_path(image)
             hashes[str(label)] = sha256(label) if label.exists() else None
@@ -168,6 +187,10 @@ def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
             filtered = [(cls, box) for cls, box in rows if cls in remap]
             if split == "test":
                 retained.update(names[cls] for cls, _ in rows)
+                continue
+            if holdout_policy == "drop-images" and len(filtered) != len(rows):
+                removed.update(names[cls] for cls, _ in rows if cls not in remap)
+                dropped += 1
                 continue
             retained.update(names[cls] for cls, _ in filtered)
             removed.update(names[cls] for cls, _ in rows if cls not in remap)
@@ -193,6 +216,7 @@ def build_dataset_view(data: Path, out: Path, holdout: list[str]) -> dict:
             "retained_counts": {n: retained[n] for n in names},
             "removed_counts": {n: removed[n] for n in names},
             "background_images": backgrounds if split != "test" else None,
+            "dropped_images": dropped if split != "test" else None,
         }
     config = {
         "path": dataset.as_posix(),

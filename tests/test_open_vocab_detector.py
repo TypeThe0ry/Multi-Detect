@@ -173,3 +173,20 @@ def test_empty_predictions_and_background_false_positives_are_finite():
     assert result["per_class"]["vehicle"]["recall"] == 0
     assert result["per_class"]["stop_sign"]["fp"] == 1
     assert result["aggregates"]["all"]["map50"] == 0
+
+
+def test_drop_images_policy_never_shows_holdout_objects(tmp_path):
+    data = make_dataset(tmp_path / "source")
+    output = tmp_path / "derived-drop"
+    manifest = build_dataset_view(
+        data, output, ["stop_sign", "postbox", "pickup"], holdout_policy="drop-images"
+    )
+    dataset = output / "dataset"
+    _, splits = load_dataset(dataset / "data.yaml")
+    for split in ("train", "val"):
+        # "mixed" contains stop_sign and "heldout" only holdout classes: both dropped.
+        assert len(splits[split]) == 1
+        assert manifest["splits"][split]["dropped_images"] == 2
+    assert manifest["holdout_policy"] == "drop-images"
+    with pytest.raises(ValueError):
+        build_dataset_view(data, tmp_path / "bad", ["pickup"], holdout_policy="ignore")
