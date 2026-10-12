@@ -3,6 +3,68 @@
   "scenario_id": "gen_v2_w0039",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "house_2",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "ambulance",
+      "role": "distractor",
+      "target_id": "distractor_0039_02"
+    },
+    "11": {
+      "asset_slug": "cardboard_box",
+      "role": "distractor",
+      "target_id": "distractor_0039_03"
+    },
+    "12": {
+      "asset_slug": "electrical_box",
+      "role": "distractor",
+      "target_id": "distractor_0039_04"
+    },
+    "2": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "telephone_pole",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "lamp_post",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "collapsed_house",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
+      "asset_slug": "standing_person",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0039"
+    },
+    "8": {
+      "asset_slug": "postbox",
+      "role": "distractor",
+      "target_id": "distractor_0039_00"
+    },
+    "9": {
+      "asset_slug": "casual_female",
+      "role": "distractor",
+      "target_id": "distractor_0039_01"
+    }
+  },
   "targets": [
     {
       "asset_slug": "standing_person",

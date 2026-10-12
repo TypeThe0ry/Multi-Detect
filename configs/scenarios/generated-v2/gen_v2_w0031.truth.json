@@ -3,6 +3,48 @@
   "scenario_id": "gen_v2_w0031",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "2": {
+      "asset_slug": "water_tower",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "fire_truck",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0031"
+    },
+    "5": {
+      "asset_slug": "hatchback_blue",
+      "role": "distractor",
+      "target_id": "distractor_0031_00"
+    },
+    "6": {
+      "asset_slug": "mailbox",
+      "role": "distractor",
+      "target_id": "distractor_0031_01"
+    },
+    "7": {
+      "asset_slug": "postbox",
+      "role": "distractor",
+      "target_id": "distractor_0031_02"
+    },
+    "8": {
+      "asset_slug": "suv",
+      "role": "distractor",
+      "target_id": "distractor_0031_03"
+    }
+  },
   "targets": [
     {
       "asset_slug": "fire_truck",

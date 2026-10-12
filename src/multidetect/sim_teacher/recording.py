@@ -81,7 +81,7 @@ class EpisodeRecorder:
     def _observation(self, obs: dict[str, Any] | None, prefix: str) -> dict[str, Any] | None:
         if obs is None:
             return None
-        out = {k: v for k, v in obs.items() if k not in {"rgb", "depth"}}
+        out = {k: v for k, v in obs.items() if k not in {"rgb", "depth", "segmentation"}}
         stem = f"{self.index:06d}_{prefix}"
         rgb = obs.get("rgb")
         if rgb is not None:
@@ -108,6 +108,23 @@ class EpisodeRecorder:
             except Exception:
                 path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
             out["depth_path"] = str(path.relative_to(self.episode_dir))
+        segmentation = obs.get("segmentation")
+        if segmentation is not None:
+            import numpy as np
+            from PIL import Image
+
+            array = np.asarray(segmentation)
+            if array.dtype != np.uint8 or array.ndim != 3 or array.shape[2] != 3:
+                raise ValueError("segmentation must be a raw RGB uint8 panoptic labels map")
+            if "camera_info" in obs and array.shape[:2] != (
+                int(obs["camera_info"]["height"]), int(obs["camera_info"]["width"])
+            ):
+                raise ValueError("segmentation geometry differs from RGB camera_info")
+            directory = self.episode_dir / "seg"
+            directory.mkdir(exist_ok=True)
+            path = directory / f"{stem}.png"
+            Image.fromarray(array).save(path, format="PNG")
+            out["segmentation_path"] = str(path.relative_to(self.episode_dir)).replace("\\", "/")
         out.setdefault("receive_monotonic_ns", time.monotonic_ns())
         out.setdefault("receive_wall_time", time.time())
         return out

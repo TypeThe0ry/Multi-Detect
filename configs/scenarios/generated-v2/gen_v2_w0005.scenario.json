@@ -10,7 +10,7 @@
     },
     "truth": {
       "path": "gen_v2_w0005.truth.json",
-      "sha256": "d5ec403ead2fec1b4022d5aa39310de4a376f8b91e21ce36b42cd80c415efba9"
+      "sha256": "df682e57cd3525dbc29e724067cfd9b13a0db53cb99a047846425ffd09a4b79e"
     }
   },
   "scenario_id": "gen_v2_w0005",

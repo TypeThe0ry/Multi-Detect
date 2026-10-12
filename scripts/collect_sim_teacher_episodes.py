@@ -135,6 +135,7 @@ class CollectionPlan:
     rgb_size: tuple[int, int] = DEFAULT_RGB_SIZE
     depth_size: tuple[int, int] = DEFAULT_DEPTH_SIZE
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
+    segmentation: bool = False
     # ``None`` selects the scenario-derived altitude.  An explicit value is
     # retained in the plan so campaign wrappers can override it per run.
     takeoff_altitude_m: float | None = None
@@ -196,6 +197,24 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
     command = list(stack_plan.command)
+    if plan.segmentation:
+        overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_seg"
+        if not (overlay / "model.sdf").is_file():
+            raise FileNotFoundError(overlay / "model.sdf")
+        overlay_mount = (
+            "--mount",
+            f"type=bind,source={overlay.resolve()},"
+            "target=/opt/multidetect-gazebo-models/x500_mono_cam,readonly",
+        )
+        parent_mount = next(
+            (
+                index for index, token in enumerate(command)
+                if token.startswith("type=bind,")
+                and "target=/opt/multidetect-gazebo-models," in token
+            ),
+            command.index("run"),
+        )
+        command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
     # PX4 floods stdout (e.g. "ODOMETRY: estimator_type 8 unsupported"); unbounded
     # json-file logs grew Docker's WSL disk by tens of GB. Keep a small rolling tail.
     if "run" in command:
@@ -289,6 +308,8 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
             ),
         ]
     )
+    if plan.segmentation:
+        command.extend(["--segmentation"])
     if depth is not None:
         depth_topic = (
             f"/world/{world}/model/{model}/link/depth_camera_link/sensor/depth_camera/depth_image"
@@ -1346,6 +1367,8 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 },
                 max_frames=max(64, int(plan.max_episode_s * 30.0)),
                 require_depth=depth_binding is not None,
+                segmentation_topic="/multidetect/teacher/segmentation/labels_map"
+                if plan.segmentation else None,
             ).start()
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
@@ -1648,6 +1671,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)
     parser.add_argument("--depth-size", type=_parse_size, default=DEFAULT_DEPTH_SIZE)
     parser.add_argument(
+        "--segmentation", action="store_true",
+        help="mount the teacher camera overlay and require exact-time segmentation frames",
+    )
+    parser.add_argument(
         "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
     )
     parser.add_argument(
@@ -1699,6 +1726,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         rgb_size=args.rgb_size,
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,
+        segmentation=args.segmentation,
         takeoff_altitude_m=args.takeoff_altitude_m,
     )
     if args.dry_run:

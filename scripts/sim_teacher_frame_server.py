@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from gazebo_depth_wire import build_depth_wire_record
+from gazebo_segmentation_wire import build_segmentation_wire_record, normalize_labels_map
 from gazebo_sensor_stream import (
     DEPTH_MAX_SOURCE_SKEW_NS,
     MAX_DEPTH_HISTORY_SAMPLES,
@@ -54,6 +55,47 @@ class Candidate:
     depth: bytes
     depth_width: int
     depth_height: int
+    segmentation: bytes | None = None
+    segmentation_topic: str | None = None
+
+
+class ExactSegmentationPairer:
+    """Bounded timestamp join; accept either callback order without stale reuse.
+
+    Callers serialize access with the image callback lock. Unpaired RGB and
+    labels maps are discarded as the bounded pending histories advance.
+    """
+
+    def __init__(self, latest: LatestCandidate, maximum_samples: int = 8) -> None:
+        self.latest = latest
+        self.maximum_samples = maximum_samples
+        self.rgb: dict[int, Candidate] = {}
+        self.seg: dict[int, tuple[int, int, bytes, str]] = {}
+        self.last_published_stamp = -1
+
+    def put_rgb(self, candidate: Candidate) -> None:
+        self.rgb[candidate.stamp_ns] = candidate
+        self._join(candidate.stamp_ns)
+
+    def put_seg(self, stamp: int, width: int, height: int, payload: bytes, topic: str) -> None:
+        self.seg[stamp] = (width, height, payload, topic)
+        self._join(stamp)
+
+    def _join(self, stamp: int) -> None:
+        from dataclasses import replace
+
+        if stamp in self.rgb and stamp in self.seg:
+            candidate = self.rgb.pop(stamp)
+            width, height, payload, topic = self.seg.pop(stamp)
+            if (width, height) != (candidate.width, candidate.height):
+                raise ValueError("segmentation geometry differs from RGB")
+            if stamp > self.last_published_stamp:
+                self.latest.put(replace(candidate, segmentation=payload, segmentation_topic=topic))
+                self.last_published_stamp = stamp
+        for history in (self.rgb, self.seg):
+            for old in sorted(history):
+                if old <= self.last_published_stamp or len(history) > self.maximum_samples:
+                    del history[old]
 
 
 class LatestCandidate:
@@ -217,7 +259,20 @@ def encode_candidate(
         "cx_px": float(depth_contract["cx_px"]) * depth_size[0] / candidate.depth_width,
         "cy_px": float(depth_contract["cy_px"]) * depth_size[1] / candidate.depth_height,
     }
-    return rgb_record + build_depth_wire_record(metadata=metadata, payload=depth_payload)
+    output = rgb_record + build_depth_wire_record(metadata=metadata, payload=depth_payload)
+    if candidate.segmentation is not None:
+        segmentation_payload = scale_bgr24(
+            candidate.segmentation, candidate.width, candidate.height, rgb_size
+        )
+        output += build_segmentation_wire_record(
+            {"sequence": sequence, "rgb_sensor_stamp_ns": candidate.stamp_ns,
+             "source_stamp_ns": candidate.stamp_ns, "rgb_record_sha256": rgb_header.sha256.hex(),
+             "source_topic": candidate.segmentation_topic, "encoding": "PANOPTIC_RGB8",
+             "width": rgb_size[0], "height": rgb_size[1],
+             "instance_id_channels": [0, 1], "label_id_channel": 2},
+            segmentation_payload,
+        )
+    return output
 
 
 def _diagnostic(event: str, **fields: Any) -> None:
@@ -232,6 +287,8 @@ def main() -> int:
     parser.add_argument("--camera-info-topic")
     parser.add_argument("--navsat-topic")
     parser.add_argument("--odometry-topic")
+    parser.add_argument("--segmentation", action="store_true")
+    parser.add_argument("--segmentation-topic", default="/multidetect/teacher/segmentation/labels_map")
     parser.add_argument("--expected-camera-calibration-json", required=True)
     parser.add_argument("--depth-contract-json", required=True)
     parser.add_argument("--rgb-size", type=_size, default=(640, 480))
@@ -288,6 +345,7 @@ def main() -> int:
     state_lock = threading.Lock()
     image_lock = threading.Lock()
     latest = LatestCandidate()
+    pairer = ExactSegmentationPairer(latest) if args.segmentation else None
     stats = {"images": 0, "incomplete": 0, "stale_sources": 0, "depth_missing": 0}
 
     def guard(name: str, operation: Any) -> None:
@@ -429,7 +487,7 @@ def main() -> int:
                     pixel_format_type=int(message.pixel_format_type),
                 )
                 camera, navsat, odometry, depth = copied
-                latest.put(
+                (pairer.put_rgb if pairer is not None else latest.put)(
                     Candidate(
                         stamp,
                         int(message.width),
@@ -447,6 +505,17 @@ def main() -> int:
 
         guard("RGB Image", update)
 
+    def on_segmentation(message: Image) -> None:
+        def update() -> None:
+            stamp = _stamp_ns(message)
+            payload = normalize_labels_map(message)
+            with image_lock:
+                assert pairer is not None
+                pairer.put_seg(stamp, int(message.width), int(message.height), payload,
+                               args.segmentation_topic)
+
+        guard("Segmentation Image", update)
+
     node = Node()
     subscriptions = [
         (CameraInfo, depth_info_topic, on_depth_info),
@@ -456,6 +525,8 @@ def main() -> int:
         (NavSat, navsat_topic, on_navsat),
         (OdometryWithCovariance, odometry_topic, on_odometry),
     ]
+    if args.segmentation:
+        subscriptions.append((Image, args.segmentation_topic, on_segmentation))
     topics = tuple(topic for _, topic, _ in subscriptions)
     for message_type, topic, callback in subscriptions:
         if not node.subscribe(message_type, topic, callback):

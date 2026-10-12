@@ -73,6 +73,8 @@ class SensorSample:
     received_wall_time: float
     source_header: Any = None
     depth_frame: Any = None
+    segmentation: Any = None
+    segmentation_info: dict[str, Any] | None = None
 
 
 def _import_wire_helpers() -> tuple[Any, Any, Any]:
@@ -110,6 +112,7 @@ class SensorStreamReader:
         max_frames: int | None = None,
         clock: Callable[[], int] = time.monotonic_ns,
         require_depth: bool = True,
+        segmentation_topic: str | None = None,
     ) -> None:
         self.stream = stream
         self.request_stream = request_stream
@@ -119,6 +122,7 @@ class SensorStreamReader:
         self.max_frames = max_frames
         self.clock = clock
         self.require_depth = require_depth
+        self.segmentation_topic = segmentation_topic
         self.latest: SensorSample | None = None
         self.buffer = LatestWinsBuffer()
         self.frames_received = 0
@@ -239,6 +243,23 @@ class SensorStreamReader:
                             depth = depth.astype(np.float32) / 1000.0
                 elif self.require_depth:
                     raise RuntimeError("MDGZSIM3 stream has no MDGZDEP1 depth binding")
+                segmentation = segmentation_info = None
+                if self.segmentation_topic is not None:
+                    from scripts.gazebo_segmentation_wire import read_segmentation_wire_frame
+
+                    segmentation_frame = read_segmentation_wire_frame(
+                        self.stream, sequence=int(header.sequence),
+                        stamp_ns=int(header.sensor_stamp_ns),
+                        rgb_sha256=bytes(header.sha256).hex(), width=int(header.width),
+                        height=int(header.height), source_topic=self.segmentation_topic,
+                    )
+                    if np is None:
+                        raise RuntimeError("NumPy is required to record segmentation frames")
+                    segmentation = (
+                        np.frombuffer(segmentation_frame.payload, dtype=np.uint8)
+                        .reshape((int(header.height), int(header.width), 3)).copy()
+                    )
+                    segmentation_info = dict(segmentation_frame.metadata)
                 stamp = self.clock()
                 sample = SensorSample(
                     rgb=bytes(payload),
@@ -272,6 +293,8 @@ class SensorStreamReader:
                     received_wall_time=time.time(),
                     source_header=header,
                     depth_frame=depth_frame,
+                    segmentation=segmentation,
+                    segmentation_info=segmentation_info,
                 )
                 self.buffer.put(sample)
                 self.latest = sample
@@ -700,7 +723,7 @@ def build_observation(
     else:
         pose_time_boot_ms = None
         sim_skew_ms = None
-    return {
+    result = {
         "rgb": rgb_value,
         "depth": sensor.depth,
         "depth_camera_info": depth_camera_info,
@@ -735,6 +758,10 @@ def build_observation(
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,
     }
+    if sensor.segmentation is not None:
+        result["segmentation"] = sensor.segmentation
+        result["segmentation_info"] = sensor.segmentation_info
+    return result
 
 
 __all__ = [

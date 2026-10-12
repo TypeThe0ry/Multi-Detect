@@ -229,7 +229,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          out_scenarios: str | Path = "configs/scenarios/generated-v2",
                          real_time_factor: float = 1.0,
                          catalog_path: str | Path = "configs/sim-assets/fuel-catalog.json",
-                         resolved_root: str | Path = "artifacts/cache/gz-fuel/resolved") -> dict[str, Any]:
+                         resolved_root: str | Path = "artifacts/cache/gz-fuel/resolved",
+                         segmentation_labels: bool = False) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode."""
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
@@ -244,7 +245,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     train_target_slugs = [a["slug"] for a in eligible[: max(1, len(eligible) - 6)]]
     test_pool = [a for a in eligible if a["slug"] not in train_target_slugs] or eligible
     zh_words = {"car": "\u8f7f\u8f66", "suv": "SUV", "pickup": "\u76ae\u5361", "ambulance": "\u6551\u62a4\u8f66", "fire_truck": "\u6d88\u9632\u8f66", "bus": "\u516c\u4ea4\u8f66", "person": "\u884c\u4eba", "traffic_cone": "\u4ea4\u901a\u9525", "barrel": "\u8def\u969c\u6876", "jersey_barrier": "\u9694\u79bb\u58a9", "fire_hydrant": "\u6d88\u9632\u6813", "dumpster": "\u5783\u573e\u7bb1", "electrical_box": "\u7535\u7bb1", "mailbox": "\u90ae\u7bb1", "postbox": "\u90ae\u7b52", "cardboard_box": "\u7eb8\u7bb1", "backpack": "\u80cc\u5305", "stop_sign": "\u505c\u6b62\u6807\u5fd7"}
-    def inline_asset(slug: str, object_id: str, x: float, y: float, yaw: float, bottom_z: float) -> str:
+    def inline_asset(slug: str, object_id: str, x: float, y: float, yaw: float, bottom_z: float,
+                     label_id: int | None = None) -> str:
         source = Path(resolved_root) / slug / "model.sdf"
         root = ET.fromstring(source.read_text(encoding="utf-8-sig").lstrip())
         model = root.find("model")
@@ -285,6 +287,21 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             f'<size>{size[0]:.4f} {size[1]:.4f} {size[2]:.4f}</size></box></geometry></collision></link>'
             f'</model>'
         )
+        if label_id is not None:
+            if not 1 <= label_id <= 254:
+                raise ValueError("segmentation label ids must be between 1 and 254")
+            # Gazebo Harmonic's Label system annotates rendered segmentation
+            # images with this stable per-model integer.  Keep the plugin out
+            # of the default path so existing worlds remain byte-identical.
+            label_plugin = ET.fromstring(
+                f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">'
+                f'<label>{label_id}</label></plugin>'
+            )
+            outer.append(label_plugin)
+            # Explicitly label every nested model too: Fuel meshes can have
+            # another model level, and the outer bounds link has no visual.
+            for mesh_model in model.iter("model"):
+                mesh_model.append(ET.fromstring(ET.tostring(label_plugin, encoding="unicode")))
         outer.append(model)
         for uri in model.iter("uri"):
             value = (uri.text or "").strip()
@@ -318,10 +335,23 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             asset = distractor_pool[(i+j*3)%len(distractor_pool)]; x,y=pose_point(used,max(asset["measured_size_m"][:2])/2)
             objects.append((f"distractor_{i:04d}_{j:02d}",asset,x,y,rng.uniform(-math.pi,math.pi),False))
         models=[]
+        segmentation_map: dict[str, dict[str, Any]] = {}
+        next_label = 1
         for j,asset in enumerate(rng.sample(scenery, min(len(scenery), rng.randint(3,6)))):
-            x,y=pose_point(used,max(asset["measured_size_m"][:2])/2+2); models.append(inline_asset(asset["slug"], f"obstacle_{j:02d}", x, y, rng.uniform(-math.pi,math.pi), asset["mesh_origin_offset_m"]["z_bottom"]))
+            x,y=pose_point(used,max(asset["measured_size_m"][:2])/2+2)
+            obstacle_id = f"obstacle_{j:02d}"
+            label_id = next_label if segmentation_labels else None
+            if segmentation_labels:
+                segmentation_map[str(label_id)] = {"target_id": obstacle_id, "asset_slug": asset["slug"], "role": "obstacle"}
+                next_label += 1
+            models.append(inline_asset(asset["slug"], obstacle_id, x, y, rng.uniform(-math.pi,math.pi), asset["mesh_origin_offset_m"]["z_bottom"], label_id))
         for oid,asset,x,y,yaw,is_target in objects:
-            z=asset["mesh_origin_offset_m"]["z_bottom"]; models.append(inline_asset(asset["slug"], oid, x, y, yaw, z))
+            z=asset["mesh_origin_offset_m"]["z_bottom"]
+            label_id = next_label if segmentation_labels else None
+            if segmentation_labels:
+                segmentation_map[str(label_id)] = {"target_id": oid, "asset_slug": asset["slug"], "role": "target" if is_target else "distractor"}
+                next_label += 1
+            models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id))
         sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
         world_path=worlds_dir/f"{world_id}.sdf"
         sdf=sdf.replace("<gravity>0 0 -9.80665</gravity>", f"<gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>{ORIGIN_LAT}</latitude_deg><longitude_deg>{ORIGIN_LON}</longitude_deg><elevation>18</elevation></spherical_coordinates>")
@@ -332,7 +362,10 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             height = float(a["measured_size_m"][2]); center_height = height / 2.0
             lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target})
         runtime={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"seed":seed+i,"world":{"world_asset":f"builtin://gazebo/{world_id}","map_asset":f"builtin://maps/{world_id}.geojson","dem_asset":f"builtin://terrain/{world_id}.dem.json","wind_north_mps":0.0,"wind_east_mps":0.0,"gust_mps":0.0},"vehicle":{"model":"px4_multirotor_standard","airframe_profile_id":"px4_multirotor_gazebo_v1","spawn_id":f"{world_id}_home","spawn_pose":{"x_east_m":0.0,"y_north_m":0.0,"z_up_m":0.2,"roll_rad":0.0,"pitch_rad":0.0,"yaw_rad":0.0}},"sensors":[{"sensor_id":"front-camera","kind":"rgb_camera","stream_uri":f"gazebo://{world_id}/front-camera","calibration_id":"gazebo-multirotor-front-camera-v1"},{"sensor_id":"downward-depth","kind":"depth_camera","stream_uri":f"gazebo://{world_id}/downward-depth","calibration_id":"gazebo-multirotor-depth-v1"},{"sensor_id":"px4-telemetry","kind":"mavlink_telemetry","stream_uri":"udp://127.0.0.1:14541"}],"faults":[]}
-        truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}; expectations={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"allowed_terminal_states":["completed","safe_rtl"],"maximum_geofence_violations":0,"maximum_false_geolocations":0,"maximum_unauthorized_commands":0}
+        truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}
+        if segmentation_labels:
+            truth["segmentation_labels"] = segmentation_map
+        expectations={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"allowed_terminal_states":["completed","safe_rtl"],"maximum_geofence_violations":0,"maximum_false_geolocations":0,"maximum_unauthorized_commands":0}
         for suffix,data in (("runtime_input",runtime),("truth",truth),("expectations",expectations)):
             _write(scenarios_dir/f"{world_id}.{suffix}.json",data)
         scenario={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"channels":{k:{"path":f"{world_id}.{k}.json","sha256":canonical_sha256(v)} for k,v in (("runtime_input",runtime),("truth",truth),("expectations",expectations))}}

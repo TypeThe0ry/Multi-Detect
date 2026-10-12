@@ -78,3 +78,47 @@ alignment gate 的默认上限是 250 ms、位姿移动门槛是 1 m；需要审
 相机为前视相机，FOV 判断使用采集器的 1280×960 标定内参（`fx=fy=539.936368...`、主点 `(640,480)`），并限制探测距离为 80 m。目标投影进入图像后进入 `approach`：先把机头转到目标方位（允许 ±10°），再以不超过 15 m 的步长接近，直到默认 15 m standoff；随后 `hold` 2 s，最后 `done/stop`。每步标签包含 `phase`、`target_in_fov`、`target_bearing_deg`、`target_range_m`。
 
 位姿执行器保存绝对高度和偏航的上一条**指令参考**，下一条 setpoint 从该参考叠加显式命令，因此测量噪声不会累积成高度或偏航漂移；记录中的 achieved 值仍来自实测遥测。当前几何 FOV 尚未建模遮挡和真实 line-of-sight，这是已知限制；这些样本只声明 Gazebo/PX4 SIM 控制链和 privileged teacher 标签，不声明真实相机、GNSS 或 sim-to-real 性能。
+
+
+## Opt-in segmentation supervision
+
+Generate Fuel worlds with `--segmentation-labels`, then collect with
+`--segmentation`. The collector mounts
+`simulation/gazebo/model-overlays/x500_mono_cam_seg` read-only over
+`/opt/multidetect-gazebo-models/x500_mono_cam` for this container only.
+The original model and PX4 model/autostart selection remain evidence-bound.
+The additional `segmentation` sensor uses `<camera><segmentation_type>instance`
+and shares the RGB optical frame, 1280x960 image geometry, 1.74 rad horizontal
+FOV, 0.1..3000 m clipping range, and 30 Hz update rate.
+
+The frame server subscribes to `/multidetect/teacher/segmentation/labels_map`.
+It pairs RGB and segmentation at exactly the same simulation timestamp;
+missing or stale segmentation cannot produce a recorded observation.
+Both channels use the same nearest-neighbour resize when `--rgb-size` is
+smaller than the source. Use `--rgb-size 1280x960` for small-object supervision.
+The labels map is stored as an RGB uint8 PNG in `seg/000003_after.png`, with
+`segmentation_path` and `segmentation_info` in `steps.jsonl`. PNG channel bytes
+are unchanged: R + 256*G is the instance id, B is the semantic label. This is
+a label encoding, so do not treat it as an ordinary color segmentation preview.
+The truth `segmentation_labels` map assigns each object its own semantic id.
+
+Build detector labels with `scripts/build_sim_detector_dataset.py
+--label-source segmentation`. The builder requires matching segmentation and
+truth mapping, derives half-open pixel boxes from visible components, and
+applies `--min-seg-area-px` and `--min-box-px`. Projection visibility thresholds
+do not apply to this path. The SFT builder automatically uses segmentation
+candidate boxes when a recorded segmentation path exists. Default collection
+and detector labels continue to use the existing RGB/depth and projection path.
+Segmentation is offline supervision; it is not a policy perception input.
+
+For a visual check, run:
+
+```powershell
+python scripts/overlay_sim_segmentation_boxes.py --rgb <episode>/rgb/000003_after.png `
+  --seg <episode>/seg/000003_after.png --truth <world>.truth.json --out artifacts/seg-overlay.png
+```
+
+The encoding follows the Harmonic instance-segmentation tutorial and the
+repository annotation reader. The pinned container's actual sensor/topic,
+RGB mount intrinsics, nested model labels, and synchronized renderer output
+still require a live smoke test when Docker is available.

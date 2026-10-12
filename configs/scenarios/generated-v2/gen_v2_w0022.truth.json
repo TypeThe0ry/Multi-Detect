@@ -3,6 +3,48 @@
   "scenario_id": "gen_v2_w0022",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "2": {
+      "asset_slug": "house_3",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "hatchback",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0022"
+    },
+    "5": {
+      "asset_slug": "hatchback_red",
+      "role": "distractor",
+      "target_id": "distractor_0022_00"
+    },
+    "6": {
+      "asset_slug": "bus",
+      "role": "distractor",
+      "target_id": "distractor_0022_01"
+    },
+    "7": {
+      "asset_slug": "construction_cone",
+      "role": "distractor",
+      "target_id": "distractor_0022_02"
+    },
+    "8": {
+      "asset_slug": "fire_hydrant",
+      "role": "distractor",
+      "target_id": "distractor_0022_03"
+    }
+  },
   "targets": [
     {
       "asset_slug": "hatchback",

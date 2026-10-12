@@ -3,6 +3,53 @@
   "scenario_id": "gen_v2_w0028",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "playground",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "2": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "casual_female",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0028"
+    },
+    "5": {
+      "asset_slug": "construction_cone",
+      "role": "distractor",
+      "target_id": "distractor_0028_00"
+    },
+    "6": {
+      "asset_slug": "fire_hydrant",
+      "role": "distractor",
+      "target_id": "distractor_0028_01"
+    },
+    "7": {
+      "asset_slug": "hatchback_blue",
+      "role": "distractor",
+      "target_id": "distractor_0028_02"
+    },
+    "8": {
+      "asset_slug": "mailbox",
+      "role": "distractor",
+      "target_id": "distractor_0028_03"
+    },
+    "9": {
+      "asset_slug": "stop_sign",
+      "role": "distractor",
+      "target_id": "distractor_0028_04"
+    }
+  },
   "targets": [
     {
       "asset_slug": "casual_female",

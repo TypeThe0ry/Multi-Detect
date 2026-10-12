@@ -3,6 +3,43 @@
   "scenario_id": "gen_v2_w0005",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "playground",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "2": {
+      "asset_slug": "house_1",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "house_3",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "cardboard_box",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0005"
+    },
+    "6": {
+      "asset_slug": "dumpster",
+      "role": "distractor",
+      "target_id": "distractor_0005_00"
+    },
+    "7": {
+      "asset_slug": "fire_truck",
+      "role": "distractor",
+      "target_id": "distractor_0005_01"
+    }
+  },
   "targets": [
     {
       "asset_slug": "cardboard_box",

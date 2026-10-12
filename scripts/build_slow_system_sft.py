@@ -29,6 +29,10 @@ if str(ROOT / "src") not in sys.path:
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
+from multidetect.sim_teacher.segmentation import (  # noqa: E402
+    boxes_from_segmentation,
+    load_labels_map,
+)
 from multidetect.simulator.camera_projection import (  # noqa: E402
     project_target_bbox,
     visible_fraction,
@@ -316,7 +320,29 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                         continue
                     seen[world].append(signature)
                     source_hashes[_relative(frame)] = _sha(frame)
-                    projected = _project(obs, targets, sizes, width, height, obstacles, min_visible_fraction=min_visible_fraction, stats=stats)
+                    if isinstance(obs.get("segmentation_path"), str):
+                        seg_path = ep / Path(obs["segmentation_path"].replace("\\", "/"))
+                        seg_image = load_labels_map(seg_path)
+                        if seg_image.shape[:2] != (height, width):
+                            raise ValueError("segmentation geometry differs from RGB")
+                        source_hashes[_relative(seg_path)] = _sha(seg_path)
+                        visible = boxes_from_segmentation(seg_image, truth, min_area_px=4, min_box_px=8)
+                        projected = []
+                        for target in targets:
+                            item = visible.get(str(target.get("target_id")))
+                            if item is None:
+                                continue
+                            metric = target.get("pose") or {}
+                            pos = (obs.get("pose") or {}).get("local_ned_m") or (0, 0, 0)
+                            distance = math.hypot(float(metric["y_north_m"]) - float(pos[0]), float(metric["x_east_m"]) - float(pos[1]))
+                            cls = _target_class(target)
+                            color = target.get("color") if "true_target" in target else _target_color(target)
+                            if color is None and cls == "inspection_marker":
+                                color = "orange"
+                            projected.append({"target": target, "box": item["box"], "class": cls, "color": color, "range_m": distance, "visible_fraction": None, "label_source": "segmentation", **item})
+                        stats["segmentation_frames"] += 1
+                    else:
+                        projected = _project(obs, targets, sizes, width, height, obstacles, min_visible_fraction=min_visible_fraction, stats=stats)
                     stats["eligible_frames"] += 1
                     yield campaign.name, world, split, frame, (width, height), slug, projected, step, side, stats
 

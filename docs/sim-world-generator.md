@@ -53,6 +53,31 @@ objects placed within a 150 m search radius.  The scenario directory contains
 text, target pose, and SHA-256 hashes for every artifact. The strict scenario
 manifest remains unchanged; split and task metadata live in the generated index.
 
+### Segmentation labels
+
+Pass `--segmentation-labels` when generating `fuel_v1` worlds for a Gazebo
+Harmonic segmentation camera:
+
+```powershell
+python scripts/generate_sim_worlds.py --asset-mode fuel_v1 --count 1 --seed 20261012 `
+  --segmentation-labels --out-worlds simulation/gazebo/worlds `
+  --out-scenarios configs/scenarios/generated-v2
+```
+
+This opt-in mode adds a `gz-sim-label-system` plugin to each outer object model
+and its nested mesh models, using the same label throughout the object.
+The plugin's integer label is stable for a generated world and is recorded in
+the matching truth channel under `segmentation_labels`, keyed by the decimal
+label id. Each entry contains `target_id`, `asset_slug`, and `role` (`target`,
+`distractor`, or `obstacle`). A segmentation image can therefore be reduced to
+visible pixels for one label and mapped back to the truth object without using
+the vehicle pose. Labels are in the range 1-254, reserving 0 and 255; with the
+collector's panoptic camera the semantic label occupies raw image channel 2,
+and channels 0-1 retain the renderer's per-entity instance id. Distinct visuals
+of a nested object may have distinct instance ids but share its stable label.
+The default box mode and fuel mode without this flag do not
+emit plugins or the extra truth field, preserving their existing bytes.
+
 ## Simulation speed
 
 Gazebo's `<real_time_factor>` is emitted in each world's `<physics>` block and

@@ -3,6 +3,63 @@
   "scenario_id": "gen_v2_w0033",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "stop_sign",
+      "role": "distractor",
+      "target_id": "distractor_0033_02"
+    },
+    "11": {
+      "asset_slug": "ambulance",
+      "role": "distractor",
+      "target_id": "distractor_0033_03"
+    },
+    "2": {
+      "asset_slug": "house_2",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "lamp_post",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "playground",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "house_1",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
+      "asset_slug": "electrical_box",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0033"
+    },
+    "8": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0033_00"
+    },
+    "9": {
+      "asset_slug": "pickup",
+      "role": "distractor",
+      "target_id": "distractor_0033_01"
+    }
+  },
   "targets": [
     {
       "asset_slug": "electrical_box",

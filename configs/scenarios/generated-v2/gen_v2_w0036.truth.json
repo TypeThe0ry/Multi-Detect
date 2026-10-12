@@ -3,6 +3,48 @@
   "scenario_id": "gen_v2_w0036",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "house_2",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "2": {
+      "asset_slug": "water_tower",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "oak_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "walking_person",
+      "role": "target",
+      "target_id": "target_true_gen_v2_w0036"
+    },
+    "5": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0036_00"
+    },
+    "6": {
+      "asset_slug": "postbox",
+      "role": "distractor",
+      "target_id": "distractor_0036_01"
+    },
+    "7": {
+      "asset_slug": "casual_female",
+      "role": "distractor",
+      "target_id": "distractor_0036_02"
+    },
+    "8": {
+      "asset_slug": "ambulance",
+      "role": "distractor",
+      "target_id": "distractor_0036_03"
+    }
+  },
   "targets": [
     {
       "asset_slug": "walking_person",

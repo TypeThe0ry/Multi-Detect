@@ -35,8 +35,17 @@ except ModuleNotFoundError:  # pragma: no cover - direct script invocation fallb
     from multidetect.simulator.camera_projection import visible_fraction
     from scripts.autolabel_sim_teacher_frames import project_target_bbox
 
+from multidetect.sim_teacher.segmentation import (  # noqa: E402
+    boxes_from_segmentation,
+    load_labels_map,
+)
+
 LEGACY_CLASS_NAMES = (
-    "vehicle", "rover", "cargo_cart", "orange_inspection_marker", "blue_survey_pylon"
+    "vehicle",
+    "rover",
+    "cargo_cart",
+    "orange_inspection_marker",
+    "blue_survey_pylon",
 )
 CLASS_ALIASES = {
     "car": "vehicle",
@@ -270,11 +279,15 @@ def build_dataset(
     max_sim_skew_ms: float = 250.0,
     skip_over_skew: bool = True,
     min_visible_fraction: float = 0.3,
+    label_source: str = "projection",
+    min_seg_area_px: int = 4,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
     if not 0.0 <= float(min_visible_fraction) <= 1.0:
         raise ValueError("min_visible_fraction must be in [0, 1]")
+    if label_source not in {"projection", "segmentation"}:
+        raise ValueError("label_source must be projection or segmentation")
     rng = random.Random(seed)
     class_names, catalog = _load_fuel_catalog()
     splits = _split_map(index_path)
@@ -301,7 +314,7 @@ def build_dataset(
             split = splits.get(world, "train")
             if split not in ("train", "val", "test"):
                 raise ValueError(f"invalid split {split!r} for {world}")
-            truth_path = _find_truth(world, [campaign, Path.cwd()])
+            truth_path = _find_truth(world, [index_path.parent, campaign, Path.cwd()])
             truth = _load(truth_path) if truth_path else {}
             sdf_path = _find_sdf(world, [campaign, Path.cwd()])
             obstacles = load_sdf_obstacles(sdf_path) if sdf_path is not None else ()
@@ -346,6 +359,22 @@ def build_dataset(
                     seen_sha.add(digest)
                     seen_perceptual.add(pkey)
                     h, w = image.shape[:2]
+                    segmentation_boxes = {}
+                    if label_source == "segmentation":
+                        seg_name = obs.get("segmentation_path")
+                        if not isinstance(seg_name, str):
+                            raise ValueError(
+                                f"{episode}: segmentation labels requested "
+                                "but observation has no segmentation_path"
+                            )
+                        seg_path = Path(seg_name.replace("\\", "/"))
+                        seg_path = seg_path if seg_path.is_absolute() else episode / seg_path
+                        seg_image = load_labels_map(seg_path)
+                        if seg_image.shape[:2] != (h, w):
+                            raise ValueError("segmentation geometry differs from RGB")
+                        segmentation_boxes = boxes_from_segmentation(
+                            seg_image, truth, min_area_px=min_seg_area_px, min_box_px=min_box_px
+                        )
                     labels: list[str] = []
                     classes: list[str] = []
                     objects: list[dict[str, Any]] = []
@@ -385,23 +414,31 @@ def build_dataset(
                                 target.get("mesh_bottom_offset_m", asset.get("bottom_offset_m")),
                             )
                         )
-                        box = project_target_bbox(
-                            target_ned=metric,
-                            pose=pose,
-                            camera_info=obs.get("camera_info", {}),
-                            image_size=(w, h),
-                            target_size_m=size,
-                            target_yaw_rad=yaw,
-                            target_bottom_offset_m=bottom_offset,
-                        )
-                        fraction = visible_fraction(
-                            pose=pose, target_ned=metric, target_size_m=size,
-                            target_yaw_rad=yaw, obstacles=obstacles,
-                            target_bottom_offset_m=bottom_offset,
-                        )
-                        if min_visible_fraction > 0.0 and fraction < min_visible_fraction:
-                            dropped_occluded += 1
-                            continue
+                        segmentation = segmentation_boxes.get(str(target.get("target_id")))
+                        if label_source == "segmentation":
+                            box = segmentation["box"] if segmentation else None
+                            fraction = None
+                        else:
+                            box = project_target_bbox(
+                                target_ned=metric,
+                                pose=pose,
+                                camera_info=obs.get("camera_info", {}),
+                                image_size=(w, h),
+                                target_size_m=size,
+                                target_yaw_rad=yaw,
+                                target_bottom_offset_m=bottom_offset,
+                            )
+                            fraction = visible_fraction(
+                                pose=pose,
+                                target_ned=metric,
+                                target_size_m=size,
+                                target_yaw_rad=yaw,
+                                obstacles=obstacles,
+                                target_bottom_offset_m=bottom_offset,
+                            )
+                            if min_visible_fraction > 0.0 and fraction < min_visible_fraction:
+                                dropped_occluded += 1
+                                continue
                         if (
                             box is None
                             or box[2] - box[0] < min_box_px
@@ -418,6 +455,7 @@ def build_dataset(
                                 "target_ned": [float(value) for value in metric],
                                 "size_m": [float(value) for value in size],
                                 "visible_fraction": fraction,
+                                **(segmentation or {}),
                             }
                         )
                     records.append(
@@ -523,6 +561,8 @@ def build_dataset(
     (output / "data.yaml").write_text(data_yaml, encoding="utf-8", newline="\n")
     manifest = {
         "schema_version": 1,
+        "label_source": label_source,
+        "min_seg_area_px": min_seg_area_px,
         "classes": list(class_names),
         "negative_ratio": negative_ratio,
         "min_box_px": min_box_px,
@@ -564,14 +604,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--preview", type=int, default=0)
     parser.add_argument(
-        "--max-sim-skew-ms", type=float, default=250.0,
+        "--max-sim-skew-ms",
+        type=float,
+        default=250.0,
         help="skip steps whose observation sim_skew_ms exceeds this limit (default: 250)",
     )
     parser.add_argument(
-        "--no-skip-over-skew", action="store_true",
+        "--no-skip-over-skew",
+        action="store_true",
         help="retain steps over the simulation-skew limit",
     )
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
+    parser.add_argument(
+        "--label-source", choices=("projection", "segmentation"), default="projection"
+    )
+    parser.add_argument("--min-seg-area-px", type=int, default=4)
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -584,6 +631,8 @@ def main(argv: list[str] | None = None) -> int:
         max_sim_skew_ms=args.max_sim_skew_ms,
         skip_over_skew=not args.no_skip_over_skew,
         min_visible_fraction=args.min_visible_fraction,
+        label_source=args.label_source,
+        min_seg_area_px=args.min_seg_area_px,
     )
     print(
         json.dumps(

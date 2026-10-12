@@ -22,10 +22,26 @@ def main() -> int:
     parser.add_argument("--out-scenarios", type=Path, default=Path("configs/scenarios/generated"))
     parser.add_argument("--real-time-factor", type=float, default=1.0)
     parser.add_argument("--asset-mode", choices=("box", "fuel_v1"), default="box")
+    parser.add_argument(
+        "--segmentation-labels",
+        action="store_true",
+        help="emit Gazebo Harmonic Label plugins and segmentation_labels truth map (fuel_v1 only)",
+    )
     args = parser.parse_args()
     ratios = tuple(float(part) for part in args.split_ratios.split(","))
     fn = generate_fuel_worlds if args.asset_mode == "fuel_v1" else generate_worlds
-    document = fn(args.count, args.seed, ratios, args.out_worlds, args.out_scenarios, args.real_time_factor)
+    if args.asset_mode == "fuel_v1":
+        document = fn(
+            args.count,
+            args.seed,
+            ratios,
+            args.out_worlds,
+            args.out_scenarios,
+            args.real_time_factor,
+            segmentation_labels=args.segmentation_labels,
+        )
+    else:
+        document = fn(args.count, args.seed, ratios, args.out_worlds, args.out_scenarios, args.real_time_factor)
     print(f"generated {document['count']} worlds (seed={document['seed']})")
     return 0
 
