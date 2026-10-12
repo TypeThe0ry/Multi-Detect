@@ -340,6 +340,6 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         color_cn = {"red": "红色", "blue": "蓝色", "white": "白色", "orange": "橙色", "brown": "棕色"}.get(target.get("color"), "")
         category_cn = zh_words.get(target["category"], target["semantic_words"][0])
         task_text = f"找到{color_cn}{category_cn}并记录位置"
-        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":f"Find the {target.get('color') or ''} {' '.join(target['semantic_words'][:2])}".replace('  ',' ').strip(),"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
+        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":" ".join(["Find the", *([target["color"]] if target.get("color") else []), target["semantic_words"][0], "and record its position."]),"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
     doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
 

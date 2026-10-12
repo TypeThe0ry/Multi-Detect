@@ -106,6 +106,20 @@ def _task_text(slug: tuple[str, str], variant: int) -> str:
     )
 
 
+def _fuel_description(target: dict) -> str:
+    words = target.get("category_words") or []
+    category = " ".join(dict.fromkeys(" ".join(words).split())) if words else str(target.get("class") or "object").replace("_", " ")
+    # Bound each description so the complete rejection stays within 20 words.
+    return " ".join(f"{target.get('color') or ''} {category}".split()[:5])
+
+
+def _fuel_reject_reason(candidate: dict, requested: dict, task_text: str) -> str:
+    color = requested.get("color")
+    mentions_color = color and (re.search(rf"\b{re.escape(color)}\b", task_text, re.I) or COLOR_ZH.get(color, "\0") in task_text)
+    requested = requested if mentions_color else {**requested, "color": None}
+    return f"Candidate is {_fuel_description(candidate)}; task asks for {_fuel_description(requested)}."
+
+
 def _decision(kind: str, *, track: str | None = None, reason: str, region: str | None = None) -> dict:
     value = {
         "decision": kind,
@@ -141,7 +155,7 @@ def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float
         metric = target.get("pose") or {}
         cls = _target_class(target)
         try:
-            size = tuple(target.get("size_m") or sizes.get(str(target.get("target_id"))) or DEFAULT_SIZES.get(cls, (3.0, 1.8, 1.5)))
+            size = tuple(target.get("size_m") or target.get("measured_size_m") or sizes.get(str(target.get("target_id"))) or DEFAULT_SIZES.get(cls, (3.0, 1.8, 1.5)))
             yaw = float(metric.get("yaw_rad", 0.0))
             bottom_offset = target.get(
                 "bottom_offset_m",
@@ -171,7 +185,7 @@ def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float
             continue
         pos = (obs.get("pose") or {}).get("local_ned_m") or (0, 0, 0)
         distance = math.hypot(float(metric["y_north_m"]) - float(pos[0]), float(metric["x_east_m"]) - float(pos[1]))
-        color = _target_color(target)
+        color = target.get("color") if "true_target" in target else _target_color(target)
         if color is None and cls == "inspection_marker":
             color = "orange"
         projected.append({"target": target, "box": box, "class": cls, "color": color, "range_m": distance, "visible_fraction": fraction})
@@ -225,7 +239,7 @@ def _row(
     }
 
 
-def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3):
+def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3, world_metadata: dict[str, dict] | None = None):
     seen: dict[str, list[int]] = defaultdict(list)
     stats = Counter()
     for campaign in campaign_roots:
@@ -244,7 +258,16 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
             sdf_path = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
             if not urban and not truth_path.is_file():
                 continue
-            targets = _urban_target(world, sdf_path) if urban else _json(truth_path).get("targets", [])
+            truth = {} if urban else _json(truth_path)
+            world_info = (world_metadata or {}).get(world, {})
+            fuel = truth.get("asset_mode") == "fuel_v1" or world_info.get("asset_mode") == "fuel_v1"
+            targets = _urban_target(world, sdf_path) if urban else truth.get("targets", [])
+            requested = None
+            if fuel:
+                true_targets = [target for target in targets if target.get("true_target") is True]
+                if len(true_targets) != 1:
+                    raise ValueError(f"Fuel world {world} must have exactly one true_target")
+                requested = true_targets[0]
             if not targets:
                 continue
             sizes = _sdf_sizes(sdf_path)
@@ -261,7 +284,15 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                 if not line.strip():
                     continue
                 step = json.loads(line)
-                slug = _task_slug(str(step.get("task_text") or episode_task))
+                if fuel:
+                    # The generated index carries the curated natural-language task; earlier
+                    # fuel episodes recorded an English label inside a Chinese template.
+                    task_text = str(world_info.get("task_text") or step.get("task_text") or episode_task or "")
+                    if not task_text:
+                        raise ValueError(f"Fuel world {world} has no task text")
+                    slug = {"task_text": task_text, "task_text_en": world_info.get("task_text_en"), "true_target": requested}
+                else:
+                    slug = _task_slug(str(step.get("task_text") or episode_task))
                 if slug is None:
                     stats["missing_task_slug"] += 1
                     continue
@@ -304,17 +335,19 @@ def build_dataset(
         raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
     world_splits = {str(w["world_id"]): str(w["split"]) for w in index_document["worlds"]}
+    world_metadata = {str(w["world_id"]): {"asset_mode": index_document.get("asset_mode"), **w} for w in index_document["worlds"]}
     if set(world_splits.values()) != set(SPLITS):
         raise ValueError("World index must contain train, val and test")
     rng = random.Random(seed)
     source_hashes = {_relative(index): _sha(index), _relative(Path(__file__)): _sha(Path(__file__))}
     buckets: dict[str, dict[str, list[dict]]] = {split: defaultdict(list) for split in SPLITS}
     stats = Counter()
-    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction):
+    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction, world_metadata=world_metadata):
         stats.update(frame_stats)
         frame_stats.clear()
         variant = int(hashlib.sha256(f"{world}:{frame.name}:{seed}".encode()).hexdigest()[:8], 16)
-        task = _task_text(slug, variant)
+        fuel = isinstance(slug, dict)
+        task = (str(slug.get("task_text_en") or slug["task_text"]) if variant % 2 else slug["task_text"]) if fuel else _task_text(slug, variant)
         labels = step.get("labels") if isinstance(step, dict) else {}
         labels = labels if isinstance(labels, dict) else {}
         expert_phase = str(labels.get("phase") or "").casefold() if side == "after" else ""
@@ -324,6 +357,8 @@ def build_dataset(
         except (TypeError, ValueError):
             expert_range = math.inf
         true_id = next((p["target"]["target_id"] for p in projected if str(p["target"].get("target_id", "")).startswith("target_true")), None)
+        if fuel:
+            true_id = slug["true_target"]["target_id"]
         if world.startswith("urban_"):
             true_id = "multidetect_search_target_urban_001"
         if not projected:
@@ -336,8 +371,8 @@ def build_dataset(
             continue
         projected_boxes = [item["box"] for item in projected]
         for p_index, p in enumerate(projected):
-            color_match = p["color"] == slug[0]
-            class_match = p["class"] == slug[1]
+            color_match = True if fuel else p["color"] == slug[0]
+            class_match = True if fuel else p["class"] == slug[1]
             is_true = p["target"].get("target_id") == true_id
             if is_true and color_match and class_match:
                 remote_by_teacher = expert_phase == "approach" and expert_range > 45
@@ -347,6 +382,9 @@ def build_dataset(
                 else:
                     target = _decision("confirm_target", track=f"track-{p_index + 1}", reason="Candidate class and color match the task.")
                     kind = "confirm_target"
+            elif fuel:
+                target = _decision("reject_track", track=f"track-{p_index + 1}", reason=_fuel_reject_reason(p["target"], slug["true_target"], task))
+                kind = "reject_track"
             elif not class_match:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=f"Wrong class: requested {slug[1]}, candidate is {p['class']}.")
                 kind = "reject_track"
@@ -363,7 +401,7 @@ def build_dataset(
                 buckets[split]["reject_track"].append(_row(world=world, split=split, frame=frame, task_text=task, box=background, size=size, target=target, kind="reject_track", campaign=campaign, label_type="background"))
         if variant % 35 == 0:
             target = _decision("ask_clarify", reason="Task lacks the class and color needed to identify a target.")
-            buckets[split]["ask_clarify"].append(_row(world=world, split=split, frame=frame, task_text="Find the target; class and color unspecified.", box=projected[0]["box"], size=size, target=target, kind="ask_clarify", campaign=campaign, label_type="ambiguous_task"))
+            buckets[split]["ask_clarify"].append(_row(world=world, split=split, frame=frame, task_text=(("Find the target." if variant % 2 else "\u627e\u5230\u76ee\u6807\u5e76\u8bb0\u5f55\u4f4d\u7f6e") if fuel else "Find the target; class and color unspecified."), box=projected[0]["box"], size=size, target=target, kind="ask_clarify", campaign=campaign, label_type="ambiguous_task"))
     selected: dict[str, list[dict]] = {}
     for split in SPLITS:
         groups = buckets[split]

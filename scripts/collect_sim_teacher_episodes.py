@@ -1163,12 +1163,31 @@ def _png_observation(observation: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _index_task_text(truth_path: Path) -> str | None:
+    """Natural-language task text from a generated index (fuel_v1 worlds carry one)."""
+    index = Path(truth_path).parent / "index.json"
+    if not index.is_file():
+        return None
+    try:
+        worlds = json.loads(index.read_text(encoding="utf-8")).get("worlds", [])
+    except (OSError, ValueError):
+        return None
+    scenario_id = Path(truth_path).name.removesuffix(".truth.json")
+    for world in worlds:
+        if world.get("world_id") == scenario_id and world.get("asset_mode") == "fuel_v1":
+            text = world.get("task_text")
+            return str(text) if text else None
+    return None
+
+
 def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
     policy_result = _policy_for(plan, truth_path, plan.seed + episode_index)
     if plan.teacher == "expert_search":
         policy, target_label = policy_result
-        task_text = "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
+        task_text = _index_task_text(truth_path) or (
+            "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
+        )
     else:
         policy = policy_result
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"

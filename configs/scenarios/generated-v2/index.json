@@ -58,7 +58,7 @@
         "slug": "ambulance"
       },
       "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance emergency vehicle",
+      "task_text_en": "Find the white ambulance and record its position.",
       "true_target_id": "target_true_gen_v2_w0000",
       "world_file": "gen_v2_w0000.sdf",
       "world_id": "gen_v2_w0000"
@@ -73,7 +73,7 @@
         "slug": "electrical_box"
       },
       "task_text": "找到电箱并记录位置",
-      "task_text_en": "Find the electrical box utility box",
+      "task_text_en": "Find the electrical box and record its position.",
       "true_target_id": "target_true_gen_v2_w0001",
       "world_file": "gen_v2_w0001.sdf",
       "world_id": "gen_v2_w0001"
@@ -88,7 +88,7 @@
         "slug": "mailbox"
       },
       "task_text": "找到邮箱并记录位置",
-      "task_text_en": "Find the mailbox",
+      "task_text_en": "Find the mailbox and record its position.",
       "true_target_id": "target_true_gen_v2_w0002",
       "world_file": "gen_v2_w0002.sdf",
       "world_id": "gen_v2_w0002"
@@ -103,7 +103,7 @@
         "slug": "construction_cone"
       },
       "task_text": "找到橙色交通锥并记录位置",
-      "task_text_en": "Find the orange traffic cone cone",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "true_target_id": "target_true_gen_v2_w0003",
       "world_file": "gen_v2_w0003.sdf",
       "world_id": "gen_v2_w0003"
@@ -118,7 +118,7 @@
         "slug": "hatchback_red"
       },
       "task_text": "找到红色轿车并记录位置",
-      "task_text_en": "Find the red car hatchback",
+      "task_text_en": "Find the red car and record its position.",
       "true_target_id": "target_true_gen_v2_w0004",
       "world_file": "gen_v2_w0004.sdf",
       "world_id": "gen_v2_w0004"
@@ -133,7 +133,7 @@
         "slug": "cardboard_box"
       },
       "task_text": "找到棕色纸箱并记录位置",
-      "task_text_en": "Find the brown cardboard box box",
+      "task_text_en": "Find the brown cardboard box and record its position.",
       "true_target_id": "target_true_gen_v2_w0005",
       "world_file": "gen_v2_w0005.sdf",
       "world_id": "gen_v2_w0005"
@@ -148,7 +148,7 @@
         "slug": "hatchback"
       },
       "task_text": "找到轿车并记录位置",
-      "task_text_en": "Find the car hatchback",
+      "task_text_en": "Find the car and record its position.",
       "true_target_id": "target_true_gen_v2_w0006",
       "world_file": "gen_v2_w0006.sdf",
       "world_id": "gen_v2_w0006"
@@ -163,7 +163,7 @@
         "slug": "backpack"
       },
       "task_text": "找到背包并记录位置",
-      "task_text_en": "Find the backpack bag",
+      "task_text_en": "Find the backpack and record its position.",
       "true_target_id": "target_true_gen_v2_w0007",
       "world_file": "gen_v2_w0007.sdf",
       "world_id": "gen_v2_w0007"
@@ -178,7 +178,7 @@
         "slug": "fire_hydrant"
       },
       "task_text": "找到消防栓并记录位置",
-      "task_text_en": "Find the fire hydrant hydrant",
+      "task_text_en": "Find the fire hydrant and record its position.",
       "true_target_id": "target_true_gen_v2_w0008",
       "world_file": "gen_v2_w0008.sdf",
       "world_id": "gen_v2_w0008"
@@ -193,7 +193,7 @@
         "slug": "male_visitor"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person man",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0009",
       "world_file": "gen_v2_w0009.sdf",
       "world_id": "gen_v2_w0009"
@@ -208,7 +208,7 @@
         "slug": "dumpster"
       },
       "task_text": "找到垃圾箱并记录位置",
-      "task_text_en": "Find the dumpster trash container",
+      "task_text_en": "Find the dumpster and record its position.",
       "true_target_id": "target_true_gen_v2_w0010",
       "world_file": "gen_v2_w0010.sdf",
       "world_id": "gen_v2_w0010"
@@ -223,7 +223,7 @@
         "slug": "jersey_barrier"
       },
       "task_text": "找到隔离墩并记录位置",
-      "task_text_en": "Find the jersey barrier road barrier",
+      "task_text_en": "Find the jersey barrier and record its position.",
       "true_target_id": "target_true_gen_v2_w0011",
       "world_file": "gen_v2_w0011.sdf",
       "world_id": "gen_v2_w0011"
@@ -238,7 +238,7 @@
         "slug": "casual_female"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person woman",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0012",
       "world_file": "gen_v2_w0012.sdf",
       "world_id": "gen_v2_w0012"
@@ -253,7 +253,7 @@
         "slug": "hatchback_blue"
       },
       "task_text": "找到蓝色轿车并记录位置",
-      "task_text_en": "Find the blue car hatchback",
+      "task_text_en": "Find the blue car and record its position.",
       "true_target_id": "target_true_gen_v2_w0013",
       "world_file": "gen_v2_w0013.sdf",
       "world_id": "gen_v2_w0013"
@@ -268,7 +268,7 @@
         "slug": "bus"
       },
       "task_text": "找到公交车并记录位置",
-      "task_text_en": "Find the bus",
+      "task_text_en": "Find the bus and record its position.",
       "true_target_id": "target_true_gen_v2_w0014",
       "world_file": "gen_v2_w0014.sdf",
       "world_id": "gen_v2_w0014"
@@ -283,7 +283,7 @@
         "slug": "fire_truck"
       },
       "task_text": "找到红色消防车并记录位置",
-      "task_text_en": "Find the red fire truck truck",
+      "task_text_en": "Find the red fire truck and record its position.",
       "true_target_id": "target_true_gen_v2_w0015",
       "world_file": "gen_v2_w0015.sdf",
       "world_id": "gen_v2_w0015"
@@ -298,7 +298,7 @@
         "slug": "ambulance"
       },
       "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance emergency vehicle",
+      "task_text_en": "Find the white ambulance and record its position.",
       "true_target_id": "target_true_gen_v2_w0016",
       "world_file": "gen_v2_w0016.sdf",
       "world_id": "gen_v2_w0016"
@@ -313,7 +313,7 @@
         "slug": "electrical_box"
       },
       "task_text": "找到电箱并记录位置",
-      "task_text_en": "Find the electrical box utility box",
+      "task_text_en": "Find the electrical box and record its position.",
       "true_target_id": "target_true_gen_v2_w0017",
       "world_file": "gen_v2_w0017.sdf",
       "world_id": "gen_v2_w0017"
@@ -328,7 +328,7 @@
         "slug": "mailbox"
       },
       "task_text": "找到邮箱并记录位置",
-      "task_text_en": "Find the mailbox",
+      "task_text_en": "Find the mailbox and record its position.",
       "true_target_id": "target_true_gen_v2_w0018",
       "world_file": "gen_v2_w0018.sdf",
       "world_id": "gen_v2_w0018"
@@ -343,7 +343,7 @@
         "slug": "construction_cone"
       },
       "task_text": "找到橙色交通锥并记录位置",
-      "task_text_en": "Find the orange traffic cone cone",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "true_target_id": "target_true_gen_v2_w0019",
       "world_file": "gen_v2_w0019.sdf",
       "world_id": "gen_v2_w0019"
@@ -358,7 +358,7 @@
         "slug": "hatchback_red"
       },
       "task_text": "找到红色轿车并记录位置",
-      "task_text_en": "Find the red car hatchback",
+      "task_text_en": "Find the red car and record its position.",
       "true_target_id": "target_true_gen_v2_w0020",
       "world_file": "gen_v2_w0020.sdf",
       "world_id": "gen_v2_w0020"
@@ -373,7 +373,7 @@
         "slug": "cardboard_box"
       },
       "task_text": "找到棕色纸箱并记录位置",
-      "task_text_en": "Find the brown cardboard box box",
+      "task_text_en": "Find the brown cardboard box and record its position.",
       "true_target_id": "target_true_gen_v2_w0021",
       "world_file": "gen_v2_w0021.sdf",
       "world_id": "gen_v2_w0021"
@@ -388,7 +388,7 @@
         "slug": "hatchback"
       },
       "task_text": "找到轿车并记录位置",
-      "task_text_en": "Find the car hatchback",
+      "task_text_en": "Find the car and record its position.",
       "true_target_id": "target_true_gen_v2_w0022",
       "world_file": "gen_v2_w0022.sdf",
       "world_id": "gen_v2_w0022"
@@ -403,7 +403,7 @@
         "slug": "backpack"
       },
       "task_text": "找到背包并记录位置",
-      "task_text_en": "Find the backpack bag",
+      "task_text_en": "Find the backpack and record its position.",
       "true_target_id": "target_true_gen_v2_w0023",
       "world_file": "gen_v2_w0023.sdf",
       "world_id": "gen_v2_w0023"
@@ -418,7 +418,7 @@
         "slug": "fire_hydrant"
       },
       "task_text": "找到消防栓并记录位置",
-      "task_text_en": "Find the fire hydrant hydrant",
+      "task_text_en": "Find the fire hydrant and record its position.",
       "true_target_id": "target_true_gen_v2_w0024",
       "world_file": "gen_v2_w0024.sdf",
       "world_id": "gen_v2_w0024"
@@ -433,7 +433,7 @@
         "slug": "male_visitor"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person man",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0025",
       "world_file": "gen_v2_w0025.sdf",
       "world_id": "gen_v2_w0025"
@@ -448,7 +448,7 @@
         "slug": "dumpster"
       },
       "task_text": "找到垃圾箱并记录位置",
-      "task_text_en": "Find the dumpster trash container",
+      "task_text_en": "Find the dumpster and record its position.",
       "true_target_id": "target_true_gen_v2_w0026",
       "world_file": "gen_v2_w0026.sdf",
       "world_id": "gen_v2_w0026"
@@ -463,7 +463,7 @@
         "slug": "jersey_barrier"
       },
       "task_text": "找到隔离墩并记录位置",
-      "task_text_en": "Find the jersey barrier road barrier",
+      "task_text_en": "Find the jersey barrier and record its position.",
       "true_target_id": "target_true_gen_v2_w0027",
       "world_file": "gen_v2_w0027.sdf",
       "world_id": "gen_v2_w0027"
@@ -478,7 +478,7 @@
         "slug": "casual_female"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person woman",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0028",
       "world_file": "gen_v2_w0028.sdf",
       "world_id": "gen_v2_w0028"
@@ -493,7 +493,7 @@
         "slug": "hatchback_blue"
       },
       "task_text": "找到蓝色轿车并记录位置",
-      "task_text_en": "Find the blue car hatchback",
+      "task_text_en": "Find the blue car and record its position.",
       "true_target_id": "target_true_gen_v2_w0029",
       "world_file": "gen_v2_w0029.sdf",
       "world_id": "gen_v2_w0029"
@@ -508,7 +508,7 @@
         "slug": "bus"
       },
       "task_text": "找到公交车并记录位置",
-      "task_text_en": "Find the bus",
+      "task_text_en": "Find the bus and record its position.",
       "true_target_id": "target_true_gen_v2_w0030",
       "world_file": "gen_v2_w0030.sdf",
       "world_id": "gen_v2_w0030"
@@ -523,7 +523,7 @@
         "slug": "fire_truck"
       },
       "task_text": "找到红色消防车并记录位置",
-      "task_text_en": "Find the red fire truck truck",
+      "task_text_en": "Find the red fire truck and record its position.",
       "true_target_id": "target_true_gen_v2_w0031",
       "world_file": "gen_v2_w0031.sdf",
       "world_id": "gen_v2_w0031"
@@ -538,7 +538,7 @@
         "slug": "ambulance"
       },
       "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance emergency vehicle",
+      "task_text_en": "Find the white ambulance and record its position.",
       "true_target_id": "target_true_gen_v2_w0032",
       "world_file": "gen_v2_w0032.sdf",
       "world_id": "gen_v2_w0032"
@@ -553,7 +553,7 @@
         "slug": "electrical_box"
       },
       "task_text": "找到电箱并记录位置",
-      "task_text_en": "Find the electrical box utility box",
+      "task_text_en": "Find the electrical box and record its position.",
       "true_target_id": "target_true_gen_v2_w0033",
       "world_file": "gen_v2_w0033.sdf",
       "world_id": "gen_v2_w0033"
@@ -568,7 +568,7 @@
         "slug": "stop_sign"
       },
       "task_text": "找到红色停止标志并记录位置",
-      "task_text_en": "Find the red stop sign road sign",
+      "task_text_en": "Find the red stop sign and record its position.",
       "true_target_id": "target_true_gen_v2_w0034",
       "world_file": "gen_v2_w0034.sdf",
       "world_id": "gen_v2_w0034"
@@ -583,7 +583,7 @@
         "slug": "suv"
       },
       "task_text": "找到SUV并记录位置",
-      "task_text_en": "Find the car suv",
+      "task_text_en": "Find the car and record its position.",
       "true_target_id": "target_true_gen_v2_w0035",
       "world_file": "gen_v2_w0035.sdf",
       "world_id": "gen_v2_w0035"
@@ -598,7 +598,7 @@
         "slug": "walking_person"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person pedestrian",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0036",
       "world_file": "gen_v2_w0036.sdf",
       "world_id": "gen_v2_w0036"
@@ -613,7 +613,7 @@
         "slug": "pickup"
       },
       "task_text": "找到皮卡并记录位置",
-      "task_text_en": "Find the pickup truck",
+      "task_text_en": "Find the pickup and record its position.",
       "true_target_id": "target_true_gen_v2_w0037",
       "world_file": "gen_v2_w0037.sdf",
       "world_id": "gen_v2_w0037"
@@ -628,7 +628,7 @@
         "slug": "postbox"
       },
       "task_text": "找到邮筒并记录位置",
-      "task_text_en": "Find the postbox mailbox",
+      "task_text_en": "Find the postbox and record its position.",
       "true_target_id": "target_true_gen_v2_w0038",
       "world_file": "gen_v2_w0038.sdf",
       "world_id": "gen_v2_w0038"
@@ -643,7 +643,7 @@
         "slug": "standing_person"
       },
       "task_text": "找到行人并记录位置",
-      "task_text_en": "Find the person pedestrian",
+      "task_text_en": "Find the person and record its position.",
       "true_target_id": "target_true_gen_v2_w0039",
       "world_file": "gen_v2_w0039.sdf",
       "world_id": "gen_v2_w0039"
