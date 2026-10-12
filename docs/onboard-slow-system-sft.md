@@ -199,3 +199,22 @@ r5 is the first leak-free number. The largest remaining confusion is
 approach_track vs confirm_target (12 of 21 errors), i.e. the distance/size
 judgement. Still coloured-box worlds; the generated-v2 realistic-mesh worlds
 are the next test.
+
+## Realistic-mesh worlds (generated-v2, 2026-10-12)
+
+Test split = 6 held-out gen_v2 worlds (157 rows, Chinese and English task
+text, real object categories). Candidate boxes still come from projected
+truth (small objects can be a few pixels off; segmentation labels are the
+next data revision).
+
+| Adapter | Trained on | Decision acc | Distractor rejection | Confirm recall / precision | JSON valid |
+|---|---|---:|---:|---:|---:|
+| r5 | coloured-box worlds only | 76.4% | 96.5% | 69.6% / 41.0% | 100% |
+| v2-r1 | slow-system-sft-v2-r1 (842 rows) | 86.6% | 95.3% | 60.9% / 70.0% | 97% |
+
+r5 never saw a realistic object yet rejects 96.5% of distractors on these
+worlds: category/colour judgement transfers from the pretrained VLM. Its
+errors are almost all approach-vs-confirm (distance). Training on v2 data
+fixes most of that (23 -> 4 premature confirms) but becomes more cautious
+(9 confirms predicted as approach) and 4 ask_clarify rows produced invalid
+JSON.
