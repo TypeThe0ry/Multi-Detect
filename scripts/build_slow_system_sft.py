@@ -350,6 +350,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
 def build_dataset(
     campaigns: list[Path], output: Path, *, index: Path, seed: int = 20261011,
     negative_ratio: float = 1.5, crop_policy: str = "candidate_zoom_v2", min_visible_fraction: float = 0.3,
+    confirm_min_side_px: float | None = None,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
@@ -402,7 +403,14 @@ def build_dataset(
             is_true = p["target"].get("target_id") == true_id
             if is_true and color_match and class_match:
                 remote_by_teacher = expert_phase == "approach" and expert_range > 45
-                if remote_by_teacher or p["range_m"] > 45 or min(p["box"][2] - p["box"][0], p["box"][3] - p["box"][1]) < 12:
+                min_side = min(p["box"][2] - p["box"][0], p["box"][3] - p["box"][1])
+                if fuel and confirm_min_side_px is not None:
+                    # Observable rule: confirm once the target is large enough to verify;
+                    # range is invisible to the model and made the labels contradictory.
+                    too_small = min_side < confirm_min_side_px
+                else:
+                    too_small = remote_by_teacher or p["range_m"] > 45 or min_side < 12
+                if too_small:
                     target = _decision("approach_track", track=f"track-{p_index + 1}", reason="Matching candidate is distant; approach for a closer view.")
                     kind = "approach_track"
                 else:
@@ -482,6 +490,10 @@ def build_dataset(
         "negative_ratio_requested": negative_ratio,
         "image_policy": "reference_existing_rgb_png_no_copy; full_frame_resize_to_448_max_side_at_model_input; candidate_crop_resize_to_224x224_at_model_input",
         "crop_policy": crop_policy,
+        "confirm_rule": (
+            {"kind": "min_side_px", "threshold": confirm_min_side_px, "applies_to": "fuel_v1"}
+            if confirm_min_side_px is not None else {"kind": "range_45m_or_min_side_12px"}
+        ),
         "dedupe": "per_world_64_bit_dhash_hamming_distance_at_most_3; one_source_frame_can_have_multiple_candidate_labels",
         "world_splits": {"urban_inspection_multirotor_001": "train", **world_splits},
         "counts": {split: {"total": len(rows), "worlds": len({r["world"] for r in rows}), "decisions": dict(Counter(r["assistant_target"]["decision"] for r in rows)), "label_types": dict(Counter(r["label_type"] for r in rows))} for split, rows in selected.items()},
@@ -502,10 +514,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--negative-ratio", type=float, default=1.5)
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"), default="candidate_zoom_v2")
+    parser.add_argument("--confirm-min-side-px", type=float, default=None, help="fuel_v1 worlds: confirm when the target box min side reaches this many pixels (default: legacy range rule)")
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
