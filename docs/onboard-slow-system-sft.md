@@ -254,3 +254,41 @@ host size gate scored against the 20 px labels): Q5_K_M 1.26 GB identity 95.2%,
 gated decision 92.0%, p50/p95 0.43/0.47 s; Q8_0 1.83 GB identity 92.8%, gated
 91.3%, 0.52/0.56 s (RTX 4060; Orin not measured). Q5_K_M + the 0.45 GB mmproj is
 the onboard candidate.
+
+## Live onboard proposals, identity-only decoding, counterfactual tasks (2026-10-14)
+
+Training rows so far only used ground-truth objects as candidates, so clutter,
+scenery (e.g. a red gas station price sign) and the detector's own box geometry
+never appeared. `scripts/cache_onboard_proposals.py` runs the onboard FAST
+proposer (YOLOE fine-tune, generic vocabulary, conf 0.05, onboard box filter)
+over every campaign frame; `build_slow_system_sft.py --proposals` labels each
+live box by the segmentation object it covers (true target / distractor /
+scenery / nothing), drops half-covering boxes and distractors the task text also
+describes (`multidetect.simulator.task_semantics.task_equivalent`), and keeps
+all rare scenery/background negatives.
+
+Onboard identity calls now decode with `identity_decision_schema(focus)`:
+decision restricted to approach/confirm/reject and args pinned to the focus
+track (keys are emitted in sorted order, so a free `track_id` came out null in
+6.6% of constrained calls).
+
+Same test split for all rows below (sft-v2-r4-prop test, 243 rows, identical to
+the r5/r6 test files), llama.cpp b11552 Q5_K_M, identity-only pinned decoding,
+RTX 4060:
+
+| LoRA | Training data | Identity acc | Match recall / precision | Distractor rejection |
+|---|---|---:|---:|---:|
+| v2-r3-seg | truth candidates | 85.5% | 100% / 76.1% | 73.1% |
+| **v2-r4-prop** | + live proposals | **92.8%** | 100% / 86.4% | **86.6%** |
+| v2-r5-cf | + counterfactual tasks, held-out classes unseen | 80.5% | 100% / 70.3% | 63.9% |
+| v2-r6-cf-seen | + counterfactual tasks only | 82.4% | 100% / 72.3% | 67.2% |
+
+p50 latency 0.44 s for all. **Counterfactual tasks hurt** (r6 isolates them):
+re-asking every visible distractor by name doubles the positives and makes the
+model accept similar vehicles (SUV / pickup / hatchback) far more often; errors
+concentrate in gen_v2_w0037 and gen_v2_w0035. v2-r4-prop stays the onboard model.
+
+The in-flight stop sign rejection that motivated them is a viewpoint problem,
+not a class prior: the vehicle approached the sign from behind, where it is a
+grey octagon, and the model rejected it for not being red. That needs a second
+look from another side (behaviour), not more labels.
