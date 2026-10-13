@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from multidetect.simulator.task_semantics import task_equivalent
+from multidetect.simulator.task_semantics import fuel_task_texts, task_equivalent
 
 from multidetect.autonomy.serialization import canonical_sha256
 
@@ -252,7 +252,6 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     entries = []; target_combos = []
     train_target_slugs = [a["slug"] for a in eligible[: max(1, len(eligible) - 6)]]
     test_pool = [a for a in eligible if a["slug"] not in train_target_slugs] or eligible
-    zh_words = {"car": "\u8f7f\u8f66", "suv": "SUV", "pickup": "\u76ae\u5361", "ambulance": "\u6551\u62a4\u8f66", "fire_truck": "\u6d88\u9632\u8f66", "bus": "\u516c\u4ea4\u8f66", "person": "\u884c\u4eba", "traffic_cone": "\u4ea4\u901a\u9525", "barrel": "\u8def\u969c\u6876", "jersey_barrier": "\u9694\u79bb\u58a9", "fire_hydrant": "\u6d88\u9632\u6813", "dumpster": "\u5783\u573e\u7bb1", "electrical_box": "\u7535\u7bb1", "mailbox": "\u90ae\u7bb1", "postbox": "\u90ae\u7b52", "cardboard_box": "\u7eb8\u7bb1", "backpack": "\u80cc\u5305", "stop_sign": "\u505c\u6b62\u6807\u5fd7"}
     def inline_asset(slug: str, object_id: str, x: float, y: float, yaw: float, bottom_z: float,
                      label_id: int | None = None) -> str:
         source = Path(resolved_root) / slug / "model.sdf"
@@ -380,9 +379,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             _write(scenarios_dir/f"{world_id}.{suffix}.json",data)
         scenario={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"channels":{k:{"path":f"{world_id}.{k}.json","sha256":canonical_sha256(v)} for k,v in (("runtime_input",runtime),("truth",truth),("expectations",expectations))}}
         _write(scenarios_dir/f"{world_id}.scenario.json",scenario)
-        color_cn = {"red": "红色", "blue": "蓝色", "white": "白色", "orange": "橙色", "brown": "棕色"}.get(target.get("color"), "")
-        category_cn = zh_words.get(target["category"], target["semantic_words"][0])
-        task_text = f"找到{color_cn}{category_cn}并记录位置"
-        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":" ".join(["Find the", *([target["color"]] if target.get("color") else []), target["semantic_words"][0], "and record its position."]),"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
+        task_text, task_text_en = fuel_task_texts(target)
+        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
     doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
 

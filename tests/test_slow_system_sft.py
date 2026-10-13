@@ -266,3 +266,31 @@ def test_live_proposals_are_labelled_by_the_object_they_cover(tmp_path):
     scenery = next(row for rows in groups.values() for row in rows if row["label_type"] == "proposal_scenery")
     assert "gas station" in scenery["assistant_target"]["reason"]
     assert scenery["focus_track_id"] == "track-1" and len(scenery["candidates"]) == 4
+
+
+def test_counterfactual_tasks_name_the_distractor_and_held_out_classes_stay_unlabelled():
+    from collections import Counter, defaultdict
+
+    groups = defaultdict(list)
+    stats = Counter()
+    true = {"target_id": "target_true_w", "category_words": ["mailbox"], "class": "mailbox", "color": None}
+    bus = {"target_id": "d_bus", "category_words": ["bus"], "class": "bus", "color": "yellow", "semantic_words": ["bus"]}
+    sign = {"target_id": "d_sign", "category_words": ["stop sign"], "class": "stop_sign", "color": "red"}
+    scene = [
+        {"target_id": "target_true_w", "box": (100.0, 100.0, 130.0, 130.0), "role": "target", "asset_slug": "mailbox", "record": true},
+        {"target_id": "d_bus", "box": (300.0, 300.0, 400.0, 360.0), "role": "distractor", "asset_slug": "bus", "record": bus},
+        {"target_id": "d_sign", "box": (600.0, 100.0, 630.0, 130.0), "role": "distractor", "asset_slug": "stop_sign", "record": sign},
+    ]
+    boxes = [[300, 300, 400, 360, 0.6], [600, 100, 630, 130, 0.5]]
+    builder._proposal_rows(
+        groups, stats, boxes, scene, slug={"true_target": true}, task="Find the mailbox and record its position.",
+        world="w", split="train", frame=Path(builder.__file__), size=(1280, 960), campaign="c",
+        true_id="target_true_w", iou_threshold=0.3, min_side_px=10.0, confirm_min_side_px=20.0,
+        held_out=frozenset({"stop_sign"}), counterfactual=True, variant=1,
+    )
+    rows = [row for rows in groups.values() for row in rows]
+    assert sorted(row["label_type"] for row in rows) == ["proposal_counterfactual", "proposal_distractor"]
+    counterfactual = next(row for row in rows if row["label_type"] == "proposal_counterfactual")
+    assert counterfactual["task_text"] == "Find the yellow bus and record its position."
+    assert counterfactual["assistant_target"]["decision"] == "confirm_target"
+    assert stats["dropped_held_out_focus"] == 1

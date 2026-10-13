@@ -37,7 +37,7 @@ from multidetect.simulator.camera_projection import (  # noqa: E402
     project_target_bbox,
     visible_fraction,
 )
-from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
+from multidetect.simulator.task_semantics import fuel_task_texts, task_equivalent  # noqa: E402
 from scripts.build_sim_detector_dataset import (  # noqa: E402
     CLASS_ALIASES,
     DEFAULT_SIZES,
@@ -377,10 +377,25 @@ def _coverage(inner, outer) -> float:
     return ix * iy / area if area > 0 else 0.0
 
 
+def _identity_match(box, track: str, confirm_min_side_px: float) -> dict:
+    if min(box[2] - box[0], box[3] - box[1]) >= confirm_min_side_px:
+        return _decision("confirm_target", track=track, reason="Candidate class and color match the task.")
+    return _decision("approach_track", track=track, reason="Matching candidate is distant; approach for a closer view.")
+
+
+def _counterfactual_task(obj: dict, others: list[dict], variant: int) -> str | None:
+    """A task naming ``obj`` itself, unless another visible object fits it too."""
+    if any(task_equivalent(obj, other) for other in others if other is not obj):
+        return None
+    chinese, english = fuel_task_texts(obj)
+    return english if variant % 2 else chinese
+
+
 def _proposal_rows(
     groups, stats: Counter, boxes: list[list[float]], scene: list[dict], *, slug: dict, task: str,
     world: str, split: str, frame: Path, size: tuple[int, int], campaign: str, true_id: str,
     iou_threshold: float, min_side_px: float, confirm_min_side_px: float,
+    held_out: frozenset[str] = frozenset(), counterfactual: bool = False, variant: int = 0,
 ) -> None:
     """Label live FAST proposals by the segmentation object they cover.
 
@@ -412,11 +427,24 @@ def _proposal_rows(
             else:
                 target = _decision("approach_track", track=track, reason="Matching candidate is distant; approach for a closer view.")
         elif best["record"] is not None:
+            if best.get("asset_slug") in held_out:
+                stats["dropped_held_out_focus"] += 1
+                continue
             if task_equivalent(requested, best["record"]):
                 stats["dropped_task_equivalent"] += 1
                 continue
             label_type = "proposal_distractor"
             target = _decision("reject_track", track=track, reason=_fuel_reject_reason(best["record"], requested, task))
+            other_task = _counterfactual_task(
+                best["record"], [o["record"] for o in scene if o["record"] is not None], variant
+            ) if counterfactual else None
+            if other_task is not None:
+                stats["proposal_counterfactual"] += 1
+                groups["approach_track" if min(box[2] - box[0], box[3] - box[1]) < confirm_min_side_px else "confirm_target"].append(_row(
+                    world=world, split=split, frame=frame, task_text=other_task, box=box, size=size,
+                    target=_identity_match(box, track, confirm_min_side_px), kind="match", campaign=campaign,
+                    label_type="proposal_counterfactual", candidate_boxes=shown, focus_index=0,
+                ))
         else:
             label_type = "proposal_scenery"
             scenery = {"category_words": str(best.get("asset_slug") or "structure").split("_"), "color": None}
@@ -434,6 +462,7 @@ def build_dataset(
     negative_ratio: float = 1.5, crop_policy: str = "candidate_zoom_v2", min_visible_fraction: float = 0.3,
     confirm_min_side_px: float | None = None,
     proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
+    counterfactual_tasks: bool = False, unseen_holdout: bool = False,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
@@ -449,6 +478,10 @@ def build_dataset(
     if set(world_splits.values()) != set(SPLITS):
         raise ValueError("World index must contain train, val and test")
     rng = random.Random(seed)
+    # Held-out target classes stay fully unseen in train/val: never the focus of a label.
+    held_out_slugs = frozenset(
+        str(combo["slug"]) for combo in index_document.get("held_out_target_combos", [])
+    ) if unseen_holdout else frozenset()
     proposal_cache: dict[str, list[list[float]]] = {}
     if proposals is not None:
         for line in proposals.read_text(encoding="utf-8").splitlines():
@@ -511,9 +544,19 @@ def build_dataset(
                 # The task text describes this distractor as well: no consistent label.
                 stats["dropped_task_equivalent"] += 1
                 continue
+            elif fuel and split != "test" and p["target"].get("asset_slug") in held_out_slugs:
+                stats["dropped_held_out_focus"] += 1
+                continue
             elif fuel:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=_fuel_reject_reason(p["target"], slug["true_target"], task))
                 kind = "reject_track"
+                other_task = _counterfactual_task(p["target"], [o["target"] for o in projected], variant) if counterfactual_tasks and split != "test" else None
+                if other_task is not None:
+                    # The same object is the answer when the task names it: identity
+                    # depends on the task text, not on the object's class alone.
+                    stats["counterfactual"] += 1
+                    match = _identity_match(p["box"], f"track-{p_index + 1}", confirm_min_side_px if confirm_min_side_px is not None else 20.0)
+                    buckets[split][match["decision"]].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=p["box"], size=size, target=match, kind=match["decision"], campaign=campaign, label_type="counterfactual", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction")))
             elif not class_match:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=f"Wrong class: requested {slug[1]}, candidate is {p['class']}.")
                 kind = "reject_track"
@@ -529,6 +572,8 @@ def build_dataset(
                 world=world, split=split, frame=frame, size=size, campaign=campaign,
                 true_id=true_id, iou_threshold=proposal_iou, min_side_px=proposal_min_side_px,
                 confirm_min_side_px=confirm_min_side_px if confirm_min_side_px is not None else 20.0,
+                held_out=held_out_slugs if split != "test" else frozenset(),
+                counterfactual=counterfactual_tasks and split != "test", variant=variant,
             )
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
@@ -594,6 +639,8 @@ def build_dataset(
         "negative_ratio_requested": negative_ratio,
         "image_policy": "reference_existing_rgb_png_no_copy; full_frame_resize_to_448_max_side_at_model_input; candidate_crop_resize_to_224x224_at_model_input",
         "crop_policy": crop_policy,
+        "counterfactual_tasks": counterfactual_tasks,
+        "unseen_holdout": sorted(held_out_slugs),
         "proposals": (
             {"cache": _relative(proposals), "iou": proposal_iou, "min_side_px": proposal_min_side_px}
             if proposals is not None else None
@@ -626,9 +673,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     parser.add_argument("--proposals", type=Path, default=None, help="cached onboard FAST proposals (scripts/cache_onboard_proposals.py); adds rows labelled from live boxes")
     parser.add_argument("--proposal-iou", type=float, default=0.3)
+    parser.add_argument("--counterfactual-tasks", action="store_true", help="train/val: also ask for each visible distractor by name (a match), so identity follows the task text")
+    parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
