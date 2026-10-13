@@ -55,6 +55,21 @@ DECISION_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+IDENTITY_DECISIONS = ("approach_track", "confirm_target", "reject_track")
+
+
+def identity_decision_schema() -> dict[str, Any]:
+    """DECISION_JSON_SCHEMA limited to identity verdicts on the focused track.
+
+    When the host asks about one tracked candidate the only useful answers are
+    approach/confirm (it is the task's object) or reject (it is not); task
+    clarity and search moves are decided elsewhere.
+    """
+    properties = dict(DECISION_JSON_SCHEMA["properties"])
+    properties["decision"] = {"type": "string", "enum": list(IDENTITY_DECISIONS)}
+    return {**DECISION_JSON_SCHEMA, "properties": properties}
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionArgs:
     track_id: str | None
@@ -147,6 +162,8 @@ def gate_confirm_by_size(
 __all__ = [
     "DECISIONS",
     "DECISION_JSON_SCHEMA",
+    "IDENTITY_DECISIONS",
+    "identity_decision_schema",
     "IDENTITY_MATCH",
     "DecisionArgs",
     "OnboardDecision",

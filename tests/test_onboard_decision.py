@@ -78,3 +78,18 @@ def test_host_size_gate_keeps_identity_and_picks_confirm_or_approach() -> None:
     assert (small.decision, large.decision, reject.decision) == ("approach_track", "confirm_target", "reject_track")
     assert identity_of(small.decision) == identity_of(large.decision) == "match"
     assert identity_of("reject_track") == "no_match" and identity_of("search_region") is None
+
+
+def test_identity_schema_only_allows_identity_verdicts_and_keeps_the_rest() -> None:
+    from multidetect.autonomy.onboard_decision import (
+        DECISION_JSON_SCHEMA,
+        IDENTITY_DECISIONS,
+        identity_decision_schema,
+    )
+
+    schema = identity_decision_schema()
+    assert schema["properties"]["decision"]["enum"] == list(IDENTITY_DECISIONS)
+    assert "ask_clarify" not in schema["properties"]["decision"]["enum"]
+    assert schema["properties"]["args"] == DECISION_JSON_SCHEMA["properties"]["args"]
+    # The shared schema is not mutated.
+    assert "ask_clarify" in DECISION_JSON_SCHEMA["properties"]["decision"]["enum"]

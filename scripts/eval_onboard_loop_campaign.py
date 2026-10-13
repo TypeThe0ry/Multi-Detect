@@ -61,9 +61,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--segmentation", action="store_true", default=True)
     parser.add_argument("--radius-m", type=float, default=10.0)
     parser.add_argument("--onboard-config", type=Path, default=None)
+    parser.add_argument(
+        "--worlds", nargs="*", default=None, help="only these world ids (default: the whole split)"
+    )
     args = parser.parse_args(argv)
     index = json.loads(args.index.read_text(encoding="utf-8"))
-    worlds = [w for w in index["worlds"] if w["split"] == args.split]
+    worlds = [
+        w
+        for w in index["worlds"]
+        if w["split"] == args.split and (not args.worlds or w["world_id"] in args.worlds)
+    ]
     scenarios = args.index.parent
     rows: list[dict[str, Any]] = []
     for world in worlds:

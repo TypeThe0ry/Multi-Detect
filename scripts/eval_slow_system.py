@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from multidetect.autonomy.onboard_decision import (
     DECISION_JSON_SCHEMA,
+    identity_decision_schema,
     identity_of,
     parse_onboard_decision,
 )
@@ -183,8 +184,10 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 
 
 class LlamaServerRunner:
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448):
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
+        # Rows that name a focus track only allow identity verdicts (constrained decoding).
+        self.identity_only = identity_only
         if device == "cpu":
             gpu_layers = "0"
         elif device.startswith("cuda"):
@@ -221,7 +224,9 @@ class LlamaServerRunner:
         body = {
             "model": "local", "temperature": 0, "max_tokens": self.max_new_tokens, "stream": False,
             "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_schema", "json_schema": {"name": "onboard_decision", "strict": True, "schema": trained_key_order_schema(DECISION_JSON_SCHEMA)}},
+            "response_format": {"type": "json_schema", "json_schema": {"name": "onboard_decision", "strict": True, "schema": trained_key_order_schema(
+                identity_decision_schema() if self.identity_only and row.get("focus_track_id") else DECISION_JSON_SCHEMA
+            )}},
         }
         started = time.perf_counter()
         response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
@@ -252,7 +257,7 @@ def run(args) -> dict[str, Any]:
         else:
             if not args.gguf_model or not args.mmproj:
                 raise ValueError("GGUF backend needs --gguf-model and --mmproj")
-            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side)
+            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side, identity_only=args.identity_only)
         return evaluate_predictor(rows, runner)
     finally:
         if isinstance(runner, LlamaServerRunner):
@@ -275,6 +280,7 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, default=9933)
     parser.add_argument("--context", type=int, default=4096)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--identity-only", action="store_true", help="GGUF: rows with a focus track may only answer approach/confirm/reject")
     args = parser.parse_args(argv)
     result = run(args)
     payload = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)

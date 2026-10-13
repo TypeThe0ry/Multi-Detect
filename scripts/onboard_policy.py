@@ -162,6 +162,8 @@ class OnboardPolicy:
             executable=Path(options["llama_server"]),
             port=int(options.get("port", 9941)),
             crop_policy="candidate_zoom_v2",
+            # Every onboard call names a focus track: only identity verdicts are allowed.
+            identity_only=True,
         )
         self.slow_calls = 0
 
