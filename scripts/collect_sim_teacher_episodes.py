@@ -139,6 +139,8 @@ class CollectionPlan:
     # ``None`` selects the scenario-derived altitude.  An explicit value is
     # retained in the plan so campaign wrappers can override it per run.
     takeoff_altitude_m: float | None = None
+    # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
+    onboard_config: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -574,6 +576,34 @@ def _truth_target(
         origin_longitude_deg=lon0,
         origin_altitude_m=alt0,
     ), label
+
+
+def _camera_info_for(plan: CollectionPlan) -> dict[str, Any]:
+    return {
+        **DEFAULT_CAMERA_INFO,
+        "width": plan.rgb_size[0],
+        "height": plan.rgb_size[1],
+        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+    }
+
+
+def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
+    """Truth-free perception policy; it receives only task, map, camera and pose."""
+    from scripts.onboard_policy import build_onboard_policy
+
+    altitude_m, _ = _takeoff_altitude_for_plan(plan)
+    return build_onboard_policy(
+        task_text=task_text,
+        world_path=scenario_world_path(plan.runtime),
+        altitude_m=altitude_m,
+        camera_info=_camera_info_for(plan),
+        image_size=plan.rgb_size,
+        work_dir=work_dir,
+        config_path=Path(plan.onboard_config) if plan.onboard_config else None,
+    )
 
 
 def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
@@ -1203,14 +1233,18 @@ def _index_task_text(truth_path: Path) -> str | None:
 
 def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
-    policy_result = _policy_for(plan, truth_path, plan.seed + episode_index)
-    if plan.teacher == "expert_search":
-        policy, target_label = policy_result
+    if plan.teacher == "onboard":
+        # Only the curated task text is read from the generated index; truth is
+        # used after the episode by the scorer, never by the policy.
+        task_text = _index_task_text(truth_path) or "找到目标并记录位置"
+        policy = _onboard_policy(plan, task_text, Path(plan.out) / f"{episode_id}-onboard-frames")
+    elif plan.teacher == "expert_search":
+        policy, target_label = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = _index_task_text(truth_path) or (
             "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
         )
     else:
-        policy = policy_result
+        policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(plan.out, episode_id, task_text=task_text, sensor_status="live")
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
@@ -1522,6 +1556,15 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 if plan.teacher == "expert_search":
                     action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
                     labels = policy.labels(pose_ned=pose, yaw_deg=yaw)
+                elif plan.teacher == "onboard":
+                    action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
+                    _progress(
+                        "onboard_step",
+                        step=index,
+                        state=labels["onboard"]["state"],
+                        detections=labels["onboard"]["detections"],
+                        slow_calls=len(labels["onboard"]["slow_calls"]),
+                    )
                 else:
                     action = policy.next_action()
                     labels = {}
@@ -1606,6 +1649,8 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
             )
+            if hasattr(policy, "close"):
+                policy.close()
             if gcs_heartbeat_stop is not None:
                 gcs_heartbeat_stop.set()
             if gcs_heartbeat_thread is not None:
@@ -1623,6 +1668,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 if connection is not None:
                     connection.close()
     except Exception as exc:
+        if hasattr(policy, "close"):
+            try:
+                policy.close()
+            except Exception:
+                pass
         if gcs_heartbeat_stop is not None:
             gcs_heartbeat_stop.set()
         if gcs_heartbeat_thread is not None:
@@ -1658,7 +1708,15 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
-    parser.add_argument("--teacher", choices=("explore", "expert_search"), required=True)
+    parser.add_argument(
+        "--teacher", choices=("explore", "expert_search", "onboard"), required=True
+    )
+    parser.add_argument(
+        "--onboard-config",
+        type=Path,
+        default=None,
+        help="JSON overrides for --teacher onboard (model paths, thresholds)",
+    )
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--seed", type=int, default=0)
@@ -1728,6 +1786,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         depth_encoding=args.depth_encoding,
         segmentation=args.segmentation,
         takeoff_altitude_m=args.takeoff_altitude_m,
+        onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

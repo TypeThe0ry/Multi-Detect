@@ -158,3 +158,28 @@ def test_real_recorded_red_target_projection_tracks_pixels() -> None:
         )
         assert math.dist(projected_center, centers[-1]) < 12.0
     assert len(centers) == 3
+
+
+def test_pixel_ground_point_inverts_projection_with_attitude() -> None:
+    from multidetect.simulator.camera_projection import pixel_ground_point
+
+    camera = {"width": 1280, "height": 960, "fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0}
+    pose = {
+        "local_ned_m": [3.0, -2.0, -22.0],
+        "attitude": {"roll_deg": 2.0, "pitch_deg": -4.0, "yaw_deg": 35.0},
+    }
+    for north, east in ((40.0, 30.0), (25.0, 10.0)):
+        box = project_target_bbox(
+            target_ned=(north, east, 0.0),
+            pose=pose,
+            camera_info=camera,
+            image_size=(1280, 960),
+            target_size_m=(0.05, 0.05, 0.05),
+        )
+        assert box is not None
+        estimate = pixel_ground_point(
+            (box[0] + box[2]) / 2, (box[1] + box[3]) / 2,
+            pose=pose, camera_info=camera, image_size=(1280, 960),
+        )
+        assert estimate is not None
+        assert math.dist(estimate, (north, east)) < 0.2

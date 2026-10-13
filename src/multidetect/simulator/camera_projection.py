@@ -141,6 +141,44 @@ def camera_center_ned_up(pose: Mapping[str, Any]) -> tuple[float, float, float] 
     return north + mount_world[0], east + mount_world[1], -(down + mount_world[2])
 
 
+def pixel_ground_point(
+    u: float,
+    v: float,
+    *,
+    pose: Mapping[str, Any],
+    camera_info: Mapping[str, Any] | None,
+    image_size: tuple[int, int],
+    ground_up_m: float = 0.0,
+    camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+) -> tuple[float, float] | None:
+    """Invert ``project_target_bbox`` for one pixel on flat ground.
+
+    Uses the same mount offset, mount pitch, vehicle attitude and intrinsics,
+    and returns ``(north_m, east_m)`` where the pixel ray meets ``ground_up_m``.
+    """
+    values = _pose_values(pose)
+    centre = camera_center_ned_up(pose)
+    if values is None or centre is None:
+        return None
+    _, _, _, roll_deg, pitch_deg, yaw_deg = values
+    fx, fy, cx, cy = _intrinsics(camera_info, image_size)
+    # Optical frame of _body_to_camera_optical: +X forward, +Y right, +Z down.
+    x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
+    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
+    body = (cp * x - sp * z, y, sp * x + cp * z)
+    north, east, down = _body_to_world_ned(
+        body,
+        roll_rad=math.radians(roll_deg),
+        pitch_rad=math.radians(pitch_deg),
+        yaw_rad=math.radians(yaw_deg),
+    )
+    height = centre[2] - ground_up_m
+    if down <= 1e-6 or height <= 0:
+        return None
+    t = height / down
+    return centre[0] + north * t, centre[1] + east * t
+
+
 def _segment_intersects_obstacle(
     start: tuple[float, float, float],
     end: tuple[float, float, float],
