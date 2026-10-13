@@ -89,6 +89,7 @@ class Track:
     verdict: str | None = None
     verdict_step: int = -1
     max_min_side: float = 0.0
+    match_steps: list[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,8 @@ class LoopConfig:
     stall_growth: float = 1.1
     home_tolerance_m: float = 3.0
     max_steps: int = 120
+    confirm_matches: int = 2
+    border_margin_px: float = 2.0
 
 
 @dataclass(slots=True)
@@ -193,7 +196,14 @@ class OnboardLoop:
         stale = [
             t
             for t in current
-            if t.verdict is None or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
+            if t.verdict is None
+            or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
+            # Re-verify the approach focus from each new view until confirmed.
+            or (
+                t.track_id == self._focus
+                and t.verdict == "match"
+                and t.verdict_step < self.step_index
+            )
         ]
         stale.sort(key=lambda t: (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]), reverse=True)
         return stale[: self.config.max_slow_per_step]
@@ -203,6 +213,20 @@ class OnboardLoop:
         if track is not None:
             track.verdict = identity or "unknown"
             track.verdict_step = self.step_index
+            if identity == "match":
+                if self.step_index not in track.match_steps:
+                    track.match_steps.append(self.step_index)
+            elif identity == "no_match":
+                track.match_steps.clear()
+
+    def _touches_border(self, box: Box) -> bool:
+        margin = self.config.border_margin_px
+        return (
+            box[0] <= margin
+            or box[1] <= margin
+            or box[2] >= self.camera.width - margin
+            or box[3] >= self.camera.height - margin
+        )
 
     def _best_match(self, current: Sequence[Track]) -> Track | None:
         visible = [t for t in current if t.verdict == "match"]
@@ -289,7 +313,12 @@ class OnboardLoop:
             info.update(
                 focus=best.track_id, bearing_deg=bearing, horizontal_m=horizontal, min_side_px=size
             )
-            if (
+            # A single verdict is never enough, and a clipped box is only part of an object.
+            verified = len(
+                best.match_steps
+            ) >= self.config.confirm_matches and not self._touches_border(best.bbox)
+            info["match_views"] = len(best.match_steps)
+            if verified and (
                 size >= self.config.confirm_min_side_px
                 or stalled
                 or (horizontal is not None and horizontal <= self.config.overhead_range_m)

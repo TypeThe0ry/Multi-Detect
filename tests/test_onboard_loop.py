@@ -63,6 +63,11 @@ def test_search_until_match_then_turn_approach_and_confirm_by_size() -> None:
     action, _ = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert action.kind == "translate" and action.forward_m >= 3.0
     tracks = loop.update_tracks([Detection(_box(645, 600, 24), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]  # re-verify focus
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert loop.state == "approaching" and info["match_views"] == 1  # one view is not enough
+    tracks = loop.update_tracks([Detection(_box(645, 600, 24), 0.3)])
+    loop.apply_verdict("t1", "match")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "returning" and info["confirmed"]["rule"] == "size"
     assert info["confirmed"]["position_estimate_ne"] is not None
@@ -75,9 +80,9 @@ def test_rejected_candidates_keep_searching_and_stalled_match_is_confirmed() -> 
     loop.apply_verdict("t1", "no_match")
     action, _ = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "searching" and action.forward_m == 10.0
-    loop.apply_verdict("t1", "match")
-    for _ in range(4):  # approach legs that never make the box grow
+    for _ in range(5):  # approach legs that never make the box grow
         tracks = loop.update_tracks([Detection(_box(640, 400, 10), 0.3)])
+        loop.apply_verdict("t1", "match")
         action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
         if loop.state == "returning":
             break
@@ -107,3 +112,13 @@ def test_onboard_modules_never_read_scenario_truth() -> None:
         }
         assert not any("truth" in name.lower() for name in names), path
         assert not any(".truth.json" in text or "true_target" in text for text in strings), path
+
+
+def test_box_clipped_by_the_image_border_is_never_confirmed() -> None:
+    loop = _loop()
+    pose = (0.0, 0.0, -20.0)
+    for _ in range(3):
+        tracks = loop.update_tracks([Detection((620.0, 900.0, 680.0, 960.0), 0.3)])
+        loop.apply_verdict("t1", "match")
+        loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert loop.state == "approaching" and loop.confirmed is None
