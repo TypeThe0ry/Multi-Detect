@@ -1,15 +1,20 @@
 ## [Unreleased]
-- 2026-10-11?`29d893e` latest-wins ???? PX4 sim-time ???`0630a41` ?? sim stamp ? MAVLink ????????? gen_w0025 ??? |sim skew| ? 0 ms??? p99 376 ms??dataset builder/BC loader ????? step?
-- 2026-10-11??? Windows pipe-close deadlock?`b842609`??teardown ?????? RTL ???`addfe1c`???? JSON ????? 5MB?2?`a169832`??Docker WSL vhdx ??? 140GB????? 70.8GB?
-- 2026-10-11??? world ??? 40 ??28 train/6 val/6 test?`3dd3c30`???? canonical channel hash?`41be3d5`???? world-relative truth altitude?`4a50736`??
-- 2026-10-11?expert teacher ?? approach horizontal bearing?`232b351`????????? obstacle top + 4m ??? segment-vs-obstacle ???`98716cd`???? gen_w0025 ? 5m ???????forward-facing legs ??????????????
-- 2026-10-11??? COCO/red-car YOLO26n ? Gazebo ??? recall 0/11?`42b293c`??SIM-truth auto-labeler?dataset builder?yolo26n fine-tune trainer ? held-out evaluation ????`525aa32`??644 ??? 3-epoch GPU smoke??????? val/test-world ???
-- 2026-10-11?closed-loop policy v2 rollout?DAgger labels ? baselines ????`1157a1f`?????????????campaign-20261011-r3 ?? 4.5m ??? 27/41 episodes ?????????????????? detector diversity???????????? campaign?SIM only??? trained policy evaluation?promotion??? `0.3.0-pre.8`?r33 ?????
+- 2026-10-13：慢系统改为“VLM 判断是不是目标、主机按画面大小决定要不要再靠近”。VLM 只判身份时准确率 92–98%（只用色块世界训练的 r5 在真实外观世界上也有 97.9%）；加上主机尺寸门控（候选框短边 ≥ 20 px 才确认）后，端到端决策准确率 91.3%，确认召回 100%、精度 96%（`406ba97`）。
+- 2026-10-13：用 Gazebo 分割相机生成像素级检测标注（`4652e9f`），小物体标注对齐大幅改善：停车标志标注 IoU 0.02→0.83、行人 0.35→0.65。重新采集 80 个 episode（campaign-20261012-v2-r3-seg）。闭集 YOLO26n 测试集 mAP50 0.422→0.768；开放词汇 YOLOE 微调后已见类 0.769、训练中完全没见过的类 0.168（零样本 0.102），未见类需单独降低置信度阈值（`2a954e7`）。
+- 2026-10-12：仿真世界从纯色方块换成 39 个真实外观的 CC0 模型（车辆、行人、锥桶、邮箱等），生成 40 个新世界，测试集保留训练中没当过目标的类别（`265f3c6`）；修复 9 个资产在 Gazebo Harmonic 下渲染全黑的问题（`0fd0c4e`）；按障碍物遮挡剔除看不见的目标标注。
+- 2026-10-12：慢系统加入候选目标放大裁剪图和“事件焦点”输入，去掉了一处标签泄露；色块世界测试准确率 62%→89.2%。llama.cpp 量化部署：Q4_K_M 掉点明显，合并后 Q5_K_M 85.6% / 1.26 GB、Q8_0 1.83 GB，4060 上单次约 0.5 s（Orin 未实测）（`9ae8167`）。
+- 2026-10-12：新增多用途任务计划合约：13 个技能（找、计数、巡检、巡逻、测绘、跟随、监视、投送等），严格校验，投送默认关闭（`72f285e`）。
+- 2026-10-11：latest-wins 帧服务器按 PX4 仿真时间对齐图像和位姿（`29d893e`，`0630a41`），gen_w0025 实测 |sim skew| 为 0 ms，之前 p99 为 376 ms；数据集构建和行为克隆加载会跳过时间偏差过大的步。
+- 2026-10-11：修复 Windows 管道关闭死锁（`b842609`）；结束时原地降落，不再触发 RTL 爬升（`addfe1c`）；容器 JSON 日志限制为 5 MB × 2（`a169832`）；Docker WSL 磁盘镜像从 140 GB 压缩到 70.8 GB。
+- 2026-10-11：程序化生成 40 个仿真世界（28 训练 / 6 验证 / 6 测试，`3dd3c30`），使用规范化通道哈希（`41be3d5`），真值高度改为相对世界原点（`4a50736`）。
+- 2026-10-11：专家教师改为朝目标水平方位接近（`232b351`），起飞高度取最高障碍物顶部 + 4 m，并检查航段与障碍物是否相交（`98716cd`）；修复 gen_w0025 在 5 m 高度撞障、横向航段时相机看不到前方的问题。
+- 2026-10-11：COCO / 红车 YOLO26n 在 Gazebo 画面上的召回为 0/11（检测率报告与真值自动标注，`42b293c`），因此新增仿真真值自动标注、数据集构建、YOLO26n 微调和留出世界评估流程（`525aa32`）。
+- 2026-10-11：policy v2 闭环 rollout、DAgger 标签和基线对比框架（`1157a1f`）；仅 SIM，尚未做训练后的策略评估和晋升，默认 r33 与版本 `0.3.0-pre.8` 不变。
 - 2026-10-10：`29d893e` 之前的 Gazebo image frames 是 FIFO backlog，和 pose 时间错位；`urban-explore-r12`、`urban-expert-r1..r5` 以及更早的 Codex Gazebo image evidence（包括 8/8 STOP shadow 结果）不能支持结论。latest-wins frame server 加入 sim-time 对齐后修复该问题；`aligned-explore-r1` 的最大 `|sim skew|` 为 44 ms。
 
 - 2026-10-10：新增 SIM 教师数据采集与离线审计分离的首个完整 Gazebo PX4 SITL 闭环记录。urban-explore-r12 含 5 步、10 张 RGB、10 张深度、17789 行 MAVLink；审计时长 118.484 s，位置误差均值/最大值 0.114270/0.217683 m，偏航误差均值/最大值 2.497954/5.485699°。保留 r1-r11 控制链修复历史；仅 SIM，不声明 HIL、真实硬件、户外飞行、训练或晋升。
 
-- 2026-10-09??????????????R1?R5 ???? PX4/Gazebo ??????????? SHA-256 ???R6 ?????????? ARM?Mission ?????????????? 27 ???? `docs/current-progress-*.json` ????????????????? 4 ??
+- 2026-10-09：收尾教师架次基础阶段，删除未被引用的 `docs/current-progress-*.json` 快照（`f124fcf`）。原条目写入时编码损坏，细节以该提交为准。
 
 - 2026-10-08：NEW提交前缀／原计划与当前执行重验／source-derived机体包络及静态环境查询；actual spawn-only对照初始抬高15cm后自然落稳model约.067m，足点8cm垫面差−.186µm。root／child0、4RGB／4Depth／5222原包与清理闭合；保留R1 canonical hash误配失败及原−6.44cm重叠。导航与15静态碰撞重算通过；独立审阅修复RX误用main-only writer、原时刻50ms误门和known提交批次复用问题，最终715项联合CPU通过。未ARM／飞行／新增训练或晋升；完整资源预算及真实Grant仍待实际整合，r33、canonical及pre.8不变。
 
