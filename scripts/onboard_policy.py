@@ -44,6 +44,7 @@ from multidetect.sim_teacher.policies import (  # noqa: E402
     segment_clear_of_obstacles,
 )
 from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
+from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
 DEFAULTS = {
     "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt",
@@ -131,13 +132,24 @@ class OnboardPolicy:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
+        # Size-aware search altitude: low enough that an object of the task's typical
+        # size spans about min_search_px pixels at a mid-image depression angle.
+        self.search_altitude_m = None
+        if options.get("size_aware_search"):
+            size = typical_object_size(task_text)
+            depression = 0.18 + math.radians(20.0)
+            needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
+            self.search_altitude_m = max(
+                float(options.get("min_search_altitude_m", 8.0)),
+                min(altitude_m, needed * math.sin(depression)),
+            )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
         self._search = ExpertSearchPolicy(
             target_ned=(1.0e7, 1.0e7, 0.0),
             intrinsics=camera_info,
             image_size=image_size,
-            altitude_m=altitude_m,
+            altitude_m=self.search_altitude_m or altitude_m,
             obstacles=obstacles,
         )
         camera = CameraModel(
@@ -150,7 +162,10 @@ class OnboardPolicy:
         )
         confirm_min_side_px = float(options.get("confirm_min_side_px", 20.0))
         second_look = options.get("second_look_after_steps")
-        loop_defaults: dict[str, Any] = {"confirm_min_side_px": confirm_min_side_px}
+        loop_defaults: dict[str, Any] = {
+            "confirm_min_side_px": confirm_min_side_px,
+            "search_altitude_m": self.search_altitude_m,
+        }
         if second_look is not None:
             loop_defaults["second_look_after_steps"] = int(second_look)
         if options.get("second_look_max_confidence") is not None:

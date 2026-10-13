@@ -156,6 +156,8 @@ class LoopConfig:
     # Only revisit rejections the slow model was less sure of than this (decision
     # token probability); None revisits every one-sided rejection.
     second_look_max_confidence: float | None = None
+    # Search below the cruise altitude (e.g. for small objects), when the map is clear.
+    search_altitude_m: float | None = None
 
 
 @dataclass(slots=True)
@@ -481,9 +483,20 @@ class OnboardLoop:
         self.state, self._focus = "searching", None
         self._approach_sizes.clear()
         self._at_closest = False
-        action = self.search_action(pose_ned, yaw_deg)
+        action = self._search_step(pose_ned, yaw_deg)
         self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
         return action, info
+
+    def _search_step(self, pose_ned, yaw_deg: float) -> ActionPrimitive:
+        """The search pattern, after descending to the search altitude if one is set."""
+        target = self.config.search_altitude_m
+        altitude = max(0.0, -pose_ned[2])
+        if target is not None and altitude > target + 1.0:
+            drop = min(altitude - target, 2.0 * self.config.descent_step_m)
+            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
+            if self.segment_clear(lower, pose_ned[0], pose_ned[1]):
+                return ActionPrimitive.translate(0.0, 0.0, -drop)
+        return self.search_action(pose_ned, yaw_deg)
 
     def _keep_range(self, altitude_m: float) -> float:
         """Closest ground range still inside the image at ``altitude_m`` (with margin)."""
@@ -621,7 +634,7 @@ class OnboardLoop:
                     look = self._second_look_action(pose_ned, yaw_deg, info)
                     if look is not None:
                         return look, info
-                action = self.search_action(pose_ned, yaw_deg)
+                action = self._search_step(pose_ned, yaw_deg)
                 self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
                 return action, info
             if best.track_id != self._focus:
@@ -635,7 +648,7 @@ class OnboardLoop:
                 self.state, self._focus = "searching", None
                 self._approach_sizes.clear()
                 info.update(reason="approach_exhausted", dropped=best.track_id)
-                action = self.search_action(pose_ned, yaw_deg)
+                action = self._search_step(pose_ned, yaw_deg)
                 self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
                 return action, info
             u, v = _center(best.bbox)

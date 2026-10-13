@@ -304,3 +304,19 @@ def test_second_look_flies_to_the_far_side_of_a_one_sided_rejection():
 def test_second_look_is_off_by_default():
     loop = _loop()
     assert loop.config.second_look_after_steps is None
+
+
+def test_search_descends_to_the_search_altitude_first():
+    loop = _loop(search_altitude_m=10.0)
+    action, _ = loop.next_action([], pose_ned=(0.0, 0.0, -27.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.forward_m == 0.0 and action.up_m == -8.0
+    action, _ = loop.next_action([], pose_ned=(0.0, 0.0, -10.5), yaw_deg=0.0)
+    assert action.forward_m == 10.0  # at the search altitude: the search pattern resumes
+
+
+def test_typical_object_size_uses_the_longest_known_phrase():
+    from multidetect.simulator.task_semantics import typical_object_size
+
+    assert typical_object_size("Find the red stop sign and record its position.") == 0.8
+    assert typical_object_size("找到消防车并记录位置") == 9.0
+    assert typical_object_size("Find the gizmo") == 2.0

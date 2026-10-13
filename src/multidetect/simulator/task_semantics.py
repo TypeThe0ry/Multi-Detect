@@ -57,6 +57,66 @@ def fuel_task_texts(obj: Mapping[str, Any]) -> tuple[str, str]:
     return chinese, english
 
 
+# Typical largest horizontal extent (m) of common objects: host knowledge used to
+# pick a search altitude at which an object of that kind is big enough to detect.
+TYPICAL_SIZE_M: dict[str, float] = {
+    "stop sign": 0.8,
+    "停止标志": 0.8,
+    "停车标志": 0.8,
+    "sign": 0.8,
+    "traffic cone": 0.5,
+    "cone": 0.5,
+    "交通锥": 0.5,
+    "锥桶": 0.5,
+    "fire hydrant": 0.6,
+    "hydrant": 0.6,
+    "消防栓": 0.6,
+    "cardboard box": 0.6,
+    "box": 0.6,
+    "纸箱": 0.6,
+    "backpack": 0.5,
+    "bag": 0.5,
+    "背包": 0.5,
+    "mailbox": 0.6,
+    "邮箱": 0.6,
+    "postbox": 0.7,
+    "邮筒": 0.7,
+    "person": 0.6,
+    "pedestrian": 0.6,
+    "行人": 0.6,
+    "人": 0.6,
+    "barrel": 0.6,
+    "路障桶": 0.6,
+    "electrical box": 1.0,
+    "电箱": 1.0,
+    "dumpster": 2.0,
+    "垃圾箱": 2.0,
+    "jersey barrier": 3.0,
+    "隔离墩": 3.0,
+    "car": 4.5,
+    "轿车": 4.5,
+    "suv": 4.8,
+    "pickup": 5.5,
+    "皮卡": 5.5,
+    "truck": 7.0,
+    "bus": 11.0,
+    "公交车": 11.0,
+    "ambulance": 6.0,
+    "救护车": 6.0,
+    "fire truck": 9.0,
+    "消防车": 9.0,
+}
+
+
+def typical_object_size(task_text: str, default: float = 2.0) -> float:
+    """Typical size of the object a task names (longest matching phrase), else ``default``."""
+    lowered = task_text.lower()
+    matches = [key for key in TYPICAL_SIZE_M if key in lowered]
+    if not matches:
+        return default
+    return TYPICAL_SIZE_M[max(matches, key=len)]
+
+
 def fuel_count_texts(obj: Mapping[str, Any]) -> tuple[str, str]:
     """(Chinese, English) counting task texts for ``obj``'s kind."""
     words = list(obj.get("semantic_words") or obj.get("category_words") or [])
@@ -85,4 +145,12 @@ def task_equivalent(target: Mapping[str, Any], other: Mapping[str, Any]) -> bool
     return color is None or other.get("color") in (None, color)
 
 
-__all__ = ["CATEGORY_ZH", "COLOR_ZH", "fuel_count_texts", "fuel_task_texts", "task_equivalent"]
+__all__ = [
+    "TYPICAL_SIZE_M",
+    "typical_object_size",
+    "CATEGORY_ZH",
+    "COLOR_ZH",
+    "fuel_count_texts",
+    "fuel_task_texts",
+    "task_equivalent",
+]
