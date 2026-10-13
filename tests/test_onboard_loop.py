@@ -252,3 +252,55 @@ def test_focus_rejected_while_visible_is_dropped_not_waited_for() -> None:
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert loop.state == "searching" and info.get("reason") is None
     assert action.forward_m == 10.0
+
+
+def test_second_look_flies_to_the_far_side_of_a_one_sided_rejection():
+    loop = _loop(second_look_after_steps=3)
+    pose = [0.0, 0.0, -20.0]
+    yaw = 0.0
+    target = (40.0, 0.0)
+
+    def ground_point(u, v):
+        return target
+
+    # Seen from the south and rejected (e.g. the grey back of a sign).
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 600, 16), 0.3)],
+        pose_ned=tuple(pose),
+        yaw_deg=yaw,
+        ground_point=ground_point,
+    )
+    loop.apply_verdict("t1", "reject_track")
+    looks = []
+    asked_again = False
+    for _ in range(40):
+        visible = math.dist(pose[:2], target) > 15 and abs(yaw) > 150
+        dets = [Detection(_box(640, 600, 18), 0.3)] if visible else []
+        tracks = loop.update_tracks(
+            dets, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=ground_point
+        )
+        for track in loop.tracks_needing_verdict(tracks):
+            asked_again = True
+            loop.apply_verdict(track.track_id, "approach_track")
+        action, info = loop.next_action(
+            tracks, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=ground_point
+        )
+        if "second_look" in info:
+            looks.append(info["second_look"]["phase"])
+        if action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+        elif action.kind == "translate":
+            heading = math.radians(yaw)
+            pose[0] += action.forward_m * math.cos(heading)
+            pose[1] += action.forward_m * math.sin(heading)
+            pose[2] -= action.up_m
+        if loop.state == "approaching":
+            break
+    assert "fly" in looks
+    assert pose[0] > target[0]  # it went round to the north (far) side
+    assert asked_again and loop.state == "approaching"
+
+
+def test_second_look_is_off_by_default():
+    loop = _loop()
+    assert loop.config.second_look_after_steps is None

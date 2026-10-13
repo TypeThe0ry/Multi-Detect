@@ -147,6 +147,10 @@ class OnboardPolicy:
             height=image_size[1],
         )
         confirm_min_side_px = float(options.get("confirm_min_side_px", 20.0))
+        second_look = options.get("second_look_after_steps")
+        loop_defaults: dict[str, Any] = {"confirm_min_side_px": confirm_min_side_px}
+        if second_look is not None:
+            loop_defaults["second_look_after_steps"] = int(second_look)
 
         def make_loop(task_text: str, **overrides: Any) -> OnboardLoop:
             return OnboardLoop(
@@ -157,7 +161,7 @@ class OnboardPolicy:
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
-                config=LoopConfig(confirm_min_side_px=confirm_min_side_px, **overrides),
+                config=LoopConfig(**{**loop_defaults, **overrides}),
             )
 
         self.loop = make_loop(task_text)

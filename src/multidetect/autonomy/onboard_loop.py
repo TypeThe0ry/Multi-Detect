@@ -147,6 +147,12 @@ class LoopConfig:
     # count_dedupe_m of an earlier one are the same object seen again.
     stop_on_confirm: bool = True
     count_dedupe_m: float = 4.0
+    # Second look: after this many steps without a confirmation, fly to the far side
+    # of candidates that were rejected from one side only and ask again (an object
+    # can look different from behind, e.g. the grey back of a stop sign).
+    second_look_after_steps: int | None = None
+    second_look_max: int = 3
+    second_look_standoff_m: float = 10.0
 
 
 @dataclass(slots=True)
@@ -176,6 +182,11 @@ class OnboardLoop:
     _last_turn_deg: float = 0.0
     _last_yaw_deg: float | None = None
     _at_closest: bool = False
+    _last_pose: tuple[float, float, float] | None = None
+    # Rejected candidates: ground point and where they were seen from.
+    _rejections: list[dict[str, Any]] = field(default_factory=list)
+    _revisit: dict[str, Any] | None = None
+    _revisits_done: int = 0
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -220,6 +231,8 @@ class OnboardLoop:
         self._last_turn_deg = 0.0
         if yaw_deg is not None:
             self._last_yaw_deg = yaw_deg
+        if pose_ned is not None:
+            self._last_pose = tuple(pose_ned)
         predicted = {}
         for tid, t in free.items():
             u, v = _center(t.bbox)
@@ -308,6 +321,86 @@ class OnboardLoop:
             track.confirm_steps.append(self.step_index)
         elif verdict == "no_match":
             track.confirm_steps.clear()
+            self._remember_rejection(track)
+
+    def _remember_rejection(self, track: Track) -> None:
+        if track.ground is None or self._last_pose is None:
+            return
+        seen_from = (self._last_pose[0], self._last_pose[1])
+        for item in self._rejections:
+            if math.dist(item["ground"], track.ground) <= self.config.count_dedupe_m:
+                item["ground"] = track.ground
+                item["views"].append(seen_from)
+                return
+        self._rejections.append({"ground": track.ground, "views": [seen_from], "revisited": False})
+
+    def _one_sided(self, item: dict[str, Any]) -> bool:
+        """Every rejection so far came from within 60 deg of the first view direction."""
+        gx, gy = item["ground"]
+        first = math.atan2(item["views"][0][1] - gy, item["views"][0][0] - gx)
+        return all(
+            abs(_wrap(math.degrees(math.atan2(v[1] - gy, v[0] - gx) - first))) <= 60.0
+            for v in item["views"]
+        )
+
+    def _plan_second_look(self, pose_ned) -> dict[str, Any] | None:
+        candidates = [
+            item for item in self._rejections if not item["revisited"] and self._one_sided(item)
+        ]
+        candidates.sort(key=lambda item: math.dist(item["ground"], pose_ned[:2]))
+        for item in candidates:
+            item["revisited"] = True
+            gx, gy = item["ground"]
+            vx, vy = item["views"][0]
+            away = math.atan2(gy - vy, gx - vx)  # from the first view through the object
+            standoff = max(
+                self.config.second_look_standoff_m,
+                self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
+            )
+            goal = (gx + standoff * math.cos(away), gy + standoff * math.sin(away))
+            if self.segment_clear(pose_ned, goal[0], goal[1]):
+                return {"goal": goal, "centre": (gx, gy), "phase": "fly", "steps": 0}
+        return None
+
+    def _second_look_action(self, pose_ned, yaw_deg, info):
+        look = self._revisit
+        look["steps"] += 1
+        info["second_look"] = {"centre": list(look["centre"]), "phase": look["phase"]}
+        if look["steps"] > 2 * self.config.max_approach_steps:
+            self._revisit = None
+            return None
+        if look["phase"] == "fly":
+            dn, de = look["goal"][0] - pose_ned[0], look["goal"][1] - pose_ned[1]
+            distance = math.hypot(dn, de)
+            if distance > self.config.min_translate_m:
+                delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw_deg)
+                if abs(delta) > self.config.approach_bearing_deg:
+                    self._last_turn_deg = delta
+                    return ActionPrimitive.turn(delta)
+                step = min(self.config.max_translate_m, distance)
+                action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
+                if action.kind != "translate":
+                    self._revisit = None
+                return action
+            look["phase"] = "face"
+        if look["phase"] == "face":
+            cn, ce = look["centre"][0] - pose_ned[0], look["centre"][1] - pose_ned[1]
+            delta = _wrap(math.degrees(math.atan2(ce, cn)) - yaw_deg)
+            if abs(delta) > self.config.approach_bearing_deg:
+                self._last_turn_deg = delta
+                return ActionPrimitive.turn(delta)
+            # Facing the far side: forget old verdicts near the centre so the slow
+            # model is asked again from this view.
+            for track in self._tracks.values():
+                if track.ground is not None and (
+                    math.dist(track.ground, look["centre"]) <= self.config.count_dedupe_m
+                ):
+                    track.verdict, track.confirm_steps, track.exhausted = None, [], False
+            look["phase"] = "look"
+            return ActionPrimitive.hold(1.0)
+        self._revisits_done += 1
+        self._revisit = None
+        return None
 
     def _touches_border(self, box: Box) -> bool:
         margin = self.config.border_margin_px
@@ -498,6 +591,17 @@ class OnboardLoop:
                 self.state, self._focus = "searching", None
                 self._approach_sizes.clear()
                 info["state"] = self.state
+                after = self.config.second_look_after_steps
+                if self._revisit is None and (
+                    after is not None
+                    and self.step_index > after
+                    and self._revisits_done < self.config.second_look_max
+                ):
+                    self._revisit = self._plan_second_look(pose_ned)
+                if self._revisit is not None:
+                    look = self._second_look_action(pose_ned, yaw_deg, info)
+                    if look is not None:
+                        return look, info
                 action = self.search_action(pose_ned, yaw_deg)
                 self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
                 return action, info
