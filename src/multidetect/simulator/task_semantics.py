@@ -57,6 +57,19 @@ def fuel_task_texts(obj: Mapping[str, Any]) -> tuple[str, str]:
     return chinese, english
 
 
+def fuel_count_texts(obj: Mapping[str, Any]) -> tuple[str, str]:
+    """(Chinese, English) counting task texts for ``obj``'s kind."""
+    words = list(obj.get("semantic_words") or obj.get("category_words") or [])
+    category = obj.get("category") or obj.get("class")
+    color = obj.get("color")
+    category_zh = CATEGORY_ZH.get(category, words[0])
+    chinese = f"数一数有几个{COLOR_ZH.get(color, '')}{category_zh}并报告数量和位置"
+    english = " ".join(
+        ["Count the", *([color] if color else []), words[0], "objects and report their positions."]
+    )
+    return chinese, english
+
+
 def task_equivalent(target: Mapping[str, Any], other: Mapping[str, Any]) -> bool:
     """True when the task text generated for ``target`` also describes ``other``."""
     words = list(target.get("category_words") or target.get("semantic_words") or [])
@@ -72,4 +85,4 @@ def task_equivalent(target: Mapping[str, Any], other: Mapping[str, Any]) -> bool
     return color is None or other.get("color") in (None, color)
 
 
-__all__ = ["CATEGORY_ZH", "COLOR_ZH", "fuel_task_texts", "task_equivalent"]
+__all__ = ["CATEGORY_ZH", "COLOR_ZH", "fuel_count_texts", "fuel_task_texts", "task_equivalent"]

@@ -23,7 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from multidetect.simulator.task_semantics import fuel_task_texts, task_equivalent
+from multidetect.simulator.task_semantics import (
+    fuel_count_texts,
+    fuel_task_texts,
+    task_equivalent,
+)
 
 from multidetect.autonomy.serialization import canonical_sha256
 
@@ -233,13 +237,24 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          catalog_path: str | Path = "configs/sim-assets/fuel-catalog.json",
                          resolved_root: str | Path = "artifacts/cache/gz-fuel/resolved",
                          segmentation_labels: bool = False,
-                         unambiguous_tasks: bool = False) -> dict[str, Any]:
+                         unambiguous_tasks: bool = False,
+                         world_prefix: str = "gen_v2_w",
+                         count_copies: int = 1,
+                         count_slugs: tuple[str, ...] | None = None) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
     ``unambiguous_tasks`` keeps out distractors that the generated task text would
     also describe (e.g. a second person for "find the person"); it is off by
     default so existing world sets regenerate byte-identically.
+
+    ``count_copies`` > 1 builds counting worlds: the target asset (cycled from
+    ``count_slugs``) is placed that many times, every instance is marked
+    ``count_member`` in truth, distractors the task would also describe are left
+    out, and the index carries a counting task plus the per-object find task.
     """
+    counting = count_copies > 1
+    if counting:
+        unambiguous_tasks = True
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
     eligible = [a for a in assets if "target" in a.get("role_eligibility", [])]
@@ -328,14 +343,22 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                 used.append((x, y, radius)); return x, y
         raise RuntimeError("unable to place fuel asset")
     for i in range(count):
-        world_id = f"gen_v2_w{i:04d}"; split = _split(i, count, split_ratios); used=[(0,0,8)]
+        world_id = f"{world_prefix}{i:04d}"; split = _split(i, count, split_ratios); used=[(0,0,8)]
         train_pool = [a for a in eligible if a["slug"] in train_target_slugs] or eligible
         pool = test_pool if split == "test" else train_pool
         target = pool[(i * 7 + (11 if split == "test" else 0)) % len(pool)]
+        if counting and count_slugs:
+            target = asset_by_slug[count_slugs[i % len(count_slugs)]]
         target_combos.append({"category": target["category"], "color": target.get("color"), "slug": target["slug"], "split": split})
         objects=[]
         tx,ty=pose_point(used, max(target["measured_size_m"][:2])/2)
         objects.append(("target_true_"+world_id, target, tx, ty, rng.uniform(-math.pi, math.pi), True))
+        count_ids = {"target_true_"+world_id}
+        for k in range(1, count_copies):
+            cx, cy = pose_point(used, max(target["measured_size_m"][:2])/2)
+            copy_id = f"count_member_{i:04d}_{k:02d}"
+            count_ids.add(copy_id)
+            objects.append((copy_id, target, cx, cy, rng.uniform(-math.pi, math.pi), False))
         same_category = [a for a in eligible if a["slug"] != target["slug"] and a["category"] == target["category"]]
         distractor_pool = same_category + [a for a in eligible if a["slug"] != target["slug"] and a not in same_category]
         if unambiguous_tasks:
@@ -358,7 +381,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             z=asset["mesh_origin_offset_m"]["z_bottom"]
             label_id = next_label if segmentation_labels else None
             if segmentation_labels:
-                segmentation_map[str(label_id)] = {"target_id": oid, "asset_slug": asset["slug"], "role": "target" if is_target else "distractor"}
+                segmentation_map[str(label_id)] = {"target_id": oid, "asset_slug": asset["slug"], "role": "target" if is_target else ("count_member" if counting and oid in count_ids else "distractor")}
                 next_label += 1
             models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id))
         sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
@@ -369,7 +392,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         target_rows=[]
         for oid,a,x,y,yaw,is_target in objects:
             height = float(a["measured_size_m"][2]); center_height = height / 2.0
-            lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target})
+            lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target, **({"count_member": oid in count_ids} if counting else {})})
         runtime={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"seed":seed+i,"world":{"world_asset":f"builtin://gazebo/{world_id}","map_asset":f"builtin://maps/{world_id}.geojson","dem_asset":f"builtin://terrain/{world_id}.dem.json","wind_north_mps":0.0,"wind_east_mps":0.0,"gust_mps":0.0},"vehicle":{"model":"px4_multirotor_standard","airframe_profile_id":"px4_multirotor_gazebo_v1","spawn_id":f"{world_id}_home","spawn_pose":{"x_east_m":0.0,"y_north_m":0.0,"z_up_m":0.2,"roll_rad":0.0,"pitch_rad":0.0,"yaw_rad":0.0}},"sensors":[{"sensor_id":"front-camera","kind":"rgb_camera","stream_uri":f"gazebo://{world_id}/front-camera","calibration_id":"gazebo-multirotor-front-camera-v1"},{"sensor_id":"downward-depth","kind":"depth_camera","stream_uri":f"gazebo://{world_id}/downward-depth","calibration_id":"gazebo-multirotor-depth-v1"},{"sensor_id":"px4-telemetry","kind":"mavlink_telemetry","stream_uri":"udp://127.0.0.1:14541"}],"faults":[]}
         truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}
         if segmentation_labels:
@@ -380,6 +403,11 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         scenario={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"channels":{k:{"path":f"{world_id}.{k}.json","sha256":canonical_sha256(v)} for k,v in (("runtime_input",runtime),("truth",truth),("expectations",expectations))}}
         _write(scenarios_dir/f"{world_id}.scenario.json",scenario)
         task_text, task_text_en = fuel_task_texts(target)
-        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0]})
+        counting_fields = {}
+        if counting:
+            counting_fields = {"task_kind": "count", "expected_count": count_copies,
+                               "find_task_text": task_text, "find_task_text_en": task_text_en}
+            task_text, task_text_en = fuel_count_texts(target)
+        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0], **counting_fields})
     doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
 

@@ -506,7 +506,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
     if world_path is None:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
-    if not path.is_file() or not path.stem.startswith(("gen_w", "gen_v2_w")):
+    if not path.is_file() or not path.stem.startswith(("gen_w", "gen_v2_w", "gen_cnt_w")):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
     if not obstacles:
@@ -1226,7 +1226,9 @@ def _index_task_text(truth_path: Path) -> str | None:
     scenario_id = Path(truth_path).name.removesuffix(".truth.json")
     for world in worlds:
         if world.get("world_id") == scenario_id and world.get("asset_mode") == "fuel_v1":
-            text = world.get("task_text")
+            # Counting worlds also carry the per-object find sentence: the slow model
+            # judges one candidate at a time, the count itself is the host's plan.
+            text = world.get("find_task_text") or world.get("task_text")
             return str(text) if text else None
     return None
 

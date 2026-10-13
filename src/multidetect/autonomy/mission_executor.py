@@ -522,6 +522,29 @@ def plan_for_find_task(query: str) -> MissionPlan:
     )
 
 
+def plan_for_count_task(query: str) -> MissionPlan:
+    """Host template: count ``query`` over the search budget, then return home."""
+    return _plan(
+        f"count {query}",
+        [
+            {
+                "id": "count",
+                "skill": "count",
+                "params": {"region": "zone:all", "query": query},
+                "on_success": "home",
+                "on_fail": "home",
+            },
+            {
+                "id": "home",
+                "skill": "return_home",
+                "params": {},
+                "on_success": None,
+                "on_fail": None,
+            },
+        ],
+    )
+
+
 def plan_for_find_and_inspect(query: str, views: int = 4, standoff_m: float = 12.0) -> MissionPlan:
     """Host template: find ``query``, orbit it for ``views`` views, return home."""
     return _plan(
@@ -561,6 +584,7 @@ __all__ = [
     "ExecutorConfig",
     "MissionExecutor",
     "PERCEPTION_SKILLS",
+    "plan_for_count_task",
     "plan_for_find_and_inspect",
     "plan_for_find_task",
     "task_text_for",

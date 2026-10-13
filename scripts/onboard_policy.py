@@ -25,7 +25,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_executor import (  # noqa: E402
+    ExecutorConfig,
     MissionExecutor,
+    plan_for_count_task,
     plan_for_find_and_inspect,
     plan_for_find_task,
 )
@@ -173,6 +175,8 @@ class OnboardPolicy:
         if mission:
             if mission == "find":
                 plan = plan_for_find_task("target")
+            elif mission == "count":
+                plan = plan_for_count_task("target")
             elif mission == "find_and_inspect":
                 plan = plan_for_find_and_inspect(
                     "target",
@@ -182,7 +186,10 @@ class OnboardPolicy:
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             self.executor = MissionExecutor(
-                plan, loop_factory=make_loop, task_text=lambda step: self.task_text
+                plan,
+                loop_factory=make_loop,
+                task_text=lambda step: self.task_text,
+                config=ExecutorConfig(step_budget=int(options.get("step_budget", 60))),
             )
         self._step = 0
         self.proposer = YoloeProposer(
@@ -362,6 +369,7 @@ class OnboardPolicy:
                     "answers": list(report.state_answers),
                     "alerts": list(report.alerts),
                     "positions": list(report.positions),
+                    "counts": dict(executor.counts),
                 },
             }
         }
