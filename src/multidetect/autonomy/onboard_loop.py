@@ -143,6 +143,10 @@ class LoopConfig:
     ground_gate_range_fraction: float = 0.15
     # Keep the focus this much farther than the lowest visible ground ray.
     keep_in_view_margin: float = 1.25
+    # False keeps searching after a confirmation (counting); confirmations within
+    # count_dedupe_m of an earlier one are the same object seen again.
+    stop_on_confirm: bool = True
+    count_dedupe_m: float = 4.0
 
 
 @dataclass(slots=True)
@@ -163,6 +167,7 @@ class OnboardLoop:
     home: tuple[float, float] | None = None
     cruise_altitude_m: float | None = None
     confirmed: dict[str, Any] | None = None
+    confirmations: list[dict[str, Any]] = field(default_factory=list)
     _tracks: dict[str, Track] = field(default_factory=dict)
     _next_id: int = 1
     _focus: str | None = None
@@ -334,6 +339,39 @@ class OnboardLoop:
         end_n = pose_ned[0] + action.forward_m * math.cos(yaw) - action.right_m * math.sin(yaw)
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
         return action if self.segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
+
+    def _count_confirmation(
+        self,
+        track: Track,
+        record: dict[str, Any],
+        pose_ned: tuple[float, float, float],
+        yaw_deg: float,
+        info: dict[str, Any],
+    ) -> tuple[ActionPrimitive, dict[str, Any]]:
+        """Counting mode: keep the confirmation (unless already counted) and search on."""
+        position = record["position_estimate_ne"]
+        duplicate = position is not None and any(
+            prior["position_estimate_ne"] is not None
+            and math.hypot(
+                position[0] - prior["position_estimate_ne"][0],
+                position[1] - prior["position_estimate_ne"][1],
+            )
+            <= self.config.count_dedupe_m
+            for prior in self.confirmations
+        )
+        if duplicate:
+            info["duplicate_of_counted"] = track.track_id
+        else:
+            self.confirmations.append(record)
+            info["counted"] = record
+        # A counted object is never approached or confirmed again.
+        track.exhausted = True
+        self.state, self._focus = "searching", None
+        self._approach_sizes.clear()
+        self._at_closest = False
+        action = self.search_action(pose_ned, yaw_deg)
+        self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
+        return action, info
 
     def _keep_range(self, altitude_m: float) -> float:
         """Closest ground range still inside the image at ``altitude_m`` (with margin)."""
@@ -509,8 +547,7 @@ class OnboardLoop:
             if unclipped and (
                 votes >= self.config.confirm_matches or (votes >= 1 and (stalled or near))
             ):
-                self.state = "returning"
-                self.confirmed = {
+                record = {
                     "track_id": best.track_id,
                     "bbox": list(best.bbox),
                     "position_estimate_ne": list(ground) if ground else None,
@@ -525,6 +562,10 @@ class OnboardLoop:
                     "confirm_views": votes,
                     "step": self.step_index - 1,
                 }
+                if not self.config.stop_on_confirm:
+                    return self._count_confirmation(best, record, pose_ned, yaw_deg, info)
+                self.state = "returning"
+                self.confirmed = record
                 info["confirmed"] = self.confirmed
                 return ActionPrimitive.hold(2.0), info
             return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info

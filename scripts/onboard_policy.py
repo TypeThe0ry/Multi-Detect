@@ -24,6 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.mission_executor import (  # noqa: E402
+    MissionExecutor,
+    plan_for_find_and_inspect,
+    plan_for_find_task,
+)
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -141,14 +146,41 @@ class OnboardPolicy:
             width=image_size[0],
             height=image_size[1],
         )
-        self.loop = OnboardLoop(
-            camera=camera,
-            search_action=lambda pose, yaw: self._search.next_action(pose_ned=pose, yaw_deg=yaw),
-            segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
-                pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
-            ),
-            config=LoopConfig(confirm_min_side_px=float(options.get("confirm_min_side_px", 20.0))),
-        )
+        confirm_min_side_px = float(options.get("confirm_min_side_px", 20.0))
+
+        def make_loop(task_text: str, **overrides: Any) -> OnboardLoop:
+            return OnboardLoop(
+                camera=camera,
+                search_action=lambda pose, yaw: self._search.next_action(
+                    pose_ned=pose, yaw_deg=yaw
+                ),
+                segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
+                    pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
+                ),
+                config=LoopConfig(confirm_min_side_px=confirm_min_side_px, **overrides),
+            )
+
+        self.loop = make_loop(task_text)
+        # Optional multi-skill mode: a host-template MissionPlan run by the executor.
+        # Perception steps keep the world's task sentence, which the slow model was
+        # trained on; the plan adds the skills around it (inspect, return home).
+        self.executor: MissionExecutor | None = None
+        mission = options.get("mission")
+        if mission:
+            if mission == "find":
+                plan = plan_for_find_task("target")
+            elif mission == "find_and_inspect":
+                plan = plan_for_find_and_inspect(
+                    "target",
+                    views=int(options.get("inspect_views", 4)),
+                    standoff_m=float(options.get("inspect_standoff_m", 12.0)),
+                )
+            else:
+                raise ValueError(f"unknown mission template {mission!r}")
+            self.executor = MissionExecutor(
+                plan, loop_factory=make_loop, task_text=lambda step: self.task_text
+            )
+        self._step = 0
         self.proposer = YoloeProposer(
             Path(options["yoloe_weights"]),
             confidence=float(options.get("confidence", 0.05)),
@@ -223,7 +255,8 @@ class OnboardPolicy:
         import numpy as np
         from PIL import Image
 
-        step = self.loop.step_index
+        step = self._step
+        self._step += 1
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
         frame_path = self.work_dir / f"frame_{step:04d}.png"
         frame_path.write_bytes(observation["rgb"])
@@ -238,6 +271,15 @@ class OnboardPolicy:
                 u, v, pose=observation, camera_info=camera_info, image_size=self.image_size
             )
 
+        if self.executor is not None:
+            return self._act_mission(
+                frame_path,
+                detections,
+                fast_s,
+                pose_ned=pose_ned,
+                yaw_deg=yaw_deg,
+                ground_point=ground_point,
+            )
         current = self.loop.update_tracks(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -262,6 +304,61 @@ class OnboardPolicy:
                 "slow_calls": slow,
                 "fast_latency_s": round(fast_s, 4),
                 "confirmed": self.loop.confirmed,
+            }
+        }
+        if not math.isfinite(sum(pose_ned)):
+            raise RuntimeError("non-finite pose")
+        return action, labels
+
+    def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
+        executor = self.executor
+        findings_before = len(executor.findings)
+        needing = executor.observe(
+            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+        )
+        current = list(executor.current_tracks)
+        slow = []
+        for track in needing[:3]:
+            verdict = self._slow_identity(frame_path, current, track)
+            executor.apply_verdict(track.track_id, verdict["decision"])
+            slow.append(verdict)
+        step = executor.current_step
+        action, info = executor.next_action(
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_id=frame_path.name,
+        )
+        confirmed = None
+        if len(executor.findings) > findings_before:
+            finding = executor.findings[-1]
+            confirmed = {
+                "track_id": finding["track_id"],
+                "bbox": finding["bbox"],
+                "position_estimate_ne": list(finding["position_ne"]),
+                "rule": finding["rule"],
+            }
+        report = executor.report()
+        labels = {
+            "onboard": {
+                **{k: v for k, v in info.items() if k not in {"counted", "confirmed"}},
+                "state": executor.current_step.skill if executor.current_step else "done",
+                "state_before": "approaching" if confirmed else (step.skill if step else "done"),
+                "detections": len(detections),
+                "tracks": [
+                    {"id": t.track_id, "bbox": [round(v, 1) for v in t.bbox], "verdict": t.verdict}
+                    for t in current
+                ],
+                "slow_calls": slow,
+                "fast_latency_s": round(fast_s, 4),
+                "confirmed": confirmed,
+                "mission": {
+                    "history": list(executor.history),
+                    "evidence": list(report.evidence_frame_ids),
+                    "answers": list(report.state_answers),
+                    "alerts": list(report.alerts),
+                    "positions": list(report.positions),
+                },
             }
         }
         if not math.isfinite(sum(pose_ned)):
