@@ -3,7 +3,11 @@
 Success needs both: the confirmed position estimate lies within ``radius_m`` of
 the true target, and the confirmed box overlaps the true target's visible
 pixels in the confirming frame (segmentation when recorded, else projection).
-Confirming anything else is a false confirm.
+Confirming anything else is a false confirm. When the confirmed object is a
+distractor that the task text describes just as well (same task noun, no
+conflicting colour, e.g. a second person for "find the person"), the episode is
+also marked ``task_equivalent``: strict success stays false, but the world's task
+text, not the vehicle, is ambiguous.
 """
 
 from __future__ import annotations
@@ -32,6 +36,26 @@ def _iou(a, b) -> float:
 
 def _true_target(truth: dict[str, Any]) -> dict[str, Any]:
     return next(t for t in truth["targets"] if t.get("true_target"))
+
+
+def task_equivalent(target: dict[str, Any], other: dict[str, Any]) -> bool:
+    """Whether the task text generated for ``target`` also describes ``other``."""
+    noun = (target.get("category_words") or [None])[0]
+    if not noun or noun not in (other.get("category_words") or []):
+        return False
+    return target.get("color") is None or other.get("color") == target.get("color")
+
+
+def _nearest_object(truth: dict[str, Any], north_east, radius_m: float):
+    best, best_distance = None, radius_m
+    for obj in truth["targets"]:
+        distance = math.hypot(
+            north_east[0] - float(obj["pose"]["y_north_m"]),
+            north_east[1] - float(obj["pose"]["x_east_m"]),
+        )
+        if distance <= best_distance:
+            best, best_distance = obj, distance
+    return best
 
 
 def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any]):
@@ -105,6 +129,7 @@ def score_episode(
         "confirmed": confirmed_row is not None,
         "success": False,
         "false_confirm": False,
+        "task_equivalent": False,
     }
     if confirmed_row is None:
         return result
@@ -124,6 +149,11 @@ def score_episode(
         success=bool(distance <= radius_m and overlap >= 0.1),
     )
     result["false_confirm"] = not result["success"]
+    if result["false_confirm"] and estimate:
+        hit = _nearest_object(truth, estimate, radius_m)
+        if hit is not None:
+            result["confirmed_object"] = hit.get("label")
+            result["task_equivalent"] = not hit.get("true_target") and task_equivalent(target, hit)
     return result
 
 

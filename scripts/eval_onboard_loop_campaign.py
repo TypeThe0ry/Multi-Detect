@@ -112,7 +112,16 @@ def main(argv: list[str] | None = None) -> int:
             rows.append(scored)
             print(
                 json.dumps(
-                    {k: scored[k] for k in ("world", "success", "false_confirm", "confirmed")}
+                    {
+                        k: scored[k]
+                        for k in (
+                            "world",
+                            "success",
+                            "false_confirm",
+                            "task_equivalent",
+                            "confirmed",
+                        )
+                    }
                 ),
                 flush=True,
             )
@@ -123,6 +132,16 @@ def main(argv: list[str] | None = None) -> int:
         "complete": len(complete),
         "success_rate": sum(r["success"] for r in complete) / len(complete) if complete else None,
         "false_confirm_rate": sum(r["false_confirm"] for r in complete) / len(complete)
+        if complete
+        else None,
+        "task_equivalent_confirm_rate": sum(r.get("task_equivalent", False) for r in complete)
+        / len(complete)
+        if complete
+        else None,
+        "success_rate_task_semantics": sum(
+            r["success"] or r.get("task_equivalent", False) for r in complete
+        )
+        / len(complete)
         if complete
         else None,
         "no_confirm_rate": sum(not r["confirmed"] for r in complete) / len(complete)
