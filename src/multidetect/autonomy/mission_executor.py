@@ -49,7 +49,8 @@ class ExecutorConfig:
     travel_budget: int = 150
     max_translate_m: float = 15.0
     arrive_tolerance_m: float = 3.0
-    turn_tolerance_deg: float = 10.0
+    # Flown yaw lands within ~15 deg of the command; the camera sees +-50 deg.
+    turn_tolerance_deg: float = 20.0
     min_altitude_m: float = 8.0
     # Inspection views look at the centre this far below the camera axis.
     inspect_depression_margin_rad: float = 0.35
