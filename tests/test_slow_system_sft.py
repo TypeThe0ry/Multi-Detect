@@ -42,7 +42,7 @@ def test_build_dataset_keeps_world_splits_and_labels_true_vs_distractor(tmp_path
             "campaign", world, split, frame, (100, 100), ("red", "vehicle"), [
                 {"target": {"target_id": "target_true_0"}, "box": (10.0, 10.0, 30.0, 30.0), "class": "vehicle", "color": "red", "range_m": 10.0},
                 {"target": {"target_id": "distractor_0"}, "box": (50.0, 50.0, 80.0, 80.0), "class": "rover", "color": "blue", "range_m": 10.0},
-            ], {}, "before", {},
+            ], {}, "before", {}, None,
         ))
 
     monkeypatch.setattr(builder, "ROOT", root)
@@ -229,3 +229,40 @@ def test_fuel_rejection_does_not_invent_a_task_color():
     chinese = builder._fuel_reject_reason(candidate, requested, "\u627e\u5230\u7ea2\u8272\u8f7f\u8f66")
     assert "red" in chinese
     assert max(len(reason.split()) for reason in (generic, specific, chinese)) <= 20
+
+
+def test_live_proposals_are_labelled_by_the_object_they_cover(tmp_path):
+    from collections import Counter, defaultdict
+
+    groups = defaultdict(list)
+    stats = Counter()
+    true = {"target_id": "target_true_w", "category_words": ["stop sign"], "class": "stop_sign", "color": "red"}
+    twin = {"target_id": "distractor_twin", "category_words": ["stop sign"], "class": "stop_sign", "color": None}
+    scene = [
+        {"target_id": "target_true_w", "box": (100.0, 100.0, 130.0, 130.0), "role": "target", "asset_slug": "stop_sign", "record": true},
+        {"target_id": "obstacle_01", "box": (300.0, 300.0, 400.0, 360.0), "role": "obstacle", "asset_slug": "gas_station", "record": None},
+        {"target_id": "distractor_twin", "box": (600.0, 100.0, 630.0, 130.0), "role": "distractor", "asset_slug": "stop_sign", "record": twin},
+    ]
+    boxes = [
+        [100, 100, 130, 130, 0.9],  # the true target, 30 px: confirm
+        [300, 300, 400, 360, 0.5],  # the gas station sign: scenery reject
+        [800, 800, 840, 840, 0.2],  # nothing: background reject
+        [100, 100, 200, 200, 0.3],  # half covers the target: no label
+        [600, 100, 630, 130, 0.4],  # a second stop sign the task also describes: no label
+    ]
+    frame = Path(builder.__file__)  # any existing repo file; the image is never opened
+    builder._proposal_rows(
+        groups, stats, boxes, scene, slug={"true_target": true}, task="Find the red stop sign.",
+        world="w", split="train", frame=frame, size=(1280, 960), campaign="c", true_id="target_true_w",
+        iou_threshold=0.3, min_side_px=10.0, confirm_min_side_px=20.0,
+    )
+    labels = sorted((row["label_type"], row["assistant_target"]["decision"]) for rows in groups.values() for row in rows)
+    assert labels == [
+        ("proposal_background", "reject_track"),
+        ("proposal_scenery", "reject_track"),
+        ("proposal_true", "confirm_target"),
+    ]
+    assert stats["proposal_ambiguous_box"] == 1 and stats["dropped_task_equivalent"] == 1
+    scenery = next(row for rows in groups.values() for row in rows if row["label_type"] == "proposal_scenery")
+    assert "gas station" in scenery["assistant_target"]["reason"]
+    assert scenery["focus_track_id"] == "track-1" and len(scenery["candidates"]) == 4

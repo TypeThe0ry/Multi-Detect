@@ -37,6 +37,7 @@ from multidetect.simulator.camera_projection import (  # noqa: E402
     project_target_bbox,
     visible_fraction,
 )
+from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 from scripts.build_sim_detector_dataset import (  # noqa: E402
     CLASS_ALIASES,
     DEFAULT_SIZES,
@@ -327,6 +328,19 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                             raise ValueError("segmentation geometry differs from RGB")
                         source_hashes[_relative(seg_path)] = _sha(seg_path)
                         visible = boxes_from_segmentation(seg_image, truth, min_area_px=4, min_box_px=8)
+                        records = {str(t.get("target_id")): t for t in targets}
+                        labels_map = truth["segmentation_labels"]
+                        # Every labelled object, scenery included, for matching live proposals.
+                        scene = [
+                            {
+                                "target_id": object_id,
+                                "box": item["box"],
+                                "role": (labels_map.get(str(item["segmentation_label"])) or {}).get("role"),
+                                "asset_slug": (labels_map.get(str(item["segmentation_label"])) or {}).get("asset_slug"),
+                                "record": records.get(object_id),
+                            }
+                            for object_id, item in boxes_from_segmentation(seg_image, truth, min_area_px=4, min_box_px=2).items()
+                        ]
                         projected = []
                         for target in targets:
                             item = visible.get(str(target.get("target_id")))
@@ -342,15 +356,84 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                             projected.append({"target": target, "box": item["box"], "class": cls, "color": color, "range_m": distance, "visible_fraction": None, "label_source": "segmentation", **item})
                         stats["segmentation_frames"] += 1
                     else:
+                        scene = None
                         projected = _project(obs, targets, sizes, width, height, obstacles, min_visible_fraction=min_visible_fraction, stats=stats)
                     stats["eligible_frames"] += 1
-                    yield campaign.name, world, split, frame, (width, height), slug, projected, step, side, stats
+                    yield campaign.name, world, split, frame, (width, height), slug, projected, step, side, stats, scene
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _coverage(inner, outer) -> float:
+    ix = max(0.0, min(inner[2], outer[2]) - max(inner[0], outer[0]))
+    iy = max(0.0, min(inner[3], outer[3]) - max(inner[1], outer[1]))
+    area = (inner[2] - inner[0]) * (inner[3] - inner[1])
+    return ix * iy / area if area > 0 else 0.0
+
+
+def _proposal_rows(
+    groups, stats: Counter, boxes: list[list[float]], scene: list[dict], *, slug: dict, task: str,
+    world: str, split: str, frame: Path, size: tuple[int, int], campaign: str, true_id: str,
+    iou_threshold: float, min_side_px: float, confirm_min_side_px: float,
+) -> None:
+    """Label live FAST proposals by the segmentation object they cover.
+
+    The prompt shows the focus proposal first and up to three others, exactly as
+    the onboard policy does. Boxes that half-cover an object, and distractors the
+    task text also describes, get no label.
+    """
+    proposals = [tuple(float(v) for v in box[:4]) for box in boxes]
+    requested = slug["true_target"]
+    for index, box in enumerate(proposals):
+        if min(box[2] - box[0], box[3] - box[1]) < min_side_px:
+            continue
+        overlaps = sorted(((_iou(box, obj["box"]), obj) for obj in scene), key=lambda item: item[0], reverse=True)
+        best_iou, best = overlaps[0] if overlaps else (0.0, None)
+        # Share of each object's box that lies inside the proposal.
+        covered = max((_coverage(obj["box"], box) for obj in scene), default=0.0)
+        if best_iou < iou_threshold and (best_iou >= 0.1 or covered >= 0.1):
+            stats["proposal_ambiguous_box"] += 1
+            continue
+        shown = [box] + [other for j, other in enumerate(proposals) if j != index][:3]
+        track = "track-1"
+        if best is None or best_iou < iou_threshold:
+            label_type = "proposal_background"
+            target = _decision("reject_track", track=track, reason="No object is visible inside this candidate box.")
+        elif best["target_id"] == true_id:
+            label_type = "proposal_true"
+            if min(box[2] - box[0], box[3] - box[1]) >= confirm_min_side_px:
+                target = _decision("confirm_target", track=track, reason="Candidate class and color match the task.")
+            else:
+                target = _decision("approach_track", track=track, reason="Matching candidate is distant; approach for a closer view.")
+        elif best["record"] is not None:
+            if task_equivalent(requested, best["record"]):
+                stats["dropped_task_equivalent"] += 1
+                continue
+            label_type = "proposal_distractor"
+            target = _decision("reject_track", track=track, reason=_fuel_reject_reason(best["record"], requested, task))
+        else:
+            label_type = "proposal_scenery"
+            scenery = {"category_words": str(best.get("asset_slug") or "structure").split("_"), "color": None}
+            target = _decision("reject_track", track=track, reason=_fuel_reject_reason(scenery, requested, task))
+        kind = target["decision"]
+        stats[label_type] += 1
+        groups[kind].append(_row(
+            world=world, split=split, frame=frame, task_text=task, box=box, size=size, target=target,
+            kind=kind, campaign=campaign, label_type=label_type, candidate_boxes=shown, focus_index=0,
+        ))
 
 
 def build_dataset(
     campaigns: list[Path], output: Path, *, index: Path, seed: int = 20261011,
     negative_ratio: float = 1.5, crop_policy: str = "candidate_zoom_v2", min_visible_fraction: float = 0.3,
     confirm_min_side_px: float | None = None,
+    proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
@@ -366,10 +449,18 @@ def build_dataset(
     if set(world_splits.values()) != set(SPLITS):
         raise ValueError("World index must contain train, val and test")
     rng = random.Random(seed)
+    proposal_cache: dict[str, list[list[float]]] = {}
+    if proposals is not None:
+        for line in proposals.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                entry = json.loads(line)
+                proposal_cache[entry["image"]] = entry["boxes"]
     source_hashes = {_relative(index): _sha(index), _relative(Path(__file__)): _sha(Path(__file__))}
     buckets: dict[str, dict[str, list[dict]]] = {split: defaultdict(list) for split in SPLITS}
     stats = Counter()
-    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction, world_metadata=world_metadata):
+    if proposals is not None:
+        source_hashes[_relative(proposals)] = _sha(proposals)
+    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats, scene in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction, world_metadata=world_metadata):
         stats.update(frame_stats)
         frame_stats.clear()
         variant = int(hashlib.sha256(f"{world}:{frame.name}:{seed}".encode()).hexdigest()[:8], 16)
@@ -416,6 +507,10 @@ def build_dataset(
                 else:
                     target = _decision("confirm_target", track=f"track-{p_index + 1}", reason="Candidate class and color match the task.")
                     kind = "confirm_target"
+            elif fuel and task_equivalent(slug["true_target"], p["target"]):
+                # The task text describes this distractor as well: no consistent label.
+                stats["dropped_task_equivalent"] += 1
+                continue
             elif fuel:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=_fuel_reject_reason(p["target"], slug["true_target"], task))
                 kind = "reject_track"
@@ -428,6 +523,13 @@ def build_dataset(
             else:
                 continue
             buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction")))
+        if fuel and scene is not None and _relative(frame) in proposal_cache:
+            _proposal_rows(
+                buckets[split], stats, proposal_cache[_relative(frame)], scene, slug=slug, task=task,
+                world=world, split=split, frame=frame, size=size, campaign=campaign,
+                true_id=true_id, iou_threshold=proposal_iou, min_side_px=proposal_min_side_px,
+                confirm_min_side_px=confirm_min_side_px if confirm_min_side_px is not None else 20.0,
+            )
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
             if background is not None:
@@ -445,7 +547,9 @@ def build_dataset(
         rng.shuffle(negative)
         # Keep negatives at roughly 1.5 per visual positive while preserving all
         # positive examples and a bounded set of search/clarification cases.
-        negative = negative[: round(len(positive) * negative_ratio)]
+        # Live scenery/background proposals are rare hard negatives: keep them all.
+        rare = [row for row in negative if row["label_type"] in {"proposal_scenery", "proposal_background"}]
+        negative = rare + [row for row in negative if row not in rare][: max(0, round(len(positive) * negative_ratio) - len(rare))]
         # Preserve at least one no-candidate/clarification example per world;
         # otherwise the bounded prefix can silently discard the urban train
         # world because generated worlds are visited first.
@@ -490,6 +594,10 @@ def build_dataset(
         "negative_ratio_requested": negative_ratio,
         "image_policy": "reference_existing_rgb_png_no_copy; full_frame_resize_to_448_max_side_at_model_input; candidate_crop_resize_to_224x224_at_model_input",
         "crop_policy": crop_policy,
+        "proposals": (
+            {"cache": _relative(proposals), "iou": proposal_iou, "min_side_px": proposal_min_side_px}
+            if proposals is not None else None
+        ),
         "confirm_rule": (
             {"kind": "min_side_px", "threshold": confirm_min_side_px, "applies_to": "fuel_v1"}
             if confirm_min_side_px is not None else {"kind": "range_45m_or_min_side_12px"}
@@ -516,9 +624,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"), default="candidate_zoom_v2")
     parser.add_argument("--confirm-min-side-px", type=float, default=None, help="fuel_v1 worlds: confirm when the target box min side reaches this many pixels (default: legacy range rule)")
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
+    parser.add_argument("--proposals", type=Path, default=None, help="cached onboard FAST proposals (scripts/cache_onboard_proposals.py); adds rows labelled from live boxes")
+    parser.add_argument("--proposal-iou", type=float, default=0.3)
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

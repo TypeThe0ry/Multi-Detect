@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
+from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 
 
 def _iou(a, b) -> float:
@@ -36,14 +37,6 @@ def _iou(a, b) -> float:
 
 def _true_target(truth: dict[str, Any]) -> dict[str, Any]:
     return next(t for t in truth["targets"] if t.get("true_target"))
-
-
-def task_equivalent(target: dict[str, Any], other: dict[str, Any]) -> bool:
-    """Whether the task text generated for ``target`` also describes ``other``."""
-    noun = (target.get("category_words") or [None])[0]
-    if not noun or noun not in (other.get("category_words") or []):
-        return False
-    return target.get("color") is None or other.get("color") == target.get("color")
 
 
 def _nearest_object(truth: dict[str, Any], north_east, radius_m: float):

@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from multidetect.simulator.task_semantics import task_equivalent
+
 from multidetect.autonomy.serialization import canonical_sha256
 
 SCHEMA_VERSION = 1
@@ -230,8 +232,14 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          real_time_factor: float = 1.0,
                          catalog_path: str | Path = "configs/sim-assets/fuel-catalog.json",
                          resolved_root: str | Path = "artifacts/cache/gz-fuel/resolved",
-                         segmentation_labels: bool = False) -> dict[str, Any]:
-    """Generate realistic offline Fuel model worlds while preserving box mode."""
+                         segmentation_labels: bool = False,
+                         unambiguous_tasks: bool = False) -> dict[str, Any]:
+    """Generate realistic offline Fuel model worlds while preserving box mode.
+
+    ``unambiguous_tasks`` keeps out distractors that the generated task text would
+    also describe (e.g. a second person for "find the person"); it is off by
+    default so existing world sets regenerate byte-identically.
+    """
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
     eligible = [a for a in assets if "target" in a.get("role_eligibility", [])]
@@ -331,6 +339,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         objects.append(("target_true_"+world_id, target, tx, ty, rng.uniform(-math.pi, math.pi), True))
         same_category = [a for a in eligible if a["slug"] != target["slug"] and a["category"] == target["category"]]
         distractor_pool = same_category + [a for a in eligible if a["slug"] != target["slug"] and a not in same_category]
+        if unambiguous_tasks:
+            distractor_pool = [a for a in distractor_pool if not task_equivalent(target, a)]
         for j in range(rng.randint(2,5)):
             asset = distractor_pool[(i+j*3)%len(distractor_pool)]; x,y=pose_point(used,max(asset["measured_size_m"][:2])/2)
             objects.append((f"distractor_{i:04d}_{j:02d}",asset,x,y,rng.uniform(-math.pi,math.pi),False))

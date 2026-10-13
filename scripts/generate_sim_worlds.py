@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # ruff: noqa: E501
 """Generate deterministic procedural Gazebo worlds and scenario channels."""
+
 from __future__ import annotations
 
 import argparse
@@ -27,6 +28,11 @@ def main() -> int:
         action="store_true",
         help="emit Gazebo Harmonic Label plugins and segmentation_labels truth map (fuel_v1 only)",
     )
+    parser.add_argument(
+        "--unambiguous-tasks",
+        action="store_true",
+        help="fuel_v1: leave out distractors that the task text would also describe",
+    )
     args = parser.parse_args()
     ratios = tuple(float(part) for part in args.split_ratios.split(","))
     fn = generate_fuel_worlds if args.asset_mode == "fuel_v1" else generate_worlds
@@ -39,9 +45,17 @@ def main() -> int:
             args.out_scenarios,
             args.real_time_factor,
             segmentation_labels=args.segmentation_labels,
+            unambiguous_tasks=args.unambiguous_tasks,
         )
     else:
-        document = fn(args.count, args.seed, ratios, args.out_worlds, args.out_scenarios, args.real_time_factor)
+        document = fn(
+            args.count,
+            args.seed,
+            ratios,
+            args.out_worlds,
+            args.out_scenarios,
+            args.real_time_factor,
+        )
     print(f"generated {document['count']} worlds (seed={document['seed']})")
     return 0
 
