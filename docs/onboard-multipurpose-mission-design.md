@@ -44,4 +44,18 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 
 已实现：严格版本化 `MissionPlan` contract、13 个 skill registry、参数和 capability 校验、步骤引用及循环校验、终止步骤校验、`SkillStatus`/`MissionReport` 数据结构、旧决策到当前 skill 的解释映射，以及 CPU pytest 覆盖。
 
-尚未实现：生产 SLOW 的 task-to-plan 推理接线、FAST 各 skill 的完整 planner executor、payload 硬件驱动、真实 Orin 峰值测量、Gazebo Fuel mesh world 全量迁移、各 mission family teacher 数据和闭环训练。这些部分不能由本 contract 的模型输出直接宣称完成。
+**机上执行器（2026-10-14）**：`src/multidetect/autonomy/mission_executor.py` 的 `MissionExecutor` 按 `on_success` / `on_fail` 逐步执行计划，每步有步数上限，报告只来自实际观测（发现、计数、证据帧、视角答案、告警）。已实现的技能：
+
+| Skill | 实现 |
+| --- | --- |
+| `area_search` | 机上闭环（快系统候选 + 地面锚定轨迹 + 慢系统身份判断）直到确认 |
+| `count` | 同一闭环，确认后不停止继续搜索；同一地面位置（4 m 内）只计一次 |
+| `inspect` | 绕发现点按 `standoff_m` 均匀取 `views` 个视角，自动选能看到目标的高度，静态地图挡住的视角跳过；每个视角对准目标拍照并让慢系统判断最近的轨迹 |
+| `goto` | `home` / `finding:N` / 主机提供的 `poi:`、`zone:` 引用，先调高度再分段飞，带障碍检查 |
+| `hover` / `return_home` / `land` / `record` | 悬停计时；先爬回巡航高度再回家；停止；记录当前帧为证据 |
+
+`survey`、`patrol`、`follow`、`monitor`、`deliver` 目前按 `skill_not_implemented` 走 `on_fail`。任务计划暂由主机模板生成（`plan_for_find_task`、`plan_for_find_and_inspect`），慢系统从任务文字生成计划还没训练。
+
+仿真实飞（Gazebo + PX4 SITL，慢系统 v2-r4-prop）：“找到 → 绕飞 4 个视角 → 返航”在 gen_v2_w0035（SUV）和 gen_v2_w0038（邮筒）上都完整执行，分别 46 步和 32 步，定位误差约 0.5 m，4 个视角都拍到并得到身份答案，最后回到起飞点。
+
+尚未实现：慢系统 task-to-plan 推理、上表之外的技能、计数任务的测试世界（需要同类多实例场景）、payload 硬件驱动、真实 Orin 峰值测量、各 mission family 的教师数据和闭环训练。这些部分不能由本 contract 的模型输出直接宣称完成。
