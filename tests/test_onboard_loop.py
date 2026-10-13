@@ -200,3 +200,34 @@ def test_ground_anchor_keeps_identity_and_lost_focus_keeps_closing_in() -> None:
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert info["reason"] == "focus_briefly_lost" and info["focus"] == "t1"
     assert action.kind in {"turn", "translate"} and action.kind != "hold"
+
+
+def test_approach_stops_before_the_focus_leaves_the_bottom_of_the_image() -> None:
+    loop = _loop(approach_min_altitude_m=11.0)
+    pose = (0.0, 0.0, -11.0)
+    target = (9.0, 0.0)
+
+    def ground_point(u: float, v: float) -> tuple[float, float]:
+        return target
+
+    tracks = loop.update_tracks([Detection(_box(640, 800, 44), 0.3)])
+    loop.apply_verdict("t1", "confirm_target")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    # 9 m ahead at 11 m altitude is already the closest in-frame view: no leg forward.
+    assert action.kind == "hold" and info["reason"] == "closest_view"
+    tracks = loop.update_tracks([Detection(_box(640, 800, 44), 0.3)])
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert loop.state == "returning" and info["confirmed"]["rule"] == "closest_view"
+
+
+def test_too_close_above_the_floor_descends_in_place() -> None:
+    loop = _loop()
+    pose = (0.0, 0.0, -20.0)
+
+    def ground_point(u: float, v: float) -> tuple[float, float]:
+        return (18.0, 0.0)
+
+    tracks = loop.update_tracks([Detection(_box(640, 800, 20), 0.3)])
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert action.kind == "translate" and action.forward_m == 0.0 and action.up_m < 0

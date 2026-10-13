@@ -141,6 +141,8 @@ class LoopConfig:
     # Ground association gate: max(min, fraction * range to the candidate).
     ground_gate_min_m: float = 4.0
     ground_gate_range_fraction: float = 0.15
+    # Keep the focus this much farther than the lowest visible ground ray.
+    keep_in_view_margin: float = 1.25
 
 
 @dataclass(slots=True)
@@ -168,6 +170,7 @@ class OnboardLoop:
     _last_translated: bool = False
     _last_turn_deg: float = 0.0
     _last_yaw_deg: float | None = None
+    _at_closest: bool = False
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -332,6 +335,13 @@ class OnboardLoop:
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
         return action if self.segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
 
+    def _keep_range(self, altitude_m: float) -> float:
+        """Closest ground range still inside the image at ``altitude_m`` (with margin)."""
+        lowest = self.camera.pitch_down_rad + math.atan2(self.camera.cy, self.camera.fy)
+        if lowest >= math.pi / 2:
+            return 0.0
+        return self.config.keep_in_view_margin * altitude_m / math.tan(lowest)
+
     def _close_in(
         self,
         pose_ned: tuple[float, float, float],
@@ -353,6 +363,19 @@ class OnboardLoop:
             self.config.descent_step_m,
             max(0.0, altitude - self.config.approach_min_altitude_m),
         )
+        if horizontal is not None:
+            # Never fly so close that the focus drops below the bottom of the image.
+            step = min(step, horizontal - self._keep_range(altitude - max(0.0, descend)))
+            if step < self.config.min_translate_m:
+                lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
+                if descend > 0.5 and self.segment_clear(lower, pose_ned[0], pose_ned[1]):
+                    # Too close to fly on at this altitude: descend in place instead.
+                    self._last_translated = True
+                    info["descend_m"] = descend
+                    return ActionPrimitive.translate(0.0, 0.0, -descend)
+                info["reason"] = "closest_view"
+                self._at_closest = True
+                return ActionPrimitive.hold(1.0)
         if descend > 0.5:
             lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
             yaw = math.radians(yaw_deg)
@@ -430,6 +453,7 @@ class OnboardLoop:
                 return action, info
             if best.track_id != self._focus:
                 self._approach_sizes.clear()
+                self._at_closest = False
             self.state, self._focus = "approaching", best.track_id
             best.approach_steps += 1
             if best.approach_steps > self.config.max_approach_steps and not best.confirm_steps:
@@ -465,7 +489,10 @@ class OnboardLoop:
             # confirm view once the approach cannot improve the view any further.
             votes = len(best.confirm_steps)
             unclipped = not self._touches_border(best.bbox)
-            near = horizontal is not None and horizontal <= self.config.overhead_range_m
+            # Near: overhead, or already at the closest view that keeps the focus in frame.
+            near = self._at_closest or (
+                horizontal is not None and horizontal <= self.config.overhead_range_m
+            )
             info["confirm_views"] = votes
             if unclipped and (
                 votes >= self.config.confirm_matches or (votes >= 1 and (stalled or near))
@@ -478,7 +505,11 @@ class OnboardLoop:
                     "min_side_px": size,
                     "rule": "two_views"
                     if votes >= self.config.confirm_matches
-                    else ("stalled" if stalled else "overhead"),
+                    else (
+                        "stalled"
+                        if stalled
+                        else ("closest_view" if self._at_closest else "overhead")
+                    ),
                     "confirm_views": votes,
                     "step": self.step_index - 1,
                 }
