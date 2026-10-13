@@ -93,3 +93,11 @@ def test_identity_schema_only_allows_identity_verdicts_and_keeps_the_rest() -> N
     assert schema["properties"]["args"] == DECISION_JSON_SCHEMA["properties"]["args"]
     # The shared schema is not mutated.
     assert "ask_clarify" in DECISION_JSON_SCHEMA["properties"]["decision"]["enum"]
+
+
+def test_identity_schema_can_pin_the_focus_track() -> None:
+    from multidetect.autonomy.onboard_decision import identity_decision_schema
+
+    args = identity_decision_schema("track-1")["properties"]["args"]["properties"]
+    assert args["track_id"] == {"type": "string", "enum": ["track-1"]}
+    assert args["region"] == {"type": "null"} and args["duration_s"] == {"type": "null"}

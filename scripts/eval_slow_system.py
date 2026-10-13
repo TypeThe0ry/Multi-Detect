@@ -225,7 +225,7 @@ class LlamaServerRunner:
             "model": "local", "temperature": 0, "max_tokens": self.max_new_tokens, "stream": False,
             "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_schema", "json_schema": {"name": "onboard_decision", "strict": True, "schema": trained_key_order_schema(
-                identity_decision_schema() if self.identity_only and row.get("focus_track_id") else DECISION_JSON_SCHEMA
+                identity_decision_schema(row["focus_track_id"]) if self.identity_only and row.get("focus_track_id") else DECISION_JSON_SCHEMA
             )}},
         }
         started = time.perf_counter()
