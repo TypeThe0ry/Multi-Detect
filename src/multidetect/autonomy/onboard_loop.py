@@ -89,7 +89,9 @@ class Track:
     verdict: str | None = None
     verdict_step: int = -1
     max_min_side: float = 0.0
-    match_steps: list[int] = field(default_factory=list)
+    confirm_steps: list[int] = field(default_factory=list)
+    approach_steps: int = 0
+    exhausted: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +113,8 @@ class LoopConfig:
     max_steps: int = 120
     confirm_matches: int = 2
     border_margin_px: float = 2.0
+    max_approach_steps: int = 8
+    min_verdict_side_px: float = 10.0
 
 
 @dataclass(slots=True)
@@ -196,28 +200,42 @@ class OnboardLoop:
         stale = [
             t
             for t in current
-            if t.verdict is None
-            or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
-            # Re-verify the approach focus from each new view until confirmed.
-            or (
-                t.track_id == self._focus
-                and t.verdict == "match"
-                and t.verdict_step < self.step_index
+            # Boxes too small to judge are not worth a slow call.
+            if _min_side(t.bbox) >= self.config.min_verdict_side_px
+            and not t.exhausted
+            and (
+                t.verdict is None
+                or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
+                # Re-verify the approach focus from each new view until confirmed.
+                or (
+                    t.track_id == self._focus
+                    and t.verdict in {"approach", "confirm"}
+                    and t.verdict_step < self.step_index
+                )
             )
         ]
         stale.sort(key=lambda t: (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]), reverse=True)
         return stale[: self.config.max_slow_per_step]
 
-    def apply_verdict(self, track_id: str, identity: str | None) -> None:
+    def apply_verdict(self, track_id: str, decision: str | None) -> None:
+        """Record a slow decision; only confirm_target counts toward confirmation.
+
+        approach_track means "worth a closer look" (the model uses it for distant
+        or uncertain candidates), reject_track resets the confirmation votes.
+        """
         track = self._tracks.get(track_id)
-        if track is not None:
-            track.verdict = identity or "unknown"
-            track.verdict_step = self.step_index
-            if identity == "match":
-                if self.step_index not in track.match_steps:
-                    track.match_steps.append(self.step_index)
-            elif identity == "no_match":
-                track.match_steps.clear()
+        if track is None:
+            return
+        verdict = {
+            "confirm_target": "confirm",
+            "approach_track": "approach",
+            "reject_track": "no_match",
+        }.get(str(decision), "unknown")
+        track.verdict, track.verdict_step = verdict, self.step_index
+        if verdict == "confirm" and self.step_index not in track.confirm_steps:
+            track.confirm_steps.append(self.step_index)
+        elif verdict == "no_match":
+            track.confirm_steps.clear()
 
     def _touches_border(self, box: Box) -> bool:
         margin = self.config.border_margin_px
@@ -229,14 +247,20 @@ class OnboardLoop:
         )
 
     def _best_match(self, current: Sequence[Track]) -> Track | None:
-        visible = [t for t in current if t.verdict == "match"]
+        visible = [t for t in current if t.verdict in {"approach", "confirm"} and not t.exhausted]
         if self._focus is not None:
             focus = next((t for t in visible if t.track_id == self._focus), None)
             if focus is not None:
                 return focus
         if not visible:
             return None
-        return max(visible, key=lambda t: (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]))
+        return max(
+            visible,
+            key=lambda t: (
+                t.verdict == "confirm",
+                (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]),
+            ),
+        )
 
     def _safe(self, pose_ned, action: ActionPrimitive, yaw_deg: float) -> ActionPrimitive:
         yaw = math.radians(yaw_deg)
@@ -293,6 +317,16 @@ class OnboardLoop:
             if best.track_id != self._focus:
                 self._approach_sizes.clear()
             self.state, self._focus = "approaching", best.track_id
+            best.approach_steps += 1
+            if best.approach_steps > self.config.max_approach_steps and not best.confirm_steps:
+                # Never confirmed from any view: stop chasing it and resume the search.
+                best.exhausted = True
+                self.state, self._focus = "searching", None
+                self._approach_sizes.clear()
+                info.update(reason="approach_exhausted", dropped=best.track_id)
+                action = self.search_action(pose_ned, yaw_deg)
+                self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
+                return action, info
             u, v = _center(best.bbox)
             bearing = self.camera.bearing_deg(u)
             # The bottom centre of the box is where the object meets the ground.
@@ -313,15 +347,14 @@ class OnboardLoop:
             info.update(
                 focus=best.track_id, bearing_deg=bearing, horizontal_m=horizontal, min_side_px=size
             )
-            # A single verdict is never enough, and a clipped box is only part of an object.
-            verified = len(
-                best.match_steps
-            ) >= self.config.confirm_matches and not self._touches_border(best.bbox)
-            info["match_views"] = len(best.match_steps)
-            if verified and (
-                size >= self.config.confirm_min_side_px
-                or stalled
-                or (horizontal is not None and horizontal <= self.config.overhead_range_m)
+            # Two confirm_target views (a clipped box is only part of an object), or one
+            # confirm view once the approach cannot improve the view any further.
+            votes = len(best.confirm_steps)
+            unclipped = not self._touches_border(best.bbox)
+            near = horizontal is not None and horizontal <= self.config.overhead_range_m
+            info["confirm_views"] = votes
+            if unclipped and (
+                votes >= self.config.confirm_matches or (votes >= 1 and (stalled or near))
             ):
                 self.state = "returning"
                 self.confirmed = {
@@ -329,9 +362,10 @@ class OnboardLoop:
                     "bbox": list(best.bbox),
                     "position_estimate_ne": list(ground) if ground else None,
                     "min_side_px": size,
-                    "rule": "size"
-                    if size >= self.config.confirm_min_side_px
+                    "rule": "two_views"
+                    if votes >= self.config.confirm_matches
                     else ("stalled" if stalled else "overhead"),
+                    "confirm_views": votes,
                     "step": self.step_index - 1,
                 }
                 info["confirmed"] = self.confirmed

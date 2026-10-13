@@ -229,7 +229,7 @@ class OnboardPolicy:
         if self.loop.state in {"searching", "approaching"}:
             for track in self.loop.tracks_needing_verdict(current):
                 verdict = self._slow_identity(frame_path, current, track)
-                self.loop.apply_verdict(track.track_id, verdict["identity"])
+                self.loop.apply_verdict(track.track_id, verdict["decision"])
                 slow.append(verdict)
         camera_info = observation["camera_info"]
 

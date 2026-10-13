@@ -49,44 +49,54 @@ def test_tracks_keep_ids_across_small_motion_and_filter_tiny_boxes() -> None:
     assert [t.track_id for t in second] == ["t1"]
 
 
-def test_search_until_match_then_turn_approach_and_confirm_by_size() -> None:
+def test_approach_verdict_steers_but_only_two_confirm_views_confirm() -> None:
     loop = _loop()
     pose = (0.0, 0.0, -20.0)
-    tracks = loop.update_tracks([Detection(_box(1000, 600, 10), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(1000, 600, 12), 0.3)])
     assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
     action, _ = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert action.kind == "translate"  # unverified tracks never steer the vehicle
-    loop.apply_verdict("t1", "match")
+    loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "approaching" and action.kind == "turn" and info["bearing_deg"] > 8
-    tracks = loop.update_tracks([Detection(_box(645, 600, 12), 0.3)])
-    action, _ = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
-    assert action.kind == "translate" and action.forward_m >= 3.0
-    tracks = loop.update_tracks([Detection(_box(645, 600, 24), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(645, 600, 14), 0.3)])
     assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]  # re-verify focus
+    loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
-    assert loop.state == "approaching" and info["match_views"] == 1  # one view is not enough
-    tracks = loop.update_tracks([Detection(_box(645, 600, 24), 0.3)])
-    loop.apply_verdict("t1", "match")
+    assert action.kind == "translate" and info["confirm_views"] == 0
+    tracks = loop.update_tracks([Detection(_box(645, 600, 30), 0.3)])
+    loop.apply_verdict("t1", "confirm_target")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
-    assert loop.state == "returning" and info["confirmed"]["rule"] == "size"
+    assert loop.state == "approaching" and info["confirm_views"] == 1  # one view is not enough
+    tracks = loop.update_tracks([Detection(_box(645, 600, 34), 0.3)])
+    loop.apply_verdict("t1", "confirm_target")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert loop.state == "returning" and info["confirmed"]["rule"] == "two_views"
     assert info["confirmed"]["position_estimate_ne"] is not None
 
 
-def test_rejected_candidates_keep_searching_and_stalled_match_is_confirmed() -> None:
-    loop = _loop()
+def test_reject_resets_votes_and_unconfirmed_focus_is_dropped() -> None:
+    loop = _loop(max_approach_steps=3)
     pose = (0.0, 0.0, -20.0)
-    tracks = loop.update_tracks([Detection(_box(640, 400, 10), 0.3)])
-    loop.apply_verdict("t1", "no_match")
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "confirm_target")
+    loop.apply_verdict("t1", "reject_track")
     action, _ = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "searching" and action.forward_m == 10.0
-    for _ in range(5):  # approach legs that never make the box grow
-        tracks = loop.update_tracks([Detection(_box(640, 400, 10), 0.3)])
-        loop.apply_verdict("t1", "match")
+    for _ in range(5):
+        tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+        loop.apply_verdict("t1", "approach_track")
         action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
-        if loop.state == "returning":
+        if info.get("reason") == "approach_exhausted":
             break
-    assert loop.state == "returning" and info["confirmed"]["rule"] in {"stalled", "overhead"}
+    assert info.get("reason") == "approach_exhausted" and loop.state == "searching"
+    assert loop.tracks["t1"].exhausted and loop.tracks_needing_verdict(tracks) == []
+
+
+def test_tiny_boxes_are_not_sent_to_the_slow_model() -> None:
+    loop = _loop()
+    tracks = loop.update_tracks([Detection(_box(640, 400, 8), 0.3)])
+    assert tracks and loop.tracks_needing_verdict(tracks) == []
 
 
 def test_return_home_turns_then_flies_and_stops() -> None:
@@ -119,6 +129,6 @@ def test_box_clipped_by_the_image_border_is_never_confirmed() -> None:
     pose = (0.0, 0.0, -20.0)
     for _ in range(3):
         tracks = loop.update_tracks([Detection((620.0, 900.0, 680.0, 960.0), 0.3)])
-        loop.apply_verdict("t1", "match")
+        loop.apply_verdict("t1", "confirm_target")
         loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "approaching" and loop.confirmed is None
