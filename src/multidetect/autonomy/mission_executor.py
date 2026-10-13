@@ -114,10 +114,13 @@ class MissionExecutor:
     # -- step lifecycle ---------------------------------------------------
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
+        # The step budget bounds a search; the loop's own step cap must not end it.
         if step.skill == "area_search":
-            run.loop = self.loop_factory(self.task_text(step))
+            run.loop = self.loop_factory(self.task_text(step), max_steps=10**6)
         elif step.skill == "count":
-            run.loop = self.loop_factory(self.task_text(step), stop_on_confirm=False)
+            run.loop = self.loop_factory(
+                self.task_text(step), stop_on_confirm=False, max_steps=10**6
+            )
         elif step.skill == "inspect":
             run.loop = self.loop_factory(self.task_text(step))
         return run
@@ -276,6 +279,10 @@ class MissionExecutor:
             self._add_finding(run, run.loop.confirmed, frame_id)
             self._finish("succeeded", "confirmed")
             return ActionPrimitive.hold(self.config.hold_s), info
+        if run.loop.state not in {"searching", "approaching"}:
+            # The loop's own budget ended its search; flying home is the plan's job.
+            self._finish("failed", "search_exhausted")
+            return None
         return action, info
 
     def _count(self, run, pose, yaw, ground_point, frame_id):
@@ -286,6 +293,10 @@ class MissionExecutor:
             self._add_finding(run, info["counted"], frame_id)
         # The count so far is reported live, so an interrupted mission still says it.
         self._report_count(run)
+        if run.loop.state not in {"searching", "approaching"}:
+            self._report_count(run)
+            self._finish("succeeded", "search_exhausted")
+            return None
         limit = run.step.params.get("max_count")
         if limit is not None and len(run.loop.confirmations) >= int(limit):
             self._report_count(run)

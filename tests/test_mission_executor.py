@@ -331,3 +331,20 @@ def test_count_is_reported_while_the_step_runs():
     sim = Sim()
     _cycle(executor, sim)
     assert executor.counts == {"count": 0} and executor.report().count == 0
+
+
+def test_search_runs_to_the_executor_budget_not_the_loop_cap():
+    executor = MissionExecutor(
+        plan_for_find_task("cone"), loop_factory=_factory(), config=ExecutorConfig(step_budget=130)
+    )
+    sim = Sim()
+    kinds = []
+    for _ in range(140):
+        action, info = _cycle(executor, sim)
+        kinds.append((action.kind, info.get("step")))
+        if executor._run is None or executor._run.step.id != "search":
+            break
+    # 130 search primitives (beyond OnboardLoop's default 120-step cap), then home.
+    assert sum(1 for kind, step in kinds if step == "search") == 130
+    assert all(kind != "stop" for kind, step in kinds if step == "search")
+    assert executor.history[0]["reason"] == "step_budget"
