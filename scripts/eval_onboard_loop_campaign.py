@@ -170,6 +170,15 @@ def main(argv: list[str] | None = None) -> int:
         )[len([r for r in complete if r.get("position_error_m") is not None]) // 2]
         if any(r.get("position_error_m") is not None for r in complete)
         else None,
+        # Successful episodes only: a false confirm's error is the distance to the
+        # wrong object, not a localisation error.
+        "median_position_error_success_m": (
+            sorted(r["position_error_m"] for r in complete if r["success"])[
+                sum(r["success"] for r in complete) // 2
+            ]
+            if any(r["success"] for r in complete)
+            else None
+        ),
         "expert_reference": {
             w["world_id"]: _expert_reference(args.expert_campaign, w["world_id"]) for w in worlds
         },
