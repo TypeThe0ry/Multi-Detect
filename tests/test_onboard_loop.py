@@ -231,3 +231,24 @@ def test_too_close_above_the_floor_descends_in_place() -> None:
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert action.kind == "translate" and action.forward_m == 0.0 and action.up_m < 0
+
+
+def test_focus_rejected_while_visible_is_dropped_not_waited_for() -> None:
+    loop = _loop()
+    pose = (0.0, 0.0, -20.0)
+
+    def ground_point(u: float, v: float) -> tuple[float, float]:
+        return (80.0, 0.0)
+
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 600, 30), 0.3)], pose_ned=pose, yaw_deg=0.0, ground_point=ground_point
+    )
+    loop.apply_verdict("t1", "approach_track")
+    loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 600, 30), 0.3)], pose_ned=pose, yaw_deg=0.0, ground_point=ground_point
+    )
+    loop.apply_verdict("t1", "reject_track")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert loop.state == "searching" and info.get("reason") is None
+    assert action.forward_m == 10.0

@@ -429,7 +429,19 @@ class OnboardLoop:
                 if self.state == "approaching" and self._focus is not None:
                     focus = self._tracks[self._focus]
                     lost = self.step_index - focus.last_step
-                    if lost <= self.config.lost_after_steps:
+                    # Only a focus that is still wanted and actually out of view; a focus
+                    # rejected while visible is dropped. The approach budget still applies.
+                    wanted = (
+                        focus.verdict in {"approach", "confirm"}
+                        and not focus.exhausted
+                        and all(t.track_id != focus.track_id for t in current)
+                    )
+                    if focus.approach_steps >= self.config.max_approach_steps and (
+                        not focus.confirm_steps
+                    ):
+                        focus.exhausted, wanted = True, False
+                        info.update(reason="approach_exhausted", dropped=focus.track_id)
+                    if wanted and lost <= self.config.lost_after_steps:
                         info["reason"] = "focus_briefly_lost"
                         if focus.ground is None:
                             return ActionPrimitive.hold(1.0), info
