@@ -154,6 +154,17 @@ def main(argv: list[str] | None = None) -> int:
         "no_confirm_rate": sum(not r["confirmed"] for r in complete) / len(complete)
         if complete
         else None,
+        "count_exact_rate": (
+            sum(r.get("count_exact", False) for r in complete) / len(complete)
+            if complete and any("expected_count" in r for r in complete)
+            else None
+        ),
+        "mean_abs_count_error": (
+            sum(abs((r.get("reported_count") or 0) - r["expected_count"]) for r in complete)
+            / len(complete)
+            if complete and all("expected_count" in r for r in complete)
+            else None
+        ),
         "median_position_error_m": sorted(
             r["position_error_m"] for r in complete if r.get("position_error_m") is not None
         )[len([r for r in complete if r.get("position_error_m") is not None]) // 2]

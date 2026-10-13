@@ -51,6 +51,35 @@ def _nearest_object(truth: dict[str, Any], north_east, radius_m: float):
     return best
 
 
+def _count_metrics(rows: list[dict[str, Any]], members: list[dict[str, Any]], radius_m: float):
+    """Reported count and findings matched one-to-one to distinct counted objects."""
+    mission = {}
+    for row in rows:
+        mission = ((row.get("labels") or {}).get("onboard") or {}).get("mission") or mission
+    counts = mission.get("counts") or {}
+    reported = sum(int(v) for v in counts.values()) if counts else None
+    positions = [tuple(float(v) for v in p.split(",")) for p in mission.get("positions", [])]
+    remaining = [(float(m["pose"]["y_north_m"]), float(m["pose"]["x_east_m"])) for m in members]
+    matched, errors = 0, []
+    for north, east in positions:
+        if not remaining:
+            break
+        nearest = min(remaining, key=lambda m: math.hypot(m[0] - north, m[1] - east))
+        distance = math.hypot(nearest[0] - north, nearest[1] - east)
+        if distance <= radius_m:
+            matched += 1
+            errors.append(round(distance, 2))
+            remaining.remove(nearest)
+    return {
+        "expected_count": len(members),
+        "reported_count": reported,
+        "matched_count": matched,
+        "false_findings": len(positions) - matched,
+        "count_position_errors_m": errors,
+        "count_exact": reported == len(members) and matched == len(members),
+    }
+
+
 def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any]):
     target = _true_target(truth)
     seg_name = observation.get("segmentation_path")
@@ -124,6 +153,9 @@ def score_episode(
         "false_confirm": False,
         "task_equivalent": False,
     }
+    members = [t for t in truth["targets"] if t.get("count_member")]
+    if members:
+        result.update(_count_metrics(rows, members, radius_m))
     if confirmed_row is None:
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]
