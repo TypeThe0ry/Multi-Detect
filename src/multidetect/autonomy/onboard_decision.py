@@ -114,10 +114,43 @@ def parse_onboard_decision(raw: str | bytes | Mapping[str, Any]) -> OnboardDecis
     return OnboardDecision(decision, DecisionArgs(track_id, region, duration_s), reason)
 
 
+# The slow model is reliable at identity ("is this the task's object?") but
+# cannot measure apparent size from normalized coordinates. approach_track and
+# confirm_target therefore both mean "identity matches"; the host, which knows
+# the candidate's pixel size, decides whether it is close enough to confirm.
+IDENTITY_MATCH = frozenset({"approach_track", "confirm_target"})
+
+
+def identity_of(decision: str) -> str | None:
+    """Return ``"match"``, ``"no_match"`` or ``None`` for non-identity decisions."""
+    if decision in IDENTITY_MATCH:
+        return "match"
+    if decision == "reject_track":
+        return "no_match"
+    return None
+
+
+def gate_confirm_by_size(
+    decision: OnboardDecision, *, candidate_min_side_px: float, confirm_min_side_px: float
+) -> OnboardDecision:
+    """Host-side size gate: an identity match confirms only when large enough."""
+    if decision.decision not in IDENTITY_MATCH:
+        return decision
+    if not candidate_min_side_px >= 0 or not confirm_min_side_px > 0:
+        raise AutonomyContractError("pixel sizes must be finite and non-negative")
+    gated = "confirm_target" if candidate_min_side_px >= confirm_min_side_px else "approach_track"
+    if gated == decision.decision:
+        return decision
+    return OnboardDecision(gated, decision.args, decision.reason)
+
+
 __all__ = [
     "DECISIONS",
     "DECISION_JSON_SCHEMA",
+    "IDENTITY_MATCH",
     "DecisionArgs",
     "OnboardDecision",
+    "gate_confirm_by_size",
+    "identity_of",
     "parse_onboard_decision",
 ]

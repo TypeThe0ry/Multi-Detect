@@ -58,3 +58,23 @@ def test_rejects_unknown_arg() -> None:
     payload["args"]["x"] = 1  # type: ignore[index]
     with pytest.raises(AutonomyContractError, match="unknown"):
         parse_onboard_decision(payload)
+
+
+def test_host_size_gate_keeps_identity_and_picks_confirm_or_approach() -> None:
+    from multidetect.autonomy.onboard_decision import (
+        gate_confirm_by_size,
+        identity_of,
+        parse_onboard_decision,
+    )
+
+    def make(kind: str):
+        return parse_onboard_decision(
+            {"decision": kind, "args": {"track_id": "track-1", "region": None, "duration_s": None}, "reason": "Matches task."}
+        )
+
+    small = gate_confirm_by_size(make("confirm_target"), candidate_min_side_px=9, confirm_min_side_px=20)
+    large = gate_confirm_by_size(make("approach_track"), candidate_min_side_px=31, confirm_min_side_px=20)
+    reject = gate_confirm_by_size(make("reject_track"), candidate_min_side_px=50, confirm_min_side_px=20)
+    assert (small.decision, large.decision, reject.decision) == ("approach_track", "confirm_target", "reject_track")
+    assert identity_of(small.decision) == identity_of(large.decision) == "match"
+    assert identity_of("reject_track") == "no_match" and identity_of("search_region") is None

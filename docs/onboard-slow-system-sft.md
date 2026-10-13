@@ -218,3 +218,33 @@ errors are almost all approach-vs-confirm (distance). Training on v2 data
 fixes most of that (23 -> 4 premature confirms) but becomes more cautious
 (9 confirms predicted as approach) and 4 ask_clarify rows produced invalid
 JSON.
+
+## Identity by the VLM, distance by the host (2026-10-13)
+
+With segmentation-derived candidates (campaign-20261012-v2-r3-seg) the
+approach-vs-confirm split stayed the weak point: labels based on true range
+(> 45 m) are unobservable (LoRA v2-r2-seg: confirm recall 15%), and a pixel
+threshold the model must infer from normalized coordinates is not much better
+(v2-r3-seg: 76.1% accuracy, distractor rejection 85.7%). Scoring only
+**identity** — approach/confirm = "this is the task's object", reject = "it is
+not" — shows the VLM is strong at what it is suited for:
+
+| Adapter | Test set | Identity accuracy | Match recall / precision | Distractor rejection |
+|---|---|---:|---:|---:|
+| r5 (box worlds only) | sft-v2-r1 | 97.9% | 100% / 95.0% | 96.5% |
+| v2-r1 | sft-v2-r1 | 97.2% | 100% / 93.4% | 95.3% |
+| v2-r2-seg | sft-v2-r2-seg | 92.8% | 92.7% / 96.2% | 97.0% |
+| v2-r3-seg | sft-v2-r3-seg | 92.0% | 100% / 84.6% | 85.7% |
+
+Decision: the VLM decides identity; the host, which knows the candidate's
+pixel size, applies `gate_confirm_by_size` (`multidetect.autonomy.onboard_decision`)
+to turn an identity match into confirm_target (min side >= 20 px) or
+approach_track. Scored against the 20 px labels of sft-v2-r3-seg (138 rows):
+
+| Adapter | Raw decision acc | Host-gated acc | Confirm recall / precision |
+|---|---:|---:|---:|
+| v2-r2-seg | 75.4% | **91.3%** | 100% / 96.0% |
+| v2-r3-seg | 73.9% | 90.6% | 100% / 88.9% |
+
+`eval_slow_system.py` now reports `identity_accuracy`,
+`identity_match_recall` and `identity_match_precision`.

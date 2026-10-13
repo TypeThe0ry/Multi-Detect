@@ -23,7 +23,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from multidetect.autonomy.onboard_decision import DECISION_JSON_SCHEMA, parse_onboard_decision
+from multidetect.autonomy.onboard_decision import (
+    DECISION_JSON_SCHEMA,
+    identity_of,
+    parse_onboard_decision,
+)
 from scripts.slow_system_runtime import (
     ROOT,
     chat_messages,
@@ -83,7 +87,17 @@ def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     correct = sum(row.get("decision") == row["expected"] for row in results)
     true_confirm = sum(row.get("decision") == "confirm_target" for row in confirms)
     correct_reject = sum(row.get("decision") == "reject_track" for row in rejects)
+    # Identity view: approach/confirm both mean "this is the task's object"; the host
+    # applies the size gate (gate_confirm_by_size) to choose between them.
+    identity_rows = [row for row in results if identity_of(str(row["expected"]))]
+    identity_ok = sum(identity_of(str(row.get("decision"))) == identity_of(str(row["expected"])) for row in identity_rows)
+    matches = [row for row in identity_rows if identity_of(str(row["expected"])) == "match"]
+    predicted_matches = [row for row in identity_rows if identity_of(str(row.get("decision"))) == "match"]
+    true_matches = sum(identity_of(str(row.get("decision"))) == "match" for row in matches)
     return {
+        "identity_accuracy": identity_ok / len(identity_rows) if identity_rows else None,
+        "identity_match_recall": true_matches / len(matches) if matches else None,
+        "identity_match_precision": true_matches / len(predicted_matches) if predicted_matches else None,
         "count": len(results), "valid_json_count": len(valid),
         "json_validity": len(valid) / len(results) if results else None,
         "decision_correct_count": correct,
