@@ -115,6 +115,10 @@ class OnboardPolicy:
         config: dict[str, Any] | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
+            # Config paths are relative to the repository root.
+            path = Path(options[key])
+            options[key] = str(path if path.is_absolute() else ROOT / path)
         self.task_text = task_text
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
