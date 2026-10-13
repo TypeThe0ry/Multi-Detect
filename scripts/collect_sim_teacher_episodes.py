@@ -506,7 +506,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
     if world_path is None:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
-    if not path.is_file() or not path.stem.startswith(("gen_w", "gen_v2_w", "gen_cnt_w")):
+    if not path.is_file() or not path.stem.startswith(("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w")):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
     if not obstacles:

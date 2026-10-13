@@ -240,7 +240,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          unambiguous_tasks: bool = False,
                          world_prefix: str = "gen_v2_w",
                          count_copies: int = 1,
-                         count_slugs: tuple[str, ...] | None = None) -> dict[str, Any]:
+                         count_slugs: tuple[str, ...] | None = None,
+                         spread_m: tuple[float, float] = (24.0, 120.0)) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
     ``unambiguous_tasks`` keeps out distractors that the generated task text would
@@ -337,7 +338,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         return ET.tostring(outer, encoding="unicode")
     def pose_point(used: list[tuple[float, float, float]], radius: float) -> tuple[float, float]:
         for _ in range(1000):
-            angle, distance = rng.uniform(-math.pi, math.pi), rng.uniform(24.0, 120.0)
+            angle, distance = rng.uniform(-math.pi, math.pi), rng.uniform(*spread_m)
             x, y = math.cos(angle) * distance, math.sin(angle) * distance
             if all(math.hypot(x - ox, y - oy) > radius + rr + 4 for ox, oy, rr in used):
                 used.append((x, y, radius)); return x, y

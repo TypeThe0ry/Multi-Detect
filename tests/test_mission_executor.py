@@ -18,10 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 CAMERA = CameraModel(fx=540.0, fy=540.0, cx=640.0, cy=480.0, width=1280, height=960)
 
 
-def _factory(blocked=lambda pose, n, e: False, tasks=None):
-    def make(task_text: str, **overrides) -> OnboardLoop:
+def _factory(blocked=lambda pose, n, e: False, tasks=None, regions=None):
+    def make(task_text: str, region=None, **overrides) -> OnboardLoop:
         if tasks is not None:
             tasks.append(task_text)
+        if region is not None and regions is not None:
+            regions.append(region)
         return OnboardLoop(
             camera=CAMERA,
             search_action=lambda pose, yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
@@ -348,3 +350,35 @@ def test_search_runs_to_the_executor_budget_not_the_loop_cap():
     assert sum(1 for kind, step in kinds if step == "search") == 130
     assert all(kind != "stop" for kind, step in kinds if step == "search")
     assert executor.history[0]["reason"] == "step_budget"
+
+
+def test_a_zone_with_a_radius_bounds_the_search_step():
+    regions = []
+    plan = validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "count",
+            "steps": [
+                {
+                    "id": "c",
+                    "skill": "count",
+                    "params": {"region": "zone:lot", "query": "cone"},
+                    "on_success": "h",
+                    "on_fail": "h",
+                },
+                {
+                    "id": "h",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                },
+            ],
+            "report": [],
+        }
+    )
+    executor = MissionExecutor(
+        plan, loop_factory=_factory(regions=regions), refs={"zone:lot": (10.0, -5.0, 40.0)}
+    )
+    assert regions == [(10.0, -5.0, 40.0)]
+    assert executor.resolve("zone:lot") == (10.0, -5.0)

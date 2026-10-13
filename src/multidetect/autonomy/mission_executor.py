@@ -86,7 +86,7 @@ class MissionExecutor:
         plan: MissionPlan | Mapping[str, Any] | str,
         *,
         loop_factory: Callable[..., OnboardLoop],
-        refs: Mapping[str, tuple[float, float]] | None = None,
+        refs: Mapping[str, tuple[float, ...]] | None = None,
         config: ExecutorConfig | None = None,
         task_text: Callable[[MissionStep], str] = task_text_for,
     ) -> None:
@@ -112,15 +112,27 @@ class MissionExecutor:
         self._current: list[Track] = []
 
     # -- step lifecycle ---------------------------------------------------
+    def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
+        """A zone with a radius bounds the step's search; zone:all (or none) does not."""
+        ref = step.params.get("region")
+        value = self.refs.get(str(ref)) if ref else None
+        if value is not None and len(value) >= 3:
+            return (float(value[0]), float(value[1]), float(value[2]))
+        return None
+
+    def _loop(self, step: MissionStep, **overrides: Any) -> OnboardLoop:
+        region = self.region_of(step)
+        if region is not None:
+            overrides["region"] = region
+        return self.loop_factory(self.task_text(step), **overrides)
+
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
         # The step budget bounds a search; the loop's own step cap must not end it.
         if step.skill == "area_search":
-            run.loop = self.loop_factory(self.task_text(step), max_steps=10**6)
+            run.loop = self._loop(step, max_steps=10**6)
         elif step.skill == "count":
-            run.loop = self.loop_factory(
-                self.task_text(step), stop_on_confirm=False, max_steps=10**6
-            )
+            run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "inspect":
             run.loop = self.loop_factory(self.task_text(step))
         return run
@@ -168,7 +180,8 @@ class MissionExecutor:
             if 1 <= index <= len(self.findings):
                 return tuple(self.findings[index - 1]["position_ne"])
             return None
-        return self.refs.get(ref)
+        value = self.refs.get(ref)
+        return None if value is None else (float(value[0]), float(value[1]))
 
     # -- perception hooks ---------------------------------------------------
     def observe(
@@ -537,15 +550,15 @@ def plan_for_find_task(query: str) -> MissionPlan:
     )
 
 
-def plan_for_count_task(query: str) -> MissionPlan:
-    """Host template: count ``query`` over the search budget, then return home."""
+def plan_for_count_task(query: str, region: str = "zone:all") -> MissionPlan:
+    """Host template: count ``query`` in ``region`` over the search budget, then return home."""
     return _plan(
         f"count {query}",
         [
             {
                 "id": "count",
                 "skill": "count",
-                "params": {"region": "zone:all", "query": query},
+                "params": {"region": region, "query": query},
                 "on_success": "home",
                 "on_fail": "home",
             },

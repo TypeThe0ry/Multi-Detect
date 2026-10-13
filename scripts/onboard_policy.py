@@ -173,12 +173,22 @@ class OnboardPolicy:
                 options["second_look_max_confidence"]
             )
 
-        def make_loop(task_text: str, **overrides: Any) -> OnboardLoop:
+        def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
+            search = self._search
+            if region is not None:
+                # A bounded zone: the same target-blind pattern, centred on the zone.
+                search = ExpertSearchPolicy(
+                    target_ned=(1.0e7, 1.0e7, 0.0),
+                    intrinsics=camera_info,
+                    image_size=image_size,
+                    altitude_m=self.search_altitude_m or altitude_m,
+                    obstacles=obstacles,
+                    home_ned=(float(region[0]), float(region[1]), 0.0),
+                    search_radius_m=float(region[2]),
+                )
             return OnboardLoop(
                 camera=camera,
-                search_action=lambda pose, yaw: self._search.next_action(
-                    pose_ned=pose, yaw_deg=yaw
-                ),
+                search_action=lambda pose, yaw: search.next_action(pose_ned=pose, yaw_deg=yaw),
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
@@ -195,7 +205,7 @@ class OnboardPolicy:
             if mission == "find":
                 plan = plan_for_find_task("target")
             elif mission == "count":
-                plan = plan_for_count_task("target")
+                plan = plan_for_count_task("target", region=str(options.get("region", "zone:all")))
             elif mission == "find_and_inspect":
                 plan = plan_for_find_and_inspect(
                     "target",
@@ -207,6 +217,7 @@ class OnboardPolicy:
             self.executor = MissionExecutor(
                 plan,
                 loop_factory=make_loop,
+                refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
                 task_text=lambda step: self.task_text,
                 config=ExecutorConfig(step_budget=int(options.get("step_budget", 60))),
             )
