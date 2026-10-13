@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "model_id": "sim-yolo26n-sim-detector-v2-r3-seg-1280",
+  "model_version": "ultralytics-8.4.92-sim-sim-detector-v2-r3-seg-1280",
+  "status": "quarantined",
+  "production_approved": false,
+  "model_role": "sim_teacher_object_evidence",
+  "source_checkpoint": "D:\\Projects\\Multi-Detect\\yolo26n.pt",
+  "source_checkpoint_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+  "classes": [
+    {
+      "id": 0,
+      "source_name": "vehicle",
+      "canonical_label": "vehicle"
+    },
+    {
+      "id": 1,
+      "source_name": "rover",
+      "canonical_label": "rover"
+    },
+    {
+      "id": 2,
+      "source_name": "cargo_cart",
+      "canonical_label": "cargo_cart"
+    },
+    {
+      "id": 3,
+      "source_name": "orange_inspection_marker",
+      "canonical_label": "orange_inspection_marker"
+    },
+    {
+      "id": 4,
+      "source_name": "blue_survey_pylon",
+      "canonical_label": "blue_survey_pylon"
+    },
+    {
+      "id": 5,
+      "source_name": "ambulance",
+      "canonical_label": "ambulance"
+    },
+    {
+      "id": 6,
+      "source_name": "scenery",
+      "canonical_label": "scenery"
+    },
+    {
+      "id": 7,
+      "source_name": "backpack",
+      "canonical_label": "backpack"
+    },
+    {
+      "id": 8,
+      "source_name": "bus",
+      "canonical_label": "bus"
+    },
+    {
+      "id": 9,
+      "source_name": "cardboard_box",
+      "canonical_label": "cardboard_box"
+    },
+    {
+      "id": 10,
+      "source_name": "person",
+      "canonical_label": "person"
+    },
+    {
+      "id": 11,
+      "source_name": "barrel",
+      "canonical_label": "barrel"
+    },
+    {
+      "id": 12,
+      "source_name": "traffic_cone",
+      "canonical_label": "traffic_cone"
+    },
+    {
+      "id": 13,
+      "source_name": "dumpster",
+      "canonical_label": "dumpster"
+    },
+    {
+      "id": 14,
+      "source_name": "electrical_box",
+      "canonical_label": "electrical_box"
+    },
+    {
+      "id": 15,
+      "source_name": "fire_hydrant",
+      "canonical_label": "fire_hydrant"
+    },
+    {
+      "id": 16,
+      "source_name": "fire_truck",
+      "canonical_label": "fire_truck"
+    },
+    {
+      "id": 17,
+      "source_name": "car",
+      "canonical_label": "car"
+    },
+    {
+      "id": 18,
+      "source_name": "jersey_barrier",
+      "canonical_label": "jersey_barrier"
+    },
+    {
+      "id": 19,
+      "source_name": "mailbox",
+      "canonical_label": "mailbox"
+    },
+    {
+      "id": 20,
+      "source_name": "pickup",
+      "canonical_label": "pickup"
+    },
+    {
+      "id": 21,
+      "source_name": "postbox",
+      "canonical_label": "postbox"
+    },
+    {
+      "id": 22,
+      "source_name": "stop_sign",
+      "canonical_label": "stop_sign"
+    },
+    {
+      "id": 23,
+      "source_name": "suv",
+      "canonical_label": "suv"
+    }
+  ],
+  "dataset": {
+    "yaml": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\sim-detector-v2-r3-seg\\data.yaml",
+    "manifest": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\sim-detector-v2-r3-seg\\manifest.json",
+    "manifest_sha256": "57a1728f5a11a31dc2a1426eb658f3fb7d112340d23ea187e3504a17cdf311a7"
+  },
+  "training": {
+    "epochs": 80,
+    "image_size": 1280,
+    "batch": 4,
+    "device": "0",
+    "seed": 42,
+    "deterministic": true,
+    "best_checkpoint": "D:\\Projects\\Multi-Detect\\artifacts\\models\\sim-detector-sim-detector-v2-r3-seg-1280\\weights\\best.pt"
+  },
+  "input": {
+    "sensor": "rgb",
+    "color_space": "RGB",
+    "tensor_layout": "NCHW",
+    "dtype": "float32",
+    "shape": [
+      1,
+      3,
+      1280,
+      1280
+    ],
+    "resize": "letterbox"
+  },
+  "output": {
+    "native_export": {
+      "format": "ultralytics_raw_xywh_class_scores",
+      "nms_embedded": false
+    },
+    "adapter_contract": {
+      "format": "N_x_6",
+      "fields": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "confidence",
+        "class_id"
+      ],
+      "box_format": "letterbox_xyxy_px"
+    }
+  },
+  "export": {
+    "artifact_format": "onnx",
+    "artifact_path": "D:\\Projects\\Multi-Detect\\artifacts\\models\\sim-detector-sim-detector-v2-r3-seg-1280\\weights\\best.onnx",
+    "artifact_sha256": "5a3023d0c60a9b98e19d37af454c8b523c67ea3cc6b8addd2cdea03266f88c72",
+    "tool_versions": {
+      "ultralytics": "8.4.92",
+      "opset": 17
+    }
+  },
+  "governance": {
+    "production_approved": false,
+    "reviewer": null,
+    "reviewed_at_utc": null
+  }
+}
