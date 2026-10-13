@@ -132,3 +132,31 @@ def test_box_clipped_by_the_image_border_is_never_confirmed() -> None:
         loop.apply_verdict("t1", "confirm_target")
         loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "approaching" and loop.confirmed is None
+
+
+def test_approach_descends_when_map_is_clear_and_climbs_before_return() -> None:
+    loop = _loop(confirm_matches=2)
+    pose = (0.0, 0.0, -20.0)
+    tracks = loop.update_tracks([Detection(_box(645, 600, 14), 0.3)])
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m == -4.0 and info["descend_m"] == 4.0
+    low = (0.0, 0.0, -9.0)
+    tracks = loop.update_tracks([Detection(_box(645, 600, 14), 0.3)])
+    action, _ = loop.next_action(tracks, pose_ned=low, yaw_deg=0.0)
+    assert action.up_m == -1.0  # never below the approach floor of 8 m
+    loop.state = "returning"
+    action, _ = loop.next_action([], pose_ned=(5.0, 0.0, -8.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m == 12.0 and action.forward_m == 0.0
+
+
+def test_no_descent_when_the_lower_leg_hits_the_map() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda pose, n, e: -pose[2] > 18.0,  # obstacles below 18 m
+    )
+    tracks = loop.update_tracks([Detection(_box(645, 600, 14), 0.3)])
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(tracks, pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m == 0.0 and "descend_m" not in info

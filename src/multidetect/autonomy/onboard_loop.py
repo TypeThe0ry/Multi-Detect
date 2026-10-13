@@ -115,6 +115,8 @@ class LoopConfig:
     border_margin_px: float = 2.0
     max_approach_steps: int = 8
     min_verdict_side_px: float = 10.0
+    approach_min_altitude_m: float = 8.0
+    descent_step_m: float = 4.0
 
 
 @dataclass(slots=True)
@@ -133,6 +135,7 @@ class OnboardLoop:
     state: str = "searching"
     step_index: int = 0
     home: tuple[float, float] | None = None
+    cruise_altitude_m: float | None = None
     confirmed: dict[str, Any] | None = None
     _tracks: dict[str, Track] = field(default_factory=dict)
     _next_id: int = 1
@@ -295,6 +298,7 @@ class OnboardLoop:
 
         if self.home is None:
             self.home = (pose_ned[0], pose_ned[1])
+            self.cruise_altitude_m = max(0.0, -pose_ned[2])
         info: dict[str, Any] = {"state_before": self.state, "step": self.step_index}
         self.step_index += 1
         if self.state not in {"returning", "done"} and self.step_index > self.config.max_steps:
@@ -377,10 +381,31 @@ class OnboardLoop:
             step = min(
                 self.config.max_translate_m, max(self.config.min_translate_m, 0.6 * distance)
             )
+            # Small objects stay small from cruise altitude: descend while approaching
+            # when the static map is clear at the lower altitude along the leg.
+            altitude = max(0.0, -pose_ned[2])
+            descend = min(
+                self.config.descent_step_m,
+                max(0.0, altitude - self.config.approach_min_altitude_m),
+            )
+            if descend > 0.5:
+                lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
+                yaw = math.radians(yaw_deg)
+                end_n = pose_ned[0] + step * math.cos(yaw)
+                end_e = pose_ned[1] + step * math.sin(yaw)
+                if self.segment_clear(lower, end_n, end_e):
+                    action = ActionPrimitive.translate(step, 0.0, -descend)
+                    self._last_translated = True
+                    info["descend_m"] = descend
+                    return action, info
             action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
             self._last_translated = action.kind == "translate"
             return action, info
         if self.state == "returning":
+            altitude = max(0.0, -pose_ned[2])
+            if self.cruise_altitude_m is not None and altitude < self.cruise_altitude_m - 1.0:
+                # Climb back to the map-safe cruise altitude before flying home.
+                return ActionPrimitive.translate(0.0, 0.0, self.cruise_altitude_m - altitude), info
             dn, de = self.home[0] - pose_ned[0], self.home[1] - pose_ned[1]
             distance = math.hypot(dn, de)
             if distance <= self.config.home_tolerance_m:

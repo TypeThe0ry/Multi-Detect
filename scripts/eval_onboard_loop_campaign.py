@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--segmentation", action="store_true", default=True)
     parser.add_argument("--radius-m", type=float, default=10.0)
+    parser.add_argument("--onboard-config", type=Path, default=None)
     args = parser.parse_args(argv)
     index = json.loads(args.index.read_text(encoding="utf-8"))
     worlds = [w for w in index["worlds"] if w["split"] == args.split]
@@ -91,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.segmentation:
                 command.append("--segmentation")
+            if args.onboard_config:
+                command += ["--onboard-config", str(args.onboard_config)]
             log = args.out / f"{world_id}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a", encoding="utf-8") as handle:
