@@ -248,3 +248,9 @@ approach_track. Scored against the 20 px labels of sft-v2-r3-seg (138 rows):
 
 `eval_slow_system.py` now reports `identity_accuracy`,
 `identity_match_recall` and `identity_match_precision`.
+
+Deployment candidate (llama.cpp b11552, merged LoRA v2-r2-seg, sft-v2-r2-seg test,
+host size gate scored against the 20 px labels): Q5_K_M 1.26 GB identity 95.2%,
+gated decision 92.0%, p50/p95 0.43/0.47 s; Q8_0 1.83 GB identity 92.8%, gated
+91.3%, 0.52/0.56 s (RTX 4060; Orin not measured). Q5_K_M + the 0.45 GB mmproj is
+the onboard candidate.
