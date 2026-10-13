@@ -228,13 +228,6 @@ class OnboardPolicy:
         started = time.perf_counter()
         detections = self.proposer(rgb[:, :, ::-1].copy())
         fast_s = time.perf_counter() - started
-        current = self.loop.update_tracks(detections)
-        slow = []
-        if self.loop.state in {"searching", "approaching"}:
-            for track in self.loop.tracks_needing_verdict(current):
-                verdict = self._slow_identity(frame_path, current, track)
-                self.loop.apply_verdict(track.track_id, verdict["decision"])
-                slow.append(verdict)
         camera_info = observation["camera_info"]
 
         def ground_point(u: float, v: float):
@@ -243,6 +236,15 @@ class OnboardPolicy:
                 u, v, pose=observation, camera_info=camera_info, image_size=self.image_size
             )
 
+        current = self.loop.update_tracks(
+            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+        )
+        slow = []
+        if self.loop.state in {"searching", "approaching"}:
+            for track in self.loop.tracks_needing_verdict(current):
+                verdict = self._slow_identity(frame_path, current, track)
+                self.loop.apply_verdict(track.track_id, verdict["decision"])
+                slow.append(verdict)
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )

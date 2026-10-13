@@ -78,6 +78,25 @@ class CameraModel:
             yaw
         ) + r * math.cos(yaw)
 
+    def rotate_pixel(self, u: float, v: float, yaw_delta_deg: float) -> tuple[float, float]:
+        """Where a distant scene point at ``(u, v)`` appears after the vehicle yaws.
+
+        The camera is pitched down, so a yaw moves points vertically as well as
+        sideways; a pure horizontal shift misses small boxes after large turns.
+        """
+        x, y = (u - self.cx) / self.fx, (v - self.cy) / self.fy
+        pitch = self.pitch_down_rad
+        forward = math.cos(pitch) - y * math.sin(pitch)
+        down = math.sin(pitch) + y * math.cos(pitch)
+        theta = math.radians(yaw_delta_deg)
+        f2 = forward * math.cos(theta) + x * math.sin(theta)
+        r2 = -forward * math.sin(theta) + x * math.cos(theta)
+        depth = f2 * math.cos(pitch) + down * math.sin(pitch)
+        if depth <= 1e-6:
+            return u, v
+        y2 = -f2 * math.sin(pitch) + down * math.cos(pitch)
+        return self.cx + self.fx * r2 / depth, self.cy + self.fy * y2 / depth
+
 
 @dataclass(slots=True)
 class Track:
@@ -92,6 +111,8 @@ class Track:
     confirm_steps: list[int] = field(default_factory=list)
     approach_steps: int = 0
     exhausted: bool = False
+    # Ground (north, east) of the box bottom centre from the latest view, if known.
+    ground: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +123,7 @@ class LoopConfig:
     min_box_side_px: float = 6.0
     max_box_area_fraction: float = 0.25
     max_detections: int = 8
-    lost_after_steps: int = 3
+    lost_after_steps: int = 4
     approach_bearing_deg: float = 8.0
     max_translate_m: float = 15.0
     min_translate_m: float = 3.0
@@ -117,6 +138,9 @@ class LoopConfig:
     min_verdict_side_px: float = 10.0
     approach_min_altitude_m: float = 8.0
     descent_step_m: float = 4.0
+    # Ground association gate: max(min, fraction * range to the candidate).
+    ground_gate_min_m: float = 4.0
+    ground_gate_range_fraction: float = 0.15
 
 
 @dataclass(slots=True)
@@ -143,6 +167,7 @@ class OnboardLoop:
     _approach_sizes: list[float] = field(default_factory=list)
     _last_translated: bool = False
     _last_turn_deg: float = 0.0
+    _last_yaw_deg: float | None = None
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -159,22 +184,48 @@ class OnboardLoop:
         kept.sort(key=lambda d: d.score, reverse=True)
         return kept[: self.config.max_detections]
 
-    def update_tracks(self, detections: Sequence[Detection]) -> list[Track]:
-        """Associate detections with tracks (greedy IoU, then centre distance)."""
+    def update_tracks(
+        self,
+        detections: Sequence[Detection],
+        *,
+        pose_ned: tuple[float, float, float] | None = None,
+        yaw_deg: float | None = None,
+        ground_point: Callable[[float, float], tuple[float, float] | None] | None = None,
+    ) -> list[Track]:
+        """Associate detections with tracks by ground position and predicted pixels.
+
+        With ``pose_ned`` and ``ground_point`` every box is anchored to the ground
+        point under its bottom centre, so association survives both turns and
+        translations. The pixel fallback rotates the previous box by the measured
+        yaw change (or the last commanded turn when no yaw is given).
+        """
         current: list[Track] = []
         free = {
             tid: t
             for tid, t in self._tracks.items()
             if self.step_index - t.last_step <= self.config.lost_after_steps
         }
-        # Ego-motion: a yaw of +theta moves scene points left by fx * tan(theta).
-        shift = -self.camera.fx * math.tan(math.radians(self._last_turn_deg))
+        if yaw_deg is not None and self._last_yaw_deg is not None:
+            turn = _wrap(yaw_deg - self._last_yaw_deg)
+        else:
+            turn = self._last_turn_deg
         self._last_turn_deg = 0.0
-        predicted = {
-            tid: (t.bbox[0] + shift, t.bbox[1], t.bbox[2] + shift, t.bbox[3])
-            for tid, t in free.items()
-        }
+        if yaw_deg is not None:
+            self._last_yaw_deg = yaw_deg
+        predicted = {}
+        for tid, t in free.items():
+            u, v = _center(t.bbox)
+            pu, pv = self.camera.rotate_pixel(u, v, turn)
+            predicted[tid] = (
+                t.bbox[0] + pu - u,
+                t.bbox[1] + pv - v,
+                t.bbox[2] + pu - u,
+                t.bbox[3] + pv - v,
+            )
         for detection in self.filter_detections(detections):
+            ground = None
+            if ground_point is not None and pose_ned is not None:
+                ground = ground_point(_center(detection.bbox)[0], detection.bbox[3])
             best, best_score = None, 0.0
             cx, cy = _center(detection.bbox)
             for track in free.values():
@@ -184,6 +235,14 @@ class OnboardLoop:
                 scale = max(40.0, _min_side(track.bbox) * 4.0)
                 near = max(0.0, 1.0 - math.hypot(cx - tx, cy - ty) / scale)
                 score = overlap if overlap >= 0.1 else 0.5 * near
+                if ground is not None and track.ground is not None:
+                    distance = math.hypot(ground[0] - track.ground[0], ground[1] - track.ground[1])
+                    reach = math.hypot(ground[0] - pose_ned[0], ground[1] - pose_ned[1])
+                    gate = max(
+                        self.config.ground_gate_min_m,
+                        self.config.ground_gate_range_fraction * reach,
+                    )
+                    score = max(score, 1.0 - distance / gate)
                 if score > best_score:
                     best, best_score = track, score
             if best is None or best_score < 0.2:
@@ -195,6 +254,8 @@ class OnboardLoop:
                 best.bbox = detection.bbox
                 best.last_step = self.step_index
                 best.hits += 1
+            if ground is not None:
+                best.ground = ground
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
             current.append(best)
         return current
@@ -271,6 +332,41 @@ class OnboardLoop:
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
         return action if self.segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
 
+    def _close_in(
+        self,
+        pose_ned: tuple[float, float, float],
+        yaw_deg: float,
+        bearing: float,
+        horizontal: float | None,
+        info: dict[str, Any],
+    ) -> ActionPrimitive:
+        """Turn toward ``bearing`` or fly a bounded leg toward it, descending if clear."""
+        if abs(bearing) > self.config.approach_bearing_deg:
+            self._last_turn_deg = bearing
+            return ActionPrimitive.turn(bearing)
+        distance = horizontal if horizontal is not None else self.config.max_translate_m
+        step = min(self.config.max_translate_m, max(self.config.min_translate_m, 0.6 * distance))
+        # Small objects stay small from cruise altitude: descend while approaching
+        # when the static map is clear at the lower altitude along the leg.
+        altitude = max(0.0, -pose_ned[2])
+        descend = min(
+            self.config.descent_step_m,
+            max(0.0, altitude - self.config.approach_min_altitude_m),
+        )
+        if descend > 0.5:
+            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
+            yaw = math.radians(yaw_deg)
+            end_n = pose_ned[0] + step * math.cos(yaw)
+            end_e = pose_ned[1] + step * math.sin(yaw)
+            if self.segment_clear(lower, end_n, end_e):
+                action = ActionPrimitive.translate(step, 0.0, -descend)
+                self._last_translated = True
+                info["descend_m"] = descend
+                return action
+        action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
+        self._last_translated = action.kind == "translate"
+        return action
+
     def next_action(
         self,
         current: Sequence[Track],
@@ -308,10 +404,24 @@ class OnboardLoop:
             best = self._best_match(current)
             if best is None:
                 if self.state == "approaching" and self._focus is not None:
-                    lost = self.step_index - self._tracks[self._focus].last_step
+                    focus = self._tracks[self._focus]
+                    lost = self.step_index - focus.last_step
                     if lost <= self.config.lost_after_steps:
                         info["reason"] = "focus_briefly_lost"
-                        return ActionPrimitive.hold(1.0), info
+                        if focus.ground is None:
+                            return ActionPrimitive.hold(1.0), info
+                        # Small objects drop out of single frames: keep closing on
+                        # the last ground estimate instead of hovering.
+                        focus.approach_steps += 1
+                        dn, de = focus.ground[0] - pose_ned[0], focus.ground[1] - pose_ned[1]
+                        horizontal = math.hypot(dn, de)
+                        bearing = _wrap(math.degrees(math.atan2(de, dn)) - yaw_deg)
+                        info.update(
+                            focus=focus.track_id, bearing_deg=bearing, horizontal_m=horizontal
+                        )
+                        if horizontal <= self.config.overhead_range_m:
+                            return ActionPrimitive.hold(1.0), info
+                        return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
                 self.state, self._focus = "searching", None
                 self._approach_sizes.clear()
                 info["state"] = self.state
@@ -374,33 +484,7 @@ class OnboardLoop:
                 }
                 info["confirmed"] = self.confirmed
                 return ActionPrimitive.hold(2.0), info
-            if abs(bearing) > self.config.approach_bearing_deg:
-                self._last_turn_deg = bearing
-                return ActionPrimitive.turn(bearing), info
-            distance = horizontal if horizontal is not None else self.config.max_translate_m
-            step = min(
-                self.config.max_translate_m, max(self.config.min_translate_m, 0.6 * distance)
-            )
-            # Small objects stay small from cruise altitude: descend while approaching
-            # when the static map is clear at the lower altitude along the leg.
-            altitude = max(0.0, -pose_ned[2])
-            descend = min(
-                self.config.descent_step_m,
-                max(0.0, altitude - self.config.approach_min_altitude_m),
-            )
-            if descend > 0.5:
-                lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                yaw = math.radians(yaw_deg)
-                end_n = pose_ned[0] + step * math.cos(yaw)
-                end_e = pose_ned[1] + step * math.sin(yaw)
-                if self.segment_clear(lower, end_n, end_e):
-                    action = ActionPrimitive.translate(step, 0.0, -descend)
-                    self._last_translated = True
-                    info["descend_m"] = descend
-                    return action, info
-            action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
-            self._last_translated = action.kind == "translate"
-            return action, info
+            return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
         if self.state == "returning":
             altitude = max(0.0, -pose_ned[2])
             if self.cruise_altitude_m is not None and altitude < self.cruise_altitude_m - 1.0:

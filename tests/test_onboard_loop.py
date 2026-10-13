@@ -59,16 +59,17 @@ def test_approach_verdict_steers_but_only_two_confirm_views_confirm() -> None:
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "approaching" and action.kind == "turn" and info["bearing_deg"] > 8
-    tracks = loop.update_tracks([Detection(_box(645, 600, 14), 0.3)])
+    u, v = CAMERA.rotate_pixel(1000.0, 600.0, info["bearing_deg"])
+    tracks = loop.update_tracks([Detection(_box(u + 5, v, 14), 0.3)])
     assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]  # re-verify focus
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert action.kind == "translate" and info["confirm_views"] == 0
-    tracks = loop.update_tracks([Detection(_box(645, 600, 30), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(u + 5, v, 30), 0.3)])
     loop.apply_verdict("t1", "confirm_target")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "approaching" and info["confirm_views"] == 1  # one view is not enough
-    tracks = loop.update_tracks([Detection(_box(645, 600, 34), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(u + 5, v, 34), 0.3)])
     loop.apply_verdict("t1", "confirm_target")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
     assert loop.state == "returning" and info["confirmed"]["rule"] == "two_views"
@@ -160,3 +161,42 @@ def test_no_descent_when_the_lower_leg_hits_the_map() -> None:
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
     assert action.kind == "translate" and action.up_m == 0.0 and "descend_m" not in info
+
+
+def test_turn_prediction_moves_points_vertically_on_a_pitched_camera() -> None:
+    # A point low in the frame rises toward the horizon line as it swings to the centre.
+    u, v = CAMERA.rotate_pixel(865.0, 850.0, 23.6)
+    assert abs(u - 669.0) < 15 and abs(v - 803.0) < 15
+    assert CAMERA.rotate_pixel(640.0, 480.0, 0.0) == (640.0, 480.0)
+    loop = _loop()
+    loop.update_tracks([Detection(_box(865, 850, 11), 0.3)], yaw_deg=56.4)
+    loop.step_index += 1
+    # The measured yaw change (not the commanded turn) drives the prediction.
+    tracks = loop.update_tracks([Detection(_box(669, 803, 10), 0.3)], yaw_deg=80.0)
+    assert [t.track_id for t in tracks] == ["t1"]
+
+
+def test_ground_anchor_keeps_identity_and_lost_focus_keeps_closing_in() -> None:
+    loop = _loop()
+    pose = (0.0, 0.0, -20.0)
+    target = (40.0, 10.0)
+
+    def ground_point(u: float, v: float) -> tuple[float, float]:
+        return target if u > 300 else (5.0, -30.0)
+
+    tracks = loop.update_tracks(
+        [Detection(_box(700, 700, 12), 0.3)], pose_ned=pose, yaw_deg=0.0, ground_point=ground_point
+    )
+    loop.apply_verdict("t1", "confirm_target")
+    loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    pose = (8.0, 2.0, -18.0)
+    # Same ground point, very different pixels after a translation: still t1.
+    tracks = loop.update_tracks(
+        [Detection(_box(400, 860, 16), 0.3)], pose_ned=pose, yaw_deg=0.0, ground_point=ground_point
+    )
+    assert [t.track_id for t in tracks] == ["t1"] and loop.tracks["t1"].confirm_steps
+    # A frame without the target: fly toward the remembered ground point, do not hover.
+    tracks = loop.update_tracks([], pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert info["reason"] == "focus_briefly_lost" and info["focus"] == "t1"
+    assert action.kind in {"turn", "translate"} and action.kind != "hold"
