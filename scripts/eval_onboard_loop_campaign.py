@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--segmentation", action="store_true", default=True)
     parser.add_argument("--radius-m", type=float, default=10.0)
     parser.add_argument("--onboard-config", type=Path, default=None)
+    parser.add_argument("--max-episode-s", type=int, default=2400)
     parser.add_argument(
         "--worlds", nargs="*", default=None, help="only these world ids (default: the whole split)"
     )
@@ -95,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--rgb-size",
                 "1280x960",
                 "--max-episode-s",
-                "2400",
+                str(args.max_episode_s),
             ]
             if args.segmentation:
                 command.append("--segmentation")
