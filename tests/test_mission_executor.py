@@ -324,3 +324,10 @@ def test_executor_never_reads_the_answer_key():
     source = (ROOT / "src/multidetect/autonomy/mission_executor.py").read_text(encoding="utf-8")
     for word in ("truth", "target_true", "scenario", "true_target"):
         assert word not in source
+
+
+def test_count_is_reported_while_the_step_runs():
+    executor = MissionExecutor(_count_plan(5), loop_factory=_factory())
+    sim = Sim()
+    _cycle(executor, sim)
+    assert executor.counts == {"count": 0} and executor.report().count == 0

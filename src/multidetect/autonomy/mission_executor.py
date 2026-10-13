@@ -284,6 +284,8 @@ class MissionExecutor:
         )
         if "counted" in info:
             self._add_finding(run, info["counted"], frame_id)
+        # The count so far is reported live, so an interrupted mission still says it.
+        self._report_count(run)
         limit = run.step.params.get("max_count")
         if limit is not None and len(run.loop.confirmations) >= int(limit):
             self._report_count(run)
