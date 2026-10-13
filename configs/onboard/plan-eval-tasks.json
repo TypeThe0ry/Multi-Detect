@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "note": "Hand-written task texts with the expected skill sequence (order of executed skills on the success path). Used by scripts/plan_from_task.py; not training data.",
+  "refs": [
+    "poi:gate",
+    "poi:pad",
+    "zone:lot",
+    "zone:field",
+    "route:fence"
+  ],
+  "tasks": [
+    {
+      "text": "找到红色轿车并记录位置",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the ambulance and report where it is.",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "找到消防栓，拍照后返航",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the blue hatchback and land next to the launch point.",
+      "skills": [
+        "area_search",
+        "return_home",
+        "land"
+      ],
+      "alternatives": [
+        [
+          "area_search",
+          "land"
+        ],
+        [
+          "area_search",
+          "goto",
+          "land"
+        ]
+      ]
+    },
+    {
+      "text": "数一数停车场里有几辆车",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Count the traffic cones in the field and come back.",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "统计场地里有多少个纸箱，最多数到十个",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the bus and inspect it from four sides.",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    },
+    {
+      "text": "找到救护车，从六个角度检查它，然后降落",
+      "skills": [
+        "area_search",
+        "inspect",
+        "land"
+      ]
+    },
+    {
+      "text": "Go to the gate and look for a person there.",
+      "skills": [
+        "goto",
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "飞到大门口，悬停30秒再回来",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Hover for one minute, then land.",
+      "skills": [
+        "hover",
+        "land"
+      ]
+    },
+    {
+      "text": "沿着围栏巡逻三圈，注意有没有人",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Patrol the fence route twice watching for vehicles.",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "对停车场做一次测绘，重叠率70%",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Survey the field with 80 percent overlap and return.",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "监视停车场十分钟，看有没有人出现",
+      "skills": [
+        "monitor",
+        "return_home"
+      ],
+      "alternatives": [
+        [
+          "goto",
+          "monitor",
+          "return_home"
+        ]
+      ]
+    },
+    {
+      "text": "Watch the gate for trucks for five minutes.",
+      "skills": [
+        "monitor",
+        "return_home"
+      ],
+      "alternatives": [
+        [
+          "goto",
+          "monitor",
+          "return_home"
+        ]
+      ]
+    },
+    {
+      "text": "找到行人并跟随他两分钟",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ],
+      "alternatives": [
+        [
+          "area_search",
+          "follow",
+          "return_home"
+        ]
+      ]
+    },
+    {
+      "text": "Return home now.",
+      "skills": [
+        "return_home"
+      ]
+    },
+    {
+      "text": "立即降落",
+      "skills": [
+        "land"
+      ]
+    },
+    {
+      "text": "Find the dumpster; if you cannot find it, go back home.",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "先飞到起降坪，再在场地里找背包",
+      "skills": [
+        "goto",
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Count the people at the gate, then land at the pad.",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ],
+      "alternatives": [
+        [
+          "goto",
+          "count",
+          "goto",
+          "land"
+        ]
+      ]
+    },
+    {
+      "text": "找到停车标志，绕着它拍四张照片",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the fire truck, record it, then hover 20 seconds before returning.",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "在停车场找白色SUV",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Search the lot for a pickup truck at 15 meters altitude.",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "数一数场地里的人，然后飞到大门口降落",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ],
+      "alternatives": [
+        [
+          "count",
+          "goto",
+          "land"
+        ]
+      ]
+    },
+    {
+      "text": "Take a photo of any mailbox you find and come back.",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    }
+  ]
+}
