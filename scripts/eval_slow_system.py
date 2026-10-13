@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,23 @@ from scripts.train_slow_system_lora import local_snapshot
 DEFAULT_DATASET = ROOT / "artifacts/datasets/slow-system-sft-r1"
 DEFAULT_CACHE = ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
 DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+
+
+def decision_confidence(tokens: list[dict[str, Any]] | None) -> float | None:
+    """Probability of the first token of the decision value, from llama.cpp logprobs.
+
+    Keys are emitted in sorted order (args before decision), so the value is the
+    first token generated after the text '"decision":"'.
+    """
+    if not tokens:
+        return None
+    text = ""
+    for item in tokens:
+        if text.rstrip().endswith('"decision":"') or text.endswith('"decision": "'):
+            logprob = item.get("logprob")
+            return None if logprob is None else float(math.exp(float(logprob)))
+        text += str(item.get("token", ""))
+    return None
 
 
 def parse_model_decision(raw: str | bytes | dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
@@ -184,10 +202,12 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 
 
 class LlamaServerRunner:
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False):
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
+        # Optionally keep token log-probabilities of the last answer (decision confidence).
+        self.logprobs, self.last_logprobs = logprobs, None
         if device == "cpu":
             gpu_layers = "0"
         elif device.startswith("cuda"):
@@ -228,9 +248,12 @@ class LlamaServerRunner:
                 identity_decision_schema(row["focus_track_id"]) if self.identity_only and row.get("focus_track_id") else DECISION_JSON_SCHEMA
             )}},
         }
+        if self.logprobs:
+            body["logprobs"], body["top_logprobs"] = True, 5
         started = time.perf_counter()
         response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
         elapsed = time.perf_counter() - started
+        self.last_logprobs = (response["choices"][0].get("logprobs") or {}).get("content")
         return response["choices"][0]["message"].get("content", ""), elapsed
 
     def close(self) -> None:

@@ -153,6 +153,10 @@ class OnboardPolicy:
         loop_defaults: dict[str, Any] = {"confirm_min_side_px": confirm_min_side_px}
         if second_look is not None:
             loop_defaults["second_look_after_steps"] = int(second_look)
+        if options.get("second_look_max_confidence") is not None:
+            loop_defaults["second_look_max_confidence"] = float(
+                options["second_look_max_confidence"]
+            )
 
         def make_loop(task_text: str, **overrides: Any) -> OnboardLoop:
             return OnboardLoop(
@@ -207,6 +211,7 @@ class OnboardPolicy:
             crop_policy="candidate_zoom_v2",
             # Every onboard call names a focus track: only identity verdicts are allowed.
             identity_only=True,
+            logprobs=True,
         )
         self.slow_calls = 0
 
@@ -238,7 +243,7 @@ class OnboardPolicy:
             "focus_track_id": names[focus.track_id],
             "_crop_policy": "candidate_zoom_v2",
         }
-        from scripts.eval_slow_system import parse_model_decision
+        from scripts.eval_slow_system import decision_confidence, parse_model_decision
 
         started = time.perf_counter()
         try:
@@ -258,6 +263,7 @@ class OnboardPolicy:
             "identity": identity,
             "decision": decision["decision"] if decision else None,
             "reason": decision["reason"] if decision else None,
+            "confidence": decision_confidence(self.slow.last_logprobs),
             "error": error,
             "latency_s": float(latency),
         }
@@ -298,7 +304,9 @@ class OnboardPolicy:
         if self.loop.state in {"searching", "approaching"}:
             for track in self.loop.tracks_needing_verdict(current):
                 verdict = self._slow_identity(frame_path, current, track)
-                self.loop.apply_verdict(track.track_id, verdict["decision"])
+                self.loop.apply_verdict(
+                    track.track_id, verdict["decision"], verdict.get("confidence")
+                )
                 slow.append(verdict)
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -331,7 +339,7 @@ class OnboardPolicy:
         slow = []
         for track in needing[:3]:
             verdict = self._slow_identity(frame_path, current, track)
-            executor.apply_verdict(track.track_id, verdict["decision"])
+            executor.apply_verdict(track.track_id, verdict["decision"], verdict.get("confidence"))
             slow.append(verdict)
         step = executor.current_step
         action, info = executor.next_action(

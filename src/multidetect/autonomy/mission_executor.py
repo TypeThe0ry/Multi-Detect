@@ -195,11 +195,13 @@ class MissionExecutor:
             return []
         return run.loop.tracks_needing_verdict(self._current)
 
-    def apply_verdict(self, track_id: str, decision: str | None) -> None:
+    def apply_verdict(
+        self, track_id: str, decision: str | None, confidence: float | None = None
+    ) -> None:
         run = self._run
         if run is None or run.loop is None:
             return
-        run.loop.apply_verdict(track_id, decision)
+        run.loop.apply_verdict(track_id, decision, confidence)
         if run.step.skill == "inspect" and track_id == run.pending_track:
             self.answers.append(f"{run.step.id}:view{run.view_index + 1}:{decision}")
 

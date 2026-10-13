@@ -153,6 +153,9 @@ class LoopConfig:
     second_look_after_steps: int | None = None
     second_look_max: int = 3
     second_look_standoff_m: float = 10.0
+    # Only revisit rejections the slow model was less sure of than this (decision
+    # token probability); None revisits every one-sided rejection.
+    second_look_max_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -302,7 +305,9 @@ class OnboardLoop:
         stale.sort(key=lambda t: (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]), reverse=True)
         return stale[: self.config.max_slow_per_step]
 
-    def apply_verdict(self, track_id: str, decision: str | None) -> None:
+    def apply_verdict(
+        self, track_id: str, decision: str | None, confidence: float | None = None
+    ) -> None:
         """Record a slow decision; only confirm_target counts toward confirmation.
 
         approach_track means "worth a closer look" (the model uses it for distant
@@ -321,9 +326,9 @@ class OnboardLoop:
             track.confirm_steps.append(self.step_index)
         elif verdict == "no_match":
             track.confirm_steps.clear()
-            self._remember_rejection(track)
+            self._remember_rejection(track, confidence)
 
-    def _remember_rejection(self, track: Track) -> None:
+    def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
         if track.ground is None or self._last_pose is None:
             return
         seen_from = (self._last_pose[0], self._last_pose[1])
@@ -331,8 +336,17 @@ class OnboardLoop:
             if math.dist(item["ground"], track.ground) <= self.config.count_dedupe_m:
                 item["ground"] = track.ground
                 item["views"].append(seen_from)
+                if confidence is not None:
+                    item["confidence"] = max(item.get("confidence") or 0.0, confidence)
                 return
-        self._rejections.append({"ground": track.ground, "views": [seen_from], "revisited": False})
+        self._rejections.append(
+            {
+                "ground": track.ground,
+                "views": [seen_from],
+                "revisited": False,
+                "confidence": confidence,
+            }
+        )
 
     def _one_sided(self, item: dict[str, Any]) -> bool:
         """Every rejection so far came from within 60 deg of the first view direction."""
@@ -344,8 +358,13 @@ class OnboardLoop:
         )
 
     def _plan_second_look(self, pose_ned) -> dict[str, Any] | None:
+        limit = self.config.second_look_max_confidence
         candidates = [
-            item for item in self._rejections if not item["revisited"] and self._one_sided(item)
+            item
+            for item in self._rejections
+            if not item["revisited"]
+            and self._one_sided(item)
+            and (limit is None or (item["confidence"] is not None and item["confidence"] < limit))
         ]
         candidates.sort(key=lambda item: math.dist(item["ground"], pose_ned[:2]))
         for item in candidates:
