@@ -87,7 +87,7 @@ def build_command(
 def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool]:
     checks = {"skills": row["plan_match"]}
     for key, threshold in expect.items():
-        if key == "skills":
+        if key in {"skills", "alternatives"}:
             continue
         metric = key.removeprefix("min_").removeprefix("max_")
         value = row.get(metric)

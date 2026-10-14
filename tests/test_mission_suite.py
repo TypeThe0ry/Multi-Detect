@@ -123,6 +123,25 @@ def test_build_table_maps_metrics_and_missing_episode_is_failure():
     assert missing["summary"]["completion_rate"] == 0.0
 
 
+def test_listed_alternative_plan_passes_all_expectations():
+    mission = _mission(
+        expect={
+            "skills": ["area_search", "land"],
+            "alternatives": [["area_search", "record", "land"]],
+        }
+    )
+    episode = {
+        "world": mission["world"],
+        "status": "complete",
+        "mission_plan_skills": ["area_search", "record", "land"],
+        "mission_completed": True,
+    }
+    row = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})["missions"][0]
+    assert row["plan_match"] is True
+    assert row["expectation_checks"] == {"skills": True}
+    assert row["expectations_passed"] is True
+
+
 def _write_suite(path: Path):
     payload = {
         "defaults": {"gguf": "model.gguf", "plan_sorted_keys": True},
