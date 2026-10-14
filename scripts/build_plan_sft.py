@@ -16,12 +16,13 @@ import json
 import random
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
 from multidetect.autonomy.mission_planner import plan_prompt  # noqa: E402
 
 OBJECTS = [  # (english query, chinese)
@@ -480,7 +481,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261015)
-    parser.add_argument("--version", choices=("v2", "v3"), default="v3")
+    # v3 alone drops the inspect/monitor/survey/home/land templates; v4 mixes it into v2.
+    parser.add_argument("--version", choices=("v2", "v3", "v4"), default="v4")
+    parser.add_argument(
+        "--require-skills",
+        nargs="*",
+        choices=sorted(SKILLS),
+        default=None,
+        help="required training skills (default: all except deliver for v2/v4, none for v3; "
+        "pass without values to disable)",
+    )
     parser.add_argument(
         "--eval-tasks", type=Path, default=ROOT / "configs/onboard/plan-eval-tasks.json"
     )
@@ -490,7 +500,10 @@ def main(argv: list[str] | None = None) -> int:
     rng = random.Random(args.seed)
     rows, seen = [], set()
     while len(rows) < args.rows + args.val_rows:
-        generator = mission if args.version == "v2" else mission_v3
+        if args.version == "v4":
+            generator = mission_v3 if rng.random() < 1 / 3 else mission
+        else:
+            generator = mission if args.version == "v2" else mission_v3
         zh, en, steps, report = generator(rng)
         if rng.random() < 0.5:
             # Chinese numerals as often as digits.
@@ -514,14 +527,42 @@ def main(argv: list[str] | None = None) -> int:
                 "assistant_target": plan,
             }
         )
-    args.output.mkdir(parents=True, exist_ok=True)
     splits = {"train": rows[: args.rows], "val": rows[args.rows :]}
+    manifest = {
+        "version": args.version,
+        "seed": args.seed,
+        "rows": {name: len(part) for name, part in splits.items()},
+        "skill_counts": {},
+        "first_skill_counts": {},
+        "final_skill_counts": {},
+    }
+    for name, part in splits.items():
+        sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
+        counts = {
+            "skill_counts": Counter(skill for sequence in sequences for skill in sequence),
+            "first_skill_counts": Counter(sequence[0] for sequence in sequences),
+            "final_skill_counts": Counter(sequence[-1] for sequence in sequences),
+        }
+        for key, counter in counts.items():
+            manifest[key][name] = {skill: counter[skill] for skill in sorted(SKILLS)}
+    required = args.require_skills
+    if required is None:
+        required = sorted(set(SKILLS) - {"deliver"}) if args.version in {"v2", "v4"} else []
+    missing = sorted(
+        skill for skill in set(required) if manifest["skill_counts"]["train"][skill] == 0
+    )
+    if missing:
+        parser.error("missing required skills in training split: " + ", ".join(missing))
+    args.output.mkdir(parents=True, exist_ok=True)
     for name, part in splits.items():
         with (args.output / f"{name}.jsonl").open("w", encoding="utf-8", newline="\n") as handle:
             for row in part:
                 handle.write(
                     json.dumps({**row, "split": name}, ensure_ascii=False, sort_keys=True) + "\n"
                 )
+    (args.output / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps({k: len(v) for k, v in splits.items()}))
     return 0
 

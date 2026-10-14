@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+from collections import Counter
+from difflib import SequenceMatcher
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +49,55 @@ def success_path(plan: MissionPlan) -> list[str]:
 def compile_task(post, task: str, refs: tuple[str, ...], schema: dict[str, Any]):
     plan, report = compile_mission_plan(post, task, refs=refs, schema=schema)
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
+
+
+def compute_diagnosis(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize task-level recall, aligned skill errors and language accuracy."""
+    expected_counts: Counter[str] = Counter()
+    recalled_counts: Counter[str] = Counter()
+    substitutions: Counter[tuple[str | None, str | None]] = Counter()
+    language_counts: Counter[str] = Counter()
+    language_matches: Counter[str] = Counter()
+    for row in rows:
+        expected = row["expected"]
+        predicted = row.get("predicted") or []
+        expected_counts.update(set(expected))
+        recalled_counts.update(set(expected) & set(predicted))
+        for opcode, i, j, k, end in SequenceMatcher(
+            a=expected, b=predicted, autojunk=False
+        ).get_opcodes():
+            if opcode == "replace":
+                substitutions.update(zip_longest(expected[i:j], predicted[k:end]))
+            elif opcode == "delete":
+                substitutions.update((skill, None) for skill in expected[i:j])
+            elif opcode == "insert":
+                substitutions.update((None, skill) for skill in predicted[k:end])
+        language = row.get("language") or (
+            "zh"
+            if re.search(
+                r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U000323af]", row["text"]
+            )
+            else "en"
+        )
+        language_counts[language] += 1
+        language_matches[language] += bool(row["exact"])
+    return {
+        "expected_skill_recall": {
+            skill: recalled_counts[skill] / count
+            for skill, count in sorted(expected_counts.items())
+        },
+        "substitutions": [
+            {"expected_skill": expected, "predicted_skill": predicted, "count": count}
+            for (expected, predicted), count in sorted(
+                substitutions.items(),
+                key=lambda item: (-item[1], item[0][0] or "", item[0][1] or ""),
+            )
+        ],
+        "language_exact_match_rate": {
+            language: language_matches[language] / count
+            for language, count in sorted(language_counts.items())
+        },
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -106,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
                     "raw": raw,
                 }
             )
+            if "language" in item:
+                rows[-1]["language"] = item["language"]
             print(
                 json.dumps(
                     {k: rows[-1][k] for k in ("text", "expected", "predicted", "valid")},
@@ -126,12 +181,27 @@ def main(argv: list[str] | None = None) -> int:
         "median_latency_s": sorted(sum(r["attempts_s"]) for r in rows)[n // 2],
         "model": str(args.gguf.name),
     }
+    diagnosis = compute_diagnosis(rows)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps({"summary": summary, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"summary": summary, "diagnosis": diagnosis, "rows": rows},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    top = diagnosis["substitutions"][:5]
+    print(
+        "Top skill substitutions: " + (
+            "; ".join(
+                f"{item['expected_skill'] or '(insert)'} -> "
+                f"{item['predicted_skill'] or '(delete)'}: {item['count']}"
+                for item in top
+            ) if top else "none"
+        )
+    )
     return 0
 
 

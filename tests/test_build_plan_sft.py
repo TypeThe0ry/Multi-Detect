@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from build_plan_sft import mission_v3  # noqa: E402
 
-from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
 
 
 def _texts(path: Path) -> set[str]:
@@ -64,7 +65,7 @@ def test_eval_v2_is_disjoint_from_v1_and_generated_samples():
     assert not (generated & (v1 | v2))
 
 
-@pytest.mark.parametrize("version", ["v2", "v3"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"
     try:
@@ -80,6 +81,7 @@ def test_cli_writes_requested_rows(version):
                 "2",
                 "--version",
                 version,
+                "--require-skills",
             ],
             cwd=ROOT,
             check=True,
@@ -87,5 +89,92 @@ def test_cli_writes_requested_rows(version):
             text=True,
         )
         assert json.loads(result.stdout) == {"train": 8, "val": 2}
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["version"] == version
+        assert manifest["seed"] == 20261015
+        assert manifest["rows"] == {"train": 8, "val": 2}
+        for split in ("train", "val"):
+            rows = [
+                json.loads(line)
+                for line in (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            sequences = [
+                [step["skill"] for step in row["assistant_target"]["steps"]] for row in rows
+            ]
+            counts = {
+                "skill_counts": Counter(skill for sequence in sequences for skill in sequence),
+                "first_skill_counts": Counter(sequence[0] for sequence in sequences),
+                "final_skill_counts": Counter(sequence[-1] for sequence in sequences),
+            }
+            for key, expected in counts.items():
+                assert manifest[key][split] == {skill: expected[skill] for skill in SKILLS}
+    finally:
+        shutil.rmtree(output, ignore_errors=True)
+
+
+@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+def test_cli_default_skill_coverage(version):
+    output = ROOT / "tmp" / f"plan-sft-coverage-{version}-{uuid.uuid4().hex}"
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/build_plan_sft.py"),
+                "--output",
+                str(output),
+                "--version",
+                version,
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        counts = manifest["skill_counts"]["train"]
+        assert counts["deliver"] == 0
+        if version == "v3":
+            assert all(counts[skill] == 0 for skill in ("inspect", "monitor", "survey"))
+            assert manifest["first_skill_counts"]["train"]["return_home"] == 0
+            assert manifest["first_skill_counts"]["train"]["land"] == 0
+        else:
+            assert all(counts[skill] > 0 for skill in SKILLS if skill != "deliver")
+            assert manifest["first_skill_counts"]["train"]["return_home"] > 0
+            assert manifest["first_skill_counts"]["train"]["land"] > 0
+    finally:
+        shutil.rmtree(output, ignore_errors=True)
+
+
+@pytest.mark.parametrize(
+    ("version", "options", "missing"),
+    [
+        (
+            "v3",
+            ["--require-skills", "inspect", "monitor", "survey"],
+            ["inspect", "monitor", "survey"],
+        ),
+        ("v2", ["--rows", "0", "--val-rows", "100"], sorted(set(SKILLS) - {"deliver"})),
+    ],
+)
+def test_cli_rejects_missing_training_skills(version, options, missing):
+    output = ROOT / "tmp" / f"plan-sft-missing-{version}-{uuid.uuid4().hex}"
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/build_plan_sft.py"),
+                "--output",
+                str(output),
+                "--version",
+                version,
+                *options,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "missing required skills in training split: " + ", ".join(missing) in result.stderr
+        assert not output.exists()
     finally:
         shutil.rmtree(output, ignore_errors=True)
