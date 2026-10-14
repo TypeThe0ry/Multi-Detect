@@ -13,10 +13,24 @@
       "task_text": "Count the orange traffic cones in the site and report their positions.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0000",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
-      "steps": 100,
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 150,
       "max_episode_s": 2400
     },
     {
@@ -24,10 +38,24 @@
       "task_text": "Count the fire hydrants in the site and report their positions.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0001",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
-      "steps": 100,
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 150,
       "max_episode_s": 2400
     },
     {
@@ -35,9 +63,23 @@
       "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0003",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["monitor", "return_home"], "min_alert_recall": 0},
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
       "steps": 320,
       "max_episode_s": 2400
     },
@@ -46,9 +88,40 @@
       "task_text": "Patrol the fence route while watching for backpacks, then return home.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0003",
-      "refs": {"route:fence": [[-30, -30], [-30, 30], [30, 30], [30, -30], [-30, -30]]},
-      "ref_labels": {"route:fence": "a 60 meter square fence route"},
-      "expect": {"skills": ["patrol", "return_home"], "min_alert_recall": 0},
+      "refs": {
+        "route:fence": [
+          [
+            -30,
+            -30
+          ],
+          [
+            -30,
+            30
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            30,
+            -30
+          ],
+          [
+            -30,
+            -30
+          ]
+        ]
+      },
+      "ref_labels": {
+        "route:fence": "a 60 meter square fence route"
+      },
+      "expect": {
+        "skills": [
+          "patrol",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
       "steps": 320,
       "max_episode_s": 2400
     },
@@ -59,7 +132,14 @@
       "world": "gen_v2_w0038",
       "refs": {},
       "ref_labels": {},
-      "expect": {"skills": ["area_search", "inspect", "return_home"], "min_inspect_match_fraction": 0.75},
+      "expect": {
+        "skills": [
+          "area_search",
+          "inspect",
+          "return_home"
+        ],
+        "min_inspect_match_fraction": 0.75
+      },
       "steps": 140,
       "max_episode_s": 2400
     },
@@ -70,7 +150,12 @@
       "world": "gen_v2_w0035",
       "refs": {},
       "ref_labels": {},
-      "expect": {"skills": ["area_search", "land"]},
+      "expect": {
+        "skills": [
+          "area_search",
+          "land"
+        ]
+      },
       "steps": 140,
       "max_episode_s": 2400
     },
@@ -79,9 +164,23 @@
       "task_text": "Survey the site with seventy percent photo overlap and return home.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0002",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["survey", "return_home"], "min_survey_coverage": 0.7},
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "survey",
+          "return_home"
+        ],
+        "min_survey_coverage": 0.7
+      },
       "steps": 180,
       "max_episode_s": 2400
     },
@@ -92,7 +191,12 @@
       "world": "gen_v2_w0039",
       "refs": {},
       "ref_labels": {},
-      "expect": {"skills": ["area_search", "return_home"]},
+      "expect": {
+        "skills": [
+          "area_search",
+          "return_home"
+        ]
+      },
       "steps": 140,
       "max_episode_s": 2400
     }
