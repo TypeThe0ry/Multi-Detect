@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,243 @@ def _count_metrics(rows: list[dict[str, Any]], members: list[dict[str, Any]], ra
     }
 
 
+def _word_tokens(value: object) -> set[str]:
+    return set(re.findall(r"[^\W_]+", str(value).casefold(), flags=re.UNICODE))
+
+
+def _query_noun(query: str) -> str | None:
+    words = _word_tokens(query)
+    if not words:
+        return None
+    return re.findall(r"[^\W_]+", query.casefold(), flags=re.UNICODE)[-1]
+
+
+def _object_matches_query(obj: dict[str, Any], query: str) -> bool:
+    noun = _query_noun(query)
+    if noun is None:
+        return False
+    values = list(obj.get("category_words") or obj.get("semantic_words") or [])
+    values.extend(obj.get(key) for key in ("label", "class", "category") if obj.get(key))
+    return any(noun in _word_tokens(value) for value in values)
+
+
+def _mission_area(
+    missions: list[dict[str, Any]], mission_config: dict[str, Any] | None = None
+) -> tuple[tuple[float, float], float] | None:
+    """Return a configured circular mission zone when labels preserve its refs."""
+    for mission in reversed(missions):
+        plan = mission.get("plan") if isinstance(mission.get("plan"), dict) else {}
+        config = mission.get("config") or mission.get("onboard_config") or mission_config or {}
+        if not isinstance(config, dict):
+            config = {}
+        refs = mission.get("refs") or config.get("refs") or plan.get("refs") or {}
+        if not isinstance(refs, dict):
+            refs = {}
+        area = mission.get("mission_area") or mission.get("area")
+        if isinstance(area, dict):
+            center = area.get("center_ne") or area.get("center")
+            radius = area.get("radius_m")
+            if center is not None and radius is not None:
+                try:
+                    north, east = float(center[0]), float(center[1])
+                    radius = float(radius)
+                except (TypeError, ValueError, IndexError):
+                    pass
+                else:
+                    if all(math.isfinite(value) for value in (north, east, radius)) and radius > 0:
+                        return (north, east), radius
+        region = mission.get("region") or config.get("region")
+        coords = refs.get(region) if isinstance(region, str) else None
+        if isinstance(coords, (list, tuple)) and len(coords) >= 3:
+            try:
+                north, east, radius = (float(value) for value in coords[:3])
+            except (TypeError, ValueError):
+                pass
+            else:
+                if all(math.isfinite(value) for value in (north, east, radius)) and radius > 0:
+                    return (north, east), radius
+        steps = plan.get("steps") or mission.get("steps") or []
+        for step in steps:
+            params = step.get("params") if isinstance(step, dict) else None
+            region = params.get("region") if isinstance(params, dict) else None
+            coords = refs.get(region) if isinstance(region, str) else None
+            if not isinstance(coords, (list, tuple)) or len(coords) < 3:
+                continue
+            try:
+                north, east, radius = (float(value) for value in coords[:3])
+            except (TypeError, ValueError):
+                continue
+            if all(math.isfinite(value) for value in (north, east, radius)) and radius > 0:
+                return (north, east), radius
+        zone_refs = [
+            coords
+            for name, coords in refs.items()
+            if name.startswith("zone:") and isinstance(coords, (list, tuple)) and len(coords) >= 3
+        ]
+        parsed_refs = set()
+        for coords in zone_refs:
+            try:
+                parsed_refs.add(tuple(float(value) for value in coords[:3]))
+            except (TypeError, ValueError):
+                continue
+        if len(parsed_refs) == 1:
+            north, east, radius = next(iter(parsed_refs))
+            if all(math.isfinite(value) for value in (north, east, radius)) and radius > 0:
+                return (north, east), radius
+    return None
+
+
+def _mission_metrics(
+    rows: list[dict[str, Any]],
+    truth: dict[str, Any],
+    radius_m: float,
+    mission_config: dict[str, Any] | None = None,
+):
+    """Score mission reports against truth; return no fields for non-mission episodes."""
+    missions = []
+    for row in rows:
+        onboard = (row.get("labels") or {}).get("onboard") or {}
+        mission = onboard.get("mission")
+        if isinstance(mission, dict):
+            missions.append(mission)
+    if not missions:
+        return {}
+
+    latest = missions[-1]
+    plan = next(
+        (mission["plan"] for mission in missions if isinstance(mission.get("plan"), dict)), {}
+    )
+    skills = plan.get("skills")
+    if not isinstance(skills, list):
+        skills = [step.get("skill") for step in plan.get("steps", []) if step.get("skill")]
+    history = latest.get("history") or []
+    if not isinstance(history, list):
+        history = []
+    answers = latest.get("answers") or []
+    if not isinstance(answers, list):
+        answers = []
+
+    coverage = []
+    inspect_answers = []
+    for answer in answers:
+        if not isinstance(answer, str):
+            continue
+        coverage_match = re.fullmatch(r"(.+):coverage:([+-]?(?:\d+(?:\.\d*)?|\.\d+))", answer)
+        if coverage_match:
+            value = float(coverage_match.group(2))
+            if math.isfinite(value):
+                coverage.append({"step": coverage_match.group(1), "coverage": value})
+            continue
+        view_match = re.fullmatch(r"(.+):view(\d+):([^:]+)", answer)
+        if view_match:
+            decision = view_match.group(3).casefold()
+            inspect_answers.append(
+                {
+                    "step": view_match.group(1),
+                    "view": int(view_match.group(2)),
+                    "decision": view_match.group(3),
+                    "matches": decision.startswith(("approach", "confirm")),
+                }
+            )
+
+    parsed_alerts = []
+    for alert in latest.get("alerts") or []:
+        if not isinstance(alert, str) or ":alert:" not in alert:
+            continue
+        payload = alert.split(":alert:", 1)[1]
+        query, separator, coordinates = payload.rpartition("@")
+        if not separator:
+            continue
+        north_east = coordinates.split(",")
+        if len(north_east) != 2:
+            continue
+        try:
+            north, east = (float(value) for value in north_east)
+        except ValueError:
+            continue
+        if query.strip() and math.isfinite(north) and math.isfinite(east):
+            parsed_alerts.append({"query": query.strip(), "north": north, "east": east})
+
+    targets = [obj for obj in truth.get("targets", []) if isinstance(obj, dict)]
+    zone = _mission_area(missions, mission_config)
+    alert_hit_indices: set[int] = set()
+    correct_alerts = 0
+    for alert in parsed_alerts:
+        nearest_index, nearest_distance = None, radius_m
+        for index, obj in enumerate(targets):
+            pose = obj.get("pose") or {}
+            try:
+                distance = math.hypot(
+                    alert["north"] - float(pose["y_north_m"]),
+                    alert["east"] - float(pose["x_east_m"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if distance <= nearest_distance:
+                nearest_index, nearest_distance = index, distance
+        matched = targets[nearest_index] if nearest_index is not None else None
+        describes_object = bool(matched and _object_matches_query(matched, alert["query"]))
+        alert["object_label"] = matched.get("label") if matched else None
+        alert["matches_query"] = describes_object
+        if describes_object:
+            correct_alerts += 1
+            alert_hit_indices.add(nearest_index)
+
+    query_nouns = {noun for alert in parsed_alerts if (noun := _query_noun(alert["query"]))}
+    for step in plan.get("steps", []):
+        if isinstance(step, dict) and step.get("skill") in {"patrol", "monitor"}:
+            query = (step.get("params") or {}).get("query")
+            if query and (noun := _query_noun(str(query))):
+                query_nouns.add(noun)
+    alert_skills = {"patrol", "monitor"} & set(skills)
+    alert_scoring = bool(parsed_alerts or alert_skills)
+    if not query_nouns and alert_skills:
+        target_words = _true_target(truth).get("category_words") or []
+        if target_words and (noun := _query_noun(str(target_words[0]))):
+            query_nouns.add(noun)
+    eligible_indices = set()
+    for index, obj in enumerate(targets):
+        if not any(_object_matches_query(obj, noun) for noun in query_nouns):
+            continue
+        if zone is not None:
+            center, zone_radius = zone
+            pose = obj.get("pose") or {}
+            try:
+                distance = math.hypot(
+                    center[0] - float(pose["y_north_m"]),
+                    center[1] - float(pose["x_east_m"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if distance > zone_radius:
+                continue
+        eligible_indices.add(index)
+
+    last_history = history[-1] if history and isinstance(history[-1], dict) else {}
+    return {
+        "mission_plan_skills": skills,
+        "mission_step_outcomes": history,
+        "mission_alerts": parsed_alerts,
+        "mission_alert_precision": (correct_alerts / len(parsed_alerts) if parsed_alerts else None),
+        "mission_alert_recall": (
+            len(alert_hit_indices & eligible_indices) / len(eligible_indices)
+            if alert_scoring and eligible_indices
+            else None
+        ),
+        "mission_survey_coverage": {entry["step"]: entry["coverage"] for entry in coverage},
+        "mission_inspect_answers": inspect_answers,
+        "mission_inspect_match_fraction": (
+            sum(answer["matches"] for answer in inspect_answers) / len(inspect_answers)
+            if inspect_answers
+            else None
+        ),
+        "mission_completed": (
+            last_history.get("state") == "succeeded"
+            and last_history.get("skill") in {"return_home", "land"}
+        ),
+    }
+
+
 def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any]):
     target = _true_target(truth)
     seg_name = observation.get("segmentation_path")
@@ -105,7 +343,11 @@ def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any])
 
 
 def score_episode(
-    episode: Path, truth: dict[str, Any], *, radius_m: float = 10.0
+    episode: Path,
+    truth: dict[str, Any],
+    *,
+    radius_m: float = 10.0,
+    mission_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = [
         json.loads(line)
@@ -156,6 +398,7 @@ def score_episode(
     members = [t for t in truth["targets"] if t.get("count_member")]
     if members:
         result.update(_count_metrics(rows, members, radius_m))
+    result.update(_mission_metrics(rows, truth, radius_m, mission_config))
     if confirmed_row is None:
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]

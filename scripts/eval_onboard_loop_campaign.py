@@ -66,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         "--worlds", nargs="*", default=None, help="only these world ids (default: the whole split)"
     )
     args = parser.parse_args(argv)
+    mission_config = (
+        json.loads(args.onboard_config.read_text(encoding="utf-8")) if args.onboard_config else None
+    )
     index = json.loads(args.index.read_text(encoding="utf-8"))
     worlds = [
         w
@@ -113,7 +116,12 @@ def main(argv: list[str] | None = None) -> int:
         for episode in sorted(out.glob("episodes/*/")):
             if not (episode / "steps.jsonl").is_file():
                 continue
-            scored = score_episode(episode, truth, radius_m=args.radius_m)
+            scored = score_episode(
+                episode,
+                truth,
+                radius_m=args.radius_m,
+                mission_config=mission_config,
+            )
             scored.update(
                 world=world_id, task_text=world["task_text"], target=world["target_combo"]
             )
@@ -184,6 +192,35 @@ def main(argv: list[str] | None = None) -> int:
             w["world_id"]: _expert_reference(args.expert_campaign, w["world_id"]) for w in worlds
         },
     }
+    mission_rows = [r for r in rows if "mission_completed" in r]
+    if mission_rows:
+        alert_precision = [
+            r["mission_alert_precision"]
+            for r in mission_rows
+            if r.get("mission_alert_precision") is not None
+        ]
+        alert_recall = [
+            r["mission_alert_recall"]
+            for r in mission_rows
+            if r.get("mission_alert_recall") is not None
+        ]
+        coverage = [
+            value
+            for r in mission_rows
+            for value in (r.get("mission_survey_coverage") or {}).values()
+            if value is not None
+        ]
+        summary.update(
+            mission_mean_alert_precision=(
+                sum(alert_precision) / len(alert_precision) if alert_precision else None
+            ),
+            mission_mean_alert_recall=(
+                sum(alert_recall) / len(alert_recall) if alert_recall else None
+            ),
+            mission_completion_rate=sum(bool(r["mission_completed"]) for r in mission_rows)
+            / len(mission_rows),
+            mission_mean_coverage=sum(coverage) / len(coverage) if coverage else None,
+        )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
         json.dumps({"summary": summary, "episodes": rows}, ensure_ascii=False, indent=2),
