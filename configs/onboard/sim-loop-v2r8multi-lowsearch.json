@@ -1,0 +1,5 @@
+{
+  "gguf": "artifacts/models/slow-system-lora-v2-r8-multi-merged-gguf/slow-system-v2r8multi-merged-Q5_K_M.gguf",
+  "confirm_max_range_m": 40.0,
+  "size_aware_search": true
+}

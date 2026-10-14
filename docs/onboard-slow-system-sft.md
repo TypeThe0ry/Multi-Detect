@@ -329,3 +329,21 @@ traffic cone) -> return_home, "监视场地五分钟看有没有背包" to monit
 "沿着围栏巡逻两圈" to patrol(route:fence, 2 loops) and an English
 find-inspect-land command correctly. It replaces v2-r4-prop as the onboard
 model (identity and planning in one 1.26 GB GGUF).
+
+v2-r9-multi (2026-10-15) adds DAgger rows: the onboard loop with v2-r8-multi
+flew 12 train worlds at a size-aware low search altitude (11 complete flights,
+954 frames with segmentation), their live proposals were labelled by truth and
+added to the identity rows (train 1,412 -> 1,857; the test split is
+byte-identical). Offline it is slightly better on identity (95.0% / 90.8%
+rejection vs 94.1% / 89.9%) and slightly worse on planning (22/30 vs 24/30).
+End to end with the same commands, one flight each:
+
+| Mission | v2-r8-multi | v2-r9-multi |
+|---|---|---|
+| count traffic cones (3) | 2 counted, 0 false | **3 counted, 0 false** |
+| monitor backpacks | alert precision 2/3, recall 2/3 | precision 1/2, recall 2/3 |
+| patrol backpacks | precision 2/3, recall 2/3 | precision 1/3, recall 1/3 |
+
+Mixed and single-flight, so not decisive; the electrical box is still reported
+as a backpack by both. v2-r8-multi stays the onboard default until a repeated
+mission suite separates them.
