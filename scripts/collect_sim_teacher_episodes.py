@@ -82,6 +82,14 @@ DEFAULT_CONTROL_PORT = 14540
 DEFAULT_TELEMETRY_PORT = 14541
 DEFAULT_HEARTBEAT_TIMEOUT_S = 120.0
 DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
+LAND_BASE_TIMEOUT_S = 60.0
+LAND_MIN_TIMEOUT_S = 120.0
+# PX4/Gazebo lockstep has taken only 0.15-0.17 simulated seconds per wall second
+# in slow episodes. Allow roughly 0.2 m of descent per wall second plus settling.
+LAND_DESCENT_RATE_MPS = 0.2
+LAND_COMMAND_RETRY_INTERVAL_S = 5.0
+LAND_COMMAND_MAX_RETRIES = 5
+LAND_DIAGNOSTIC_INTERVAL_S = 5.0
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
 GCS_SOURCE_SYSTEM = 255
@@ -506,7 +514,9 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
     if world_path is None:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
-    if not path.is_file() or not path.stem.startswith(("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w")):
+    if not path.is_file() or not path.stem.startswith(
+        ("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w")
+    ):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
     if not obstacles:
@@ -969,6 +979,182 @@ def _wait_for(
             _progress(phase + "_waiting", **fields)
         time.sleep(interval_s)
     raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s")
+
+
+def _landing_altitude(state: Any) -> tuple[float, str]:
+    """Return current altitude above the local origin and its telemetry source."""
+    local_position = state.get("LOCAL_POSITION_NED")
+    z = _field(local_position, "z", None)
+    try:
+        altitude = -float(z)
+    except (TypeError, ValueError):
+        altitude = float("nan")
+    if math.isfinite(altitude) and altitude >= 0.0:
+        return altitude, "LOCAL_POSITION_NED"
+
+    global_position = state.get("GLOBAL_POSITION_INT")
+    relative_alt = _field(global_position, "relative_alt", None)
+    try:
+        altitude = float(relative_alt) / 1000.0
+    except (TypeError, ValueError):
+        altitude = float("nan")
+    if math.isfinite(altitude) and altitude >= 0.0:
+        return altitude, "GLOBAL_POSITION_INT"
+
+    return MAX_TAKEOFF_ALTITUDE_M, "fallback_max_takeoff_altitude"
+
+
+def _land_timeout_s(altitude_m: float) -> float:
+    """Allow a fixed landing overhead plus a conservative altitude-based descent."""
+    return max(
+        LAND_MIN_TIMEOUT_S,
+        LAND_BASE_TIMEOUT_S + max(0.0, float(altitude_m)) / LAND_DESCENT_RATE_MPS,
+    )
+
+
+def _land_mode_custom_values(connection: Any) -> set[int]:
+    # PX4 AUTO.LAND is main mode 4, submode 6. Keep this even if a lightweight
+    # connection does not expose pymavlink's mode mapping.
+    values = {(4 << 16) | (6 << 24)}
+    mapping = getattr(connection, "mode_mapping", None)
+    if not callable(mapping):
+        return values
+    modes = mapping() or {}
+    land_mode = modes.get("LAND")
+    if isinstance(land_mode, (tuple, list)) and len(land_mode) >= 3:
+        values.add((int(land_mode[1]) << 16) | (int(land_mode[2]) << 24))
+    if isinstance(land_mode, int) and not isinstance(land_mode, bool):
+        values.add(land_mode)
+    return values
+
+
+def _land_mode_confirmed(heartbeat: Any, custom_modes: set[int]) -> bool:
+    if heartbeat is None:
+        return False
+    for field_name in ("mode", "flight_mode", "custom_mode_name"):
+        value = str(_field(heartbeat, field_name, "")).upper().replace("_", ".")
+        if value in {"LAND", "AUTO.LAND"}:
+            return True
+    custom_mode = _field(heartbeat, "custom_mode", None)
+    try:
+        return int(custom_mode) in custom_modes if custom_modes else False
+    except (TypeError, ValueError):
+        return str(custom_mode).upper() in {"LAND", "AUTO.LAND"}
+
+
+def _land_diagnostics(
+    state: Any, custom_modes: set[int], *, land_started_ns: int
+) -> dict[str, Any]:
+    heartbeat = state.get("HEARTBEAT")
+    extended_state = state.get("EXTENDED_SYS_STATE")
+    ack = state.get("COMMAND_ACK")
+    altitude_m, altitude_source = _landing_altitude(state)
+    received = getattr(state, "received_monotonic_ns", {})
+    heartbeat_fresh = received.get("HEARTBEAT", -1) >= land_started_ns
+    extended_fresh = received.get("EXTENDED_SYS_STATE", -1) >= land_started_ns
+    ack_fresh = received.get("COMMAND_ACK", -1) >= land_started_ns
+    base_mode = _field(heartbeat, "base_mode", None)
+    try:
+        armed = bool(int(base_mode) & 128) if heartbeat is not None else None
+    except (TypeError, ValueError):
+        armed = None
+    landed_state = _field(extended_state, "landed_state", None)
+    return {
+        "mode": _field(heartbeat, "mode", _field(heartbeat, "custom_mode", None)),
+        "land_mode_confirmed": heartbeat_fresh and _land_mode_confirmed(heartbeat, custom_modes),
+        "landed_state": landed_state,
+        "landed_state_fresh": extended_fresh,
+        "armed": armed,
+        "heartbeat_fresh": heartbeat_fresh,
+        "land_ack_result": (
+            _field(ack, "result", None)
+            if ack_fresh and _field(ack, "command", None) == 176
+            else None
+        ),
+        "altitude_m": round(altitude_m, 3),
+        "altitude_source": altitude_source,
+    }
+
+
+def _land_and_wait(
+    executor: PymavlinkPrimitiveExecutor,
+    reader: MavlinkReader,
+    connection: Any,
+    streamer: SetpointStreamer | None,
+    *,
+    timeout_s: float | None = None,
+    retry_interval_s: float = LAND_COMMAND_RETRY_INTERVAL_S,
+    max_retries: int = LAND_COMMAND_MAX_RETRIES,
+    clock: callable = time.monotonic,
+    sleep: callable = time.sleep,
+) -> dict[str, Any]:
+    """Stop offboard control, request LAND until acknowledged by mode, then await ground."""
+    if streamer is not None:
+        streamer.stop()
+
+    state = reader.state
+    custom_modes = _land_mode_custom_values(connection)
+    altitude_m, _ = _landing_altitude(state)
+    wait_timeout_s = _land_timeout_s(altitude_m) if timeout_s is None else float(timeout_s)
+    deadline = clock() + wait_timeout_s
+    attempts = 1
+    retries = 0
+    last_command_s = clock()
+    last_diagnostic_s = last_command_s
+    land_started_ns = int(last_command_s * 1_000_000_000)
+
+    executor.land()
+    _progress(
+        "land_command_sent",
+        attempt=attempts,
+        retries=retries,
+        timeout_s=round(wait_timeout_s, 1),
+        **_land_diagnostics(state, custom_modes, land_started_ns=land_started_ns),
+    )
+
+    while clock() < deadline:
+        reader.raise_if_failed()
+        diagnostics = _land_diagnostics(state, custom_modes, land_started_ns=land_started_ns)
+        if (
+            diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1
+        ) or (diagnostics["heartbeat_fresh"] and diagnostics["armed"] is False):
+            _progress("land", retries=retries, **diagnostics)
+            return {"retries": retries, **diagnostics, "timeout_s": wait_timeout_s}
+
+        now = clock()
+        if (
+            not diagnostics["land_mode_confirmed"]
+            and not (
+                diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 4
+            )
+            and retries < max_retries
+            and now - last_command_s >= retry_interval_s
+        ):
+            executor.land()
+            retries += 1
+            attempts += 1
+            last_command_s = now
+            _progress(
+                "land_command_sent",
+                attempt=attempts,
+                retries=retries,
+                timeout_s=round(wait_timeout_s, 1),
+                **diagnostics,
+            )
+
+        if now - last_diagnostic_s >= LAND_DIAGNOSTIC_INTERVAL_S:
+            last_diagnostic_s = now
+            _progress("land_waiting", retries=retries, **diagnostics)
+        sleep(min(0.5, max(0.0, deadline - now)))
+
+    reader.raise_if_failed()
+    diagnostics = _land_diagnostics(state, custom_modes, land_started_ns=land_started_ns)
+    _progress("land_timeout", retries=retries, **diagnostics)
+    raise TimeoutError(
+        f"timed out waiting for land after {wait_timeout_s:.1f}s; "
+        f"mode={diagnostics['mode']!r}; landed_state={diagnostics['landed_state']!r}; "
+        f"altitude_m={diagnostics['altitude_m']}; retries={retries}"
+    )
 
 
 def _takeoff_wait(
@@ -1635,17 +1821,19 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                     _progress("policy_stop", step=index)
                     break
             mav_reader.raise_if_failed()
-            # Teardown lands in place from the hover altitude.  PX4 RTL first climbs to
-            # its return altitude (30 m+), which made the LAND wait time out and the
-            # data is not affected by where the vehicle lands.
+            # Teardown lands in place from the hover altitude. Slow SITL lockstep can
+            # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
-            executor.land()
-            _wait_for(
-                lambda: not (int(_field(mav_reader.state.get("HEARTBEAT"), "base_mode", 0)) & 128),
-                _episode_budget(started, plan.max_episode_s, 120.0),
-                phase="land",
-                health_check=mav_reader.raise_if_failed,
+            # Give landing its own budget; policy time must not cut teardown short.
+            land_result = _land_and_wait(
+                executor,
+                mav_reader,
+                telemetry_connection,
+                setpoint_streamer,
+            )
+            recorder.record_mavlink(
+                {"message_type": "collector_landing_complete", **land_result}
             )
             recorder.mark_finished(status="complete")
             recorder.record_mavlink(
