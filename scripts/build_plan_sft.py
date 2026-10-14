@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,73 @@ ROUTES = [
     ("route:road", "道路", "the road"),
 ]
 ZH_NUM = {2: "两", 3: "三", 4: "四", 5: "五", 6: "六", 8: "八", 10: "十"}
+
+
+ALIASES = [
+    "site",
+    "area_a",
+    "area_b",
+    "plaza",
+    "north",
+    "south",
+    "east",
+    "west",
+    "zone1",
+    "zone2",
+    "lot_b",
+    "park",
+    "court",
+    "square",
+    "base",
+    "camp",
+    "point_a",
+    "spot",
+]
+DIGITS = "零一二三四五六七八九"
+
+
+def zh_number(n: int) -> str:
+    """Chinese numeral for 0..999 (十二, 二十, 一百二十)."""
+    if n < 10:
+        return DIGITS[n]
+    if n < 20:
+        return "十" + (DIGITS[n % 10] if n % 10 else "")
+    if n < 100:
+        return DIGITS[n // 10] + "十" + (DIGITS[n % 10] if n % 10 else "")
+    rest = n % 100
+    tail = "" if rest == 0 else ("零" + DIGITS[rest] if rest < 10 else zh_number(rest))
+    return DIGITS[n // 100] + "百" + tail
+
+
+def localise_places(rng, steps, text, labels):
+    """Rename the plan's place refs to random aliases and list them as known places.
+
+    The model must copy references from the prompt instead of memorising names; a
+    few unrelated places are listed too. Returns (steps, known place strings).
+    """
+    mapping = {}
+    for step in steps:
+        for key in ("region", "target_ref", "route_ref"):
+            ref = step["params"].get(key)
+            if (
+                not isinstance(ref, str)
+                or ref in {"zone:all", "home"}
+                or ref.startswith("finding:")
+            ):
+                continue
+            if ref not in mapping:
+                kind = ref.split(":", 1)[0]
+                mapping[ref] = ref if rng.random() < 0.3 else f"{kind}:{rng.choice(ALIASES)}"
+            step["params"][key] = mapping[ref]
+    known = {new: labels.get(old, old) for old, new in mapping.items()}
+    for kind, pool in (("zone", ZONES), ("poi", POIS), ("route", ROUTES)):
+        for _ in range(rng.randint(0, 2)):
+            ref, zh, en = rng.choice(pool)
+            alias = f"{kind}:{rng.choice(ALIASES)}"
+            known.setdefault(alias, f"{zh} / {en}")
+    items = [f"{ref} ({label})" for ref, label in known.items()]
+    rng.shuffle(items)
+    return steps, tuple(items)
 
 
 def S(i, skill, params, ok, fail):  # noqa: N802
@@ -334,13 +402,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     held_out = {t["text"] for t in json.loads(args.eval_tasks.read_text(encoding="utf-8"))["tasks"]}
-    refs = tuple(sorted({r[0] for r in ZONES + POIS + ROUTES}))
+    labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
     while len(rows) < args.rows + args.val_rows:
         zh, en, steps, report = mission(rng)
+        if rng.random() < 0.5:
+            # Chinese numerals as often as digits.
+            zh = re.sub(r"\d+", lambda m: zh_number(int(m.group())), zh)
         text = zh if rng.random() < 0.5 else en
         text = " ".join(text.split())
+        steps, refs = localise_places(rng, steps, text, labels)
         if text in held_out or text in seen:
             continue
         seen.add(text)

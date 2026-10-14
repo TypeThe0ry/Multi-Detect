@@ -356,7 +356,8 @@ def check_plan_refs(
     Returns (document, notes, unknown). A region with no known zone falls back to
     zone:all when substituting; anything else stays unknown.
     """
-    known = set(refs)
+    # Known places may carry a label: "zone:site (the site)".
+    known = {ref.split(" ", 1)[0] for ref in refs}
     notes: list[str] = []
     unknown: list[str] = []
     for step in document.get("steps", []):
@@ -413,7 +414,9 @@ def compile_mission_plan(
                     if unknown:
                         raise ValueError(
                             f"unknown reference(s) {', '.join(sorted(set(unknown)))}; "
-                            f"use only: {', '.join(sorted(refs))}, zone:all, home"
+                            "use only: "
+                            + ", ".join(sorted(r.split(" ", 1)[0] for r in refs))
+                            + ", zone:all, home"
                         )
                     notes = notes + ref_notes
                 plan = validate_mission_plan(document)

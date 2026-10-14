@@ -314,9 +314,10 @@ class OnboardPolicy:
                     )
                     return response["choices"][0]["message"].get("content", "")
 
+                labels = options.get("ref_labels") or {}
                 plan, report = build_mission_from_text(
                     self.task_text,
-                    refs,
+                    tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
                     post,
                     sorted_keys=bool(options.get("plan_sorted_keys", True)),
                 )

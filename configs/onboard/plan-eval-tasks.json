@@ -2,11 +2,11 @@
   "schema_version": 1,
   "note": "Hand-written task texts with the expected skill sequence (order of executed skills on the success path). Used by scripts/plan_from_task.py; not training data.",
   "refs": [
-    "poi:gate",
-    "poi:pad",
-    "zone:lot",
-    "zone:field",
-    "route:fence"
+    "poi:gate (大门 / the gate)",
+    "poi:pad (起降坪 / the pad)",
+    "zone:lot (停车场 / the lot)",
+    "zone:field (场地 / the field)",
+    "route:fence (围栏 / the fence route)"
   ],
   "tasks": [
     {
