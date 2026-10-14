@@ -59,6 +59,43 @@ class ExecutorConfig:
     survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
     hold_s: float = 1.0
+    # Patrol/monitor alerts require this many identity-positive votes.  The
+    # default preserves the historical first-positive behaviour.
+    alert_min_identity_matches: int = 1
+    # When enabled, identity-positive votes must outnumber reject votes.
+    alert_require_majority: bool = False
+    # Identity votes from fragmented tracks are pooled when their ground
+    # positions are within this radius.  This is also the historical alert
+    # de-duplication radius.
+    alert_cluster_radius_m: float = 4.0
+
+
+@dataclass(slots=True)
+class _AlertCluster:
+    """Votes belonging to one physical location during a tracking step."""
+
+    centre: tuple[float, float]
+    members: int = 0
+    positive: int = 0
+    negative: int = 0
+    alerted: bool = False
+    last_track_id: str | None = None
+
+    def add(self, point: tuple[float, float], *, positive: bool, track_id: str) -> None:
+        # Keep the centre as a running mean of all member ground points.  This
+        # makes a fragmented track's observations stable while still allowing
+        # the cluster to follow a small amount of position drift.
+        n = self.members
+        self.centre = (
+            (self.centre[0] * n + point[0]) / (n + 1),
+            (self.centre[1] * n + point[1]) / (n + 1),
+        )
+        self.members += 1
+        if positive:
+            self.positive += 1
+        else:
+            self.negative += 1
+        self.last_track_id = track_id
 
 
 @dataclass(slots=True)
@@ -86,8 +123,9 @@ class _StepRun:
     waypoint_index: int = 0
     visited: int = 0
     elapsed_s: float = 0.0
-    alerted_tracks: set[str] = field(default_factory=set)
-    alert_positions: list[tuple[float, float]] = field(default_factory=list)
+    # Patrol/monitor identity votes are pooled by ground position because the
+    # tracker may give the same object several track IDs.
+    alert_clusters: list[_AlertCluster] = field(default_factory=list)
     # Follow retains the selected identity and updates one position record.
     follow_track_id: str | None = None
     acquire_track: bool = False
@@ -304,20 +342,69 @@ class MissionExecutor:
         if (
             track is None
             or track.ground is None
-            or track.verdict not in {"confirm", "approach"}
-            or track_id in run.alerted_tracks
+            or track.verdict not in {"confirm", "approach", "no_match"}
         ):
             return
-        run.alerted_tracks.add(track_id)
-        if any(math.dist(track.ground, point) <= 4.0 for point in run.alert_positions):
+
+        # Find the nearest physical-location vote cluster.  Track IDs are not
+        # used as the evidence key: onboard association can fragment one
+        # object into several IDs from successive views.
+        cluster = min(
+            run.alert_clusters,
+            key=lambda item: math.dist(track.ground, item.centre),
+            default=None,
+        )
+        if (
+            cluster is None
+            or math.dist(track.ground, cluster.centre) > self.config.alert_cluster_radius_m
+        ):
+            cluster = _AlertCluster(track.ground)
+            run.alert_clusters.append(cluster)
+        cluster.add(
+            track.ground,
+            positive=track.verdict in {"confirm", "approach"},
+            track_id=track_id,
+        )
+        if cluster.alerted:
             return
-        run.alert_positions.append(track.ground)
-        north, east = track.ground
+
+        if (
+            cluster.positive < self.config.alert_min_identity_matches
+            or (
+                self.config.alert_require_majority
+                and cluster.positive <= cluster.negative
+            )
+        ):
+            return
+        cluster.alerted = True
+        north, east = cluster.centre
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
             run,
-            {"track_id": track_id, "position_estimate_ne": track.ground, "bbox": track.bbox},
+            {
+                "track_id": track_id,
+                "position_estimate_ne": cluster.centre,
+                "bbox": track.bbox,
+            },
             None,
+        )
+
+    @property
+    def alert_vote_clusters(self) -> tuple[dict[str, Any], ...]:
+        """Current patrol/monitor location clusters for onboard labels."""
+        run = self._run
+        if run is None:
+            return ()
+        return tuple(
+            {
+                "centre": [round(v, 3) for v in cluster.centre],
+                "members": cluster.members,
+                "positive": cluster.positive,
+                "negative": cluster.negative,
+                "alerted": cluster.alerted,
+                "track_id": cluster.last_track_id,
+            }
+            for cluster in run.alert_clusters
         )
 
     # -- control -------------------------------------------------------------

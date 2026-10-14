@@ -24,6 +24,45 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+
+def episode_world_id(episode: Path) -> str | None:
+    """Read the world id from the episode metadata used by campaign scoring."""
+    try:
+        metadata = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        metadata = {}
+    world_sdf = metadata.get("world_sdf")
+    if isinstance(world_sdf, str) and world_sdf:
+        world_id = Path(world_sdf).stem
+        if world_id:
+            return world_id
+    return next((part for part in reversed(episode.parts) if part.startswith("gen_")), None)
+
+
+def truth_for_episode(
+    episode: Path, scenarios: Path | None = None
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Load the same world truth file selected by ``eval_onboard_loop_campaign``."""
+    world_id = episode_world_id(episode)
+    if world_id is None:
+        return None, None
+    roots = [scenarios] if scenarios is not None else []
+    default_roots = (
+        ROOT / "configs/scenarios/generated-count-site",
+        ROOT / "configs/scenarios/generated-v2",
+    )
+    for root in default_roots:
+        if root not in roots:
+            roots.append(root)
+    for root in roots:
+        path = root / f"{world_id}.truth.json"
+        if path.is_file():
+            try:
+                return world_id, json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return world_id, None
+    return world_id, None
+
 from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 
@@ -299,11 +338,15 @@ def _mission_metrics(
         "mission_step_outcomes": history,
         "mission_alerts": parsed_alerts,
         "mission_alert_precision": (correct_alerts / len(parsed_alerts) if parsed_alerts else None),
+        "mission_alert_correct_count": correct_alerts,
+        "mission_alert_count": len(parsed_alerts),
         "mission_alert_recall": (
             len(alert_hit_indices & eligible_indices) / len(eligible_indices)
             if alert_scoring and eligible_indices
             else None
         ),
+        "mission_alert_hit_count": len(alert_hit_indices & eligible_indices),
+        "mission_alert_eligible_count": len(eligible_indices),
         "mission_survey_coverage": {entry["step"]: entry["coverage"] for entry in coverage},
         "mission_inspect_answers": inspect_answers,
         "mission_inspect_match_fraction": (

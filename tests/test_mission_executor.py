@@ -14,7 +14,7 @@ from multidetect.autonomy.mission_executor import (
     task_text_for,
 )
 from multidetect.autonomy.mission_plan import validate_mission_plan
-from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
+from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop, Track
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -548,6 +548,67 @@ def test_monitor_accepts_point_ref_and_dedupes_new_tracks_within_four_metres():
         )
     assert executor.alerts == ["s:alert:truck@0.0,0.0", "s:alert:truck@10.0,0.0"]
     assert len(executor.findings) == 2
+
+
+def _alert_vote_fixture(config=None):
+    executor = MissionExecutor(
+        _skill_plan("patrol", {"route_ref": "route:a", "query": "backpack", "loops": 1}),
+        loop_factory=_factory(),
+        refs={"route:a": [(0.0, 10.0)]},
+        config=config,
+    )
+    sim = Sim()
+    tracks = executor.observe(
+        [Detection(_box(640, 700, 40), 0.5)],
+        pose_ned=sim.ned,
+        yaw_deg=sim.yaw,
+        ground_point=lambda _u, _v: (8.0, 8.0),
+    )
+    assert tracks
+    return executor, tracks[0].track_id
+
+
+def test_patrol_alert_defaults_to_first_positive_vote():
+    executor, track_id = _alert_vote_fixture()
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
+
+
+def test_patrol_alert_minimum_two_identity_votes():
+    executor, track_id = _alert_vote_fixture(ExecutorConfig(alert_min_identity_matches=2))
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == []
+    executor.apply_verdict(track_id, "confirm_target")
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
+
+
+def test_patrol_alert_pools_fragmented_track_ids_by_ground_position():
+    executor, track_id = _alert_vote_fixture(ExecutorConfig(alert_min_identity_matches=2))
+    executor.apply_verdict(track_id, "approach_track")
+    loop = executor.active_loop
+    assert loop is not None
+    loop._tracks["t2"] = Track("t2", _box(640, 700, 40), 0, 0, ground=(9.0, 8.0))
+    executor.apply_verdict("t2", "confirm_target")
+    assert executor.alerts == ["s:alert:backpack@8.5,8.0"]
+    assert executor.alert_vote_clusters[0]["positive"] == 2
+
+
+def test_patrol_alert_majority_blocks_tied_votes():
+    executor, track_id = _alert_vote_fixture(
+        ExecutorConfig(alert_require_majority=True)
+    )
+    executor.apply_verdict(track_id, "reject_track")
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == []
+
+
+def test_patrol_alert_checks_late_threshold_on_each_vote():
+    executor, track_id = _alert_vote_fixture(ExecutorConfig(alert_min_identity_matches=3))
+    executor.apply_verdict(track_id, "approach_track")
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == []
+    executor.apply_verdict(track_id, "confirm_target")
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
 
 
 def _search_follow_plan(duration_s=None):

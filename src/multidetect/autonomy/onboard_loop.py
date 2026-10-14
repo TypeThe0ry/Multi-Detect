@@ -111,6 +111,12 @@ class Track:
     confirm_steps: list[int] = field(default_factory=list)
     # Steps whose verdict said "this is the task's object" (approach or confirm).
     match_steps: list[int] = field(default_factory=list)
+    # Cumulative identity votes used by patrol/monitor alert policy.  These are
+    # deliberately separate from match_steps, which is reset after a rejection
+    # for the find/count confirmation state machine.
+    identity_positive_matches: int = 0
+    identity_reject_matches: int = 0
+    identity_verdict_history: list[str] = field(default_factory=list)
     approach_steps: int = 0
     exhausted: bool = False
     # Ground (north, east) of the box bottom centre from the latest view, if known.
@@ -341,6 +347,12 @@ class OnboardLoop:
         ):
             verdict = "approach"
         track.verdict, track.verdict_step = verdict, self.step_index
+        if verdict in {"confirm", "approach"}:
+            track.identity_positive_matches += 1
+            track.identity_verdict_history.append(verdict)
+        elif verdict == "no_match":
+            track.identity_reject_matches += 1
+            track.identity_verdict_history.append(verdict)
         if verdict in {"confirm", "approach"} and self.step_index not in track.match_steps:
             track.match_steps.append(self.step_index)
         if verdict == "confirm" and self.step_index not in track.confirm_steps:

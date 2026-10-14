@@ -335,7 +335,17 @@ class OnboardPolicy:
                     if mission == "from_text"
                     else (lambda step: self.task_text)
                 ),
-                config=ExecutorConfig(step_budget=int(options.get("step_budget", 60))),
+                config=ExecutorConfig(
+                    step_budget=int(options.get("step_budget", 60)),
+                    alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
+                    alert_require_majority=(
+                        options.get("alert_require_majority", False)
+                        if not isinstance(options.get("alert_require_majority", False), str)
+                        else options["alert_require_majority"].strip().lower()
+                        in {"1", "true", "yes", "on"}
+                    ),
+                    alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+                ),
             )
         self.slow_calls = 0
 
@@ -443,10 +453,20 @@ class OnboardPolicy:
                 "state": self.loop.state,
                 "detections": len(detections),
                 "tracks": [
-                    {"id": t.track_id, "bbox": [round(v, 1) for v in t.bbox], "verdict": t.verdict}
+                    {
+                        "id": t.track_id,
+                        "bbox": [round(v, 1) for v in t.bbox],
+                        "verdict": t.verdict,
+                        "identity_positive_matches": getattr(t, "identity_positive_matches", 0),
+                        "identity_reject_matches": getattr(t, "identity_reject_matches", 0),
+                        "identity_verdict_history": list(
+                            getattr(t, "identity_verdict_history", ())
+                        ),
+                    }
                     for t in current
                 ],
                 "slow_calls": slow,
+                "alert_vote_clusters": [],
                 "fast_latency_s": round(fast_s, 4),
                 "confirmed": self.loop.confirmed,
             }
@@ -469,6 +489,7 @@ class OnboardPolicy:
             verdict = self._slow_identity(frame_path, current, track, perception_text)
             executor.apply_verdict(track.track_id, verdict["decision"], verdict.get("confidence"))
             slow.append(verdict)
+        alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
             pose_ned=tuple(pose_ned),
             yaw_deg=yaw_deg,
@@ -492,10 +513,20 @@ class OnboardPolicy:
                 "state_before": "approaching" if confirmed else (step.skill if step else "done"),
                 "detections": len(detections),
                 "tracks": [
-                    {"id": t.track_id, "bbox": [round(v, 1) for v in t.bbox], "verdict": t.verdict}
+                    {
+                        "id": t.track_id,
+                        "bbox": [round(v, 1) for v in t.bbox],
+                        "verdict": t.verdict,
+                        "identity_positive_matches": getattr(t, "identity_positive_matches", 0),
+                        "identity_reject_matches": getattr(t, "identity_reject_matches", 0),
+                        "identity_verdict_history": list(
+                            getattr(t, "identity_verdict_history", ())
+                        ),
+                    }
                     for t in current
                 ],
                 "slow_calls": slow,
+                "alert_vote_clusters": alert_vote_clusters,
                 "fast_latency_s": round(fast_s, 4),
                 "confirmed": confirmed,
                 "mission": {
@@ -505,6 +536,7 @@ class OnboardPolicy:
                     "alerts": list(report.alerts),
                     "positions": list(report.positions),
                     "counts": dict(executor.counts),
+                    "alert_vote_clusters": alert_vote_clusters,
                 },
             }
         }
