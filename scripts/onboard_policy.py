@@ -17,6 +17,7 @@ import math
 import os
 import sys
 import time
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,16 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
     plan_for_count_task,
     plan_for_find_and_inspect,
     plan_for_find_task,
+    task_text_for,
+)
+from multidetect.autonomy.mission_plan import (  # noqa: E402
+    MissionPlan,
+    MissionStep,
+    validate_mission_plan,
+)
+from multidetect.autonomy.mission_planner import (  # noqa: E402
+    compile_mission_plan,
+    plan_json_schema,
 )
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
@@ -83,6 +94,48 @@ MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
 
+def perception_task_text(step: MissionStep, original: str) -> str:
+    """Use a plan query for slow perception unless the query is non-ASCII."""
+    query = step.params.get("query") if step is not None else None
+    if isinstance(query, str) and query.isascii():
+        return task_text_for(step)
+    return original
+
+
+def build_mission_from_text(
+    task_text: str,
+    refs: Mapping[str, Any] | Sequence[str] | None,
+    post: Callable[[str, dict], str],
+    sorted_keys: bool = True,
+) -> tuple[MissionPlan, dict[str, Any]]:
+    """Compile a free task sentence, falling back to a validated return-home plan."""
+    schema = plan_json_schema()
+    if sorted_keys:
+        from scripts.slow_system_runtime import trained_key_order_schema
+
+        schema = trained_key_order_schema(schema)
+    ref_names = tuple(refs or ())
+    plan, report = compile_mission_plan(post, task_text, refs=ref_names, schema=schema)
+    if plan is None:
+        plan = validate_mission_plan(
+            {
+                "plan_version": 1,
+                "goal": "return home safely",
+                "steps": [
+                    {
+                        "id": "home",
+                        "skill": "return_home",
+                        "params": {},
+                        "on_success": None,
+                        "on_fail": None,
+                    }
+                ],
+                "report": ["status"],
+            }
+        )
+    return plan, report
+
+
 class YoloeProposer:
     """Class-agnostic proposals from YOLOE with a fixed generic vocabulary."""
 
@@ -127,7 +180,8 @@ class OnboardPolicy:
             # Config paths are relative to the repository root.
             path = Path(options[key])
             options[key] = str(path if path.is_absolute() else ROOT / path)
-        self.task_text = task_text
+        # An operator command from the config overrides the world's task sentence.
+        self.task_text = str(options.get("task_text") or task_text)
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
@@ -199,11 +253,33 @@ class OnboardPolicy:
             )
 
         self.loop = make_loop(task_text)
-        # Optional multi-skill mode: a host-template MissionPlan run by the executor.
-        # Perception steps keep the world's task sentence, which the slow model was
-        # trained on; the plan adds the skills around it (inspect, return home).
-        self.executor: MissionExecutor | None = None
         mission = options.get("mission")
+        if mission not in {None, "find", "count", "find_and_inspect", "from_text"}:
+            raise ValueError(f"unknown mission template {mission!r}")
+        self._step = 0
+        self.proposer = YoloeProposer(
+            Path(options["yoloe_weights"]),
+            confidence=float(options.get("confidence", 0.05)),
+            imgsz=int(options.get("imgsz", 1280)),
+        )
+        from scripts.eval_slow_system import LlamaServerRunner, _http_json
+
+        self.slow = LlamaServerRunner(
+            Path(options["gguf"]),
+            Path(options["mmproj"]),
+            executable=Path(options["llama_server"]),
+            port=int(options.get("port", 9941)),
+            max_new_tokens=768 if mission == "from_text" else 128,
+            crop_policy="candidate_zoom_v2",
+            # Every onboard call names a focus track: only identity verdicts are allowed.
+            identity_only=True,
+            logprobs=True,
+        )
+        self.mission_plan: MissionPlan | None = None
+        self.mission_plan_report: dict[str, Any] | None = None
+        self._mission_plan_labeled = False
+        # Optional multi-skill mode: a MissionPlan compiled from the complete task sentence.
+        self.executor: MissionExecutor | None = None
         if mission:
             if mission == "find":
                 plan = plan_for_find_task("target")
@@ -215,39 +291,57 @@ class OnboardPolicy:
                     views=int(options.get("inspect_views", 4)),
                     standoff_m=float(options.get("inspect_standoff_m", 12.0)),
                 )
+            elif mission == "from_text":
+                refs = options.get("refs") or {}
+
+                def post(prompt: str, schema: dict[str, Any]) -> str:
+                    body = {
+                        "model": "local",
+                        "temperature": 0,
+                        "max_tokens": 768,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "mission_plan",
+                                "strict": True,
+                                "schema": schema,
+                            },
+                        },
+                    }
+                    response = _http_json(
+                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions", body
+                    )
+                    return response["choices"][0]["message"].get("content", "")
+
+                plan, report = build_mission_from_text(
+                    self.task_text,
+                    refs,
+                    post,
+                    sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                )
+                self.mission_plan, self.mission_plan_report = plan, report
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             self.executor = MissionExecutor(
                 plan,
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
-                task_text=lambda step: self.task_text,
+                task_text=(
+                    (lambda step: perception_task_text(step, self.task_text))
+                    if mission == "from_text"
+                    else (lambda step: self.task_text)
+                ),
                 config=ExecutorConfig(step_budget=int(options.get("step_budget", 60))),
             )
-        self._step = 0
-        self.proposer = YoloeProposer(
-            Path(options["yoloe_weights"]),
-            confidence=float(options.get("confidence", 0.05)),
-            imgsz=int(options.get("imgsz", 1280)),
-        )
-        from scripts.eval_slow_system import LlamaServerRunner
-
-        self.slow = LlamaServerRunner(
-            Path(options["gguf"]),
-            Path(options["mmproj"]),
-            executable=Path(options["llama_server"]),
-            port=int(options.get("port", 9941)),
-            crop_policy="candidate_zoom_v2",
-            # Every onboard call names a focus track: only identity verdicts are allowed.
-            identity_only=True,
-            logprobs=True,
-        )
         self.slow_calls = 0
 
     def close(self) -> None:
         self.slow.close()
 
-    def _slow_identity(self, frame_path: Path, current, focus) -> dict[str, Any]:
+    def _slow_identity(
+        self, frame_path: Path, current, focus, task_text: str | None = None
+    ) -> dict[str, Any]:
         """Ask the slow system about ``focus``; candidates are renamed track-N as trained."""
         shown = [focus] + [t for t in current if t.track_id != focus.track_id]
         shown = shown[:MAX_PROMPT_CANDIDATES]
@@ -255,7 +349,7 @@ class OnboardPolicy:
         names = {t.track_id: f"track-{index + 1}" for index, t in enumerate(shown)}
         row = {
             "image_path": str(frame_path),
-            "task_text": self.task_text,
+            "task_text": task_text or self.task_text,
             "memory": MEMORY,
             "candidates": [
                 {
@@ -360,6 +454,8 @@ class OnboardPolicy:
 
     def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
         executor = self.executor
+        step = executor.current_step
+        perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -367,10 +463,9 @@ class OnboardPolicy:
         current = list(executor.current_tracks)
         slow = []
         for track in needing[:3]:
-            verdict = self._slow_identity(frame_path, current, track)
+            verdict = self._slow_identity(frame_path, current, track, perception_text)
             executor.apply_verdict(track.track_id, verdict["decision"], verdict.get("confidence"))
             slow.append(verdict)
-        step = executor.current_step
         action, info = executor.next_action(
             pose_ned=tuple(pose_ned),
             yaw_deg=yaw_deg,
@@ -410,9 +505,22 @@ class OnboardPolicy:
                 },
             }
         }
+        if self.mission_plan_report is not None and not self._mission_plan_labeled:
+            labels["onboard"]["mission"]["plan"] = self._mission_plan_label()
+            self._mission_plan_labeled = True
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         return action, labels
+
+    def _mission_plan_label(self) -> dict[str, Any]:
+        plan = self.mission_plan
+        report = self.mission_plan_report or {}
+        return {
+            "skills": [step.skill for step in plan.steps] if plan else [],
+            "repairs": list(report.get("repairs", [])),
+            "error": report.get("error"),
+            "latency_s": round(sum(report.get("attempts", [])), 2),
+        }
 
 
 def build_onboard_policy(
@@ -437,4 +545,11 @@ def build_onboard_policy(
     )
 
 
-__all__ = ["OnboardPolicy", "VOCABULARY", "YoloeProposer", "build_onboard_policy"]
+__all__ = [
+    "OnboardPolicy",
+    "VOCABULARY",
+    "YoloeProposer",
+    "build_mission_from_text",
+    "build_onboard_policy",
+    "perception_task_text",
+]

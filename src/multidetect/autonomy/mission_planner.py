@@ -4,15 +4,18 @@ The slow model is asked once per mission, text only. Constrained decoding uses a
 per-skill JSON schema built from the SKILLS registry (exact parameter names,
 types and bounds), so every generated plan is structurally valid JSON; the host
 then runs ``validate_mission_plan`` (references, terminal step, cycles) and can
-retry once with the validation error. Pure functions; no model I/O here.
+retry once with the validation error. Model I/O is supplied by the caller.
 """
 
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from typing import Any
 
-from multidetect.autonomy.mission_plan import SKILLS
+from multidetect.autonomy.mission_plan import SKILLS, MissionPlan, validate_mission_plan
+from multidetect.autonomy.serialization import AutonomyContractError
 
 _PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     "ref": {"type": "string", "minLength": 4, "maxLength": 48},
@@ -338,9 +341,50 @@ def plan_prompt(task_text: str, *, refs: tuple[str, ...] = (), error: str | None
     return "\n".join(lines)
 
 
+def compile_mission_plan(
+    post: Callable[[str, dict], str],
+    task_text: str,
+    *,
+    refs: tuple[str, ...] = (),
+    schema: dict[str, Any] | None = None,
+    attempts: int = 2,
+) -> tuple[MissionPlan | None, dict[str, Any]]:
+    """Compile, repair and validate a plan, retrying with the rejection reason."""
+    if attempts < 1:
+        raise ValueError("attempts must be positive")
+    schema = schema if schema is not None else plan_json_schema()
+    report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
+    error: str | None = None
+    for _ in range(attempts):
+        started = time.perf_counter()
+        try:
+            raw = post(plan_prompt(task_text, refs=refs, error=error), schema)
+        except Exception as exc:  # A model/transport failure must leave the caller a safe fallback.
+            error = str(exc)[:200]
+        else:
+            report["raw"] = raw
+            try:
+                document = json.loads(raw)
+                if not isinstance(document, dict):
+                    raise ValueError("mission plan must be a JSON object")
+                document, notes = repair_plan_document(document)
+                plan = validate_mission_plan(document)
+            except (AutonomyContractError, ValueError, TypeError, KeyError, AttributeError) as exc:
+                error = str(exc)[:200]
+            else:
+                report["repairs"] = notes
+                report["error"] = None
+                return plan, report
+        finally:
+            report["attempts"].append(round(time.perf_counter() - started, 2))
+    report["error"] = error
+    return None, report
+
+
 __all__ = [
     "EXAMPLES",
     "SKILL_HELP",
+    "compile_mission_plan",
     "plan_json_schema",
     "plan_prompt",
     "repair_plan_document",

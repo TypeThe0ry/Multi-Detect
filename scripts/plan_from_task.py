@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -20,13 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.autonomy.mission_plan import MissionPlan, validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import MissionPlan  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
+    compile_mission_plan,
     plan_json_schema,
-    plan_prompt,
-    repair_plan_document,
 )
-from multidetect.autonomy.serialization import AutonomyContractError  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -46,17 +43,8 @@ def success_path(plan: MissionPlan) -> list[str]:
 
 
 def compile_task(post, task: str, refs: tuple[str, ...], schema: dict[str, Any]):
-    error, attempts = None, []
-    for _ in range(2):
-        started = time.perf_counter()
-        raw = post(plan_prompt(task, refs=refs, error=error), schema)
-        attempts.append(round(time.perf_counter() - started, 2))
-        try:
-            document, notes = repair_plan_document(json.loads(raw))
-            return validate_mission_plan(document), raw, attempts, notes or None
-        except (AutonomyContractError, ValueError) as exc:
-            error = str(exc)[:200]
-    return None, raw, attempts, error
+    plan, report = compile_mission_plan(post, task, refs=refs, schema=schema)
+    return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
 
 def main(argv: list[str] | None = None) -> int:

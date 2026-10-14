@@ -1,0 +1,9 @@
+{
+  "gguf": "artifacts/models/slow-system-lora-v2-r7-multi-merged-gguf/slow-system-v2r7multi-merged-Q5_K_M.gguf",
+  "mission": "from_text",
+  "plan_sorted_keys": true,
+  "task_text": "数一数场地里有几个交通锥，然后返航",
+  "refs": {"zone:site": [0.0, 0.0, 55.0]},
+  "step_budget": 140,
+  "size_aware_search": true
+}
