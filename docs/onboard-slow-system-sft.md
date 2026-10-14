@@ -292,3 +292,23 @@ The in-flight stop sign rejection that motivated them is a viewpoint problem,
 not a class prior: the vehicle approached the sign from behind, where it is a
 grey octagon, and the model rejected it for not being red. That needs a second
 look from another side (behaviour), not more labels.
+
+## One model for identity and mission planning (2026-10-15)
+
+Identity fine-tuning cost the planner (v2-r4-prop: 87% valid plans, 57%
+correct skill sequences on the 30 hand-written tasks, base model 100% / 70%).
+Orin has room for one 2B model, so v2-r7-multi trains both into one LoRA: the
+sft-v2-r4-prop identity rows plus 1,200 synthetic text-only task -> MissionPlan
+rows (`scripts/build_plan_sft.py`, plan-sft-v1; the evaluation task texts are
+excluded). Q5_K_M, llama.cpp b11552, RTX 4060:
+
+| Model | Identity acc | Distractor rejection | Valid plans | Correct skill sequence (strict) | Plan latency p50 |
+|---|---:|---:|---:|---:|---:|
+| base Qwen3-VL-2B Q4_K_M | - | - | 100% | 70% (20/30) | 1.5 s |
+| v2-r4-prop | 92.8% | 86.6% | 87% | 57% (16/30) | 1.9 s |
+| **v2-r7-multi** | 91.9% | 84.9% | **100%** | **87% (25/30)** | **0.7 s** |
+
+Identity drops by two of 221 rows; planning no longer needs host repairs. The
+remaining plan errors: counting read as patrol, follow read as monitor, a
+missing hover or record step. v2-r7-multi (1.26 GB + 0.45 GB mmproj) is the
+single onboard candidate; its closed-loop flights are still to be run.
