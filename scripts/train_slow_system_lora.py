@@ -250,9 +250,17 @@ def run(args, *, backend_factory=make_backend) -> dict:
         prior = json.loads((output / "checkpoint/state.json").read_text(encoding="utf-8"))
         if any(prior[key] != state[key] for key in ("dataset_sha256", "options", "snapshot")):
             raise ValueError("Resume dataset, model or options differ from checkpoint")
-        model.load_adapter(str(output / "checkpoint"), adapter_name="resume", is_trainable=True)
-        model.set_adapter("resume")
-        optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=options.learning_rate)
+        # Load the checkpoint into the default adapter that training updates and saves.
+        # (An earlier version trained a second "resume" adapter, saved under resume/,
+        # while the default adapter stayed at its zero init; prefer those weights.)
+        from peft import set_peft_model_state_dict
+        from safetensors.torch import load_file
+
+        legacy = output / "checkpoint/resume/adapter_model.safetensors"
+        weights = load_file(str(legacy if legacy.is_file() else output / "checkpoint/adapter_model.safetensors"))
+        result = set_peft_model_state_dict(model, weights)
+        if getattr(result, "unexpected_keys", None):
+            raise ValueError(f"checkpoint keys do not match the adapter: {result.unexpected_keys[:3]}")
         optimizer.load_state_dict(torch.load(output / "checkpoint/optimizer.pt", map_location="cpu", weights_only=True))
         state = prior
     started = time.perf_counter()
@@ -304,8 +312,18 @@ def run(args, *, backend_factory=make_backend) -> dict:
             if options.max_steps and state["optimizer_steps"] >= options.max_steps:
                 break
     completed = state["epoch"] >= options.epochs
+    lora_b_mean_abs = None
     if completed:
         model.save_pretrained(output / "adapter", safe_serialization=True)
+        from safetensors.torch import load_file
+
+        saved = load_file(str(output / "adapter/adapter_model.safetensors"))
+        b_weights = [tensor for key, tensor in saved.items() if "lora_B" in key]
+        lora_b_mean_abs = float(sum(t.abs().mean() for t in b_weights) / max(1, len(b_weights)))
+        if state["optimizer_steps"] > 0 and lora_b_mean_abs == 0.0:
+            # LoRA B starts at zero: an all-zero saved adapter means the trained
+            # weights were not the ones saved (it would merge into the base model).
+            raise RuntimeError("saved adapter has all-zero lora_B weights after training")
     report = {
         "schema_version": 1, "dataset_sha256": dataset_sha256, "train_samples": len(rows),
         "train_worlds": len({row["world"] for row in rows}), "snapshot": str(snapshot),
@@ -320,6 +338,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
         "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
         "adapter_path": str(output / "adapter") if completed else None,
+        "lora_b_mean_abs": lora_b_mean_abs,
     }
     (output / "training-report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
     return report
