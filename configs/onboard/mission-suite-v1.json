@@ -1,0 +1,100 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r8-multi-merged-gguf/slow-system-v2r8multi-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 140,
+    "size_aware_search": true
+  },
+  "missions": [
+    {
+      "id": "count-cones",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0000",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
+      "steps": 100,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-fire-hydrants",
+      "task_text": "Count the fire hydrants in the site and report their positions.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0001",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
+      "steps": 100,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "monitor-backpacks",
+      "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["monitor", "return_home"], "min_alert_recall": 0},
+      "steps": 320,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "patrol-fence-backpacks",
+      "task_text": "Patrol the fence route while watching for backpacks, then return home.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "refs": {"route:fence": [[-30, -30], [-30, 30], [30, 30], [30, -30], [-30, -30]]},
+      "ref_labels": {"route:fence": "a 60 meter square fence route"},
+      "expect": {"skills": ["patrol", "return_home"], "min_alert_recall": 0},
+      "steps": 320,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "inspect-postbox",
+      "task_text": "Find the postbox, inspect it from four sides, and return home.",
+      "index": "configs/scenarios/generated-v2/index.json",
+      "world": "gen_v2_w0038",
+      "refs": {},
+      "ref_labels": {},
+      "expect": {"skills": ["area_search", "inspect", "return_home"], "min_inspect_match_fraction": 0.75},
+      "steps": 140,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "find-suv-land",
+      "task_text": "Find the SUV, record its position, and land.",
+      "index": "configs/scenarios/generated-v2/index.json",
+      "world": "gen_v2_w0035",
+      "refs": {},
+      "ref_labels": {},
+      "expect": {"skills": ["area_search", "land"]},
+      "steps": 140,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "survey-site-overlap",
+      "task_text": "Survey the site with seventy percent photo overlap and return home.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0002",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["survey", "return_home"], "min_survey_coverage": 0.7},
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "english-find-person",
+      "task_text": "Find the person and record its position, then return home.",
+      "index": "configs/scenarios/generated-v2/index.json",
+      "world": "gen_v2_w0039",
+      "refs": {},
+      "ref_labels": {},
+      "expect": {"skills": ["area_search", "return_home"]},
+      "steps": 140,
+      "max_episode_s": 2400
+    }
+  ]
+}
