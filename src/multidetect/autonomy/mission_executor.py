@@ -55,6 +55,8 @@ class ExecutorConfig:
     min_altitude_m: float = 8.0
     # Inspection views look at the centre this far below the camera axis.
     inspect_depression_margin_rad: float = 0.35
+    # Shallower survey rays are too distant for reliable detection.
+    survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
     hold_s: float = 1.0
 
@@ -367,6 +369,8 @@ class MissionExecutor:
         if run.step.skill == "count":
             self._report_count(run)
             self._finish("succeeded", "budget_reached")
+        elif run.step.skill == "follow" and run.follow_finding is not None and run.lost_cycles <= 6:
+            self._finish("succeeded", "duration_elapsed")
         else:
             self._finish("failed", "step_budget")
 
@@ -542,8 +546,17 @@ class MissionExecutor:
             run.goal_altitude_m = float(run.step.params.get("altitude_m", max(0.0, -pose[2])))
             camera = self._probe.camera
             hfov = 2.0 * math.atan2(camera.width, 2.0 * camera.fx)
-            slant = run.goal_altitude_m / max(1e-6, math.sin(camera.pitch_down_rad))
-            swath = 2.0 * slant * math.tan(hfov / 2.0)
+            vfov = 2.0 * math.atan2(camera.height, 2.0 * camera.fy)
+            far_depression = max(
+                self.config.survey_min_depression_rad, camera.pitch_down_rad - vfov / 2.0
+            )
+            near_depression = min(math.pi / 2.0, camera.pitch_down_rad + vfov / 2.0)
+            near_range = run.goal_altitude_m / max(1e-6, math.tan(near_depression))
+            far_range = run.goal_altitude_m / max(1e-6, math.tan(far_depression))
+            # Use the midpoint on the ground, not the shallow image-centre ray.
+            mid_depression = math.atan2(run.goal_altitude_m, (near_range + far_range) / 2.0)
+            slant_mid = run.goal_altitude_m / max(1e-6, math.sin(mid_depression))
+            swath = 2.0 * slant_mid * math.tan(hfov / 2.0)
             spacing = max(3.0, min(60.0, swath * (1.0 - float(run.step.params["overlap"]))))
             # Inset lanes in equal strips, no farther apart than the requested spacing.
             # Keep three crossings even when one swath spans the whole bounding square.

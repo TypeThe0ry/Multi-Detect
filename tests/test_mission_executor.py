@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import itertools
 import math
 from pathlib import Path
+
+import pytest
 
 from multidetect.autonomy.mission_executor import (
     ExecutorConfig,
@@ -338,6 +341,38 @@ def test_survey_covers_circle_in_lanes_and_reports_evidence():
     assert len(executor.evidence) == len(run.waypoints)
     assert executor.history[0]["reason"] == "region_covered"
     assert "s:coverage:1.00" in executor.report().state_answers
+
+
+@pytest.mark.parametrize("min_depression", [0.35, 0.5])
+def test_survey_spacing_uses_reliable_ground_footprint_and_scales_with_altitude(min_depression):
+    assert ExecutorConfig().survey_min_depression_rad == 0.35
+    radius = 100.0
+    overlap = 0.7
+    spacings = []
+    for altitude in (20.0, 10.0):
+        executor = MissionExecutor(
+            _skill_plan("survey", {"region": "zone:a", "overlap": overlap, "altitude_m": altitude}),
+            loop_factory=_factory(),
+            refs={"zone:a": (0.0, 0.0, radius)},
+            config=ExecutorConfig(survey_min_depression_rad=min_depression),
+        )
+        run = executor._run
+        _cycle(executor, Sim(altitude=altitude))
+        half_vfov = math.atan(CAMERA.height / (2.0 * CAMERA.fy))
+        near_range = altitude / math.tan(CAMERA.pitch_down_rad + half_vfov)
+        far_range = altitude / math.tan(max(min_depression, CAMERA.pitch_down_rad - half_vfov))
+        slant_mid = math.hypot(altitude, (near_range + far_range) / 2.0)
+        expected_spacing = max(3.0, min(60.0, slant_mid * CAMERA.width / CAMERA.fx * (1 - overlap)))
+        expected_lanes = max(3, math.ceil(2.0 * radius / expected_spacing))
+        assert len(run.waypoints) == 2 * expected_lanes
+        lane_east = [point[1] for point in run.waypoints[::2]]
+        spacing = lane_east[1] - lane_east[0]
+        # The executor rounds up the lane count and then divides the region equally.
+        assert spacing == pytest.approx(2.0 * radius / expected_lanes)
+        assert all(b - a == pytest.approx(spacing) for a, b in itertools.pairwise(lane_east))
+        assert 3.0 < spacing <= expected_spacing < 35.0
+        spacings.append(spacing)
+    assert spacings[1] < spacings[0]
 
 
 def test_survey_skips_blocked_waypoints_and_reports_partial_coverage():
@@ -687,6 +722,51 @@ def test_follow_duration_and_fresh_loop_acquisition():
             break
     assert fresh.history[0]["reason"] == "duration_elapsed"
     assert fresh.findings[0]["position_ne"] == (30.0, 0.0)
+
+
+@pytest.mark.parametrize("lost_cycles", [0, 6])
+def test_follow_budget_succeeds_after_tracking_a_recent_target(lost_cycles):
+    executor = MissionExecutor(
+        _skill_plan("follow", {"track_ref": "track:1", "query": "car"}),
+        loop_factory=_factory(),
+        config=ExecutorConfig(travel_budget=1 + lost_cycles),
+    )
+    sim = Sim()
+    run = executor._run
+    _cycle(
+        executor,
+        sim,
+        [Detection(_box(640, 700, 40), 0.5)],
+        ground=lambda u, v: (30.0, 0.0),
+        verdicts=lambda t: "approach_track",
+    )
+    for _ in range(lost_cycles):
+        _cycle(executor, sim)
+    assert run.follow_finding is not None
+    assert run.lost_cycles == lost_cycles
+    assert executor.history == []
+    executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw)
+    assert executor.history[0] == {
+        "step": "s",
+        "skill": "follow",
+        "state": "succeeded",
+        "reason": "duration_elapsed",
+    }
+    assert "s:step_budget" not in executor.alerts
+
+
+def test_follow_budget_without_a_tracked_target_still_fails():
+    executor = MissionExecutor(
+        _skill_plan("follow", {"track_ref": "track:1", "query": "car"}),
+        loop_factory=_factory(),
+        config=ExecutorConfig(travel_budget=2),
+    )
+    sim = Sim()
+    for _ in range(3):
+        _cycle(executor, sim)
+    assert executor.history[0]["state"] == "failed"
+    assert executor.history[0]["reason"] == "step_budget"
+    assert executor.findings == []
 
 
 def test_follow_without_an_acquired_target_fails_after_seven_cycles():
