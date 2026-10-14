@@ -320,3 +320,33 @@ def test_typical_object_size_uses_the_longest_known_phrase():
     assert typical_object_size("Find the red stop sign and record its position.") == 0.8
     assert typical_object_size("找到消防车并记录位置") == 9.0
     assert typical_object_size("Find the gizmo") == 2.0
+
+
+def test_identity_matches_confirm_at_the_closest_view():
+    loop = _loop(approach_min_altitude_m=11.0)
+    pose = (0.0, 0.0, -11.0)
+
+    def ground_point(u, v):
+        return (9.0, 0.0)
+
+    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert action.kind == "hold" and info["reason"] == "closest_view"
+    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+    loop.apply_verdict("t1", "approach_track")  # one more view, still "approach"
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert loop.state == "returning"
+    assert info["confirmed"]["rule"] == "identity_at_closest_view"
+
+
+def test_a_single_identity_match_is_not_enough_at_the_closest_view():
+    loop = _loop(approach_min_altitude_m=11.0)
+    pose = (0.0, 0.0, -11.0)
+    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+    loop.apply_verdict("t1", "approach_track")
+    loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0))
+    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0))
+    assert loop.state != "returning" and loop.tracks["t1"].match_steps == []

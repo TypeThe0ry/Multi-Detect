@@ -109,6 +109,8 @@ class Track:
     verdict_step: int = -1
     max_min_side: float = 0.0
     confirm_steps: list[int] = field(default_factory=list)
+    # Steps whose verdict said "this is the task's object" (approach or confirm).
+    match_steps: list[int] = field(default_factory=list)
     approach_steps: int = 0
     exhausted: bool = False
     # Ground (north, east) of the box bottom centre from the latest view, if known.
@@ -324,10 +326,13 @@ class OnboardLoop:
             "reject_track": "no_match",
         }.get(str(decision), "unknown")
         track.verdict, track.verdict_step = verdict, self.step_index
+        if verdict in {"confirm", "approach"} and self.step_index not in track.match_steps:
+            track.match_steps.append(self.step_index)
         if verdict == "confirm" and self.step_index not in track.confirm_steps:
             track.confirm_steps.append(self.step_index)
         elif verdict == "no_match":
             track.confirm_steps.clear()
+            track.match_steps.clear()
             self._remember_rejection(track, confidence)
 
     def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
@@ -680,8 +685,14 @@ class OnboardLoop:
                 horizontal is not None and horizontal <= self.config.overhead_range_m
             )
             info["confirm_views"] = votes
+            # At the closest view the host cannot improve the picture: identity is all
+            # that is left to judge, so "approach" answers count as matching views too.
+            matches = len(best.match_steps)
+            info["match_views"] = matches
             if unclipped and (
-                votes >= self.config.confirm_matches or (votes >= 1 and (stalled or near))
+                votes >= self.config.confirm_matches
+                or (votes >= 1 and (stalled or near))
+                or (near and matches >= self.config.confirm_matches)
             ):
                 record = {
                     "track_id": best.track_id,
@@ -690,6 +701,8 @@ class OnboardLoop:
                     "min_side_px": size,
                     "rule": "two_views"
                     if votes >= self.config.confirm_matches
+                    else "identity_at_closest_view"
+                    if votes == 0
                     else (
                         "stalled"
                         if stalled
