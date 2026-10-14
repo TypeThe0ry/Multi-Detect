@@ -154,6 +154,13 @@
         "skills": [
           "area_search",
           "land"
+        ],
+        "alternatives": [
+          [
+            "area_search",
+            "record",
+            "land"
+          ]
         ]
       },
       "steps": 140,
@@ -195,6 +202,13 @@
         "skills": [
           "area_search",
           "return_home"
+        ],
+        "alternatives": [
+          [
+            "area_search",
+            "record",
+            "return_home"
+          ]
         ]
       },
       "steps": 140,

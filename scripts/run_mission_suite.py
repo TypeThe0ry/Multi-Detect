@@ -125,7 +125,9 @@ def build_table(
                 "status": episode.get("status", "missing"),
                 "planned_skills": planned,
                 "expected_skills": expected,
-                "plan_match": planned == expected,
+                # Equivalent plans the suite accepts are listed under expect.alternatives.
+                "plan_match": planned == expected
+                or planned in mission["expect"].get("alternatives", []),
                 "mission_completed": bool(episode.get("mission_completed", False)),
                 **{key: episode.get(source) for key, source in METRICS.items()},
                 "step_outcomes": episode.get("mission_step_outcomes"),
