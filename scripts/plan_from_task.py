@@ -68,12 +68,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--port", type=int, default=9957)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--sorted-keys",
+        action="store_true",
+        help="constrain keys in sorted order (models fine-tuned on sort_keys answers)",
+    )
     args = parser.parse_args(argv)
     from scripts.eval_slow_system import LlamaServerRunner, _http_json
 
     document = json.loads(args.tasks.read_text(encoding="utf-8"))
     refs = tuple(document.get("refs", ()))
     schema = plan_json_schema()
+    if args.sorted_keys:
+        from scripts.slow_system_runtime import trained_key_order_schema
+
+        schema = trained_key_order_schema(schema)
     server = LlamaServerRunner(args.gguf, args.mmproj, port=args.port, max_new_tokens=768)
 
     def post(prompt: str, schema: dict[str, Any]) -> str:

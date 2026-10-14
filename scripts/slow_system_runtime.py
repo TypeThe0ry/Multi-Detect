@@ -167,6 +167,9 @@ def image_jpeg_bytes_list(row: dict[str, Any], max_side: int = 448, crop_policy:
 
 
 def chat_messages(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[dict[str, Any]]:
+    if row.get("kind") == "mission_plan":
+        # Text-only planning rows carry the exact onboard planner prompt.
+        return [{"role": "user", "content": [{"type": "text", "text": row["prompt"]}]}]
     images = image_list_for_row(row, max_side, crop_policy)
     prompt_row = {**row, "_crop_policy": crop_policy_for_row(row, crop_policy)}
     return [

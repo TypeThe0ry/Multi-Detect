@@ -108,7 +108,12 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
         if row["sample_id"] in identifiers:
             raise ValueError("duplicate sample_id in train")
         identifiers.add(row["sample_id"])
-        parse_onboard_decision(row["assistant_target"])
+        if row.get("kind") == "mission_plan":
+            from multidetect.autonomy.mission_plan import validate_mission_plan
+
+            validate_mission_plan(row["assistant_target"])
+        else:
+            parse_onboard_decision(row["assistant_target"])
         if not row.get("world") or not row.get("task_text"):
             raise ValueError("missing model input or world")
     return rows, _input_hash(rows)
@@ -141,13 +146,13 @@ def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: in
 def balance_rows(rows: list[dict], *, seed: int) -> list[dict]:
     """Deterministically oversample decision classes to no more than 2:1."""
     names = ("confirm_target", "approach_track", "reject_track")
-    groups = {name: [row for row in rows if row["assistant_target"]["decision"] == name] for name in names}
+    groups = {name: [row for row in rows if row["assistant_target"].get("decision", "mission_plan") == name] for name in names}
     present = [group for group in groups.values() if group]
     if not present:
         return list(rows)
     target = max(len(group) for group in present)
     rng = random.Random(seed)
-    result = [row for row in rows if row["assistant_target"]["decision"] not in names]
+    result = [row for row in rows if row["assistant_target"].get("decision", "mission_plan") not in names]
     for name in names:
         group = groups[name]
         if group:
@@ -306,7 +311,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
         "train_worlds": len({row["world"] for row in rows}), "snapshot": str(snapshot),
         "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "quantization": quantization,
         "optimizer_stream_decision_counts": {
-            name: sum(row["assistant_target"]["decision"] == name for row in rows)
+            name: sum(row["assistant_target"].get("decision", "mission_plan") == name for row in rows)
             for name in ("confirm_target", "approach_track", "reject_track")
         },
         "target_modules": targets, "optimizer_steps": state["optimizer_steps"],
