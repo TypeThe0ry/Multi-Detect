@@ -1,0 +1,38 @@
+{
+  "version": "confusers-v1",
+  "note": "target slug -> look-alike distractor slugs placed in the same training world",
+  "confusers": {
+    "backpack": [
+      "electrical_box",
+      "cardboard_box"
+    ],
+    "electrical_box": [
+      "backpack",
+      "dumpster"
+    ],
+    "cardboard_box": [
+      "backpack",
+      "electrical_box"
+    ],
+    "construction_cone": [
+      "fire_hydrant",
+      "mailbox"
+    ],
+    "fire_hydrant": [
+      "construction_cone",
+      "mailbox"
+    ],
+    "mailbox": [
+      "fire_hydrant",
+      "electrical_box"
+    ],
+    "dumpster": [
+      "jersey_barrier",
+      "cardboard_box"
+    ],
+    "jersey_barrier": [
+      "dumpster",
+      "cardboard_box"
+    ]
+  }
+}

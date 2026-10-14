@@ -19,6 +19,7 @@ import json
 import math
 import random
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -239,9 +240,11 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          segmentation_labels: bool = False,
                          unambiguous_tasks: bool = False,
                          world_prefix: str = "gen_v2_w",
-                         count_copies: int = 1,
+                         count_copies: int | Sequence[int] = 1,
                          count_slugs: tuple[str, ...] | None = None,
-                         spread_m: tuple[float, float] = (24.0, 120.0)) -> dict[str, Any]:
+                         spread_m: tuple[float, float] = (24.0, 120.0),
+                         confusers: Mapping[str, Sequence[str]] | None = None,
+                         confuser_copies: int = 1) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
     ``unambiguous_tasks`` keeps out distractors that the generated task text would
@@ -252,10 +255,24 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     ``count_slugs``) is placed that many times, every instance is marked
     ``count_member`` in truth, distractors the task would also describe are left
     out, and the index carries a counting task plus the per-object find task.
+    A sequence of copy counts cycles per world to mix find and count tasks;
+    ``count_slugs`` selects targets for both kinds of task.
+
+    ``confusers`` forces semantically distinct distractor assets alongside each
+    target, with ``confuser_copies`` instances per slug and ``confuser: true``
+    in truth. Invalid or task-equivalent pairs fail before any files are written.
     """
-    counting = count_copies > 1
-    if counting:
-        unambiguous_tasks = True
+    copy_counts = (count_copies,) if isinstance(count_copies, int) else tuple(count_copies)
+    if not copy_counts or any(type(n) is not int or n < 1 for n in copy_counts):
+        raise ValueError("count_copies must contain positive integer copy counts")
+    if type(confuser_copies) is not int or confuser_copies not in (1, 2):
+        raise ValueError("confuser_copies must be 1 or 2")
+    if count < 1 or seed < 0 or real_time_factor <= 0:
+        raise ValueError("count > 0, seed >= 0 and real_time_factor > 0 are required")
+    if len(split_ratios) != 3 or any(r < 0 for r in split_ratios) or not math.isclose(sum(split_ratios), 1.0, abs_tol=1e-9):
+        raise ValueError("split_ratios must be three non-negative values summing to 1")
+    if len(spread_m) != 2 or not 0 <= spread_m[0] < spread_m[1] <= WORLD_RADIUS_M:
+        raise ValueError("spread_m must satisfy 0 <= min < max <= WORLD_RADIUS_M")
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
     eligible = [a for a in assets if "target" in a.get("role_eligibility", [])]
@@ -263,6 +280,23 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     asset_by_slug = {a["slug"]: a for a in assets}
     if not eligible or not scenery:
         raise ValueError("fuel catalog has no eligible assets")
+    for slug in count_slugs or ():
+        if slug not in asset_by_slug or "target" not in asset_by_slug[slug].get("role_eligibility", []):
+            raise ValueError(f"ineligible target slug: {slug}")
+    confuser_assets: dict[str, list[dict[str, Any]]] = {}
+    for target_slug, slugs in (confusers or {}).items():
+        if target_slug not in asset_by_slug or "target" not in asset_by_slug[target_slug].get("role_eligibility", []):
+            raise ValueError(f"ineligible confuser target slug: {target_slug}")
+        if isinstance(slugs, str):
+            raise ValueError("confuser slugs must be a sequence of slugs, not a string")
+        confuser_assets[target_slug] = []
+        for slug in dict.fromkeys(slugs):
+            if slug not in asset_by_slug or "distractor" not in asset_by_slug[slug].get("role_eligibility", []):
+                raise ValueError(f"ineligible confuser slug: {slug}")
+            asset = asset_by_slug[slug]
+            if task_equivalent(asset_by_slug[target_slug], asset):
+                raise ValueError(f"confuser {slug} also matches task for {target_slug}")
+            confuser_assets[target_slug].append(asset)
     rng = random.Random(seed); worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
     worlds_dir.mkdir(parents=True, exist_ok=True); scenarios_dir.mkdir(parents=True, exist_ok=True)
     entries = []; target_combos = []
@@ -344,25 +378,34 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                 used.append((x, y, radius)); return x, y
         raise RuntimeError("unable to place fuel asset")
     for i in range(count):
+        copies = copy_counts[i % len(copy_counts)]
+        counting = copies > 1
         world_id = f"{world_prefix}{i:04d}"; split = _split(i, count, split_ratios); used=[(0,0,8)]
         train_pool = [a for a in eligible if a["slug"] in train_target_slugs] or eligible
         pool = test_pool if split == "test" else train_pool
         target = pool[(i * 7 + (11 if split == "test" else 0)) % len(pool)]
-        if counting and count_slugs:
+        if count_slugs:
             target = asset_by_slug[count_slugs[i % len(count_slugs)]]
         target_combos.append({"category": target["category"], "color": target.get("color"), "slug": target["slug"], "split": split})
         objects=[]
         tx,ty=pose_point(used, max(target["measured_size_m"][:2])/2)
         objects.append(("target_true_"+world_id, target, tx, ty, rng.uniform(-math.pi, math.pi), True))
         count_ids = {"target_true_"+world_id}
-        for k in range(1, count_copies):
+        for k in range(1, copies):
             cx, cy = pose_point(used, max(target["measured_size_m"][:2])/2)
             copy_id = f"count_member_{i:04d}_{k:02d}"
             count_ids.add(copy_id)
             objects.append((copy_id, target, cx, cy, rng.uniform(-math.pi, math.pi), False))
+        confuser_ids: set[str] = set()
+        for j, asset in enumerate(confuser_assets.get(target["slug"], [])):
+            for k in range(confuser_copies):
+                x, y = pose_point(used, max(asset["measured_size_m"][:2])/2)
+                oid = f"confuser_{i:04d}_{j:02d}_{k:02d}"
+                confuser_ids.add(oid)
+                objects.append((oid, asset, x, y, rng.uniform(-math.pi, math.pi), False))
         same_category = [a for a in eligible if a["slug"] != target["slug"] and a["category"] == target["category"]]
         distractor_pool = same_category + [a for a in eligible if a["slug"] != target["slug"] and a not in same_category]
-        if unambiguous_tasks:
+        if unambiguous_tasks or counting:
             distractor_pool = [a for a in distractor_pool if not task_equivalent(target, a)]
         for j in range(rng.randint(2,5)):
             asset = distractor_pool[(i+j*3)%len(distractor_pool)]; x,y=pose_point(used,max(asset["measured_size_m"][:2])/2)
@@ -382,7 +425,14 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             z=asset["mesh_origin_offset_m"]["z_bottom"]
             label_id = next_label if segmentation_labels else None
             if segmentation_labels:
-                segmentation_map[str(label_id)] = {"target_id": oid, "asset_slug": asset["slug"], "role": "target" if is_target else ("count_member" if counting and oid in count_ids else "distractor")}
+                segmentation_map[str(label_id)] = {
+                    "target_id": oid,
+                    "asset_slug": asset["slug"],
+                    "role": "target" if is_target else (
+                        "count_member" if counting and oid in count_ids else
+                        "confuser" if oid in confuser_ids else "distractor"
+                    ),
+                }
                 next_label += 1
             models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id))
         sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
@@ -395,6 +445,9 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             height = float(a["measured_size_m"][2]); center_height = height / 2.0
             lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target, **({"count_member": oid in count_ids} if counting else {})})
         runtime={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"seed":seed+i,"world":{"world_asset":f"builtin://gazebo/{world_id}","map_asset":f"builtin://maps/{world_id}.geojson","dem_asset":f"builtin://terrain/{world_id}.dem.json","wind_north_mps":0.0,"wind_east_mps":0.0,"gust_mps":0.0},"vehicle":{"model":"px4_multirotor_standard","airframe_profile_id":"px4_multirotor_gazebo_v1","spawn_id":f"{world_id}_home","spawn_pose":{"x_east_m":0.0,"y_north_m":0.0,"z_up_m":0.2,"roll_rad":0.0,"pitch_rad":0.0,"yaw_rad":0.0}},"sensors":[{"sensor_id":"front-camera","kind":"rgb_camera","stream_uri":f"gazebo://{world_id}/front-camera","calibration_id":"gazebo-multirotor-front-camera-v1"},{"sensor_id":"downward-depth","kind":"depth_camera","stream_uri":f"gazebo://{world_id}/downward-depth","calibration_id":"gazebo-multirotor-depth-v1"},{"sensor_id":"px4-telemetry","kind":"mavlink_telemetry","stream_uri":"udp://127.0.0.1:14541"}],"faults":[]}
+        for row in target_rows:
+            if row["target_id"] in confuser_ids:
+                row["confuser"] = True
         truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}
         if segmentation_labels:
             truth["segmentation_labels"] = segmentation_map
@@ -406,9 +459,12 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         task_text, task_text_en = fuel_task_texts(target)
         counting_fields = {}
         if counting:
-            counting_fields = {"task_kind": "count", "expected_count": count_copies,
+            counting_fields = {"task_kind": "count", "expected_count": copies,
                                "find_task_text": task_text, "find_task_text_en": task_text_en}
             task_text, task_text_en = fuel_count_texts(target)
+        elif confusers is not None:
+            counting_fields = {"task_kind": "find", "expected_count": 1,
+                               "find_task_text": task_text, "find_task_text_en": task_text_en}
         entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0], **counting_fields})
     doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
 

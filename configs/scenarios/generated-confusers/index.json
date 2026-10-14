@@ -1,0 +1,243 @@
+{
+  "asset_mode": "fuel_v1",
+  "count": 12,
+  "generator": "multidetect.simulator.world_gen",
+  "held_out_target_combos": [],
+  "schema_version": 1,
+  "seed": 20261016,
+  "split_ratios": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "worlds": [
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "seed": 20261016,
+      "split": "train",
+      "target_combo": {
+        "category": "backpack",
+        "color": null,
+        "slug": "backpack"
+      },
+      "task_kind": "find",
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0000",
+      "world_file": "gen_cfs_w0000.sdf",
+      "world_id": "gen_cfs_w0000"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到电箱并记录位置",
+      "find_task_text_en": "Find the electrical box and record its position.",
+      "seed": 20261017,
+      "split": "train",
+      "target_combo": {
+        "category": "electrical_box",
+        "color": null,
+        "slug": "electrical_box"
+      },
+      "task_kind": "find",
+      "task_text": "找到电箱并记录位置",
+      "task_text_en": "Find the electrical box and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0001",
+      "world_file": "gen_cfs_w0001.sdf",
+      "world_id": "gen_cfs_w0001"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到棕色纸箱并记录位置",
+      "find_task_text_en": "Find the brown cardboard box and record its position.",
+      "seed": 20261018,
+      "split": "train",
+      "target_combo": {
+        "category": "cardboard_box",
+        "color": "brown",
+        "slug": "cardboard_box"
+      },
+      "task_kind": "find",
+      "task_text": "找到棕色纸箱并记录位置",
+      "task_text_en": "Find the brown cardboard box and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0002",
+      "world_file": "gen_cfs_w0002.sdf",
+      "world_id": "gen_cfs_w0002"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "seed": 20261019,
+      "split": "train",
+      "target_combo": {
+        "category": "traffic_cone",
+        "color": "orange",
+        "slug": "construction_cone"
+      },
+      "task_kind": "find",
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0003",
+      "world_file": "gen_cfs_w0003.sdf",
+      "world_id": "gen_cfs_w0003"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "seed": 20261020,
+      "split": "train",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "task_kind": "find",
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0004",
+      "world_file": "gen_cfs_w0004.sdf",
+      "world_id": "gen_cfs_w0004"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 1,
+      "find_task_text": "找到邮箱并记录位置",
+      "find_task_text_en": "Find the mailbox and record its position.",
+      "seed": 20261021,
+      "split": "train",
+      "target_combo": {
+        "category": "mailbox",
+        "color": null,
+        "slug": "mailbox"
+      },
+      "task_kind": "find",
+      "task_text": "找到邮箱并记录位置",
+      "task_text_en": "Find the mailbox and record its position.",
+      "true_target_id": "target_true_gen_cfs_w0005",
+      "world_file": "gen_cfs_w0005.sdf",
+      "world_id": "gen_cfs_w0005"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到垃圾箱并记录位置",
+      "find_task_text_en": "Find the dumpster and record its position.",
+      "seed": 20261022,
+      "split": "train",
+      "target_combo": {
+        "category": "dumpster",
+        "color": null,
+        "slug": "dumpster"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个垃圾箱并报告数量和位置",
+      "task_text_en": "Count the dumpster objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0006",
+      "world_file": "gen_cfs_w0006.sdf",
+      "world_id": "gen_cfs_w0006"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到隔离墩并记录位置",
+      "find_task_text_en": "Find the jersey barrier and record its position.",
+      "seed": 20261023,
+      "split": "train",
+      "target_combo": {
+        "category": "jersey_barrier",
+        "color": null,
+        "slug": "jersey_barrier"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个隔离墩并报告数量和位置",
+      "task_text_en": "Count the jersey barrier objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0007",
+      "world_file": "gen_cfs_w0007.sdf",
+      "world_id": "gen_cfs_w0007"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "seed": 20261024,
+      "split": "train",
+      "target_combo": {
+        "category": "backpack",
+        "color": null,
+        "slug": "backpack"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个背包并报告数量和位置",
+      "task_text_en": "Count the backpack objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0008",
+      "world_file": "gen_cfs_w0008.sdf",
+      "world_id": "gen_cfs_w0008"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到电箱并记录位置",
+      "find_task_text_en": "Find the electrical box and record its position.",
+      "seed": 20261025,
+      "split": "train",
+      "target_combo": {
+        "category": "electrical_box",
+        "color": null,
+        "slug": "electrical_box"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个电箱并报告数量和位置",
+      "task_text_en": "Count the electrical box objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0009",
+      "world_file": "gen_cfs_w0009.sdf",
+      "world_id": "gen_cfs_w0009"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到棕色纸箱并记录位置",
+      "find_task_text_en": "Find the brown cardboard box and record its position.",
+      "seed": 20261026,
+      "split": "train",
+      "target_combo": {
+        "category": "cardboard_box",
+        "color": "brown",
+        "slug": "cardboard_box"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个棕色纸箱并报告数量和位置",
+      "task_text_en": "Count the brown cardboard box objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0010",
+      "world_file": "gen_cfs_w0010.sdf",
+      "world_id": "gen_cfs_w0010"
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "seed": 20261027,
+      "split": "train",
+      "target_combo": {
+        "category": "traffic_cone",
+        "color": "orange",
+        "slug": "construction_cone"
+      },
+      "task_kind": "count",
+      "task_text": "数一数有几个橙色交通锥并报告数量和位置",
+      "task_text_en": "Count the orange traffic cone objects and report their positions.",
+      "true_target_id": "target_true_gen_cfs_w0011",
+      "world_file": "gen_cfs_w0011.sdf",
+      "world_id": "gen_cfs_w0011"
+    }
+  ]
+}
