@@ -155,3 +155,35 @@ def test_compile_mission_plan_returns_error_after_exhausted_retries():
     assert report["repairs"] == []
     assert isinstance(report["error"], str) and report["error"]
     assert "The previous plan was rejected:" in prompts[1]
+
+
+def test_unknown_refs_are_retried_then_mapped_to_the_only_known_zone():
+    import json
+
+    from multidetect.autonomy.mission_planner import compile_mission_plan
+
+    plan = {
+        "plan_version": 1,
+        "goal": "count cones",
+        "steps": [
+            {
+                "id": "s1",
+                "skill": "count",
+                "params": {"region": "zone:lot", "query": "cone"},
+                "on_success": "s2",
+                "on_fail": "s2",
+            },
+            {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
+        ],
+        "report": [],
+    }
+    prompts = []
+
+    def post(prompt, schema):
+        prompts.append(prompt)
+        return json.dumps(plan)
+
+    compiled, report = compile_mission_plan(post, "count cones", refs=("zone:site",))
+    assert "unknown reference(s) zone:lot" in prompts[1]
+    assert compiled.steps[0].params["region"] == "zone:site"
+    assert any("zone:lot -> zone:site" in note for note in report["repairs"])

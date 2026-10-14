@@ -341,6 +341,43 @@ def plan_prompt(task_text: str, *, refs: tuple[str, ...] = (), error: str | None
     return "\n".join(lines)
 
 
+_REF_PARAMS = ("region", "target_ref", "route_ref", "track_ref")
+
+
+def _builtin_ref(ref: str) -> bool:
+    return ref in {"home", "zone:all"} or ref.split(":", 1)[0] in {"finding", "track"}
+
+
+def check_plan_refs(
+    document: dict[str, Any], refs: tuple[str, ...], *, substitute: bool
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Find references the host does not know; optionally map each to the only same-kind ref.
+
+    Returns (document, notes, unknown). A region with no known zone falls back to
+    zone:all when substituting; anything else stays unknown.
+    """
+    known = set(refs)
+    notes: list[str] = []
+    unknown: list[str] = []
+    for step in document.get("steps", []):
+        params = step.get("params") or {}
+        for key in _REF_PARAMS:
+            ref = params.get(key)
+            if not isinstance(ref, str) or _builtin_ref(ref) or ref in known:
+                continue
+            prefix = ref.split(":", 1)[0]
+            same_kind = sorted(r for r in known if r.split(":", 1)[0] == prefix)
+            if substitute and len(same_kind) == 1:
+                params[key] = same_kind[0]
+                notes.append(f"{step.get('id')}.{key}: {ref} -> {same_kind[0]}")
+            elif substitute and key == "region" and not same_kind:
+                params[key] = "zone:all"
+                notes.append(f"{step.get('id')}.{key}: {ref} -> zone:all")
+            else:
+                unknown.append(ref)
+    return document, notes, unknown
+
+
 def compile_mission_plan(
     post: Callable[[str, dict], str],
     task_text: str,
@@ -355,7 +392,7 @@ def compile_mission_plan(
     schema = schema if schema is not None else plan_json_schema()
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
         started = time.perf_counter()
         try:
             raw = post(plan_prompt(task_text, refs=refs, error=error), schema)
@@ -368,6 +405,17 @@ def compile_mission_plan(
                 if not isinstance(document, dict):
                     raise ValueError("mission plan must be a JSON object")
                 document, notes = repair_plan_document(document)
+                if refs:
+                    last = attempt == attempts - 1
+                    document, ref_notes, unknown = check_plan_refs(
+                        document, tuple(refs), substitute=last
+                    )
+                    if unknown:
+                        raise ValueError(
+                            f"unknown reference(s) {', '.join(sorted(set(unknown)))}; "
+                            f"use only: {', '.join(sorted(refs))}, zone:all, home"
+                        )
+                    notes = notes + ref_notes
                 plan = validate_mission_plan(document)
             except (AutonomyContractError, ValueError, TypeError, KeyError, AttributeError) as exc:
                 error = str(exc)[:200]
@@ -382,6 +430,7 @@ def compile_mission_plan(
 
 
 __all__ = [
+    "check_plan_refs",
     "EXAMPLES",
     "SKILL_HELP",
     "compile_mission_plan",
