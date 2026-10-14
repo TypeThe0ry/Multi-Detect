@@ -160,6 +160,9 @@ class LoopConfig:
     second_look_max_confidence: float | None = None
     # Search below the cruise altitude (e.g. for small objects), when the map is clear.
     search_altitude_m: float | None = None
+    # At the closest view, this many views whose verdict says "this is the task's
+    # object" (approach or confirm) confirm it; None requires confirm_target votes.
+    closest_view_identity_matches: int | None = 2
 
 
 @dataclass(slots=True)
@@ -692,7 +695,11 @@ class OnboardLoop:
             if unclipped and (
                 votes >= self.config.confirm_matches
                 or (votes >= 1 and (stalled or near))
-                or (near and matches >= self.config.confirm_matches)
+                or (
+                    near
+                    and self.config.closest_view_identity_matches is not None
+                    and matches >= self.config.closest_view_identity_matches
+                )
             ):
                 record = {
                     "track_id": best.track_id,

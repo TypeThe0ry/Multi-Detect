@@ -168,6 +168,9 @@ class OnboardPolicy:
         }
         if second_look is not None:
             loop_defaults["second_look_after_steps"] = int(second_look)
+        if "closest_view_identity_matches" in options:
+            value = options["closest_view_identity_matches"]
+            loop_defaults["closest_view_identity_matches"] = None if value is None else int(value)
         if options.get("second_look_max_confidence") is not None:
             loop_defaults["second_look_max_confidence"] = float(
                 options["second_look_max_confidence"]

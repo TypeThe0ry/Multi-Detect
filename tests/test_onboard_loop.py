@@ -350,3 +350,13 @@ def test_a_single_identity_match_is_not_enough_at_the_closest_view():
     loop.apply_verdict("t1", "reject_track")
     loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0))
     assert loop.state != "returning" and loop.tracks["t1"].match_steps == []
+
+
+def test_closest_view_identity_rule_can_be_disabled():
+    loop = _loop(approach_min_altitude_m=11.0, closest_view_identity_matches=None)
+    pose = (0.0, 0.0, -11.0)
+    for _ in range(3):
+        tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+        loop.apply_verdict("t1", "approach_track")
+        loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0))
+    assert loop.state != "returning"
