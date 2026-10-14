@@ -360,3 +360,21 @@ def test_closest_view_identity_rule_can_be_disabled():
         loop.apply_verdict("t1", "approach_track")
         loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0))
     assert loop.state != "returning"
+
+
+def test_far_confirm_verdicts_only_count_as_matches():
+    loop = _loop(confirm_max_range_m=40.0)
+    pose = (0.0, 0.0, -20.0)
+
+    def far(u, v):
+        return (85.0, 0.0)
+
+    for _ in range(2):
+        tracks = loop.update_tracks(
+            [Detection(_box(640, 500, 32), 0.3)], pose_ned=pose, yaw_deg=0.0, ground_point=far
+        )
+        loop.apply_verdict("t1", "confirm_target")
+        action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=far)
+    # Two confirm answers 85 m away: still approaching, no confirmation yet.
+    assert loop.state == "approaching" and loop.tracks["t1"].confirm_steps == []
+    assert len(loop.tracks["t1"].match_steps) == 2

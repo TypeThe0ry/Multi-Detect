@@ -222,6 +222,8 @@ class OnboardPolicy:
         }
         if second_look is not None:
             loop_defaults["second_look_after_steps"] = int(second_look)
+        if options.get("confirm_max_range_m") is not None:
+            loop_defaults["confirm_max_range_m"] = float(options["confirm_max_range_m"])
         if "closest_view_identity_matches" in options:
             value = options["closest_view_identity_matches"]
             loop_defaults["closest_view_identity_matches"] = None if value is None else int(value)

@@ -163,6 +163,9 @@ class LoopConfig:
     # At the closest view, this many views whose verdict says "this is the task's
     # object" (approach or confirm) confirm it; None requires confirm_target votes.
     closest_view_identity_matches: int | None = 2
+    # A confirm verdict for a candidate farther than this counts only as a match
+    # ("it is the object, keep closing in"): the host decides proximity.
+    confirm_max_range_m: float | None = None
 
 
 @dataclass(slots=True)
@@ -328,6 +331,15 @@ class OnboardLoop:
             "approach_track": "approach",
             "reject_track": "no_match",
         }.get(str(decision), "unknown")
+        limit = self.config.confirm_max_range_m
+        if (
+            verdict == "confirm"
+            and limit is not None
+            and track.ground is not None
+            and self._last_pose is not None
+            and math.dist(track.ground, self._last_pose[:2]) > limit
+        ):
+            verdict = "approach"
         track.verdict, track.verdict_step = verdict, self.step_index
         if verdict in {"confirm", "approach"} and self.step_index not in track.match_steps:
             track.match_steps.append(self.step_index)
