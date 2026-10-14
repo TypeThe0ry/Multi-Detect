@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from multidetect.autonomy.mission_plan import (
@@ -30,7 +30,8 @@ from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
 Pose = tuple[float, float, float]
-PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"})
+_TRACKING_SKILLS = frozenset({"patrol", "monitor", "follow"})
+PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"}) | _TRACKING_SKILLS
 
 
 def _wrap(degrees: float) -> float:
@@ -45,7 +46,7 @@ def task_text_for(step: MissionStep) -> str:
 @dataclass(frozen=True, slots=True)
 class ExecutorConfig:
     step_budget: int = 60
-    # Flying skills (goto, inspect, return_home) are bounded separately from searches.
+    # Flying skills are bounded separately from searches.
     travel_budget: int = 150
     max_translate_m: float = 15.0
     arrive_tolerance_m: float = 3.0
@@ -78,6 +79,18 @@ class _StepRun:
     captured: int = 0
     skipped: int = 0
     pending_track: str | None = None
+    # Coverage, routes and timed observation.
+    waypoints: list[tuple[float, float]] = field(default_factory=list)
+    waypoint_index: int = 0
+    visited: int = 0
+    elapsed_s: float = 0.0
+    alerted_tracks: set[str] = field(default_factory=set)
+    alert_positions: list[tuple[float, float]] = field(default_factory=list)
+    # Follow retains the selected identity and updates one position record.
+    follow_track_id: str | None = None
+    acquire_track: bool = False
+    lost_cycles: int = 0
+    follow_finding: dict[str, Any] | None = None
 
 
 class MissionExecutor:
@@ -86,7 +99,7 @@ class MissionExecutor:
         plan: MissionPlan | Mapping[str, Any] | str,
         *,
         loop_factory: Callable[..., OnboardLoop],
-        refs: Mapping[str, tuple[float, ...]] | None = None,
+        refs: Mapping[str, Sequence[float] | Sequence[tuple[float, float]]] | None = None,
         config: ExecutorConfig | None = None,
         task_text: Callable[[MissionStep], str] = task_text_for,
     ) -> None:
@@ -101,13 +114,16 @@ class MissionExecutor:
         self.home: tuple[float, float] | None = None
         self.cruise_altitude_m: float | None = None
         self.findings: list[dict[str, Any]] = []
+        self._finding_loops: dict[int, OnboardLoop] = {}
         self.counts: dict[str, int] = {}
+        self.coverage: dict[str, float] = {}
         self.evidence: list[str] = []
         self.track_ids: list[str] = []
         self.answers: list[str] = []
         self.alerts: list[str] = []
         self.history: list[dict[str, Any]] = []
         self.done = False
+        self._last_loop: OnboardLoop | None = None
         self._run: _StepRun | None = self._start(self.plan.steps[0])
         self._current: list[Track] = []
 
@@ -117,7 +133,12 @@ class MissionExecutor:
         ref = step.params.get("region")
         value = self.refs.get(str(ref)) if ref else None
         if value is not None and len(value) >= 3:
-            return (float(value[0]), float(value[1]), float(value[2]))
+            try:
+                region = (float(value[0]), float(value[1]), float(value[2]))
+            except (TypeError, ValueError):
+                return None
+            if all(math.isfinite(v) for v in region) and region[2] > 0:
+                return region
         return None
 
     def _loop(self, step: MissionStep, **overrides: Any) -> OnboardLoop:
@@ -135,12 +156,35 @@ class MissionExecutor:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "inspect":
             run.loop = self.loop_factory(self.task_text(step))
+        elif step.skill in {"patrol", "monitor"}:
+            run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
+        elif step.skill == "follow":
+            ref = str(step.params["track_ref"])
+            finding = None
+            if ref.startswith("track:"):
+                try:
+                    index = int(ref.split(":", 1)[1])
+                except ValueError:
+                    index = 0
+                if 1 <= index <= len(self.findings):
+                    finding = self.findings[index - 1]
+            source_loop = self._finding_loops.get(id(finding)) if finding is not None else None
+            if source_loop is self._last_loop and source_loop is not None:
+                run.loop = source_loop
+                run.follow_track_id = finding.get("track_id")
+            else:
+                run.acquire_track = True
+                run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
+            run.loop.config = replace(
+                run.loop.config, lost_after_steps=max(7, run.loop.config.lost_after_steps)
+            )
         return run
 
     def _finish(self, state: str, reason: str | None = None) -> None:
         run = self._run
         assert run is not None
         run.state, run.reason = state, reason
+        self._last_loop = run.loop
         self.history.append(
             {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         )
@@ -181,7 +225,31 @@ class MissionExecutor:
                 return tuple(self.findings[index - 1]["position_ne"])
             return None
         value = self.refs.get(ref)
-        return None if value is None else (float(value[0]), float(value[1]))
+        if value is None or len(value) < 2:
+            return None
+        try:
+            point = (float(value[0]), float(value[1]))
+        except (TypeError, ValueError):
+            return None
+        return point if all(math.isfinite(v) for v in point) else None
+
+    def route_of(self, ref: str) -> list[tuple[float, float]] | None:
+        """Resolve a host route without treating it as a point reference."""
+        value = self.refs.get(ref)
+        if not value:
+            return None
+        route = []
+        for item in value:
+            if not isinstance(item, Sequence) or isinstance(item, str) or len(item) != 2:
+                return None
+            try:
+                point = (float(item[0]), float(item[1]))
+            except (TypeError, ValueError):
+                return None
+            if not all(math.isfinite(v) for v in point):
+                return None
+            route.append(point)
+        return route
 
     # -- perception hooks ---------------------------------------------------
     def observe(
@@ -198,6 +266,9 @@ class MissionExecutor:
         if run is None or run.loop is None:
             self._current = []
             return []
+        if run.step.skill in _TRACKING_SKILLS:
+            # These skills own flight; advance association/verdict age without loop control.
+            run.loop.step_index += 1
         self._current = run.loop.update_tracks(
             detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -207,7 +278,10 @@ class MissionExecutor:
             nearest = self._nearest_to_centre(run, self._current)
             run.pending_track = nearest.track_id if nearest else None
             return [nearest] if nearest else []
-        if run.loop.state not in {"searching", "approaching"}:
+        if run.step.skill not in _TRACKING_SKILLS and run.loop.state not in {
+            "searching",
+            "approaching",
+        }:
             return []
         return run.loop.tracks_needing_verdict(self._current)
 
@@ -220,6 +294,29 @@ class MissionExecutor:
         run.loop.apply_verdict(track_id, decision, confidence)
         if run.step.skill == "inspect" and track_id == run.pending_track:
             self.answers.append(f"{run.step.id}:view{run.view_index + 1}:{decision}")
+        if run.step.skill in {"patrol", "monitor"}:
+            self._alert_for_track(run, track_id)
+
+    def _alert_for_track(self, run: _StepRun, track_id: str) -> None:
+        track = run.loop.tracks.get(track_id)
+        if (
+            track is None
+            or track.ground is None
+            or track.verdict not in {"confirm", "approach"}
+            or track_id in run.alerted_tracks
+        ):
+            return
+        run.alerted_tracks.add(track_id)
+        if any(math.dist(track.ground, point) <= 4.0 for point in run.alert_positions):
+            return
+        run.alert_positions.append(track.ground)
+        north, east = track.ground
+        self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
+        self._add_finding(
+            run,
+            {"track_id": track_id, "position_estimate_ne": track.ground, "bbox": track.bbox},
+            None,
+        )
 
     # -- control -------------------------------------------------------------
     def _init_home(self, pose_ned: Pose) -> None:
@@ -248,6 +345,13 @@ class MissionExecutor:
                 continue  # the step finished without moving; start the next one now
             action, info = result
             run.primitives += 1
+            if run.step.skill in _TRACKING_SKILLS:
+                if action.kind == "translate":
+                    run.elapsed_s += (
+                        math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
+                    )
+                elif action.kind == "hold":
+                    run.elapsed_s += action.seconds
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
@@ -255,7 +359,7 @@ class MissionExecutor:
     def _budget(self, step: MissionStep) -> int:
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
-        if step.skill in {"goto", "inspect", "return_home"}:
+        if step.skill in {"goto", "inspect", "return_home", "survey"} | _TRACKING_SKILLS:
             return self.config.travel_budget
         return self.config.step_budget
 
@@ -272,6 +376,10 @@ class MissionExecutor:
             "area_search": self._area_search,
             "count": self._count,
             "inspect": self._inspect,
+            "survey": self._survey,
+            "patrol": self._patrol,
+            "monitor": self._monitor,
+            "follow": self._follow,
             "goto": self._goto,
             "hover": self._hover,
             "return_home": self._return_home,
@@ -324,17 +432,18 @@ class MissionExecutor:
         position = record.get("position_estimate_ne")
         if position is None:
             return
-        self.findings.append(
-            {
-                "step": run.step.id,
-                "query": run.step.params.get("query"),
-                "position_ne": (float(position[0]), float(position[1])),
-                "track_id": record.get("track_id"),
-                "bbox": record.get("bbox"),
-                "rule": record.get("rule"),
-                "frame_id": frame_id,
-            }
-        )
+        finding = {
+            "step": run.step.id,
+            "query": run.step.params.get("query"),
+            "position_ne": (float(position[0]), float(position[1])),
+            "track_id": record.get("track_id"),
+            "bbox": record.get("bbox"),
+            "rule": record.get("rule"),
+            "frame_id": frame_id,
+        }
+        self.findings.append(finding)
+        if run.loop is not None:
+            self._finding_loops[id(finding)] = run.loop
         self.track_ids.append(str(record.get("track_id")))
         if frame_id:
             self.evidence.append(frame_id)
@@ -421,6 +530,178 @@ class MissionExecutor:
         else:
             self._finish("failed", "no_view_reachable")
         return None
+
+    # -- coverage and observation along a route --------------------------------
+    def _survey(self, run, pose, yaw, ground_point, frame_id):
+        if not run.waypoints:
+            region = self.region_of(run.step)
+            if region is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            north, east, radius = region
+            run.goal_altitude_m = float(run.step.params.get("altitude_m", max(0.0, -pose[2])))
+            camera = self._probe.camera
+            hfov = 2.0 * math.atan2(camera.width, 2.0 * camera.fx)
+            slant = run.goal_altitude_m / max(1e-6, math.sin(camera.pitch_down_rad))
+            swath = 2.0 * slant * math.tan(hfov / 2.0)
+            spacing = max(3.0, min(60.0, swath * (1.0 - float(run.step.params["overlap"]))))
+            # Inset lanes in equal strips, no farther apart than the requested spacing.
+            # Keep three crossings even when one swath spans the whole bounding square.
+            lanes = max(3, math.ceil(2.0 * radius / spacing))
+            for lane in range(lanes):
+                offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
+                half_length = math.sqrt(max(0.0, radius**2 - offset**2))
+                ends = [(north - half_length, east + offset), (north + half_length, east + offset)]
+                run.waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
+            self.coverage[run.step.id] = 0.0
+        while run.waypoint_index < len(run.waypoints):
+            moved = self._move_to(
+                run, pose, yaw, run.waypoints[run.waypoint_index], run.goal_altitude_m
+            )
+            if moved == "blocked":
+                self.alerts.append(f"{run.step.id}:waypoint{run.waypoint_index + 1}_blocked")
+                run.blocked = 0
+            elif moved is not None:
+                return moved, {"waypoint": run.waypoint_index + 1}
+            else:
+                run.visited += 1
+                self.coverage[run.step.id] = run.visited / len(run.waypoints)
+                if frame_id:
+                    self.evidence.append(frame_id)
+            run.waypoint_index += 1
+        if run.visited:
+            self._finish("succeeded", "region_covered")
+        else:
+            self._finish("failed", "no_waypoint_reachable")
+        return None
+
+    def _duration_reached(self, run: _StepRun) -> bool:
+        duration = run.step.params.get("duration_s")
+        return duration is not None and run.elapsed_s >= float(duration) - 1e-6
+
+    def _patrol(self, run, pose, yaw, ground_point, frame_id):
+        if not run.waypoints:
+            route = self.route_of(str(run.step.params["route_ref"]))
+            if route is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            run.waypoints = route
+            if "altitude_m" in run.step.params:
+                run.goal_altitude_m = float(run.step.params["altitude_m"])
+        if self._duration_reached(run):
+            self._finish("succeeded", "duration_elapsed")
+            return None
+        total = len(run.waypoints) * int(run.step.params["loops"])
+        while run.waypoint_index < total:
+            index = run.waypoint_index % len(run.waypoints)
+            moved = self._move_to(run, pose, yaw, run.waypoints[index], run.goal_altitude_m)
+            if moved == "blocked":
+                self._finish("failed", "blocked")
+                return None
+            if moved is not None:
+                return moved, {
+                    "waypoint": index + 1,
+                    "loop": run.waypoint_index // len(run.waypoints) + 1,
+                }
+            run.visited += 1
+            run.waypoint_index += 1
+        self._finish("succeeded", "duration_elapsed")
+        return None
+
+    def _monitor(self, run, pose, yaw, ground_point, frame_id):
+        if run.goal_ne is None:
+            region = self.region_of(run.step)
+            run.goal_ne = region[:2] if region else self.resolve(str(run.step.params["region"]))
+            if run.goal_ne is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            if "altitude_m" in run.step.params:
+                run.goal_altitude_m = float(run.step.params["altitude_m"])
+        if run.phase == "fly":
+            moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+            if moved == "blocked":
+                self._finish("failed", "blocked")
+                return None
+            if moved is not None:
+                return moved, {"phase": "fly"}
+            run.phase = "hold"
+        # The observation interval starts at the centre, after transit.
+        remaining = float(run.step.params["duration_s"]) - run.held_s
+        if remaining <= 1e-6:
+            self._finish("succeeded", "duration_elapsed")
+            return None
+        if run.phase == "turn":
+            run.phase = "hold"
+            return ActionPrimitive.turn(90.0), {"phase": "turn"}
+        seconds = min(2.0, remaining)
+        run.held_s += seconds
+        run.phase = "turn"
+        return ActionPrimitive.hold(seconds), {"phase": "hold", "remaining_s": remaining - seconds}
+
+    def _follow(self, run, pose, yaw, ground_point, frame_id):
+        if run.follow_track_id is None and run.acquire_track:
+            candidate = next(
+                (t for t in self._current if t.verdict in {"confirm", "approach"} and t.ground),
+                None,
+            )
+            if candidate is not None:
+                run.follow_track_id = candidate.track_id
+        track = next((t for t in self._current if t.track_id == run.follow_track_id), None)
+        if track is not None and track.ground is not None:
+            run.lost_cycles = 0
+            if run.follow_finding is None:
+                self._add_finding(
+                    run,
+                    {
+                        "track_id": track.track_id,
+                        "position_estimate_ne": track.ground,
+                        "bbox": track.bbox,
+                    },
+                    frame_id,
+                )
+                run.follow_finding = self.findings[-1]
+            else:
+                run.follow_finding["position_ne"] = track.ground
+        if self._duration_reached(run):
+            self._finish("succeeded", "duration_elapsed")
+            return None
+        if track is None or track.ground is None:
+            run.lost_cycles += 1
+            if run.lost_cycles > 6:
+                if run.follow_finding is not None:
+                    self._finish("succeeded", "target_lost_timeout")
+                else:
+                    self._finish("failed", "target_not_found")
+                return None
+            return ActionPrimitive.hold(self.config.hold_s), {"lost_cycles": run.lost_cycles}
+        altitude = run.step.params.get("altitude_m")
+        moved = self._move_to(
+            run, pose, yaw, pose[:2], None if altitude is None else float(altitude)
+        )
+        if moved == "blocked":
+            self._finish("failed", "blocked")
+            return None
+        if moved is not None:
+            return moved, {"track_id": track.track_id}
+        dn, de = track.ground[0] - pose[0], track.ground[1] - pose[1]
+        distance = math.hypot(dn, de)
+        standoff = max(15.0, run.loop._keep_range(max(0.0, -pose[2])))
+        info = {"track_id": track.track_id, "range_m": distance, "standoff_m": standoff}
+        delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
+        if abs(delta) > self.config.turn_tolerance_deg:
+            return ActionPrimitive.turn(delta), info
+        if distance > standoff + 3.0:
+            goal = (
+                track.ground[0] - standoff * dn / distance,
+                track.ground[1] - standoff * de / distance,
+            )
+            moved = self._move_to(run, pose, yaw, goal)
+            if moved == "blocked":
+                self._finish("failed", "blocked")
+                return None
+            if moved is not None:
+                return moved, info
+        return ActionPrimitive.hold(self.config.hold_s), info
 
     # -- geometry skills -------------------------------------------------------
     def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None):
@@ -516,7 +797,8 @@ class MissionExecutor:
             positions=tuple(
                 f"{f['position_ne'][0]:.1f},{f['position_ne'][1]:.1f}" for f in self.findings
             ),
-            state_answers=tuple(self.answers),
+            state_answers=tuple(self.answers)
+            + tuple(f"{step_id}:coverage:{value:.2f}" for step_id, value in self.coverage.items()),
             alerts=tuple(self.alerts),
         )
 
