@@ -312,3 +312,20 @@ Identity drops by two of 221 rows; planning no longer needs host repairs. The
 remaining plan errors: counting read as patrol, follow read as monitor, a
 missing hover or record step. v2-r7-multi (1.26 GB + 0.45 GB mmproj) is the
 single onboard candidate; its closed-loop flights are still to be run.
+
+v2-r8-multi (2026-10-15) retrains the same mix with planning data that renames
+every place to a random alias and lists the known places with labels in the
+prompt, and writes half the Chinese numbers as Chinese numerals (plan-sft-v2).
+v2-r7-multi had copied place names from its training data (zone:lot for "the
+site") and read "五分钟" as 500 s. Same rows, Q5_K_M, labelled-place prompts:
+
+| Model | Identity acc | Distractor rejection | Valid plans | Correct skill sequence (strict) | Plan p50 |
+|---|---:|---:|---:|---:|---:|
+| v2-r7-multi | 91.9% | 84.9% | 100% | 80% (23/30) | 1.15 s |
+| **v2-r8-multi** | **94.1%** | **89.9%** | 100% | **83% (24/30)** | 0.87 s |
+
+v2-r8-multi compiles "数一数场地里有几个交通锥，然后返航" to count(zone:site,
+traffic cone) -> return_home, "监视场地五分钟看有没有背包" to monitor 300 s,
+"沿着围栏巡逻两圈" to patrol(route:fence, 2 loops) and an English
+find-inspect-land command correctly. It replaces v2-r4-prop as the onboard
+model (identity and planning in one 1.26 GB GGUF).
