@@ -205,6 +205,11 @@ def trained_key_order_schema(schema: dict[str, Any]) -> dict[str, Any]:
     Training targets are serialised with ``sort_keys=True``; llama.cpp's
     json_schema grammar emits properties in schema order, so constrained
     decoding must use the same order or it forces an unseen token sequence.
+    llama.cpp also emits every required property before any optional one, so an
+    object whose optional properties sort ahead of a required one becomes an
+    anyOf with one branch per subset of optional properties, all required in
+    sorted order. (Otherwise count's optional max_count cannot come first and
+    the model's "max_count" turns into patrol's "loops".)
     """
     result: dict[str, Any] = {}
     for key, value in schema.items():
@@ -218,4 +223,25 @@ def trained_key_order_schema(schema: dict[str, Any]) -> dict[str, Any]:
             result[key] = [trained_key_order_schema(item) if isinstance(item, dict) else item for item in value]
         else:
             result[key] = value
-    return result
+    properties = result.get("properties")
+    if not isinstance(properties, dict):
+        return result
+    names = list(properties)
+    required = set(result.get("required", []))
+    if [n for n in names if n in required] + [n for n in names if n not in required] == names:
+        return result
+    optional = [n for n in names if n not in required]
+    if len(optional) > 4:
+        raise ValueError(f"too many optional properties to expand: {optional}")
+    shared = {k: v for k, v in result.items() if k not in {"properties", "required"}}
+    branches = []
+    for mask in range(1 << len(optional)):
+        chosen = required | {n for i, n in enumerate(optional) if mask >> i & 1}
+        branches.append(
+            {
+                **shared,
+                "required": [n for n in names if n in chosen],
+                "properties": {n: properties[n] for n in names if n in chosen},
+            }
+        )
+    return {"anyOf": branches}

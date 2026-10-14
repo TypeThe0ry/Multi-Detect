@@ -82,6 +82,40 @@ def test_llama_schema_property_order_matches_trained_serialisation() -> None:
     assert list(schema["properties"]["args"]["properties"]) == list(serialised["args"])
 
 
+def _llama_property_orders(schema: object):
+    """Yield (sorted, emitted) property orders; llama.cpp emits required before optional."""
+    if isinstance(schema, dict):
+        if isinstance(schema.get("properties"), dict):
+            names = list(schema["properties"])
+            required = set(schema.get("required", []))
+            emitted = [n for n in names if n in required] + [n for n in names if n not in required]
+            yield names, emitted
+        for value in schema.values():
+            yield from _llama_property_orders(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            yield from _llama_property_orders(value)
+
+
+def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
+    from multidetect.autonomy.mission_planner import plan_json_schema
+
+    schema = trained_key_order_schema(plan_json_schema())
+    for names, emitted in _llama_property_orders(schema):
+        assert names == sorted(names)
+        assert emitted == names
+    count = next(
+        step for step in schema["properties"]["steps"]["items"]["anyOf"]
+        if step["properties"]["skill"]["enum"] == ["count"]
+    )
+    branches = count["properties"]["params"]["anyOf"]
+    orders = [list(branch["properties"]) for branch in branches]
+    assert ["max_count", "query", "region"] in orders
+    assert ["query", "region"] in orders
+    # Every branch keeps the required parameters.
+    assert all({"query", "region"} <= set(branch["required"]) for branch in branches)
+
+
 def test_zoom_v2_multi_candidate_prompt_names_the_event_focus(tmp_path: Path) -> None:
     path = tmp_path / "frame.png"
     Image.new("RGB", (200, 100)).save(path)
