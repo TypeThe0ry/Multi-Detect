@@ -1,0 +1,478 @@
+{
+  "schema_version": 1,
+  "note": "Hand-written held-out v2 tasks with natural operator wording.",
+  "refs": [
+    "poi:gate (大门 / the gate)",
+    "poi:pad (起降坪 / the pad)",
+    "poi:tower (水塔 / the water tower)",
+    "poi:shed (仓库 / the shed)",
+    "poi:bridge (桥 / the bridge)",
+    "zone:lot (停车场 / the parking lot)",
+    "zone:field (场地 / the field)",
+    "zone:farm (农田 / the farm)",
+    "zone:yard (院子 / the yard)",
+    "route:fence (围栏路线 / the fence route)",
+    "route:north (北线 / the north route)",
+    "route:road (道路 / the road)"
+  ],
+  "tasks": [
+    {
+      "text": "清点停车场里的白色厢式货车，最多八辆，然后返航",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "数一数北门附近的行人，完成后回到起飞点",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "先飞到水塔，再统计农田里的木箱，最后降落在起降坪",
+      "skills": [
+        "goto",
+        "count",
+        "land"
+      ]
+    },
+    {
+      "text": "找到穿黄色背心的工人并跟随三分钟，然后回来",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ]
+    },
+    {
+      "text": "在码头找到小船，盯住它并跟着走两分钟，再返航",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ]
+    },
+    {
+      "text": "搜索仓库旁的邮箱，拍照留存后回家",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    },
+    {
+      "text": "找到红色消防栓，拍一张照片，悬停二十秒后降落",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "land"
+      ]
+    },
+    {
+      "text": "搜寻蓝色帐篷并记录证据，悬停四十五秒，然后返航",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "飞到桥边，在那里寻找一辆自行车，找到后回来",
+      "skills": [
+        "goto",
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "前往码头寻找救护车，检查它的六个方向，再返航",
+      "skills": [
+        "goto",
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    },
+    {
+      "text": "沿围栏路线巡逻四圈，留意有没有狗，然后返航",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "沿北线巡逻两圈观察卡车，结束后在起降坪降落",
+      "skills": [
+        "patrol",
+        "land"
+      ]
+    },
+    {
+      "text": "给屋顶做百分之七十五重叠测绘，完成后回家",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "测量整个场地并保持百分之六十重叠，最后返航",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "监视院子里的面包车九分钟，然后回来",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "在大门观察行人五分钟，结束后返航",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "原地悬停三十秒，再回到起飞点",
+      "skills": [
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "飞到仓库上空悬停一分钟，随后就地降落",
+      "skills": [
+        "goto",
+        "hover",
+        "land"
+      ]
+    },
+    {
+      "text": "任务结束后立即回到起飞坪",
+      "skills": [
+        "return_home"
+      ]
+    },
+    {
+      "text": "现在就在起降坪降落",
+      "skills": [
+        "land"
+      ]
+    },
+    {
+      "text": "在停车场寻找橙色交通锥，找不到也要返航",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "先去大门，再找一辆蓝色公交车并拍照记录，最后回来",
+      "skills": [
+        "goto",
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    },
+    {
+      "text": "清点田地里的奶牛，然后飞到水塔降落",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ]
+    },
+    {
+      "text": "飞到仓库后数一数里面的木托盘，再回到起飞点",
+      "skills": [
+        "goto",
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "找到黄色警示牌，拍照取证并悬停十五秒后返航",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "在场地找到拖拉机，从四面检查后降落",
+      "skills": [
+        "area_search",
+        "inspect",
+        "land"
+      ]
+    },
+    {
+      "text": "沿道路巡逻五圈，观察是否有骑手，最后回来",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "监控屋顶上的天线七分钟，然后返回",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "先到桥边悬停九十秒，再回家",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "找到背包并从三个方向检查，完成后返航",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Count the white vans in the parking lot, up to eight, then return home.",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Tally the pedestrians near the north gate and come back to the launch point.",
+      "skills": [
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Fly to the water tower, count the crates in the farm, and land at the pad.",
+      "skills": [
+        "goto",
+        "count",
+        "land"
+      ]
+    },
+    {
+      "text": "Find the worker in a yellow vest, follow him for three minutes, then return.",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the boat at the dock, track and follow it for two minutes, then come back.",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Search beside the shed for a mailbox, take a photo, and return home.",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the red hydrant, capture evidence, hover for twenty seconds, and land.",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "land"
+      ]
+    },
+    {
+      "text": "Locate the blue tent, snap a picture, hover for forty-five seconds, then return.",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Go to the bridge, look for a bicycle there, and come back.",
+      "skills": [
+        "goto",
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Fly to the dock, find the ambulance, inspect six sides, and return.",
+      "skills": [
+        "goto",
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Patrol the fence route for four loops watching for dogs, then return.",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Patrol the north route twice for trucks and land at the pad.",
+      "skills": [
+        "patrol",
+        "land"
+      ]
+    },
+    {
+      "text": "Survey the roof with seventy-five percent overlap and come home.",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Map the whole field with sixty percent overlap, then return.",
+      "skills": [
+        "survey",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Monitor the yard for vans for nine minutes before coming back.",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Watch the gate for pedestrians for five minutes, then return home.",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Hover in place for thirty seconds and return to the launch point.",
+      "skills": [
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Fly over the shed, hover for one minute, and land here.",
+      "skills": [
+        "goto",
+        "hover",
+        "land"
+      ]
+    },
+    {
+      "text": "The mission is complete; return to the launch point immediately.",
+      "skills": [
+        "return_home"
+      ]
+    },
+    {
+      "text": "Land on the pad now.",
+      "skills": [
+        "land"
+      ]
+    },
+    {
+      "text": "Search the lot for an orange traffic cone; if it is missing, return home.",
+      "skills": [
+        "area_search",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Go to the gate, find a blue bus, record it, and come back.",
+      "skills": [
+        "goto",
+        "area_search",
+        "record",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Count the cows in the field, fly to the tower, and land.",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ]
+    },
+    {
+      "text": "Fly to the shed, tally the wooden pallets inside, and return to base.",
+      "skills": [
+        "goto",
+        "count",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the yellow warning sign, take a picture, hover fifteen seconds, then return.",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Locate the tractor in the field, inspect it from four sides, and land.",
+      "skills": [
+        "area_search",
+        "inspect",
+        "land"
+      ]
+    },
+    {
+      "text": "Patrol the road for five loops looking for cyclists, then come back.",
+      "skills": [
+        "patrol",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Monitor the antenna on the roof for seven minutes and return home.",
+      "skills": [
+        "monitor",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Go to the bridge, hover for ninety seconds, then come back.",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ]
+    },
+    {
+      "text": "Find the backpack, inspect it from three directions, and return.",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ]
+    }
+  ]
+}

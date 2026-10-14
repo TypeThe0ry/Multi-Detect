@@ -391,12 +391,96 @@ def mission(rng: random.Random) -> tuple[str, str, list[dict], list[str]]:
     return zh, en, steps, ["findings", "track"]
 
 
+def mission_v3(rng: random.Random) -> tuple[str, str, list[dict], list[str]]:
+    """Expanded v3 templates; ``mission`` remains the byte-for-byte v2 generator."""
+    q, qz = rng.choice(OBJECTS)
+    z, zz, ze = rng.choice(ZONES)
+    p, pz, pe = rng.choice(POIS)
+    ending = rng.choice(
+        [
+            ("然后返航", "then return home", "return"),
+            ("再回来", "then come back", "return"),
+            ("回到起飞点", "return to the launch point", "return"),
+            ("降落", f"land at {pe}", "land"),
+            ("就地降落", "land here", "land"),
+        ]
+    )
+    terminal = L if ending[2] == "land" else H
+    kind = rng.choice(["count", "follow", "record_hover", "goto_count", "patrol", "record"])
+    if kind == "count":
+        n = rng.choice([5, 8, 10, 12])
+        zh_verb = rng.choice(["统计", "清点", "数一数"])
+        en_verb = rng.choice(["How many", "Tally", "Count up"])
+        zh_limit = rng.choice([f"，最多数到{n}个", f"，上限{n}个", ""])
+        en_limit = rng.choice([f", up to {n}", f", no more than {n}", ""])
+        zh = f"在{zz}里{zh_verb}{qz}{zh_limit}，{ending[0]}"
+        en = f"{en_verb} {q}s in {ze}{en_limit}, {ending[1]}."
+        steps = [
+            S("s1", "count", {"region": z, "query": q, "max_count": n}, "s2", "s2"),
+            terminal("s2"),
+        ]
+        return zh, en, steps, ["count", "positions"]
+    if kind == "follow":
+        minutes = rng.choice([1, 2, 3, 5])
+        zh = f"找到{qz}后{rng.choice(['跟随', '跟着', '盯住并跟着'])}它{minutes}分钟，{ending[0]}"
+        follow_phrase = rng.choice(["track and follow it", "keep following it", "shadow it"])
+        en = f"Find the {q}, {follow_phrase} for {minutes} minutes, {ending[1]}."
+        sec = minutes * 60
+        steps = [
+            S("s1", "area_search", {"region": "zone:all", "query": q}, "s2", "s3"),
+            S("s2", "follow", {"track_ref": "track:1", "query": q, "duration_s": sec}, "s3", "s3"),
+            terminal("s3"),
+        ]
+        return zh, en, steps, ["findings", "track"]
+    if kind == "record_hover":
+        sec = rng.choice([15, 20, 30, 45])
+        zh = f"找到{qz}后拍照留存证据，再悬停{sec}秒，{ending[0]}"
+        photo_phrase = rng.choice(["take a picture", "snap a photo", "capture evidence"])
+        en = f"Find the {q}, {photo_phrase}, then hover {sec} seconds before {ending[1]}."
+        steps = [
+            S("s1", "area_search", {"region": "zone:all", "query": q}, "s2", "s9"),
+            S("s2", "record", {"query": q}, "s3", "s9"),
+            S("s3", "hover", {"duration_s": sec}, "s9", "s9"),
+            terminal("s9"),
+        ]
+        return zh, en, steps, ["findings", "evidence"]
+    if kind == "goto_count":
+        n = rng.choice([3, 6, 10])
+        zh = f"先飞到{pz}，再在{zz}清点{qz}，最后{ending[0]}"
+        en = f"Go to {pe}, count the {q}s in {ze}, and {ending[1]}."
+        steps = [
+            S("s1", "goto", {"target_ref": p}, "s2", "s3"),
+            S("s2", "count", {"region": z, "query": q, "max_count": n}, "s3", "s3"),
+            terminal("s3"),
+        ]
+        return zh, en, steps, ["count", "positions"]
+    if kind == "patrol":
+        route, routez, routee = rng.choice(ROUTES)
+        loops = rng.choice([2, 3, 4])
+        zh = f"沿{routez}巡逻{loops}圈，观察{qz}，{ending[0]}"
+        en = f"Patrol {routee} for {loops} loops while watching for {q}s, {ending[1]}."
+        steps = [
+            S("s1", "patrol", {"route_ref": route, "query": q, "loops": loops}, "s2", "s2"),
+            terminal("s2"),
+        ]
+        return zh, en, steps, ["alerts"]
+    zh = f"找到{qz}，拍一张照片并记录，{ending[0]}"
+    en = f"Locate the {q}, take a picture and record it, then {ending[1]}."
+    steps = [
+        S("s1", "area_search", {"region": "zone:all", "query": q}, "s2", "s9"),
+        S("s2", "record", {"query": q}, "s9", "s9"),
+        terminal("s9"),
+    ]
+    return zh, en, steps, ["findings", "evidence"]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261015)
+    parser.add_argument("--version", choices=("v2", "v3"), default="v3")
     parser.add_argument(
         "--eval-tasks", type=Path, default=ROOT / "configs/onboard/plan-eval-tasks.json"
     )
@@ -406,7 +490,8 @@ def main(argv: list[str] | None = None) -> int:
     rng = random.Random(args.seed)
     rows, seen = [], set()
     while len(rows) < args.rows + args.val_rows:
-        zh, en, steps, report = mission(rng)
+        generator = mission if args.version == "v2" else mission_v3
+        zh, en, steps, report = generator(rng)
         if rng.random() < 0.5:
             # Chinese numerals as often as digits.
             zh = re.sub(r"\d+", lambda m: zh_number(int(m.group())), zh)
