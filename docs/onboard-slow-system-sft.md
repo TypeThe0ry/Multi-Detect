@@ -347,3 +347,27 @@ End to end with the same commands, one flight each:
 Mixed and single-flight, so not decisive; the electrical box is still reported
 as a backpack by both. v2-r8-multi stays the onboard default until a repeated
 mission suite separates them.
+
+v2-r10-multi (2026-10-15) swapped plan-sft-v2 for plan-sft-v3 (new phrasings:
+"清点 / tally", follow, take-a-photo, more land endings). It regressed:
+
+| Model | Identity acc | Distractor rejection | Correct skill sequence, 30 tasks | 60 tasks |
+|---|---:|---:|---:|---:|
+| v2-r8-multi | 94.1% | 89.9% | 83% | 70% |
+| v2-r10-multi | 92.3% | 85.7% | 50% | 55% |
+
+Cause: `mission_v3` replaced the v2 templates instead of adding to them. Its
+1,200 rows contain no inspect, monitor or survey step and no single-step
+"return home" / "land" task (v2 had 58–86 rows of each). The model then turned
+"Return home now." into monitor, counting tasks into patrol and return_home
+into land. plan-sft-v4 (`--version v4`, now the default) draws one third of the
+rows from the v3 templates and two thirds from v2, so every skill is covered;
+v2-r11-multi trains on it.
+
+The first r10 result (identity 46%, i.e. the base model) was a trainer bug,
+not the data: after a CUDA out-of-memory at step 455 the `--resume` run loaded
+the saved weights as a second adapter named "resume", trained that one and
+saved the untouched default adapter (all-zero `lora_B`). The trainer now loads
+resumed weights into the default adapter, rejects unexpected keys and refuses
+to save an all-zero adapter (`f1f6133`). The numbers above are from the
+correctly trained adapter.
