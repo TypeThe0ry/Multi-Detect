@@ -371,3 +371,37 @@ saved the untouched default adapter (all-zero `lora_B`). The trainer now loads
 resumed weights into the default adapter, rejects unexpected keys and refuses
 to save an all-zero adapter (`f1f6133`). The numbers above are from the
 correctly trained adapter.
+
+### Constrained decoding was fighting the trained key order (2026-10-15)
+
+`scripts/plan_from_task.py` now prints the aligned skill substitutions. Both
+r8 and r10 showed the same pattern: counting compiled to patrol with
+`"loops"` set to the task's count limit, and follow compiled to monitor. The
+plan step is serialised with sorted keys, so `params` comes before `skill`
+and the first parameter name decides the skill. llama.cpp's json_schema
+grammar writes every required property before any optional one, so count's
+optional `max_count` (which sorts ahead of `query` and `region`) could not
+come first; the nearest legal key that starts a number was patrol's `loops`.
+follow's optional `duration_s` had the same problem and fell into monitor.
+plan-sft-v3 wrote `max_count` in every count row, which is why r10 lost
+almost every count task.
+
+`trained_key_order_schema` now turns such an object into an `anyOf` with one
+branch per subset of its optional keys, every key required and in sorted
+order. Same GGUFs, no retraining:
+
+| Model | 30 tasks: valid / exact | 60 tasks: valid / exact | 60 tasks zh / en exact |
+|---|---:|---:|---:|
+| v2-r8-multi, old schema | 100% / 83% | 98% / 70% | 19/30 / 23/30 |
+| **v2-r8-multi, fixed schema** | **100% / 90%** | **100% / 77%** | **21/30 / 25/30** |
+| v2-r10-multi, old schema | 97% / 50% | 98% / 55% | 16/30 / 17/30 |
+| v2-r10-multi, fixed schema | 100% / 63% | 100% / 70% | 20/30 / 22/30 |
+
+The count -> patrol and follow -> monitor substitutions are gone. The
+remaining r8 errors are a missing record or hover step and an extra
+area_search. Making every parameter optional instead (first attempt) let the
+model write empty `params` and then pick inspect or record, 87% valid, so the
+expansion keeps the required keys. The fixed-schema runs shared the GPU with
+LoRA training, so their latency (2.8–3.3 s p50) is not comparable; it will be
+re-measured on an idle GPU. The identity schema has no such object and is
+unchanged.
