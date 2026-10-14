@@ -54,7 +54,9 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 | `goto` | `home` / `finding:N` / 主机提供的 `poi:`、`zone:` 引用，先调高度再分段飞，带障碍检查 |
 | `hover` / `return_home` / `land` / `record` | 悬停计时；先爬回巡航高度再回家；停止；记录当前帧为证据 |
 
-`survey`、`patrol`、`follow`、`monitor`、`deliver` 目前按 `skill_not_implemented` 走 `on_fail`。任务计划暂由主机模板生成（`plan_for_find_task`、`plan_for_find_and_inspect`），慢系统从任务文字生成计划还没训练。
+`survey`（在区域内按“之”字航线覆盖并统计覆盖率）、`patrol`（沿主机给出的航线飞若干圈，边飞边判断并告警）、`monitor`（到区域中心悬停并定时转向扫视，判断并告警）、`follow`（跟住上一步找到的目标并保持距离，丢失超时或到时结束）已实现（与 Codex 协作，`771b262`）；只有需要 payload 授权的 `deliver` 仍未实现。
+
+机上从任务文字生成计划（`mission: "from_text"`，`8f4bf68`）：起飞时用同一个慢系统服务把任务句子编译成计划，失败就退回只有“返航”的安全计划；计划里不认识的地点会被拒绝并带着已知地点列表重试（`13d2202`），已知地点可带标签（如 `zone:site (场地 / the site)`）。感知步骤按该步骤的查询词判断候选。
 
 仿真实飞（Gazebo + PX4 SITL，慢系统 v2-r4-prop）：“找到 → 绕飞 4 个视角 → 返航”在 gen_v2_w0035（SUV）和 gen_v2_w0038（邮筒）上都完整执行，分别 46 步和 32 步，定位误差约 0.5 m，4 个视角都拍到并得到身份答案，最后回到起飞点。
 
