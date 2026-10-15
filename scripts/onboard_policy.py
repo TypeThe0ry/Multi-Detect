@@ -841,7 +841,10 @@ class OnboardPolicy:
             self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
             if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
                 action, info = self.supervisor.next_action(
-                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                    pose_ned=tuple(pose_ned),
+                    yaw_deg=yaw_deg,
+                    landed=observation.get("landed"),
+                    timestamp_s=_observation_timestamp_s(observation),
                 )
                 return action, {
                     "onboard": {
@@ -898,6 +901,7 @@ class OnboardPolicy:
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
+                landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
             )
         current = self.loop.update_tracks(
@@ -950,14 +954,27 @@ class OnboardPolicy:
         return action, labels
 
     def _act_mission(
-        self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, timestamp_s=None
+        self,
+        frame_path,
+        detections,
+        fast_s,
+        *,
+        pose_ned,
+        yaw_deg,
+        ground_point,
+        landed=None,
+        timestamp_s=None,
     ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            landed=landed,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -985,6 +1002,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_id=frame_path.name,
+            landed=landed,
             timestamp_s=timestamp_s,
         )
         confirmed = None

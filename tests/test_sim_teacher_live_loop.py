@@ -44,10 +44,37 @@ def test_build_observation_uses_live_mavlink_and_converts_rgb() -> None:
     )
     observation = build_observation(sensor, state)
     assert observation["sensor_status"] == "live"
+    assert observation["landed"] is None
     assert observation["pose"]["local_ned_m"] == [1.0, 2.0, -3.0]
     assert observation["rgb"].shape == (1, 2, 3)
     assert observation["frame_pose_skew_ns"] == 10
     assert observation["pose_time_boot_ms"] is None
+
+
+def test_build_observation_exposes_known_mavlink_landed_state() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]),
+        width=1,
+        height=1,
+        depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0},
+        pose={},
+        velocity=[0.0, 0.0, 0.0],
+        sensor_stamp_ns=10,
+        received_monotonic_ns=100,
+        received_wall_time=1.0,
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 1, "y": 2, "z": -3, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 1.0},
+        "GLOBAL_POSITION_INT": {"lat": 10_000_000, "lon": 20_000_000, "relative_alt": 4000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+    }
+    for landed_state, expected in ((1, True), (2, False), (3, False), (4, False), (0, None)):
+        state = MavlinkState(
+            messages={**messages, "EXTENDED_SYS_STATE": {"landed_state": landed_state}}
+        )
+        assert build_observation(sensor, state)["landed"] is expected
 
 
 def test_latest_wins_buffer_drops_old_frames() -> None:
