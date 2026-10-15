@@ -1,0 +1,5362 @@
+{
+  "schema_version": 1,
+  "execution": "offline CPU geometry only",
+  "source": {
+    "path": "D:\\Projects\\mdwt\\dem\\scripts\\replay_ground_projection.py",
+    "sha256": "a18faf8db19d961845d49bbd70955d551260c0ad98cce7707012149936249b35"
+  },
+  "geometry_sources": [
+    {
+      "path": "D:\\Projects\\mdwt\\dem\\src\\multidetect\\autonomy\\ground_model.py",
+      "sha256": "309786f863c171588840b50c0125ef3fe700eb50cf90225676b916241e478c08"
+    },
+    {
+      "path": "D:\\Projects\\mdwt\\dem\\src\\multidetect\\simulator\\camera_projection.py",
+      "sha256": "daeab0992847216301b241178d9319720a91b7e12c0283eaf33a7096d76d3ca7"
+    },
+    {
+      "path": "D:\\Projects\\mdwt\\dem\\src\\multidetect\\terrain_dem.py",
+      "sha256": "608ab60343b5a9ce2402f25296ac5f62bcb335f66aebad37ae736559741721c7"
+    }
+  ],
+  "semantics": "Per-observation bbox bottom-centre ground hit versus object truth N/E; not flight-policy counterfactual.",
+  "replay": {
+    "association": {
+      "minimum_iou": 0.1,
+      "sources": {
+        "segmentation": 212
+      },
+      "method": "maximum image-space IoU to visible scenario object bbox; no ground matching",
+      "fallback_limitation": "Projected boxes ignore rendered occlusion; ambiguous overlapping boxes can misassociate."
+    },
+    "flat": {
+      "count": 212,
+      "mean_m": 2.293844129549457,
+      "median_m": 1.5485917589590315,
+      "rmse_m": 3.487272232053415,
+      "p95_m": 8.31394994364887,
+      "max_m": 18.493248782149486
+    },
+    "dem": {
+      "count": 212,
+      "mean_m": 2.293844129549456,
+      "median_m": 1.548591758959013,
+      "rmse_m": 3.487272232053424,
+      "p95_m": 8.3139499436489,
+      "max_m": 18.493248782149657
+    },
+    "flat_dem_position_difference": {
+      "count": 212,
+      "mean_m": 1.4309685364218578e-13,
+      "median_m": 1.2409095402129096e-13,
+      "rmse_m": 1.7618660197283592e-13,
+      "p95_m": 3.2171190647067566e-13,
+      "max_m": 4.1504454959835567e-13
+    },
+    "skip_counts": {
+      "track_no_image_association": 19,
+      "episode_missing_steps": 4
+    },
+    "default_equivalence": {
+      "checked": 231,
+      "exact_equal": 231
+    },
+    "stored_ground_ne_equivalence": {
+      "checked": 231,
+      "exact_equal": 0,
+      "difference": {
+        "count": 231,
+        "mean_m": 0.01775978639880551,
+        "median_m": 0.006441851857610496,
+        "rmse_m": 0.06862957469808871,
+        "p95_m": 0.061105902053112865,
+        "max_m": 0.9724369580804619
+      },
+      "limitation": "Recorded bboxes may be rounded; ground_ne may preserve unrounded or smoothed tracks. Differences are not compatibility failures."
+    },
+    "episodes": [
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "world": "gen_v2_w0034",
+        "steps": 80,
+        "track_boxes": 81,
+        "flat": {
+          "count": 75,
+          "mean_m": 2.660921839949339,
+          "median_m": 1.9860220798903852,
+          "rmse_m": 3.4365577776083014,
+          "p95_m": 8.677543399625637,
+          "max_m": 9.646730601428299
+        },
+        "dem": {
+          "count": 75,
+          "mean_m": 2.6609218399492964,
+          "median_m": 1.9860220798902142,
+          "rmse_m": 3.436557777608278,
+          "p95_m": 8.677543399625637,
+          "max_m": 9.646730601427924
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546\\episode.json",
+            "sha256": "d17ee402ebca57ef0be43ac1a5fa9eea0f33d95696ef9d304a1a1531dc4d1372"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546\\steps.jsonl",
+            "sha256": "3644e9b9777a8bcbe84def9033cd88051436271ba658c4c8d569f85ba34d4a6e"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0034.truth.json",
+            "sha256": "e00da582f9b1c377edfa2c2212142bd1df1df52f94a0c495a01e148362f3dac1"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0034.dem.json",
+            "sha256": "4324d7e7c75abb60f40dcd618484c6f8f15d9c86a628f390e7a5a34f7843bc33"
+          },
+          "segmentation_files": 54,
+          "segmentation_manifest_sha256": "8a765925abb3b22a3231496515c089d93d9977d4acd78bc1b4585e3d890063a1"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "world": "gen_v2_w0035",
+        "steps": 13,
+        "track_boxes": 16,
+        "flat": {
+          "count": 15,
+          "mean_m": 1.409194090143395,
+          "median_m": 1.360820894898243,
+          "rmse_m": 1.6877047436201764,
+          "p95_m": 4.291008065493269,
+          "max_m": 4.291008065493269
+        },
+        "dem": {
+          "count": 15,
+          "mean_m": 1.4091940901434228,
+          "median_m": 1.3608208948981404,
+          "rmse_m": 1.6877047436202057,
+          "p95_m": 4.291008065493214,
+          "max_m": 4.291008065493214
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301\\episode.json",
+            "sha256": "0cf35122082165bd1b41a334710ea509fb1bb98e728c1da5a19fa7f78ab381e1"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301\\steps.jsonl",
+            "sha256": "00a8bc4afc6c3582e22ca5e9b628b7334ba131eadcb4c8aaf3ebee5f8f93d062"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0035.truth.json",
+            "sha256": "6adf93800474fe037e52c4cb74606b2adb89392384fe3a124021a4a3b7e16586"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0035.dem.json",
+            "sha256": "c9b8a92e4afe8ccdae7537b40b0f9a7ab14324875ccc8821b3e6980e05292339"
+          },
+          "segmentation_files": 13,
+          "segmentation_manifest_sha256": "42002d2a8a188f8e1dd505e57d00ea3a32ac6610c96de9b5c4564bf2ab285f11"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "world": "gen_v2_w0036",
+        "steps": 51,
+        "track_boxes": 42,
+        "flat": {
+          "count": 41,
+          "mean_m": 2.181711917701477,
+          "median_m": 2.0212090547285873,
+          "rmse_m": 2.912630621517183,
+          "p95_m": 7.638391036553883,
+          "max_m": 8.31394994364887
+        },
+        "dem": {
+          "count": 41,
+          "mean_m": 2.1817119177014908,
+          "median_m": 2.0212090547283883,
+          "rmse_m": 2.912630621517199,
+          "p95_m": 7.638391036553985,
+          "max_m": 8.3139499436489
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed\\episode.json",
+            "sha256": "4aaff54393e7d2bbb7cb0d62d9c32c560737ea647150ef4baed52cb05dbfde67"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed\\steps.jsonl",
+            "sha256": "0239a8d6a0e55da9f0894f205e2811b549e697096cf2ff0d387992292a003c01"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0036.truth.json",
+            "sha256": "7e53aacfe3cecdd436b5c393f9a9d9892822d2dd0b84c6e3ffad365c0c187d80"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0036.dem.json",
+            "sha256": "dba2e2d8eee6e4881607e1e7c88f4e37e69e93e80adf4e5e38ab9ae8e8d4816c"
+          },
+          "segmentation_files": 29,
+          "segmentation_manifest_sha256": "8e6c6b168ee3c432f5c22f154c9b82780ae50bf911019f9a6edabb0ffd32dc75"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "world": "gen_v2_w0037",
+        "steps": 16,
+        "track_boxes": 23,
+        "flat": {
+          "count": 20,
+          "mean_m": 1.8560354370304182,
+          "median_m": 1.894101145912523,
+          "rmse_m": 2.200259871563798,
+          "p95_m": 3.2284218367107806,
+          "max_m": 5.026597703901971
+        },
+        "dem": {
+          "count": 20,
+          "mean_m": 1.8560354370303707,
+          "median_m": 1.8941011459125152,
+          "rmse_m": 2.2002598715637633,
+          "p95_m": 3.2284218367107553,
+          "max_m": 5.026597703901971
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9\\episode.json",
+            "sha256": "1a963e337bae97994f43025e239f12d698179b4a95895803e259fff2ac928a0a"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9\\steps.jsonl",
+            "sha256": "d867fcc4f4de46206db2d6444d2c30741c9cb88a04558d8113fc70b7f32e7f63"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0037.truth.json",
+            "sha256": "5f13f1113d7f04703964eda80814ac3d2368fe1ac871768d4203c989aa00c638"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0037.dem.json",
+            "sha256": "c5bf6917b385f5a5d6e0bd0aef4d6e31f1a21b360a6420a78e2afaf8fce7a9be"
+          },
+          "segmentation_files": 14,
+          "segmentation_manifest_sha256": "fab96d28a55cda0491c2ed335e6c45784d265957842cbd27337fde660825f886"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "world": "gen_v2_w0038",
+        "steps": 30,
+        "track_boxes": 20,
+        "flat": {
+          "count": 20,
+          "mean_m": 0.9159412019622543,
+          "median_m": 0.7772105810059885,
+          "rmse_m": 1.188119552887418,
+          "p95_m": 2.2292096870974496,
+          "max_m": 3.1919965930488994
+        },
+        "dem": {
+          "count": 20,
+          "mean_m": 0.9159412019622526,
+          "median_m": 0.7772105810060137,
+          "rmse_m": 1.1881195528874178,
+          "p95_m": 2.229209687097495,
+          "max_m": 3.1919965930488994
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c\\episode.json",
+            "sha256": "8f7fcd892e1650b033f48359cc04e8e140ff9be8f2dfe664b3b976c4c8e13afb"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c\\steps.jsonl",
+            "sha256": "0600a2441b6b14b70c0595718a89f6b74530d44e1eada9d68731f5e98019748e"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0038.truth.json",
+            "sha256": "a4d2be1e75d0b82fa0f84cd8042f5404bb1965edf4d84a917cee5be6c23025c2"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0038.dem.json",
+            "sha256": "8ec9e4ea83fc6c651a634edc707c4cf2147747ee19e6e4e5f4407bee79200c77"
+          },
+          "segmentation_files": 14,
+          "segmentation_manifest_sha256": "6b8f0b2a7666bb54044f6b8aed46afd7eb9513abdef1b8e851a0bb10733a4802"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "world": "gen_v2_w0038",
+        "steps": 9,
+        "track_boxes": 9,
+        "flat": {
+          "count": 9,
+          "mean_m": 0.23974785565051682,
+          "median_m": 0.21344364614633884,
+          "rmse_m": 0.27095936623401784,
+          "p95_m": 0.5085720026348333,
+          "max_m": 0.5085720026348333
+        },
+        "dem": {
+          "count": 9,
+          "mean_m": 0.23974785565060444,
+          "median_m": 0.2134436461461962,
+          "rmse_m": 0.270959366234081,
+          "p95_m": 0.5085720026350066,
+          "max_m": 0.5085720026350066
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619\\episode.json",
+            "sha256": "85c5eb379e8ff103d65027f163336d30e28a59a3b172e9ce36829ddc81388da7"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619\\steps.jsonl",
+            "sha256": "883800d49079f58a535990de2a542aedecf6011298ba364b23a5d182e0c5deeb"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0038.truth.json",
+            "sha256": "a4d2be1e75d0b82fa0f84cd8042f5404bb1965edf4d84a917cee5be6c23025c2"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0038.dem.json",
+            "sha256": "8ec9e4ea83fc6c651a634edc707c4cf2147747ee19e6e4e5f4407bee79200c77"
+          },
+          "segmentation_files": 6,
+          "segmentation_manifest_sha256": "d5d600204e5fb696c0cf88949cc91cfc1e20fdcf88ec8849fb80f5b79d0f1988"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "world": "gen_v2_w0039",
+        "steps": 14,
+        "track_boxes": 20,
+        "flat": {
+          "count": 17,
+          "mean_m": 3.4895282681788133,
+          "median_m": 0.8922256805483711,
+          "rmse_m": 5.71192136315668,
+          "p95_m": 12.547924898935877,
+          "max_m": 12.547924898935877
+        },
+        "dem": {
+          "count": 17,
+          "mean_m": 3.489528268178854,
+          "median_m": 0.8922256805484199,
+          "rmse_m": 5.711921363156739,
+          "p95_m": 12.54792489893608,
+          "max_m": 12.54792489893608
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b\\episode.json",
+            "sha256": "540c8d588b3a72e1da0d2cd8077e8811ffdedef18ffe8d8dfe74c1d14f671f6a"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b\\steps.jsonl",
+            "sha256": "b79dd61b0bc8a0db0fb27f5e68327655cdc89b00a7faf951f89bd5950cd644bd"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0039.truth.json",
+            "sha256": "af0fef46f97afbc154619ffcfee401a2eb86bb3950e04ac270d66cd475a96ed9"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0039.dem.json",
+            "sha256": "7dfedab1367275938032c76928379e7d3a55059092c56ac3864e21ce2aba1887"
+          },
+          "segmentation_files": 13,
+          "segmentation_manifest_sha256": "51d9859cb32a916aef147b19372b0659e5988dcf5749cb89b2af72b6115e7c90"
+        }
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "world": "gen_v2_w0039",
+        "steps": 12,
+        "track_boxes": 20,
+        "flat": {
+          "count": 15,
+          "mean_m": 3.94789823004167,
+          "median_m": 1.2941610347458088,
+          "rmse_m": 6.436859187382501,
+          "p95_m": 18.493248782149486,
+          "max_m": 18.493248782149486
+        },
+        "dem": {
+          "count": 15,
+          "mean_m": 3.9478982300417713,
+          "median_m": 1.2941610347460406,
+          "rmse_m": 6.436859187382561,
+          "p95_m": 18.493248782149657,
+          "max_m": 18.493248782149657
+        },
+        "dem_local_height_extent_m": [
+          0.0,
+          0.0
+        ],
+        "sources": {
+          "episode": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea\\episode.json",
+            "sha256": "58b703927ed0cc7bf7c622f70b7094a76b8ad3fad7cb2836afaadb4a7495928c"
+          },
+          "steps": {
+            "path": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea\\steps.jsonl",
+            "sha256": "fcee4be770913c1178ccf9712a08b588f7f2ca3574969abcac761d67b24819be"
+          },
+          "truth": {
+            "path": "D:\\Projects\\mdwt\\dem\\configs\\scenarios\\generated-v2\\gen_v2_w0039.truth.json",
+            "sha256": "af0fef46f97afbc154619ffcfee401a2eb86bb3950e04ac270d66cd475a96ed9"
+          },
+          "dem": {
+            "path": "D:\\Projects\\mdwt\\dem\\simulation\\terrain\\gen_v2_w0039.dem.json",
+            "sha256": "7dfedab1367275938032c76928379e7d3a55059092c56ac3864e21ce2aba1887"
+          },
+          "segmentation_files": 11,
+          "segmentation_manifest_sha256": "78fbd068b050d1acfdc81833defd54b099dbee53126b5715d4251cee191e5fc4"
+        }
+      }
+    ],
+    "hits": [
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 0,
+        "track_id": "t1",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9284308648368718,
+        "flat_ne": [
+          32.10206394903641,
+          90.90928803708148
+        ],
+        "dem_ne": [
+          32.10206394903644,
+          90.90928803708157
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 0.6637074521429589,
+        "dem_error_m": 0.663707452142884
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 1,
+        "track_id": "t2",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9829240481686422,
+        "flat_ne": [
+          -39.63210717577656,
+          -7.291391300843883
+        ],
+        "dem_ne": [
+          -39.63210717577656,
+          -7.291391300843883
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.0996480656576386,
+        "dem_error_m": 1.0996480656576386
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 1,
+        "track_id": "t3",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9221473684210555,
+        "flat_ne": [
+          -71.50441213302396,
+          -92.6736862953618
+        ],
+        "dem_ne": [
+          -71.50441213302422,
+          -92.67368629536213
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.9067200189226698,
+        "dem_error_m": 1.9067200189222722
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 2,
+        "track_id": "t3",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9792513368983936,
+        "flat_ne": [
+          -72.20924660903638,
+          -91.95115938935264
+        ],
+        "dem_ne": [
+          -72.20924660903651,
+          -91.9511593893528
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 2.4978577253274135,
+        "dem_error_m": 2.4978577253272576
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 4,
+        "track_id": "t1",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9294998030720792,
+        "flat_ne": [
+          33.81171793724402,
+          88.82811497335173
+        ],
+        "dem_ne": [
+          33.81171793724413,
+          88.82811497335203
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.7582289441784815,
+        "dem_error_m": 2.758228944178261
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 10,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9304574762050922,
+        "flat_ne": [
+          34.33767578393801,
+          89.72456534716476
+        ],
+        "dem_ne": [
+          34.33767578393799,
+          89.72456534716487
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.339293126938958,
+        "dem_error_m": 2.339293126938865
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 11,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9345972406524399,
+        "flat_ne": [
+          33.668362389263784,
+          88.51759155746845
+        ],
+        "dem_ne": [
+          33.668362389263756,
+          88.51759155746858
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.988459891036218,
+        "dem_error_m": 2.9884598910360882
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 12,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9321630434782615,
+        "flat_ne": [
+          34.167656189015176,
+          88.59915977411397
+        ],
+        "dem_ne": [
+          34.16765618901513,
+          88.59915977411423
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 3.126000686404724,
+        "dem_error_m": 3.1260006864044807
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 13,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9561194448338713,
+        "flat_ne": [
+          33.69893513777039,
+          87.5392014400665
+        ],
+        "dem_ne": [
+          33.69893513777038,
+          87.53920144006655
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 3.928441833181871,
+        "dem_error_m": 3.928441833181826
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 14,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9427573801714101,
+        "flat_ne": [
+          33.617332627998266,
+          87.76314997577943
+        ],
+        "dem_ne": [
+          33.617332627998195,
+          87.76314997577973
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 3.690756391214535,
+        "dem_error_m": 3.690756391214228
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 15,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9451219512195109,
+        "flat_ne": [
+          33.616145186799585,
+          87.71322899841823
+        ],
+        "dem_ne": [
+          33.61614518679958,
+          87.71322899841824
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 3.738548214903855,
+        "dem_error_m": 3.7385482149038394
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 16,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9712624370073624,
+        "flat_ne": [
+          32.63323494431077,
+          92.53378313143847
+        ],
+        "dem_ne": [
+          32.63323494431074,
+          92.53378313143854
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 1.2158110202651298,
+        "dem_error_m": 1.2158110202652006
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 17,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9552098662886763,
+        "flat_ne": [
+          32.963558925732265,
+          91.44596213431673
+        ],
+        "dem_ne": [
+          32.963558925732265,
+          91.44596213431673
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 0.3619343227878211,
+        "dem_error_m": 0.3619343227878211
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 18,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9699093322646901,
+        "flat_ne": [
+          33.11019627402949,
+          91.02788353078748
+        ],
+        "dem_ne": [
+          33.110196274029434,
+          91.0278835307876
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 0.565316716576151,
+        "dem_error_m": 0.5653167165760365
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 19,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9328665945787444,
+        "flat_ne": [
+          33.647447138935036,
+          89.38193058690607
+        ],
+        "dem_ne": [
+          33.647447138934936,
+          89.38193058690628
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.1894663560407417,
+        "dem_error_m": 2.1894663560405068
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 20,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9476937548291727,
+        "flat_ne": [
+          32.508807499208174,
+          91.23658327613138
+        ],
+        "dem_ne": [
+          32.508807499208146,
+          91.23658327613143
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 0.14187804680695504,
+        "dem_error_m": 0.14187804680695384
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 21,
+        "track_id": "t6",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.8746454341876058,
+        "flat_ne": [
+          -36.77159895969573,
+          -6.7840791526632955
+        ],
+        "dem_ne": [
+          -36.77159895969579,
+          -6.784079152663338
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 3.997154489051403,
+        "dem_error_m": 3.9971544890513386
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 21,
+        "track_id": "t5",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9421192447173206,
+        "flat_ne": [
+          34.38639224621075,
+          87.43834594098367
+        ],
+        "dem_ne": [
+          34.38639224621075,
+          87.43834594098367
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 4.260776720581969,
+        "dem_error_m": 4.260776720581969
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 22,
+        "track_id": "t6",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9317588982694336,
+        "flat_ne": [
+          -36.945476556933635,
+          -5.400341474101523
+        ],
+        "dem_ne": [
+          -36.94547655693368,
+          -5.400341474101559
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 4.348283421328874,
+        "dem_error_m": 4.348283421328819
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 23,
+        "track_id": "t6",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9162864307148397,
+        "flat_ne": [
+          -37.313034880102144,
+          -2.931982824895492
+        ],
+        "dem_ne": [
+          -37.313034880102144,
+          -2.931982824895492
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 5.7795979678569624,
+        "dem_error_m": 5.7795979678569624
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 23,
+        "track_id": "t7",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.8352272727272727,
+        "flat_ne": [
+          -69.36396493176923,
+          -85.22857070477201
+        ],
+        "dem_ne": [
+          -69.36396493176949,
+          -85.22857070477232
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 9.646730601428299,
+        "dem_error_m": 9.646730601427924
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 24,
+        "track_id": "t6",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9151134895737222,
+        "flat_ne": [
+          -36.374126130491746,
+          -5.271506525299245
+        ],
+        "dem_ne": [
+          -36.37412613049179,
+          -5.271506525299273
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 4.908211460582294,
+        "dem_error_m": 4.908211460582243
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 25,
+        "track_id": "t6",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.8787082238077383,
+        "flat_ne": [
+          -39.4261889153213,
+          -7.049839127210184
+        ],
+        "dem_ne": [
+          -39.426188915321326,
+          -7.0498391272102054
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.3801372945422072,
+        "dem_error_m": 1.3801372945421724
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 29,
+        "track_id": "t8",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.9664055834340877,
+        "flat_ne": [
+          32.99968958013855,
+          88.60877897277025
+        ],
+        "dem_ne": [
+          32.99968958013848,
+          88.60877897277042
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.735008383140388,
+        "dem_error_m": 2.735008383140209
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 40,
+        "track_id": "t11",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.8492946552751723,
+        "flat_ne": [
+          -70.02046204873639,
+          25.529929243689693
+        ],
+        "dem_ne": [
+          -70.02046204873658,
+          25.52992924368948
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 4.599205778490985,
+        "dem_error_m": 4.599205778491265
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 40,
+        "track_id": "t12",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.3569641367806518,
+        "flat_ne": [
+          -68.14840918502492,
+          27.733260527535265
+        ],
+        "dem_ne": [
+          -68.14840918502497,
+          27.7332605275352
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 1.7837341178593242,
+        "dem_error_m": 1.7837341178594046
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 41,
+        "track_id": "t13",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9122632103688865,
+        "flat_ne": [
+          -72.67038783791985,
+          -93.17429846051348
+        ],
+        "dem_ne": [
+          -72.67038783791989,
+          -93.17429846051368
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.358723199489946,
+        "dem_error_m": 1.3587231994897742
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 42,
+        "track_id": "t12",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.37385538364382653,
+        "flat_ne": [
+          -67.33700704058744,
+          28.36789617191815
+        ],
+        "dem_ne": [
+          -67.33700704058747,
+          28.36789617191809
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 0.7873931134593906,
+        "dem_error_m": 0.7873931134594343
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 42,
+        "track_id": "t11",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.9163636363636325,
+        "flat_ne": [
+          -68.39075006657472,
+          26.608049987727544
+        ],
+        "dem_ne": [
+          -68.39075006657474,
+          26.60804998772752
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 2.678613457492407,
+        "dem_error_m": 2.678613457492435
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 43,
+        "track_id": "t14",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.8860639153645509,
+        "flat_ne": [
+          -41.5402659061551,
+          -6.205262452932594
+        ],
+        "dem_ne": [
+          -41.54026590615504,
+          -6.205262452932921
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.6662022824481018,
+        "dem_error_m": 1.6662022824477927
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 43,
+        "track_id": "t11",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.8435146443514626,
+        "flat_ne": [
+          -68.05362781552195,
+          26.8178065957431
+        ],
+        "dem_ne": [
+          -68.053627815522,
+          26.817806595743004
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 2.2985600220847155,
+        "dem_error_m": 2.2985600220848257
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 43,
+        "track_id": "t13",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.8214849921011094,
+        "flat_ne": [
+          -72.80462544172454,
+          -91.72122770364584
+        ],
+        "dem_ne": [
+          -72.80462544172454,
+          -91.7212277036459
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 2.7939781004041246,
+        "dem_error_m": 2.793978100404069
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 43,
+        "track_id": "t12",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.3324903999250721,
+        "flat_ne": [
+          -67.15123019932804,
+          28.445090801305938
+        ],
+        "dem_ne": [
+          -67.1512301993281,
+          28.445090801305835
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 0.588148545278043,
+        "dem_error_m": 0.5881485452781221
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 44,
+        "track_id": "t14",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9538775659022124,
+        "flat_ne": [
+          -41.03262858039588,
+          -7.140173009055417
+        ],
+        "dem_ne": [
+          -41.03262858039582,
+          -7.140173009055694
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 0.6055349412489035,
+        "dem_error_m": 0.6055349412486456
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 44,
+        "track_id": "t12",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.8777443956551938,
+        "flat_ne": [
+          -66.95920354608198,
+          28.143589484242995
+        ],
+        "dem_ne": [
+          -66.959203546082,
+          28.14358948424297
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 0.5795538764844269,
+        "dem_error_m": 0.579553876484455
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 44,
+        "track_id": "t11",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.3149776611587843,
+        "flat_ne": [
+          -67.92518358282469,
+          26.79055545998547
+        ],
+        "dem_ne": [
+          -67.92518358282477,
+          26.79055545998535
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 2.2400673850432646,
+        "dem_error_m": 2.2400673850434125
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 44,
+        "track_id": "t13",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.8828842167604379,
+        "flat_ne": [
+          -72.65757841935742,
+          -98.57616085919992
+        ],
+        "dem_ne": [
+          -72.65757841935742,
+          -98.57616085919997
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 4.1524492492471765,
+        "dem_error_m": 4.152449249247233
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 49,
+        "track_id": "t15",
+        "target_id": "distractor_0034_04",
+        "association_source": "segmentation",
+        "iou": 0.38095238095238027,
+        "flat_ne": [
+          -6.832063467642243,
+          110.2530659751169
+        ],
+        "dem_ne": [
+          -6.832063467642193,
+          110.25306597511697
+        ],
+        "truth_ne": [
+          -7.925,
+          111.162
+        ],
+        "flat_error_m": 1.4215031921710224,
+        "dem_error_m": 1.4215031921710153
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 51,
+        "track_id": "t15",
+        "target_id": "distractor_0034_04",
+        "association_source": "segmentation",
+        "iou": 0.3724796604174118,
+        "flat_ne": [
+          -7.81911669283393,
+          110.38424833995907
+        ],
+        "dem_ne": [
+          -7.819116692833887,
+          110.38424833995913
+        ],
+        "truth_ne": [
+          -7.925,
+          111.162
+        ],
+        "flat_error_m": 0.7849260598507691,
+        "dem_error_m": 0.7849260598507185
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 52,
+        "track_id": "t16",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9464196294441644,
+        "flat_ne": [
+          -37.340600472727886,
+          -6.089382358570475
+        ],
+        "dem_ne": [
+          -37.340600472727814,
+          -6.089382358570809
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 3.676250883305279,
+        "dem_error_m": 3.6762508833052037
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 52,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9174531119340568,
+        "flat_ne": [
+          -62.85287683138026,
+          -95.7087570514908
+        ],
+        "dem_ne": [
+          -62.85287683138026,
+          -95.7087570514908
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 9.43163291048421,
+        "dem_error_m": 9.43163291048421
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 52,
+        "track_id": "t18",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.47744462452728503,
+        "flat_ne": [
+          -66.54768139724108,
+          25.878936928068473
+        ],
+        "dem_ne": [
+          -66.54768139724109,
+          25.878936928068455
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 2.7022445669433415,
+        "dem_error_m": 2.7022445669433592
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 52,
+        "track_id": "t19",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.6113130596684134,
+        "flat_ne": [
+          -65.49937405061257,
+          27.308684291838162
+        ],
+        "dem_ne": [
+          -65.49937405061269,
+          27.308684291838027
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 1.6686459935606612,
+        "dem_error_m": 1.6686459935606908
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 53,
+        "track_id": "t16",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9776664675336616,
+        "flat_ne": [
+          -40.949807023809385,
+          -7.314986013271117
+        ],
+        "dem_ne": [
+          -40.94980702380935,
+          -7.314986013271223
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 0.41682598047674485,
+        "dem_error_m": 0.4168259804766409
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 53,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.8920463650445948,
+        "flat_ne": [
+          -72.59034876547442,
+          -103.58808145085821
+        ],
+        "dem_ne": [
+          -72.59034876547443,
+          -103.58808145085841
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 9.147413947347527,
+        "dem_error_m": 9.147413947347728
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 54,
+        "track_id": "t16",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9457729875378925,
+        "flat_ne": [
+          -40.78490253894236,
+          -7.178687287517718
+        ],
+        "dem_ne": [
+          -40.78490253894228,
+          -7.178687287517953
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 0.4647740770583094,
+        "dem_error_m": 0.46477407705806323
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 54,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.863157894736843,
+        "flat_ne": [
+          -72.45419442553782,
+          -103.12281949583988
+        ],
+        "dem_ne": [
+          -72.45419442553782,
+          -103.12281949583988
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 8.677543399625637,
+        "dem_error_m": 8.677543399625637
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 55,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9249999999999982,
+        "flat_ne": [
+          -72.77917106814569,
+          -101.15710313240606
+        ],
+        "dem_ne": [
+          -72.77917106814571,
+          -101.15710313240633
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 6.733059242363243,
+        "dem_error_m": 6.733059242363514
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 56,
+        "track_id": "t16",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9470267462996608,
+        "flat_ne": [
+          -41.72930994427577,
+          -6.378367608469205
+        ],
+        "dem_ne": [
+          -41.72930994427561,
+          -6.378367608469446
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.6353410981337464,
+        "dem_error_m": 1.6353410981334608
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 56,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9192712830253909,
+        "flat_ne": [
+          -72.54846591572009,
+          -100.57852685693742
+        ],
+        "dem_ne": [
+          -72.5484659157201,
+          -100.57852685693764
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 6.139424075948471,
+        "dem_error_m": 6.139424075948698
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 57,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9009900990098992,
+        "flat_ne": [
+          -71.94272860797467,
+          -92.8128719501396
+        ],
+        "dem_ne": [
+          -71.9427286079747,
+          -92.8128719501398
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.6562317364108976,
+        "dem_error_m": 1.6562317364106967
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 58,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9383673469387739,
+        "flat_ne": [
+          -71.8640866237071,
+          -91.36189648244667
+        ],
+        "dem_ne": [
+          -71.86408662370712,
+          -91.36189648244692
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 3.1053254136181363,
+        "dem_error_m": 3.1053254136178787
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 59,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9351241763811481,
+        "flat_ne": [
+          -72.46314671893735,
+          -96.22549848792657
+        ],
+        "dem_ne": [
+          -72.46314671893737,
+          -96.2254984879267
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.795882254852165,
+        "dem_error_m": 1.7958822548522935
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 60,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9086752496691125,
+        "flat_ne": [
+          -72.47362479778909,
+          -95.86323055985537
+        ],
+        "dem_ne": [
+          -72.4736247977891,
+          -95.86323055985558
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.4404577766786317,
+        "dem_error_m": 1.4404577766788438
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 61,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9373156007444003,
+        "flat_ne": [
+          -72.41559244029732,
+          -94.7651100758526
+        ],
+        "dem_ne": [
+          -72.41559244029733,
+          -94.76511007585282
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 0.3826299522631381,
+        "dem_error_m": 0.38262995226332225
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 62,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9756381862687922,
+        "flat_ne": [
+          -72.3207380213931,
+          -92.17813971865762
+        ],
+        "dem_ne": [
+          -72.32073802139311,
+          -92.17813971865777
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 2.274067740237373,
+        "dem_error_m": 2.2740677402372174
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 63,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9717868338558001,
+        "flat_ne": [
+          -72.32493265171863,
+          -95.191214279354
+        ],
+        "dem_ne": [
+          -72.32493265171863,
+          -95.19121427935401
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 0.7526554350713394,
+        "dem_error_m": 0.7526554350713534
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 64,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.9769697347699313,
+        "flat_ne": [
+          -72.17569576171962,
+          -92.46312663902913
+        ],
+        "dem_ne": [
+          -72.17569576171967,
+          -92.4631266390293
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.9860220798903852,
+        "dem_error_m": 1.9860220798902142
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 65,
+        "track_id": "t17",
+        "target_id": "distractor_0034_02",
+        "association_source": "segmentation",
+        "iou": 0.8628659476117105,
+        "flat_ne": [
+          -70.77980635187255,
+          -93.73887978443896
+        ],
+        "dem_ne": [
+          -70.7798063518726,
+          -93.73887978443909
+        ],
+        "truth_ne": [
+          -72.2,
+          -94.449
+        ],
+        "flat_error_m": 1.587835230346653,
+        "dem_error_m": 1.5878352303465577
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 66,
+        "track_id": "t20",
+        "target_id": "distractor_0034_03",
+        "association_source": "segmentation",
+        "iou": 0.8502772643253215,
+        "flat_ne": [
+          -16.339428389849417,
+          -89.68472995210067
+        ],
+        "dem_ne": [
+          -16.339428389849303,
+          -89.68472995210078
+        ],
+        "truth_ne": [
+          -16.644,
+          -89.46
+        ],
+        "flat_error_m": 0.3785068256727864,
+        "dem_error_m": 0.37850682567294536
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 67,
+        "track_id": "t20",
+        "target_id": "distractor_0034_03",
+        "association_source": "segmentation",
+        "iou": 0.883209317373022,
+        "flat_ne": [
+          -17.033737912635047,
+          -89.51117730819163
+        ],
+        "dem_ne": [
+          -17.033737912634983,
+          -89.5111773081917
+        ],
+        "truth_ne": [
+          -16.644,
+          -89.46
+        ],
+        "flat_error_m": 0.39308365193539524,
+        "dem_error_m": 0.39308365193534106
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 67,
+        "track_id": "t17",
+        "target_id": "distractor_0034_03",
+        "association_source": "segmentation",
+        "iou": 0.6854430379746839,
+        "flat_ne": [
+          -17.028947055329432,
+          -89.43886633291578
+        ],
+        "dem_ne": [
+          -17.028947055329322,
+          -89.43886633291592
+        ],
+        "truth_ne": [
+          -16.644,
+          -89.46
+        ],
+        "flat_error_m": 0.3855267400469501,
+        "dem_error_m": 0.3855267400468323
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 68,
+        "track_id": "t21",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9532105438071754,
+        "flat_ne": [
+          -40.75550217392336,
+          -9.167018614624354
+        ],
+        "dem_ne": [
+          -40.75550217392333,
+          -9.167018614624212
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.5379726172579815,
+        "dem_error_m": 1.537972617257838
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 68,
+        "track_id": "t22",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.7913043478260866,
+        "flat_ne": [
+          32.78397786023907,
+          87.4948384006088
+        ],
+        "dem_ne": [
+          32.783977860239155,
+          87.49483840060894
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 3.8264655460497305,
+        "dem_error_m": 3.826465546049592
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 69,
+        "track_id": "t21",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.9431765253842579,
+        "flat_ne": [
+          -41.29140148043046,
+          -8.972762065240431
+        ],
+        "dem_ne": [
+          -41.291401480430444,
+          -8.97276206524036
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.4753260032659046,
+        "dem_error_m": 1.4753260032658342
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 69,
+        "track_id": "t22",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.8664347299954603,
+        "flat_ne": [
+          31.13069871269095,
+          88.99624095062184
+        ],
+        "dem_ne": [
+          31.13069871269102,
+          88.99624095062195
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 2.761068890959234,
+        "dem_error_m": 2.7610688909590997
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 70,
+        "track_id": "t21",
+        "target_id": "distractor_0034_00",
+        "association_source": "segmentation",
+        "iou": 0.946507936507935,
+        "flat_ne": [
+          -40.86080116794737,
+          -9.151382795675332
+        ],
+        "dem_ne": [
+          -40.860801167947336,
+          -9.151382795675161
+        ],
+        "truth_ne": [
+          -40.678,
+          -7.631
+        ],
+        "flat_error_m": 1.5313327895622366,
+        "dem_error_m": 1.531332789562063
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 70,
+        "track_id": "t22",
+        "target_id": "distractor_0034_01",
+        "association_source": "segmentation",
+        "iou": 0.7659445995924222,
+        "flat_ne": [
+          30.914177924450634,
+          85.92648573510016
+        ],
+        "dem_ne": [
+          30.914177924450748,
+          85.92648573510033
+        ],
+        "truth_ne": [
+          32.625,
+          91.318
+        ],
+        "flat_error_m": 5.6564421894690575,
+        "dem_error_m": 5.65644218946886
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 72,
+        "track_id": "t24",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.3304442036836417,
+        "flat_ne": [
+          -67.74350529820455,
+          32.3722717624275
+        ],
+        "dem_ne": [
+          -67.74350529820462,
+          32.3722717624278
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 3.9660829751943707,
+        "dem_error_m": 3.966082975194677
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 73,
+        "track_id": "t24",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.9078326840270631,
+        "flat_ne": [
+          -65.8406713275193,
+          30.189073958624746
+        ],
+        "dem_ne": [
+          -65.84067132751933,
+          30.189073958624846
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 1.7694719791548446,
+        "dem_error_m": 1.7694719791549232
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 73,
+        "track_id": "t25",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.6574074074074074,
+        "flat_ne": [
+          -65.35259480280133,
+          27.963665581255754
+        ],
+        "dem_ne": [
+          -65.35259480280138,
+          27.963665581255967
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 1.3730154741597698,
+        "dem_error_m": 1.3730154741596359
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 73,
+        "track_id": "t26",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.6273085074175005,
+        "flat_ne": [
+          -66.14633319857444,
+          31.68826311009184
+        ],
+        "dem_ne": [
+          -66.14633319857447,
+          31.688263110092038
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 3.1372415585022186,
+        "dem_error_m": 3.137241558502412
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 73,
+        "track_id": "t27",
+        "target_id": "target_true_gen_v2_w0034",
+        "association_source": "segmentation",
+        "iou": 0.3813340967649567,
+        "flat_ne": [
+          -66.48373604213154,
+          33.14593921324368
+        ],
+        "dem_ne": [
+          -66.48373604213154,
+          33.145939213243736
+        ],
+        "truth_ne": [
+          -66.579,
+          28.581
+        ],
+        "flat_error_m": 4.565933118463145,
+        "dem_error_m": 4.565933118463202
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 75,
+        "track_id": "t28",
+        "target_id": "distractor_0034_03",
+        "association_source": "segmentation",
+        "iou": 0.8756844453457696,
+        "flat_ne": [
+          -16.270319997005608,
+          -90.60737417927636
+        ],
+        "dem_ne": [
+          -16.27031999700559,
+          -90.60737417927639
+        ],
+        "truth_ne": [
+          -16.644,
+          -89.46
+        ],
+        "flat_error_m": 1.206691448510351,
+        "dem_error_m": 1.2066914485103835
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0034\\episodes\\episode-0000-3b5fa546",
+        "step": 76,
+        "track_id": "t28",
+        "target_id": "distractor_0034_03",
+        "association_source": "segmentation",
+        "iou": 0.8916666666666705,
+        "flat_ne": [
+          -16.275327819813164,
+          -90.73179158590466
+        ],
+        "dem_ne": [
+          -16.275327819813096,
+          -90.7317915859048
+        ],
+        "truth_ne": [
+          -16.644,
+          -89.46
+        ],
+        "flat_error_m": 1.3241499214294499,
+        "dem_error_m": 1.324149921429605
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 0,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9486500794070942,
+        "flat_ne": [
+          29.525302373674677,
+          74.46666478636028
+        ],
+        "dem_ne": [
+          29.525302373674727,
+          74.4666647863604
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.168415506743009,
+        "dem_error_m": 1.1684155067428947
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 0,
+        "track_id": "t2",
+        "target_id": "distractor_0035_01",
+        "association_source": "segmentation",
+        "iou": 0.6948555320648354,
+        "flat_ne": [
+          -23.30851865013394,
+          57.61679013557667
+        ],
+        "dem_ne": [
+          -23.30851865013399,
+          57.616790135576785
+        ],
+        "truth_ne": [
+          -23.132,
+          56.839
+        ],
+        "flat_error_m": 0.7975690119641606,
+        "dem_error_m": 0.7975690119642825
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 1,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9550086999751437,
+        "flat_ne": [
+          29.137589416234363,
+          74.33414314097178
+        ],
+        "dem_ne": [
+          29.137589416234373,
+          74.33414314097179
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.3613812928198556,
+        "dem_error_m": 1.361381292819839
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 1,
+        "track_id": "t2",
+        "target_id": "distractor_0035_01",
+        "association_source": "segmentation",
+        "iou": 0.9208308837938509,
+        "flat_ne": [
+          -23.158325931385555,
+          56.69748392271534
+        ],
+        "dem_ne": [
+          -23.158325931385573,
+          56.697483922715385
+        ],
+        "truth_ne": [
+          -23.132,
+          56.839
+        ],
+        "flat_error_m": 0.14394392933831443,
+        "dem_error_m": 0.14394392933827577
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 2,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9464027040077254,
+        "flat_ne": [
+          30.36956176463381,
+          77.57421524896277
+        ],
+        "dem_ne": [
+          30.36956176463393,
+          77.57421524896307
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 2.1095944223194554,
+        "dem_error_m": 2.109594422319776
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 3,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9405293915434872,
+        "flat_ne": [
+          30.255908249260322,
+          77.4586277434832
+        ],
+        "dem_ne": [
+          30.2559082492604,
+          77.45862774348339
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.9594834994607961,
+        "dem_error_m": 1.9594834994609966
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 4,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9718579343883288,
+        "flat_ne": [
+          30.090076972900025,
+          76.33437603304947
+        ],
+        "dem_ne": [
+          30.090076972900096,
+          76.33437603304964
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 0.8904002839536015,
+        "dem_error_m": 0.8904002839537795
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 5,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9817656540446378,
+        "flat_ne": [
+          29.47569806445511,
+          74.50974084072365
+        ],
+        "dem_ne": [
+          29.47569806445515,
+          74.50974084072374
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.1270382915318609,
+        "dem_error_m": 1.1270382915317736
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 6,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9795918367346939,
+        "flat_ne": [
+          29.416851448904886,
+          74.27967227599484
+        ],
+        "dem_ne": [
+          29.416851448904925,
+          74.27967227599494
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.360820894898243,
+        "dem_error_m": 1.3608208948981404
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 7,
+        "track_id": "t1",
+        "target_id": "target_true_gen_v2_w0035",
+        "association_source": "segmentation",
+        "iou": 0.9929078014184392,
+        "flat_ne": [
+          29.457377284352415,
+          74.05158701456446
+        ],
+        "dem_ne": [
+          29.457377284352436,
+          74.0515870145645
+        ],
+        "truth_ne": [
+          29.539,
+          75.635
+        ],
+        "flat_error_m": 1.585515357905936,
+        "dem_error_m": 1.5855153579058925
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 8,
+        "track_id": "t4",
+        "target_id": "distractor_0035_03",
+        "association_source": "segmentation",
+        "iou": 0.9455751200548822,
+        "flat_ne": [
+          -0.9790080226587605,
+          -23.52020728698735
+        ],
+        "dem_ne": [
+          -0.9790080226587783,
+          -23.520207286987407
+        ],
+        "truth_ne": [
+          -3.753,
+          -26.794
+        ],
+        "flat_error_m": 4.291008065493269,
+        "dem_error_m": 4.291008065493214
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 9,
+        "track_id": "t4",
+        "target_id": "distractor_0035_03",
+        "association_source": "segmentation",
+        "iou": 0.9882499397911184,
+        "flat_ne": [
+          -3.6879931652724736,
+          -28.373443012230148
+        ],
+        "dem_ne": [
+          -3.6879931652725197,
+          -28.373443012230318
+        ],
+        "truth_ne": [
+          -3.753,
+          -26.794
+        ],
+        "flat_error_m": 1.5807802242702595,
+        "dem_error_m": 1.580780224270428
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 10,
+        "track_id": "t4",
+        "target_id": "distractor_0035_03",
+        "association_source": "segmentation",
+        "iou": 0.9738365187970344,
+        "flat_ne": [
+          -3.6543218794868455,
+          -27.650475004163674
+        ],
+        "dem_ne": [
+          -3.654321879486897,
+          -27.650475004163873
+        ],
+        "truth_ne": [
+          -3.753,
+          -26.794
+        ],
+        "flat_error_m": 0.8621408262141245,
+        "dem_error_m": 0.8621408262143162
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 11,
+        "track_id": "t4",
+        "target_id": "distractor_0035_03",
+        "association_source": "segmentation",
+        "iou": 0.9564237342479316,
+        "flat_ne": [
+          -3.4654902192121515,
+          -26.56041320804482
+        ],
+        "dem_ne": [
+          -3.4654902192121906,
+          -26.560413208045
+        ],
+        "truth_ne": [
+          -3.753,
+          -26.794
+        ],
+        "flat_error_m": 0.370438474546839,
+        "dem_error_m": 0.37043847454669665
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0035\\episodes\\episode-0000-a53a2301",
+        "step": 12,
+        "track_id": "t4",
+        "target_id": "distractor_0035_03",
+        "association_source": "segmentation",
+        "iou": 0.9797157641155756,
+        "flat_ne": [
+          -3.277956611228846,
+          -25.340266582235294
+        ],
+        "dem_ne": [
+          -3.2779566112288685,
+          -25.34026658223546
+        ],
+        "truth_ne": [
+          -3.753,
+          -26.794
+        ],
+        "flat_error_m": 1.529381270691202,
+        "dem_error_m": 1.5293812706910361
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 2,
+        "track_id": "t2",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9785750666790818,
+        "flat_ne": [
+          21.15534695891959,
+          -27.058313801677286
+        ],
+        "dem_ne": [
+          21.155346958919598,
+          -27.058313801677293
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 2.090392669986887,
+        "dem_error_m": 2.0903926699868767
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 3,
+        "track_id": "t3",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.9324501075903964,
+        "flat_ne": [
+          44.20061141459934,
+          6.868097227382047
+        ],
+        "dem_ne": [
+          44.200611414599514,
+          6.868097227382075
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 2.18966345631535,
+        "dem_error_m": 2.1896634563151767
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 4,
+        "track_id": "t4",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.8835027365128928,
+        "flat_ne": [
+          -54.03312603005618,
+          77.07728086372681
+        ],
+        "dem_ne": [
+          -54.03312603005618,
+          77.07728086372681
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.5842304686901019,
+        "dem_error_m": 0.5842304686901019
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 4,
+        "track_id": "t5",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.5725707257072545,
+        "flat_ne": [
+          -53.76830264180273,
+          77.02002840355928
+        ],
+        "dem_ne": [
+          -53.76830264180286,
+          77.02002840355948
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.7454813409923153,
+        "dem_error_m": 0.7454813409923078
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 5,
+        "track_id": "t3",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.8722747159822049,
+        "flat_ne": [
+          44.05775769257391,
+          7.457370579449163
+        ],
+        "dem_ne": [
+          44.0577576925742,
+          7.457370579449213
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 2.1602769157976396,
+        "dem_error_m": 2.1602769157973443
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 5,
+        "track_id": "t2",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9770080091533178,
+        "flat_ne": [
+          19.700606027933933,
+          -26.14156932536217
+        ],
+        "dem_ne": [
+          19.70060602793405,
+          -26.141569325362326
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 3.771272517758876,
+        "dem_error_m": 3.7712725177586846
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 6,
+        "track_id": "t3",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.923766816143501,
+        "flat_ne": [
+          46.56622472674037,
+          7.718106468919881
+        ],
+        "dem_ne": [
+          46.56622472674053,
+          7.71810646891992
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 0.37511639585033874,
+        "dem_error_m": 0.3751163958504878
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 19,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.7760707921096277,
+        "flat_ne": [
+          -56.83692018864154,
+          77.46391882738068
+        ],
+        "dem_ne": [
+          -56.83692018864156,
+          77.46391882738068
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 2.5804735681878457,
+        "dem_error_m": 2.580473568187859
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 20,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.7848484848484859,
+        "flat_ne": [
+          -55.14450638017364,
+          76.89424417368369
+        ],
+        "dem_ne": [
+          -55.1445063801737,
+          76.89424417368373
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.7949428621555312,
+        "dem_error_m": 0.794942862155606
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 21,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.9538062318008044,
+        "flat_ne": [
+          -55.96877358697637,
+          77.29604906100153
+        ],
+        "dem_ne": [
+          -55.96877358697655,
+          77.2960490610017
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 1.7096844434870562,
+        "dem_error_m": 1.7096844434872933
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 21,
+        "track_id": "t7",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.7309941520467867,
+        "flat_ne": [
+          -125.9105290599623,
+          -9.37873863349052
+        ],
+        "dem_ne": [
+          -125.91052905996253,
+          -9.378738633490642
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 7.7508239446369975,
+        "dem_error_m": 7.750823944637255
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 21,
+        "track_id": "t8",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.6179571065067143,
+        "flat_ne": [
+          -125.91093742806592,
+          -9.135850859134706
+        ],
+        "dem_ne": [
+          -125.910937428066,
+          -9.135850859134763
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 7.638391036553883,
+        "dem_error_m": 7.638391036553985
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 22,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.8215962441314528,
+        "flat_ne": [
+          -54.24743375869881,
+          76.29197274607073
+        ],
+        "dem_ne": [
+          -54.24743375869882,
+          76.29197274607074
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.36184130063855924,
+        "dem_error_m": 0.36184130063854336
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 23,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.8046215189475983,
+        "flat_ne": [
+          -55.04860334265122,
+          76.49700014427306
+        ],
+        "dem_ne": [
+          -55.048603342651234,
+          76.49700014427307
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.6623146334554573,
+        "dem_error_m": 0.6623146334554685
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 26,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0036",
+        "association_source": "segmentation",
+        "iou": 0.879041095890413,
+        "flat_ne": [
+          -54.599153101902694,
+          76.24380106739417
+        ],
+        "dem_ne": [
+          -54.599153101902786,
+          76.24380106739426
+        ],
+        "truth_ne": [
+          -54.398,
+          76.621
+        ],
+        "flat_error_m": 0.42748287119374206,
+        "dem_error_m": 0.4274828711937103
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 31,
+        "track_id": "t9",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.5494984736153449,
+        "flat_ne": [
+          -120.27437876282556,
+          -7.403232712198886
+        ],
+        "dem_ne": [
+          -120.2743787628257,
+          -7.403232712199042
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 2.083742275293997,
+        "dem_error_m": 2.083742275294206
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 33,
+        "track_id": "t10",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.6722987994664318,
+        "flat_ne": [
+          -92.48194095060063,
+          17.3985765010568
+        ],
+        "dem_ne": [
+          -92.48194095060069,
+          17.39857650105673
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 2.4561482288948997,
+        "dem_error_m": 2.45614822889499
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 33,
+        "track_id": "t9",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.9254493010871984,
+        "flat_ne": [
+          -124.98174653560261,
+          -11.556948312152258
+        ],
+        "dem_ne": [
+          -124.98174653560264,
+          -11.556948312152272
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 8.31394994364887,
+        "dem_error_m": 8.3139499436489
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 33,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.8762354329547132,
+        "flat_ne": [
+          -92.24704869810432,
+          17.607052237578095
+        ],
+        "dem_ne": [
+          -92.24704869810441,
+          17.607052237577996
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 2.1422886460470782,
+        "dem_error_m": 2.142288646047209
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 35,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.679845708775312,
+        "flat_ne": [
+          -89.63515858533412,
+          20.04866475504074
+        ],
+        "dem_ne": [
+          -89.63515858533424,
+          20.04866475504059
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 1.4335466625730262,
+        "dem_error_m": 1.433546662572842
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 37,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.8613709160794407,
+        "flat_ne": [
+          -90.65054522593101,
+          19.216550926697188
+        ],
+        "dem_ne": [
+          -90.65054522593101,
+          19.21655092669717
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 0.1362381050744214,
+        "dem_error_m": 0.13623810507440492
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 38,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.944867215406118,
+        "flat_ne": [
+          -91.52138220738794,
+          18.259085796548902
+        ],
+        "dem_ne": [
+          -91.52138220738797,
+          18.259085796548863
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 1.1676666389408832,
+        "dem_error_m": 1.167666638940931
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 39,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.978463257199603,
+        "flat_ne": [
+          -91.09394899475727,
+          18.970055428927957
+        ],
+        "dem_ne": [
+          -91.0939489947573,
+          18.97005542892792
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 0.4108474322791981,
+        "dem_error_m": 0.4108474322792357
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 39,
+        "track_id": "t12",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.8226768035880312,
+        "flat_ne": [
+          -122.23823067719911,
+          -8.539859541030392
+        ],
+        "dem_ne": [
+          -122.23823067719934,
+          -8.539859541030605
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 4.245381477025492,
+        "dem_error_m": 4.245381477025804
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 40,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.9410144927536227,
+        "flat_ne": [
+          -90.99213824995282,
+          19.080163729975403
+        ],
+        "dem_ne": [
+          -90.99213824995286,
+          19.080163729975336
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 0.29130436452890507,
+        "dem_error_m": 0.29130436452895
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 40,
+        "track_id": "t12",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.8612559983308988,
+        "flat_ne": [
+          -121.2475256516903,
+          -7.510128839394916
+        ],
+        "dem_ne": [
+          -121.24752565169041,
+          -7.510128839395023
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 2.8212598456448177,
+        "dem_error_m": 2.821259845644973
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 41,
+        "track_id": "t11",
+        "target_id": "distractor_0036_02",
+        "association_source": "segmentation",
+        "iou": 0.9612952380952383,
+        "flat_ne": [
+          -90.94727327558218,
+          19.15371247514003
+        ],
+        "dem_ne": [
+          -90.9472732755822,
+          19.153712475139994
+        ],
+        "truth_ne": [
+          -90.701,
+          19.09
+        ],
+        "flat_error_m": 0.2543812213085841,
+        "dem_error_m": 0.2543812213086027
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 41,
+        "track_id": "t12",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.7888446215139379,
+        "flat_ne": [
+          -120.81367666275804,
+          -6.982505381382417
+        ],
+        "dem_ne": [
+          -120.81367666275824,
+          -6.982505381382609
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 2.152462540890596,
+        "dem_error_m": 2.1524625408908706
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 42,
+        "track_id": "t12",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.821373872596293,
+        "flat_ne": [
+          -119.52096752733408,
+          -5.713457261729442
+        ],
+        "dem_ne": [
+          -119.5209675273343,
+          -5.713457261729673
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 0.4249896404647706,
+        "dem_error_m": 0.4249896404650134
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 43,
+        "track_id": "t12",
+        "target_id": "distractor_0036_01",
+        "association_source": "segmentation",
+        "iou": 0.7784523678110195,
+        "flat_ne": [
+          -119.6477621728983,
+          -5.682453068867137
+        ],
+        "dem_ne": [
+          -119.64776217289852,
+          -5.682453068867343
+        ],
+        "truth_ne": [
+          -119.097,
+          -5.684
+        ],
+        "flat_error_m": 0.550764345334363,
+        "dem_error_m": 0.5507643453345898
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 44,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.8975475832211395,
+        "flat_ne": [
+          19.508545278637314,
+          -28.131179921559927
+        ],
+        "dem_ne": [
+          19.508545278637627,
+          -28.13117992156009
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 3.0687742747762106,
+        "dem_error_m": 3.0687742747758757
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 45,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9567787218322871,
+        "flat_ne": [
+          22.50676633649104,
+          -30.098798897611907
+        ],
+        "dem_ne": [
+          22.506766336491097,
+          -30.098798897611935
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 1.472109394515503,
+        "dem_error_m": 1.4721093945155301
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 46,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9232012001615572,
+        "flat_ne": [
+          22.19301892240351,
+          -30.02994978689187
+        ],
+        "dem_ne": [
+          22.19301892240358,
+          -30.029949786891912
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 1.444503750872384,
+        "dem_error_m": 1.4445037508724083
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 46,
+        "track_id": "t14",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.814658210007043,
+        "flat_ne": [
+          48.64060288677804,
+          5.802712362635498
+        ],
+        "dem_ne": [
+          48.640602886778325,
+          5.802712362635468
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 3.1399151705888086,
+        "dem_error_m": 3.139915170589049
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 47,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9352417396423567,
+        "flat_ne": [
+          19.10180548101023,
+          -28.173531644175384
+        ],
+        "dem_ne": [
+          19.101805481010473,
+          -28.173531644175533
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 3.4649956613294077,
+        "dem_error_m": 3.464995661329149
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 47,
+        "track_id": "t14",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.8168708843877682,
+        "flat_ne": [
+          44.04158829106864,
+          6.576889503416677
+        ],
+        "dem_ne": [
+          44.04158829106883,
+          6.5768895034166635
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 2.4628177129471664,
+        "dem_error_m": 2.462817712947011
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 48,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9516327613474187,
+        "flat_ne": [
+          19.596361490040596,
+          -28.119410423587354
+        ],
+        "dem_ne": [
+          19.59636149004066,
+          -28.119410423587397
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 2.9841250014600633,
+        "dem_error_m": 2.984125001459993
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 48,
+        "track_id": "t14",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.8592982456140338,
+        "flat_ne": [
+          44.90838119451183,
+          6.604539174268487
+        ],
+        "dem_ne": [
+          44.90838119451192,
+          6.604539174268484
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 1.7373407064400197,
+        "dem_error_m": 1.7373407064399582
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 49,
+        "track_id": "t13",
+        "target_id": "distractor_0036_03",
+        "association_source": "segmentation",
+        "iou": 0.9744733503038135,
+        "flat_ne": [
+          19.74737386201454,
+          -27.43183393488854
+        ],
+        "dem_ne": [
+          19.747373862014797,
+          -27.431833934888772
+        ],
+        "truth_ne": [
+          22.537,
+          -28.627
+        ],
+        "flat_error_m": 3.0348699993452217,
+        "dem_error_m": 3.0348699993448958
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 49,
+        "track_id": "t14",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.8521816562778262,
+        "flat_ne": [
+          44.62210333847923,
+          6.502637114496553
+        ],
+        "dem_ne": [
+          44.62210333847948,
+          6.502637114496562
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 2.0212090547285873,
+        "dem_error_m": 2.0212090547283883
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0036\\episodes\\episode-0000-542554ed",
+        "step": 50,
+        "track_id": "t14",
+        "target_id": "distractor_0036_00",
+        "association_source": "segmentation",
+        "iou": 0.9319680666435254,
+        "flat_ne": [
+          44.74816930345358,
+          6.552581665910315
+        ],
+        "dem_ne": [
+          44.748169303453636,
+          6.552581665910323
+        ],
+        "truth_ne": [
+          46.195,
+          7.772
+        ],
+        "flat_error_m": 1.8921681051066959,
+        "dem_error_m": 1.8921681051066472
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 0,
+        "track_id": "t1",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.9408203334166274,
+        "flat_ne": [
+          24.43799469124236,
+          19.186401881499727
+        ],
+        "dem_ne": [
+          24.437994691242437,
+          19.186401881499787
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 0.2559227970061653,
+        "dem_error_m": 0.25592279700609727
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 1,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.8851093370357511,
+        "flat_ne": [
+          -80.88886722900816,
+          33.40249405315889
+        ],
+        "dem_ne": [
+          -80.8888672290083,
+          33.40249405315894
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 2.41941780963259,
+        "dem_error_m": 2.4194178096324395
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 1,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9314497013368711,
+        "flat_ne": [
+          -80.94141242513219,
+          -2.892786836408586
+        ],
+        "dem_ne": [
+          -80.94141242513223,
+          -2.8927868364085874
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 2.2638349795589296,
+        "dem_error_m": 2.263834979558887
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 2,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.9440891272952339,
+        "flat_ne": [
+          -81.45872061472576,
+          33.310136704854976
+        ],
+        "dem_ne": [
+          -81.45872061472578,
+          33.31013670485498
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 1.9214463853605621,
+        "dem_error_m": 1.9214463853605463
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 2,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9242787834524514,
+        "flat_ne": [
+          -81.94211722262094,
+          -3.028632750820824
+        ],
+        "dem_ne": [
+          -81.94211722262115,
+          -3.0286327508208344
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 1.2599677496400306,
+        "dem_error_m": 1.2599677496398176
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 3,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.9492091036508051,
+        "flat_ne": [
+          -83.14689229546593,
+          33.830777571172995
+        ],
+        "dem_ne": [
+          -83.14689229546602,
+          33.830777571173044
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 0.30421221772866325,
+        "dem_error_m": 0.3042122177286004
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 3,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9455005514825113,
+        "flat_ne": [
+          -82.83381358648005,
+          -3.3130356644330274
+        ],
+        "dem_ne": [
+          -82.83381358648006,
+          -3.3130356644330288
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 0.4743243233311847,
+        "dem_error_m": 0.4743243233311745
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 4,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.9453390241536515,
+        "flat_ne": [
+          -82.3201644316246,
+          32.68082356104926
+        ],
+        "dem_ne": [
+          -82.3201644316246,
+          32.68082356104926
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 1.694136844212799,
+        "dem_error_m": 1.694136844212799
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 4,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9518981450701419,
+        "flat_ne": [
+          -82.06828743219677,
+          -3.447032207939817
+        ],
+        "dem_ne": [
+          -82.06828743219685,
+          -3.4470322079398255
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 1.2135984012465677,
+        "dem_error_m": 1.213598401246491
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 5,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9611099876284744,
+        "flat_ne": [
+          -81.17280202858603,
+          -3.2345527764134996
+        ],
+        "dem_ne": [
+          -81.17280202858603,
+          -3.234552776413501
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 2.0411486801245644,
+        "dem_error_m": 2.0411486801245644
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 5,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.9396312200050512,
+        "flat_ne": [
+          -84.9248775880669,
+          31.40452061419292
+        ],
+        "dem_ne": [
+          -84.92487758806695,
+          31.404520614192975
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 3.2284218367107806,
+        "dem_error_m": 3.2284218367107553
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 6,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9786101794115651,
+        "flat_ne": [
+          -81.10500829299878,
+          -3.224422231045473
+        ],
+        "dem_ne": [
+          -81.10500829299889,
+          -3.2244222310454895
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 2.107522653389533,
+        "dem_error_m": 2.1075226533894216
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 6,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.9471450227387574,
+        "flat_ne": [
+          -84.82981953817735,
+          31.352588092271446
+        ],
+        "dem_ne": [
+          -84.82981953817736,
+          31.35258809227147
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 3.2231877097584416,
+        "dem_error_m": 3.2231877097584274
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 7,
+        "track_id": "t3",
+        "target_id": "target_true_gen_v2_w0037",
+        "association_source": "segmentation",
+        "iou": 0.9700666412795124,
+        "flat_ne": [
+          -81.4501138339012,
+          -3.3954563069022385
+        ],
+        "dem_ne": [
+          -81.4501138339012,
+          -3.3954563069022385
+        ],
+        "truth_ne": [
+          -83.202,
+          -3.014
+        ],
+        "flat_error_m": 1.7929344809679593,
+        "dem_error_m": 1.7929344809679593
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 7,
+        "track_id": "t2",
+        "target_id": "distractor_0037_01",
+        "association_source": "segmentation",
+        "iou": 0.8256803041138178,
+        "flat_ne": [
+          -83.75565403277093,
+          31.15212239400759
+        ],
+        "dem_ne": [
+          -83.75565403277106,
+          31.152122394007748
+        ],
+        "truth_ne": [
+          -83.196,
+          34.131
+        ],
+        "flat_error_m": 3.030993966981762,
+        "dem_error_m": 3.0309939669816317
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 8,
+        "track_id": "t4",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.7410562180579228,
+        "flat_ne": [
+          24.15027995966664,
+          19.63855936329417
+        ],
+        "dem_ne": [
+          24.15027995966671,
+          19.638559363294185
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 0.37074245202291345,
+        "dem_error_m": 0.3707424520228609
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 9,
+        "track_id": "t4",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.7747395833333404,
+        "flat_ne": [
+          23.745267392747166,
+          21.163846787613913
+        ],
+        "dem_ne": [
+          23.745267392747166,
+          21.163846787613913
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 1.866755906464484,
+        "dem_error_m": 1.866755906464484
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 11,
+        "track_id": "t4",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.7414315691303284,
+        "flat_ne": [
+          29.14488483886724,
+          21.272939300887273
+        ],
+        "dem_ne": [
+          29.14488483886724,
+          21.272939300887273
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 5.026597703901971,
+        "dem_error_m": 5.026597703901971
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 12,
+        "track_id": "t4",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.7920792079207903,
+        "flat_ne": [
+          26.43271603347153,
+          20.488130902537293
+        ],
+        "dem_ne": [
+          26.4327160334716,
+          20.488130902537314
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 2.2298712849616327,
+        "dem_error_m": 2.2298712849617055
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0037\\episodes\\episode-0000-6002ffc9",
+        "step": 13,
+        "track_id": "t4",
+        "target_id": "distractor_0037_00",
+        "association_source": "segmentation",
+        "iou": 0.7406429942418447,
+        "flat_ne": [
+          24.250704771603708,
+          19.774257161513855
+        ],
+        "dem_ne": [
+          24.25070477160388,
+          19.77425716151391
+        ],
+        "truth_ne": [
+          24.464,
+          19.441
+        ],
+        "flat_error_m": 0.3956705576068281,
+        "dem_error_m": 0.3956705576067811
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 1,
+        "track_id": "t1",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.7741020793950845,
+        "flat_ne": [
+          -51.962659985773016,
+          29.342546752632256
+        ],
+        "dem_ne": [
+          -51.962659985773264,
+          29.342546752632398
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 1.5592109006600814,
+        "dem_error_m": 1.5592109006601882
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 1,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8200626959247579,
+        "flat_ne": [
+          -35.6529457967626,
+          -12.34026309603765
+        ],
+        "dem_ne": [
+          -35.65294579676293,
+          -12.340263096037763
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.8731254921670928,
+        "dem_error_m": 0.8731254921671266
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 2,
+        "track_id": "t3",
+        "target_id": "distractor_0038_01",
+        "association_source": "segmentation",
+        "iou": 0.8659574468085103,
+        "flat_ne": [
+          1.2761800889072143,
+          -34.872399321672205
+        ],
+        "dem_ne": [
+          1.2761800889072155,
+          -34.87239932167224
+        ],
+        "truth_ne": [
+          2.127,
+          -34.847
+        ],
+        "flat_error_m": 0.851198946576735,
+        "dem_error_m": 0.851198946576735
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 9,
+        "track_id": "t4",
+        "target_id": "distractor_0038_01",
+        "association_source": "segmentation",
+        "iou": 0.8664581328200203,
+        "flat_ne": [
+          2.09368255326779,
+          -34.68964595512156
+        ],
+        "dem_ne": [
+          2.093682553267712,
+          -34.68964595512165
+        ],
+        "truth_ne": [
+          2.127,
+          -34.847
+        ],
+        "flat_error_m": 0.1608426177863295,
+        "dem_error_m": 0.16084261778626227
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 9,
+        "track_id": "t5",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.7111317685335834,
+        "flat_ne": [
+          -34.36712344943065,
+          -12.34696905727189
+        ],
+        "dem_ne": [
+          -34.367123449430906,
+          -12.346969057271936
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 1.20996591324442,
+        "dem_error_m": 1.2099659132441956
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 9,
+        "track_id": "t6",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.42253521126760735,
+        "flat_ne": [
+          -49.006587349294136,
+          27.41896741620093
+        ],
+        "dem_ne": [
+          -49.006587349294136,
+          27.41896741620093
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 3.1919965930488994,
+        "dem_error_m": 3.1919965930488994
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 10,
+        "track_id": "t5",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.7850601913777177,
+        "flat_ne": [
+          -34.760053776730594,
+          -13.374715428112733
+        ],
+        "dem_ne": [
+          -34.76005377673062,
+          -13.37471542811274
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.5797401749108062,
+        "dem_error_m": 0.5797401749107833
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 15,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.873058542413374,
+        "flat_ne": [
+          -34.09719916203991,
+          -14.381818346239122
+        ],
+        "dem_ne": [
+          -34.09719916204005,
+          -14.381818346239214
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 1.7248690663102388,
+        "dem_error_m": 1.7248690663102078
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 16,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8813725490196183,
+        "flat_ne": [
+          -36.4754600674529,
+          -15.01898475527215
+        ],
+        "dem_ne": [
+          -36.47546006745293,
+          -15.018984755272186
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 2.2292096870974496,
+        "dem_error_m": 2.229209687097495
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 17,
+        "track_id": "t8",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.9229399985166503,
+        "flat_ne": [
+          -51.1787060293902,
+          27.401417292819893
+        ],
+        "dem_ne": [
+          -51.17870602939051,
+          27.401417292819865
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 1.0732535149949278,
+        "dem_error_m": 1.0732535149946478
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 17,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.7568831168831297,
+        "flat_ne": [
+          -34.94533843781223,
+          -13.747645313335312
+        ],
+        "dem_ne": [
+          -34.94533843781241,
+          -13.747645313335468
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.703222215435242,
+        "dem_error_m": 0.7032222154352924
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 18,
+        "track_id": "t9",
+        "target_id": "distractor_0038_01",
+        "association_source": "segmentation",
+        "iou": 0.9017426405434511,
+        "flat_ne": [
+          2.5222514820844317,
+          -34.63778779925235
+        ],
+        "dem_ne": [
+          2.5222514820844264,
+          -34.6377877992524
+        ],
+        "truth_ne": [
+          2.127,
+          -34.847
+        ],
+        "flat_error_m": 0.44720630477623546,
+        "dem_error_m": 0.4472063047762075
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 18,
+        "track_id": "t8",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.8282051282051257,
+        "flat_ne": [
+          -52.2410778449006,
+          27.810210155023245
+        ],
+        "dem_ne": [
+          -52.24107784490077,
+          27.810210155023256
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 0.06621339579419142,
+        "dem_error_m": 0.06621339579436099
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 18,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.7793764988009627,
+        "flat_ne": [
+          -35.14061288623607,
+          -13.183620212878402
+        ],
+        "dem_ne": [
+          -35.14061288623617,
+          -13.183620212878495
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.1548921980862441,
+        "dem_error_m": 0.1548921980861803
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 19,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8735332464146033,
+        "flat_ne": [
+          -35.55221793816292,
+          -13.534234523925162
+        ],
+        "dem_ne": [
+          -35.552217938162954,
+          -13.53423452392519
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.4809674603472076,
+        "dem_error_m": 0.4809674603472509
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 20,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.9112859256951482,
+        "flat_ne": [
+          -35.96316338342681,
+          -13.678792625067192
+        ],
+        "dem_ne": [
+          -35.96316338342704,
+          -13.67879262506738
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.8689571397168737,
+        "dem_error_m": 0.8689571397171689
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 21,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.9114198705747999,
+        "flat_ne": [
+          -35.17490367187618,
+          -12.917873796173396
+        ],
+        "dem_ne": [
+          -35.17490367187625,
+          -12.917873796173449
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.2425796165214385,
+        "dem_error_m": 0.2425796165213584
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 22,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.9697325888921543,
+        "flat_ne": [
+          -36.20292930627225,
+          -13.586645363727483
+        ],
+        "dem_ne": [
+          -36.20292930627233,
+          -13.58664536372753
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 1.0221157518206112,
+        "dem_error_m": 1.0221157518207025
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 23,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8985565090135036,
+        "flat_ne": [
+          -35.0172608014064,
+          -12.84352840554154
+        ],
+        "dem_ne": [
+          -35.017260801406415,
+          -12.843528405541548
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.39566783955262097,
+        "dem_error_m": 0.3956678395526061
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0000-d4f3f26c",
+        "step": 24,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.9308881350158272,
+        "flat_ne": [
+          -34.939177582949036,
+          -12.797026651935536
+        ],
+        "dem_ne": [
+          -34.939177582949085,
+          -12.797026651935566
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.48358921039744,
+        "dem_error_m": 0.48358921039738323
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 1,
+        "track_id": "t1",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.8955407063957452,
+        "flat_ne": [
+          -52.280388072258454,
+          28.29574352053459
+        ],
+        "dem_ne": [
+          -52.28038807225869,
+          28.295743520534717
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 0.5085720026348333,
+        "dem_error_m": 0.5085720026350066
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 1,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8262464925534241,
+        "flat_ne": [
+          -35.631887592108136,
+          -13.078333199463149
+        ],
+        "dem_ne": [
+          -35.6318875921082,
+          -13.078333199463172
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.34919322769934164,
+        "dem_error_m": 0.34919322769940114
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 2,
+        "track_id": "t1",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.8471580092466674,
+        "flat_ne": [
+          -52.26869492833394,
+          27.830315161779076
+        ],
+        "dem_ne": [
+          -52.26869492833429,
+          27.83031516177926
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 0.09816628453620137,
+        "dem_error_m": 0.09816628453659094
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 2,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8024369922932719,
+        "flat_ne": [
+          -35.44301623577352,
+          -13.288716807371225
+        ],
+        "dem_ne": [
+          -35.443016235773776,
+          -13.28871680737132
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.22042865041284063,
+        "dem_error_m": 0.22042865041308943
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 3,
+        "track_id": "t1",
+        "target_id": "distractor_0038_00",
+        "association_source": "segmentation",
+        "iou": 0.890956449260261,
+        "flat_ne": [
+          -52.27580282742372,
+          27.953066438559333
+        ],
+        "dem_ne": [
+          -52.275802827423945,
+          27.953066438559517
+        ],
+        "truth_ne": [
+          -52.176,
+          27.798
+        ],
+        "flat_error_m": 0.18440771331276734,
+        "dem_error_m": 0.18440771331304576
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 3,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.858082469010882,
+        "flat_ne": [
+          -35.28120985870791,
+          -13.208861995800792
+        ],
+        "dem_ne": [
+          -35.281209858707996,
+          -13.208861995800833
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.07608264022141865,
+        "dem_error_m": 0.0760826402214529
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 4,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8694736842105281,
+        "flat_ne": [
+          -35.14833104846655,
+          -13.00164158966984
+        ],
+        "dem_ne": [
+          -35.148331048466616,
+          -13.00164158966987
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.19100814140724998,
+        "dem_error_m": 0.19100814140718278
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 5,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8215641025641083,
+        "flat_ne": [
+          -35.07568111145741,
+          -13.102958072209496
+        ],
+        "dem_ne": [
+          -35.07568111145755,
+          -13.10295807220956
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.21344364614633884,
+        "dem_error_m": 0.2134436461461962
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0038\\episodes\\episode-0001-1e049619",
+        "step": 6,
+        "track_id": "t2",
+        "target_id": "target_true_gen_v2_w0038",
+        "association_source": "segmentation",
+        "iou": 0.8505069592317299,
+        "flat_ne": [
+          -34.980125376199695,
+          -13.055832039660697
+        ],
+        "dem_ne": [
+          -34.980125376199865,
+          -13.055832039660778
+        ],
+        "truth_ne": [
+          -35.287,
+          -13.133
+        ],
+        "flat_error_m": 0.3164283944836596,
+        "dem_error_m": 0.3164283944834743
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 1,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.7985360046604695,
+        "flat_ne": [
+          -33.00141040447992,
+          17.442120960497085
+        ],
+        "dem_ne": [
+          -33.001410404480026,
+          17.44212096049714
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.2404448587336392,
+        "dem_error_m": 0.24044485873352414
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 2,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.7787031528851923,
+        "flat_ne": [
+          -32.82642492911262,
+          17.529978102164876
+        ],
+        "dem_ne": [
+          -32.826424929112726,
+          17.529978102164932
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.3618157468416245,
+        "dem_error_m": 0.3618157468415087
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 3,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8260493292946774,
+        "flat_ne": [
+          -32.743052041405,
+          17.46829608856344
+        ],
+        "dem_ne": [
+          -32.74305204140527,
+          17.468296088563584
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.45790299231492254,
+        "dem_error_m": 0.4579029923146228
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 4,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8858731196860705,
+        "flat_ne": [
+          -34.010829283348386,
+          17.92979570699981
+        ],
+        "dem_ne": [
+          -34.01082928334843,
+          17.929795706999833
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.8922256805483711,
+        "dem_error_m": 0.8922256805484199
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 5,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.939797404885324,
+        "flat_ne": [
+          -33.75801821061376,
+          17.76463034951192
+        ],
+        "dem_ne": [
+          -33.75801821061394,
+          17.764630349512032
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.5994986621855635,
+        "dem_error_m": 0.5994986621857653
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 6,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9136086302944552,
+        "flat_ne": [
+          -33.330212989110954,
+          17.3601992915193
+        ],
+        "dem_ne": [
+          -33.33021298911123,
+          17.360199291519464
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.28413394507026923,
+        "dem_error_m": 0.28413394507027573
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 7,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9293879343314876,
+        "flat_ne": [
+          -33.628875329113754,
+          17.538385448694605
+        ],
+        "dem_ne": [
+          -33.62887532911386,
+          17.53838544869464
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.45237055780249724,
+        "dem_error_m": 0.4523705578025978
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 8,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9347587719298239,
+        "flat_ne": [
+          -33.39857245615585,
+          17.241626127677538
+        ],
+        "dem_ne": [
+          -33.39857245615596,
+          17.241626127677577
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.4209597386097339,
+        "dem_error_m": 0.4209597386097592
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 9,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9685775100111835,
+        "flat_ne": [
+          -33.41864564862963,
+          17.23732506263756
+        ],
+        "dem_ne": [
+          -33.418645648629706,
+          17.237325062637588
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.43527378080111606,
+        "dem_error_m": 0.43527378080113494
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 10,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9474725706656907,
+        "flat_ne": [
+          -34.10914383401387,
+          17.50285636505922
+        ],
+        "dem_ne": [
+          -34.109143834014034,
+          17.502856365059273
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.9334240392057853,
+        "dem_error_m": 0.9334240392059422
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 11,
+        "track_id": "t3",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.8203906622201057,
+        "flat_ne": [
+          106.79132796319374,
+          -10.260316267892968
+        ],
+        "dem_ne": [
+          106.79132796319385,
+          -10.26031626789299
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 7.355807436882451,
+        "dem_error_m": 7.35580743688236
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 12,
+        "track_id": "t4",
+        "target_id": "target_true_gen_v2_w0039",
+        "association_source": "segmentation",
+        "iou": 0.9047619047618992,
+        "flat_ne": [
+          14.803277364366004,
+          -36.0586109775216
+        ],
+        "dem_ne": [
+          14.803277364366032,
+          -36.058610977521646
+        ],
+        "truth_ne": [
+          13.092,
+          -34.378
+        ],
+        "flat_error_m": 2.398525270985814,
+        "dem_error_m": 2.398525270985864
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 12,
+        "track_id": "t5",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.8906907843443028,
+        "flat_ne": [
+          124.09092418321191,
+          -17.237184879038804
+        ],
+        "dem_ne": [
+          124.09092418321211,
+          -17.23718487903884
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 12.547924898935877,
+        "dem_error_m": 12.54792489893608
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 12,
+        "track_id": "t6",
+        "target_id": "distractor_0039_00",
+        "association_source": "segmentation",
+        "iou": 0.6865912762520171,
+        "flat_ne": [
+          58.52555206875941,
+          -83.86689596163113
+        ],
+        "dem_ne": [
+          58.52555206875951,
+          -83.86689596163127
+        ],
+        "truth_ne": [
+          50.734,
+          -75.463
+        ],
+        "flat_error_m": 11.460093846653661,
+        "dem_error_m": 11.460093846653834
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 12,
+        "track_id": "t7",
+        "target_id": "distractor_0039_00",
+        "association_source": "segmentation",
+        "iou": 0.6032171581769443,
+        "flat_ne": [
+          58.810969793117806,
+          -84.56427778171593
+        ],
+        "dem_ne": [
+          58.81096979311785,
+          -84.564277781716
+        ],
+        "truth_ne": [
+          50.734,
+          -75.463
+        ],
+        "flat_error_m": 12.168430395860167,
+        "dem_error_m": 12.168430395860248
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 13,
+        "track_id": "t4",
+        "target_id": "target_true_gen_v2_w0039",
+        "association_source": "segmentation",
+        "iou": 0.9305979114684411,
+        "flat_ne": [
+          13.716884051387193,
+          -35.12121955253755
+        ],
+        "dem_ne": [
+          13.716884051387273,
+          -35.12121955253776
+        ],
+        "truth_ne": [
+          13.092,
+          -34.378
+        ],
+        "flat_error_m": 0.9710074051994624,
+        "dem_error_m": 0.9710074051996715
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0000-5a54758b",
+        "step": 13,
+        "track_id": "t5",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.9202815650277893,
+        "flat_ne": [
+          118.9567055522232,
+          -16.196321606914005
+        ],
+        "dem_ne": [
+          118.95670555222324,
+          -16.196321606914008
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 7.342141302408871,
+        "dem_error_m": 7.342141302408914
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 1,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8485691573926866,
+        "flat_ne": [
+          -32.821129060863086,
+          18.17866208203057
+        ],
+        "dem_ne": [
+          -32.821129060863086,
+          18.17866208203057
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.67973983970863,
+        "dem_error_m": 0.67973983970863
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 2,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8592592592592567,
+        "flat_ne": [
+          -33.315923541439986,
+          17.87033029521321
+        ],
+        "dem_ne": [
+          -33.31592354144024,
+          17.870330295213346
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.3003423203012144,
+        "dem_error_m": 0.30034232030144986
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 3,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8188415719567227,
+        "flat_ne": [
+          -33.04269138667255,
+          17.996206144053456
+        ],
+        "dem_ne": [
+          -33.04269138667266,
+          17.996206144053513
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.4177651930571227,
+        "dem_error_m": 0.41776519305714105
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 4,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.8877627315776404,
+        "flat_ne": [
+          -33.99582677428179,
+          17.9007175527345
+        ],
+        "dem_ne": [
+          -33.99582677428186,
+          17.900717552734537
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.8678564676247772,
+        "dem_error_m": 0.8678564676248574
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 5,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9624903136448247,
+        "flat_ne": [
+          -33.97148919228617,
+          17.810747139409386
+        ],
+        "dem_ne": [
+          -33.97148919228635,
+          17.81074713940951
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.8175870175906959,
+        "dem_error_m": 0.8175870175908994
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 6,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9696186166774422,
+        "flat_ne": [
+          -33.43487161485146,
+          17.311641205535366
+        ],
+        "dem_ne": [
+          -33.43487161485171,
+          17.311641205535526
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.3856929171637001,
+        "dem_error_m": 0.38569291716374343
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 7,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9647106794676956,
+        "flat_ne": [
+          -33.44198863567463,
+          17.287962997953617
+        ],
+        "dem_ne": [
+          -33.44198863567477,
+          17.2879629979537
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 0.40833112372875524,
+        "dem_error_m": 0.40833112372877867
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 8,
+        "track_id": "t1",
+        "target_id": "distractor_0039_01",
+        "association_source": "segmentation",
+        "iou": 0.9536322329884509,
+        "flat_ne": [
+          -34.43921441595304,
+          17.904901415220017
+        ],
+        "dem_ne": [
+          -34.439214415953245,
+          17.904901415220152
+        ],
+        "truth_ne": [
+          -33.181,
+          17.602
+        ],
+        "flat_error_m": 1.2941610347458088,
+        "dem_error_m": 1.2941610347460406
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 9,
+        "track_id": "t3",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.8264984227129358,
+        "flat_ne": [
+          112.16161994647041,
+          -7.860494876055201
+        ],
+        "dem_ne": [
+          112.1616199464707,
+          -7.86049487605524
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 7.962607778318298,
+        "dem_error_m": 7.9626077783182785
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 10,
+        "track_id": "t6",
+        "target_id": "target_true_gen_v2_w0039",
+        "association_source": "segmentation",
+        "iou": 0.7453416149068323,
+        "flat_ne": [
+          15.953619460229982,
+          -35.79425556737278
+        ],
+        "dem_ne": [
+          15.953619460230184,
+          -35.79425556737308
+        ],
+        "truth_ne": [
+          13.092,
+          -34.378
+        ],
+        "flat_error_m": 3.1929055368553145,
+        "dem_error_m": 3.192905536855628
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 10,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0039",
+        "association_source": "segmentation",
+        "iou": 0.6581883087907155,
+        "flat_ne": [
+          16.005306857950956,
+          -35.723038333203114
+        ],
+        "dem_ne": [
+          16.005306857951027,
+          -35.72303833320322
+        ],
+        "truth_ne": [
+          13.092,
+          -34.378
+        ],
+        "flat_error_m": 3.2088136384604633,
+        "dem_error_m": 3.2088136384605725
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 10,
+        "track_id": "t8",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.8280722147553442,
+        "flat_ne": [
+          130.05920116465555,
+          -14.32835585211414
+        ],
+        "dem_ne": [
+          130.05920116465572,
+          -14.328355852114168
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 18.493248782149486,
+        "dem_error_m": 18.493248782149657
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 11,
+        "track_id": "t7",
+        "target_id": "target_true_gen_v2_w0039",
+        "association_source": "segmentation",
+        "iou": 0.8074685601847894,
+        "flat_ne": [
+          14.841174362806486,
+          -34.84344791606435
+        ],
+        "dem_ne": [
+          14.841174362806505,
+          -34.84344791606439
+        ],
+        "truth_ne": [
+          13.092,
+          -34.378
+        ],
+        "flat_error_m": 1.810042185715051,
+        "dem_error_m": 1.8100421857150808
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 11,
+        "track_id": "t8",
+        "target_id": "distractor_0039_02",
+        "association_source": "segmentation",
+        "iou": 0.9195537287140308,
+        "flat_ne": [
+          121.54090953830332,
+          -13.679447946774951
+        ],
+        "dem_ne": [
+          121.54090953830341,
+          -13.67944794677496
+        ],
+        "truth_ne": [
+          111.625,
+          -15.805
+        ],
+        "flat_error_m": 10.14116529313984,
+        "dem_error_m": 10.141165293139922
+      },
+      {
+        "episode": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop\\eval-v2-test-r12multi\\gen_v2_w0039\\episodes\\episode-0001-26ca60ea",
+        "step": 11,
+        "track_id": "t9",
+        "target_id": "distractor_0039_00",
+        "association_source": "segmentation",
+        "iou": 0.692467532467533,
+        "flat_ne": [
+          58.183743973472524,
+          -80.92614182409108
+        ],
+        "dem_ne": [
+          58.183743973472524,
+          -80.92614182409108
+        ],
+        "truth_ne": [
+          50.734,
+          -75.463
+        ],
+        "flat_error_m": 9.238214322065893,
+        "dem_error_m": 9.238214322065893
+      }
+    ]
+  },
+  "synthetic_slopes": [
+    {
+      "reference_elevation_msl_m": 135.0,
+      "north_slope_m_per_m": 0.14,
+      "east_slope_m_per_m": 0.05,
+      "aircraft_up_m": 30.0,
+      "flat": {
+        "count": 9,
+        "mean_m": 70.63407531089076,
+        "median_m": 47.25073995771666,
+        "rmse_m": 93.72397134959228,
+        "p95_m": 175.51161678653628,
+        "max_m": 175.51161678653628
+      },
+      "dem": {
+        "count": 9,
+        "mean_m": 3.235235034538412e-13,
+        "median_m": 3.5591028183626447e-13,
+        "rmse_m": 3.73579663931582e-13,
+        "p95_m": 5.400124791776761e-13,
+        "max_m": 5.400124791776761e-13
+      },
+      "exact_contact_samples": [
+        {
+          "truth_neu": [
+            40.0,
+            -20.0,
+            4.6000000000000005
+          ],
+          "pixel": [
+            393.11741023851215,
+            701.9318134438008
+          ]
+        },
+        {
+          "truth_neu": [
+            40.0,
+            0.0,
+            5.6000000000000005
+          ],
+          "pixel": [
+            640.0,
+            690.6492069369453
+          ]
+        },
+        {
+          "truth_neu": [
+            40.0,
+            20.0,
+            6.6000000000000005
+          ],
+          "pixel": [
+            888.9200131945424,
+            679.2734895837348
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            -20.0,
+            10.200000000000001
+          ],
+          "pixel": [
+            508.44777443542097,
+            514.9141304296325
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            0.0,
+            11.200000000000001
+          ],
+          "pixel": [
+            640.0,
+            508.5049502769879
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            20.0,
+            12.200000000000001
+          ],
+          "pixel": [
+            772.1284951589237,
+            502.06769446366343
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            -20.0,
+            15.8
+          ],
+          "pixel": [
+            550.3346421453467,
+            446.991125049569
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            0.0,
+            16.8
+          ],
+          "pixel": [
+            640.0,
+            442.52458803910145
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            20.0,
+            17.8
+          ],
+          "pixel": [
+            729.9327036467857,
+            438.044733623744
+          ]
+        }
+      ]
+    },
+    {
+      "reference_elevation_msl_m": 135.0,
+      "north_slope_m_per_m": -0.08,
+      "east_slope_m_per_m": 0.1,
+      "aircraft_up_m": 30.0,
+      "flat": {
+        "count": 9,
+        "mean_m": 15.74717555003638,
+        "median_m": 13.98817086527933,
+        "rmse_m": 19.051998434035117,
+        "p95_m": 33.776159116148136,
+        "max_m": 33.776159116148136
+      },
+      "dem": {
+        "count": 9,
+        "mean_m": 3.1233452844601437e-13,
+        "median_m": 3.4954080877721605e-13,
+        "rmse_m": 3.598563621256503e-13,
+        "p95_m": 5.258016244624741e-13,
+        "max_m": 5.258016244624741e-13
+      },
+      "exact_contact_samples": [
+        {
+          "truth_neu": [
+            40.0,
+            -20.0,
+            -5.2
+          ],
+          "pixel": [
+            402.63726028562644,
+            807.8027099728463
+          ]
+        },
+        {
+          "truth_neu": [
+            40.0,
+            0.0,
+            -3.2
+          ],
+          "pixel": [
+            640.0,
+            786.8647790271004
+          ]
+        },
+        {
+          "truth_neu": [
+            40.0,
+            20.0,
+            -1.2000000000000002
+          ],
+          "pixel": [
+            881.1582989232825,
+            765.5920391862755
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            -20.0,
+            -8.4
+          ],
+          "pixel": [
+            513.5757114670164,
+            629.2281864901885
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            0.0,
+            -6.4
+          ],
+          "pixel": [
+            640.0,
+            617.3657707092643
+          ]
+        },
+        {
+          "truth_neu": [
+            80.0,
+            20.0,
+            -4.4
+          ],
+          "pixel": [
+            767.4930431861742,
+            605.4030734696815
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            -20.0,
+            -11.6
+          ],
+          "pixel": [
+            553.8434886901948,
+            564.4102712159108
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            0.0,
+            -9.6
+          ],
+          "pixel": [
+            640.0,
+            556.1513359162451
+          ]
+        },
+        {
+          "truth_neu": [
+            120.0,
+            20.0,
+            -7.6
+          ],
+          "pixel": [
+            726.651534306278,
+            547.8449478722939
+          ]
+        }
+      ]
+    }
+  ]
+}

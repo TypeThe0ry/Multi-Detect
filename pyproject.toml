@@ -97,6 +97,10 @@ version = { attr = "multidetect.product_version.__version__" }
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "onboard: fast regression gate for onboard autonomy and mission-planning tests",
+    "timing: depends on real threads and wall-clock timing; excluded from the default onboard gate",
+]
 
 [tool.ruff]
 line-length = 100

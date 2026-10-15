@@ -15,6 +15,8 @@ slow verdict), ``apply_verdict`` for each answered track, then ``next_action``.
 from __future__ import annotations
 
 import math
+import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -53,12 +55,15 @@ class ExecutorConfig:
     # Flown yaw lands within ~15 deg of the command; the camera sees +-50 deg.
     turn_tolerance_deg: float = 20.0
     min_altitude_m: float = 8.0
+    max_altitude_m: float = 120.0
     # Inspection views look at the centre this far below the camera axis.
     inspect_depression_margin_rad: float = 0.35
     # Shallower survey rays are too distant for reliable detection.
     survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
     hold_s: float = 1.0
+    follow_stale_s: float = 3.0
+    follow_stale_cycles: int = 2
     # Patrol/monitor alerts require this many identity-positive votes.  The
     # default preserves the historical first-positive behaviour.
     alert_min_identity_matches: int = 1
@@ -68,6 +73,29 @@ class ExecutorConfig:
     # positions are within this radius.  This is also the historical alert
     # de-duplication radius.
     alert_cluster_radius_m: float = 4.0
+    # A commanded landing remains pending while the host reports that the
+    # vehicle is still airborne.  The bound prevents a stale telemetry stream
+    # from leaving a mission in an unbounded terminal state.
+    landing_timeout_steps: int = 15
+    deliver_min_altitude_m: float = 1.0
+    deliver_max_altitude_m: float = 5.0
+    deliver_altitude_m: float = 2.0
+    deliver_position_tolerance_m: float = 1.0
+    deliver_hold_s: float = 2.0
+    deliver_ack_timeout_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        values = (
+            self.deliver_min_altitude_m, self.deliver_max_altitude_m,
+            self.deliver_altitude_m, self.deliver_position_tolerance_m,
+            self.deliver_hold_s, self.deliver_ack_timeout_s,
+        )
+        if any(isinstance(v, bool) or not math.isfinite(v) or v <= 0 for v in values):
+            raise ValueError("deliver settings must be finite positive numbers")
+        if not (
+            self.deliver_min_altitude_m <= self.deliver_altitude_m <= self.deliver_max_altitude_m
+        ):
+            raise ValueError("deliver altitude must be within configured bounds")
 
 
 @dataclass(slots=True)
@@ -123,6 +151,12 @@ class _StepRun:
     waypoint_index: int = 0
     visited: int = 0
     elapsed_s: float = 0.0
+    clock_origin_s: float | None = None
+    last_timestamp_s: float | None = None
+    pending_elapsed_s: float = 0.0
+    observation_start_s: float | None = None
+    coverage_points: list[tuple[float, float]] = field(default_factory=list)
+    covered_points: set[int] = field(default_factory=set)
     # Patrol/monitor identity votes are pooled by ground position because the
     # tracker may give the same object several track IDs.
     alert_clusters: list[_AlertCluster] = field(default_factory=list)
@@ -131,6 +165,18 @@ class _StepRun:
     acquire_track: bool = False
     lost_cycles: int = 0
     follow_finding: dict[str, Any] | None = None
+    # Landing is a two-phase command/observation operation.
+    landing_commanded: bool = False
+    # Number of control cycles for which landing has remained unconfirmed.
+    landing_wait_steps: int = 0
+    fresh_ground_tracks: set[str] = field(default_factory=set)
+    last_ground_s: float | None = None
+    follow_blocked_attempts: int = 0
+    # Delivery is a host request/ack handshake, never a hardware operation.
+    release_altitude_m: float | None = None
+    release_request_id: str | None = None
+    release_deadline: float = 0.0
+    release_ack: bool | None = None
 
 
 class MissionExecutor:
@@ -142,8 +188,17 @@ class MissionExecutor:
         refs: Mapping[str, Sequence[float] | Sequence[tuple[float, float]]] | None = None,
         config: ExecutorConfig | None = None,
         task_text: Callable[[MissionStep], str] = task_text_for,
+        capabilities: frozenset[str] = frozenset(),
+        release_authorized: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(plan)
+        # Validate the contract here; execution gates fail the step through on_fail.
+        self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
+            plan, capabilities=frozenset({"payload"})
+        )
+        self.capabilities = frozenset(capabilities)
+        self.release_authorized = release_authorized is True
+        self._clock = clock
         self.loop_factory = loop_factory
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
@@ -166,19 +221,59 @@ class MissionExecutor:
         self._last_loop: OnboardLoop | None = None
         self._run: _StepRun | None = self._start(self.plan.steps[0])
         self._current: list[Track] = []
+        # Only findings from completed steps on the active execution path are
+        # valid for finding:N references.  The executor never searches for a
+        # missing finding as a substitute for a bad reference.
+        self._completed_step_ids: list[str] = []
+        self._successful_step_ids: list[str] = []
+        self._landed_observation: bool | None = None
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
         """A zone with a radius bounds the step's search; zone:all (or none) does not."""
         ref = step.params.get("region")
+        if ref is None or str(ref) == "zone:all":
+            return None
+        if not str(ref).startswith("zone:"):
+            return None
         value = self.refs.get(str(ref)) if ref else None
-        if value is not None and len(value) >= 3:
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and len(value) >= 3:
             try:
+                if any(isinstance(value[index], bool) for index in range(3)):
+                    return None
                 region = (float(value[0]), float(value[1]), float(value[2]))
             except (TypeError, ValueError):
                 return None
             if all(math.isfinite(v) for v in region) and region[2] > 0:
                 return region
+        return None
+
+    def _region_error(self, step: MissionStep) -> str | None:
+        """Return a bounded-region contract error, if ``step`` has one.
+
+        ``zone:all`` is the explicit unbounded-region spelling.  Every other
+        region must name a host zone carrying a finite positive radius; a POI,
+        route, finding, or malformed zone is never silently treated as a
+        global search.
+        """
+        if "region" not in step.params:
+            return None
+        ref = str(step.params["region"])
+        if ref == "zone:all":
+            return None
+        if not ref.startswith("zone:"):
+            return "invalid_region_ref"
+        value = self.refs.get(ref)
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) < 3:
+            return "invalid_region_ref"
+        try:
+            if any(isinstance(value[index], bool) for index in range(3)):
+                return "invalid_region_ref"
+            region = tuple(float(value[index]) for index in range(3))
+        except (TypeError, ValueError, IndexError):
+            return "invalid_region_ref"
+        if not all(math.isfinite(v) for v in region) or region[2] <= 0:
+            return "invalid_region_ref"
         return None
 
     def _loop(self, step: MissionStep, **overrides: Any) -> OnboardLoop:
@@ -228,9 +323,14 @@ class MissionExecutor:
         assert run is not None
         run.state, run.reason = state, reason
         self._last_loop = run.loop
-        self.history.append(
-            {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
-        )
+        status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
+        if run.step.skill == "count":
+            status["count_is_lower_bound"] = reason in {"budget_exhausted", "max_count"}
+        self.history.append(status)
+        if run.step.id not in self._completed_step_ids:
+            self._completed_step_ids.append(run.step.id)
+        if state == "succeeded" and run.step.id not in self._successful_step_ids:
+            self._successful_step_ids.append(run.step.id)
         if state == "failed":
             self.alerts.append(f"{run.step.id}:{reason or 'failed'}")
         following = run.step.on_success if state == "succeeded" else run.step.on_fail
@@ -265,7 +365,17 @@ class MissionExecutor:
             except ValueError:
                 return None
             if 1 <= index <= len(self.findings):
-                return tuple(self.findings[index - 1]["position_ne"])
+                finding = self.findings[index - 1]
+                source_step = finding.get("step")
+                if source_step not in self._steps or source_step not in self._successful_step_ids:
+                    return None
+                try:
+                    point = tuple(finding["position_ne"])
+                    if len(point) != 2:
+                        return None
+                    return (float(point[0]), float(point[1]))
+                except (KeyError, TypeError, ValueError):
+                    return None
             return None
         value = self.refs.get(ref)
         if value is None or len(value) < 2:
@@ -302,9 +412,11 @@ class MissionExecutor:
         pose_ned: Pose,
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
+        landed: bool | None = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
         self._init_home(pose_ned)
+        self._landed_observation = landed if type(landed) is bool else None
         run = self._run
         if run is None or run.loop is None:
             self._current = []
@@ -312,9 +424,24 @@ class MissionExecutor:
         if run.step.skill in _TRACKING_SKILLS:
             # These skills own flight; advance association/verdict age without loop control.
             run.loop.step_index += 1
+        # A visible box can retain its previous ground estimate when its latest
+        # ray misses the ground. Following must distinguish that from a fresh fix.
+        projected = {}
+        project = ground_point
+        if run.step.skill == "follow" and ground_point is not None:
+            def project(u, v):
+                point = ground_point(u, v)
+                projected[u, v] = point
+                return point
         self._current = run.loop.update_tracks(
-            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=ground_point
+            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=project
         )
+        if run.step.skill == "follow":
+            run.fresh_ground_tracks = {
+                track.track_id for track in self._current
+                if projected.get(((track.bbox[0] + track.bbox[2]) / 2.0, track.bbox[3]))
+                is not None
+            }
         if run.step.skill == "inspect":
             if run.phase != "capture":
                 return []
@@ -428,12 +555,19 @@ class MissionExecutor:
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
         frame_id: str | None = None,
+        landed: bool | None = None,
+        timestamp_s: float | None = None,
     ) -> tuple[ActionPrimitive, dict[str, Any]]:
         self._init_home(pose_ned)
+        # ``next_action`` is also a valid observation entry point for hosts
+        # that do not run a perception update every cycle.
+        if type(landed) is bool:
+            self._landed_observation = landed
         for _ in range(len(self.plan.steps) + 1):
             run = self._run
             if run is None:
                 return ActionPrimitive.stop(), {"mission": "done"}
+            self._advance_time(run, timestamp_s)
             if run.primitives >= self._budget(run.step):
                 self._budget_end(run)
                 continue
@@ -442,35 +576,84 @@ class MissionExecutor:
                 continue  # the step finished without moving; start the next one now
             action, info = result
             run.primitives += 1
-            if run.step.skill in _TRACKING_SKILLS:
-                if action.kind == "translate":
-                    run.elapsed_s += (
-                        math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
-                    )
-                elif action.kind == "hold":
-                    run.elapsed_s += action.seconds
+            # Used only when the next observation has no pose/simulation clock.
+            # Never credit a commanded hold before its following observation.
+            run.pending_elapsed_s = self._estimated_seconds(action)
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
 
+    @staticmethod
+    def _estimated_seconds(action: ActionPrimitive) -> float:
+        if action.kind == "translate":
+            return math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
+        if action.kind == "turn":
+            return abs(action.yaw_delta_deg) / 90.0
+        return action.seconds if action.kind == "hold" else 0.0
+
+    def _advance_time(self, run: _StepRun, timestamp_s: float | None) -> None:
+        """Prefer the observation's pose clock; wall-clock inference time is unrelated.
+
+        Missing clocks use primitive estimates. A returning clock reconciles
+        those estimates, while duplicate/backward stamps cannot advance time.
+        """
+        valid = (
+            isinstance(timestamp_s, (int, float))
+            and not isinstance(timestamp_s, bool)
+            and math.isfinite(timestamp_s)
+            and timestamp_s >= 0
+        )
+        if valid:
+            if run.clock_origin_s is None:
+                # Before the first clock there is no measured interval. Retain
+                # the preceding action's fallback estimate when anchoring it.
+                run.elapsed_s += run.pending_elapsed_s
+                run.clock_origin_s = timestamp_s - run.elapsed_s
+            if run.last_timestamp_s is None or timestamp_s >= run.last_timestamp_s:
+                run.elapsed_s = max(0.0, timestamp_s - run.clock_origin_s)
+                run.last_timestamp_s = timestamp_s
+        else:
+            run.elapsed_s += run.pending_elapsed_s
+        run.pending_elapsed_s = 0.0
+        if run.observation_start_s is not None:
+            run.held_s = max(0.0, run.elapsed_s - run.observation_start_s)
+
+    @staticmethod
+    def _begin_observation(run: _StepRun) -> None:
+        if run.observation_start_s is None:
+            run.observation_start_s = run.elapsed_s
+
     def _budget(self, step: MissionStep) -> int:
+        if step.skill == "land":
+            return max(1, self.config.landing_timeout_steps + 1)
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
-        if step.skill in {"goto", "inspect", "return_home", "survey"} | _TRACKING_SKILLS:
+        if step.skill in {"goto", "inspect", "return_home", "survey", "deliver"} | _TRACKING_SKILLS:
             return self.config.travel_budget
         return self.config.step_budget
 
     def _budget_end(self, run: _StepRun) -> None:
         if run.step.skill == "count":
             self._report_count(run)
-            self._finish("succeeded", "budget_reached")
+            self._finish("succeeded", "budget_exhausted")
         elif run.step.skill == "follow" and run.follow_finding is not None and run.lost_cycles <= 6:
-            self._finish("succeeded", "duration_elapsed")
+            if run.step.params.get("duration_s") is None or self._duration_reached(run):
+                self._finish("succeeded", "duration_elapsed")
+            else:
+                self._finish("failed", "step_budget")
         else:
             self._finish("failed", "step_budget")
 
     def _act(self, run, pose, yaw, ground_point, frame_id):
         skill = run.step.skill
+        region_error = self._region_error(run.step)
+        if region_error is not None:
+            self._finish("failed", region_error)
+            return None
+        finding_error = self._finding_ref_error(run.step)
+        if finding_error is not None:
+            self._finish("failed", finding_error)
+            return None
         handler = {
             "area_search": self._area_search,
             "count": self._count,
@@ -484,11 +667,28 @@ class MissionExecutor:
             "return_home": self._return_home,
             "land": self._land,
             "record": self._record,
+            "deliver": self._deliver,
         }.get(skill)
         if handler is None:
             self._finish("failed", "skill_not_implemented")
             return None
         return handler(run, pose, yaw, ground_point, frame_id)
+
+    def _finding_ref_error(self, step: MissionStep) -> str | None:
+        """Reject missing or forward finding references before a skill can search."""
+        for value in step.params.values():
+            if not isinstance(value, str) or not value.startswith("finding:"):
+                continue
+            try:
+                index = int(value.split(":", 1)[1])
+            except ValueError:
+                return "invalid_finding_ref"
+            if index < 1 or index > len(self.findings):
+                return "finding_not_found"
+            source_step = self.findings[index - 1].get("step")
+            if source_step not in self._steps or source_step not in self._successful_step_ids:
+                return "finding_not_found"
+        return None
 
     # -- perception skills ---------------------------------------------------
     def _area_search(self, run, pose, yaw, ground_point, frame_id):
@@ -595,10 +795,21 @@ class MissionExecutor:
                 self._finish("failed", "unknown_ref")
                 return None
         if run.phase == "capture":
-            if frame_id:
+            # A deliberate view is evidence only when the nearest candidate
+            # to the requested centre was actually visible in that frame.
+            visible = any(
+                track.track_id == run.pending_track
+                and track.verdict in {"confirm", "approach"}
+                for track in self._current
+            )
+            if visible and frame_id:
                 self.evidence.append(frame_id)
-            run.captured += 1
+            if visible:
+                run.captured += 1
+            else:
+                run.skipped += 1
             run.view_index += 1
+            run.pending_track = None
             run.phase = "fly"
         while run.view_index < len(run.viewpoints):
             moved = self._move_to(
@@ -624,10 +835,11 @@ class MissionExecutor:
                 "view": run.view_index + 1,
                 "phase": "capture",
             }
-        if run.captured:
+        minimum = int(run.step.params.get("min_views_seen", 1))
+        if run.captured >= minimum:
             self._finish("succeeded", "views_captured")
         else:
-            self._finish("failed", "no_view_reachable")
+            self._finish("failed", "target_not_seen")
         return None
 
     # -- coverage and observation along a route --------------------------------
@@ -716,6 +928,87 @@ class MissionExecutor:
         self._finish("succeeded", "duration_elapsed")
         return None
 
+    def _monitor_centre_altitude(self, radius: float) -> float | None:
+        """Height whose pinhole footprint contains the entire ground disk.
+
+        Each image edge is a half-plane on the ground. Its closest point on
+        the disk must remain inside; a camera with a nadir blind spot cannot
+        cover the disk from its centre at any height.
+        """
+        camera = self._probe.camera
+        sine, cosine = math.sin(camera.pitch_down_rad), math.cos(camera.pitch_down_rad)
+        edges = (
+            (sine, abs(cosine)),
+            (camera.cx * sine, math.hypot(camera.cx * cosine, camera.fx)),
+            ((camera.width - camera.cx) * sine,
+             math.hypot((camera.width - camera.cx) * cosine, camera.fx)),
+            (camera.fy * cosine + camera.cy * sine,
+             abs(camera.cy * cosine - camera.fy * sine)),
+            ((camera.height - camera.cy) * sine - camera.fy * cosine,
+             abs((camera.height - camera.cy) * cosine + camera.fy * sine)),
+        )
+        if any(coefficient <= 1e-6 for coefficient, _ in edges):
+            return None
+        return max(radius * extent / coefficient for coefficient, extent in edges)
+
+    def _plan_monitor(self, run: _StepRun, pose: Pose) -> None:
+        region = self.region_of(run.step)
+        altitude = float(run.step.params.get("altitude_m", max(0.0, -pose[2])))
+        if region is not None:
+            north, east, radius = region
+            needed = self._monitor_centre_altitude(radius)
+            if needed is not None and needed <= self.config.max_altitude_m and (
+                "altitude_m" not in run.step.params or altitude >= needed
+            ):
+                altitude = max(altitude, needed)
+                run.waypoints = [(north, east)]
+            else:
+                # A shallow camera leaves a blind disk at the centre. Observe
+                # from eight positions inside the zone instead, at a lower
+                # height when no explicit altitude was requested.
+                if "altitude_m" not in run.step.params:
+                    altitude = min(altitude, max(self.config.min_altitude_m, radius / 2.0))
+                start = math.atan2(pose[1] - east, pose[0] - north)
+                run.waypoints = [
+                    (north + 0.75 * radius * math.cos(start + index * math.pi / 4.0),
+                     east + 0.75 * radius * math.sin(start + index * math.pi / 4.0))
+                    for index in range(8)
+                ]
+            # Equal-area disk samples estimate the union of actual camera
+            # footprints; reaching all waypoints alone never implies coverage.
+            run.coverage_points = [
+                (north + radius * math.sqrt((ring + 0.5) / 12.0) * math.cos(angle * math.tau / 48),
+                 east + radius * math.sqrt((ring + 0.5) / 12.0) * math.sin(angle * math.tau / 48))
+                for ring in range(12) for angle in range(48)
+            ]
+            self.coverage[run.step.id] = 0.0
+        else:
+            run.waypoints = [run.goal_ne]
+        run.goal_altitude_m = max(
+            self.config.min_altitude_m, min(self.config.max_altitude_m, altitude)
+        )
+
+    def _monitor_coverage(self, run: _StepRun, pose: Pose, yaw: float, frame_id) -> None:
+        camera = self._probe.camera
+        heading = math.radians(yaw)
+        sine, cosine = math.sin(camera.pitch_down_rad), math.cos(camera.pitch_down_rad)
+        altitude = max(0.0, -pose[2])
+        for index, (north, east) in enumerate(run.coverage_points):
+            dn, de = north - pose[0], east - pose[1]
+            forward = dn * math.cos(heading) + de * math.sin(heading)
+            right = -dn * math.sin(heading) + de * math.cos(heading)
+            depth = forward * cosine + altitude * sine
+            if depth <= 1e-6:
+                continue
+            u = camera.cx + camera.fx * right / depth
+            v = camera.cy + camera.fy * (-forward * sine + altitude * cosine) / depth
+            if 0 <= u <= camera.width and 0 <= v <= camera.height:
+                run.covered_points.add(index)
+        if run.coverage_points:
+            self.coverage[run.step.id] = len(run.covered_points) / len(run.coverage_points)
+        if frame_id:
+            self.evidence.append(frame_id)
+
     def _monitor(self, run, pose, yaw, ground_point, frame_id):
         if run.goal_ne is None:
             region = self.region_of(run.step)
@@ -723,40 +1016,56 @@ class MissionExecutor:
             if run.goal_ne is None:
                 self._finish("failed", "unknown_ref")
                 return None
-            if "altitude_m" in run.step.params:
-                run.goal_altitude_m = float(run.step.params["altitude_m"])
+            self._plan_monitor(run, pose)
+        if run.observation_start_s is not None:
+            self._monitor_coverage(run, pose, yaw, frame_id)
+            if run.held_s >= float(run.step.params["duration_s"]) - 1e-6:
+                self._finish("succeeded", "duration_elapsed")
+                return None
         if run.phase == "fly":
-            moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+            goal = run.waypoints[run.waypoint_index % len(run.waypoints)]
+            moved = self._move_to(run, pose, yaw, goal, run.goal_altitude_m)
             if moved == "blocked":
                 self._finish("failed", "blocked")
                 return None
             if moved is not None:
                 return moved, {"phase": "fly"}
             run.phase = "hold"
-        # The observation interval starts at the centre, after transit.
+            self._begin_observation(run)
+            self._monitor_coverage(run, pose, yaw, frame_id)
+        # Transit to the first viewpoint is excluded. Turns and travel between
+        # subsequent viewpoints are part of the active observation interval.
         remaining = float(run.step.params["duration_s"]) - run.held_s
         if remaining <= 1e-6:
             self._finish("succeeded", "duration_elapsed")
             return None
         if run.phase == "turn":
+            if run.captured >= 4 and len(run.waypoints) > 1:
+                run.waypoint_index += 1
+                run.captured = 0
+                run.phase = "fly"
+                return self._monitor(run, pose, yaw, ground_point, frame_id)
             run.phase = "hold"
             return ActionPrimitive.turn(90.0), {"phase": "turn"}
         seconds = min(2.0, remaining)
-        run.held_s += seconds
+        run.captured += 1
         run.phase = "turn"
         return ActionPrimitive.hold(seconds), {"phase": "hold", "remaining_s": remaining - seconds}
 
     def _follow(self, run, pose, yaw, ground_point, frame_id):
         if run.follow_track_id is None and run.acquire_track:
             candidate = next(
-                (t for t in self._current if t.verdict in {"confirm", "approach"} and t.ground),
+                (t for t in self._current if t.verdict in {"confirm", "approach"}
+                 and t.track_id in run.fresh_ground_tracks),
                 None,
             )
             if candidate is not None:
                 run.follow_track_id = candidate.track_id
         track = next((t for t in self._current if t.track_id == run.follow_track_id), None)
-        if track is not None and track.ground is not None:
+        fresh = track is not None and track.track_id in run.fresh_ground_tracks
+        if fresh:
             run.lost_cycles = 0
+            run.last_ground_s = run.elapsed_s
             if run.follow_finding is None:
                 self._add_finding(
                     run,
@@ -773,7 +1082,7 @@ class MissionExecutor:
         if self._duration_reached(run):
             self._finish("succeeded", "duration_elapsed")
             return None
-        if track is None or track.ground is None:
+        if not fresh:
             run.lost_cycles += 1
             if run.lost_cycles > 6:
                 if run.follow_finding is not None:
@@ -781,7 +1090,26 @@ class MissionExecutor:
                 else:
                     self._finish("failed", "target_not_found")
                 return None
-            return ActionPrimitive.hold(self.config.hold_s), {"lost_cycles": run.lost_cycles}
+            age = None if run.last_ground_s is None else max(0.0, run.elapsed_s - run.last_ground_s)
+            stale = run.lost_cycles >= self.config.follow_stale_cycles or (
+                age is not None and age >= self.config.follow_stale_s
+            )
+            confidence = 0.0 if age is None else 2.0 ** (
+                -max(age / max(self.config.follow_stale_s, 1e-6),
+                     run.lost_cycles / max(self.config.follow_stale_cycles, 1))
+            )
+            info = {
+                "lost_cycles": run.lost_cycles,
+                "ground_age_s": age,
+                "follow_confidence": confidence,
+                "follow_state": "searching" if stale else "holding",
+            }
+            # Reacquire locally instead of translating toward a retained fix.
+            action = (
+                ActionPrimitive.turn(30.0 if run.lost_cycles % 2 == 0 else -30.0)
+                if stale else ActionPrimitive.hold(self.config.hold_s)
+            )
+            return action, info
         altitude = run.step.params.get("altitude_m")
         moved = self._move_to(
             run, pose, yaw, pose[:2], None if altitude is None else float(altitude)
@@ -794,7 +1122,10 @@ class MissionExecutor:
         dn, de = track.ground[0] - pose[0], track.ground[1] - pose[1]
         distance = math.hypot(dn, de)
         standoff = max(15.0, run.loop._keep_range(max(0.0, -pose[2])))
-        info = {"track_id": track.track_id, "range_m": distance, "standoff_m": standoff}
+        info = {
+            "track_id": track.track_id, "range_m": distance, "standoff_m": standoff,
+            "follow_confidence": 1.0, "ground_age_s": 0.0, "follow_state": "tracking",
+        }
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
         if abs(delta) > self.config.turn_tolerance_deg:
             return ActionPrimitive.turn(delta), info
@@ -803,8 +1134,13 @@ class MissionExecutor:
                 track.ground[0] - standoff * dn / distance,
                 track.ground[1] - standoff * de / distance,
             )
+            blocked_before = run.blocked
             moved = self._move_to(run, pose, yaw, goal)
-            if moved == "blocked":
+            if run.blocked > blocked_before:
+                run.follow_blocked_attempts += 1
+            # Keep a separate obstruction budget: intermittent successful
+            # positioning must not reset repeated blocked standoff attempts.
+            if moved == "blocked" or run.follow_blocked_attempts > self.config.max_blocked_legs:
                 self._finish("failed", "blocked")
                 return None
             if moved is not None:
@@ -812,20 +1148,26 @@ class MissionExecutor:
         return ActionPrimitive.hold(self.config.hold_s), info
 
     # -- geometry skills -------------------------------------------------------
-    def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None):
+    def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None, *, tolerance_m=None):
         """One primitive toward ``goal_ne`` (altitude first); None when arrived."""
         altitude = max(0.0, -pose[2])
-        if altitude_m is not None and abs(altitude - altitude_m) > 1.0:
+        altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
+        if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
             target = (pose[0], pose[1], -altitude_m)
-            if altitude_m < altitude and not self._probe.segment_clear(target, pose[0], pose[1]):
+            # A pure climb leaves the obstacle footprint vertically; obstacle
+            # clearance at the current position must not hold a legal escape.
+            if altitude_m < altitude and not self._probe.segment_clear(
+                target, pose[0], pose[1]
+            ):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"
                 return ActionPrimitive.hold(self.config.hold_s)
+            run.blocked = 0
             return ActionPrimitive.translate(0.0, 0.0, altitude_m - altitude)
         dn, de = goal_ne[0] - pose[0], goal_ne[1] - pose[1]
         distance = math.hypot(dn, de)
-        if distance <= self.config.arrive_tolerance_m:
+        if distance <= (self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m):
             return None
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
         if abs(delta) > self.config.turn_tolerance_deg:
@@ -840,6 +1182,109 @@ class MissionExecutor:
             return ActionPrimitive.hold(self.config.hold_s)
         run.blocked = 0
         return ActionPrimitive.translate(step, 0.0, 0.0)
+
+    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
+        """Accept one host receipt for the active request, before its deadline."""
+        run = self._run
+        if (
+            run is None or run.step.skill != "deliver" or run.phase != "await_ack"
+            or run.release_request_id != request_id or run.release_ack is not None
+            or self._clock() >= run.release_deadline or type(released) is not bool
+        ):
+            return False
+        run.release_ack = released
+        return True
+
+    def _deliver(self, run, pose, yaw, ground_point, frame_id):
+        if "payload" not in self.capabilities:
+            self._finish("failed", "payload_capability_required")
+            return None
+        if not self.release_authorized:
+            self._finish("failed", "payload_release_not_authorized")
+            return None
+        if not all(math.isfinite(v) for v in (*pose, yaw)):
+            self._finish("failed", "invalid_pose")
+            return None
+        cfg = self.config
+        tolerance = cfg.deliver_position_tolerance_m
+        if run.goal_ne is None:
+            run.goal_ne = self.resolve(str(run.step.params["target_ref"]))
+            if run.goal_ne is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            requested = float(run.step.params.get("altitude_m", cfg.deliver_altitude_m))
+            if not math.isfinite(requested):
+                self._finish("failed", "invalid_release_altitude")
+                return None
+            run.release_altitude_m = max(
+                cfg.deliver_min_altitude_m, min(cfg.deliver_max_altitude_m, requested)
+            )
+            run.goal_altitude_m = max(
+                -pose[2], self.cruise_altitude_m or 0.0,
+                cfg.min_altitude_m, run.release_altitude_m,
+            )
+
+        release_pose = (*run.goal_ne, -run.release_altitude_m)
+        # Check the low endpoint before descent, release, and each wait cycle.
+        # The map API checks horizontal clearance at the supplied altitude.
+        if run.phase != "climb" and not self._probe.segment_clear(
+            release_pose, run.goal_ne[0], run.goal_ne[1]
+        ):
+            self._finish("failed", "release_obstacle")
+            return None
+
+        if run.phase in {"hold", "await_ack"}:
+            error = math.dist(pose, release_pose)
+            if error > tolerance:
+                self._finish("failed", "release_position_error")
+                return None
+            if run.phase == "hold":
+                run.release_request_id = uuid.uuid4().hex
+                run.release_deadline = self._clock() + cfg.deliver_ack_timeout_s
+                run.phase = "await_ack"
+                return ActionPrimitive.hold(cfg.hold_s), {
+                    "phase": "await_ack",
+                    "event": {
+                        "kind": "payload_release",
+                        "request_id": run.release_request_id,
+                        "payload_ref": str(run.step.params["payload_ref"]),
+                        "target_ref": str(run.step.params["target_ref"]),
+                        "position_ned": list(release_pose),
+                        "timeout_s": cfg.deliver_ack_timeout_s,
+                    },
+                }
+            if run.release_ack is False:
+                self._finish("failed", "payload_release_rejected")
+                return None
+            if run.release_ack is True:
+                self.answers.append(f"{run.step.id}:payload_release_ack:{run.release_request_id}")
+                run.phase = "climb"
+            else:
+                remaining = run.release_deadline - self._clock()
+                if remaining <= 0:
+                    self._finish("failed", "payload_release_ack_timeout")
+                    return None
+                return ActionPrimitive.hold(min(cfg.hold_s, remaining)), {
+                    "phase": "await_ack", "request_id": run.release_request_id,
+                }
+
+        altitude = run.release_altitude_m if run.phase == "descend" else run.goal_altitude_m
+        moved = self._move_to(
+            run, pose, yaw, run.goal_ne, altitude, tolerance_m=tolerance / 2.0
+        )
+        if moved == "blocked" or run.blocked:
+            self._finish("failed", "blocked")
+            return None
+        if moved is not None:
+            return moved, {"phase": run.phase}
+        if run.phase == "fly":
+            run.phase = "descend"
+            return self._deliver(run, pose, yaw, ground_point, frame_id)
+        if run.phase == "descend":
+            run.phase = "hold"
+            return ActionPrimitive.hold(cfg.deliver_hold_s), {"phase": "hold"}
+        self._finish("succeeded", "payload_released")
+        return None
 
     def _goto(self, run, pose, yaw, ground_point, frame_id):
         if run.goal_ne is None:
@@ -863,11 +1308,7 @@ class MissionExecutor:
             run.goal_ne = self.home
             altitude = run.step.params.get("altitude_m", self.cruise_altitude_m)
             run.goal_altitude_m = None if altitude is None else float(altitude)
-        current = max(0.0, -pose[2])
-        if run.goal_altitude_m is not None and current < run.goal_altitude_m - 1.0:
-            # Climb back to the map-safe cruise altitude before flying home.
-            return ActionPrimitive.translate(0.0, 0.0, run.goal_altitude_m - current), {}
-        moved = self._move_to(run, pose, yaw, run.goal_ne, None)
+        moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
         if moved == "blocked":
             self._finish("failed", "blocked")
             return None
@@ -877,17 +1318,65 @@ class MissionExecutor:
         return moved, {}
 
     def _hover(self, run, pose, yaw, ground_point, frame_id):
+        if run.goal_ne is None and "region" in run.step.params:
+            if str(run.step.params["region"]) == "zone:all":
+                # The whole-area spelling has no finite centre to fly to;
+                # retain the current position and apply any requested
+                # altitude change below.
+                run.goal_ne = (pose[0], pose[1])
+            region = self.region_of(run.step)
+            if region is not None:
+                run.goal_ne = region[:2]
+            elif str(run.step.params["region"]) != "zone:all":
+                run.goal_ne = self.resolve(str(run.step.params["region"]))
+            if run.goal_ne is None:
+                self._finish("failed", "unknown_ref")
+                return None
+        if "altitude_m" in run.step.params and run.goal_altitude_m is None:
+            run.goal_altitude_m = float(run.step.params["altitude_m"])
+        if run.goal_ne is not None:
+            # Hover's region is a horizontal destination.  Reach its centre
+            # before changing altitude, so the vertical leg is checked from
+            # the settled position and cannot move over an unintended area.
+            moved = self._move_to(run, pose, yaw, run.goal_ne, None)
+            if moved is None and run.goal_altitude_m is not None:
+                moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+            if moved == "blocked":
+                self._finish("failed", "blocked")
+                return None
+            if moved is not None:
+                return moved, {"phase": "position"}
+        self._begin_observation(run)
         remaining = float(run.step.params["duration_s"]) - run.held_s
         if remaining <= 1e-6:
             self._finish("succeeded", "duration_elapsed")
             return None
         seconds = min(5.0, remaining)
-        run.held_s += seconds
         return ActionPrimitive.hold(seconds), {"remaining_s": remaining - seconds}
 
     def _land(self, run, pose, yaw, ground_point, frame_id):
-        self._finish("succeeded", "landed")
-        return ActionPrimitive.stop(), {}
+        landed = self._landed_observation
+        if landed is True:
+            self._finish("succeeded", "landed")
+            return ActionPrimitive.stop(), {"phase": "landed"}
+        if landed is None:
+            # A host that cannot expose EXTENDED_SYS_STATE still gets the
+            # historical bounded stop behaviour, but the record makes the
+            # missing confirmation explicit.
+            self._finish("succeeded", "landing_commanded_unconfirmed")
+            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+        if not run.landing_commanded:
+            run.landing_commanded = True
+            run.landing_wait_steps = 0
+            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+        run.landing_wait_steps += 1
+        if run.landing_wait_steps >= self.config.landing_timeout_steps:
+            self._finish("failed", "landing_timeout")
+            return None
+        return ActionPrimitive.stop(), {
+            "phase": "landing_pending",
+            "landing_wait_steps": run.landing_wait_steps,
+        }
 
     def _record(self, run, pose, yaw, ground_point, frame_id):
         if frame_id:

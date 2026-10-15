@@ -59,8 +59,13 @@ def build_command(
     mission_out: Path,
     report_path: Path,
     episodes: int = 1,
+    *,
+    retry_failed_episodes: bool = False,
+    min_free_disk_gb: float = 0,
+    disk_check_every: int = 1,
+    strict: bool = False,
 ) -> list[str]:
-    return [
+    command = [
         sys.executable,
         str(ROOT / "scripts/eval_onboard_loop_campaign.py"),
         "--index",
@@ -82,12 +87,34 @@ def build_command(
         "--report",
         str(report_path),
     ]
+    if retry_failed_episodes:
+        command.append("--retry-failed-episodes")
+    if strict:
+        command.append("--strict")
+    command += [
+        "--min-free-disk-gb",
+        str(min_free_disk_gb),
+        "--disk-check-every",
+        str(disk_check_every),
+    ]
+    return command
 
 
 def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool]:
     checks = {"skills": row["plan_match"]}
     for key, threshold in expect.items():
         if key in {"skills", "alternatives"}:
+            continue
+        if key == "supervisor":
+            evidence = row.get("supervisor", {})
+            for field, wanted in threshold.items():
+                actual = evidence.get(field)
+                if field.startswith("logged_"):
+                    checks[f"supervisor.{field}"] = isinstance(actual, list) and all(
+                        item in actual for item in wanted
+                    )
+                else:
+                    checks[f"supervisor.{field}"] = actual is not None and actual == wanted
             continue
         metric = key.removeprefix("min_").removeprefix("max_")
         value = row.get(metric)
@@ -132,6 +159,9 @@ def build_table(
                 **{key: episode.get(source) for key, source in METRICS.items()},
                 "step_outcomes": episode.get("mission_step_outcomes"),
             }
+            # Keep legacy suite rows byte-for-byte compatible in shape.
+            if "supervisor" in mission["expect"]:
+                row["supervisor"] = episode.get("mission_supervisor") or {}
             row["expectation_checks"] = _expectations(row, mission["expect"])
             row["expectations_passed"] = all(row["expectation_checks"].values())
             rows.append(row)
@@ -199,6 +229,29 @@ def render_markdown(table: dict[str, Any]) -> str:
     lines += ["| " + " | ".join(columns) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
     for row in table["missions"]:
         lines.append("| " + " | ".join(_cell(row[key]) for key in columns.values()) + " |")
+    supervised = [row for row in table["missions"] if "supervisor" in row]
+    if supervised:
+        lines += [
+            "",
+            "## Supervisor outcomes",
+            "",
+            "| Mission | Episode | Final decision | Reason | Return home started | "
+            "Onboard log exists | Failed expectations |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for row in supervised:
+            evidence = row["supervisor"]
+            failed = [key for key, passed in row["expectation_checks"].items() if not passed]
+            values = [
+                row["id"],
+                row["episode"],
+                evidence.get("final_decision"),
+                evidence.get("reason"),
+                evidence.get("return_home_started"),
+                evidence.get("onboard_log_exists"),
+                failed,
+            ]
+            lines.append("| " + " | ".join(_cell(value) for value in values) + " |")
     if table.get("errors"):
         lines += ["", "运行错误：", ""] + [f"- {_cell(e)}" for e in table["errors"]]
     return "\n".join(lines) + "\n"
@@ -214,12 +267,20 @@ def write_json(path: Path, value: Any) -> None:
 def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v1.json"
+        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v2.json"
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", nargs="+", help="mission ids, space or comma separated")
     parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="return nonzero for collector errors, incomplete rows, or failed expectations",
+    )
+    parser.add_argument("--min-free-disk-gb", type=float, default=0)
+    parser.add_argument("--disk-check-every", type=int, default=1)
     args = parser.parse_args(argv)
     suite = json.loads(repo_path(args.suite).read_text(encoding="utf-8"))
     missions = suite["missions"]
@@ -228,6 +289,8 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         parser.error("mission ids must be unique, safe directory names")
     if args.episodes < 1:
         parser.error("--episodes must be positive")
+    if args.disk_check_every < 1 or args.min_free_disk_gb < 0:
+        parser.error("disk-check-every must be positive; disk GB must be nonnegative")
     if args.only:
         selected = {i for value in args.only for i in value.split(",")}
         if unknown := selected - set(ids):
@@ -239,6 +302,25 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
                 parser.error(f"{mission['id']}: {key} must be a positive integer")
         if not isinstance(mission["expect"]["skills"], list):
             parser.error(f"{mission['id']}: expect.skills must be a list")
+        config = merge_config(suite["defaults"], mission)
+        if "mission_package" in config or "sim_ground_events" in config:
+            # Admission validates uploaded plans and references without starting a model.
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            if str(ROOT / "src") not in sys.path:
+                sys.path.insert(0, str(ROOT / "src"))
+            from multidetect.autonomy.mission_package import load_mission_package
+            from scripts.onboard_policy import validate_sim_ground_events
+
+            try:
+                package = config.get("mission_package")
+                if package is not None:
+                    load_mission_package(
+                        repo_path(package) if isinstance(package, str) else package
+                    )
+                validate_sim_ground_events(config)
+            except (OSError, TypeError, ValueError) as exc:
+                parser.error(f"{mission['id']}: {exc}")
     out = args.out.resolve()
     reports, errors = {}, []
     runner = runner or subprocess.run
@@ -251,7 +333,15 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         config = merge_config(suite["defaults"], mission)
         write_json(config_path, config)
         command = build_command(
-            mission, config_path, directory / "campaign", report_path, args.episodes
+            mission,
+            config_path,
+            directory / "campaign",
+            report_path,
+            args.episodes,
+            retry_failed_episodes=args.retry_failed_episodes,
+            min_free_disk_gb=args.min_free_disk_gb,
+            disk_check_every=args.disk_check_every,
+            strict=args.strict,
         )
         if args.dry_run:
             print(
@@ -277,7 +367,16 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     markdown = render_markdown(table)
     (out / "suite-report.md").write_text(markdown, encoding="utf-8", newline="\n")
     print(markdown)
-    return int(bool(errors) or any(r["status"] == "missing" for r in table["missions"]))
+    # Preserve the suite's historical command-line contract by default: a
+    # missing row is the only scoring failure.  The model-round runner opts
+    # into the stronger operational gate explicitly with --strict.
+    if not args.strict:
+        return int(any(r["status"] == "missing" for r in table["missions"]))
+    return int(
+        bool(errors)
+        or any(r["status"] != "complete" for r in table["missions"])
+        or any("supervisor" in r and not r["expectations_passed"] for r in table["missions"])
+    )
 
 
 if __name__ == "__main__":

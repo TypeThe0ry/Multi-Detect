@@ -13,6 +13,8 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from multidetect.autonomy.ground_model import GroundModel
+
 CAMERA_MOUNT_X_M = 0.18
 CAMERA_MOUNT_Z_DOWN_M = 0.12
 CAMERA_MOUNT_PITCH_RAD = 0.18
@@ -150,11 +152,12 @@ def pixel_ground_point(
     image_size: tuple[int, int],
     ground_up_m: float = 0.0,
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    ground_model: GroundModel | None = None,
 ) -> tuple[float, float] | None:
-    """Invert ``project_target_bbox`` for one pixel on flat ground.
+    """Invert ``project_target_bbox`` on a supplied surface (default z_up=0).
 
     Uses the same mount offset, mount pitch, vehicle attitude and intrinsics,
-    and returns ``(north_m, east_m)`` where the pixel ray meets ``ground_up_m``.
+    and returns ``(north_m, east_m)`` on the supplied ground model or flat plane.
     """
     values = _pose_values(pose)
     centre = camera_center_ned_up(pose)
@@ -172,6 +175,8 @@ def pixel_ground_point(
         pitch_rad=math.radians(pitch_deg),
         yaw_rad=math.radians(yaw_deg),
     )
+    if ground_model is not None:
+        return ground_model.intersect_ray(centre, (north, east, down))
     height = centre[2] - ground_up_m
     if down <= 1e-6 or height <= 0:
         return None

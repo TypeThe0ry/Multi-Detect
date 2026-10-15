@@ -1,0 +1,51 @@
+{
+  "source": {
+    "path": "monitor-backpacks/campaign/gen_cnt2_w0003/episodes/episode-0000-a33f3e2e/steps.jsonl",
+    "root": "artifacts/benchmarks/mission-suite-v1-r8",
+    "report_location": "final row: labels.onboard.mission",
+    "report_step_index": 150,
+    "task_location": "monitor-backpacks/onboard.json:task_text",
+    "plan_location": "first row: labels.onboard.mission.plan.skills",
+    "note": "Final recorded report preserved verbatim. Full MissionPlan was not recorded; plan is null. Original per-frame task_text is the detector query, so operator task uses onboard.json."
+  },
+  "task": "Monitor the site for backpacks for five minutes and report alerts.",
+  "plan": null,
+  "plan_skills": [
+    "monitor",
+    "return_home"
+  ],
+  "report": {
+    "history": [
+      {
+        "step": "s1",
+        "skill": "monitor",
+        "state": "failed",
+        "reason": "step_budget"
+      },
+      {
+        "step": "s2",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "evidence": [],
+    "answers": [],
+    "alerts": [
+      "s1:alert:backpack@33.1,20.6",
+      "s1:alert:backpack@-34.5,-24.2",
+      "s1:alert:backpack@21.5,1.4",
+      "s1:alert:backpack@17.1,16.5",
+      "s1:alert:backpack@32.9,-35.2",
+      "s1:step_budget"
+    ],
+    "positions": [
+      "33.1,20.6",
+      "-34.5,-24.2",
+      "21.5,1.4",
+      "17.1,16.5",
+      "32.9,-35.2"
+    ],
+    "counts": {}
+  }
+}

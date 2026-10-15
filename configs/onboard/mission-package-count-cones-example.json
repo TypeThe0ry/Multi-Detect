@@ -1,0 +1,65 @@
+{
+  "mission_id": "count-cones-example-001",
+  "task_text": "数一数场地里有几个交通锥，然后返航",
+  "risk_level": "low",
+  "link_loss_policy": {
+    "action": "continue",
+    "timeout_s": 0
+  },
+  "heartbeat_timeout_s": 5,
+  "home": [0, 0],
+  "places": {},
+  "zones": {
+    "zone:field": {
+      "centre_ne": [25, 0],
+      "radius_m": 20,
+      "risk_tag": "open_field",
+      "oversight_required": false
+    }
+  },
+  "routes": {},
+  "ref_labels": {
+    "zone:field": "交通锥所在场地 / cone field"
+  },
+  "operating_area": {
+    "north_min_m": -30,
+    "north_max_m": 70,
+    "east_min_m": -50,
+    "east_max_m": 50,
+    "min_altitude_m": 5,
+    "max_altitude_m": 30
+  },
+  "budget": {
+    "time_s": 600,
+    "reserve_time_s": 180,
+    "energy_wh": 120,
+    "reserve_energy_wh": 30
+  },
+  "oversight_steps": [],
+  "plan": {
+    "plan_version": 1,
+    "goal": "count traffic cones in the field and return home",
+    "report": ["count", "evidence_frame_ids", "alerts"],
+    "steps": [
+      {
+        "id": "count_cones",
+        "skill": "count",
+        "params": {
+          "region": "zone:field",
+          "query": "traffic cone",
+          "max_count": 100,
+          "altitude_m": 15
+        },
+        "on_success": "return_home",
+        "on_fail": "return_home"
+      },
+      {
+        "id": "return_home",
+        "skill": "return_home",
+        "params": {},
+        "on_success": null,
+        "on_fail": null
+      }
+    ]
+  }
+}

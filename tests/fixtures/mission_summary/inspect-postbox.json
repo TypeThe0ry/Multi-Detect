@@ -1,0 +1,58 @@
+{
+  "source": {
+    "path": "inspect-postbox/campaign/gen_v2_w0038/episodes/episode-0000-f29a188a/steps.jsonl",
+    "root": "artifacts/benchmarks/mission-suite-v1-r8",
+    "report_location": "final row: labels.onboard.mission",
+    "report_step_index": 28,
+    "task_location": "inspect-postbox/onboard.json:task_text",
+    "plan_location": "first row: labels.onboard.mission.plan.skills",
+    "note": "Final recorded report preserved verbatim. Full MissionPlan was not recorded; plan is null. Original per-frame task_text is the detector query, so operator task uses onboard.json."
+  },
+  "task": "Find the postbox, inspect it from four sides, and return home.",
+  "plan": null,
+  "plan_skills": [
+    "area_search",
+    "inspect",
+    "return_home"
+  ],
+  "report": {
+    "history": [
+      {
+        "step": "s1",
+        "skill": "area_search",
+        "state": "succeeded",
+        "reason": "confirmed"
+      },
+      {
+        "step": "s2",
+        "skill": "inspect",
+        "state": "succeeded",
+        "reason": "views_captured"
+      },
+      {
+        "step": "s3",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "evidence": [
+      "frame_0003.png",
+      "frame_0008.png",
+      "frame_0016.png",
+      "frame_0023.png"
+    ],
+    "answers": [
+      "s2:view1:confirm_target",
+      "s2:view3:confirm_target",
+      "s2:view4:confirm_target"
+    ],
+    "alerts": [
+      "s2:view2_blocked"
+    ],
+    "positions": [
+      "-35.2,-13.1"
+    ],
+    "counts": {}
+  }
+}

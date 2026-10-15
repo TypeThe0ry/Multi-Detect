@@ -65,6 +65,28 @@ DEFAULT_CAMERA_INFO = {
 DEFAULT_RGB_SIZE = (640, 480)
 DEFAULT_DEPTH_SIZE = (320, 240)
 DEFAULT_DEPTH_ENCODING = "UINT16_MM"
+DEFAULT_MIN_FREE_GB = 15.0
+DEFAULT_DISK_CHECK_INTERVAL_STEPS = 10
+
+
+class LowDiskSpace(RuntimeError):
+    """Normal campaign stop caused by the configured free-space floor."""
+
+
+def free_space_bytes(path: str | Path) -> int:
+    return shutil.disk_usage(Path(path).resolve()).free
+
+
+def disk_space_abort_reason(
+    path: str | Path,
+    minimum_gb: float,
+    *,
+    free_space_fn: Any = free_space_bytes,
+) -> str | None:
+    free = free_space_fn(path)
+    if free < minimum_gb * 1024**3:
+        return f"free space {free / 1024**3:.2f} GiB below {minimum_gb:.2f} GiB"
+    return None
 
 
 def _parse_size(value: str) -> tuple[int, int]:
@@ -75,6 +97,8 @@ def _parse_size(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0 or width > 4096 or height > 4096:
         raise argparse.ArgumentTypeError("size is outside supported range")
     return width, height
+
+
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 TAKEOFF_SAFETY_MARGIN_M = 4.0
 MAX_TAKEOFF_ALTITUDE_M = 40.0
@@ -122,6 +146,8 @@ SYS_STATUS_HEALTH_BITS = {
     268435456: "prearm_check",
     33554432: "battery",
 }
+
+
 @dataclass(frozen=True, slots=True)
 class CollectionPlan:
     scenario: str
@@ -149,6 +175,13 @@ class CollectionPlan:
     takeoff_altitude_m: float | None = None
     # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
     onboard_config: str | None = None
+    depth_format: str = "npy"
+    deduplicate_depth: bool = False
+    compress_mavlink: bool = False
+    onboard_frame_format: str = "png"
+    onboard_frame_quality: int = 90
+    min_free_gb: float = 15.0
+    disk_check_interval_steps: int = 10
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -218,7 +251,8 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         )
         parent_mount = next(
             (
-                index for index, token in enumerate(command)
+                index
+                for index, token in enumerate(command)
                 if token.startswith("type=bind,")
                 and "target=/opt/multidetect-gazebo-models," in token
             ),
@@ -437,7 +471,11 @@ class DockerSimEnvironment:
         raise TimeoutError(f"SIM container did not become running within {timeout_s:.1f}s")
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if self.started and not (exc_type is not None and self.plan.keep_container_on_failure):
+        if self.started and not (
+            exc_type is not None
+            and self.plan.keep_container_on_failure
+            and exc_type is not LowDiskSpace
+        ):
             subprocess.run(
                 ["docker", "rm", "--force", self.name],
                 capture_output=True,
@@ -515,7 +553,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
     if not path.is_file() or not path.stem.startswith(
-        ("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w", "gen_cfs_w")
+        ("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w", "gen_cfs_w", "gen_cfs2_w")
     ):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
@@ -613,6 +651,8 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         image_size=plan.rgb_size,
         work_dir=work_dir,
         config_path=Path(plan.onboard_config) if plan.onboard_config else None,
+        frame_format=plan.onboard_frame_format,
+        frame_quality=plan.onboard_frame_quality,
     )
 
 
@@ -1120,18 +1160,16 @@ def _land_and_wait(
     while clock() < deadline:
         reader.raise_if_failed()
         diagnostics = _land_diagnostics(state, custom_modes, land_started_ns=land_started_ns)
-        if (
-            diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1
-        ) or (diagnostics["heartbeat_fresh"] and diagnostics["armed"] is False):
+        if (diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1) or (
+            diagnostics["heartbeat_fresh"] and diagnostics["armed"] is False
+        ):
             _progress("land", retries=retries, **diagnostics)
             return {"retries": retries, **diagnostics, "timeout_s": wait_timeout_s}
 
         now = clock()
         if (
             not diagnostics["land_mode_confirmed"]
-            and not (
-                diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 4
-            )
+            and not (diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 4)
             and retries < max_retries
             and now - last_command_s >= retry_interval_s
         ):
@@ -1424,8 +1462,24 @@ def _index_task_text(truth_path: Path) -> str | None:
     return None
 
 
-def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> Path:
+def run_episode(
+    plan: CollectionPlan,
+    truth_path: Path,
+    episode_index: int,
+    *,
+    free_space_fn: Any = free_space_bytes,
+) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
+    initial_reason = disk_space_abort_reason(
+        plan.out, plan.min_free_gb, free_space_fn=free_space_fn
+    )
+    if initial_reason is not None:
+        recorder = EpisodeRecorder(plan.out, episode_id, sensor_status="live")
+        recorder.meta["episode_index"] = episode_index
+        recorder.meta["seed"] = getattr(plan, "seed", 0) + episode_index
+        recorder.mark_finished(status="aborted_low_disk", failure=initial_reason)
+        _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
+        return recorder.episode_dir
     if plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
@@ -1439,7 +1493,20 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
     else:
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
-    recorder = EpisodeRecorder(plan.out, episode_id, task_text=task_text, sensor_status="live")
+    recorder = EpisodeRecorder(
+        plan.out,
+        episode_id,
+        task_text=task_text,
+        sensor_status="live",
+        depth_format=plan.depth_format,
+        deduplicate_depth=plan.deduplicate_depth,
+        compress_mavlink=plan.compress_mavlink,
+    )
+    # Persist the effective per-episode seed/index so a campaign can retry an
+    # individual failed recording exactly, even when its next invocation uses a
+    # different --episodes value.
+    recorder.meta["episode_index"] = episode_index
+    recorder.meta["seed"] = plan.seed + episode_index
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
@@ -1595,7 +1662,8 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 max_frames=max(64, int(plan.max_episode_s * 30.0)),
                 require_depth=depth_binding is not None,
                 segmentation_topic="/multidetect/teacher/segmentation/labels_map"
-                if plan.segmentation else None,
+                if plan.segmentation
+                else None,
             ).start()
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
@@ -1718,6 +1786,12 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 health_check=mav_reader.raise_if_failed,
             )
             for index in range(plan.steps_per_episode):
+                if index % max(1, plan.disk_check_interval_steps) == 0:
+                    reason = disk_space_abort_reason(
+                        plan.out, plan.min_free_gb, free_space_fn=free_space_fn
+                    )
+                    if reason is not None:
+                        raise LowDiskSpace(reason)
                 mav_reader.raise_if_failed()
                 if time.monotonic() - started > plan.max_episode_s:
                     raise TimeoutError("episode wall-clock timeout")
@@ -1733,6 +1807,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 before = build_observation(
                     before_sample,
                     before_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -1783,6 +1862,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 after = build_observation(
                     after_sample,
                     after_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -1837,9 +1921,7 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 telemetry_connection,
                 setpoint_streamer,
             )
-            recorder.record_mavlink(
-                {"message_type": "collector_landing_complete", **land_result}
-            )
+            recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             recorder.mark_finished(status="complete")
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
@@ -1862,6 +1944,40 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
             for connection in (telemetry_connection,):
                 if connection is not None:
                     connection.close()
+    except LowDiskSpace as exc:
+        if hasattr(policy, "close"):
+            try:
+                policy.close()
+            except Exception:
+                pass
+        if gcs_heartbeat_stop is not None:
+            gcs_heartbeat_stop.set()
+        if gcs_heartbeat_thread is not None:
+            gcs_heartbeat_thread.join(timeout=2.0)
+        if sensor_reader is not None:
+            sensor_reader.stop()
+        if setpoint_streamer is not None:
+            setpoint_streamer.stop()
+        if mav_reader is not None:
+            mav_reader.stop()
+        if sensor_process is not None:
+            try:
+                sensor_process.terminate()
+                sensor_process.wait(timeout=3)
+            except Exception:
+                try:
+                    sensor_process.kill()
+                except Exception:
+                    pass
+        for connection in (telemetry_connection,):
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+        recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
+        _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
+        return recorder.episode_dir
     except Exception as exc:
         if hasattr(policy, "close"):
             try:
@@ -1903,8 +2019,15 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
+    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard"), required=True)
+    parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
+    parser.add_argument("--deduplicate-depth", action="store_true")
+    parser.add_argument("--compress-mavlink", action="store_true")
+    parser.add_argument("--onboard-frame-format", choices=("png", "jpeg"), default="png")
+    parser.add_argument("--onboard-frame-quality", type=int, default=90)
+    parser.add_argument("--min-free-gb", type=float, default=DEFAULT_MIN_FREE_GB)
     parser.add_argument(
-        "--teacher", choices=("explore", "expert_search", "onboard"), required=True
+        "--disk-check-interval-steps", type=int, default=DEFAULT_DISK_CHECK_INTERVAL_STEPS
     )
     parser.add_argument(
         "--onboard-config",
@@ -1924,7 +2047,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)
     parser.add_argument("--depth-size", type=_parse_size, default=DEFAULT_DEPTH_SIZE)
     parser.add_argument(
-        "--segmentation", action="store_true",
+        "--segmentation",
+        action="store_true",
         help="mount the teacher camera overlay and require exact-time segmentation frames",
     )
     parser.add_argument(
@@ -1982,6 +2106,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         segmentation=args.segmentation,
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
+        depth_format=args.depth_format,
+        deduplicate_depth=args.deduplicate_depth,
+        compress_mavlink=args.compress_mavlink,
+        onboard_frame_format=args.onboard_frame_format,
+        onboard_frame_quality=args.onboard_frame_quality,
+        min_free_gb=args.min_free_gb,
+        disk_check_interval_steps=args.disk_check_interval_steps,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
@@ -1991,9 +2122,31 @@ def main(argv: Iterable[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     completed: list[str] = []
     for index in range(args.episodes):
+        free = free_space_bytes(args.out)
+        if free < plan.min_free_gb * 1024**3:
+            print(
+                json.dumps(
+                    {
+                        "event": "aborted_low_disk",
+                        "free_gb": free / 1024**3,
+                        "threshold_gb": plan.min_free_gb,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            break
         path = run_episode(plan, truth_path, index)
         completed.append(str(path))
         print(json.dumps({"episode": index, "path": str(path)}, ensure_ascii=False))
+        try:
+            status = json.loads((Path(path) / "episode.json").read_text(encoding="utf-8")).get(
+                "status"
+            )
+        except (OSError, ValueError):
+            status = None
+        if status == "aborted_low_disk":
+            print(json.dumps({"event": "aborted_low_disk", "episode": index}), file=sys.stderr)
+            break
     print(json.dumps({"episodes": completed, "out": str(args.out.resolve())}, ensure_ascii=False))
     return 0
 
