@@ -17,6 +17,7 @@ import build_plan_sft  # noqa: E402
 from build_plan_sft import mission_v3  # noqa: E402
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_planner import repair_plan_document  # noqa: E402
 
 
 def _texts(path: Path) -> set[str]:
@@ -79,6 +80,27 @@ def test_v3_terminal_matches_explicit_ending():
             assert terminal == "land"
         else:
             assert terminal == "return_home"
+
+
+def test_generated_patrol_repetition_uses_loops_and_survives_repair_unchanged():
+    rng = random.Random(20261016)
+    patrols = 0
+    for _ in range(500):
+        _zh, en, steps, report = mission_v3(rng)
+        if not any(step["skill"] == "patrol" for step in steps):
+            continue
+        patrols += 1
+        document = {
+            "plan_version": 1, "goal": en, "steps": steps, "report": report,
+        }
+        validate_mission_plan(document)
+        repaired, notes = repair_plan_document(document)
+        assert repaired == document
+        assert notes == []
+        patrol = next(step for step in steps if step["skill"] == "patrol")
+        assert isinstance(patrol["params"]["loops"], int)
+        assert patrol["on_success"] == patrol["on_fail"] == steps[-1]["id"]
+    assert patrols > 0
 
 
 def test_eval_v2_is_disjoint_from_v1_and_generated_samples():

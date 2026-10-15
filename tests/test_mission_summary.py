@@ -128,6 +128,21 @@ def test_partial_coverage_and_lost_target_are_not_hidden():
     assert "目标丢失超时" in zh
 
 
+def test_landing_commanded_unconfirmed_is_not_reported_as_plain_success():
+    plan = MissionPlan(
+        1, "land", (MissionStep("land", "land", {}, None, None),), (),
+    )
+    report = {"history": [{
+        "step": "land", "skill": "land", "state": "succeeded",
+        "reason": "landing_commanded_unconfirmed",
+    }]}
+    summary, zh, en = summarize_mission(report, plan, "land")
+    assert summary["status"] == "landing_commanded_unconfirmed"
+    assert "landing commanded but not confirmed" in en
+    assert "已发出降落指令，但尚未确认落地" in zh
+    assert summary["steps"][0]["state"] == "succeeded"
+
+
 def _policy(tmp_path):
     plan = plan_for_find_task("cone")
     executor = SimpleNamespace(

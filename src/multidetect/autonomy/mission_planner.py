@@ -266,7 +266,8 @@ def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list
     is redirected: on_success to the next step, on_fail to the terminal step; a
     non-terminal step whose on_success/on_fail is null continues to the terminal.
     Patrol steps keep their loops. A plan without a terminal step gets a final
-    return_home. Every repaired plan still goes through validate_mission_plan.
+    return_home. Callers such as ``compile_mission_plan`` validate the repaired
+    document before accepting it; this helper performs only the shallow rewrite.
     """
     steps = [dict(step) for step in document.get("steps", []) if isinstance(step, dict)]
     notes: list[str] = []
