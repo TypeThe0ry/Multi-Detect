@@ -141,12 +141,21 @@ def load_mission_package(
         {
             "task_text", "plan", "ref_labels", "heartbeat_timeout_s",
             "signature", "signature_alg",
+            "accepted_px4_overrides",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
         raise ValueError("mission_id is required")
     if not isinstance(obj["risk_level"], str) or obj["risk_level"] not in RISK_DEFAULTS:
         raise ValueError("invalid risk_level")
+    overrides = obj.get("accepted_px4_overrides", {})
+    if not isinstance(overrides, Mapping):
+        raise ValueError("accepted_px4_overrides must be an object")
+    for parameter, override in overrides.items():
+        if not isinstance(parameter, str) or not parameter.strip() or not isinstance(override, Mapping):
+            raise ValueError("accepted_px4_overrides entries must be objects keyed by parameter")
+        if override.get("accepted") is not True or not isinstance(override.get("reason"), str) or not override["reason"].strip():
+            raise ValueError(f"{parameter}: accepted PX4 override needs accepted=true and a reason")
     parse_policy(obj["link_loss_policy"])
     obj["heartbeat_timeout_s"] = number(
         obj.get("heartbeat_timeout_s", 5), "heartbeat_timeout_s", minimum=0.001

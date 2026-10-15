@@ -3,6 +3,7 @@
 Local coordinates use metres in PX4's estimator NED frame. Angles exposed to
 the autonomy boundary use degrees; only MAVLink encoding uses radians.
 """
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -50,7 +51,21 @@ class VehicleState:
     home_geodetic: Vector3 | None = None
     home_monotonic: float | None = None
     battery_monotonic: float | None = None
+    battery_status_monotonic: float | None = None
     landed_monotonic: float | None = None
+    sensor_present: int | None = None
+    sensor_enabled: int | None = None
+    sensor_health: int | None = None
+    estimator_flags: int | None = None
+    gps_fix_type: int | None = None
+    gps_satellites: int | None = None
+    gps_eph_m: float | None = None
+    sys_status_monotonic: float | None = None
+    estimator_monotonic: float | None = None
+    gps_monotonic: float | None = None
+    battery_voltage_v: float | None = None
+    battery_current_a: float | None = None
+    battery_consumed_mah: float | None = None
 
 
 @runtime_checkable
@@ -70,6 +85,10 @@ class VehicleInterface(Protocol):
     def rtl(self) -> None: ...
 
     def close(self) -> None: ...
+
+    def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
+
+    def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
 
 
 def _vector(message: Mapping[str, Any], names: tuple[str, str, str]) -> Vector3 | None:
@@ -151,6 +170,8 @@ class PymavlinkVehicle:
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
+        self._parameters: dict[str, float] = {}
+        self._parameter_events: dict[str, threading.Event] = {}
 
     def snapshot(self) -> VehicleState:
         if self._reader is not None:
@@ -227,6 +248,40 @@ class PymavlinkVehicle:
                 )):
                     updates.update(battery_remaining=None if value < 0 else float(value),
                                    battery_monotonic=stamp)
+                if kind == "SYS_STATUS":
+                    updates.update(sensor_present=message.get("onboard_control_sensors_present"),
+                                   sensor_enabled=message.get("onboard_control_sensors_enabled"),
+                                   sensor_health=message.get("onboard_control_sensors_health"),
+                                   sys_status_monotonic=stamp)
+                else:
+                    voltage = message.get("voltage_battery")
+                    current = message.get("current_battery")
+                    consumed = message.get("current_consumed")
+                    updates.update(
+                        battery_status_monotonic=stamp,
+                        battery_voltage_v=(float(voltage) / 1000 if isinstance(voltage, (int, float)) and 0 < voltage < 65535 else None),
+                        battery_current_a=(float(current) / 100 if isinstance(current, (int, float)) and current >= 0 else None),
+                        battery_consumed_mah=(float(consumed) if isinstance(consumed, (int, float)) and consumed >= 0 else None),
+                    )
+            elif kind == "ESTIMATOR_STATUS":
+                flags = message.get("flags")
+                if isinstance(flags, (int, float)) and int(flags) >= 0:
+                    updates.update(estimator_flags=int(flags), estimator_monotonic=stamp)
+            elif kind == "GPS_RAW_INT":
+                fix, sats, eph = message.get("fix_type"), message.get("satellites_visible"), message.get("eph")
+                if isinstance(fix, (int, float)):
+                    updates.update(gps_fix_type=int(fix), gps_satellites=int(sats) if isinstance(sats, (int, float)) else None,
+                                   gps_eph_m=float(eph) if isinstance(eph, (int, float)) and eph >= 0 else None,
+                                   gps_monotonic=stamp)
+            elif kind == "PARAM_VALUE":
+                name = message.get("param_id", message.get("param_name"))
+                if isinstance(name, bytes):
+                    name = name.decode("ascii", "ignore")
+                if isinstance(name, str) and isinstance(message.get("param_value"), (int, float)):
+                    clean = name.rstrip("\x00")
+                    self._parameters[clean] = float(message["param_value"])
+                    event = self._parameter_events.setdefault(clean, threading.Event())
+                    event.set()
             if updates:
                 self._state = replace(state, **updates)
         if kind == "HEARTBEAT" and self._reader is not None and not self._streams_requested:
@@ -279,6 +334,45 @@ class PymavlinkVehicle:
             system, component = self._target()
             values = (*params, *([0.0] * (7 - len(params))))
             self.connection.mav.command_long_send(system, component, command, 0, *values)
+
+    def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
+        """Request a PX4 parameter and return PARAM_VALUE, with bounded retries."""
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("parameter name must be nonempty")
+        if timeout_s <= 0 or retries < 1:
+            raise ValueError("parameter timeout and retries must be positive")
+        clean = name.strip()
+        for _ in range(retries):
+            event = self._parameter_events.setdefault(clean, threading.Event())
+            event.clear()
+            with self._sending():
+                system, component = self._target()
+                sender = getattr(self.connection.mav, "param_request_read_send", None)
+                if sender is None:
+                    raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
+                sender(system, component, clean.encode("ascii"), -1)
+            if event.wait(timeout_s):
+                return self._parameters[clean]
+        raise TimeoutError(f"PARAM_VALUE timeout for {clean}")
+
+    def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float:
+        """Set a PX4 parameter and verify its readback; callers must opt in."""
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ValueError("parameter value must be finite")
+        for _ in range(retries):
+            with self._sending():
+                system, component = self._target()
+                sender = getattr(self.connection.mav, "param_set_send", None)
+                if sender is None:
+                    raise RuntimeError("MAVLink connection lacks PARAM_SET")
+                sender(system, component, name.encode("ascii"), float(value), 9)
+            try:
+                actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
+            except TimeoutError:
+                continue
+            if math.isclose(actual, float(value), rel_tol=0, abs_tol=1e-3):
+                return actual
+        raise TimeoutError(f"parameter write/readback failed for {name}")
 
     def _request_streams(self) -> None:
         self._streams_requested = True
