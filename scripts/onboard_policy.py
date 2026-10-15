@@ -539,12 +539,20 @@ class OnboardPolicy:
                 else bool(value)
             )
         for key, convert in (
+            ("ground_reid_radius_m", float),
+            ("appearance_size_ratio", float),
+            ("appearance_aspect_ratio", float),
+            ("appearance_color_distance", float),
             ("memory_radius_m", float),
+            ("memory_footprint_factor", float),
             ("memory_min_verdicts", int),
             ("memory_max_range_ratio", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
+        if "ground_reid_max_steps" in options:
+            value = options["ground_reid_max_steps"]
+            loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
@@ -958,6 +966,7 @@ class OnboardPolicy:
                 frame_path,
                 detections,
                 fast_s,
+                frame_rgb=rgb,
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
@@ -965,7 +974,11 @@ class OnboardPolicy:
                 timestamp_s=_observation_timestamp_s(observation),
             )
         current = self.loop.update_tracks(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=rgb,
         )
         slow = []
         if self.loop.state in {"searching", "approaching"}:
@@ -1022,6 +1035,7 @@ class OnboardPolicy:
         pose_ned,
         yaw_deg,
         ground_point,
+        frame_rgb=None,
         landed=None,
         timestamp_s=None,
     ):
@@ -1034,6 +1048,7 @@ class OnboardPolicy:
             pose_ned=tuple(pose_ned),
             yaw_deg=yaw_deg,
             ground_point=ground_point,
+            frame_rgb=frame_rgb,
             landed=landed,
         )
         current = list(executor.current_tracks)
