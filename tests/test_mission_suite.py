@@ -189,3 +189,136 @@ def test_main_dry_run_writes_configs_and_does_not_call_runner(work_tmp, capsys):
     output = capsys.readouterr().out
     assert '"command"' in output
     assert '"config"' in output
+
+
+def _supervised_mission():
+    return _mission(
+        expect={
+            "skills": ["monitor", "return_home"],
+            "supervisor": {
+                "final_decision": "return_now",
+                "reason": "explicit operator abort",
+                "return_home_started": True,
+                "onboard_log_exists": True,
+                "logged_decisions": ["continue", "return_now"],
+                "logged_reasons": ["explicit operator abort"],
+                "abort_hover_before_return": True,
+                "original_mission_completed": False,
+            },
+        }
+    )
+
+
+def _supervised_episode(mission):
+    return {
+        "world": mission["world"],
+        "status": "complete",
+        "mission_plan_skills": ["monitor", "return_home"],
+        "mission_supervisor": {
+            **mission["expect"]["supervisor"],
+            "logged_decisions": ["continue", "hold", "return_now"],
+        },
+    }
+
+
+def test_supervisor_expectations_check_durable_decisions_and_recovery():
+    mission = _supervised_mission()
+    episode = _supervised_episode(mission)
+    row = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})["missions"][0]
+    assert row["expectations_passed"] is True
+    assert row["expectation_checks"]["supervisor.original_mission_completed"] is True
+    assert row["supervisor"]["original_mission_completed"] is False
+    markdown = suite.render_markdown({"summary": {"missions": 1, "episodes": 1,
+        "plan_accuracy": 1, "completion_rate": 0, "expectation_pass_rate": 1},
+        "missions": [row]})
+    assert "Supervisor outcomes" in markdown
+    assert "explicit operator abort" in markdown
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("final_decision", "continue"),
+        ("reason", "operator link-loss policy"),
+        ("return_home_started", False),
+        ("onboard_log_exists", False),
+        ("logged_decisions", ["continue"]),
+        ("logged_reasons", []),
+        ("abort_hover_before_return", False),
+        ("original_mission_completed", True),
+    ],
+)
+def test_supervisor_expectation_failures_are_visible(field, value):
+    mission = _supervised_mission()
+    episode = _supervised_episode(mission)
+    episode["mission_supervisor"][field] = value
+    row = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})["missions"][0]
+    assert row["expectation_checks"][f"supervisor.{field}"] is False
+    assert row["expectations_passed"] is False
+
+
+def test_missing_supervisor_evidence_fails_even_false_expectations():
+    mission = _supervised_mission()
+    episode = _supervised_episode(mission)
+    episode.pop("mission_supervisor")
+    row = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})["missions"][0]
+    assert row["expectations_passed"] is False
+    assert not any(v for k, v in row["expectation_checks"].items() if k.startswith("supervisor."))
+
+
+def test_v2_retains_the_eight_v1_missions_and_adds_six_packages(work_tmp, capsys):
+    v1 = json.loads((suite.ROOT / "configs/onboard/mission-suite-v1.json").read_text("utf-8"))
+    v2 = json.loads((suite.ROOT / "configs/onboard/mission-suite-v2.json").read_text("utf-8"))
+    assert v2["defaults"] == v1["defaults"]
+    assert v2["missions"][:8] == v1["missions"]
+    assert len(v2["missions"]) == 14
+    assert all("mission_package" in m for m in v2["missions"][8:])
+    count = v2["missions"][8]
+    assert count["sim_ground_events"] == []
+    assert count["mission_package"]["link_loss_policy"] == {"action": "continue"}
+    assert suite.main(["--out", str(work_tmp / "default-v2"), "--dry-run"]) == 0
+    assert len(list((work_tmp / "default-v2").glob("*/onboard.json"))) == 14
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("supervised", [False, True])
+def test_expectation_failure_exit_preserves_legacy_behavior(work_tmp, supervised):
+    mission = _supervised_mission() if supervised else _mission()
+    payload = {"defaults": {}, "missions": [mission]}
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def fake_runner(command, **kwargs):
+        episode = {"world": mission["world"], "status": "complete"}
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps({"episodes": [episode]}), encoding="utf-8"
+        )
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "out")], runner=fake_runner
+    ) == int(supervised)
+    table = json.loads((work_tmp / "out/suite-report.json").read_text("utf-8"))
+    assert ("supervisor" in table["missions"][0]) == supervised
+    assert ("Supervisor outcomes" in suite.render_markdown(table)) == supervised
+
+
+def test_dry_run_rejects_invalid_package_before_writing_config(work_tmp):
+    mission = _mission(mission_package={"mission_id": "bad"}, sim_ground_events=[])
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps({"defaults": {}, "missions": [mission]}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out"), "--dry-run"])
+    assert exc.value.code == 2
+    assert not (work_tmp / "out").exists()
+
+
+def test_dry_run_rejects_invalid_sim_timeline(work_tmp):
+    v2 = json.loads((suite.ROOT / "configs/onboard/mission-suite-v2.json").read_text("utf-8"))
+    mission = v2["missions"][8]
+    mission["sim_ground_events"] = [{"t_s": -1, "event": "abort"}]
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps({"defaults": {}, "missions": [mission]}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out"), "--dry-run"])
+    assert exc.value.code == 2
+    assert not (work_tmp / "out").exists()

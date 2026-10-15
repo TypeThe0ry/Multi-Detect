@@ -89,6 +89,17 @@ def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool
     for key, threshold in expect.items():
         if key in {"skills", "alternatives"}:
             continue
+        if key == "supervisor":
+            evidence = row.get("supervisor", {})
+            for field, wanted in threshold.items():
+                actual = evidence.get(field)
+                if field.startswith("logged_"):
+                    checks[f"supervisor.{field}"] = isinstance(actual, list) and all(
+                        item in actual for item in wanted
+                    )
+                else:
+                    checks[f"supervisor.{field}"] = actual is not None and actual == wanted
+            continue
         metric = key.removeprefix("min_").removeprefix("max_")
         value = row.get(metric)
         if isinstance(value, dict):
@@ -132,6 +143,9 @@ def build_table(
                 **{key: episode.get(source) for key, source in METRICS.items()},
                 "step_outcomes": episode.get("mission_step_outcomes"),
             }
+            # Keep legacy suite rows byte-for-byte compatible in shape.
+            if "supervisor" in mission["expect"]:
+                row["supervisor"] = episode.get("mission_supervisor") or {}
             row["expectation_checks"] = _expectations(row, mission["expect"])
             row["expectations_passed"] = all(row["expectation_checks"].values())
             rows.append(row)
@@ -199,6 +213,29 @@ def render_markdown(table: dict[str, Any]) -> str:
     lines += ["| " + " | ".join(columns) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
     for row in table["missions"]:
         lines.append("| " + " | ".join(_cell(row[key]) for key in columns.values()) + " |")
+    supervised = [row for row in table["missions"] if "supervisor" in row]
+    if supervised:
+        lines += [
+            "",
+            "## Supervisor outcomes",
+            "",
+            "| Mission | Episode | Final decision | Reason | Return home started | "
+            "Onboard log exists | Failed expectations |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for row in supervised:
+            evidence = row["supervisor"]
+            failed = [key for key, passed in row["expectation_checks"].items() if not passed]
+            values = [
+                row["id"],
+                row["episode"],
+                evidence.get("final_decision"),
+                evidence.get("reason"),
+                evidence.get("return_home_started"),
+                evidence.get("onboard_log_exists"),
+                failed,
+            ]
+            lines.append("| " + " | ".join(_cell(value) for value in values) + " |")
     if table.get("errors"):
         lines += ["", "运行错误：", ""] + [f"- {_cell(e)}" for e in table["errors"]]
     return "\n".join(lines) + "\n"
@@ -214,7 +251,7 @@ def write_json(path: Path, value: Any) -> None:
 def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v1.json"
+        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v2.json"
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", nargs="+", help="mission ids, space or comma separated")
@@ -239,6 +276,25 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
                 parser.error(f"{mission['id']}: {key} must be a positive integer")
         if not isinstance(mission["expect"]["skills"], list):
             parser.error(f"{mission['id']}: expect.skills must be a list")
+        config = merge_config(suite["defaults"], mission)
+        if "mission_package" in config or "sim_ground_events" in config:
+            # Admission validates uploaded plans and references without starting a model.
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            if str(ROOT / "src") not in sys.path:
+                sys.path.insert(0, str(ROOT / "src"))
+            from multidetect.autonomy.mission_package import load_mission_package
+            from scripts.onboard_policy import validate_sim_ground_events
+
+            try:
+                package = config.get("mission_package")
+                if package is not None:
+                    load_mission_package(
+                        repo_path(package) if isinstance(package, str) else package
+                    )
+                validate_sim_ground_events(config)
+            except (OSError, TypeError, ValueError) as exc:
+                parser.error(f"{mission['id']}: {exc}")
     out = args.out.resolve()
     reports, errors = {}, []
     runner = runner or subprocess.run
@@ -277,7 +333,11 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     markdown = render_markdown(table)
     (out / "suite-report.md").write_text(markdown, encoding="utf-8", newline="\n")
     print(markdown)
-    return int(bool(errors) or any(r["status"] == "missing" for r in table["missions"]))
+    return int(
+        bool(errors)
+        or any(r["status"] == "missing" for r in table["missions"])
+        or any("supervisor" in r and not r["expectations_passed"] for r in table["missions"])
+    )
 
 
 if __name__ == "__main__":
