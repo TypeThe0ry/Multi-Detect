@@ -1004,6 +1004,11 @@ def _landing_altitude(state: Any) -> tuple[float, str]:
     return MAX_TAKEOFF_ALTITUDE_M, "fallback_max_takeoff_altitude"
 
 
+def _takeoff_timeout_s(altitude_m: float) -> float:
+    """Same budget shape as landing: the SIM can run at ~0.15x real time under load."""
+    return _land_timeout_s(altitude_m)
+
+
 def _land_timeout_s(altitude_m: float) -> float:
     """Allow a fixed landing overhead plus a conservative altitude-based descent."""
     return max(
@@ -1708,7 +1713,7 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
 
             _wait_for(
                 _takeoff_ready,
-                _episode_budget(started, plan.max_episode_s, 60.0),
+                _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
                 phase="takeoff_reached",
                 health_check=mav_reader.raise_if_failed,
             )

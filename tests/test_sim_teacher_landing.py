@@ -238,3 +238,8 @@ def test_land_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert events[-1][0] == "land_timeout"
     assert events[-1][1]["altitude_m"] == 10.0
     assert events[-1][1]["mode"] == "OFFBOARD"
+
+
+def test_takeoff_budget_scales_with_altitude_like_landing():
+    assert collector._takeoff_timeout_s(5.0) == collector.LAND_MIN_TIMEOUT_S
+    assert collector._takeoff_timeout_s(22.0) == collector._land_timeout_s(22.0) > 60.0
