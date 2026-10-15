@@ -1,5 +1,7 @@
 [Unit]
 Description=Multi-Detect local llama-server (slow autonomy model)
+StartLimitIntervalSec=60
+StartLimitBurst=5
 After=network-online.target
 Wants=network-online.target
 

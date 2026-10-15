@@ -24,11 +24,17 @@ class HealthConfig:
     disk_hard_floor_bytes: int = 256 * 1024 * 1024
     escalate_after_s: float = 60.0
     pressure_hysteresis: float = 0.1
+    sampling_failure_limit: int = 10
+    max_frame_delta_s: float = 5.0
     critical_temperature_c: float | None = None
     critical_memory_pressure: float | None = None
 
     def __post_init__(self):
-        if self.slow_failure_limit < 1 or self.slow_latency_samples < 1:
+        if (
+            self.slow_failure_limit < 1
+            or self.slow_latency_samples < 1
+            or self.sampling_failure_limit < 1
+        ):
             raise ValueError("health limits must be positive")
         vals = (
             self.probe_interval_s,
@@ -37,6 +43,7 @@ class HealthConfig:
             self.thermal_threshold_c,
             self.escalate_after_s,
             self.pressure_hysteresis,
+            self.max_frame_delta_s,
         )
         if any(not math.isfinite(float(v)) or float(v) <= 0 for v in vals):
             raise ValueError("health thresholds invalid")
@@ -74,6 +81,9 @@ class _State:
     pressure_toggle: bool = False
     low_disk: bool = False
     last_resources: dict[str, Any] = field(default_factory=dict)
+    sample_failures: int = 0
+    clock_raw: float | None = None
+    elapsed_s: float = 0.0
 
 
 class HealthMonitor:
@@ -160,11 +170,23 @@ class HealthMonitor:
                 ok = bool(fn(timeout_s=self.config.probe_timeout_s))
             except Exception:
                 ok = False
-            if ok:
-                self.state.probe_succeeded = True
+            self.state.probe_succeeded = ok
+        else:
+            self.state.probe_succeeded = False
+
+    def _time(self, raw):
+        raw = float(raw)
+        if self.state.clock_raw is None:
+            self.state.clock_raw = raw
+            return self.state.elapsed_s
+        self.state.elapsed_s += min(
+            self.config.max_frame_delta_s, max(0.0, raw - self.state.clock_raw)
+        )
+        self.state.clock_raw = raw
+        return self.state.elapsed_s
 
     def on_frame(self, *, now=None, mission_requires_images=False):
-        n = self.clock() if now is None else float(now)
+        n = self._time(self.clock() if now is None else now)
         if not self.config.enabled:
             return HealthDecision()
         self._probe(n)
@@ -173,8 +195,10 @@ class HealthMonitor:
         except Exception as e:
             self._trans("health_source_error", True, n, error=str(e))
             rd = {}
+            self.state.sample_failures += 1
         else:
             self._trans("health_source_error", False, n)
+            self.state.sample_failures = 0
         self.state.last_resources = rd
         t = self._num(rd.get("temperature_c"))
         if t is None and isinstance(rd.get("temperatures_c"), Mapping):
@@ -184,11 +208,17 @@ class HealthMonitor:
             )
         m = self._num(rd.get("memory_pressure_ratio", rd.get("memory_pressure")))
         thr = bool(rd.get("throttled", rd.get("thermal_throttled", False)))
-        pressure = bool(
+        measured_pressure = (
             (t is not None and t >= self.config.thermal_threshold_c)
             or thr
             or (m is not None and m >= self.config.memory_pressure_threshold)
         )
+        if t is None and m is None and not thr and rd:
+            self.state.sample_failures += 1
+            pressure = self.state.pressure_active
+        else:
+            self.state.sample_failures = 0
+            pressure = measured_pressure
         if self.state.pressure_active:
             pressure = not (
                 (
@@ -206,6 +236,10 @@ class HealthMonitor:
         if not pressure:
             self.state.pressure_toggle = False
         self._trans("resource_pressure", pressure, n, temperature_c=t, memory_pressure=m)
+        sampling_bad = self.state.sample_failures >= self.config.sampling_failure_limit
+        self._trans(
+            "resource_sampling_failed", sampling_bad, n, failures=self.state.sample_failures
+        )
         free = self._num(rd.get("disk_free_bytes", rd.get("disk_free")))
         if free is None and self.disk_path is not None:
             try:
@@ -229,11 +263,13 @@ class HealthMonitor:
             for r in ("slow_unavailable", "slow_latency_drift", "resource_pressure")
             if r in self.state.active_reasons
         ]
+        if "resource_sampling_failed" in self.state.active_reasons:
+            holds.append("resource_sampling_failed")
         if mission_requires_images and "low_disk" in self.state.active_reasons:
             holds.append("low_disk")
         if critical:
             return HealthDecision("land", "critical_resource_pressure", stop_frame_writes=low)
-        if any(n - self.state.hold_since.get(r, n) > self.config.escalate_after_s for r in holds):
+        if any(n - self.state.hold_since.get(r, n) >= self.config.escalate_after_s for r in holds):
             return HealthDecision("return_home", holds[0], stop_frame_writes=low)
         if low and mission_requires_images:
             return HealthDecision("hold", "low_disk", stop_frame_writes=True)
@@ -246,6 +282,8 @@ class HealthMonitor:
         for r in ("slow_unavailable", "slow_latency_drift"):
             if r in self.state.active_reasons:
                 return HealthDecision("hold", r, stop_frame_writes=low)
+        if "resource_sampling_failed" in self.state.active_reasons:
+            return HealthDecision("hold", "resource_sampling_failed", stop_frame_writes=low)
         return HealthDecision("ok", stop_frame_writes=low)
 
     check = on_frame
@@ -254,7 +292,7 @@ class HealthMonitor:
     def record_slow_call(self, latency_s, *, ok=True, now=None):
         if not self.config.enabled:
             return HealthDecision()
-        n = self.clock() if now is None else float(now)
+        n = self._time(self.clock() if now is None else now)
         latency = self._num(latency_s)
         if latency is not None:
             self.state.slow_latencies = (self.state.slow_latencies + [latency])[
@@ -262,6 +300,7 @@ class HealthMonitor:
             ]
         if not ok:
             self.state.consecutive_slow_failures += 1
+            self.state.probe_succeeded = False
             if self.state.consecutive_slow_failures >= self.config.slow_failure_limit:
                 self.state.slow_available = False
                 self.state.unavailable_since = self.state.unavailable_since or n

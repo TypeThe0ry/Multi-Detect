@@ -590,6 +590,8 @@ class OnboardPolicy:
             disk_path=self.work_dir,
         )
         self._slow_failed_current = False
+        self._slow_skipped_current = False
+        self._health_recovery_executor = None
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -636,11 +638,17 @@ class OnboardPolicy:
                             },
                         },
                     }
-                    response = _http_json(
-                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
-                        body,
-                        timeout=self.slow_call_timeout_s,
-                    )
+                    started = time.perf_counter()
+                    try:
+                        response = _http_json(
+                            f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
+                            body,
+                            timeout=self.slow_call_timeout_s,
+                        )
+                    except Exception:
+                        self.health.record_slow_call(time.perf_counter() - started, ok=False)
+                        raise
+                    self.health.record_slow_call(time.perf_counter() - started, ok=True)
                     return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
@@ -827,6 +835,15 @@ class OnboardPolicy:
         }
         from scripts.eval_slow_system import decision_confidence, parse_model_decision
 
+        if getattr(self, "health", None) is not None and self.health.state.low_disk:
+            self._slow_skipped_current = True
+            return {
+                "track_id": focus.track_id,
+                "identity": None,
+                "error": "slow_call_skipped_low_disk",
+                "latency_s": 0.0,
+            }
+
         started = time.perf_counter()
         try:
             raw, latency = self.slow(row)
@@ -861,6 +878,30 @@ class OnboardPolicy:
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._slow_failed_current = False
+        self._slow_skipped_current = False
+        # Process external safety inputs first. A latched supervisor decision and
+        # one-shot ground event must never be hidden by a health hold.
+        if self.supervisor is not None:
+            if self.sim_timeline is not None:
+                self.sim_timeline.advance(observation, self.supervisor)
+            for sample in observation.get("energy_telemetry", []):
+                self.supervisor.ingest_energy_telemetry(
+                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                )
+            for event in observation.get("ground_events", []):
+                self.supervisor.ground_event(event)
+            update_estimates = getattr(self.supervisor, "update_estimates", None)
+            if update_estimates is not None:
+                update_estimates(**observation.get("mission_estimates", {}))
+            evaluate = getattr(self.supervisor, "evaluate", None)
+            if evaluate is not None and evaluate(pose_ned=pose_ned) != "continue":
+                action, info = self.supervisor.next_action(
+                    pose_ned=tuple(pose_ned),
+                    yaw_deg=yaw_deg,
+                    landed=observation.get("landed"),
+                    timestamp_s=_observation_timestamp_s(observation),
+                )
+                return action, {"onboard": {**info, "state": "supervised", "health": {}}}
         health_monitor = getattr(self, "health", None)
         health_decision = (
             health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
@@ -882,6 +923,7 @@ class OnboardPolicy:
                     pose_ned=pose_ned,
                     yaw_deg=yaw_deg,
                     land=health_decision.decision == "land",
+                    timestamp_s=_observation_timestamp_s(observation),
                 )
                 return action, {"onboard": {**info, "health": health_decision.__dict__}}
             return ActionPrimitive.hold(1.0), {
@@ -895,36 +937,6 @@ class OnboardPolicy:
             return ActionPrimitive.hold(1.0), {
                 "onboard": {"state": "health_hold", "health": health_decision.__dict__}
             }
-        if self.supervisor is not None:
-            if self.sim_timeline is not None:
-                self.sim_timeline.advance(observation, self.supervisor)
-            for sample in observation.get("energy_telemetry", []):
-                self.supervisor.ingest_energy_telemetry(
-                    sample["message"], received_at_s=sample["received_monotonic_s"]
-                )
-            for event in observation.get("ground_events", []):
-                self.supervisor.ground_event(event)
-            self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
-            if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
-                action, info = self.supervisor.next_action(
-                    pose_ned=tuple(pose_ned),
-                    yaw_deg=yaw_deg,
-                    landed=observation.get("landed"),
-                    timestamp_s=_observation_timestamp_s(observation),
-                )
-                return action, {
-                    "onboard": {
-                        **info,
-                        "state": "supervised",
-                        "detections": 0,
-                        "tracks": [],
-                        "slow_calls": [],
-                        "confirmed": None,
-                        "alert_vote_clusters": [],
-                        "fast_latency_s": 0.0,
-                        "mission": {"history": list(self.supervisor.history)},
-                    }
-                }
         import numpy as np
         from PIL import Image
 
@@ -978,6 +990,10 @@ class OnboardPolicy:
                         "state": "health_hold",
                         "health": {"decision": "hold", "reason": "slow_call_failed"},
                     }
+                }
+            if self._slow_skipped_current:
+                return ActionPrimitive.hold(1.0), {
+                    "onboard": {"state": "health_hold", "health": {"reason": "low_disk"}}
                 }
             return result
         current = self.loop.update_tracks(
@@ -1034,29 +1050,41 @@ class OnboardPolicy:
                     "health": {"decision": "hold", "reason": "slow_call_failed"},
                 }
             }
+        if self._slow_skipped_current:
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": {"reason": "low_disk"}}
+            }
         return action, labels
 
-    def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool):
-        plan = validate_mission_plan(
-            {
-                "plan_version": 1,
-                "goal": "health recovery",
-                "report": ["status"],
-                "steps": [
-                    {
-                        "id": "recovery",
-                        "skill": "land" if land else "return_home",
-                        "params": {},
-                        "on_success": None,
-                        "on_fail": None,
-                    }
-                ],
-            }
+    def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool, timestamp_s=None):
+        skill = "land" if land else "return_home"
+        if (
+            self._health_recovery_executor is None
+            or self._health_recovery_executor.plan.steps[0].skill != skill
+        ):
+            plan = validate_mission_plan(
+                {
+                    "plan_version": 1,
+                    "goal": "health recovery",
+                    "report": ["status"],
+                    "steps": [
+                        {
+                            "id": "recovery",
+                            "skill": skill,
+                            "params": {},
+                            "on_success": None,
+                            "on_fail": None,
+                        }
+                    ],
+                }
+            )
+            recovery = MissionExecutor(plan, loop_factory=self.executor.loop_factory)
+            recovery.home = getattr(self.executor, "home", None)
+            recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
+            self._health_recovery_executor = recovery
+        return self._health_recovery_executor.next_action(
+            pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, timestamp_s=timestamp_s
         )
-        recovery = MissionExecutor(plan, loop_factory=self.executor.loop_factory)
-        recovery.home = getattr(self.executor, "home", None)
-        recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
-        return recovery.next_action(pose_ned=tuple(pose_ned), yaw_deg=yaw_deg)
 
     def _act_mission(
         self,
