@@ -317,6 +317,7 @@ def plan_prompt_parts(
     refs: tuple[str, ...] = (),
     error: str | None = None,
     prompt_variant: str = "default",
+    capabilities: frozenset[str] = frozenset(),
 ) -> dict[str, str]:
     """Ordered prompt sections, including delimiters; concatenate values to render.
 
@@ -327,7 +328,7 @@ def plan_prompt_parts(
         raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
     lines = ["Skills (params in brackets, * = required):"]
     for name, spec in SKILLS.items():
-        if spec.gated:
+        if spec.gated and "payload" not in capabilities:
             continue
         params = ", ".join(
             ("*" if p in spec.required_params else "") + p for p in sorted(spec.allowed_params)
@@ -347,7 +348,7 @@ def plan_prompt_parts(
         # Keep the exact skill names/parameter list; grammar supplies their types.
         lines = ["Skills (* required):"]
         for name, spec in SKILLS.items():
-            if not spec.gated:
+            if not spec.gated or "payload" in capabilities:
                 params = ",".join(
                     ("*" if p in spec.required_params else "") + p
                     for p in sorted(spec.allowed_params)
@@ -386,11 +387,16 @@ def plan_prompt(
     refs: tuple[str, ...] = (),
     error: str | None = None,
     prompt_variant: str = "default",
+    capabilities: frozenset[str] = frozenset(),
 ) -> str:
     """Instruction for the slow model; defaults match the training prompt exactly."""
     return "".join(
         plan_prompt_parts(
-            task_text, refs=refs, error=error, prompt_variant=prompt_variant
+            task_text,
+            refs=refs,
+            error=error,
+            prompt_variant=prompt_variant,
+            capabilities=capabilities,
         ).values()
     )
 
@@ -441,20 +447,27 @@ def compile_mission_plan(
     schema: dict[str, Any] | None = None,
     attempts: int = 2,
     prompt_variant: str = "default",
+    capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason."""
     if attempts < 1:
         raise ValueError("attempts must be positive")
     if prompt_variant not in PLAN_PROMPT_VARIANTS:
         raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
-    schema = schema if schema is not None else plan_json_schema()
+    schema = schema if schema is not None else plan_json_schema(capabilities=capabilities)
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
     for attempt in range(attempts):
         started = time.perf_counter()
         try:
             raw = post(
-                plan_prompt(task_text, refs=refs, error=error, prompt_variant=prompt_variant),
+                plan_prompt(
+                    task_text,
+                    refs=refs,
+                    error=error,
+                    prompt_variant=prompt_variant,
+                    capabilities=capabilities,
+                ),
                 schema,
             )
         except Exception as exc:  # A model/transport failure must leave the caller a safe fallback.
@@ -479,7 +492,7 @@ def compile_mission_plan(
                             + ", zone:all, home"
                         )
                     notes = notes + ref_notes
-                plan = validate_mission_plan(document)
+                plan = validate_mission_plan(document, capabilities=capabilities)
             except (AutonomyContractError, ValueError, TypeError, KeyError, AttributeError) as exc:
                 error = str(exc)[:200]
             else:
