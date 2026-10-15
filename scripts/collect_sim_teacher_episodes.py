@@ -1475,6 +1475,8 @@ def run_episode(
     )
     if initial_reason is not None:
         recorder = EpisodeRecorder(plan.out, episode_id, sensor_status="live")
+        recorder.meta["episode_index"] = episode_index
+        recorder.meta["seed"] = getattr(plan, "seed", 0) + episode_index
         recorder.mark_finished(status="aborted_low_disk", failure=initial_reason)
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir

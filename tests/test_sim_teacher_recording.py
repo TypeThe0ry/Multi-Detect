@@ -66,7 +66,7 @@ def test_opt_in_depth_formats_load_to_equivalent_arrays(tmp_path: Path, depth_fo
         name for name in os.listdir(recorder.episode_dir / "depth")
     )
     loaded = load_depth_array(path)
-    expected = source if depth_format != "png16" else np.rint(source * 1000).astype(np.uint16)
+    expected = source
     np.testing.assert_array_equal(loaded, expected)
 
 

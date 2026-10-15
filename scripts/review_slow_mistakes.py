@@ -110,7 +110,7 @@ def _depth_range(episode: Path, obs: dict[str, Any], box: list[float]) -> float 
         x2, y2 = min(width, int(box[2])), min(height, int(box[3]))
         values = depth[y1:y2, x1:x2]
         values = values[np.isfinite(values) & (values > 0)]
-        return round(float(np.median(values)) / 1000.0, 2) if values.size else None
+        return round(float(np.median(values)), 2) if values.size else None
     except (OSError, ValueError):
         return None
 

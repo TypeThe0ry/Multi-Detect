@@ -75,7 +75,7 @@ def _sha256(path: Path) -> str:
 def _real_rgb(ep: Path, value: object) -> bool:
     if not isinstance(value, str) or Path(value).is_absolute():
         return False
-    path = ep / value
+    path = ep / value.replace("\\", "/")
     try:
         with path.open("rb") as stream:
             return (
@@ -90,7 +90,7 @@ def _real_rgb(ep: Path, value: object) -> bool:
 def _real_depth(ep: Path, value: object) -> bool:
     if not isinstance(value, str) or Path(value).is_absolute():
         return False
-    path = ep / value
+    path = ep / value.replace("\\", "/")
     if (
         path.suffix.lower() not in {".npy", ".npz", ".png"}
         or not path.is_file()

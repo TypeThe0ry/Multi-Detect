@@ -253,6 +253,20 @@ def main(argv: list[str] | None = None) -> int:
                 if args.strict:
                     raise RuntimeError(f"Collector failed for {world_id}: exit {code}; see {log}")
                 break
+            complete_after = [
+                episode
+                for episode in sorted((out / "episodes").glob("*"))
+                if episode.is_dir() and episode_is_complete(episode)
+            ]
+            if len(complete_after) <= len(complete_dirs):
+                print(json.dumps({"world": world_id, "status": "not filled: low disk"}), flush=True)
+                strict_failure = True
+                if args.strict:
+                    raise RuntimeError(
+                        f"Collector did not produce a complete episode for {world_id}: "
+                        "not filled: low disk"
+                    )
+                break
             else:
                 used_seeds.add(seed)
         complete_dirs = (
@@ -307,7 +321,22 @@ def main(argv: list[str] | None = None) -> int:
                 if args.strict:
                     raise RuntimeError(f"Collector failed for {world_id}: exit {code}; see {log}")
                 break
-            missing -= batch
+            complete_after = [
+                episode
+                for episode in sorted((out / "episodes").glob("*"))
+                if episode.is_dir() and episode_is_complete(episode)
+            ]
+            filled = len(complete_after) - len(complete_dirs)
+            complete_dirs = complete_after
+            if filled <= 0:
+                print(json.dumps({"world": world_id, "status": "not filled: low disk"}), flush=True)
+                strict_failure = True
+                if args.strict:
+                    raise RuntimeError(
+                        f"Collector did not fill episodes for {world_id}: not filled: low disk"
+                    )
+                break
+            missing = max(0, args.episodes - len(complete_dirs))
             used_seeds.update(range(seed_cursor, seed_cursor + batch))
             seed_cursor += batch
         truth = json.loads((scenarios / f"{world_id}.truth.json").read_text(encoding="utf-8"))

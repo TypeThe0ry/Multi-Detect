@@ -156,6 +156,14 @@ class EpisodeRecorder:
                     out["depth_path"] = str(path.relative_to(self.episode_dir))
                     self._previous_depth = array.copy()
                     self._previous_depth_path = out["depth_path"]
+                if self.depth_format == "png16":
+                    depth_info = dict(out.get("depth_camera_info") or {})
+                    depth_info["encoding"] = "UINT16_MM"
+                    out["depth_camera_info"] = depth_info
+                    camera_info = dict(out.get("camera_info") or {})
+                    if camera_info:
+                        camera_info["encoding"] = "UINT16_MM"
+                        out["camera_info"] = camera_info
             except Exception:
                 path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
                 out["depth_path"] = str(path.relative_to(self.episode_dir))
@@ -325,17 +333,19 @@ DEFAULT_POSE_MOTION_THRESHOLD_M = 1.0
 
 
 def load_depth_array(path: str | Path):
-    """Load legacy NPY and opt-in NPZ/16-bit PNG depth identically."""
+    """Load depth as float32 metres for NPY, NPZ, and PNG16 files."""
     import numpy as np
     from PIL import Image
 
     path = Path(path)
     if path.suffix.lower() == ".npz":
         with np.load(path, allow_pickle=False) as data:
-            return np.asarray(data["depth"] if "depth" in data else data[data.files[0]])
+            return np.asarray(
+                data["depth"] if "depth" in data else data[data.files[0]], dtype=np.float32
+            )
     if path.suffix.lower() == ".png":
-        return np.asarray(Image.open(path), dtype=np.uint16)
-    return np.load(path, allow_pickle=False)
+        return np.asarray(Image.open(path), dtype=np.float32) / 1000.0
+    return np.asarray(np.load(path, allow_pickle=False), dtype=np.float32)
 
 
 def _depth_finite(ep: Path, value: Any) -> bool:
