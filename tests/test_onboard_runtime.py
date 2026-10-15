@@ -135,6 +135,36 @@ class SlowPolicy:
             self.release_event.set()
 
 
+def test_runtime_calls_final_arbiter_before_pump_target() -> None:
+    """A policy result is filtered once at the coordinator/pump boundary."""
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    seen = []
+
+    def arbiter(action, *, pose_ned, yaw_deg, observation=None):
+        seen.append((action, tuple(pose_ned), yaw_deg))
+        return ActionPrimitive.translate(1.0, 0.0), {"status": "accepted"}
+
+    policy = SlowPolicy(latency=0.01, action=ActionPrimitive.translate(100.0, 0.0))
+    runtime = OnboardRuntime(
+        vehicle, camera, policy, config=RuntimeConfig(camera_timeout_s=3.0), arbiter=arbiter
+    )
+    runtime.start()
+    try:
+        runtime.poll()
+        deadline = time.monotonic() + 1.0
+        while runtime.steps < 1 and time.monotonic() < deadline:
+            runtime.poll()
+            time.sleep(0.01)
+        assert runtime.steps >= 1
+        assert seen and seen[0][0].forward_m == 100.0
+        # Vehicle yaw is 15 degrees, so body-forward projects onto both N/E.
+        assert runtime.pump.target.north_m == pytest.approx(10.9659258)
+        event = next(e for e in runtime.events if e["event"] == "autonomy_action")
+        assert event["envelope"]["status"] == "accepted"
+    finally:
+        runtime.close()
+
+
 def wait_for(predicate, timeout=1):
     until = time.monotonic() + timeout
     while not predicate():

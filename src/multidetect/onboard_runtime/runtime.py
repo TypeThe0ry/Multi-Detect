@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import inspect
 import threading
 import time
 from collections import deque
@@ -174,10 +175,16 @@ class OnboardRuntime:
         self, vehicle: VehicleInterface, camera: CameraSource, policy: Policy, *,
         config: RuntimeConfig | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        arbiter: Any | None = None,
     ) -> None:
         self.vehicle, self.camera, self.policy = vehicle, camera, policy
         self.config = config or RuntimeConfig()
         self.home_ned = home_ned
+        # Optional final action arbiter.  It is deliberately injected at the
+        # runtime boundary so every policy result reaches one last filter
+        # immediately before the pump target is changed.  Existing callers keep
+        # byte-for-byte behaviour when omitted.
+        self.arbiter = arbiter
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
@@ -192,6 +199,7 @@ class OnboardRuntime:
         self._command_thread: threading.Thread | None = None
         self._command_error: str | None = None
         self._motion: tuple[ActionPrimitive, float] | None = None
+        self._envelope_segments: deque[ActionPrimitive] = deque()
         self._last_frame_timestamp: float | None = None
         self._last_good_state: VehicleState | None = None
         self._hazard_target: PositionSetpoint | None = None
@@ -204,6 +212,61 @@ class OnboardRuntime:
         self.pump: SetpointPump | None = None
         self.policy_worker_stopped = True
         self.mission_complete = False
+
+    def _arbitrate_action(
+        self, action: ActionPrimitive, *, pose_ned: tuple[float, float, float],
+        yaw_deg: float, observation: dict[str, Any] | None = None,
+    ) -> tuple[ActionPrimitive, dict[str, Any]]:
+        """Run the optional final action arbiter without coupling its API.
+
+        The onboard safety envelope has evolved independently of this runtime;
+        accepting ``arbitrate``/``apply``/callable implementations keeps the
+        pump integration small while allowing a decision record to be attached
+        to runtime events.  A malformed arbiter result fails closed to a hold.
+        """
+        if self.arbiter is None:
+            return action, {}
+        fn = getattr(self.arbiter, "arbitrate", None)
+        if fn is None:
+            fn = getattr(self.arbiter, "apply", None)
+        if fn is None and callable(self.arbiter):
+            fn = self.arbiter
+        if fn is None:
+            raise TypeError("arbiter must be callable or expose arbitrate/apply")
+        # Select the call shape up front; catching TypeError around invocation
+        # could execute a stateful arbiter twice when its own body raises.
+        try:
+            parameters = inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "observation" in parameters:
+            result = fn(action, pose_ned=pose_ned, yaw_deg=yaw_deg, observation=observation)
+        elif parameters and any(p.kind is inspect.Parameter.POSITIONAL_ONLY for p in parameters.values()):
+            result = fn(action, pose_ned, yaw_deg)
+        else:
+            result = fn(action, pose_ned=pose_ned, yaw_deg=yaw_deg)
+        info: dict[str, Any] = {}
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], ActionPrimitive):
+            action, metadata = result
+            if isinstance(metadata, dict):
+                info = metadata
+        elif isinstance(result, ActionPrimitive):
+            action = result
+        elif hasattr(result, "action") and isinstance(result.action, ActionPrimitive):
+            action = result.action
+            metadata = result.info() if callable(getattr(result, "info", None)) else None
+            if isinstance(metadata, dict):
+                info = metadata
+            # A vertical split is represented by a tuple of segments.  The
+            # coordinator consumes the first segment now; the remaining steps
+            # are intentionally left to the next policy/coordinator cycle so
+            # completion and timeout accounting remain single-source.
+            segments = getattr(result, "segments", ())
+            if segments:
+                info.setdefault("segments", [segment.to_dict() for segment in segments])
+        else:
+            raise TypeError("arbiter must return ActionPrimitive or (ActionPrimitive, info)")
+        return action, info
 
     def _event(self, name: str, **details: Any) -> None:
         self.events.append({"event": name, "monotonic_s": time.monotonic(), **details})
@@ -463,8 +526,33 @@ class OnboardRuntime:
             if self._result:
                 action, _labels, source_state = self._result
                 self._result = None
+                # OnboardPolicy.act owns the SIM/real policy return point and
+                # annotates an already-arbitrated result with ``safety``.
+                # Do not invoke the same envelope twice when the runtime was
+                # also given that instance; generic policies still use this
+                # runtime boundary arbiter.
+                if isinstance(_labels, dict) and "safety" in _labels:
+                    envelope_info = _labels["safety"]
+                else:
+                    action, envelope_info = self._arbitrate_action(
+                        action,
+                        pose_ned=tuple(source_state.position_ned),
+                        yaw_deg=source_state.attitude_deg[2],
+                    )
                 self.steps += 1
-                self._event("autonomy_action", action=action.to_dict())
+                self._event("autonomy_action", action=action.to_dict(), envelope=envelope_info)
+                segments = ()
+                if isinstance(envelope_info, dict):
+                    segments = envelope_info.get("segments", ())
+                    if not segments and isinstance(envelope_info.get("safety"), dict):
+                        segments = envelope_info["safety"].get("segments", ())
+                if segments:
+                    for raw_segment in segments[1:]:
+                        try:
+                            self._envelope_segments.append(ActionPrimitive.from_dict(raw_segment))
+                        except (TypeError, KeyError, ValueError):
+                            self._latch("invalid_envelope_segments", now)
+                            return
                 if action.kind == "stop":
                     self.mission_complete = True
                     self._command(self.config.completion_action)
@@ -489,6 +577,21 @@ class OnboardRuntime:
                         self._latch("action_timeout", now)
                     return
                 self._motion = None
+            if self._motion is None and self._envelope_segments:
+                # A long vertical command is emitted as bounded segments by
+                # the envelope.  Consume the queue before launching another
+                # policy frame so no segment is dropped or recomputed.
+                action = self._envelope_segments.popleft()
+                origin = state.position_ned
+                n, e, d, yaw = primitive_to_ned(action, state.attitude_deg[2])
+                target = PositionSetpoint(
+                    origin[0] + n, origin[1] + e, origin[2] + d,
+                    state.attitude_deg[2] + yaw,
+                )
+                self.pump.set_target(target)
+                self._motion = action, now
+                self._event("autonomy_action_segment", action=action.to_dict())
+                return
             if frame is not None and frame.timestamp_monotonic != self._last_frame_timestamp:
                 self._launch_policy(frame, state)
 

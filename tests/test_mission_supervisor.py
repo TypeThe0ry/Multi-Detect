@@ -128,6 +128,15 @@ def test_all_policies_without_any_ground_station(tmp_path, policy, early, late):
     assert s.evaluate() == late
 
 
+def test_envelope_violation_preserves_latched_land_precedence(tmp_path):
+    s, _now, _ = build(tmp_path, "continue")
+    s._escalate("land_now", "existing terminal land")
+    assert s.report_envelope_violation("no_fly") == "land_now"
+    assert s.evaluate() == "land_now"
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert any(record["kind"] == "envelope_violation" for record in records)
+
+
 def test_continue_survives_hours_of_silence(tmp_path):
     s, now, _ = build(tmp_path)
     for hours in range(1, 13):

@@ -570,6 +570,39 @@ class MissionSupervisor:
                     energy=self.energy_estimate,
                 )
 
+    def report_envelope_violation(
+        self, reason: str, *, action: str = "return_now"
+    ) -> str:
+        """Report a final-action envelope veto to the supervisor.
+
+        The safety envelope is deliberately a stateless arbiter with respect to
+        mission execution: it may hold or clip a primitive, but it must not
+        mutate an executor or recovery state itself.  Callers therefore route a
+        veto through this method.  The supervisor owns escalation and applies
+        its existing policy ordering (``land_now`` always dominates
+        ``return_now``).
+
+        ``action`` is restricted to terminal actions.  A successful report
+        returns the currently latched supervisor action, which is useful to
+        callers that need to annotate the outgoing hold primitive.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("envelope violation reason must be a non-empty string")
+        if action not in {"return_now", "land_now"}:
+            raise ValueError("envelope violation action must be return_now or land_now")
+        message = f"safety envelope violation: {reason.strip()}"
+        # _escalate is the sole owner of terminal/recovery state and preserves
+        # the supervisor's established precedence when a stronger action was
+        # already latched (in particular, land_now cannot be downgraded).
+        self._escalate(action, message)
+        self._record(
+            "envelope_violation",
+            requested_action=action,
+            effective_action=self._terminal or self.action,
+            reason=reason.strip(),
+        )
+        return self._terminal or self.action
+
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
         doc = self.package.document
