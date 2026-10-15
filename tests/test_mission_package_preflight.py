@@ -11,7 +11,7 @@ from multidetect.autonomy.mission_package import (
     estimate_plan_duration,
     load_mission_package,
 )
-from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.mission_plan import MissionPlan, MissionStep, validate_mission_plan
 
 
 def _document() -> dict:
@@ -233,23 +233,22 @@ def test_time_budget_capability_and_terminal_reachability() -> None:
         "on_success": None,
         "on_fail": None,
     }
-    plan = validate_mission_plan(_plan([monitor, _goto_home()[1]]))
+    plan = MissionPlan(
+        1,
+        "preflight test",
+        (MissionStep("watch", "monitor", monitor["params"], None, None),
+         MissionStep("home", "return_home", {}, None, None)),
+        ("status",),
+    )
     codes = {v["code"] for v in check_plan_against_package(plan, package)}
     assert "TIME_BUDGET_EXCEEDED" in codes
 
-    unreachable = validate_mission_plan(
-        _plan(
-            [
-                {
-                    "id": "go",
-                    "skill": "goto",
-                    "params": {"target_ref": "poi:gate"},
-                    "on_success": None,
-                    "on_fail": None,
-                },
-                _goto_home()[1],
-            ]
-        )
+    unreachable = MissionPlan(
+        1,
+        "preflight test",
+        (MissionStep("go", "goto", {"target_ref": "poi:gate"}, "home", None),
+         MissionStep("home", "return_home", {}, None, None)),
+        ("status",),
     )
     assert any(
         v["code"] == "TERMINAL_UNREACHABLE"
@@ -281,19 +280,12 @@ def test_every_reachable_branch_must_reach_return_or_land() -> None:
     raw = _document()
     raw["task_text"] = "test"
     package = _package(raw=raw)
-    plan = validate_mission_plan(
-        _plan(
-            [
-                {
-                    "id": "go",
-                    "skill": "goto",
-                    "params": {"target_ref": "poi:gate"},
-                    "on_success": "home",
-                    "on_fail": None,
-                },
-                _goto_home()[1],
-            ]
-        )
+    plan = MissionPlan(
+        1,
+        "preflight test",
+        (MissionStep("go", "goto", {"target_ref": "poi:gate"}, "home", None),
+         MissionStep("home", "return_home", {}, None, None)),
+        ("status",),
     )
     violations = check_plan_against_package(plan, package)
     assert any(

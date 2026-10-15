@@ -15,8 +15,10 @@ from .serialization import strict_json_loads
 
 POLICIES = ("continue", "continue_then_return", "hold_then_return", "return_now", "land_now")
 RISK_DEFAULTS = {"low": "continue", "medium": "continue_then_return", "high": "return_now"}
-# Nominal horizontal speed calibrated against recorded mission-suite-v1-r12
-# translate outcomes. This is a planning estimate, not an upper bound.
+# Median horizontal commanded speed from 309 translate outcomes in
+# artifacts/benchmarks/mission-suite-v1-r12/*/campaign/**/steps.jsonl:
+# 1.0344827586 m/s, rounded to 1.03. This is a planning estimate, not an
+# upper bound; the corresponding report.json files identify the campaigns.
 CALIBRATED_TRAVEL_SPEED_MPS = 1.03
 OPEN_ENDED_SKILLS = frozenset({"area_search", "count", "monitor", "patrol", "survey", "follow"})
 

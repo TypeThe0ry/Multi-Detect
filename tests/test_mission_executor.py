@@ -352,12 +352,62 @@ def test_runtime_no_fly_guard_rejects_dynamic_finding_leg():
         loop_factory=_factory(),
         no_fly_zones=(((10.0, 0.0), 2.0),),
     )
-    executor.findings.append({"position_ne": (20.0, 0.0)})
+    executor.findings.append({"step": "s", "position_ne": (20.0, 0.0)})
+    executor._successful_step_ids.append("s")
     sim = Sim()
     action, _ = _cycle(executor, sim)
     assert action.kind == "stop"
     assert executor.history[0]["reason"] == "no_fly_zone"
     assert "s:no_fly_zone" in executor.alerts
+
+
+def test_return_home_routes_around_no_fly_circle():
+    executor = MissionExecutor(
+        validate_mission_plan({
+            "plan_version": 1, "goal": "return", "steps": [{
+                "id": "s", "skill": "return_home", "params": {},
+                "on_success": None, "on_fail": None,
+            }], "report": [],
+        }),
+        loop_factory=_factory(),
+        no_fly_zones=(((10.0, 0.0), 2.0),),
+    )
+    executor.home = (0.0, 0.0)
+    executor.operating_area = {
+        "north_min_m": -30.0, "north_max_m": 30.0,
+        "east_min_m": -30.0, "east_max_m": 30.0,
+    }
+    sim = Sim(north=20.0, east=0.0)
+    for _ in range(80):
+        action, _ = _cycle(executor, sim)
+        assert math.dist(sim.pose[:2], (10.0, 0.0)) > 2.0
+        if executor.history:
+            break
+    assert executor.history[0]["reason"] == "arrived"
+    assert executor.history[0]["state"] == "succeeded"
+    assert "s:no_fly_zone" not in executor.alerts
+
+
+def test_return_home_lands_in_place_when_no_detour_fits_area():
+    executor = MissionExecutor(
+        validate_mission_plan({
+            "plan_version": 1, "goal": "return", "steps": [{
+                "id": "s", "skill": "return_home", "params": {},
+                "on_success": None, "on_fail": None,
+            }], "report": [],
+        }),
+        loop_factory=_factory(),
+        no_fly_zones=(((10.0, 0.0), 2.0),),
+    )
+    executor.home = (0.0, 0.0)
+    executor.operating_area = {
+        "north_min_m": -30.0, "north_max_m": 30.0,
+        "east_min_m": -0.5, "east_max_m": 0.5,
+    }
+    action, _ = _cycle(executor, Sim(north=20.0, east=0.0))
+    assert action.kind == "stop"
+    assert executor.history[0]["reason"] == "landing_commanded_unconfirmed"
+    assert "s:no_fly_zone_land_fallback" in executor.alerts
 
 
 @pytest.mark.parametrize("min_depression", [0.35, 0.5])

@@ -172,6 +172,10 @@ class _StepRun:
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
+    # Return-home geofence detour state.
+    detour_waypoints: list[tuple[float, float]] = field(default_factory=list)
+    detour_index: int = 0
+    detour_planned: bool = False
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -213,6 +217,12 @@ class MissionExecutor:
             ((float(centre[0]), float(centre[1])), float(radius))
             for centre, radius in no_fly_zones
             if len(centre) >= 2 and math.isfinite(float(radius)) and float(radius) > 0
+        )
+        package_document = getattr(package, "document", None)
+        self.operating_area = (
+            package_document.get("operating_area")
+            if isinstance(package_document, Mapping)
+            else None
         )
         self._steps = {step.id: step for step in self.plan.steps}
         # A probe loop gives the camera model and the static-map clearance check.
@@ -1215,10 +1225,6 @@ class MissionExecutor:
         refusal, and ``no_fly`` when the direct NED leg intersects a package
         no-fly circle.
         """
-        if self._leg_enters_no_fly((pose[0], pose[1]), goal_ne):
-            self.alerts.append(f"{run.step.id}:no_fly_zone")
-            self._finish("failed", "no_fly_zone")
-            return "no_fly"
         altitude = max(0.0, -pose[2])
         altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
         if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
@@ -1234,7 +1240,35 @@ class MissionExecutor:
                 return ActionPrimitive.hold(self.config.hold_s)
             run.blocked = 0
             return ActionPrimitive.translate(0.0, 0.0, altitude_m - altitude)
-        dn, de = goal_ne[0] - pose[0], goal_ne[1] - pose[1]
+        target = (float(goal_ne[0]), float(goal_ne[1]))
+        if run.step.skill == "return_home" and run.detour_planned:
+            while run.detour_index < len(run.detour_waypoints):
+                waypoint = run.detour_waypoints[run.detour_index]
+                if math.dist((pose[0], pose[1]), waypoint) > (
+                    self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m
+                ):
+                    target = waypoint
+                    break
+                run.detour_index += 1
+            if run.detour_index < len(run.detour_waypoints):
+                target = run.detour_waypoints[run.detour_index]
+        if self._leg_enters_no_fly((pose[0], pose[1]), target):
+            if run.step.skill == "return_home" and not run.detour_planned:
+                detour = self._return_home_detour((pose[0], pose[1]), target)
+                run.detour_planned = True
+                if detour:
+                    run.detour_waypoints = detour
+                    run.detour_index = 0
+                    target = detour[0]
+                else:
+                    self.alerts.append(f"{run.step.id}:no_fly_zone_land_fallback")
+                    run.phase = "land_fallback"
+                    return "land_fallback"
+            else:
+                self.alerts.append(f"{run.step.id}:no_fly_zone")
+                self._finish("failed", "no_fly_zone")
+                return "no_fly"
+        dn, de = target[0] - pose[0], target[1] - pose[1]
         distance = math.hypot(dn, de)
         if distance <= (self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m):
             return None
@@ -1251,6 +1285,55 @@ class MissionExecutor:
             return ActionPrimitive.hold(self.config.hold_s)
         run.blocked = 0
         return ActionPrimitive.translate(step, 0.0, 0.0)
+
+    def _return_home_detour(
+        self, start: tuple[float, float], goal: tuple[float, float]
+    ) -> list[tuple[float, float]] | None:
+        """Find a short two-segment route around every crossed no-fly circle."""
+        area = self.operating_area
+        if not isinstance(area, Mapping):
+            return None
+        crossed = [
+            (centre, radius)
+            for centre, radius in self.no_fly_zones
+            if self._segment_circle_distance(start, goal, centre) <= radius
+        ]
+        if not crossed:
+            return []
+        dn, de = goal[0] - start[0], goal[1] - start[1]
+        length = math.hypot(dn, de)
+        if length <= 1e-9:
+            return None
+        perp = (-de / length, dn / length)
+        margin = 1.0
+        candidates: list[tuple[float, float]] = []
+        for centre, radius in crossed:
+            clearance = radius + margin
+            for sign in (-1.0, 1.0):
+                candidates.append(
+                    (centre[0] + sign * perp[0] * clearance,
+                     centre[1] + sign * perp[1] * clearance)
+                )
+        valid = []
+        for waypoint in candidates:
+            if not (
+                area["north_min_m"] <= waypoint[0] <= area["north_max_m"]
+                and area["east_min_m"] <= waypoint[1] <= area["east_max_m"]
+            ):
+                continue
+            if any(math.dist(waypoint, centre) <= radius for centre, radius in self.no_fly_zones):
+                continue
+            if any(
+                self._segment_circle_distance(start, waypoint, centre) <= radius
+                or self._segment_circle_distance(waypoint, goal, centre) <= radius
+                for centre, radius in self.no_fly_zones
+            ):
+                continue
+            valid.append(waypoint)
+        if not valid:
+            return None
+        waypoint = min(valid, key=lambda point: math.dist(start, point) + math.dist(point, goal))
+        return [waypoint]
 
     def _leg_enters_no_fly(
         self, start: tuple[float, float], end: Sequence[float]
@@ -1392,6 +1475,8 @@ class MissionExecutor:
             altitude = run.step.params.get("altitude_m", self.cruise_altitude_m)
             run.goal_altitude_m = None if altitude is None else float(altitude)
         moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+        if moved == "land_fallback":
+            return self._land(run, pose, yaw, ground_point, frame_id)
         if moved == "no_fly":
             return None
         if moved == "blocked":
