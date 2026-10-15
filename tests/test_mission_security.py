@@ -184,3 +184,22 @@ def test_binary_key_with_whitespace_edge_bytes_is_not_stripped(tmp_path):
     key_path.write_bytes(public)
     package = sign_document(document(), private)
     assert load_mission_package(package, key_path=key_path).mission_id == "sortie-1"
+
+
+def test_invalid_authentication_does_not_consume_command_rate_limit(tmp_path):
+    private, public = _keys()
+    supervisor, now, _ = build(tmp_path)
+    supervisor._security_key = public
+    supervisor.rate_limit = 1
+    base = {
+        "mission_id": "sortie-1",
+        "type": "abort",
+        "sequence": 1,
+        "timestamp": now[0],
+        "timestamp_version": 1,
+        "timestamp_domain": "monotonic",
+    }
+    bad_key, _ = _keys()
+    for _ in range(100):
+        assert not supervisor.ground_event(sign_document(base, bad_key))
+    assert supervisor.ground_event(sign_document(base, private))

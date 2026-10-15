@@ -324,7 +324,7 @@ class MissionSupervisor:
         if raw_size > 8192 or depth(event) > 8 or not strings_ok(event):
             self._record("ground_event_rejected", reason="pre-authentication limits exceeded")
             return False
-        while self._auth_failures and self._now - self._auth_failures[0] > 60:
+        while self._auth_failures and self._now - self._auth_failures[0] > self.rate_window_s:
             self._auth_failures.popleft()
         if self._require_signature and not secured:
             self._record("ground_event_rejected", reason="flight control requires authentication")
@@ -337,13 +337,19 @@ class MissionSupervisor:
             signature = event.get("signature", event.get("mac"))
             if not isinstance(signature, str) or not verify_document(event, self._security_key):
                 self._auth_failures.append(self._now)
-                if len(self._auth_failures) > 20:
+                failures = len(self._auth_failures)
+                # Log every failure up to the threshold, then only every 100th, so a
+                # flood of forged commands cannot fill the onboard disk with log lines.
+                if failures <= 20 or failures % 100 == 0:
                     self._record(
                         "ground_event_rejected",
-                        reason="authentication failure token bucket",
+                        reason=(
+                            "event authentication failed; failure threshold exceeded"
+                            if failures > 20
+                            else "event authentication failed"
+                        ),
+                        failures_in_window=failures,
                     )
-                    return False
-                self._record("ground_event_rejected", reason="event authentication failed")
                 return False
             try:
                 stamp_number = number(event.get("timestamp"), "event timestamp")

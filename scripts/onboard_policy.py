@@ -398,26 +398,26 @@ class OnboardPolicy:
         ):
             raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key_setting = (
-            options.get("mission_package_verify_key")
-            or options.get("operator_key_path")
+        mission_key_setting = options.get("mission_package_verify_key") or security.get(
+            "mission_package_verify_key"
+        )
+        legacy_key_setting = (
+            options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
         )
-        if key_setting is not None and not (
-            options.get("mission_package_verify_key")
-            or security.get("mission_package_verify_key")
-        ):
+        key_setting = mission_key_setting or legacy_key_setting
+        if legacy_key_setting is not None and mission_key_setting is None:
             warnings.warn(
                 "operator_key_path is deprecated; use mission_package_verify_key",
                 DeprecationWarning,
                 stacklevel=2,
             )
         ground_key_setting = (
-            security.get("ground_command_verify_key")
-            or options.get("ground_command_verify_key")
-            or key_setting
+            options.get("ground_command_verify_key")
+            or security.get("ground_command_verify_key")
+            or legacy_key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)

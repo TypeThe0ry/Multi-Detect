@@ -44,6 +44,10 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 
 ## 统一签名合约（Mission Security v2）
 
+### GCS producer
+
+GCS 生成地面任务级命令时，必须签名以下完整字段：`mission_id`、`type`、`sequence`、`timestamp`、`timestamp_version`、`timestamp_domain`、`key_id` 以及命令自身的其他字段。签名输入是删除 `signature` 与 `signature_alg` 后，对完整 JSON 对象执行 canonicalization 的 UTF-8 字节：对象键按 Unicode 码点升序、数组保持原顺序、字符串使用 UTF-8、数字必须是有限值、分隔符固定为 `,` 和 `:`，不输出空白；`key_id` 必须保留在签名域中，算法由本地配置决定。当前 GCS 源码尚未实现此 producer，跟踪项是 GCS mission-package panel；因此在该 producer 完成前，real-flight 地面命令仅限 MAVLink-signed operator link。
+
 任务包与地面命令使用同一份 canonical JSON 合约。签名者先复制完整 JSON 对象，删除 `signature` 与 `signature_alg` 两个字段，保留 `key_id`，然后按以下规则编码：对象键按 Unicode 码点升序排列；数组顺序保持不变；字符串使用 UTF-8 且不转义非 ASCII；数字必须是有限值；不输出空白，分隔符固定为 `,` 和 `:`；最终字节是 UTF-8 编码的 JSON 文本。签名算法和 `key_id` 由本地密钥配置决定，文档中的同名字段只能用于匹配，不能选择验证算法。
 
 密钥文件必须使用 `ed25519-public:`, `ed25519-private:` 或 `hmac:` 前缀，并可用 JSON 对象写成 `{ "algorithm": "...", "key_id": "...", "key": "<prefixed-value>" }`。Ed25519 密钥材料严格为 32 字节；HMAC-SHA256 密钥为 16 至 4096 字节。飞行模式（`mode` 为 `flight`、`real`、`hil` 或 `live`，或显式 `flight_mode=true`）以及任何已配置密钥的任务包都必须带签名；密钥缺失、不可读、权限过宽或签名不匹配时拒绝载入。SIM 模式未配置密钥时仍可载入未签名任务包。
