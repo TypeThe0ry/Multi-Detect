@@ -207,6 +207,12 @@ def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _enabled(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value is True
+
+
 def perception_task_text(step: MissionStep, original: str) -> str:
     """Use a plan query for slow perception unless the query is non-ASCII."""
     query = step.params.get("query") if step is not None else None
@@ -220,15 +226,19 @@ def build_mission_from_text(
     refs: Mapping[str, Any] | Sequence[str] | None,
     post: Callable[[str, dict], str],
     sorted_keys: bool = True,
+    *,
+    capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan, dict[str, Any]]:
     """Compile a free task sentence, falling back to a validated return-home plan."""
-    schema = plan_json_schema()
+    schema = plan_json_schema(capabilities=capabilities)
     if sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
         schema = trained_key_order_schema(schema)
     ref_names = tuple(refs or ())
-    plan, report = compile_mission_plan(post, task_text, refs=ref_names, schema=schema)
+    plan, report = compile_mission_plan(
+        post, task_text, refs=ref_names, schema=schema, capabilities=capabilities
+    )
     if plan is None:
         plan = validate_mission_plan(
             {
@@ -549,6 +559,9 @@ class OnboardPolicy:
         self.executor: MissionExecutor | MissionSupervisor | None = None
         self.supervisor: MissionSupervisor | None = None
         self.downlink: DownlinkQueue | None = None
+        capabilities = (
+            frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
+        )
         if mission:
             if mission == "package":
                 if self.mission_package is None:
@@ -596,6 +609,7 @@ class OnboardPolicy:
                     tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
                     post,
                     sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                    capabilities=capabilities,
                 )
                 self.mission_plan, self.mission_plan_report = plan, report
                 if self.mission_package is not None and report.get("error"):
@@ -613,6 +627,8 @@ class OnboardPolicy:
                 plan,
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
+                capabilities=capabilities,
+                release_authorized=_enabled(options.get("release_authorized")),
                 task_text=(
                     (lambda step: perception_task_text(step, self.task_text))
                     if mission in {"from_text", "package"}
@@ -628,6 +644,14 @@ class OnboardPolicy:
                         in {"1", "true", "yes", "on"}
                     ),
                     alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+                    deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
+                    deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
+                    deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
+                    deliver_position_tolerance_m=float(
+                        options.get("deliver_position_tolerance_m", 1.0)
+                    ),
+                    deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
+                    deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
                 ),
             )
             # Set home on the executor itself, before any supervisor wraps it.
@@ -670,6 +694,12 @@ class OnboardPolicy:
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
+
+    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
+        """Forward a host receipt; this policy has no payload hardware driver."""
+        return self.executor is not None and self.executor.acknowledge_payload_release(
+            request_id, released=released
+        )
 
     def close(self) -> None:
         try:

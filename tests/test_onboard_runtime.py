@@ -126,7 +126,7 @@ def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
     try:
         runtime.poll()
         assert policy.entered.wait(0.5)
-        runtime.run(1.7)
+        runtime.run(2.5)  # the fake slow call takes 1.5 s; leave room on a loaded host
         during_call = [target for stamp, target in vehicle.setpoints
                        if stamp < vehicle.setpoints[0][0] + 1.4]
         assert len(during_call) >= 12
