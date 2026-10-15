@@ -169,3 +169,18 @@ def test_secret_key_file_permissions_fail_closed(tmp_path):
     path.chmod(0o644)
     with pytest.raises(PermissionError):
         load_key(path)
+
+def test_binary_key_with_whitespace_edge_bytes_is_not_stripped(tmp_path):
+    # Raw 32-byte keys whose first/last byte is 0x09-0x0d or 0x20 used to lose that byte
+    # when the key file was read, so a valid signature failed about 1 time in 20.
+    whitespace = b" \t\n\r\x0b\x0c"
+    for _ in range(5000):
+        private, public = _keys()
+        if public[0] in whitespace or public[-1] in whitespace:
+            break
+    else:  # pragma: no cover - probability ~ (1 - 12/256) ** 5000
+        pytest.skip("no whitespace-edged key generated")
+    key_path = tmp_path / "operator.pub"
+    key_path.write_bytes(public)
+    package = sign_document(document(), private)
+    assert load_mission_package(package, key_path=key_path).mission_id == "sortie-1"

@@ -448,6 +448,9 @@ def test_unix_heartbeat_uses_local_receipt_time_for_liveness(tmp_path):
     assert s.ground_event(heartbeat)
     assert s.last_heartbeat == now[0]
     assert s.connected
+    now[0] += 6
+    s._time()
+    assert not s.connected
 
 
 def test_signed_command_requires_versioned_timestamp_domain(tmp_path):

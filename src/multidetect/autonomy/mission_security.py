@@ -135,15 +135,22 @@ def load_key(path: str | Path) -> AuthenticationKey:
 
     key_path = Path(path)
     raw = key_path.read_bytes()
-    if not raw.strip():
+    if not raw:
         raise ValueError("authentication key file is empty")
     parsed_key_id: str | None = None
-    source = raw.strip()
+    # Decode ASCII files as text, but preserve arbitrary binary material byte for
+    # byte. In particular, 0x09-0x0d and 0x20 are valid edge bytes in raw keys.
+    try:
+        text_source = raw.decode("ascii")
+        source = text_source.strip().encode("ascii")
+    except UnicodeDecodeError:
+        text_source = None
+        source = raw
     algorithm: str
     material: bytes
     private = False
     try:
-        parsed = json.loads(raw.decode("utf-8"))
+        parsed = json.loads(text_source) if text_source is not None else None
     except (UnicodeDecodeError, json.JSONDecodeError):
         parsed = None
     if isinstance(parsed, dict):
@@ -172,11 +179,10 @@ def load_key(path: str | Path) -> AuthenticationKey:
     elif isinstance(parsed, (list, tuple)):
         raise ValueError("authentication key document must be an object")
     else:
-        try:
-            text = source.decode("ascii")
-        except UnicodeDecodeError:
+        if text_source is None:
             algorithm, material, private = _legacy_raw(source)
         else:
+            text = source.decode("ascii")
             prefixed = any(
                 text.lower().startswith(prefix)
                 for prefix in ("ed25519-public:", "ed25519-private:", "hmac:")
