@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from multidetect.autonomy.ground_model import GroundModel
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 Box = tuple[float, float, float, float]
@@ -62,13 +63,21 @@ class CameraModel:
         return math.degrees(math.atan2(u - self.cx, self.fx))
 
     def ground_point(
-        self, u: float, v: float, *, north: float, east: float, height_m: float, yaw_deg: float
+        self, u: float, v: float, *, north: float, east: float, height_m: float, yaw_deg: float,
+        ground_model: GroundModel | None = None,
     ) -> tuple[float, float] | None:
-        """Intersect the pixel ray with flat ground ``height_m`` below the camera."""
+        """Intersect a level-flight ray; height_m is local up for a supplied model."""
         x, y = (u - self.cx) / self.fx, (v - self.cy) / self.fy
         pitch = self.pitch_down_rad
         forward = math.cos(pitch) - y * math.sin(pitch)
         down = math.sin(pitch) + y * math.cos(pitch)
+        if ground_model is not None:
+            yaw = math.radians(yaw_deg)
+            return ground_model.intersect_ray(
+                (north, east, height_m),
+                (forward * math.cos(yaw) - x * math.sin(yaw),
+                 forward * math.sin(yaw) + x * math.cos(yaw), down),
+            )
         if down <= 1e-6 or height_m <= 0:
             return None
         t = height_m / down
@@ -731,7 +740,7 @@ class OnboardLoop:
     ) -> tuple[ActionPrimitive, dict[str, Any]]:
         """Choose the next primitive after tracks and verdicts are up to date.
 
-        ``ground_point(u, v)`` maps a pixel to flat ground with the full vehicle
+        ``ground_point(u, v)`` maps a pixel to the configured ground with full vehicle
         attitude and camera mount; without it a level-flight approximation is used.
         """
         if ground_point is None:

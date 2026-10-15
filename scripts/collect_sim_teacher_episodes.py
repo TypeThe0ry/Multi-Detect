@@ -1733,6 +1733,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 before = build_observation(
                     before_sample,
                     before_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -1783,6 +1788,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 after = build_observation(
                     after_sample,
                     after_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],

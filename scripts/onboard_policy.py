@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.ground_model import ground_projection_from_config  # noqa: E402
 from multidetect.autonomy.mission_executor import (  # noqa: E402
     ExecutorConfig,
     MissionExecutor,
@@ -176,6 +177,9 @@ class OnboardPolicy:
         config: dict[str, Any] | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        self.ground_projection = ground_projection_from_config(
+            options.get("ground_model"), base_dir=ROOT
+        )
         for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
             # Config paths are relative to the repository root.
             path = Path(options[key])
@@ -431,11 +435,13 @@ class OnboardPolicy:
         detections = self.proposer(rgb[:, :, ::-1].copy())
         fast_s = time.perf_counter() - started
         camera_info = observation["camera_info"]
+        ground_model = self.ground_projection.for_observation(observation)
 
         def ground_point(u: float, v: float):
             # Full attitude + camera mount inverse of the projection model.
             return pixel_ground_point(
-                u, v, pose=observation, camera_info=camera_info, image_size=self.image_size
+                u, v, pose=observation, camera_info=camera_info, image_size=self.image_size,
+                ground_model=ground_model,
             )
 
         if self.executor is not None:
