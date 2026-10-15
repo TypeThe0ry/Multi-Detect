@@ -240,7 +240,11 @@ class OnboardPolicy:
             )
         for key, convert in (
             ("ground_reid_radius_m", float),
+            ("appearance_size_ratio", float),
+            ("appearance_aspect_ratio", float),
+            ("appearance_color_distance", float),
             ("memory_radius_m", float),
+            ("memory_footprint_factor", float),
             ("memory_min_verdicts", int),
             ("memory_max_range_ratio", float),
         ):
@@ -447,12 +451,17 @@ class OnboardPolicy:
                 frame_path,
                 detections,
                 fast_s,
+                frame_rgb=rgb,
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
             )
         current = self.loop.update_tracks(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=rgb,
         )
         slow = []
         if self.loop.state in {"searching", "approaching"}:
@@ -500,13 +509,27 @@ class OnboardPolicy:
             raise RuntimeError("non-finite pose")
         return action, labels
 
-    def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
+    def _act_mission(
+        self,
+        frame_path,
+        detections,
+        fast_s,
+        *,
+        pose_ned,
+        yaw_deg,
+        ground_point,
+        frame_rgb=None,
+    ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=frame_rgb,
         )
         current = list(executor.current_tracks)
         slow = []

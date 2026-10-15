@@ -620,17 +620,90 @@ def test_patrol_alert_pools_fragmented_track_ids_by_ground_position():
     assert loop is not None
     loop._tracks["t2"] = Track("t2", _box(640, 700, 40), 0, 0, ground=(9.0, 8.0))
     executor.apply_verdict("t2", "confirm_target")
-    assert executor.alerts == ["s:alert:backpack@8.5,8.0"]
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
+    assert executor.findings[0]["position_ne"] == (8.0, 8.0)
     assert executor.alert_vote_clusters[0]["positive"] == 2
 
 
 def test_patrol_alert_majority_blocks_tied_votes():
     executor, track_id = _alert_vote_fixture(
-        ExecutorConfig(alert_require_majority=True)
+        ExecutorConfig(alert_min_identity_matches=2, alert_require_majority=True)
     )
-    executor.apply_verdict(track_id, "reject_track")
     executor.apply_verdict(track_id, "approach_track")
+    executor.apply_verdict(track_id, "reject_track")
+    assert executor.alert_vote_clusters[0]["positive"] == 1
+    assert executor.alert_vote_clusters[0]["negative"] == 1
     assert executor.alerts == []
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
+
+
+def test_patrol_rejects_do_not_create_clusters_or_move_positive_anchor():
+    executor, track_id = _alert_vote_fixture(ExecutorConfig(alert_min_identity_matches=2))
+    executor.apply_verdict(track_id, "reject_track")
+    assert executor.alert_vote_clusters == ()
+    track = executor.active_loop.tracks[track_id]
+    track.ground = (8.0, 8.0)
+    executor.apply_verdict(track_id, "approach_track")
+    track.ground = (11.5, 8.0)
+    executor.apply_verdict(track_id, "reject_track")
+    assert executor.alert_vote_clusters[0]["centre"] == [8.0, 8.0]
+    assert executor.alert_vote_clusters[0]["negative"] == 1
+    track.ground = (14.0, 8.0)
+    executor.apply_verdict(track_id, "reject_track")
+    assert len(executor.alert_vote_clusters) == 1
+    assert executor.alert_vote_clusters[0]["negative"] == 1
+    track.ground = (8.5, 8.0)
+    executor.apply_verdict(track_id, "approach_track")
+    assert executor.alerts == ["s:alert:backpack@8.0,8.0"]
+
+
+def test_patrol_cluster_membership_does_not_chain_neighbouring_objects():
+    executor, track_id = _alert_vote_fixture(ExecutorConfig(alert_min_identity_matches=2))
+    loop = executor.active_loop
+    for index, point in enumerate(((0.0, 0.0), (3.0, 0.0), (6.0, 0.0))):
+        identity = f"chain-{index}"
+        loop._tracks[identity] = Track(identity, _box(640, 700, 40), 0, 0, ground=point)
+        executor.apply_verdict(identity, "approach_track")
+    assert executor.alerts == ["s:alert:backpack@0.0,0.0"]
+    assert [cluster["centre"] for cluster in executor.alert_vote_clusters] == [
+        [0.0, 0.0], [6.0, 0.0]
+    ]
+    assert [cluster["positive"] for cluster in executor.alert_vote_clusters] == [2, 1]
+
+
+def test_patrol_default_alerts_match_original_first_positive_script():
+    executor, _track_id = _alert_vote_fixture()
+    script = [
+        ("reject-before", (7.9, 8.0), "reject_track"),
+        ("a", (8.0, 8.0), "approach_track"),
+        ("reject-between", (11.0, 8.0), "reject_track"),
+        ("b", (11.5, 8.0), "confirm_target"),
+        ("c", (14.2, 8.0), "approach_track"),
+        ("b", (25.0, 8.0), "approach_track"),
+        ("a", (30.0, 8.0), "confirm_target"),
+        ("d", (18.1, 8.0), "approach_track"),
+        ("reject-after", (18.2, 8.0), "reject_track"),
+        ("e", (18.3, 8.0), "approach_track"),
+    ]
+    # The pre-cluster implementation marked each track on its first positive
+    # and de-duplicated against positions of previously emitted alerts only.
+    original_tracks = set()
+    original_positions = []
+    original_alerts = []
+    for track_id, point, verdict in script:
+        if verdict != "reject_track" and track_id not in original_tracks:
+            original_tracks.add(track_id)
+            if not any(math.dist(point, old) <= 4.0 for old in original_positions):
+                original_positions.append(point)
+                original_alerts.append(f"s:alert:backpack@{point[0]:.1f},{point[1]:.1f}")
+        loop = executor.active_loop
+        if track_id not in loop._tracks:
+            loop._tracks[track_id] = Track(track_id, _box(640, 700, 40), 0, 0, ground=point)
+        loop._tracks[track_id].ground = point
+        executor.apply_verdict(track_id, verdict)
+    assert executor.alerts == original_alerts
+    assert [finding["position_ne"] for finding in executor.findings] == original_positions
 
 
 def test_patrol_alert_checks_late_threshold_on_each_vote():

@@ -25,7 +25,13 @@ from multidetect.autonomy.mission_plan import (
     MissionStep,
     validate_mission_plan,
 )
-from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, PlaceVerdictMemory, Track
+from multidetect.autonomy.onboard_loop import (
+    Detection,
+    OnboardLoop,
+    PlaceVerdictMemory,
+    Track,
+    appearances_consistent,
+)
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
@@ -74,22 +80,20 @@ class ExecutorConfig:
 class _AlertCluster:
     """Votes belonging to one physical location during a tracking step."""
 
+    # ``centre`` is intentionally the first positive vote.  It is an anchor,
+    # not a running mean: moving it can chain two nearby objects into one.
     centre: tuple[float, float]
+    appearance: Any = None
     members: int = 0
     positive: int = 0
     negative: int = 0
     alerted: bool = False
     last_track_id: str | None = None
 
-    def add(self, point: tuple[float, float], *, positive: bool, track_id: str) -> None:
-        # Keep the centre as a running mean of all member ground points.  This
-        # makes a fragmented track's observations stable while still allowing
-        # the cluster to follow a small amount of position drift.
-        n = self.members
-        self.centre = (
-            (self.centre[0] * n + point[0]) / (n + 1),
-            (self.centre[1] * n + point[1]) / (n + 1),
-        )
+    def add(self, *, positive: bool, track_id: str) -> None:
+        # Rejects can contribute to majority counting, but never alter the
+        # first-positive anchor.  Positive callers have already passed the
+        # appearance/geometry membership gate.
         self.members += 1
         if positive:
             self.positive += 1
@@ -126,6 +130,10 @@ class _StepRun:
     # Patrol/monitor identity votes are pooled by ground position because the
     # tracker may give the same object several track IDs.
     alert_clusters: list[_AlertCluster] = field(default_factory=list)
+    # Default alert policy retains the original per-track first-positive
+    # decision and spatial de-duplication independently of vote pooling.
+    alert_positive_tracks: set[str] = field(default_factory=set)
+    alert_positions: list[tuple[float, float]] = field(default_factory=list)
     # Follow retains the selected identity and updates one position record.
     follow_track_id: str | None = None
     acquire_track: bool = False
@@ -308,6 +316,7 @@ class MissionExecutor:
         pose_ned: Pose,
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
+        frame_rgb: Any = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
         self._init_home(pose_ned)
@@ -319,7 +328,11 @@ class MissionExecutor:
             # These skills own flight; advance association/verdict age without loop control.
             run.loop.step_index += 1
         self._current = run.loop.update_tracks(
-            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=pose_ned,
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=frame_rgb,
         )
         if run.step.skill == "inspect":
             if run.phase != "capture":
@@ -360,25 +373,53 @@ class MissionExecutor:
         ):
             return
 
-        # Find the nearest physical-location vote cluster.  Track IDs are not
-        # used as the evidence key: onboard association can fragment one
-        # object into several IDs from successive views.
+        # Pool only appearance-compatible observations within a fixed
+        # first-positive anchor.  A reject cannot establish a new identity.
+        positive = track.verdict in {"confirm", "approach"}
+        default_alerts = (
+            self.config.alert_min_identity_matches == 1
+            and not self.config.alert_require_majority
+        )
+        if default_alerts and positive:
+            if track_id in run.alert_positive_tracks:
+                return
+            run.alert_positive_tracks.add(track_id)
+        appearance = self._alert_appearance(run, track)
         cluster = min(
-            run.alert_clusters,
+            (
+                item for item in run.alert_clusters
+                if math.dist(track.ground, item.centre) <= self.config.alert_cluster_radius_m
+                and (
+                    appearance is None
+                    or item.appearance is None
+                    or appearances_consistent(appearance, item.appearance, run.loop.config)
+                )
+            ),
             key=lambda item: math.dist(track.ground, item.centre),
             default=None,
         )
-        if (
-            cluster is None
-            or math.dist(track.ground, cluster.centre) > self.config.alert_cluster_radius_m
-        ):
-            cluster = _AlertCluster(track.ground)
+        if cluster is None:
+            if not positive:
+                return
+            cluster = _AlertCluster(track.ground, appearance)
             run.alert_clusters.append(cluster)
-        cluster.add(
-            track.ground,
-            positive=track.verdict in {"confirm", "approach"},
-            track_id=track_id,
-        )
+        cluster.add(positive=positive, track_id=track_id)
+
+        if default_alerts:
+            # Preserve the original first positive + spatial de-duplication
+            # exactly, including tracks whose first positive was suppressed
+            # near an existing alert and later moved away.
+            if not positive:
+                return
+            if any(
+                math.dist(track.ground, point) <= self.config.alert_cluster_radius_m
+                for point in run.alert_positions
+            ):
+                return
+            cluster.alerted = True
+            self._emit_alert(run, track, track.ground)
+            return
+
         if cluster.alerted:
             return
 
@@ -391,13 +432,23 @@ class MissionExecutor:
         ):
             return
         cluster.alerted = True
-        north, east = cluster.centre
+        self._emit_alert(run, track, cluster.centre)
+
+    @staticmethod
+    def _alert_appearance(run: _StepRun, track: Track) -> Any:
+        """Use the descriptor captured by association, including range scaling."""
+        appearance = getattr(track, "appearance", None)
+        return appearance
+
+    def _emit_alert(self, run: _StepRun, track: Track, point: tuple[float, float]) -> None:
+        run.alert_positions.append(point)
+        north, east = point
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
             run,
             {
-                "track_id": track_id,
-                "position_estimate_ne": cluster.centre,
+                "track_id": track.track_id,
+                "position_estimate_ne": point,
                 "bbox": track.bbox,
             },
             None,

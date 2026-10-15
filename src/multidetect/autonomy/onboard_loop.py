@@ -9,6 +9,7 @@ decides proximity: a match is confirmed once its box is large enough to verify
 
 from __future__ import annotations
 
+import colorsys
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -17,6 +18,82 @@ from typing import Any
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 Box = tuple[float, float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class AppearanceSignature:
+    """Small onboard identity cue; size is normalized by observed ground range."""
+
+    size_range: float
+    aspect_ratio: float
+    footprint_m: float | None = None
+    color_histogram: tuple[float, ...] | None = None
+
+
+def appearance_from_box(
+    box: Box,
+    range_m: float | None,
+    *,
+    focal_px: float | None = None,
+    frame_rgb: Any = None,
+) -> AppearanceSignature | None:
+    """Describe geometry and, when available, 64 RGB crop samples in HSV space.
+
+    Frames are optional so offline logs and pure logic callers need no imaging
+    dependency. A missing/invalid range supplies no reliable re-identification.
+    """
+    width, height = box[2] - box[0], box[3] - box[1]
+    if (
+        range_m is None or not math.isfinite(range_m) or range_m <= 0
+        or not all(math.isfinite(v) for v in box) or min(width, height) <= 0
+    ):
+        return None
+    histogram = None
+    if frame_rgb is not None:
+        image_height, image_width = frame_rgb.shape[:2]
+        left, top = max(0, int(box[0])), max(0, int(box[1]))
+        right, bottom = min(image_width, math.ceil(box[2])), min(image_height, math.ceil(box[3]))
+        if right > left and bottom > top:
+            bins = [0.0] * 72
+            for row in range(8):
+                y = min(bottom - 1, top + (2 * row + 1) * (bottom - top) // 16)
+                for col in range(8):
+                    x = min(right - 1, left + (2 * col + 1) * (right - left) // 16)
+                    r, g, b = (float(v) / 255.0 for v in frame_rgb[y, x, :3])
+                    hue, saturation, value = colorsys.rgb_to_hsv(r, g, b)
+                    index = min(7, int(hue * 8)) * 9 + min(2, int(saturation * 3)) * 3
+                    bins[index + min(2, int(value * 3))] += 1.0 / 64
+            histogram = tuple(bins)
+    return AppearanceSignature(
+        min(width, height) * range_m,
+        width / height,
+        max(width, height) * range_m / focal_px if focal_px and focal_px > 0 else None,
+        histogram,
+    )
+
+
+def appearances_consistent(
+    first: AppearanceSignature | None,
+    second: AppearanceSignature | None,
+    config: LoopConfig,
+) -> bool:
+    """Require range-normalized size/aspect and compare color when both exist."""
+    if first is None or second is None:
+        return False
+    for a, b, factor in (
+        (first.size_range, second.size_range, config.appearance_size_ratio),
+        (first.aspect_ratio, second.aspect_ratio, config.appearance_aspect_ratio),
+    ):
+        if min(a, b) <= 0 or max(a, b) / min(a, b) > factor:
+            return False
+    if first.color_histogram is not None and second.color_histogram is not None:
+        distance = sum(
+            abs(a - b)
+            for a, b in zip(first.color_histogram, second.color_histogram, strict=True)
+        ) / 2
+        if distance > config.appearance_color_distance:
+            return False
+    return True
 
 
 def _iou(a: Box, b: Box) -> float:
@@ -122,6 +199,7 @@ class Track:
     # Ground (north, east) of the box bottom centre from the latest view, if known.
     ground: tuple[float, float] | None = None
     verdict_remembered: bool = False
+    appearance: AppearanceSignature | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +232,9 @@ class LoopConfig:
     # patrol, monitor) loops only. Zero disables it, including for those loops.
     ground_reid_max_steps: int | None = None
     ground_reid_radius_m: float = 3.0
+    appearance_size_ratio: float = 1.6
+    appearance_aspect_ratio: float = 1.6
+    appearance_color_distance: float = 0.45
     # Keep the focus this much farther than the lowest visible ground ray.
     keep_in_view_margin: float = 1.25
     # False keeps searching after a confirmation (counting); confirmations within
@@ -180,7 +261,8 @@ class LoopConfig:
     # Task-local identity memory. Only actual VLM looks train it; final looks
     # remain fresh even when a place has a stable identity history.
     memory_enabled: bool = False
-    memory_radius_m: float = 4.0
+    memory_radius_m: float = 1.5
+    memory_footprint_factor: float = 1.5
     memory_min_verdicts: int = 3
     memory_max_range_ratio: float = 0.7
 
@@ -195,6 +277,15 @@ class LoopConfig:
             raise ValueError("ground_reid_radius_m must be finite and positive")
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
             raise ValueError("memory_radius_m must be finite and positive")
+        if not math.isfinite(self.memory_footprint_factor) or self.memory_footprint_factor < 0:
+            raise ValueError("memory_footprint_factor must be finite and non-negative")
+        for name in ("appearance_size_ratio", "appearance_aspect_ratio"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) < 1:
+                raise ValueError(f"{name} must be finite and at least one")
+        if not math.isfinite(self.appearance_color_distance) or not (
+            0 <= self.appearance_color_distance <= 1
+        ):
+            raise ValueError("appearance_color_distance must be in [0, 1]")
         if self.memory_min_verdicts < 1:
             raise ValueError("memory_min_verdicts must be positive")
         if not math.isfinite(self.memory_max_range_ratio) or not (
@@ -206,13 +297,14 @@ class LoopConfig:
 @dataclass(slots=True)
 class _PlaceVerdicts:
     center: tuple[float, float]
+    appearance: AppearanceSignature
     verdicts: list[str] = field(default_factory=list)
     closest_range_m: float = math.inf
 
 
 @dataclass(slots=True)
 class PlaceVerdictMemory:
-    """Online nearest-centroid clusters of real judgments, scoped to one loop.
+    """Object-sized regions anchored at their first real look, scoped to one loop.
 
     A disagreement (including an unknown result) keeps that place ineligible
     for the rest of the task. Reused verdicts never reinforce their own history
@@ -232,16 +324,35 @@ class PlaceVerdictMemory:
             and range_m >= 0
         )
 
-    def _nearest(self, point: tuple[float, float], radius: float) -> _PlaceVerdicts | None:
-        place = min(self.places, key=lambda p: math.dist(point, p.center), default=None)
-        return place if place is not None and math.dist(point, place.center) <= radius else None
+    def _nearest(
+        self, point: tuple[float, float], appearance: AppearanceSignature | None, config: LoopConfig
+    ) -> _PlaceVerdicts | None:
+        def radius_for(place: _PlaceVerdicts) -> float:
+            if config.memory_radius_m < 1.5 or place.appearance is None:
+                return config.memory_radius_m
+            return max(
+                config.memory_radius_m,
+                config.memory_footprint_factor * (place.appearance.footprint_m or 0.0),
+            )
+
+        candidates = [
+            p for p in self.places
+            if math.dist(point, p.center) <= radius_for(p)
+            and (
+                p.appearance is None
+                or appearance is None
+                or appearances_consistent(p.appearance, appearance, config)
+            )
+        ]
+        return min(candidates, key=lambda p: math.dist(point, p.center), default=None)
 
     def lookup(
-        self, point: tuple[float, float] | None, range_m: float | None, config: LoopConfig
+        self, point: tuple[float, float] | None, range_m: float | None, config: LoopConfig,
+        appearance: AppearanceSignature | None = None,
     ) -> str | None:
         if not config.memory_enabled or not self._valid(point, range_m):
             return None
-        place = self._nearest(point, config.memory_radius_m)
+        place = self._nearest(point, appearance, config)
         if place is None or len(place.verdicts) < config.memory_min_verdicts:
             return None
         decision = place.verdicts[0]
@@ -259,17 +370,14 @@ class PlaceVerdictMemory:
         range_m: float | None,
         decision: str | None,
         config: LoopConfig,
+        appearance: AppearanceSignature | None = None,
     ) -> None:
         if not config.memory_enabled or not self._valid(point, range_m):
             return
-        place = self._nearest(point, config.memory_radius_m)
+        place = self._nearest(point, appearance, config)
         if place is None:
-            place = _PlaceVerdicts(point)
+            place = _PlaceVerdicts(point, appearance)
             self.places.append(place)
-        count = len(place.verdicts)
-        place.center = tuple(
-            (old * count + new) / (count + 1) for old, new in zip(place.center, point, strict=True)
-        )
         place.verdicts.append(str(decision))
         place.closest_range_m = min(place.closest_range_m, range_m)
 
@@ -330,6 +438,7 @@ class OnboardLoop:
         pose_ned: tuple[float, float, float] | None = None,
         yaw_deg: float | None = None,
         ground_point: Callable[[float, float], tuple[float, float] | None] | None = None,
+        frame_rgb: Any = None,
     ) -> list[Track]:
         """Associate detections with tracks by ground position and predicted pixels.
 
@@ -368,11 +477,22 @@ class OnboardLoop:
                 t.bbox[2] + pu - u,
                 t.bbox[3] + pv - v,
             )
-        pending: list[tuple[Detection, tuple[float, float] | None, Track | None]] = []
+        pending: list[
+            tuple[Detection, tuple[float, float] | None, Track | None, AppearanceSignature | None]
+        ] = []
         for detection in self.filter_detections(detections):
             ground = None
             if ground_point is not None and pose_ned is not None:
                 ground = ground_point(_center(detection.bbox)[0], detection.bbox[3])
+            range_m = (
+                math.dist(ground, pose_ned[:2])
+                if ground is not None and pose_ned is not None
+                else None
+            )
+            appearance = appearance_from_box(
+                detection.bbox, range_m, focal_px=(self.camera.fx + self.camera.fy) / 2,
+                frame_rgb=frame_rgb,
+            )
             best, best_score = None, 0.0
             cx, cy = _center(detection.bbox)
             for track in free.values():
@@ -396,7 +516,7 @@ class OnboardLoop:
                 best = None
             else:
                 free.pop(best.track_id)
-            pending.append((detection, ground, best))
+            pending.append((detection, ground, best, appearance))
 
         reid_steps = self.config.ground_reid_max_steps
         if reid_steps is None:
@@ -423,9 +543,24 @@ class OnboardLoop:
         ] if reid_steps else []
         pairs = sorted(
             (math.dist(ground, track.ground), index, track.track_id)
-            for index, (detection, ground, best) in enumerate(pending)
+            for index, (detection, ground, best, appearance) in enumerate(pending)
             if best is None and reliable(detection.bbox, ground)
             for track in lost
+            if (
+                not track.exhausted
+                and appearances_consistent(track.appearance, appearance, self.config)
+            )
+            or (
+                # Preserve exact-box continuity for legacy count logs that
+                # contain no crop pixels; any changed box or available colour
+                # descriptor must take the new-track path.
+                track.exhausted
+                and detection.bbox == track.bbox
+                and track.appearance is not None
+                and appearance is not None
+                and track.appearance.color_histogram is None
+                and appearance.color_histogram is None
+            )
             if math.dist(ground, track.ground) <= self.config.ground_reid_radius_m
         )
         revived: dict[int, Track] = {}
@@ -435,7 +570,7 @@ class OnboardLoop:
                 revived[index] = self._tracks[track_id]
                 used.add(track_id)
 
-        for index, (detection, ground, best) in enumerate(pending):
+        for index, (detection, ground, best, appearance) in enumerate(pending):
             best = best or revived.get(index)
             if best is None:
                 best = Track(f"t{self._next_id}", detection.bbox, self.step_index, self.step_index)
@@ -447,6 +582,8 @@ class OnboardLoop:
                 best.hits += 1
             if ground is not None:
                 best.ground = ground
+            if appearance is not None:
+                best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
             current.append(best)
         return current
@@ -493,7 +630,9 @@ class OnboardLoop:
         if remembered and decision not in {"reject_track", "approach_track"}:
             raise ValueError("only reject_track and approach_track may be remembered")
         if not remembered:
-            self._place_memory.record(track.ground, self._track_range(track), decision, self.config)
+            self._place_memory.record(
+                track.ground, self._track_range(track), decision, self.config, track.appearance
+            )
         verdict = {
             "confirm_target": "confirm",
             "approach_track": "approach",
@@ -508,6 +647,11 @@ class OnboardLoop:
             and math.dist(track.ground, self._last_pose[:2]) > limit
         ):
             verdict = "approach"
+        # A remembered negative is never allowed to erase positive real evidence.
+        if remembered and (
+            track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}
+        ):
+            return
         track.verdict, track.verdict_step = verdict, self.step_index
         track.verdict_remembered = remembered
         if verdict in {"confirm", "approach"}:
@@ -545,7 +689,11 @@ class OnboardLoop:
         track = self._tracks.get(track_id)
         if track is None or self._revisit is not None:
             return None
-        decision = self._place_memory.lookup(track.ground, self._track_range(track), self.config)
+        if track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}:
+            return None
+        decision = self._place_memory.lookup(
+            track.ground, self._track_range(track), self.config, track.appearance
+        )
         if decision is None or (decision == "approach_track" and track_id == self._focus):
             return None
         return {
