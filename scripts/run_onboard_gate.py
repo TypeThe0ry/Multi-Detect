@@ -35,6 +35,7 @@ def main(argv: list[str]) -> int:
     # A fresh directory per run: pytest must delete --basetemp first, and a directory
     # left by another account (e.g. a sandboxed agent) cannot be deleted by this one.
     temp_root = ROOT / ".pytest-basetemp"
+    temp_root.mkdir(parents=True, exist_ok=True)  # pytest creates only the last level
     for old in temp_root.glob("onboard-*"):
         if time.time() - old.stat().st_mtime > 3600:  # never a concurrent run's directory
             shutil.rmtree(old, ignore_errors=True)
