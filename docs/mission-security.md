@@ -37,3 +37,23 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 ## MAVLink2 链路层签名（互补措施）
 
 应用层签名保护任务语义，MAVLink2 message signing 保护链路上的 MAVLink 帧，两者应同时启用。PX4 中在参数/启动配置启用 MAVLink signing，并把同一个 32 字节链路密钥安全写入对应 MAVLink 实例；QGroundControl 在 Vehicle Setup → Parameters 的 MAVLink signing 页面导入相同密钥、启用 signing，并确认连接状态显示 signed。按 PX4 与 QGC 当前版本的参数名称和 UI 校验后再部署；不要把该链路密钥当作任务包的 operator key，也不要提交到仓库。
+
+## 统一签名合约（Mission Security v2）
+
+任务包与地面命令使用同一份 canonical JSON 合约。签名者先复制完整 JSON 对象，删除 `signature` 与 `signature_alg` 两个字段，保留 `key_id`，然后按以下规则编码：对象键按 Unicode 码点升序排列；数组顺序保持不变；字符串使用 UTF-8 且不转义非 ASCII；数字必须是有限值；不输出空白，分隔符固定为 `,` 和 `:`；最终字节是 UTF-8 编码的 JSON 文本。签名算法和 `key_id` 由本地密钥配置决定，文档中的同名字段只能用于匹配，不能选择验证算法。
+
+密钥文件必须使用 `ed25519-public:`, `ed25519-private:` 或 `hmac:` 前缀，并可用 JSON 对象写成 `{ "algorithm": "...", "key_id": "...", "key": "<prefixed-value>" }`。Ed25519 密钥材料严格为 32 字节；HMAC-SHA256 密钥为 16 至 4096 字节。飞行模式（`mode` 为 `flight`、`real`、`hil` 或 `live`，或显式 `flight_mode=true`）以及任何已配置密钥的任务包都必须带签名；密钥缺失、不可读、权限过宽或签名不匹配时拒绝载入。SIM 模式未配置密钥时仍可载入未签名任务包。
+
+签名字段示例：
+
+```json
+{
+  "key_id": "operator-2026-a",
+  "signature_alg": "ed25519",
+  "signature": "<base64>"
+}
+```
+
+GCS 必须对同一份原始对象执行上述 canonicalization 后再签名，不能先删掉 `key_id`，也不能依赖 Qt 默认 JSON 排序或格式化结果。
+
+地面命令还必须携带版本化时间域：`timestamp_version` 当前固定为 `1`，`timestamp_domain` 只能是 `monotonic` 或 `unix`。`monotonic` 表示发送端的单调时钟值，`unix` 表示 Unix 秒；接收端按照声明的域做 freshness 校验，但链路 liveness 永远使用本地收到命令的 monotonic 时间。远端时间只用于 freshness、远端 heartbeat 顺序和审计。缺少版本或时间域的已签名命令直接拒绝，不能根据数值大小猜测时间域。

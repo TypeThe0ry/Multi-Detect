@@ -104,6 +104,8 @@ def load_mission_package(
     key: bytes | None = None,
     require_signature: bool = False,
     operator_key_path: str | Path | None = None,
+    mode: str | None = None,
+    flight_mode: bool | None = None,
 ) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
@@ -113,6 +115,24 @@ def load_mission_package(
     # Verify the exact uploaded document before normalisation or compilation.
     # Key material is never retained in the package or emitted to the log.
     key_path = key_path or operator_key_path
+    if mode is not None and (not isinstance(mode, str) or not mode.strip()):
+        raise ValueError("mode must be non-empty text")
+    if flight_mode is not None and not isinstance(flight_mode, bool):
+        raise ValueError("flight_mode must be boolean")
+    # Any explicit flight/real mode is fail-closed.  A configured key also
+    # means the caller opted into authenticated operation, so unsigned input
+    # must not silently become a SIM package.
+    mode_requires_signature = mode is not None and mode.strip().lower() in {
+        "flight", "real", "hil", "live"
+    }
+    if flight_mode is True:
+        mode_requires_signature = True
+    require_signature = bool(
+        require_signature
+        or mode_requires_signature
+        or key is not None
+        or key_path is not None
+    )
     if key is None and key_path is not None:
         key = load_key(key_path)
     has_signature = "signature" in raw or "signature_alg" in raw
@@ -140,7 +160,7 @@ def load_mission_package(
         },
         {
             "task_text", "plan", "ref_labels", "heartbeat_timeout_s",
-            "signature", "signature_alg",
+            "signature", "signature_alg", "key_id",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():

@@ -371,8 +371,10 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        runtime_mode: str | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
@@ -396,6 +398,7 @@ class OnboardPolicy:
                 package_raw,
                 key_path=key_setting,
                 require_signature=key_setting is not None,
+                mode=effective_runtime_mode,
             )
             if package_raw is not None
             else None
@@ -689,6 +692,7 @@ class OnboardPolicy:
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
+                    runtime_mode=effective_runtime_mode,
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):

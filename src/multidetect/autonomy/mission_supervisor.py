@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import secrets
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
@@ -43,6 +47,11 @@ class MissionSupervisor:
         rate_limit: int = 20,
         rate_window_s: float = 10.0,
         energy_config: EnergyConfig | None = None,
+        replay_state_path: str | Path | None = None,
+        max_sequence_jump: int = 1024,
+        runtime_mode: str | None = None,
+        flight_mode: bool | None = None,
+        require_signature: bool | None = None,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
@@ -51,6 +60,17 @@ class MissionSupervisor:
         if security_key is None and security_key_path is not None:
             security_key = load_key(security_key_path)
         self._security_key = security_key
+        mode_text = runtime_mode.strip().lower() if isinstance(runtime_mode, str) else ""
+        self._flight_mode = bool(flight_mode) if flight_mode is not None else mode_text in {
+            "flight", "real", "hil", "live"
+        }
+        self._require_signature = (
+            bool(require_signature)
+            if require_signature is not None
+            else self._flight_mode or security_key is not None
+        )
+        if self._flight_mode and self._security_key is None:
+            raise ValueError("flight mission requires an authentication key")
         self.timestamp_window_s = number(timestamp_window_s, "timestamp_window_s", minimum=0.001)
         self.clock_skew_s = number(clock_skew_s, "clock_skew_s")
         if isinstance(rate_limit, bool) or not isinstance(rate_limit, int) or rate_limit < 1:
@@ -60,6 +80,22 @@ class MissionSupervisor:
         )
         self._event_times: deque[float] = deque()
         self._last_sequence = 0
+        if (
+            isinstance(max_sequence_jump, bool)
+            or not isinstance(max_sequence_jump, int)
+            or max_sequence_jump < 1
+            or max_sequence_jump >= 2**31
+        ):
+            raise ValueError("max_sequence_jump must be a positive serial-number distance")
+        self.max_sequence_jump = max_sequence_jump
+        self._sequence_modulus = 2**32
+        self._replay_state_path = Path(replay_state_path) if replay_state_path is not None else None
+        self._replay_state_loaded = False
+        self._replay_state_error: str | None = None
+        self._session_required = False
+        self._session_nonce = secrets.token_hex(16)
+        self._last_remote_heartbeat: float | None = None
+        self._last_remote_timestamp_domain: str | None = None
         self.started = self._now = clock()
         if not math.isfinite(self.started):
             raise ValueError("invalid supervisor clock")
@@ -108,11 +144,98 @@ class MissionSupervisor:
             and self._now - self.last_heartbeat < self.package.document["heartbeat_timeout_s"]
         )
 
+    @property
+    def session_nonce(self) -> str:
+        """Current boot/session nonce for an authenticated handshake."""
+        return self._session_nonce
+
+    @staticmethod
+    def _atomic_json(path: Path, document: dict[str, Any]) -> None:
+        """Write replay state so a torn write cannot reset the high-water mark."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        encoded = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            try:
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # Directory fsync is unavailable on a few filesystems; replace is still atomic.
+                pass
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _replay_path(self) -> Path:
+        if self._replay_state_path is None:
+            self._replay_state_path = self.log.directory / "ground-replay-state.json"
+        return self._replay_state_path
+
+    def _ensure_replay_state(self) -> bool:
+        """Load and rotate the authenticated boot/session epoch once per process."""
+        if self._replay_state_loaded:
+            return self._replay_state_error is None
+        path = self._replay_path()
+        try:
+            prior_sequence = self._last_sequence
+            had_prior_state = path.exists()
+            self._session_required = had_prior_state
+            if had_prior_state:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict) or raw.get("mission_id") != self.package.mission_id:
+                    raise ValueError("replay state mission mismatch")
+                if raw.get("version") != 1:
+                    raise ValueError("replay state version is invalid")
+                prior_sequence = raw.get("last_sequence")
+                if (
+                    isinstance(prior_sequence, bool)
+                    or not isinstance(prior_sequence, int)
+                    or not 0 <= prior_sequence < self._sequence_modulus
+                ):
+                    raise ValueError("replay state sequence is invalid")
+                prior_nonce = raw.get("session_nonce")
+                if not isinstance(prior_nonce, str) or not prior_nonce:
+                    raise ValueError("replay state session nonce is invalid")
+            self._last_sequence = prior_sequence
+            self._replay_state_loaded = True
+            return True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._replay_state_error = str(exc)
+            self._replay_state_loaded = True
+            return False
+
+    def _commit_sequence(self, sequence: int) -> None:
+        if not self._ensure_replay_state():
+            raise ValueError("replay state unavailable")
+        path = self._replay_path()
+        self._atomic_json(
+            path,
+            {
+                "version": 1,
+                "mission_id": self.package.mission_id,
+                "last_sequence": sequence,
+                "session_nonce": self._session_nonce,
+            },
+        )
+        self._last_sequence = sequence
+
+    def _serial_distance(self, sequence: int) -> int:
+        return (sequence - self._last_sequence) & (self._sequence_modulus - 1)
+
     def _record(self, kind: str, **payload) -> None:
         self.log.append(kind, self._now, **payload)
         if self.downlink is not None:
             self.downlink.notify()
-
     def _time(self) -> None:
         now = self.clock()
         if not math.isfinite(now) or now < self._now:
@@ -125,34 +248,74 @@ class MissionSupervisor:
             self._record("ground_event_rejected", reason="event must be an object")
             return False
         secured = self._security_key is not None
+        if self._require_signature and not secured:
+            self._record("ground_event_rejected", reason="flight control requires authentication")
+            return False
         sequence: int | None = None
-        wall_clock_timestamp = False
+        timestamp_domain = "monotonic"
+        stamp_number: float
         if secured:
             sequence = event.get("sequence")
-            if (
-                isinstance(sequence, bool)
-                or not isinstance(sequence, int)
-                or sequence <= self._last_sequence
-            ):
-                self._record("ground_event_rejected", reason="sequence replay or invalid")
-                return False
-            stamp_value = event.get("timestamp")
-            try:
-                stamp_number = number(stamp_value, "event timestamp")
-            except (ValueError, TypeError) as exc:
-                self._record("ground_event_rejected", reason=str(exc))
-                return False
-            wall_clock_timestamp = stamp_number > 100_000_000
-            reference = self.wall_clock() if wall_clock_timestamp else self._now
-            if not math.isfinite(reference):
-                self._record("ground_event_rejected", reason="invalid local clock")
-                return False
-            if abs(stamp_number - reference) > self.timestamp_window_s + self.clock_skew_s:
-                self._record("ground_event_rejected", reason="stale event timestamp")
-                return False
             signature = event.get("signature", event.get("mac"))
             if not isinstance(signature, str) or not verify_document(event, self._security_key):
                 self._record("ground_event_rejected", reason="event authentication failed")
+                return False
+            try:
+                stamp_number = number(event.get("timestamp"), "event timestamp")
+            except (ValueError, TypeError) as exc:
+                self._record("ground_event_rejected", reason=str(exc))
+                return False
+            if not self._ensure_replay_state():
+                self._record("ground_event_rejected", reason="replay state unavailable")
+                return False
+            if (
+                isinstance(sequence, bool)
+                or not isinstance(sequence, int)
+                or not 0 <= sequence < self._sequence_modulus
+            ):
+                self._record("ground_event_rejected", reason="sequence invalid")
+                return False
+            distance = self._serial_distance(sequence)
+            if distance == 0 or distance > self.max_sequence_jump:
+                self._record("ground_event_rejected", reason="sequence replay or jump too large")
+                return False
+            supplied_nonce = event.get("session_nonce")
+            if self._session_required and supplied_nonce != self._session_nonce:
+                self._record("ground_event_rejected", reason="session nonce required")
+                return False
+            if supplied_nonce is not None and supplied_nonce != self._session_nonce:
+                self._record("ground_event_rejected", reason="session nonce mismatch")
+                return False
+            timestamp_domain = event.get("timestamp_domain")
+            if event.get("timestamp_version") != 1:
+                self._record("ground_event_rejected", reason="unsupported timestamp version")
+                return False
+            if timestamp_domain is not None and timestamp_domain not in {"monotonic", "unix"}:
+                self._record("ground_event_rejected", reason="unsupported timestamp domain")
+                return False
+            if timestamp_domain is None:
+                self._record("ground_event_rejected", reason="timestamp domain is required")
+                return False
+            try:
+                if timestamp_domain == "unix":
+                    wall = self.wall_clock()
+                    if not math.isfinite(wall):
+                        raise ValueError("invalid local clock")
+                    reference = wall
+                else:
+                    reference = self._now
+                if abs(stamp_number - reference) > self.timestamp_window_s + self.clock_skew_s:
+                    raise ValueError("stale event timestamp")
+            except (ValueError, TypeError) as exc:
+                self._record("ground_event_rejected", reason=str(exc))
+                return False
+        else:
+            # Unsigned SIM/test events have no remote clock; receipt time is the
+            # only timestamp that can safely be used for liveness and ordering.
+            try:
+                stamp_number = number(event.get("timestamp", self._now), "event timestamp")
+            except (ValueError, TypeError) as exc:
+                self._record("ground_event_rejected", reason=str(exc))
                 return False
         if event.get("mission_id") != self.package.mission_id:
             self._record("ground_event_rejected", reason="mission id mismatch")
@@ -161,10 +324,31 @@ class MissionSupervisor:
         if kind not in {"heartbeat", "abort", "pause", "resume", "policy_update"}:
             self._record("ground_event_rejected", reason="unknown event type")
             return False
+        if not secured and not self.started <= stamp_number <= self._now:
+            self._record("ground_event_rejected", reason="event timestamp outside this flight")
+            return False
+        # Rate-limit before invoking any state-changing operation.  This gate
+        # intentionally applies to unsigned SIM/test traffic as well.
+        while self._event_times and self._now - self._event_times[0] >= self.rate_window_s:
+            self._event_times.popleft()
+        if len(self._event_times) >= self.rate_limit:
+            self._record("ground_event_rejected", reason="event rate limit exceeded")
+            return False
+
+        previous = {
+            "policy": self.policy,
+            "timeout_s": self.timeout_s,
+            "last_heartbeat": self.last_heartbeat,
+            "last_remote_heartbeat": self._last_remote_heartbeat,
+            "last_remote_timestamp_domain": self._last_remote_timestamp_domain,
+            "paused_at": self.paused_at,
+            "terminal": self._terminal,
+            "finished": self._finished,
+            "brake_pending": self._brake_pending,
+            "action": self.action,
+            "reason": self.reason,
+        }
         try:
-            stamp = number(event.get("timestamp", self._now), "event timestamp")
-            if not wall_clock_timestamp and not self.started <= stamp <= self._now:
-                raise ValueError("event timestamp outside this flight")
             if kind == "policy_update":
                 policy, timeout = parse_policy(event.get("policy"))
                 old_rank, new_rank = POLICIES.index(self.policy), POLICIES.index(policy)
@@ -190,11 +374,22 @@ class MissionSupervisor:
                     timeout = max(0.0, min(timeout, old_deadline - offset))
                 self.policy, self.timeout_s = policy, timeout
             elif kind == "heartbeat":
-                if self.last_heartbeat is not None and stamp < self.last_heartbeat:
+                if (
+                    self._last_remote_heartbeat is not None
+                    and timestamp_domain == self._last_remote_timestamp_domain
+                    and stamp_number < self._last_remote_heartbeat
+                ):
                     raise ValueError("stale heartbeat")
-                self.last_heartbeat = stamp
+                # Liveness is always measured in the local monotonic domain.
+                self.last_heartbeat = self._now
+                self._last_remote_heartbeat = stamp_number
+                self._last_remote_timestamp_domain = timestamp_domain
             elif kind == "abort":
-                self._escalate("return_now", "explicit operator abort")
+                self._escalate(
+                    "return_now",
+                    "explicit operator abort",
+                    record=not secured,
+                )
             elif kind == "pause":
                 if self.paused_at is None:
                     self.paused_at = self._now
@@ -204,18 +399,39 @@ class MissionSupervisor:
             self._record("ground_event_rejected", reason=str(exc), event_type=kind)
             return False
         if secured:
-            while self._event_times and self._now - self._event_times[0] >= self.rate_window_s:
-                self._event_times.popleft()
-            if len(self._event_times) >= self.rate_limit:
-                self._record("ground_event_rejected", reason="event rate limit exceeded")
-                return False
-            self._event_times.append(self._now)
             assert sequence is not None
-            self._last_sequence = sequence
+            try:
+                self._commit_sequence(sequence)
+            except (OSError, ValueError, TypeError) as exc:
+                # Keep state unchanged when durable replay protection cannot
+                # commit.  A failure must never turn into an accepted command.
+                self.policy = previous["policy"]
+                self.timeout_s = previous["timeout_s"]
+                self.last_heartbeat = previous["last_heartbeat"]
+                self._last_remote_heartbeat = previous["last_remote_heartbeat"]
+                self._last_remote_timestamp_domain = previous["last_remote_timestamp_domain"]
+                self.paused_at = previous["paused_at"]
+                self._terminal = previous["terminal"]
+                self._finished = previous["finished"]
+                self._brake_pending = previous["brake_pending"]
+                self.action, self.reason = previous["action"], previous["reason"]
+                self._record("ground_event_rejected", reason=f"replay state commit failed: {exc}")
+                return False
+            if self._terminal != previous["terminal"]:
+                self._record(
+                    "escalation",
+                    action=self._terminal,
+                    reason=self.reason,
+                    operator_policy=self.policy,
+                    energy=self.energy_estimate,
+                )
+        self._event_times.append(self._now)
         self._record(
             "ground_event",
             event_type=kind,
-            received_timestamp=stamp,
+            received_timestamp=stamp_number,
+            timestamp_domain=timestamp_domain,
+            timestamp_version=1,
             policy=self.policy,
             timeout_s=self.timeout_s,
         )
@@ -255,19 +471,20 @@ class MissionSupervisor:
             raise ValueError("energy telemetry receipt is in the future")
         return self.energy_estimator.ingest(message, received_at_s=stamp)
 
-    def _escalate(self, action: str, reason: str) -> None:
+    def _escalate(self, action: str, reason: str, *, record: bool = True) -> None:
         if self._terminal is None or POLICIES.index(action) > POLICIES.index(self._terminal):
             self._terminal = action
             self._finished = False
             self._brake_pending = action == "return_now"
             self.reason = reason
-            self._record(
-                "escalation",
-                action=action,
-                reason=reason,
-                operator_policy=self.policy,
-                energy=self.energy_estimate,
-            )
+            if record:
+                self._record(
+                    "escalation",
+                    action=action,
+                    reason=reason,
+                    operator_policy=self.policy,
+                    energy=self.energy_estimate,
+                )
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
