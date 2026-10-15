@@ -10,6 +10,7 @@ from typing import Any
 
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
+from .energy_estimator import EnergyConfig, OnboardEnergyEstimator
 from .mission_executor import MissionExecutor
 from .mission_package import POLICIES, MissionPackage, number, parse_policy
 from .mission_plan import validate_mission_plan
@@ -32,6 +33,7 @@ class MissionSupervisor:
         log: OnboardMissionLog,
         downlink: DownlinkQueue | None = None,
         clock: Callable[[], float] = time.monotonic,
+        energy_config: EnergyConfig | None = None,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
@@ -52,8 +54,19 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self.energy_estimator = OnboardEnergyEstimator(
+            EnergyConfig.from_budget(
+                package.document["budget"], asdict(energy_config) if energy_config else None
+            )
+        )
+        self.energy_estimate: dict[str, Any] | None = None
         executor.home = tuple(package.document["home"])
-        self._record("mission_started", package=package.document, plan=asdict(executor.plan))
+        self._record(
+            "mission_started",
+            package=package.document,
+            plan=asdict(executor.plan),
+            energy_model=asdict(self.energy_estimator.config),
+        )
 
     def __getattr__(self, name):
         return getattr(self.executor, name)
@@ -170,13 +183,27 @@ class MissionSupervisor:
             low_confidence_count=self._low_confidence,
         )
 
+    def ingest_energy_telemetry(self, message, *, received_at_s=None) -> bool:
+        """Onboard receive hook; cached messages must retain their receipt time."""
+        self._time()
+        stamp = self._now if received_at_s is None else number(received_at_s, "receipt time")
+        if stamp > self._now:
+            raise ValueError("energy telemetry receipt is in the future")
+        return self.energy_estimator.ingest(message, received_at_s=stamp)
+
     def _escalate(self, action: str, reason: str) -> None:
         if self._terminal is None or POLICIES.index(action) > POLICIES.index(self._terminal):
             self._terminal = action
             self._finished = False
             self._brake_pending = action == "return_now"
             self.reason = reason
-            self._record("escalation", action=action, reason=reason, operator_policy=self.policy)
+            self._record(
+                "escalation",
+                action=action,
+                reason=reason,
+                operator_policy=self.policy,
+                energy=self.energy_estimate,
+            )
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
@@ -210,6 +237,16 @@ class MissionSupervisor:
         remaining = budget["time_s"] - (self._now - self.started)
         if self._remaining_time is not None:
             remaining = min(remaining, self._remaining_time - (self._now - self._time_estimated_at))
+        self.energy_estimate = self.energy_estimator.estimate(
+            now_s=self._now,
+            pose_ned=pose_ned,
+            home_ne=doc["home"],
+            return_altitude_m=self.executor.cruise_altitude_m
+            or (max(0, -pose_ned[2]) if pose_ned is not None else 0),
+            mission_remaining_s=remaining,
+        )
+        if self.energy_estimate["action"] != "continue":
+            self._escalate(self.energy_estimate["action"], self.energy_estimate["reason"])
         if remaining <= budget["reserve_time_s"]:
             self._escalate("return_now", "remaining time at or below reserve")
         if (
@@ -266,6 +303,7 @@ class MissionSupervisor:
             connected=self.connected,
             silence_s=silence,
             step=self.executor.current_step.id if self.executor.current_step else None,
+            energy=self.energy_estimate,
         )
         return action
 
@@ -340,7 +378,12 @@ class MissionSupervisor:
         elif self.action in {"return_now", "land_now"}:
             result = self._recover(kwargs["pose_ned"]).next_action(**kwargs)
         action, info = result
-        info = {**info, "supervisor_action": self.action, "supervisor_reason": self.reason}
+        info = {
+            **info,
+            "supervisor_action": self.action,
+            "supervisor_reason": self.reason,
+            "energy": self.energy_estimate,
+        }
         self._record(
             "execution",
             action=action.to_dict(),

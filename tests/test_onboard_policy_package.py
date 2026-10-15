@@ -254,3 +254,34 @@ def test_optional_transport_attaches_and_drains_on_heartbeat(tmp_path, model_stu
         assert policy.supervisor.log.cursor_path.is_file()
     finally:
         policy.close()
+
+
+def test_live_battery_energy_can_stop_mission_before_image_or_models(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    now = _clock(policy)
+    try:
+        observation = {
+            "energy_telemetry": [
+                {
+                    "received_monotonic_s": now[0],
+                    "message": {
+                        "mavpackettype": "BATTERY_STATUS",
+                        "id": 0,
+                        "battery_remaining": 12,
+                        "voltages": [16000] + [65535] * 9,
+                        "current_battery": -1,
+                        "current_consumed": 0,
+                    },
+                }
+            ]
+        }
+        action, labels = policy.act(observation, pose_ned=(100, 0, -20), yaw_deg=180)
+        assert action.kind == "hold"
+        energy = labels["onboard"]["energy"]
+        assert energy["action_margin_wh"] < 0
+        assert energy["remaining_energy_wh"] >= energy["return_energy_wh"]
+        assert labels["onboard"]["supervisor_action"] == "return_now"
+        assert not labels["onboard"]["slow_calls"]
+        assert not list(policy.work_dir.glob("frame_*.png"))
+    finally:
+        policy.close()
