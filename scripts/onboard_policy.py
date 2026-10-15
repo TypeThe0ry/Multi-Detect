@@ -380,21 +380,44 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        runtime_mode: str | None = None,
         frame_format: str = "png",
         frame_quality: int = 90,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        if (
+            effective_runtime_mode
+            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
+            and package_raw is None
+        ):
+            raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key_setting = (
+        mission_key_setting = options.get("mission_package_verify_key") or security.get(
+            "mission_package_verify_key"
+        )
+        legacy_key_setting = (
             options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
+        )
+        key_setting = mission_key_setting or legacy_key_setting
+        if legacy_key_setting is not None and mission_key_setting is None:
+            warnings.warn(
+                "operator_key_path is deprecated; use mission_package_verify_key",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        ground_key_setting = (
+            options.get("ground_command_verify_key")
+            or security.get("ground_command_verify_key")
+            or legacy_key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
@@ -407,6 +430,7 @@ class OnboardPolicy:
                 package_raw,
                 key_path=key_setting,
                 require_signature=key_setting is not None,
+                mode=effective_runtime_mode,
             )
             if package_raw is not None
             else None
@@ -712,7 +736,9 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    security_key_path=(
+                        str(ground_key_setting) if ground_key_setting is not None else None
+                    ),
                     timestamp_window_s=float(
                         options.get(
                             "command_timestamp_window_s",
@@ -731,6 +757,13 @@ class OnboardPolicy:
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
+                    runtime_mode=effective_runtime_mode,
+                )
+                # Telemetry readers stamp receipts with host monotonic time,
+                # while SIM supervisors run on the simulation clock. Keep a
+                # fixed affine offset so both values are compared in one domain.
+                self._energy_receipt_clock_offset = (
+                    self.supervisor._now - time.monotonic()
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
@@ -857,8 +890,11 @@ class OnboardPolicy:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
             for sample in observation.get("energy_telemetry", []):
+                received_at = float(sample["received_monotonic_s"])
+                received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
+                received_at = min(received_at, self.supervisor._now)
                 self.supervisor.ingest_energy_telemetry(
-                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                    sample["message"], received_at_s=received_at
                 )
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)

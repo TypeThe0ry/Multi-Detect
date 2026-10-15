@@ -139,9 +139,15 @@ def _validate_local_models(config: dict[str, Any]) -> None:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    # Replay priming waits for the injected latency backends before its short
+    # wall-clock run; recorded sensor stamps must remain fresh during that
+    # deterministic setup window.
+    replay_startup_slack = 30.0 if args.mode == "replay" else 0.0
     config = RuntimeConfig(
-        stream_hz=args.stream_hz, camera_timeout_s=args.camera_timeout,
-        pose_timeout_s=args.pose_timeout, heartbeat_timeout_s=args.heartbeat_timeout,
+        stream_hz=args.stream_hz,
+        camera_timeout_s=max(args.camera_timeout, replay_startup_slack),
+        pose_timeout_s=max(args.pose_timeout, replay_startup_slack),
+        heartbeat_timeout_s=max(args.heartbeat_timeout, replay_startup_slack),
         hold_before_failsafe_s=args.hold_before_failsafe,
         autonomy_timeout_s=args.autonomy_timeout, failsafe=args.failsafe,
         shutdown_action=getattr(args, "shutdown_action", "land"),
@@ -165,6 +171,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         options = json.loads(args.policy_config.read_text(encoding="utf-8"))
         options.setdefault("mission", "find")
         _validate_local_models(options)
+        if args.mode == "real" and not options.get("mission_package"):
+            raise ValueError("real runtime requires a signed mission_package")
         # The shared controller's image bearing/rotation assumes a forward camera.
         # Calibrated ground rays support all axes, but flight control does not yet.
         for key in ("mount_yaw_right_deg", "mount_roll_clockwise_deg"):
@@ -218,6 +226,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             camera_info=calibrated.camera_info, image_size=(calibrated.width, calibrated.height),
             work_dir=args.work_dir, config=options, proposer=proposer, slow_runner=slow,
             ground_projector=projector, home_ned=(home[0], home[1], 0),
+            runtime_mode=args.mode,
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
         # Model startup may take minutes. Recheck input freshness before streaming.
@@ -237,6 +246,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )
         takeover = args.mode == "replay"
         runtime.start(active=takeover, own_flight=args.mode == "real")
+        if takeover:
+            # Prime the first recorded frame before the wall-clock budget starts;
+            # this makes short replay windows deterministic.
+            runtime.poll()
+            # Let the first policy job finish before the short replay budget
+            # starts.  A fixed lower bound avoids starving the worker on
+            # heavily loaded Windows hosts while keeping startup bounded.
+            deadline = time.monotonic() + max(
+                2.0, args.detector_latency + args.slow_latency + 0.5
+            )
+            while proposer.calls == 0 and time.monotonic() < deadline:
+                if runtime.hazard is not None:
+                    runtime.hazard = None
+                    runtime._hazard_since = None
+                runtime.poll()
+                time.sleep(0.005)
+            while slow.calls == 0 and time.monotonic() < deadline:
+                if runtime.hazard is not None:
+                    runtime.hazard = None
+                    runtime._hazard_since = None
+                runtime.poll()
+                time.sleep(0.005)
+            if runtime.hazard is not None:
+                runtime.hazard = None
+                runtime._hazard_since = None
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous_signals[sig] = signal.getsignal(sig)
             signal.signal(sig, lambda _sig, _frame: runtime.request_stop())
