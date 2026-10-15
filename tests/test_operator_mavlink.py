@@ -447,6 +447,78 @@ def test_operator_endpoint_rejects_tampering_and_exact_signed_frame_replay() -> 
         _adapter(JETSON_ENDPOINT).decode_frame(bytes(tampered))
 
 
+def test_operator_endpoint_rejects_a_frame_signed_for_another_link_id() -> None:
+    sender = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        G20_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=7,
+        initial_signing_timestamp=1_000_007,
+    )
+    receiver = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        JETSON_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=JETSON_ENDPOINT.local_component_id,
+        receive_signing_link_id=190,
+        initial_signing_timestamp=1_000_007,
+    )
+    with pytest.raises(OperatorProtocolError, match="link ID"):
+        receiver.decode_frame(sender.encode_selection(_selection()))
+
+
+def test_operator_endpoint_accepts_gcs_default_link_id_one() -> None:
+    sender = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        G20_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=1,
+        initial_signing_timestamp=1_000_008,
+    )
+    receiver = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        JETSON_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=JETSON_ENDPOINT.local_component_id,
+        receive_signing_link_id=1,
+        initial_signing_timestamp=1_000_009,
+    )
+    assert (
+        receiver.decode_frame(sender.encode_selection(_selection())).message_type
+        is WireMessageType.TARGET_SELECTION
+    )
+
+
+def test_operator_endpoint_learns_and_persists_first_receive_link_id(tmp_path) -> None:
+    state = tmp_path / "mavlink-replay.json"
+    sender_one = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)), G20_ENDPOINT,
+        signing_key=MAVLINK_KEY, signing_link_id=7, initial_signing_timestamp=2_000_001,
+    )
+    sender_two = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)), G20_ENDPOINT,
+        signing_key=MAVLINK_KEY, signing_link_id=8, initial_signing_timestamp=2_000_002,
+    )
+    receiver = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)), JETSON_ENDPOINT,
+        signing_key=MAVLINK_KEY, signing_link_id=191, initial_signing_timestamp=2_000_003,
+        replay_state_path=state,
+    )
+    assert (
+        receiver.decode_frame(sender_one.encode_selection(_selection())).message_type
+        is WireMessageType.TARGET_SELECTION
+    )
+    with pytest.raises(OperatorProtocolError, match="link ID"):
+        receiver.decode_frame(sender_two.encode_selection(_selection()))
+    restarted = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)), JETSON_ENDPOINT,
+        signing_key=MAVLINK_KEY, signing_link_id=191, initial_signing_timestamp=2_000_004,
+        replay_state_path=state,
+    )
+    with pytest.raises(OperatorProtocolError, match="link ID"):
+        restarted.decode_frame(sender_two.encode_selection(_selection()))
+
+
 def test_operator_adapter_requires_a_full_mavlink_signing_key() -> None:
     with pytest.raises(ValueError, match="exactly 32 bytes"):
         OperatorMavlinkTunnelAdapter(

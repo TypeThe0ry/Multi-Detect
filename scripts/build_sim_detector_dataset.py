@@ -149,6 +149,7 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
                     base / "scenarios" / name,
                     base / "scenarios" / "generated" / name,
                     base / "scenarios" / "generated-v2" / name,
+                    base / "scenarios" / "generated-v2-appearance" / name,
                 ):
                     if candidate.is_file():
                         return candidate

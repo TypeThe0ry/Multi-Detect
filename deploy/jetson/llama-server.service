@@ -1,0 +1,38 @@
+[Unit]
+Description=Multi-Detect local llama-server (slow autonomy model)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=multidetect
+Group=multidetect
+WorkingDirectory=/opt/multi-detect
+
+# Replace these paths for the image installed on this aircraft.  Keep this
+# unit free of credentials; llama-server is bound to localhost only.
+Environment=LLAMA_MODEL_PATH=/opt/multi-detect/models/REPLACE_SLOW_MODEL.gguf
+Environment=LLAMA_MMPROJ_PATH=/opt/multi-detect/models/REPLACE_MMPROJ.gguf
+Environment=LLAMA_SERVER_HOST=127.0.0.1
+Environment=LLAMA_SERVER_PORT=9933
+ExecStart=/opt/multi-detect/bin/llama-server --model ${LLAMA_MODEL_PATH} --mmproj ${LLAMA_MMPROJ_PATH} --host ${LLAMA_SERVER_HOST} --port ${LLAMA_SERVER_PORT}
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/cache/multi-detect /var/log/multi-detect
+
+[Install]
+WantedBy=multi-user.target

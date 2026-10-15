@@ -27,7 +27,14 @@ from multidetect.autonomy.mission_plan import (
     MissionStep,
     validate_mission_plan,
 )
-from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, PlaceVerdictMemory, Track
+from multidetect.autonomy.obstacle_source import ObstacleSource
+from multidetect.autonomy.onboard_loop import (
+    Detection,
+    OnboardLoop,
+    PlaceVerdictMemory,
+    Track,
+    appearances_consistent,
+)
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
@@ -102,28 +109,29 @@ class ExecutorConfig:
 class _AlertCluster:
     """Votes belonging to one physical location during a tracking step."""
 
+    # ``centre`` is intentionally the first positive vote.  It is an anchor,
+    # not a running mean: moving it can chain two nearby objects into one.
     centre: tuple[float, float]
+    appearance: Any = None
     members: int = 0
     positive: int = 0
     negative: int = 0
     alerted: bool = False
     last_track_id: str | None = None
+    track_ids: set[str] = field(default_factory=set)
+    footprint_m: float | None = None
 
-    def add(self, point: tuple[float, float], *, positive: bool, track_id: str) -> None:
-        # Keep the centre as a running mean of all member ground points.  This
-        # makes a fragmented track's observations stable while still allowing
-        # the cluster to follow a small amount of position drift.
-        n = self.members
-        self.centre = (
-            (self.centre[0] * n + point[0]) / (n + 1),
-            (self.centre[1] * n + point[1]) / (n + 1),
-        )
+    def add(self, *, positive: bool, track_id: str) -> None:
+        # Rejects can contribute to majority counting, but never alter the
+        # first-positive anchor.  Positive callers have already passed the
+        # appearance/geometry membership gate.
         self.members += 1
         if positive:
             self.positive += 1
         else:
             self.negative += 1
         self.last_track_id = track_id
+        self.track_ids.add(track_id)
 
 
 @dataclass(slots=True)
@@ -160,6 +168,11 @@ class _StepRun:
     # Patrol/monitor identity votes are pooled by ground position because the
     # tracker may give the same object several track IDs.
     alert_clusters: list[_AlertCluster] = field(default_factory=list)
+    # Default alert policy retains the original per-track first-positive
+    # decision and spatial de-duplication independently of vote pooling.
+    alert_positive_tracks: set[str] = field(default_factory=set)
+    alert_positions: list[tuple[float, float]] = field(default_factory=list)
+    alert_observations: list[dict[str, Any]] = field(default_factory=list)
     # Follow retains the selected identity and updates one position record.
     follow_track_id: str | None = None
     acquire_track: bool = False
@@ -191,6 +204,7 @@ class MissionExecutor:
         capabilities: frozenset[str] = frozenset(),
         release_authorized: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        obstacle_source: ObstacleSource | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
@@ -203,9 +217,10 @@ class MissionExecutor:
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
         self.task_text = task_text
+        self.obstacle_source = obstacle_source
         self._steps = {step.id: step for step in self.plan.steps}
-        # A probe loop gives the camera model and the static-map clearance check.
-        self._probe = loop_factory("Find the object and record its position.")
+        # A probe loop gives the camera model and the configured clearance source.
+        self._probe = self._make_loop("Find the object and record its position.")
         self.home: tuple[float, float] | None = None
         self.cruise_altitude_m: float | None = None
         self.findings: list[dict[str, Any]] = []
@@ -227,6 +242,18 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+
+    def _make_loop(self, task_text: str, **overrides: Any) -> OnboardLoop:
+        """Create a loop while threading the optional typed obstacle source."""
+        if self.obstacle_source is not None:
+            overrides.setdefault("obstacle_source", self.obstacle_source)
+        return self.loop_factory(task_text, **overrides)
+
+    def _segment_clear(self, start: Pose, north: float, east: float) -> bool:
+        """Apply the configured source to an executor geometry leg."""
+        if self.obstacle_source is not None:
+            return self.obstacle_source.segment_clear(start, (north, east, start[2]))
+        return self._probe.segment_clear(start, north, east)
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
@@ -280,7 +307,7 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
-        return self.loop_factory(self.task_text(step), **overrides)
+        return self._make_loop(self.task_text(step), **overrides)
 
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
@@ -290,7 +317,7 @@ class MissionExecutor:
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "inspect":
-            run.loop = self.loop_factory(self.task_text(step))
+            run.loop = self._make_loop(self.task_text(step))
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "follow":
@@ -314,7 +341,13 @@ class MissionExecutor:
                 run.acquire_track = True
                 run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
             run.loop.config = replace(
-                run.loop.config, lost_after_steps=max(7, run.loop.config.lost_after_steps)
+                run.loop.config,
+                lost_after_steps=max(7, run.loop.config.lost_after_steps),
+                # Following moving objects must not opt into static-place re-id.
+                ground_reid_max_steps=(
+                    0 if run.loop.config.ground_reid_max_steps is None
+                    else run.loop.config.ground_reid_max_steps
+                ),
             )
         return run
 
@@ -412,6 +445,7 @@ class MissionExecutor:
         pose_ned: Pose,
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
+        frame_rgb: Any = None,
         landed: bool | None = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
@@ -434,7 +468,11 @@ class MissionExecutor:
                 projected[u, v] = point
                 return point
         self._current = run.loop.update_tracks(
-            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=project
+            detections,
+            pose_ned=pose_ned,
+            yaw_deg=yaw_deg,
+            ground_point=project,
+            frame_rgb=frame_rgb,
         )
         if run.step.skill == "follow":
             run.fresh_ground_tracks = {
@@ -481,25 +519,83 @@ class MissionExecutor:
         ):
             return
 
-        # Find the nearest physical-location vote cluster.  Track IDs are not
-        # used as the evidence key: onboard association can fragment one
-        # object into several IDs from successive views.
+        # Pool only appearance-compatible observations within a fixed
+        # first-positive anchor.  A reject cannot establish a new identity.
+        positive = track.verdict in {"confirm", "approach"}
+        default_alerts = (
+            self.config.alert_min_identity_matches == 1
+            and not self.config.alert_require_majority
+        )
+        if default_alerts and positive:
+            if track_id in run.alert_positive_tracks:
+                return
+            run.alert_positive_tracks.add(track_id)
+        appearance = self._alert_appearance(run, track)
+        footprint = getattr(appearance, "footprint_m", None)
+
+        def cluster_radius(item: _AlertCluster) -> float:
+            # Missing geometry is common in hand-built/offline tracks. Keep
+            # the configured projection-error tolerance in that case; real
+            # descriptors use the object-sized radius below.
+            size = item.footprint_m or footprint
+            return max(1.5, 1.5 * size) if size else self.config.alert_cluster_radius_m
+
+        membership_radius = (
+            cluster_radius
+            if positive
+            else lambda item: max(cluster_radius(item), self.config.alert_cluster_radius_m)
+        )
+
         cluster = min(
-            run.alert_clusters,
+            (
+                item for item in run.alert_clusters
+                if not (item.track_ids.intersection(track.co_visible_with))
+                and math.dist(track.ground, item.centre) <= membership_radius(item)
+                and (
+                    appearance is None
+                    or item.appearance is None
+                    or appearances_consistent(appearance, item.appearance, run.loop.config)
+                )
+            ),
             key=lambda item: math.dist(track.ground, item.centre),
             default=None,
         )
-        if (
-            cluster is None
-            or math.dist(track.ground, cluster.centre) > self.config.alert_cluster_radius_m
-        ):
-            cluster = _AlertCluster(track.ground)
+        if cluster is None:
+            if not positive:
+                return
+            cluster = _AlertCluster(track.ground, appearance, footprint_m=footprint)
             run.alert_clusters.append(cluster)
-        cluster.add(
-            track.ground,
-            positive=track.verdict in {"confirm", "approach"},
-            track_id=track_id,
-        )
+        cluster.add(positive=positive, track_id=track_id)
+
+        if default_alerts:
+            # Preserve the original first positive + spatial de-duplication
+            # exactly, including tracks whose first positive was suppressed
+            # near an existing alert and later moved away.
+            if not positive:
+                return
+            if any(
+                math.dist(track.ground, item["position"])
+                <= (
+                    max(1.5, 1.5 * (item.get("footprint_m") or footprint))
+                    if (item.get("footprint_m") or footprint)
+                    else self.config.alert_cluster_radius_m
+                )
+                and not (
+                    item.get("track_id") in track.co_visible_with
+                    or track.track_id in item.get("co_visible_with", ())
+                )
+                and (
+                    item.get("appearance") is None
+                    or appearance is None
+                    or appearances_consistent(item["appearance"], appearance, run.loop.config)
+                )
+                for item in run.alert_observations
+            ):
+                return
+            cluster.alerted = True
+            self._emit_alert(run, track, track.ground)
+            return
+
         if cluster.alerted:
             return
 
@@ -512,13 +608,32 @@ class MissionExecutor:
         ):
             return
         cluster.alerted = True
-        north, east = cluster.centre
+        self._emit_alert(run, track, cluster.centre)
+
+    @staticmethod
+    def _alert_appearance(run: _StepRun, track: Track) -> Any:
+        """Use the descriptor captured by association, including range scaling."""
+        appearance = getattr(track, "appearance", None)
+        return appearance
+
+    def _emit_alert(self, run: _StepRun, track: Track, point: tuple[float, float]) -> None:
+        run.alert_positions.append(point)
+        run.alert_observations.append(
+            {
+                "position": point,
+                "track_id": track.track_id,
+                "co_visible_with": set(track.co_visible_with),
+                "appearance": getattr(track, "appearance", None),
+                "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
+            }
+        )
+        north, east = point
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
             run,
             {
-                "track_id": track_id,
-                "position_estimate_ne": cluster.centre,
+                "track_id": track.track_id,
+                "position_estimate_ne": point,
                 "bbox": track.bbox,
             },
             None,
@@ -1156,9 +1271,7 @@ class MissionExecutor:
             target = (pose[0], pose[1], -altitude_m)
             # A pure climb leaves the obstacle footprint vertically; obstacle
             # clearance at the current position must not hold a legal escape.
-            if altitude_m < altitude and not self._probe.segment_clear(
-                target, pose[0], pose[1]
-            ):
+            if altitude_m < altitude and not self._segment_clear(target, pose[0], pose[1]):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"
@@ -1175,7 +1288,7 @@ class MissionExecutor:
         step = min(self.config.max_translate_m, distance)
         heading = math.radians(yaw)
         end = (pose[0] + step * math.cos(heading), pose[1] + step * math.sin(heading))
-        if not self._probe.segment_clear(pose, end[0], end[1]):
+        if not self._segment_clear(pose, end[0], end[1]):
             run.blocked += 1
             if run.blocked > self.config.max_blocked_legs:
                 return "blocked"
@@ -1227,7 +1340,7 @@ class MissionExecutor:
         release_pose = (*run.goal_ne, -run.release_altitude_m)
         # Check the low endpoint before descent, release, and each wait cycle.
         # The map API checks horizontal clearance at the supplied altitude.
-        if run.phase != "climb" and not self._probe.segment_clear(
+        if run.phase != "climb" and not self._segment_clear(
             release_pose, run.goal_ne[0], run.goal_ne[1]
         ):
             self._finish("failed", "release_obstacle")

@@ -49,10 +49,10 @@ def test_verdict_checks_reason_and_deadline():
 def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
     from test_mission_supervisor import document
 
-    key = b"bench-hmac-key"
+    key = b"bench-hmac-key!!"
     package_path = tmp_path / "mission.json"
     key_path = tmp_path / "operator.key"
-    key_path.write_bytes(key)
+    key_path.write_text("hmac:" + key.hex(), encoding="ascii")
     package_path.write_text(
         json.dumps(sign_document(document(), key, algorithm="hmac-sha256")), encoding="utf-8"
     )
@@ -61,7 +61,7 @@ def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
     )
     package, options = _admit_package(args)
     assert package.mission_id == "sortie-1" and options["task_text"] == package.plan.goal
-    key_path.write_bytes(b"wrong-key")
+    key_path.write_text("hmac:" + (b"wrong-key-material!!").hex(), encoding="ascii")
     with pytest.raises(ValueError, match="admission refused"):
         _admit_package(args)
 

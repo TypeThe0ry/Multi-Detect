@@ -79,6 +79,43 @@ def test_default_policy_still_constructs_legacy_model_backends(tmp_path, monkeyp
     policy.close()
 
 
+def test_current_size_aware_keeps_integration_search_constructor_and_actions(tmp_path):
+    camera = CameraCalibration(1280, 960, 540, 540, 640, 480).camera_info
+    common = dict(
+        task_text="Find a cone", world_path=None, altitude_m=35,
+        camera_info=camera, image_size=(1280, 960), work_dir=tmp_path,
+        proposer=lambda bgr: [], slow_runner=SimpleNamespace(close=lambda: None),
+        config={"mission": "find", "size_aware_search": True},
+    )
+    sized = OnboardPolicy(**common)
+    baseline = OnboardPolicy(**{**common, "config": {"mission": "find"}})
+    assert sized._search.low_altitude_m is None
+    assert sized.search_altitude_m is not None
+    pose = (0.0, 0.0, -sized._search.altitude_m)
+    assert sized._search.next_action(pose_ned=pose, yaw_deg=0) == baseline._search.next_action(
+        pose_ned=(0.0, 0.0, -baseline._search.altitude_m), yaw_deg=0
+    )
+    sized.close()
+    baseline.close()
+
+
+def test_two_altitude_low_search_altitude_clamps_to_effective_size_aware_altitude(tmp_path):
+    camera = CameraCalibration(1280, 960, 540, 540, 640, 480).camera_info
+    policy = OnboardPolicy(
+        task_text="Find a cone", world_path=None, altitude_m=35,
+        camera_info=camera, image_size=(1280, 960), work_dir=tmp_path,
+        proposer=lambda bgr: [], slow_runner=SimpleNamespace(close=lambda: None),
+        config={
+            "mission": "find", "size_aware_search": True,
+            "low_search_altitude_m": 30,
+            "search_pattern": "two_altitude",
+        },
+    )
+    assert policy.search_altitude_m is not None
+    assert policy._search.low_altitude_m == pytest.approx(policy.search_altitude_m)
+    policy.close()
+
+
 def calibration(**mount):
     return CameraCalibration(100, 80, 90, 90, 50, 40, extrinsics={
         "mount_pitch_down_deg": 45, "mount_yaw_right_deg": 0,

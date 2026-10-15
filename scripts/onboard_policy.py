@@ -51,6 +51,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.obstacle_source import StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -62,11 +63,17 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
+from multidetect.onboard_runtime.health import (  # noqa: E402
+    HealthConfig,
+    HealthDecision,
+    HealthMonitor,
+)
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
     load_sdf_obstacles,
     segment_clear_of_obstacles,
 )
+from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
 from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
@@ -382,22 +389,45 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        runtime_mode: str | None = None,
         frame_format: str = "png",
         frame_quality: int = 90,
         mission_package: MissionPackage | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        if (
+            effective_runtime_mode
+            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
+            and package_raw is None
+        ):
+            raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key_setting = (
+        mission_key_setting = options.get("mission_package_verify_key") or security.get(
+            "mission_package_verify_key"
+        )
+        legacy_key_setting = (
             options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
+        )
+        key_setting = mission_key_setting or legacy_key_setting
+        if legacy_key_setting is not None and mission_key_setting is None:
+            warnings.warn(
+                "operator_key_path is deprecated; use mission_package_verify_key",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        ground_key_setting = (
+            options.get("ground_command_verify_key")
+            or security.get("ground_command_verify_key")
+            or legacy_key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
@@ -413,6 +443,7 @@ class OnboardPolicy:
                 package_raw,
                 key_path=key_setting,
                 require_signature=key_setting is not None,
+                mode=effective_runtime_mode,
             )
             if package_raw is not None
             else None
@@ -444,6 +475,12 @@ class OnboardPolicy:
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
+        search_pattern = str(options.get("search_pattern", "current"))
+        if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
+        low_search_altitude = None
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
@@ -456,6 +493,13 @@ class OnboardPolicy:
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
+        if search_pattern == "two_altitude":
+            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+            low_search_altitude = min(
+                low_search_altitude, self.search_altitude_m or float(altitude_m)
+            )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
         self._search = ExpertSearchPolicy(
@@ -466,6 +510,8 @@ class OnboardPolicy:
             obstacles=obstacles,
             home_ned=home_ned or (0.0, 0.0, 0.0),
             camera_pitch_rad=mount_pitch,
+            search_pattern=search_pattern,
+            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
@@ -506,15 +552,24 @@ class OnboardPolicy:
                 else bool(value)
             )
         for key, convert in (
+            ("ground_reid_radius_m", float),
+            ("appearance_size_ratio", float),
+            ("appearance_aspect_ratio", float),
+            ("appearance_color_distance", float),
             ("memory_radius_m", float),
+            ("memory_footprint_factor", float),
             ("memory_min_verdicts", int),
             ("memory_max_range_ratio", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
+        if "ground_reid_max_steps" in options:
+            value = options["ground_reid_max_steps"]
+            loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
+            obstacle_source = StaticMapSource(obstacles)
             if region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -526,6 +581,12 @@ class OnboardPolicy:
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
                     camera_pitch_rad=mount_pitch,
+                    search_pattern=search_pattern,
+                    **(
+                        {"low_altitude_m": low_search_altitude}
+                        if low_search_altitude is not None
+                        else {}
+                    ),
                 )
             loop = OnboardLoop(
                 camera=camera,
@@ -533,6 +594,7 @@ class OnboardPolicy:
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
+                obstacle_source=obstacle_source,
                 config=LoopConfig(**{**loop_defaults, **overrides}),
             )
             if home_ned is not None:
@@ -577,6 +639,22 @@ class OnboardPolicy:
             )
         else:
             self.slow = slow_runner
+        health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
+        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 180.0))
+        self.health = HealthMonitor(
+            config=HealthConfig(
+                **{
+                    k: v
+                    for k, v in health_options.items()
+                    if k in HealthConfig.__dataclass_fields__
+                }
+            ),
+            runner=self.slow,
+            disk_path=self.work_dir,
+        )
+        self._slow_failed_current = False
+        self._slow_skipped_current = False
+        self._health_recovery_executor = None
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -607,8 +685,11 @@ class OnboardPolicy:
                 from scripts.eval_slow_system import _http_json
 
                 refs = options.get("refs") or {}
+                post_attempted = False
 
                 def post(prompt: str, schema: dict[str, Any]) -> str:
+                    nonlocal post_attempted
+                    post_attempted = True
                     body = {
                         "model": "local",
                         "temperature": 0,
@@ -623,23 +704,41 @@ class OnboardPolicy:
                             },
                         },
                     }
-                    response = _http_json(
-                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions", body
-                    )
+                    started = time.perf_counter()
+                    try:
+                        response = _http_json(
+                            f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
+                            body,
+                            timeout=self.slow_call_timeout_s,
+                        )
+                    except Exception:
+                        self.health.record_slow_call(time.perf_counter() - started, ok=False)
+                        raise
+                    self.health.record_slow_call(time.perf_counter() - started, ok=True)
                     return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
-                plan, report = build_mission_from_text(
-                    self.task_text,
-                    tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
-                    post,
-                    sorted_keys=bool(options.get("plan_sorted_keys", True)),
-                    capabilities=capabilities,
-                )
+                try:
+                    plan, report = build_mission_from_text(
+                        self.task_text,
+                        tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
+                        post,
+                        sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                        capabilities=capabilities,
+                    )
+                except Exception:
+                    # Planning/validation failures are not model-call results.
+                    # ``post`` records the HTTP outcome at the call site; do
+                    # not count this exception a second time as a slow fault.
+                    self.health.record_planning_failure()
+                    if not post_attempted:
+                        self.health.record_slow_call(0.0, ok=False)
+                    raise
                 self.mission_plan, self.mission_plan_report = plan, report
-                if self.mission_package is not None and report.get("error"):
-                    self.slow.close()
-                    raise ValueError(f"mission package plan compilation failed: {report['error']}")
+                if report.get("error"):
+                    if self.mission_package is not None:
+                        self.slow.close()
+                    raise ValueError(f"mission plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
@@ -695,7 +794,9 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    security_key_path=(
+                        str(ground_key_setting) if ground_key_setting is not None else None
+                    ),
                     timestamp_window_s=float(
                         options.get(
                             "command_timestamp_window_s",
@@ -714,7 +815,12 @@ class OnboardPolicy:
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
+                    runtime_mode=effective_runtime_mode,
                 )
+                # Telemetry readers stamp receipts with host monotonic time,
+                # while SIM supervisors run on the simulation clock. Keep a
+                # fixed affine offset so both values are compared in one domain.
+                self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
@@ -812,10 +918,23 @@ class OnboardPolicy:
         }
         from scripts.eval_slow_system import decision_confidence, parse_model_decision
 
+        if getattr(self, "health", None) is not None and self.health.state.low_disk:
+            self._slow_skipped_current = True
+            return {
+                "track_id": focus.track_id,
+                "identity": None,
+                "error": "slow_call_skipped_low_disk",
+                "latency_s": 0.0,
+            }
+
         started = time.perf_counter()
         try:
             raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
+            self._slow_failed_current = True
+            health = getattr(self, "health", None)
+            if health is not None:
+                health.record_slow_call(time.perf_counter() - started, ok=False)
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -824,6 +943,11 @@ class OnboardPolicy:
             }
         self.slow_calls += 1
         decision, error = parse_model_decision(raw)
+        health = getattr(self, "health", None)
+        if health is not None:
+            health.record_slow_call(float(latency), ok=decision is not None)
+        if decision is None:
+            self._slow_failed_current = True
         identity = identity_of(decision["decision"]) if decision else None
         return {
             "track_id": focus.track_id,
@@ -836,36 +960,93 @@ class OnboardPolicy:
         }
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        self._slow_failed_current = False
+        self._slow_skipped_current = False
+        # Process external safety inputs first. A latched supervisor decision and
+        # one-shot ground event must never be hidden by a health hold.
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
             for sample in observation.get("energy_telemetry", []):
+                received_at = float(sample["received_monotonic_s"])
+                received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
+                received_at = min(received_at, self.supervisor._now)
                 self.supervisor.ingest_energy_telemetry(
-                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                    sample["message"], received_at_s=received_at
                 )
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)
-            self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
-            if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
+            update_estimates = getattr(self.supervisor, "update_estimates", None)
+            if update_estimates is not None:
+                update_estimates(**observation.get("mission_estimates", {}))
+            evaluate = getattr(self.supervisor, "evaluate", None)
+            if evaluate is not None and evaluate(pose_ned=pose_ned) != "continue":
                 action, info = self.supervisor.next_action(
                     pose_ned=tuple(pose_ned),
                     yaw_deg=yaw_deg,
                     landed=observation.get("landed"),
                     timestamp_s=_observation_timestamp_s(observation),
                 )
-                return action, {
-                    "onboard": {
-                        **info,
-                        "state": "supervised",
-                        "detections": 0,
-                        "tracks": [],
-                        "slow_calls": [],
-                        "confirmed": None,
-                        "alert_vote_clusters": [],
-                        "fast_latency_s": 0.0,
-                        "mission": {"history": list(self.supervisor.history)},
-                    }
+                supervised_labels = {
+                    **info,
+                    "state": "supervised",
+                    "detections": 0,
+                    "tracks": [],
+                    "slow_calls": [],
+                    "confirmed": None,
+                    "alert_vote_clusters": [],
+                    "fast_latency_s": 0.0,
+                    "mission": {"history": list(self.supervisor.history)},
                 }
+                if getattr(getattr(self, "health", None), "config", None) is not None and getattr(
+                    self.health.config, "enabled", False
+                ):
+                    supervised_labels["health"] = {}
+                return action, {"onboard": supervised_labels}
+        health_monitor = getattr(self, "health", None)
+        health_decision = (
+            health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
+            if health_monitor is not None
+            else HealthDecision()
+        )
+        # A completed recovery must not be reused by a later degradation
+        # cycle.  Likewise, once health is back to ``ok`` and the main
+        # mission resumes, discard any stale recovery executor so the next
+        # escalation gets a fresh plan and state.
+        if (
+            health_decision.decision == "ok"
+            and getattr(self, "_health_recovery_executor", None) is not None
+        ):
+            self._health_recovery_executor = None
+        if health_decision.decision in {"return_home", "land"}:
+            if self.supervisor is not None:
+                self.supervisor._escalate(
+                    "land_now" if health_decision.decision == "land" else "return_now",
+                    health_decision.reason or "health degradation",
+                )
+                action, info = self.supervisor.next_action(
+                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            if self.executor is not None:
+                action, info = self._health_recovery_action(
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    land=health_decision.decision == "land",
+                    timestamp_s=_observation_timestamp_s(observation),
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": health_decision.decision, "health": health_decision.__dict__}
+            }
+        if health_decision.decision == "hold":
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
+        if health_decision.detector_skip:
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
         import numpy as np
         from PIL import Image
 
@@ -874,7 +1055,10 @@ class OnboardPolicy:
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
         suffix = "jpg" if self.frame_format == "jpeg" else "png"
         frame_path = self.work_dir / f"frame_{step:04d}.{suffix}"
-        if self.frame_format == "jpeg":
+        if health_decision.stop_frame_writes:
+            # Low disk: write no frame; slow calls are skipped by _slow_identity.
+            pass
+        elif self.frame_format == "jpeg":
             Image.fromarray(rgb, mode="RGB").save(
                 frame_path, format="JPEG", quality=self.frame_quality, optimize=True
             )
@@ -901,18 +1085,34 @@ class OnboardPolicy:
             )
 
         if self.executor is not None:
-            return self._act_mission(
+            result = self._act_mission(
                 frame_path,
                 detections,
                 fast_s,
+                frame_rgb=rgb,
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
             )
+            if self._slow_failed_current:
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
+            if self._slow_skipped_current:
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"reason": "low_disk"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
+            return result
         current = self.loop.update_tracks(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=rgb,
         )
         slow = []
         if self.loop.state in {"searching", "approaching"}:
@@ -958,7 +1158,50 @@ class OnboardPolicy:
         }
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
+        if self._slow_failed_current:
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
+        if self._slow_skipped_current:
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"reason": "low_disk"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
         return action, labels
+
+    def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool, timestamp_s=None):
+        skill = "land" if land else "return_home"
+        if (
+            self._health_recovery_executor is None
+            or self._health_recovery_executor.plan.steps[0].skill != skill
+        ):
+            plan = validate_mission_plan(
+                {
+                    "plan_version": 1,
+                    "goal": "health recovery",
+                    "report": ["status"],
+                    "steps": [
+                        {
+                            "id": "recovery",
+                            "skill": skill,
+                            "params": {},
+                            "on_success": None,
+                            "on_fail": None,
+                        }
+                    ],
+                }
+            )
+            recovery = MissionExecutor(plan, loop_factory=self.executor.loop_factory)
+            recovery.home = getattr(self.executor, "home", None)
+            recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
+            self._health_recovery_executor = recovery
+        action, info = self._health_recovery_executor.next_action(
+            pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, timestamp_s=timestamp_s
+        )
+        if self._health_recovery_executor.done:
+            self._health_recovery_executor = None
+        return action, info
 
     def _act_mission(
         self,
@@ -969,6 +1212,7 @@ class OnboardPolicy:
         pose_ned,
         yaw_deg,
         ground_point,
+        frame_rgb=None,
         landed=None,
         timestamp_s=None,
     ):
@@ -981,6 +1225,7 @@ class OnboardPolicy:
             pose_ned=tuple(pose_ned),
             yaw_deg=yaw_deg,
             ground_point=ground_point,
+            frame_rgb=frame_rgb,
             landed=landed,
         )
         current = list(executor.current_tracks)

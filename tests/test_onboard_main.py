@@ -85,7 +85,14 @@ def test_real_admission_requires_signed_package_and_key():
         onboard_main._admit_package(missing_task)
 
 
-def test_real_legacy_path_is_refused_before_hardware_is_opened(tmp_path, monkeypatch):
+def test_real_mission_package_admission_requires_signature_key():
+    from multidetect.autonomy.mission_package import load_mission_package
+
+    with pytest.raises(ValueError, match="operator key path"):
+        load_mission_package({}, require_signature=True)
+
+
+def test_missing_model_assets_fail_before_camera_or_vehicle_is_opened(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("invalid model assets must fail before hardware is opened")
 

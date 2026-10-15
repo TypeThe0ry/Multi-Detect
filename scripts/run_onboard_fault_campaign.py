@@ -666,9 +666,14 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
     if package is None:
         admitted = _default_package(work_dir)
     else:
+        key_path = operator_key.resolve() if operator_key else None
+        # Campaign fixtures historically use raw bench HMAC bytes.  Read the
+        # admitted key once and pass the bytes to the package verifier so the
+        # transport boundary remains identical to a signed package admission.
+        key_bytes = key_path.read_bytes() if key_path else None
         admitted = load_mission_package(
             package.resolve(),
-            operator_key_path=operator_key.resolve() if operator_key else None,
+            key=key_bytes,
             require_signature=True,
         )
     policy = admitted.document["link_loss_policy"]

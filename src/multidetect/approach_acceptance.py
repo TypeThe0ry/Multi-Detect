@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 from .approach_hil import ApproachHilController, ApproachHilPhase
@@ -136,11 +137,14 @@ def _run_signed_target_session(
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     operator = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
     started_s = time.perf_counter()
+    replay_root = Path.cwd() / ".multidetect-replay-state"
+    replay_root.mkdir(parents=True, exist_ok=True)
     with UdpOperatorSelectionServer(
         bind_host="127.0.0.1",
         port=0,
         mavlink=jetson,
-        guard=SelectionCommandGuard(_GEOMETRY),
+        guard=SelectionCommandGuard(_GEOMETRY, state_path=replay_root / "approach-server.json"),
+        replay_state_path=replay_root / "approach-server.json",
         receive_timeout_s=0.05,
     ) as server:
         server.start_background()
@@ -150,6 +154,7 @@ def _run_signed_target_session(
             mavlink=operator,
             retry_interval_s=0.25,
             maximum_attempts=3,
+            replay_state_path=replay_root / "approach-client.json",
         ) as client:
             selection_now_s = time.time()
             selection_receipt = client.deliver(
