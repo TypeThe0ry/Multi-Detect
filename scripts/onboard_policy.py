@@ -386,21 +386,44 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        runtime_mode: str | None = None,
         frame_format: str = "png",
         frame_quality: int = 90,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        if (
+            effective_runtime_mode
+            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
+            and package_raw is None
+        ):
+            raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key_setting = (
+        mission_key_setting = options.get("mission_package_verify_key") or security.get(
+            "mission_package_verify_key"
+        )
+        legacy_key_setting = (
             options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
+        )
+        key_setting = mission_key_setting or legacy_key_setting
+        if legacy_key_setting is not None and mission_key_setting is None:
+            warnings.warn(
+                "operator_key_path is deprecated; use mission_package_verify_key",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        ground_key_setting = (
+            options.get("ground_command_verify_key")
+            or security.get("ground_command_verify_key")
+            or legacy_key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
@@ -413,6 +436,7 @@ class OnboardPolicy:
                 package_raw,
                 key_path=key_setting,
                 require_signature=key_setting is not None,
+                mode=effective_runtime_mode,
             )
             if package_raw is not None
             else None
@@ -444,6 +468,12 @@ class OnboardPolicy:
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
+        search_pattern = str(options.get("search_pattern", "current"))
+        if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
+        low_search_altitude = None
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
@@ -456,6 +486,13 @@ class OnboardPolicy:
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
+        if search_pattern == "two_altitude":
+            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+            low_search_altitude = min(
+                low_search_altitude, self.search_altitude_m or float(altitude_m)
+            )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
         self._search = ExpertSearchPolicy(
@@ -466,6 +503,8 @@ class OnboardPolicy:
             obstacles=obstacles,
             home_ned=home_ned or (0.0, 0.0, 0.0),
             camera_pitch_rad=mount_pitch,
+            search_pattern=search_pattern,
+            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
@@ -527,6 +566,12 @@ class OnboardPolicy:
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
                     camera_pitch_rad=mount_pitch,
+                    search_pattern=search_pattern,
+                    **(
+                        {"low_altitude_m": low_search_altitude}
+                        if low_search_altitude is not None
+                        else {}
+                    ),
                 )
             loop = OnboardLoop(
                 camera=camera,
@@ -727,7 +772,9 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    security_key_path=(
+                        str(ground_key_setting) if ground_key_setting is not None else None
+                    ),
                     timestamp_window_s=float(
                         options.get(
                             "command_timestamp_window_s",
@@ -746,6 +793,13 @@ class OnboardPolicy:
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
+                    runtime_mode=effective_runtime_mode,
+                )
+                # Telemetry readers stamp receipts with host monotonic time,
+                # while SIM supervisors run on the simulation clock. Keep a
+                # fixed affine offset so both values are compared in one domain.
+                self._energy_receipt_clock_offset = (
+                    self.supervisor._now - time.monotonic()
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
@@ -894,8 +948,11 @@ class OnboardPolicy:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
             for sample in observation.get("energy_telemetry", []):
+                received_at = float(sample["received_monotonic_s"])
+                received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
+                received_at = min(received_at, self.supervisor._now)
                 self.supervisor.ingest_energy_telemetry(
-                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                    sample["message"], received_at_s=received_at
                 )
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)

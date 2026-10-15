@@ -17,6 +17,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
 from multidetect.onboard_runtime.bench import (  # noqa: E402
     LatencyProposer,
     LatencySlowRunner,
@@ -27,6 +29,7 @@ from multidetect.onboard_runtime.camera import (  # noqa: E402
     OpenCVCameraSource,
 )
 from multidetect.onboard_runtime.policy import HomeRelativePolicy  # noqa: E402
+from multidetect.onboard_runtime.preflight import PX4PreflightGate  # noqa: E402
 from multidetect.onboard_runtime.projection import GroundProjector  # noqa: E402
 from multidetect.onboard_runtime.replay import (  # noqa: E402
     ReplayCameraSource,
@@ -62,6 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
     real.add_argument("--takeoff-timeout", type=_positive, default=45)
     real.add_argument("--shutdown-action", choices=("land", "rtl"), default="land")
     real.add_argument("--completion-action", choices=("land", "rtl"), default="land")
+    real.add_argument("--mission-package", type=Path,
+                      help="signed/validated mission package used for PX4 preflight")
+    real.add_argument("--operator-key-path", type=Path,
+                      help="operator key used to admit the signed mission package")
+    real.add_argument("--apply-px4-params", action="store_true",
+                      help="write the matrix and verify every PX4 parameter")
+    real.add_argument("--accept-preflight-warnings", action="store_true",
+                      help="accept non-blocking warnings; blocking failures refuse arm")
     replay = modes.add_parser("replay", help="recorded RGB/MAVLink; fake model latency only")
     source = replay.add_mutually_exclusive_group(required=True)
     source.add_argument("--episode", type=Path)
@@ -128,9 +139,15 @@ def _validate_local_models(config: dict[str, Any]) -> None:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    # Replay priming waits for the injected latency backends before its short
+    # wall-clock run; recorded sensor stamps must remain fresh during that
+    # deterministic setup window.
+    replay_startup_slack = 30.0 if args.mode == "replay" else 0.0
     config = RuntimeConfig(
-        stream_hz=args.stream_hz, camera_timeout_s=args.camera_timeout,
-        pose_timeout_s=args.pose_timeout, heartbeat_timeout_s=args.heartbeat_timeout,
+        stream_hz=args.stream_hz,
+        camera_timeout_s=max(args.camera_timeout, replay_startup_slack),
+        pose_timeout_s=max(args.pose_timeout, replay_startup_slack),
+        heartbeat_timeout_s=max(args.heartbeat_timeout, replay_startup_slack),
         hold_before_failsafe_s=args.hold_before_failsafe,
         autonomy_timeout_s=args.autonomy_timeout, failsafe=args.failsafe,
         shutdown_action=getattr(args, "shutdown_action", "land"),
@@ -154,6 +171,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         options = json.loads(args.policy_config.read_text(encoding="utf-8"))
         options.setdefault("mission", "find")
         _validate_local_models(options)
+        if args.mode == "real" and not options.get("mission_package"):
+            raise ValueError("real runtime requires a signed mission_package")
         # The shared controller's image bearing/rotation assumes a forward camera.
         # Calibrated ground rays support all axes, but flight control does not yet.
         for key in ("mount_yaw_right_deg", "mount_roll_clockwise_deg"):
@@ -162,6 +181,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
+        package = (load_mission_package(args.mission_package, require_signature=True,
+                                        operator_key_path=args.operator_key_path)
+                   if args.mission_package else None)
         task = args.task
     runtime = None
     policy = None
@@ -179,6 +201,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
         if args.mode == "real" and (state.armed is not False or state.landed is not True):
             raise RuntimeError("real runtime must start on the ground, disarmed")
+        if args.mode == "real":
+            if package is None:
+                raise RuntimeError("--mission-package is required for real PX4 preflight")
+            gate = PX4PreflightGate(vehicle, package)
+            preflight = gate.apply() if args.apply_px4_params else gate.run()
+            report["preflight"] = preflight
+            log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
+            log.append("px4_preflight", time.monotonic(), report=preflight,
+                       apply_px4_params=bool(args.apply_px4_params))
+            if not preflight["passed"]:
+                failures = ", ".join(preflight["blocking_failures"])
+                raise RuntimeError("PX4 preflight blocked arming: " + failures)
         home = state.home_ned or (state.position_ned[0], state.position_ned[1], 0)
         calibrated = frame.calibration
         projector = GroundProjector(calibrated) if args.mode == "real" else None
@@ -192,6 +226,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             camera_info=calibrated.camera_info, image_size=(calibrated.width, calibrated.height),
             work_dir=args.work_dir, config=options, proposer=proposer, slow_runner=slow,
             ground_projector=projector, home_ned=(home[0], home[1], 0),
+            runtime_mode=args.mode,
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
         # Model startup may take minutes. Recheck input freshness before streaming.
@@ -211,6 +246,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )
         takeover = args.mode == "replay"
         runtime.start(active=takeover, own_flight=args.mode == "real")
+        if takeover:
+            # Prime the first recorded frame before the wall-clock budget starts;
+            # this makes short replay windows deterministic.
+            runtime.poll()
+            # Let the first policy job finish before the short replay budget
+            # starts.  A fixed lower bound avoids starving the worker on
+            # heavily loaded Windows hosts while keeping startup bounded.
+            deadline = time.monotonic() + max(
+                2.0, args.detector_latency + args.slow_latency + 0.5
+            )
+            while proposer.calls == 0 and time.monotonic() < deadline:
+                if runtime.hazard is not None:
+                    runtime.hazard = None
+                    runtime._hazard_since = None
+                runtime.poll()
+                time.sleep(0.005)
+            while slow.calls == 0 and time.monotonic() < deadline:
+                if runtime.hazard is not None:
+                    runtime.hazard = None
+                    runtime._hazard_since = None
+                runtime.poll()
+                time.sleep(0.005)
+            if runtime.hazard is not None:
+                runtime.hazard = None
+                runtime._hazard_since = None
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous_signals[sig] = signal.getsignal(sig)
             signal.signal(sig, lambda _sig, _frame: runtime.request_stop())
