@@ -184,13 +184,15 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
             _cycle(executor, sim)
             if executor._run is None or executor._run.step.skill != "count":
                 break
-    assert counted == ["counted", "duplicate", "counted"]
+    # The 2 m re-observation is outside the small cone footprint radius; it is
+    # a distinct object under footprint-based count dedupe.
+    assert counted == ["counted", "counted"]
     assert executor.counts == {"count": 2}
     assert executor.history[0]["reason"] == "max_count"
     assert executor.report().count == 2 and len(executor.findings) == 2
 
 
-def test_count_revives_exhausted_identity_without_recounting_or_slow_call():
+def test_count_does_not_reassociate_exhausted_identity_after_it_leaves_view():
     executor = MissionExecutor(_count_plan(2), loop_factory=_factory())
     sim = Sim()
     box = [Detection(_box(640, 700, 40), 0.5)]
@@ -208,8 +210,8 @@ def test_count_revives_exhausted_identity_without_recounting_or_slow_call():
     needing = executor.observe(
         box, pose_ned=sim.ned, yaw_deg=sim.yaw, ground_point=lambda u, v: (10.0, 1.0)
     )
-    assert executor.current_tracks[0] is track
-    assert needing == []
+    assert executor.current_tracks[0] is not track
+    assert needing == [executor.current_tracks[0]]
     _, info = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw)
     assert "counted" not in info and "duplicate_of_counted" not in info
     assert executor.counts == {"count": 1}
@@ -540,7 +542,7 @@ def test_monitor_scans_with_holds_and_turns_then_completes():
     assert len(executor.findings) == 1
 
 
-def test_monitor_accepts_point_ref_and_dedupes_new_tracks_within_four_metres():
+def test_monitor_accepts_point_ref_and_keeps_separate_small_objects_distinct():
     executor = MissionExecutor(
         _skill_plan(
             "monitor",
@@ -570,8 +572,12 @@ def test_monitor_accepts_point_ref_and_dedupes_new_tracks_within_four_metres():
             ground=lambda u, v, p=position: p,
             verdicts=lambda t: "confirm_target",
         )
-    assert executor.alerts == ["s:alert:truck@0.0,0.0", "s:alert:truck@10.0,0.0"]
-    assert len(executor.findings) == 2
+    assert executor.alerts == [
+        "s:alert:truck@0.0,0.0",
+        "s:alert:truck@3.0,0.0",
+        "s:alert:truck@10.0,0.0",
+    ]
+    assert len(executor.findings) == 3
 
 
 def _alert_vote_fixture(config=None):

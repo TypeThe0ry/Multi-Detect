@@ -29,6 +29,7 @@ class AppearanceSignature:
     aspect_ratio: float
     footprint_m: float | None = None
     color_histogram: tuple[float, ...] | None = None
+    short_side_px: float | None = None
 
 
 def appearance_from_box(
@@ -70,6 +71,7 @@ def appearance_from_box(
         width / height,
         max(width, height) * range_m / focal_px if focal_px and focal_px > 0 else None,
         histogram,
+        min(width, height),
     )
 
 
@@ -78,23 +80,44 @@ def appearances_consistent(
     second: AppearanceSignature | None,
     config: LoopConfig,
 ) -> bool:
-    """Require range-normalized size/aspect and compare color when both exist."""
+    """Return a tolerant appearance score rather than an all-fields hard gate.
+
+    Projection/range error makes apparent size noisy, and a rotated object can
+    exchange its image width and height.  Colour is useful for sufficiently
+    large crops, but remains a tie-breaker when crops are too small to trust.
+    """
     if first is None or second is None:
         return False
-    for a, b, factor in (
-        (first.size_range, second.size_range, config.appearance_size_ratio),
-        (first.aspect_ratio, second.aspect_ratio, config.appearance_aspect_ratio),
+    def ratio_score(a: float, b: float, tolerance: float) -> float:
+        if min(a, b) <= 0:
+            return 0.0
+        ratio = max(a, b) / min(a, b)
+        return max(0.0, 1.0 - math.log(ratio) / math.log(tolerance))
+
+    # Ground range and partial occlusion make the short side substantially
+    # noisier than the pixel box itself; keep this wider than the old 1.6x
+    # hard gate while retaining the geometry contribution to the score.
+    size = ratio_score(first.size_range, second.size_range,
+                       max(config.appearance_size_ratio, 3.2))
+    first_aspect = max(first.aspect_ratio, 1.0 / first.aspect_ratio)
+    second_aspect = max(second.aspect_ratio, 1.0 / second.aspect_ratio)
+    aspect = ratio_score(first_aspect, second_aspect, config.appearance_aspect_ratio)
+    score = 0.6 * size + 0.4 * aspect
+    if (
+        first.color_histogram is not None
+        and second.color_histogram is not None
+        and (first.short_side_px or 0.0) >= 24.0
+        and (second.short_side_px or 0.0) >= 24.0
     ):
-        if min(a, b) <= 0 or max(a, b) / min(a, b) > factor:
-            return False
-    if first.color_histogram is not None and second.color_histogram is not None:
         distance = sum(
             abs(a - b)
             for a, b in zip(first.color_histogram, second.color_histogram, strict=True)
         ) / 2
-        if distance > config.appearance_color_distance:
-            return False
-    return True
+        colour = max(0.0, 1.0 - distance / max(config.appearance_color_distance, 1e-9))
+        score = 0.5 * score + 0.5 * colour
+    # A completely incompatible large-crop colour signature must lose the
+    # tie even when geometry is otherwise perfect; geometry remains soft.
+    return score > 0.5
 
 
 def _iou(a: Box, b: Box) -> float:
@@ -209,6 +232,9 @@ class Track:
     ground: tuple[float, float] | None = None
     verdict_remembered: bool = False
     appearance: AppearanceSignature | None = None
+    # Track ids observed as separate detections in one frame are permanently
+    # distinct, even when later ground projections are close.
+    co_visible_with: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +335,7 @@ class _PlaceVerdicts:
     appearance: AppearanceSignature
     verdicts: list[str] = field(default_factory=list)
     closest_range_m: float = math.inf
+    track_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -358,10 +385,19 @@ class PlaceVerdictMemory:
     def lookup(
         self, point: tuple[float, float] | None, range_m: float | None, config: LoopConfig,
         appearance: AppearanceSignature | None = None,
+        track_id: str | None = None,
+        co_visible_with: set[str] | None = None,
     ) -> str | None:
         if not config.memory_enabled or not self._valid(point, range_m):
             return None
         place = self._nearest(point, appearance, config)
+        if (
+            place is not None
+            and track_id is not None
+            and co_visible_with
+            and place.track_ids.intersection(co_visible_with)
+        ):
+            place = None
         if place is None or len(place.verdicts) < config.memory_min_verdicts:
             return None
         decision = place.verdicts[0]
@@ -380,6 +416,8 @@ class PlaceVerdictMemory:
         decision: str | None,
         config: LoopConfig,
         appearance: AppearanceSignature | None = None,
+        track_id: str | None = None,
+        co_visible_with: set[str] | None = None,
     ) -> None:
         if not config.memory_enabled or not self._valid(point, range_m):
             return
@@ -387,8 +425,19 @@ class PlaceVerdictMemory:
         if place is None:
             place = _PlaceVerdicts(point, appearance)
             self.places.append(place)
+        if (
+            track_id is not None
+            and co_visible_with
+            and place.track_ids.intersection(co_visible_with)
+        ):
+            # A place trained by a co-visible object must never absorb this
+            # object's verdict history merely because projections overlap.
+            place = _PlaceVerdicts(point, appearance)
+            self.places.append(place)
         place.verdicts.append(str(decision))
         place.closest_range_m = min(place.closest_range_m, range_m)
+        if track_id is not None:
+            place.track_ids.add(track_id)
 
 
 @dataclass(slots=True)
@@ -466,7 +515,20 @@ class OnboardLoop:
             tid: t
             for tid, t in self._tracks.items()
             if self.step_index - t.last_step <= self.config.lost_after_steps
+            and not t.exhausted
         }
+        # Count-confirmed tracks are never candidates for ordinary active
+        # association: a nearby new object must receive its own track/verdict.
+        # Preserve only exact pixel continuation for the same or immediately
+        # following frame, which prevents a one-frame bookkeeping gap from
+        # manufacturing a duplicate counted object.
+        exhausted_continuations = {
+            tid: t
+            for tid, t in self._tracks.items()
+            if t.exhausted
+            and self.step_index - t.last_step in (0, 1)
+        }
+        continuation_used: set[str] = set()
         if yaw_deg is not None and self._last_yaw_deg is not None:
             turn = _wrap(yaw_deg - self._last_yaw_deg)
         else:
@@ -502,6 +564,18 @@ class OnboardLoop:
                 detection.bbox, range_m, focal_px=(self.camera.fx + self.camera.fy) / 2,
                 frame_rgb=frame_rgb,
             )
+            exact = next(
+                (
+                    track for track in exhausted_continuations.values()
+                    if track.track_id not in continuation_used
+                    and _iou(track.bbox, detection.bbox) >= 0.99
+                ),
+                None,
+            )
+            if exact is not None:
+                continuation_used.add(exact.track_id)
+                pending.append((detection, ground, exact, appearance))
+                continue
             best, best_score = None, 0.0
             cx, cy = _center(detection.bbox)
             for track in free.values():
@@ -555,21 +629,7 @@ class OnboardLoop:
             for index, (detection, ground, best, appearance) in enumerate(pending)
             if best is None and reliable(detection.bbox, ground)
             for track in lost
-            if (
-                not track.exhausted
-                and appearances_consistent(track.appearance, appearance, self.config)
-            )
-            or (
-                # Preserve exact-box continuity for legacy count logs that
-                # contain no crop pixels; any changed box or available colour
-                # descriptor must take the new-track path.
-                track.exhausted
-                and detection.bbox == track.bbox
-                and track.appearance is not None
-                and appearance is not None
-                and track.appearance.color_histogram is None
-                and appearance.color_histogram is None
-            )
+            if appearances_consistent(track.appearance, appearance, self.config)
             if math.dist(ground, track.ground) <= self.config.ground_reid_radius_m
         )
         revived: dict[int, Track] = {}
@@ -595,6 +655,12 @@ class OnboardLoop:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
             current.append(best)
+        # Separate detections in one frame are distinct objects forever.
+        for left_index, left in enumerate(current):
+            for right in current[left_index + 1 :]:
+                if left.track_id != right.track_id:
+                    left.co_visible_with.add(right.track_id)
+                    right.co_visible_with.add(left.track_id)
         return current
 
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
@@ -640,7 +706,8 @@ class OnboardLoop:
             raise ValueError("only reject_track and approach_track may be remembered")
         if not remembered:
             self._place_memory.record(
-                track.ground, self._track_range(track), decision, self.config, track.appearance
+                track.ground, self._track_range(track), decision, self.config, track.appearance,
+                track.track_id, track.co_visible_with,
             )
         verdict = {
             "confirm_target": "confirm",
@@ -701,7 +768,8 @@ class OnboardLoop:
         if track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}:
             return None
         decision = self._place_memory.lookup(
-            track.ground, self._track_range(track), self.config, track.appearance
+            track.ground, self._track_range(track), self.config, track.appearance,
+            track.track_id, track.co_visible_with,
         )
         if decision is None or (decision == "approach_track" and track_id == self._focus):
             return None
@@ -721,8 +789,26 @@ class OnboardLoop:
         if track.ground is None or self._last_pose is None:
             return
         seen_from = (self._last_pose[0], self._last_pose[1])
+        footprint = getattr(track.appearance, "footprint_m", None)
+        def compatible(item: dict[str, Any]) -> bool:
+            if (
+                item.get("track_id") in track.co_visible_with
+                or track.track_id in item.get("co_visible_with", ())
+            ):
+                return False
+            prior = item.get("appearance")
+            return (
+                prior is None
+                or track.appearance is None
+                or appearances_consistent(prior, track.appearance, self.config)
+            )
         for item in self._rejections:
-            if math.dist(item["ground"], track.ground) <= self.config.count_dedupe_m:
+            radius = max(
+                1.5,
+                self.config.memory_footprint_factor
+                * (item.get("footprint_m") or footprint or 0.0),
+            ) if (item.get("footprint_m") or footprint) else self.config.count_dedupe_m
+            if compatible(item) and math.dist(item["ground"], track.ground) <= radius:
                 item["ground"] = track.ground
                 item["views"].append(seen_from)
                 if confidence is not None:
@@ -734,6 +820,10 @@ class OnboardLoop:
                 "views": [seen_from],
                 "revisited": False,
                 "confidence": confidence,
+                "track_id": track.track_id,
+                "co_visible_with": set(track.co_visible_with),
+                "appearance": track.appearance,
+                "footprint_m": footprint,
             }
         )
 
@@ -811,9 +901,27 @@ class OnboardLoop:
             # Facing the far side: forget old verdicts near the centre so the slow
             # model is asked again from this view.
             for track in self._tracks.values():
-                if track.ground is not None and (
-                    math.dist(track.ground, look["centre"]) <= self.config.count_dedupe_m
-                ):
+                if track.ground is None:
+                    continue
+                footprint = look["rejection"].get("footprint_m") or getattr(
+                    track.appearance, "footprint_m", None
+                )
+                radius = (
+                    max(1.5, self.config.memory_footprint_factor * footprint)
+                    if footprint else self.config.count_dedupe_m
+                )
+                compatible = (
+                    look["rejection"].get("track_id") not in track.co_visible_with
+                    and track.track_id not in look["rejection"].get("co_visible_with", ())
+                    and (
+                        look["rejection"].get("appearance") is None
+                        or track.appearance is None
+                        or appearances_consistent(
+                            look["rejection"]["appearance"], track.appearance, self.config
+                        )
+                    )
+                )
+                if compatible and math.dist(track.ground, look["centre"]) <= radius:
                     track.verdict, track.confirm_steps, track.exhausted = None, [], False
             look["phase"] = "look"
             return ActionPrimitive.hold(1.0)
@@ -864,16 +972,37 @@ class OnboardLoop:
         position = record["position_estimate_ne"]
         duplicate = position is not None and any(
             prior["position_estimate_ne"] is not None
+            and not (
+                prior.get("track_id") in track.co_visible_with
+                or track.track_id in prior.get("co_visible_with", ())
+            )
+            and (
+                prior.get("appearance") is None
+                or track.appearance is None
+                or appearances_consistent(prior["appearance"], track.appearance, self.config)
+            )
             and math.hypot(
                 position[0] - prior["position_estimate_ne"][0],
                 position[1] - prior["position_estimate_ne"][1],
             )
-            <= self.config.count_dedupe_m
+            <= (
+                max(
+                    1.5,
+                    self.config.memory_footprint_factor
+                    * (prior.get("footprint_m") or getattr(track.appearance, "footprint_m", 0.0)),
+                )
+                if (prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None))
+                else self.config.count_dedupe_m
+            )
             for prior in self.confirmations
         )
         if duplicate:
             info["duplicate_of_counted"] = track.track_id
         else:
+            record["track_id"] = track.track_id
+            record["co_visible_with"] = set(track.co_visible_with)
+            record["appearance"] = track.appearance
+            record["footprint_m"] = getattr(track.appearance, "footprint_m", None)
             self.confirmations.append(record)
             info["counted"] = record
         # A counted object is never approached or confirmed again.

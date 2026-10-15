@@ -4,7 +4,14 @@ import math
 
 import pytest
 
-from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
+from multidetect.autonomy.onboard_loop import (
+    AppearanceSignature,
+    CameraModel,
+    Detection,
+    LoopConfig,
+    OnboardLoop,
+    appearances_consistent,
+)
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 CAMERA = CameraModel(540, 540, 640, 480, 1280, 960)
@@ -43,6 +50,29 @@ def test_continuing_loop_revives_identity_evidence_and_verdict_age_after_scan():
     assert loop.tracks_needing_verdict([revived]) == []
     loop.step_index = 14
     assert loop.tracks_needing_verdict([revived]) == [revived]
+
+
+def test_soft_appearance_gate_accepts_rotation_and_partial_occlusion():
+    config = LoopConfig()
+    first = AppearanceSignature(120.0, 2.0, 1.0, (1.0,) + (0.0,) * 71, 48.0)
+    turned = AppearanceSignature(165.0, 0.5, 1.1, (1.0,) + (0.0,) * 71, 25.0)
+    assert appearances_consistent(first, turned, config)
+
+
+def test_soft_appearance_gate_rejects_different_colour_same_shape():
+    config = LoopConfig()
+    first = AppearanceSignature(120.0, 2.0, 1.0, (1.0,) + (0.0,) * 71, 48.0)
+    neighbour = AppearanceSignature(120.0, 2.0, 1.0, (0.0, 1.0) + (0.0,) * 70, 48.0)
+    assert not appearances_consistent(first, neighbour, config)
+
+
+def test_exhausted_track_is_not_active_association_candidate():
+    loop = _loop(stop_on_confirm=False)
+    original = _observe(loop, 0)
+    original.exhausted = True
+    replacement = _observe(loop, 8, (30.0, 3.0), OTHER_BOX)
+    assert replacement is not original
+    assert replacement.track_id != original.track_id
 
 
 @pytest.mark.parametrize("options", [{}, {"stop_on_confirm": False, "ground_reid_max_steps": 0}])

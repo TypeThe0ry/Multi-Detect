@@ -113,6 +113,8 @@ class _AlertCluster:
     negative: int = 0
     alerted: bool = False
     last_track_id: str | None = None
+    track_ids: set[str] = field(default_factory=set)
+    footprint_m: float | None = None
 
     def add(self, *, positive: bool, track_id: str) -> None:
         # Rejects can contribute to majority counting, but never alter the
@@ -124,6 +126,7 @@ class _AlertCluster:
         else:
             self.negative += 1
         self.last_track_id = track_id
+        self.track_ids.add(track_id)
 
 
 @dataclass(slots=True)
@@ -164,6 +167,7 @@ class _StepRun:
     # decision and spatial de-duplication independently of vote pooling.
     alert_positive_tracks: set[str] = field(default_factory=set)
     alert_positions: list[tuple[float, float]] = field(default_factory=list)
+    alert_observations: list[dict[str, Any]] = field(default_factory=list)
     # Follow retains the selected identity and updates one position record.
     follow_track_id: str | None = None
     acquire_track: bool = False
@@ -448,10 +452,26 @@ class MissionExecutor:
                 return
             run.alert_positive_tracks.add(track_id)
         appearance = self._alert_appearance(run, track)
+        footprint = getattr(appearance, "footprint_m", None)
+
+        def cluster_radius(item: _AlertCluster) -> float:
+            # Missing geometry is common in hand-built/offline tracks. Keep
+            # the configured projection-error tolerance in that case; real
+            # descriptors use the object-sized radius below.
+            size = item.footprint_m or footprint
+            return max(1.5, 1.5 * size) if size else self.config.alert_cluster_radius_m
+
+        membership_radius = (
+            cluster_radius
+            if positive
+            else lambda item: max(cluster_radius(item), self.config.alert_cluster_radius_m)
+        )
+
         cluster = min(
             (
                 item for item in run.alert_clusters
-                if math.dist(track.ground, item.centre) <= self.config.alert_cluster_radius_m
+                if not (item.track_ids.intersection(track.co_visible_with))
+                and math.dist(track.ground, item.centre) <= membership_radius(item)
                 and (
                     appearance is None
                     or item.appearance is None
@@ -464,7 +484,7 @@ class MissionExecutor:
         if cluster is None:
             if not positive:
                 return
-            cluster = _AlertCluster(track.ground, appearance)
+            cluster = _AlertCluster(track.ground, appearance, footprint_m=footprint)
             run.alert_clusters.append(cluster)
         cluster.add(positive=positive, track_id=track_id)
 
@@ -475,8 +495,22 @@ class MissionExecutor:
             if not positive:
                 return
             if any(
-                math.dist(track.ground, point) <= self.config.alert_cluster_radius_m
-                for point in run.alert_positions
+                math.dist(track.ground, item["position"])
+                <= (
+                    max(1.5, 1.5 * (item.get("footprint_m") or footprint))
+                    if (item.get("footprint_m") or footprint)
+                    else self.config.alert_cluster_radius_m
+                )
+                and not (
+                    item.get("track_id") in track.co_visible_with
+                    or track.track_id in item.get("co_visible_with", ())
+                )
+                and (
+                    item.get("appearance") is None
+                    or appearance is None
+                    or appearances_consistent(item["appearance"], appearance, run.loop.config)
+                )
+                for item in run.alert_observations
             ):
                 return
             cluster.alerted = True
@@ -505,6 +539,15 @@ class MissionExecutor:
 
     def _emit_alert(self, run: _StepRun, track: Track, point: tuple[float, float]) -> None:
         run.alert_positions.append(point)
+        run.alert_observations.append(
+            {
+                "position": point,
+                "track_id": track.track_id,
+                "co_visible_with": set(track.co_visible_with),
+                "appearance": getattr(track, "appearance", None),
+                "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
+            }
+        )
         north, east = point
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
