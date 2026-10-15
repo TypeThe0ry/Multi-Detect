@@ -1,4 +1,4 @@
-"""Truth-free onboard policy for the SIM teacher collector (``--teacher onboard``).
+"""Shared truth-free policy for the SIM teacher and real onboard runtime.
 
 FAST: a fine-tuned YOLOE model with a generic open vocabulary proposes candidate
 boxes at low confidence (class labels are ignored). SLOW: the quantized
@@ -356,6 +356,10 @@ class OnboardPolicy:
         image_size: tuple[int, int],
         work_dir: Path,
         config: dict[str, Any] | None = None,
+        proposer: Callable | None = None,
+        slow_runner: Any = None,
+        ground_projector: Callable | None = None,
+        home_ned: tuple[float, float, float] | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
         sim_events = validate_sim_ground_events(options)
@@ -406,13 +410,15 @@ class OnboardPolicy:
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
+        self.ground_projector = ground_projector
+        mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
         self.search_altitude_m = None
         if options.get("size_aware_search"):
             size = typical_object_size(self.task_text)
-            depression = 0.18 + math.radians(20.0)
+            depression = mount_pitch + math.radians(20.0)
             needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
             self.search_altitude_m = max(
                 float(options.get("min_search_altitude_m", 8.0)),
@@ -426,6 +432,8 @@ class OnboardPolicy:
             image_size=image_size,
             altitude_m=self.search_altitude_m or altitude_m,
             obstacles=obstacles,
+            home_ned=home_ned or (0.0, 0.0, 0.0),
+            camera_pitch_rad=mount_pitch,
         )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
@@ -434,6 +442,7 @@ class OnboardPolicy:
             cy=float(camera_info["cy"]),
             width=image_size[0],
             height=image_size[1],
+            pitch_down_rad=mount_pitch,
         )
         confirm_min_side_px = float(options.get("confirm_min_side_px", 20.0))
         second_look = options.get("second_look_after_steps")
@@ -484,8 +493,9 @@ class OnboardPolicy:
                     obstacles=obstacles,
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
+                    camera_pitch_rad=mount_pitch,
                 )
-            return OnboardLoop(
+            loop = OnboardLoop(
                 camera=camera,
                 search_action=lambda pose, yaw: search.next_action(pose_ned=pose, yaw_deg=yaw),
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
@@ -493,13 +503,17 @@ class OnboardPolicy:
                 ),
                 config=LoopConfig(**{**loop_defaults, **overrides}),
             )
+            if home_ned is not None:
+                loop.home = home_ned[:2]
+                loop.cruise_altitude_m = altitude_m
+            return loop
 
         self.loop = make_loop(task_text)
         mission = options.get("mission")
         if mission not in {None, "find", "count", "find_and_inspect", "from_text", "package"}:
             raise ValueError(f"unknown mission template {mission!r}")
         self._step = 0
-        self.proposer = YoloeProposer(
+        self.proposer = proposer if proposer is not None else YoloeProposer(
             Path(options["yoloe_weights"]),
             confidence=float(options.get("confidence", 0.05)),
             imgsz=int(options.get("imgsz", 1280)),
@@ -507,22 +521,26 @@ class OnboardPolicy:
             tile_overlap=float(options.get("proposer_tile_overlap", 0.2)),
             merge_iou=float(options.get("proposer_merge_iou", 0.5)),
         )
-        from scripts.eval_slow_system import LlamaServerRunner, _http_json
+        if slow_runner is None:
+            from scripts.eval_slow_system import LlamaServerRunner
 
-        self.slow = LlamaServerRunner(
-            Path(options["gguf"]),
-            Path(options["mmproj"]),
-            executable=Path(options["llama_server"]),
-            port=int(options.get("port", 9941)),
-            max_new_tokens=768 if mission == "from_text" else 128,
-            crop_policy="candidate_zoom_v2",
-            # Every onboard call names a focus track: only identity verdicts are allowed.
-            identity_only=True,
-            logprobs=True,
-            # One-token verdict after a prefilled answer prefix: same verdicts, a
-            # fraction of the decode time (matters on a Jetson Orin Nano).
-            fast_identity=str(options.get("fast_identity", False)).lower() in {"1", "true", "yes"},
-        )
+            self.slow = LlamaServerRunner(
+                Path(options["gguf"]),
+                Path(options["mmproj"]),
+                executable=Path(options["llama_server"]),
+                port=int(options.get("port", 9941)),
+                max_new_tokens=768 if mission == "from_text" else 128,
+                crop_policy="candidate_zoom_v2",
+                # Every onboard call names a focus track: only identity verdicts are allowed.
+                identity_only=True,
+                logprobs=True,
+                # One-token verdict after a prefilled answer prefix: same verdicts, a
+                # fraction of the decode time (matters on a Jetson Orin Nano).
+                fast_identity=str(options.get("fast_identity", False)).lower()
+                in {"1", "true", "yes"},
+            )
+        else:
+            self.slow = slow_runner
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -547,6 +565,8 @@ class OnboardPolicy:
                     standoff_m=float(options.get("inspect_standoff_m", 12.0)),
                 )
             elif mission == "from_text":
+                from scripts.eval_slow_system import _http_json
+
                 refs = options.get("refs") or {}
 
                 def post(prompt: str, schema: dict[str, Any]) -> str:
@@ -609,6 +629,10 @@ class OnboardPolicy:
                     alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
                 ),
             )
+            # Set home on the executor itself, before any supervisor wraps it.
+            if home_ned is not None:
+                self.executor.home = home_ned[:2]
+                self.executor.cruise_altitude_m = altitude_m
             if self.mission_package is not None:
                 self.executor.cruise_altitude_m = altitude_m
                 log = OnboardMissionLog(
@@ -651,7 +675,9 @@ class OnboardPolicy:
                 self.downlink.close()
         finally:
             try:
-                self.slow.close()
+                close = getattr(self.slow, "close", None)
+                if close is not None:  # injected runners may not own a process
+                    close()
             finally:
                 if self.executor is not None:
                     try:
@@ -745,7 +771,7 @@ class OnboardPolicy:
             "identity": identity,
             "decision": decision["decision"] if decision else None,
             "reason": decision["reason"] if decision else None,
-            "confidence": decision_confidence(self.slow.last_logprobs),
+            "confidence": decision_confidence(getattr(self.slow, "last_logprobs", None)),
             "error": error,
             "latency_s": float(latency),
         }
@@ -789,6 +815,9 @@ class OnboardPolicy:
         ground_model = self.ground_projection.for_observation(observation)
 
         def ground_point(u: float, v: float):
+            projector = getattr(self, "ground_projector", None)
+            if projector is not None:
+                return projector(u, v, observation)
             # Full attitude + camera mount inverse of the projection model.
             return pixel_ground_point(
                 u, v, pose=observation, camera_info=camera_info, image_size=self.image_size,
