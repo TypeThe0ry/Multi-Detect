@@ -155,7 +155,9 @@ def _count_plan(max_count):
 
 
 def test_count_keeps_searching_and_dedupes_by_ground_position():
-    executor = MissionExecutor(_count_plan(2), loop_factory=_factory())
+    executor = MissionExecutor(
+        _count_plan(2), loop_factory=_factory(), refs={"zone:lot": (0.0, 0.0, 100.0)}
+    )
     sim = Sim()
     # Three confirmations: object A, object A again (new track id, 2 m away), object B.
     script = [(10.0, 0.0), (10.0, 2.0), (40.0, -20.0)]
@@ -202,7 +204,7 @@ def test_inspect_orbits_the_finding_skips_blocked_views_and_records_frames():
     )
     executor.findings.append(
         {
-            "step": "pre",
+                "step": "search",
             "query": "stop sign",
             "position_ne": centre,
             "track_id": "t9",
@@ -211,6 +213,7 @@ def test_inspect_orbits_the_finding_skips_blocked_views_and_records_frames():
         }
     )
     executor._run = executor._start(executor._steps["inspect"])
+    executor._successful_step_ids.append("search")
     sim = Sim(north=10.0, east=0.0, altitude=20.0)
     asked = []
     lowest = math.inf
@@ -289,7 +292,7 @@ def test_goto_poi_and_unknown_ref_and_hover_duration():
         ("a", "succeeded", "arrived"),
         ("b", "failed", "unknown_ref"),
         ("c", "succeeded", "duration_elapsed"),
-        ("z", "succeeded", "landed"),
+        ("z", "succeeded", "landing_commanded_unconfirmed"),
     ]
     assert math.hypot(sim.pose[0], sim.pose[1] - 40.0) <= 3.0
     assert holds == 12.0 and last.kind == "stop"
@@ -414,8 +417,8 @@ def test_survey_skips_blocked_waypoints_and_reports_partial_coverage():
 
 def test_survey_needs_a_bounded_zone_and_at_least_one_reachable_waypoint():
     for refs, blocked, reason in [
-        ({}, lambda pose, n, e: False, "unknown_ref"),
-        ({"zone:a": (0.0, 0.0)}, lambda pose, n, e: False, "unknown_ref"),
+            ({}, lambda pose, n, e: False, "invalid_region_ref"),
+            ({"zone:a": (0.0, 0.0)}, lambda pose, n, e: False, "invalid_region_ref"),
         ({"zone:a": (0.0, 0.0, 30.0)}, lambda pose, n, e: True, "no_waypoint_reachable"),
     ]:
         executor = MissionExecutor(
@@ -527,10 +530,10 @@ def test_monitor_accepts_point_ref_and_dedupes_new_tracks_within_four_metres():
     executor = MissionExecutor(
         _skill_plan(
             "monitor",
-            {"region": "poi:watch", "query": "truck", "duration_s": 30.0, "altitude_m": 25.0},
+                {"region": "zone:watch", "query": "truck", "duration_s": 30.0, "altitude_m": 25.0},
         ),
         loop_factory=_factory(),
-        refs={"poi:watch": (0.0, 0.0)},
+            refs={"zone:watch": (0.0, 0.0, 100.0)},
     )
     sim = Sim(altitude=20.0)
     box = [Detection(_box(640, 700, 40), 0.5)]
@@ -889,10 +892,10 @@ def test_follow_starts_fresh_after_a_non_perception_step():
 def test_follow_does_not_reuse_another_steps_same_named_track():
     executor = MissionExecutor(
         _search_intermediate_follow_plan(
-            "monitor", {"region": "poi:watch", "query": "truck", "duration_s": 2.0}
+            "monitor", {"region": "zone:watch", "query": "truck", "duration_s": 2.0}
         ),
         loop_factory=_factory(),
-        refs={"poi:watch": (0.0, 0.0)},
+        refs={"zone:watch": (0.0, 0.0, 100.0)},
     )
     sim = Sim()
     target = [50.0, 0.0]
@@ -1117,7 +1120,8 @@ def test_deliver_aborts_on_obstacles_without_a_release_event(blocked, reason):
 def test_deliver_unknown_target_fails_before_release(ref):
     executor = _deliver_executor(target=ref)
     _, info = executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
-    assert executor.history[0]["reason"] == "unknown_ref" and "event" not in info
+    expected_reason = "finding_not_found" if ref.startswith("finding:") else "unknown_ref"
+    assert executor.history[0]["reason"] == expected_reason and "event" not in info
 
 
 @pytest.mark.parametrize(("requested", "bounded"), [(1.0, 2.0), (120.0, 4.0), (3.0, 3.0)])
@@ -1141,7 +1145,9 @@ def test_deliver_config_rejects_unsafe_bounds_and_timeouts(options):
 
 
 def test_count_is_reported_while_the_step_runs():
-    executor = MissionExecutor(_count_plan(5), loop_factory=_factory())
+    executor = MissionExecutor(
+        _count_plan(5), loop_factory=_factory(), refs={"zone:lot": (0.0, 0.0, 100.0)}
+    )
     sim = Sim()
     _cycle(executor, sim)
     assert executor.counts == {"count": 0} and executor.report().count == 0
@@ -1194,3 +1200,108 @@ def test_a_zone_with_a_radius_bounds_the_search_step():
     )
     assert regions == [(10.0, -5.0, 40.0)]
     assert executor.resolve("zone:lot") == (10.0, -5.0)
+
+
+def _land_only_plan():
+    return validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "land",
+            "steps": [
+                {
+                    "id": "land",
+                    "skill": "land",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                }
+            ],
+            "report": [],
+        }
+    )
+
+
+def test_land_requires_host_confirmation_or_records_unknown_state():
+    pose = (0.0, 0.0, -20.0)
+    confirmed = MissionExecutor(_land_only_plan(), loop_factory=_factory())
+    confirmed.next_action(pose_ned=pose, yaw_deg=0.0, landed=True)
+    assert confirmed.history[-1]["reason"] == "landed"
+
+    unknown = MissionExecutor(_land_only_plan(), loop_factory=_factory())
+    unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed="unknown")
+    assert unknown.history[-1]["reason"] == "landing_commanded_unconfirmed"
+
+    airborne = MissionExecutor(
+        _land_only_plan(),
+        loop_factory=_factory(),
+        config=ExecutorConfig(landing_timeout_steps=2),
+    )
+    for _ in range(4):
+        airborne.next_action(pose_ned=pose, yaw_deg=0.0, landed=False)
+        if airborne.done:
+            break
+    assert airborne.history[-1]["reason"] == "landing_timeout"
+
+
+def test_vertical_move_uses_clearance_and_fails_after_retries():
+    executor = MissionExecutor(
+        _skill_plan("goto", {"target_ref": "home", "altitude_m": 10.0}),
+        loop_factory=_factory(),
+        config=ExecutorConfig(max_blocked_legs=1),
+    )
+    executor._probe.segment_clear = lambda *_args: False
+    pose = (0.0, 0.0, -20.0)
+    executor.next_action(pose_ned=pose, yaw_deg=0.0)
+    executor.next_action(pose_ned=pose, yaw_deg=0.0)
+    assert executor.history[0]["reason"] == "blocked"
+
+
+def test_invalid_region_fails_at_execution_without_global_fallback():
+    executor = MissionExecutor(
+        _skill_plan("survey", {"region": "zone:missing", "overlap": 0.7}),
+        loop_factory=_factory(),
+    )
+    executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    assert executor.history[0]["reason"] == "invalid_region_ref"
+
+
+def test_hover_reaches_region_centre_before_requested_altitude():
+    executor = MissionExecutor(
+        _skill_plan("hover", {"duration_s": 1.0, "region": "zone:pad", "altitude_m": 10.0}),
+        loop_factory=_factory(),
+        refs={"zone:pad": (20.0, 0.0, 5.0)},
+    )
+    sim = Sim(altitude=20.0)
+    first, _ = _cycle(executor, sim)
+    assert first.kind == "translate" and first.up_m == 0.0
+    sim.apply(first)
+    while executor._run is not None and executor._run.step.skill == "hover":
+        action, _ = _cycle(executor, sim)
+        if action.kind == "translate" and action.up_m != 0.0:
+            assert math.isclose(sim.pose[0], 20.0, abs_tol=1e-6)
+            break
+
+
+def test_inspect_fails_when_no_view_contains_the_target():
+    executor = MissionExecutor(
+        plan_for_find_and_inspect("stop sign", views=2, standoff_m=8.0),
+        loop_factory=_factory(),
+    )
+    executor.findings.append(
+        {
+            "step": "search",
+            "query": "stop sign",
+            "position_ne": (20.0, 0.0),
+            "track_id": "target",
+            "rule": "two_views",
+            "frame_id": None,
+        }
+    )
+    executor._successful_step_ids.append("search")
+    executor._run = executor._start(executor._steps["inspect"])
+    sim = Sim()
+    for index in range(100):
+        action, _ = _cycle(executor, sim, frame=f"empty-{index}")
+        if executor.done:
+            break
+    assert executor.history[0]["reason"] == "target_not_seen"

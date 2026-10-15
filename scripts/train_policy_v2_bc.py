@@ -1,7 +1,7 @@
 """Train the policy-v2 primitive baseline from SIM teacher episodes.
 
 The script is deliberately conservative about data admission.  Only episodes
-recorded with ``sensor_status=live`` and real RGB PNG/depth NPY files are
+recorded with ``sensor_status=live`` and real RGB PNG/depth NPY, NPZ, or PNG16 files are
 accepted.  ``labels`` are read only for optional audit metadata; state inputs
 are always built from ``obs_before`` through :class:`StructuredSceneStateBuilder`.
 """
@@ -38,6 +38,7 @@ from multidetect.autonomy.policy_v2.model import (
     export_onnx,
     states_to_tensors,
 )
+from multidetect.sim_teacher.recording import load_depth_array
 
 
 class DatasetAdmissionError(ValueError):
@@ -74,7 +75,7 @@ def _sha256(path: Path) -> str:
 def _real_rgb(ep: Path, value: object) -> bool:
     if not isinstance(value, str) or Path(value).is_absolute():
         return False
-    path = ep / value
+    path = ep / value.replace("\\", "/")
     try:
         with path.open("rb") as stream:
             return (
@@ -89,20 +90,26 @@ def _real_rgb(ep: Path, value: object) -> bool:
 def _real_depth(ep: Path, value: object) -> bool:
     if not isinstance(value, str) or Path(value).is_absolute():
         return False
-    path = ep / value
-    if path.suffix.lower() != ".npy" or not path.is_file() or path.stat().st_size <= 0:
+    path = ep / value.replace("\\", "/")
+    if (
+        path.suffix.lower() not in {".npy", ".npz", ".png"}
+        or not path.is_file()
+        or path.stat().st_size <= 0
+    ):
         return False
     try:
         if np is None:
             return True
-        array = np.load(path, allow_pickle=False)
+        array = load_depth_array(path)
         return bool(array.size and np.isfinite(array).all())
     except Exception:
         return False
 
 
 def _admit_episode(
-    ep: Path, *, max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
+    ep: Path,
+    *,
+    max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
     skip_over_skew: bool = True,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     try:
@@ -173,7 +180,9 @@ def _admit_episode(
 
 
 def load_episodes(
-    root: str | Path, *, max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
+    root: str | Path,
+    *,
+    max_sim_skew_ms: float = DEFAULT_MAX_SIM_SKEW_MS,
     skip_over_skew: bool = True,
 ) -> list[tuple[str, Path, dict[str, Any], list[dict[str, Any]]]]:
     """Load and strictly admit all episodes below ``root/episodes``.
@@ -370,11 +379,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
-        "--max-sim-skew-ms", type=float, default=DEFAULT_MAX_SIM_SKEW_MS,
+        "--max-sim-skew-ms",
+        type=float,
+        default=DEFAULT_MAX_SIM_SKEW_MS,
         help="skip steps whose observation sim_skew_ms exceeds this limit (default: 250)",
     )
     parser.add_argument(
-        "--no-skip-over-skew", action="store_true",
+        "--no-skip-over-skew",
+        action="store_true",
         help="retain steps over the simulation-skew limit",
     )
     args = parser.parse_args(argv)
@@ -390,8 +402,12 @@ def main(argv: list[str] | None = None) -> int:
     if not transitions["train"]:
         raise DatasetAdmissionError("training split is empty")
     model, metrics = train_model(
-        transitions["train"], transitions["validation"], epochs=args.epochs,
-        batch_size=args.batch_size, seed=args.seed, device=args.device,
+        transitions["train"],
+        transitions["validation"],
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        seed=args.seed,
+        device=args.device,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = args.output_dir / "policy_v2_bc.pt"
@@ -436,4 +452,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-

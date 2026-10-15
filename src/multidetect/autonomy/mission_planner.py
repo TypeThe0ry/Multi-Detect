@@ -20,6 +20,7 @@ from multidetect.autonomy.serialization import AutonomyContractError
 
 _PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     "ref": {"type": "string", "minLength": 4, "maxLength": 48},
+    "region": {"type": "string", "minLength": 6, "maxLength": 48, "pattern": "^zone:.+"},
     "query": {"type": "string", "minLength": 1, "maxLength": 64},
     "altitude": {"type": "number", "minimum": 1, "maximum": 120},
     "distance": {"type": "number", "minimum": 0.5, "maximum": 100},
@@ -29,6 +30,11 @@ _PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     "views": {"type": "integer", "minimum": 1, "maximum": 24},
     "loops": {"type": "integer", "minimum": 1, "maximum": 100},
 }
+
+# Optional params the executor accepts but the onboard model was never trained to emit.
+# Leaving them out keeps the planning prompt byte-identical to the training prompt;
+# advertise them only together with planning SFT data that uses them.
+_UNADVERTISED_PARAMS = frozenset({"min_views_seen"})
 
 SKILL_HELP: dict[str, str] = {
     "goto": "fly to a place (target_ref)",
@@ -261,7 +267,8 @@ def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list
     is redirected: on_success to the next step, on_fail to the terminal step; a
     non-terminal step whose on_success/on_fail is null continues to the terminal.
     Patrol steps keep their loops. A plan without a terminal step gets a final
-    return_home. Every repaired plan still goes through validate_mission_plan.
+    return_home. Callers such as ``compile_mission_plan`` validate the repaired
+    document before accepting it; this helper performs only the shallow rewrite.
     """
     steps = [dict(step) for step in document.get("steps", []) if isinstance(step, dict)]
     notes: list[str] = []
@@ -289,23 +296,22 @@ def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list
         )
         ids.append(terminal)
         notes.append("appended return_home")
-    for step in steps:
-        # A non-terminal step must not end the mission: fall through to the terminal.
-        if step.get("skill") not in {"return_home", "land"}:
-            for key in ("on_success", "on_fail"):
-                if step.get(key) is None and step.get("id") != terminal:
-                    step[key] = terminal
-                    notes.append(f"{step.get('id')}.{key}: None -> {terminal}")
+    terminal_skills = {"return_home", "land"}
     for index, step in enumerate(steps):
-        if step.get("skill") == "patrol":
+        if step.get("skill") in terminal_skills:
+            for key in ("on_success", "on_fail"):
+                if step.get(key) is not None:
+                    notes.append(f"{step.get('id')}.{key}: {step[key]} -> None (terminal)")
+                    step[key] = None
             continue
         following = ids[index + 1] if index + 1 < len(ids) else None
-        for key, fallback in (("on_success", following), ("on_fail", terminal)):
+        for key, fallback in (("on_success", following or terminal), ("on_fail", terminal)):
             ref = step.get(key)
-            if ref in ids and ids.index(ref) <= index:
-                replacement = fallback if fallback != step.get("id") else None
+            if ref is None or ref not in ids or ids.index(ref) <= index:
+                replacement = fallback
                 step[key] = replacement
-                notes.append(f"{step.get('id')}.{key}: {ref} -> {replacement}")
+                if ref != replacement:
+                    notes.append(f"{step.get('id')}.{key}: {ref} -> {replacement}")
     return {**document, "steps": steps}, notes
 
 
@@ -332,7 +338,8 @@ def plan_prompt_parts(
         if spec.gated and "payload" not in capabilities:
             continue
         params = ", ".join(
-            ("*" if p in spec.required_params else "") + p for p in sorted(spec.allowed_params)
+            ("*" if p in spec.required_params else "") + p
+            for p in sorted(spec.allowed_params - _UNADVERTISED_PARAMS)
         )
         lines.append(f"- {name} [{params}]: {SKILL_HELP[name]}")
     lines += [
@@ -352,7 +359,7 @@ def plan_prompt_parts(
             if not spec.gated or "payload" in capabilities:
                 params = ",".join(
                     ("*" if p in spec.required_params else "") + p
-                    for p in sorted(spec.allowed_params)
+                    for p in sorted(spec.allowed_params - _UNADVERTISED_PARAMS)
                 )
                 lines.append(f"{name}[{params}]")
         lines += [
@@ -414,8 +421,9 @@ def check_plan_refs(
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     """Find references the host does not know; optionally map each to the only same-kind ref.
 
-    Returns (document, notes, unknown). A region with no known zone falls back to
-    zone:all when substituting; anything else stays unknown.
+    Returns (document, notes, unknown). Wrong-kind or unknown region references
+    stay unknown unless exactly one known zone is available for an explicit
+    host-side substitution; they are never widened to ``zone:all``.
     """
     # Known places may carry a label: "zone:site (the site)".
     known = {ref.split(" ", 1)[0] for ref in refs}
@@ -425,16 +433,30 @@ def check_plan_refs(
         params = step.get("params") or {}
         for key in _REF_PARAMS:
             ref = params.get(key)
-            if not isinstance(ref, str) or _builtin_ref(ref) or ref in known:
+            if not isinstance(ref, str):
                 continue
             prefix = ref.split(":", 1)[0]
+            # Region parameters describe bounded areas, never points, routes,
+            # tracks or findings. Check role before known/builtin short-circuit.
+            if key == "region" and prefix != "zone":
+                zones = sorted(r for r in known if r.startswith("zone:"))
+                if substitute and len(zones) == 1:
+                    replacement = zones[0]
+                    params[key] = replacement
+                    notes.append(f"{step.get('id')}.{key}: {ref} -> {replacement}")
+                else:
+                    # A wrong-kind region cannot safely fall back to the
+                    # unbounded whole-area spelling.  Keep it unknown so the
+                    # planner retries/rejects it and the executor reports a
+                    # bounded-region failure instead of searching globally.
+                    unknown.append(ref)
+                continue
+            if _builtin_ref(ref) or ref in known:
+                continue
             same_kind = sorted(r for r in known if r.split(":", 1)[0] == prefix)
             if substitute and len(same_kind) == 1:
                 params[key] = same_kind[0]
                 notes.append(f"{step.get('id')}.{key}: {ref} -> {same_kind[0]}")
-            elif substitute and key == "region" and not same_kind:
-                params[key] = "zone:all"
-                notes.append(f"{step.get('id')}.{key}: {ref} -> zone:all")
             else:
                 unknown.append(ref)
     return document, notes, unknown

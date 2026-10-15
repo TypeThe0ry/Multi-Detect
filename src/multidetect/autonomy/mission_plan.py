@@ -36,16 +36,16 @@ def _spec(name: str, required: set[str], allowed: set[str], completion: str, *, 
 
 SKILLS: dict[str, SkillSpec] = {
     "goto": _spec("goto", {"target_ref"}, {"target_ref", "altitude_m"}, "arrived", types={"target_ref": "ref", "altitude_m": "altitude"}),
-    "area_search": _spec("area_search", {"region", "query"}, {"region", "query", "altitude_m"}, "region_covered", query=True, types={"region": "ref", "query": "query", "altitude_m": "altitude"}),
-    "count": _spec("count", {"region", "query"}, {"region", "query", "max_count", "altitude_m"}, "count_reported", query=True, types={"region": "ref", "query": "query", "max_count": "count", "altitude_m": "altitude"}),
-    "inspect": _spec("inspect", {"target_ref", "query", "views", "standoff_m"}, {"target_ref", "query", "views", "standoff_m", "altitude_m"}, "views_captured", query=True, types={"target_ref": "ref", "query": "query", "views": "views", "standoff_m": "distance", "altitude_m": "altitude"}),
+    "area_search": _spec("area_search", {"region", "query"}, {"region", "query", "altitude_m"}, "region_covered", query=True, types={"region": "region", "query": "query", "altitude_m": "altitude"}),
+    "count": _spec("count", {"region", "query"}, {"region", "query", "max_count", "altitude_m"}, "count_reported", query=True, types={"region": "region", "query": "query", "max_count": "count", "altitude_m": "altitude"}),
+    "inspect": _spec("inspect", {"target_ref", "query", "views", "standoff_m"}, {"target_ref", "query", "views", "min_views_seen", "standoff_m", "altitude_m"}, "views_captured", query=True, types={"target_ref": "ref", "query": "query", "views": "views", "min_views_seen": "views", "standoff_m": "distance", "altitude_m": "altitude"}),
     "patrol": _spec("patrol", {"route_ref", "query", "loops"}, {"route_ref", "query", "loops", "duration_s", "altitude_m"}, "duration_elapsed", query=True, types={"route_ref": "ref", "query": "query", "loops": "loops", "duration_s": "duration", "altitude_m": "altitude"}),
-    "survey": _spec("survey", {"region", "overlap"}, {"region", "overlap", "altitude_m"}, "region_covered", types={"region": "ref", "overlap": "overlap", "altitude_m": "altitude"}),
+    "survey": _spec("survey", {"region", "overlap"}, {"region", "overlap", "altitude_m"}, "region_covered", types={"region": "region", "overlap": "overlap", "altitude_m": "altitude"}),
     "follow": _spec("follow", {"track_ref", "query"}, {"track_ref", "query", "duration_s", "altitude_m"}, "target_lost_timeout", query=True, types={"track_ref": "ref", "query": "query", "duration_s": "duration", "altitude_m": "altitude"}),
-    "monitor": _spec("monitor", {"region", "query", "duration_s"}, {"region", "query", "duration_s", "altitude_m"}, "duration_elapsed", query=True, types={"region": "ref", "query": "query", "duration_s": "duration", "altitude_m": "altitude"}),
+    "monitor": _spec("monitor", {"region", "query", "duration_s"}, {"region", "query", "duration_s", "altitude_m"}, "duration_elapsed", query=True, types={"region": "region", "query": "query", "duration_s": "duration", "altitude_m": "altitude"}),
     "record": _spec("record", {"query"}, {"query", "max_count"}, "views_captured", query=True, types={"query": "query", "max_count": "count"}),
     "deliver": _spec("deliver", {"target_ref", "payload_ref"}, {"target_ref", "payload_ref", "altitude_m"}, "arrived", gated=True, types={"target_ref": "ref", "payload_ref": "ref", "altitude_m": "altitude"}),
-    "hover": _spec("hover", {"duration_s"}, {"duration_s", "region", "altitude_m"}, "duration_elapsed", types={"duration_s": "duration", "region": "ref", "altitude_m": "altitude"}),
+    "hover": _spec("hover", {"duration_s"}, {"duration_s", "region", "altitude_m"}, "duration_elapsed", types={"duration_s": "duration", "region": "region", "altitude_m": "altitude"}),
     "return_home": _spec("return_home", set(), {"altitude_m"}, "arrived", types={"altitude_m": "altitude"}),
     "land": _spec("land", set(), {"target_ref"}, "landed", types={"target_ref": "ref"}),
 }
@@ -68,6 +68,14 @@ MISSION_PLAN_JSON_SCHEMA: dict[str, Any] = {
 
 
 def _param(value: object, kind: str, name: str) -> object:
+    if kind == "region":
+        text = require_text(value, name)
+        # Region parameters are deliberately narrower than ordinary symbolic
+        # references.  A point, route, track, or finding cannot bound a search
+        # area; ``zone:all`` is the explicit whole-area form.
+        if len(text) > 96 or not text.startswith("zone:") or len(text) == len("zone:"):
+            raise AutonomyContractError(f"{name} must be a zone reference")
+        return text
     if kind in {"ref"}:
         text = require_text(value, name)
         if len(text) > 96 or ":" not in text and text != "home":
@@ -156,25 +164,49 @@ def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities:
     for step in steps:
         for label, ref in (("on_success", step.on_success), ("on_fail", step.on_fail)):
             if ref is not None and ref not in known: raise AutonomyContractError(f"{step.id}.{label} references unknown step {ref!r}")
-    terminals = {s.id for s in steps if s.skill in {"return_home", "land"} or (s.skill == "hover" and s.on_success is None)}
-    if not terminals: raise AutonomyContractError("mission plan must have a terminal return_home, land, or final hover step")
-    _check_cycles(steps)
+    terminals = {s.id for s in steps if s.skill in {"return_home", "land"}}
+    if not terminals: raise AutonomyContractError("mission plan must have a terminal return_home or land step")
+    _check_graph_termination(steps, terminals)
     return MissionPlan(version, goal, tuple(steps), report)
 
 
-def _check_cycles(steps: list[MissionStep]) -> None:
-    by_id = {s.id: s for s in steps}; visiting: set[str] = set(); done: set[str] = set()
-    def visit(sid: str) -> None:
-        if sid in done: return
-        if sid in visiting:
-            cycle = [by_id[x] for x in visiting if x in by_id]
-            if not any(s.skill == "patrol" and int(s.params.get("loops", 0)) >= 1 for s in cycle): raise AutonomyContractError("step graph contains a cycle without explicit patrol loop count")
+def _check_graph_termination(steps: list[MissionStep], terminals: set[str]) -> None:
+    """Ensure every graph branch reaches return_home/land in bounded steps.
+
+    Skills such as ``patrol`` have an internal finite loop count, but that does
+    not make a graph edge back to an earlier step safe.  A graph cycle or a
+    null edge on a non-terminal step can otherwise leave the vehicle executing
+    forever, so both are rejected by the contract.
+    """
+    by_id = {s.id: s for s in steps}
+    for step in steps:
+        if step.id in terminals and (step.on_success is not None or step.on_fail is not None):
+            raise AutonomyContractError(
+                f"terminal step {step.id!r} must have on_success/on_fail null"
+            )
+
+    def visit(sid: str, path: tuple[str, ...]) -> None:
+        if sid in path:
+            raise AutonomyContractError("step graph contains a cycle")
+        step = by_id[sid]
+        if sid in terminals:
             return
-        visiting.add(sid); step = by_id[sid]
-        for ref in (step.on_success, step.on_fail):
-            if ref is not None: visit(ref)
-        visiting.remove(sid); done.add(sid)
-    for sid in by_id: visit(sid)
+        for label, ref in (("on_success", step.on_success), ("on_fail", step.on_fail)):
+            if ref is None:
+                raise AutonomyContractError(
+                    f"non-terminal step {step.id!r}.{label} must reach a terminal step"
+                )
+            # Unknown refs are checked before this function, but keep the
+            # guard here so this invariant remains local if callers evolve.
+            if ref not in by_id:
+                raise AutonomyContractError(f"{step.id}.{label} references unknown step {ref!r}")
+            visit(ref, path + (sid,))
+
+    # Validate all nodes so an unreachable malformed branch cannot be activated
+    # later by a host-side edge change.  The first-step requirement is included
+    # naturally because it is the first node visited.
+    for sid in by_id:
+        visit(sid, ())
 
 
 def interpret_step_decision(step: MissionStep, decision: OnboardDecision) -> str:
