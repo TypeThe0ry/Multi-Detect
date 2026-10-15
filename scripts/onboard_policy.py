@@ -462,6 +462,12 @@ class OnboardPolicy:
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
+        search_pattern = str(options.get("search_pattern", "current"))
+        if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
+        low_search_altitude = None
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
@@ -474,6 +480,13 @@ class OnboardPolicy:
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
+        if search_pattern == "two_altitude":
+            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+            low_search_altitude = min(
+                low_search_altitude, self.search_altitude_m or float(altitude_m)
+            )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
         self._search = ExpertSearchPolicy(
@@ -484,6 +497,8 @@ class OnboardPolicy:
             obstacles=obstacles,
             home_ned=home_ned or (0.0, 0.0, 0.0),
             camera_pitch_rad=mount_pitch,
+            search_pattern=search_pattern,
+            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
@@ -545,6 +560,12 @@ class OnboardPolicy:
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
                     camera_pitch_rad=mount_pitch,
+                    search_pattern=search_pattern,
+                    **(
+                        {"low_altitude_m": low_search_altitude}
+                        if low_search_altitude is not None
+                        else {}
+                    ),
                 )
             loop = OnboardLoop(
                 camera=camera,

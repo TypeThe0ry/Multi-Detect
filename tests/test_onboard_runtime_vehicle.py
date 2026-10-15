@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import queue
+import struct
 import threading
 import time
 from dataclasses import FrozenInstanceError
@@ -42,6 +43,12 @@ class FakeMav:
 
     def heartbeat_send(self, *args: object) -> None:
         self.heartbeats.append(args)
+
+    def param_request_read_send(self, *args: object) -> None:
+        self.commands.append(("read", *args))
+
+    def param_set_send(self, *args: object) -> None:
+        self.commands.append(("set", *args))
 
 
 class FakeConnection:
@@ -250,3 +257,49 @@ def test_receiver_error_is_reported_to_runtime() -> None:
             vehicle.snapshot()
     finally:
         vehicle.close()
+
+
+def test_gps_raw_int_eph_decodes_hdop_and_65535_is_unknown():
+    vehicle = PymavlinkVehicle("replay")
+    vehicle.ingest({"type": "GPS_RAW_INT", "fix_type": 3,
+                    "satellites_visible": 8, "eph": 150}, 1)
+    assert vehicle.snapshot().gps_hdop == pytest.approx(1.5)
+    vehicle.ingest({"type": "GPS_RAW_INT", "fix_type": 3,
+                    "satellites_visible": 8, "eph": 65535}, 2)
+    assert vehicle.snapshot().gps_hdop is None
+
+
+def test_param_int32_bit_cast_and_stale_values_are_ignored():
+    vehicle = PymavlinkVehicle("replay", connection=FakeConnection())
+    vehicle._parameter_pending_since["NAV_DLL_ACT"] = 10.0
+    wire = struct.unpack("<f", struct.pack("<i", 2))[0]
+    vehicle.ingest({"type": "PARAM_VALUE", "param_id": "NAV_DLL_ACT",
+                    "param_value": wire, "param_type": 6}, 9.0)
+    assert "NAV_DLL_ACT" not in vehicle._parameters
+    vehicle.ingest({"type": "PARAM_VALUE", "param_id": "NAV_DLL_ACT",
+                    "param_value": wire, "param_type": 6}, 11.0)
+    assert vehicle._parameters["NAV_DLL_ACT"][0] == 2
+
+
+def test_param_set_uses_learned_type_and_wire_bit_cast():
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("replay", connection=connection)
+    vehicle.target_system = vehicle.target_component = 1
+    vehicle._parameters["NAV_DLL_ACT"] = (0.0, 6, 1.0)
+    vehicle._parameters["GF_MAX_HOR_DIST"] = (10.0, 9, 1.0)
+    vehicle.read_parameter = lambda name, **_: 2.0 if name == "NAV_DLL_ACT" else 12.5
+    vehicle.write_parameter("NAV_DLL_ACT", 2, retries=1)
+    vehicle.write_parameter("GF_MAX_HOR_DIST", 12.5, retries=1)
+    sets = [row for row in connection.mav.commands if row[0] == "set"]
+    assert sets[0][4] == pytest.approx(struct.unpack("<f", struct.pack("<i", 2))[0])
+    assert sets[0][5] == 6
+    assert sets[1][4] == pytest.approx(12.5)
+    assert sets[1][5] == 9
+
+
+def test_home_position_request_uses_request_message_command():
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("replay", connection=connection)
+    vehicle.target_system = vehicle.target_component = 1
+    vehicle.request_home_position()
+    assert connection.mav.commands[-1] == (1, 1, 512, 0, 242.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
