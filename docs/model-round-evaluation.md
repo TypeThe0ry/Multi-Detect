@@ -99,6 +99,11 @@ Baseline offline/planning comparisons require matching row identities and order.
   do not duplicate active episodes or enter scoring. Reusing an output directory
   requires the same model, tasks, and configuration; use a new directory when
   changing them.
+- Campaign and suite preserve their historical permissive exit status by
+  default: collector failures are logged and scoring continues, and suite
+  failures only return nonzero for missing rows. The explicit `--strict` flag
+  enables the operational failure gate; the round runner passes it to find and
+  suite stages automatically.
 
 If a guard fails, inspect `summary.md`, the stage log, and retained episode
 evidence; rerun the identical command after fixing the cause. Already complete

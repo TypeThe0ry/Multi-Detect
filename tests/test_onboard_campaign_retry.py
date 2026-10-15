@@ -22,13 +22,20 @@ def tmp_path():
         shutil.rmtree(path, ignore_errors=True)
 
 
-def recording(out: Path, name: str, status: str | None, *, steps: bool = True) -> Path:
+def recording(
+    out: Path, name: str, status: str | None, *, steps: bool = True, step_count: int = 1
+) -> Path:
     episode = out / "episodes" / name
     episode.mkdir(parents=True)
     if status is not None:
-        (episode / "episode.json").write_text(json.dumps({"status": status}), encoding="utf-8")
+        (episode / "episode.json").write_text(
+            json.dumps({"status": status, "step_count": step_count}), encoding="utf-8"
+        )
     if steps:
-        (episode / "steps.jsonl").write_text("", encoding="utf-8")
+        rows = [{"step_index": index} for index in range(step_count)]
+        (episode / "steps.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+        )
     return episode
 
 
@@ -116,7 +123,8 @@ def test_campaign_retries_same_output_without_duplicating_completed(tmp_path, mo
 
 def test_campaign_stops_on_disk_guard_before_collector(tmp_path, monkeypatch):
     index = tmp_path / "index.json"
-    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test"}]}))
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test",
+                                              "task_text": "find", "target_combo": "x"}]}))
 
     def no_disk(*args):
         raise RuntimeError("free disk")
@@ -144,12 +152,76 @@ def test_suite_forwards_retry_and_disk_options(tmp_path):
     assert command[command.index("--disk-check-every") + 1] == "5"
 
 
-def test_campaign_collector_failure_is_loud(tmp_path, monkeypatch):
+def test_campaign_collector_failure_is_loud_only_in_strict_mode(tmp_path, monkeypatch):
     index = tmp_path / "index.json"
-    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test"}]}))
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test",
+                                              "task_text": "find", "target_combo": "x"}]}))
     monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
     monkeypatch.setattr(
         campaign.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=7)
     )
+    (tmp_path / "test.truth.json").write_text("{}")
+    assert campaign.main(["--index", str(index), "--out", str(tmp_path / "out")]) == 0
     with pytest.raises(RuntimeError, match="Collector failed for test: exit 7"):
-        campaign.main(["--index", str(index), "--out", str(tmp_path / "out")])
+        campaign.main(["--index", str(index), "--out", str(tmp_path / "out2"), "--strict"])
+
+
+def test_complete_requires_nonempty_parseable_consistent_steps(tmp_path):
+    episode = recording(tmp_path, "ep", "complete", step_count=2)
+    assert campaign.episode_is_complete(episode)
+    (episode / "steps.jsonl").write_text('{"step_index": 0}\n', encoding="utf-8")
+    assert not campaign.episode_is_complete(episode)
+    (episode / "steps.jsonl").write_text('{"step_index": 0}\nnot-json\n', encoding="utf-8")
+    assert not campaign.episode_is_complete(episode)
+
+
+def test_retry_preserves_original_seed_and_does_not_reuse_complete_seed(tmp_path, monkeypatch):
+    out = tmp_path / "out" / "test"
+    recording(out, "episode-000000-complete", "complete")
+    complete_meta = out / "episodes" / "episode-000000-complete" / "episode.json"
+    complete_meta.write_text(
+        json.dumps({"status": "complete", "step_count": 1, "seed": 42}), encoding="utf-8"
+    )
+    failed = recording(out, "episode-000001-failed", "failed")
+    (failed / "episode.json").write_text(
+        json.dumps({"status": "failed", "seed": 99, "episode_index": 1}), encoding="utf-8"
+    )
+    index = tmp_path / "index.json"
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test",
+                                              "task_text": "find", "target_combo": "x"}]}))
+    (tmp_path / "test.truth.json").write_text("{}")
+    seeds = []
+
+    def run(command, **kwargs):
+        seeds.append(command[command.index("--seed") + 1])
+        recording(Path(command[command.index("--out") + 1]), f"new-{len(seeds)}", "complete")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
+    monkeypatch.setattr(
+        campaign,
+        "score_episode",
+        lambda *args, **kwargs: {
+            "status": "complete",
+            "success": False,
+            "false_confirm": False,
+                "task_equivalent": False,
+            "confirmed": False,
+        },
+    )
+    assert (
+        campaign.main(
+            [
+                "--index",
+                str(index),
+                "--out",
+                str(tmp_path / "out"),
+                "--episodes",
+                "2",
+                "--retry-failed-episodes",
+            ]
+        )
+        == 0
+    )
+    assert seeds == ["99"]

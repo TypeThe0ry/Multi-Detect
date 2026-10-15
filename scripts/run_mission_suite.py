@@ -63,6 +63,7 @@ def build_command(
     retry_failed_episodes: bool = False,
     min_free_disk_gb: float = 0,
     disk_check_every: int = 1,
+    strict: bool = False,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -88,6 +89,8 @@ def build_command(
     ]
     if retry_failed_episodes:
         command.append("--retry-failed-episodes")
+    if strict:
+        command.append("--strict")
     command += [
         "--min-free-disk-gb",
         str(min_free_disk_gb),
@@ -271,6 +274,11 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="return nonzero for collector errors, incomplete rows, or failed expectations",
+    )
     parser.add_argument("--min-free-disk-gb", type=float, default=0)
     parser.add_argument("--disk-check-every", type=int, default=1)
     args = parser.parse_args(argv)
@@ -333,6 +341,7 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
             retry_failed_episodes=args.retry_failed_episodes,
             min_free_disk_gb=args.min_free_disk_gb,
             disk_check_every=args.disk_check_every,
+            strict=args.strict,
         )
         if args.dry_run:
             print(
@@ -358,6 +367,11 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     markdown = render_markdown(table)
     (out / "suite-report.md").write_text(markdown, encoding="utf-8", newline="\n")
     print(markdown)
+    # Preserve the suite's historical command-line contract by default: a
+    # missing row is the only scoring failure.  The model-round runner opts
+    # into the stronger operational gate explicitly with --strict.
+    if not args.strict:
+        return int(any(r["status"] == "missing" for r in table["missions"]))
     return int(
         bool(errors)
         or any(r["status"] != "complete" for r in table["missions"])

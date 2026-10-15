@@ -185,6 +185,7 @@ def build_stages(args) -> list[Stage]:
     ]
     if args.retry_failed_episodes:
         disk += ["--retry-failed-episodes"]
+    disk += ["--strict"]
     stages = []
     for name in args.stages:
         report = out / f"{name}.json"
