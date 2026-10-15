@@ -67,6 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     real.add_argument("--completion-action", choices=("land", "rtl"), default="land")
     real.add_argument("--mission-package", type=Path,
                       help="signed/validated mission package used for PX4 preflight")
+    real.add_argument("--operator-key-path", type=Path,
+                      help="operator key used to admit the signed mission package")
     real.add_argument("--apply-px4-params", action="store_true",
                       help="write the matrix and verify every PX4 parameter")
     real.add_argument("--accept-preflight-warnings", action="store_true",
@@ -171,7 +173,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
-        package = (load_mission_package(args.mission_package, require_signature=False)
+        package = (load_mission_package(args.mission_package, require_signature=True,
+                                        operator_key_path=args.operator_key_path)
                    if args.mission_package else None)
         task = args.task
     runtime = None

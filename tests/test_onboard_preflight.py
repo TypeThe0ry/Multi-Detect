@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 from multidetect.onboard_runtime.preflight import PX4PreflightGate, build_parameter_matrix
 
@@ -26,7 +26,7 @@ class FakeVehicle:
         self.state = SimpleNamespace(
             sensor_present=1063, sensor_enabled=1063, sensor_health=1063, sys_status_monotonic=now,
             estimator_flags=127, estimator_monotonic=now,
-            gps_fix_type=3, gps_satellites=10, gps_eph_m=1.5, gps_monotonic=now,
+            gps_fix_type=3, gps_satellites=10, gps_hdop=1.5, gps_monotonic=now,
             home_ned=(0, 0, 0), home_geodetic=(1, 2, 3), home_monotonic=now,
             battery_remaining=80, battery_monotonic=now,
         )
@@ -47,7 +47,13 @@ def values_for(pkg):
     matrix = build_parameter_matrix(pkg)
     result = {name: value for name, value in matrix.items()
               if name.startswith(("NAV_", "COM_", "GF_", "BAT_")) and value is not None}
+    result["NAV_RCL_ACT"] = 2
     result["COM_RC_IN_MODE"] = 0
+    result["COM_LOW_BAT_ACT"] = 3
+    result["COM_OBL_RC_ACT"] = 3
+    result["BAT_LOW_THR"] = 0.25
+    result["BAT_CRIT_THR"] = 0.2
+    result["COM_LOW_BAT_ACT"] = 3
     return result
 
 
@@ -56,7 +62,8 @@ def test_matrix_is_conservative_and_covers_rectangle():
     assert matrix["NAV_DLL_ACT"] == 2
     assert matrix["GF_MAX_HOR_DIST"] > 20
     assert matrix["GF_MAX_VER_DIST"] == 30
-    assert matrix["BAT_CRIT_THR"] == 0.2
+    assert matrix["BAT_CRIT_THR"] is None
+    assert matrix["BAT_LOW_THR"] is None
 
 
 def test_preflight_passes_health_and_matrix_and_apply_verifies():
@@ -68,7 +75,7 @@ def test_preflight_passes_health_and_matrix_and_apply_verifies():
     assert all(check["explanation_zh"] and check["explanation_en"] for check in report["checks"])
     applied = gate.apply()
     assert applied["passed"] is True
-    assert len(vehicle.writes) == 11
+    assert len(vehicle.writes) == 0
 
 
 def test_preflight_refuses_missing_battery_and_mismatched_link_action():
@@ -81,3 +88,8 @@ def test_preflight_refuses_missing_battery_and_mismatched_link_action():
     assert report["passed"] is False
     assert "battery_telemetry" in report["blocking_failures"]
     assert "parameter:NAV_DLL_ACT" in report["blocking_failures"]
+
+
+
+
+

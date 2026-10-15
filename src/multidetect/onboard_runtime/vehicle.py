@@ -8,6 +8,7 @@ the autonomy boundary use degrees; only MAVLink encoding uses radians.
 from __future__ import annotations
 
 import math
+import struct
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -59,7 +60,7 @@ class VehicleState:
     estimator_flags: int | None = None
     gps_fix_type: int | None = None
     gps_satellites: int | None = None
-    gps_eph_m: float | None = None
+    gps_hdop: float | None = None
     sys_status_monotonic: float | None = None
     estimator_monotonic: float | None = None
     gps_monotonic: float | None = None
@@ -170,8 +171,9 @@ class PymavlinkVehicle:
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
-        self._parameters: dict[str, float] = {}
+        self._parameters: dict[str, tuple[float, int, float]] = {}
         self._parameter_events: dict[str, threading.Event] = {}
+        self._parameter_pending_since: dict[str, float] = {}
 
     def snapshot(self) -> VehicleState:
         if self._reader is not None:
@@ -271,7 +273,8 @@ class PymavlinkVehicle:
                 fix, sats, eph = message.get("fix_type"), message.get("satellites_visible"), message.get("eph")
                 if isinstance(fix, (int, float)):
                     updates.update(gps_fix_type=int(fix), gps_satellites=int(sats) if isinstance(sats, (int, float)) else None,
-                                   gps_eph_m=float(eph) if isinstance(eph, (int, float)) and eph >= 0 else None,
+                                   gps_hdop=(None if eph in (None, 65535) else float(eph) / 100.0
+                                             if isinstance(eph, (int, float)) and eph >= 0 else None),
                                    gps_monotonic=stamp)
             elif kind == "PARAM_VALUE":
                 name = message.get("param_id", message.get("param_name"))
@@ -279,9 +282,15 @@ class PymavlinkVehicle:
                     name = name.decode("ascii", "ignore")
                 if isinstance(name, str) and isinstance(message.get("param_value"), (int, float)):
                     clean = name.rstrip("\x00")
-                    self._parameters[clean] = float(message["param_value"])
-                    event = self._parameter_events.setdefault(clean, threading.Event())
-                    event.set()
+                    ptype = int(message.get("param_type", 9))
+                    raw = float(message["param_value"])
+                    value = (float(struct.unpack("<i", struct.pack("<f", raw))[0])
+                             if ptype == 6 else raw)
+                    self._parameters[clean] = (value, ptype, stamp)
+                    pending = self._parameter_pending_since.get(clean)
+                    if pending is not None and stamp > pending:
+                        event = self._parameter_events.setdefault(clean, threading.Event())
+                        event.set()
             if updates:
                 self._state = replace(state, **updates)
         if kind == "HEARTBEAT" and self._reader is not None and not self._streams_requested:
@@ -343,8 +352,10 @@ class PymavlinkVehicle:
             raise ValueError("parameter timeout and retries must be positive")
         clean = name.strip()
         for _ in range(retries):
+            sent = self._clock()
             event = self._parameter_events.setdefault(clean, threading.Event())
             event.clear()
+            self._parameter_pending_since[clean] = sent
             with self._sending():
                 system, component = self._target()
                 sender = getattr(self.connection.mav, "param_request_read_send", None)
@@ -352,7 +363,10 @@ class PymavlinkVehicle:
                     raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
                 sender(system, component, clean.encode("ascii"), -1)
             if event.wait(timeout_s):
-                return self._parameters[clean]
+                value, _, received = self._parameters[clean]
+                if received > sent:
+                    self._parameter_pending_since.pop(clean, None)
+                    return value
         raise TimeoutError(f"PARAM_VALUE timeout for {clean}")
 
     def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float:
@@ -365,7 +379,12 @@ class PymavlinkVehicle:
                 sender = getattr(self.connection.mav, "param_set_send", None)
                 if sender is None:
                     raise RuntimeError("MAVLink connection lacks PARAM_SET")
-                sender(system, component, name.encode("ascii"), float(value), 9)
+                ptype = self._parameters.get(name, (0.0, 6 if name in {
+                    "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
+                    "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
+                wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
+                        if ptype == 6 else float(value))
+                sender(system, component, name.encode("ascii"), wire, ptype)
             try:
                 actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
             except TimeoutError:
@@ -373,6 +392,9 @@ class PymavlinkVehicle:
             if math.isclose(actual, float(value), rel_tol=0, abs_tol=1e-3):
                 return actual
         raise TimeoutError(f"parameter write/readback failed for {name}")
+
+    def request_home_position(self) -> None:
+        self._command(512, 242.0)
 
     def _request_streams(self) -> None:
         self._streams_requested = True
