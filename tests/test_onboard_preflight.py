@@ -90,6 +90,74 @@ def test_preflight_refuses_missing_battery_and_mismatched_link_action():
     assert "parameter:NAV_DLL_ACT" in report["blocking_failures"]
 
 
+def test_link_loss_policy_only_maps_link_parameters_and_offboard_action_is_constrained():
+    pkg = package("continue_then_return")
+    matrix = build_parameter_matrix(pkg)
+    assert matrix["NAV_DLL_ACT"] == 0
+    assert matrix["COM_DL_LOSS_T"] == 7
+    assert matrix["NAV_RCL_ACT"] is None
+    assert matrix["COM_RC_IN_MODE"] is None
+    assert matrix["COM_LOW_BAT_ACT"] is None
+    pkg["px4_offboard_loss_action"] = 4
+    assert build_parameter_matrix(pkg)["COM_OBL_RC_ACT"] == 4
+
+
+def test_battery_capacity_absence_only_warns_and_does_not_write_bat_params():
+    pkg = package()
+    vehicle = FakeVehicle(values_for(pkg))
+    report = PX4PreflightGate(vehicle, pkg, clock=lambda: 10.0).run()
+    warning = next(c for c in report["checks"] if c["name"] == "battery_reserve_mapping")
+    assert warning["passed"] and not warning["blocking"]
+    assert not any(name.startswith("BAT_") for name, _ in vehicle.writes)
+
+
+def test_apply_writes_only_differences_and_rolls_back_on_write_failure():
+    pkg = package()
+    values = values_for(pkg)
+    values["NAV_DLL_ACT"] = 0
+    values["GF_ACTION"] = 0
+    vehicle = FakeVehicle(values)
+    original = vehicle.write_parameter
+    calls = []
+
+    def failing_write(name, value, **kwargs):
+        calls.append((name, value))
+        if len(calls) == 2:
+            raise RuntimeError("write failed")
+        return original(name, value, **kwargs)
+
+    vehicle.write_parameter = failing_write
+    report = PX4PreflightGate(vehicle, pkg, clock=lambda: 10.0).apply()
+    assert report["passed"] is False
+    assert report["checks"][0]["name"] == "apply"
+    assert vehicle.values["NAV_DLL_ACT"] == values["NAV_DLL_ACT"]
+
+
+def test_battery_capacity_populates_thresholds_but_low_battery_action_is_checked_only():
+    pkg = package()
+    pkg["budget"]["battery_capacity_wh"] = 100
+    matrix = build_parameter_matrix(pkg)
+    assert matrix["BAT_LOW_THR"] > matrix["BAT_CRIT_THR"]
+    assert matrix["COM_LOW_BAT_ACT"] is None
+
+
+def test_offboard_loss_action_outside_return_land_hold_is_blocking():
+    pkg = package()
+    pkg["px4_offboard_loss_action"] = 2
+    values = values_for(pkg)
+    values["COM_OBL_RC_ACT"] = 2
+    report = PX4PreflightGate(FakeVehicle(values), pkg, clock=lambda: 10.0).run()
+    assert "parameter:COM_OBL_RC_ACT" in report["blocking_failures"]
+
+
+def test_gps_hdop_above_two_is_blocking():
+    pkg = package()
+    vehicle = FakeVehicle(values_for(pkg))
+    vehicle.state.gps_hdop = 2.01
+    report = PX4PreflightGate(vehicle, pkg, clock=lambda: 10.0).run()
+    assert "gnss" in report["blocking_failures"]
+
+
 
 
 

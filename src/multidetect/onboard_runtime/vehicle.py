@@ -286,8 +286,12 @@ class PymavlinkVehicle:
                     raw = float(message["param_value"])
                     value = (float(struct.unpack("<i", struct.pack("<f", raw))[0])
                              if ptype == 6 else raw)
-                    self._parameters[clean] = (value, ptype, stamp)
                     pending = self._parameter_pending_since.get(clean)
+                    if pending is not None and stamp <= pending:
+                        # A response queued before the request/set must not
+                        # satisfy or overwrite the pending transaction.
+                        return
+                    self._parameters[clean] = (value, ptype, stamp)
                     if pending is not None and stamp > pending:
                         event = self._parameter_events.setdefault(clean, threading.Event())
                         event.set()
