@@ -6,6 +6,8 @@ patrol, survey, monitor, hover, return home, land). Each row carries the exact
 prompt the onboard planner uses (``mission_planner.plan_prompt``) and the plan
 as the answer; every plan passes ``validate_mission_plan``. Texts identical to
 the hand-written evaluation tasks are dropped, so that set stays held out.
+V5 retains a 70% v4 backbone and adds conditional/compositional operator phrasing;
+it also excludes normalised duplicates and held-out few-shot prompt examples.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import json
 import random
 import re
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -24,7 +27,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
+    EXAMPLES,
     PLAN_PROMPT_VARIANTS,
+    check_plan_refs,
     plan_prompt,
 )
 
@@ -478,6 +483,315 @@ def mission_v3(rng: random.Random) -> tuple[str, str, list[dict], list[str]]:
     return zh, en, steps, ["findings", "evidence"]
 
 
+V5_FAMILIES = (
+    "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
+    "colloquial",
+)
+V5_OBJECTS = [*OBJECTS, ("blue backpack", "蓝色背包"), ("yellow bicycle", "黄色自行车")]
+EN_NUMBERS = dict(enumerate((
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+    "seventeen", "eighteen", "nineteen", "twenty",
+))) | {30: "thirty", 40: "forty", 45: "forty-five", 60: "sixty", 90: "ninety"}
+
+
+def normalize_task(text: str) -> str:
+    """V5 leakage key: NFKC, case, punctuation/space, and zh/en number words.
+
+    Deliberately lexical, not a claim of semantic/paraphrase decontamination.
+    The legacy whitespace-only filter is unchanged for byte reproducibility.
+    """
+    text = unicodedata.normalize("NFKC", text).casefold()
+
+    def chinese(match):
+        total = digit = 0
+        for char in match.group():
+            if char in "十百千":
+                total += (digit or 1) * {"十": 10, "百": 100, "千": 1000}[char]
+                digit = 0
+            else:
+                digit = "零一二三四五六七八九".index({"两": "二", "〇": "零"}.get(char, char))
+        return str(total + digit)
+
+    text = re.sub(r"[零〇一二两三四五六七八九十百千]+", chinese, text)
+    # Treat hyphenated compound numbers the same as their spaced spelling.
+    text = re.sub(r"[-‐‑–—]", " ", text)
+    units = {word: n for n, word in EN_NUMBERS.items() if n <= 20 or n % 10 == 0}
+    units |= {"fifty": 50, "seventy": 70, "eighty": 80, "hundred": 100}
+    words = "|".join(units)
+
+    def english(match):
+        total = 0
+        for word in match.group().split():
+            total = (total or 1) * 100 if word == "hundred" else total + units[word]
+        return str(total)
+
+    text = re.sub(rf"\b(?:{words})(?:\s+(?:{words}))*\b", english, text)
+    return "".join(char for char in text if char.isalnum())
+
+
+def plural_query(query: str) -> str:
+    """Pluralise the small controlled v5 vocabulary, preserving modifiers."""
+    if query.endswith("person"):
+        return query.removesuffix("person") + "people"
+    return query + ("es" if query.endswith(("s", "x")) else "s")
+
+
+def mission_v5(rng: random.Random, family: str) -> tuple[str, str, list[dict], list[str]]:
+    """Minority v5 additions. Watch/patrol completion is NOT an alert event edge."""
+    q, qz = rng.choice(V5_OBJECTS)
+    qs = plural_query(q)
+    z, zz, ze = rng.choice(ZONES)
+    p, pz, pe = rng.choice(POIS)
+    sec = rng.choice([5, 10, 15, 20, 30, 45, 60])
+    sn = rng.choice([str(sec), EN_NUMBERS[sec]])
+    zend, eend = rng.choice([
+        ("然后回来", "then come back"), ("最后回起点", "then return to launch"),
+        ("办完就返航", "head home afterward"), ("弄好就地降落", "then land here"),
+    ])
+    terminal = L if "降落" in zend else H
+    if family == "conditional_branch":
+        zh = rng.choice([
+            f"在{zz}瞅瞅有没有{qz}，找到就拍照，找不到就去{pz}看看",
+            f"帮忙在{zz}找{qz}，有就留张照片，没找着就到{pz}瞄一眼",
+            f"先在{zz}找{qz}；找着了存图，没找着换到{pz}看看",
+        ]) + f"，{zend}"
+        en = rng.choice([
+            f"Check {ze} for a {q}; if found take a photo, otherwise go look at {pe}",
+            f"Look for the {q} in {ze}; snap it if found, or head to {pe} if absent",
+        ]) + f", {eend}."
+        steps = [
+            S("s1", "area_search", {"region": z, "query": q}, "s2", "s3"),
+            S("s2", "record", {"query": q}, "s9", "s9"),
+            S("s3", "goto", {"target_ref": p}, "s9", "s9"), terminal("s9"),
+        ]
+        return zh, en, steps, ["findings", "evidence", "positions"]
+    if family == "two_targets":
+        q2, qz2 = rng.choice([obj for obj in V5_OBJECTS if obj[0] != q])
+        if rng.random() < 0.2:
+            # Anchor the motivating colour/target switch as well as random pairs.
+            q, qz, q2, qz2 = "red car", "红车", "blue backpack", "蓝色背包"
+        photo = rng.choice([False, True])
+        zh = rng.choice([
+            f"先在{zz}找{qz}，再找{qz2}，第一个没找着也继续找第二个",
+            f"去{zz}瞅瞅，先找{qz}再找{qz2}，前一个找不到也别停",
+            f"在{zz}按顺序找{qz}和{qz2}，头一个落空也接着找后一个",
+        ]) + ("，找到哪个就给哪个拍照" if photo else "") + f"，{zend}"
+        en = (f"In {ze}, look for the {q} first, then the {q2}; "
+              "try the second even if the first is missing"
+              + ("; photograph each one you find" if photo else "") + f", {eend}.")
+        if photo:
+            steps = [
+                S("s1", "area_search", {"region": z, "query": q}, "s2", "s3"),
+                S("s2", "record", {"query": q}, "s3", "s3"),
+                S("s3", "area_search", {"region": z, "query": q2}, "s4", "s9"),
+                S("s4", "record", {"query": q2}, "s9", "s9"), terminal("s9"),
+            ]
+        else:
+            steps = [
+                S("s1", "area_search", {"region": z, "query": q}, "s2", "s2"),
+                S("s2", "area_search", {"region": z, "query": q2}, "s9", "s9"),
+                terminal("s9"),
+            ]
+        return zh, en, steps, ["findings", "positions", *(["evidence"] if photo else [])]
+    if family == "count_stop":
+        n = rng.choice([2, 3, 5, 8, 10, 12, 15, 20])
+        nn = rng.choice([str(n), EN_NUMBERS[n]])
+        # Stop counting at the threshold; budget exhaustion still returns safely.
+        zh = rng.choice([
+            f"在{zz}数{qz}，数到{n}个就别数了",
+            f"帮我清点{zz}的{qz}，凑够{n}个就收工",
+            f"去{zz}数数{qz}，最多{n}个，够数就停",
+        ]) + f"，{zend}"
+        en = rng.choice([
+            f"Count {qs} in {ze}, stop as soon as you reach {nn}",
+            f"Tally {qs} in {ze} up to {nn}, stop counting at that limit",
+        ]) + f", {eend}."
+        return zh, en, [
+            S("s1", "count", {"region": z, "query": q, "max_count": n}, "s9", "s9"),
+            terminal("s9"),
+        ], ["count", "positions"]
+    if family == "alert_action":
+        mode = rng.choice(["search", "monitor", "patrol"])
+        prefix = []
+        zh_start, en_start = f"在{zz}瞄一眼有没有{qz}", f"Look in {ze} for a {q}"
+        if mode == "monitor":
+            mins = rng.choice([1, 2, 3, 5, 8])
+            mn = rng.choice([str(mins), EN_NUMBERS[mins]])
+            prefix = [S("s1", "monitor", {"region": z, "query": q, "duration_s": mins * 60},
+                        "s2", "s9")]
+            zh_start = f"盯着{zz}的{qz}{mins}分钟，时间到了再搜一下{qz}"
+            en_start = (f"Watch {ze} for {qs} for {mn} minutes; "
+                        f"afterward search there for a {q}")
+        elif mode == "patrol":
+            r, rz, re_ = rng.choice(ROUTES)
+            loops = rng.choice([1, 2, 3, 5])
+            ln = rng.choice([str(loops), EN_NUMBERS[loops]])
+            prefix = [S("s1", "patrol", {"route_ref": r, "query": q, "loops": loops},
+                        "s2", "s9")]
+            zh_start = f"沿{rz}溜{loops}圈留意{qz}，巡完再搜一下{zz}的{qz}"
+            en_start = (f"Patrol {re_} for {ln} loops watching for {qs}; "
+                        f"when done search {ze} for a {q}")
+        zh = (f"{zh_start}，看到就悬停{sec}秒再拍照，没找到直接结束，{zend}")
+        en = (f"{en_start}; if found hover for {sn} seconds and take a photo; "
+              f"if absent skip those actions, {eend}.")
+        return zh, en, [*prefix,
+            S("s2" if prefix else "s1", "area_search", {"region": z, "query": q},
+              "s3", "s9"),
+            S("s3", "hover", {"duration_s": sec}, "s4", "s9"),
+            S("s4", "record", {"query": q}, "s9", "s9"), terminal("s9"),
+        ], ["alerts", "findings", "evidence"]
+    if family == "evidence_only":
+        q, qz = rng.choice([*V5_OBJECTS, ("current view", "当前画面")])
+        zh = rng.choice([
+            f"眼前的{qz}拍一下就好，不用再找",
+            f"帮我把现在看到的{qz}存张图，别去搜索",
+            f"就给镜头里的{qz}留个影，别满场跑去找",
+            f"把当前看到的{qz}拍下来留底，不必搜索",
+        ]) + f"，{zend}"
+        en = rng.choice([
+            f"Snap the {q} already in view; no search needed",
+            f"Save a still of the {q} visible right now, without searching",
+            f"Capture the {q} in the current camera image; skip searching",
+        ]) + f", {eend}."
+        if q == "current view":
+            zh = rng.choice([
+                "帮我拍一下现在看到的画面，不用搜索",
+                "当前画面存张图就好，别去找东西",
+                "就把眼前的画面拍下来留底，不必搜索",
+                "现在镜头里看到的拍一张就行，别满场跑去找",
+            ]) + f"，{zend}"
+            en = rng.choice([
+                "Take a photo of what you see right now; no search needed",
+                "Save the current camera view without searching",
+                "Capture this view as evidence; skip searching",
+            ]) + f", {eend}."
+        return zh, en, [S("s1", "record", {"query": q}, "s9", "s9"), terminal("s9")], [
+            "evidence",
+        ]
+    if family == "colloquial":
+        mode = rng.choice(["look", "photo", "patrol", "monitor", "goto"])
+        if mode == "patrol":
+            r, rz, re_ = rng.choice(ROUTES)
+            verb = rng.choice(["转一圈", "溜一圈", "兜一圈"])
+            zh = f"沿{rz}{verb}，留意{qz}，{zend}"
+            en = f"Do one lap of {re_}, keep an eye out for {qs}, {eend}."
+            return zh, en, [
+                S("s1", "patrol", {"route_ref": r, "query": q, "loops": 1}, "s9", "s9"),
+                terminal("s9"),
+            ], ["alerts"]
+        if mode == "monitor":
+            zh = f"帮我盯着{zz}的{qz}{sec}秒，{zend}"
+            en = f"Keep tabs on {qs} in {ze} for {sn} seconds, {eend}."
+            return zh, en, [
+                S("s1", "monitor", {"region": z, "query": q, "duration_s": sec},
+                  "s9", "s9"), terminal("s9"),
+            ], ["alerts"]
+        if mode == "goto":
+            zh = f"去{pz}瞄一眼，在那儿停{sec}秒，{zend}"
+            en = f"Pop over to {pe} and hang there for {sn} seconds, {eend}."
+            return zh, en, [
+                S("s1", "goto", {"target_ref": p}, "s2", "s9"),
+                S("s2", "hover", {"duration_s": sec}, "s9", "s9"), terminal("s9"),
+            ], ["status"]
+        verb = rng.choice(["瞅瞅有没有", "瞄一眼有没有", "找找看有没有", "帮忙瞧瞧有没有"])
+        zh = f"在{zz}{verb}{qz}" + ("，找着了顺手拍一张" if mode == "photo" else "")
+        en = f"Have a look around {ze} for a {q}" + (
+            "; grab a snapshot if you spot it" if mode == "photo" else ""
+        )
+        steps = [S("s1", "area_search", {"region": z, "query": q},
+                   "s2" if mode == "photo" else "s9", "s9")]
+        if mode == "photo":
+            steps.append(S("s2", "record", {"query": q}, "s9", "s9"))
+        return f"{zh}，{zend}", f"{en}, {eend}.", [*steps, terminal("s9")], [
+            "findings", *(["evidence"] if mode == "photo" else ["positions"]),
+        ]
+    raise ValueError(f"unknown v5 family: {family}")
+
+
+def _labelled_refs_match(before: list[dict], after: list[dict], refs, labels) -> bool:
+    """Reject legacy alias collisions that would bind a place to the wrong label."""
+    known = {item.split(" (", 1)[0]: item.split(" (", 1)[1][:-1] for item in refs}
+    return all(
+        old not in labels or known.get(new_step["params"].get(key)) == labels[old]
+        for old_step, new_step in zip(before, after, strict=True)
+        for key, old in old_step["params"].items()
+        if key in {"region", "target_ref", "route_ref"}
+    )
+
+
+def v5_plan_prompt(text: str, refs, prompt_variant: str, held_out: set[str]) -> str:
+    """Remove held-out few-shot tasks as well as filtering generated task texts.
+
+    One legacy default example is itself an eval task. V4 retains its historical
+    prompt; v5 keeps the same rules and all non-held-out examples.
+    """
+    prompt = plan_prompt(text, refs=refs, prompt_variant=prompt_variant)
+    for example_text, example_plan in EXAMPLES:
+        if normalize_task(example_text) in held_out:
+            prompt = prompt.replace(
+                f"Task: {example_text}\nPlan: {json.dumps(example_plan, ensure_ascii=False)}\n",
+                "",
+            )
+    return prompt
+
+
+def v5_rows(args, held_out: set[str], labels) -> list[dict]:
+    """70% unchanged v4 candidates, 30% additions, independently per split.
+
+    RNG streams isolate the v4 backbone, additions, and ordering. Accepted legacy
+    rows retain their original text, id and target. Prompt examples are filtered
+    for eval leakage, and family metadata is added.
+    """
+    backbone_rng = random.Random(args.seed)
+    extra_rng = random.Random(f"{args.seed}:v5:additions")
+    order_rng = random.Random(f"{args.seed}:v5:order")
+    held_out = {normalize_task(text) for text in held_out}
+    seen, rows = set(), []
+    for size in (args.rows, args.val_rows):
+        additions = (size * 3 + 5) // 10
+        schedule = ["v4_backbone"] * (size - additions) + [
+            V5_FAMILIES[i % len(V5_FAMILIES)] for i in range(additions)
+        ]
+        order_rng.shuffle(schedule)
+        for family in schedule:
+            for _ in range(10_000):
+                rng = backbone_rng if family == "v4_backbone" else extra_rng
+                if family == "v4_backbone":
+                    generator = mission_v3 if rng.random() < 1 / 3 else mission
+                    zh, en, steps, report = generator(rng)
+                else:
+                    zh, en, steps, report = mission_v5(rng, family)
+                if rng.random() < 0.5:
+                    zh = re.sub(r"\d+", lambda m: zh_number(int(m.group())), zh)
+                text = " ".join((zh if rng.random() < 0.5 else en).split())
+                before = [{**step, "params": dict(step["params"])} for step in steps]
+                steps, refs = localise_places(rng, steps, text, labels)
+                key = normalize_task(text)
+                if key in held_out or key in seen:
+                    continue
+                if not _labelled_refs_match(before, steps, refs, labels):
+                    continue
+                plan = {"plan_version": 1, "goal": en.rstrip(".")[:160],
+                        "steps": steps, "report": report}
+                validate_mission_plan(plan)
+                _, _, unknown = check_plan_refs(plan, refs, substitute=False)
+                if unknown:
+                    raise ValueError(f"unlabelled refs in v5 row: {unknown}")
+                seen.add(key)
+                sample_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+                rows.append({
+                    "sample_id": f"plan-{sample_id}", "kind": "mission_plan",
+                    "world": "synthetic_plan", "family": family, "task_text": text,
+                    "prompt": v5_plan_prompt(text, refs, args.prompt_variant, held_out),
+                    "assistant_target": plan,
+                })
+                break
+            else:
+                raise ValueError(f"v5 template pool exhausted for {family}")
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -489,13 +803,13 @@ def main(argv: list[str] | None = None) -> int:
         help="experimental shorter training prompt (default preserves the trained prompt)",
     )
     # v3 alone drops the inspect/monitor/survey/home/land templates; v4 mixes it into v2.
-    parser.add_argument("--version", choices=("v2", "v3", "v4"), default="v4")
+    parser.add_argument("--version", choices=("v2", "v3", "v4", "v5"), default="v4")
     parser.add_argument(
         "--require-skills",
         nargs="*",
         choices=sorted(SKILLS),
         default=None,
-        help="required training skills (default: all except deliver for v2/v4, none for v3; "
+        help="required training skills (default: all except deliver for v2/v4/v5, none for v3; "
         "pass without values to disable)",
     )
     parser.add_argument(
@@ -507,9 +821,16 @@ def main(argv: list[str] | None = None) -> int:
         help="held-out task files (repeatable; default: all configs/onboard/plan-eval-tasks*.json)",
     )
     args = parser.parse_args(argv)
+    if args.rows < 0 or args.val_rows < 0:
+        parser.error("row counts must be non-negative")
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
+    elif args.version == "v5":
+        # Extra exclusions cannot opt v5 out of the repository's held-out sets.
+        eval_paths = sorted(set(eval_paths) | set(
+            (ROOT / "configs/onboard").glob("plan-eval-tasks*.json")
+        ))
     held_out = {
         " ".join(task["text"].split())
         for path in eval_paths
@@ -518,6 +839,8 @@ def main(argv: list[str] | None = None) -> int:
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
+    if args.version == "v5":
+        rows = v5_rows(args, held_out, labels)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -557,6 +880,17 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.prompt_variant != "default":
         manifest["prompt_variant"] = args.prompt_variant
+    if args.version == "v5":
+        manifest["excluded_prompt_examples"] = (
+            plan_prompt("audit", prompt_variant=args.prompt_variant).count("Task:")
+            - v5_plan_prompt("audit", (), args.prompt_variant,
+                             {normalize_task(text) for text in held_out}).count("Task:")
+        )
+        manifest["family_counts"] = {
+            name: {family: counts[family] for family in sorted(("v4_backbone", *V5_FAMILIES))}
+            for name, part in splits.items()
+            for counts in [Counter(row["family"] for row in part)]
+        }
     for name, part in splits.items():
         sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
         counts = {
@@ -568,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest[key][name] = {skill: counter[skill] for skill in sorted(SKILLS)}
     required = args.require_skills
     if required is None:
-        required = sorted(set(SKILLS) - {"deliver"}) if args.version in {"v2", "v4"} else []
+        required = sorted(set(SKILLS) - {"deliver"}) if args.version in {"v2", "v4", "v5"} else []
     missing = sorted(
         skill for skill in set(required) if manifest["skill_counts"]["train"][skill] == 0
     )

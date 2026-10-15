@@ -346,6 +346,8 @@ class LlamaServerRunner:
             "model": "local", "temperature": 0, "max_tokens": 1, "stream": False, "logprobs": True, "top_logprobs": 20,
             "messages": [{"role": "user", "content": content}, {"role": "assistant", "content": prefix}],
         }
+        if not getattr(self, "cache_prompt", True):
+            body["cache_prompt"] = False
         started = time.perf_counter()
         timeout = getattr(self, "call_timeout_s", 180.0)
         try:
@@ -358,6 +360,7 @@ class LlamaServerRunner:
                 raise
             response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
         elapsed = time.perf_counter() - started
+        self.last_usage = response.get("usage")
         try:
             entries = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
         except (KeyError, IndexError, TypeError):
