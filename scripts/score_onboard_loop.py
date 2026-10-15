@@ -248,6 +248,32 @@ def _mission_area(
     return None
 
 
+def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float) -> dict[str, Any]:
+    """Score only SIM-timestamped target estimates; host timestamps are rejected."""
+    samples = []
+    for row in rows:
+        time_s = _row_sim_time(row)
+        confirmed = (((row.get("labels") or {}).get("onboard") or {}).get("confirmed") or {})
+        estimate = confirmed.get("position_estimate_ne") if isinstance(confirmed, dict) else None
+        if time_s is None or not isinstance(estimate, (list, tuple)) or len(estimate) < 2:
+            continue
+        try:
+            north, east = float(estimate[0]), float(estimate[1])
+            pose = target_pose_at_time(target, time_s)
+            distance = math.hypot(north - float(pose["y_north_m"]), east - float(pose["x_east_m"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+        samples.append({"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m})
+    samples.sort(key=lambda item: item["time_s"])
+    return {
+        "moving_track_samples": samples,
+        "moving_distance_mean_m": (sum(s["distance_m"] for s in samples) / len(samples) if samples else None),
+        "moving_distance_max_m": (max(s["distance_m"] for s in samples) if samples else None),
+        "moving_track_continuity": (sum(s["within_radius"] for s in samples) / len(samples) if samples else None),
+        "moving_track_sample_count": len(samples),
+    }
+
+
 def _mission_metrics(
     rows: list[dict[str, Any]],
     truth: dict[str, Any],
@@ -397,7 +423,7 @@ def _mission_metrics(
         eligible_indices.add(index)
 
     last_history = history[-1] if history and isinstance(history[-1], dict) else {}
-    return {
+    result = {
         "mission_plan_skills": skills,
         "mission_step_outcomes": history,
         "mission_alerts": parsed_alerts,
@@ -423,6 +449,9 @@ def _mission_metrics(
             and last_history.get("skill") in {"return_home", "land"}
         ),
     }
+    if any(obj.get("trajectory") for obj in targets):
+        result.update(_moving_track_metrics(rows, _true_target(truth), radius_m))
+    return result
 
 
 def _supervisor_evidence(episode: Path) -> dict[str, Any]:

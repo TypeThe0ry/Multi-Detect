@@ -1,4 +1,4 @@
-# ruff: noqa
+﻿# ruff: noqa
 """Deterministic procedural Gazebo worlds for privileged sim-teacher data.
 
 The generator emits self-contained Gazebo Harmonic SDF files and the three
@@ -285,6 +285,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     target, with ``confuser_copies`` instances per slug and ``confuser: true``
     in truth. Invalid or task-equivalent pairs fail before any files are written.
     """
+    if moving_targets:
+        raise ValueError("moving Fuel worlds require native actor trajectories; use generate_mover_worlds")
     copy_counts = (count_copies,) if isinstance(count_copies, int) else tuple(count_copies)
     if not copy_counts or any(type(n) is not int or n < 1 for n in copy_counts):
         raise ValueError("count_copies must contain positive integer copy counts")
@@ -510,11 +512,11 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         counting_fields = {}
         mover_task = bool(moving_targets and target.get("category") in {"person", "car", "suv", "pickup", "ambulance", "fire_truck", "bus"})
         if mover_task and target.get("category") == "person":
-            task_text = "找到那个行人后跟着它走两分钟，持续报告位置"
+            task_text = "鎵惧埌閭ｄ釜琛屼汉鍚庤窡鐫€瀹冭蛋涓ゅ垎閽燂紝鎸佺画鎶ュ憡浣嶇疆"
             task_text_en = "Find the person and follow it for two minutes, reporting its position."
             counting_fields = {"task_kind": "follow", "follow_duration_s": 120, "query": "person"}
         elif mover_task:
-            task_text = "监视区域五分钟，发现移动的车辆就报告位置"
+            task_text = "鐩戣鍖哄煙浜斿垎閽燂紝鍙戠幇绉诲姩鐨勮溅杈嗗氨鎶ュ憡浣嶇疆"
             task_text_en = "Monitor the site for five minutes and report the moving vehicle."
             counting_fields = {"task_kind": "monitor", "monitor_duration_s": 300, "query": "vehicle"}
         elif counting:
@@ -545,7 +547,7 @@ def generate_mover_worlds(
     worlds_dir.mkdir(parents=True, exist_ok=True); scenarios_dir.mkdir(parents=True, exist_ok=True)
     entries = []
     for index in range(count):
-        world_id = f"gen_mov_w{index:04d}"; split = "train" if index < 4 else "test"
+        world_id = f"gen_mov_w{index:04d}"; split = "train" if index < 4 else ("val" if index == 4 else "test")
         person = index % 2 == 0
         x, y = (-18.0 + index * 7.0, 28.0 - index * 9.0)
         speed = 1.0 if person else 3.0; half = 6.0 if person else 12.0
@@ -558,11 +560,17 @@ def generate_mover_worlds(
             else "\u76d1\u89c6\u533a\u57df\u4e94\u5206\u949f\uff0c\u53d1\u73b0\u79fb\u52a8\u7684\u8f66\u8f86\u5c31\u62a5\u544a\u4f4d\u7f6e"
         )
         task_text_en = "Find the person and follow it for two minutes, reporting its position." if person else "Monitor the site for five minutes and report the moving vehicle."
-        points = "".join(f"<point>{px:.3f} {py:.3f} 0</point>" for px, py in trajectory["waypoints"])
         size = (1.0, 1.0, 1.8) if person else (4.0, 2.0, 1.6)
         start_x, start_y = trajectory["waypoints"][0]
         material = "<material><ambient>0.85 0.04 0.03 1</ambient><diffuse>0.95 0.05 0.04 1</diffuse></material>" if person else "<material><ambient>0.12 0.14 0.16 1</ambient><diffuse>0.20 0.22 0.25 1</diffuse></material>"
-        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision></link></model><model name="target_true_{world_id}"><static>false</static><pose>{start_x:.3f} {start_y:.3f} {size[2]/2:.3f} 0 0 0</pose><link name="body"><collision name="collision"><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry></collision><visual name="visual"><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}</visual></link><plugin filename="gz-sim-trajectory-follower-system" name="gz::sim::systems::TrajectoryFollower"><loop>true</loop><speed_mps>{speed:.3f}</speed_mps><waypoints>{points}</waypoints></plugin></model></world></sdf>\n'''
+        # Native Gazebo actor script executes the motion; truth is sampled from sim time.
+        leg_times = [0.0]
+        for a, b in zip(trajectory["waypoints"], trajectory["waypoints"][1:]):
+            leg_times.append(leg_times[-1] + math.hypot(b[0] - a[0], b[1] - a[1]) / speed)
+        waypoints_xml = "".join(f"<waypoint>{px:.3f} {py:.3f} 0 {t:.3f}</waypoint>" for (px, py), t in zip(trajectory["waypoints"], leg_times))
+        total_time = leg_times[-1] + math.hypot(trajectory["waypoints"][0][0] - trajectory["waypoints"][-1][0], trajectory["waypoints"][0][1] - trajectory["waypoints"][-1][1]) / speed
+        waypoints_xml += f"<waypoint>{start_x:.3f} {start_y:.3f} 0 {total_time:.3f}</waypoint>"
+        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>{start_x:.3f} {start_y:.3f} {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}</visual></link><script><loop>true</loop><auto_start>true</auto_start><trajectory id="move" type="walking" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
         sdf = sdf.replace(
             "<gravity>0 0 -9.80665</gravity>",
             "<gravity>0 0 -9.80665</gravity>"
@@ -629,7 +637,12 @@ def generate_mover_worlds(
         manifest = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "channels": {k: {"path": f"{world_id}.{k}.json", "sha256": canonical_sha256(v)} for k, v in (("runtime_input", runtime), ("truth", truth), ("expectations", expectations))}}
         _write(scenarios_dir / f"{world_id}.scenario.json", manifest)
         entries.append({"world_id": world_id, "split": split, "seed": seed + index, "task_text": task_text, "task_text_en": task_text_en, "task_kind": "follow" if person else "monitor", "world_file": world_path.name, "true_target_id": f"target_true_{world_id}", "asset_mode": "generated_mover_v1"})
-    doc = {"schema_version": 1, "generator": "multidetect.simulator.world_gen", "asset_mode": "generated_mover_v1", "seed": seed, "count": count, "split_ratios": [2/3, 0, 1/3], "worlds": entries}
+    doc = {"schema_version": 1, "generator": "multidetect.simulator.world_gen", "asset_mode": "generated_mover_v1", "seed": seed, "count": count, "split_ratios": [4/6, 1/6, 1/6], "worlds": entries}
     _write(scenarios_dir / "index.json", doc)
     return doc
+
+
+
+
+
 

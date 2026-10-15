@@ -43,6 +43,20 @@ def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
     ) == {"x_east_m": 2.0, "y_north_m": 0.0}
 
 
+def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
+    from scripts.score_onboard_loop import _moving_track_metrics
+
+    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [10, 0]]}}
+    rows = [
+        {"frame_sensor_stamp_ns": 0, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}},
+        {"frame_sensor_stamp_ns": 5_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 5]}}}},
+    ]
+    metrics = _moving_track_metrics(rows, target, 1.0)
+    assert metrics["moving_track_sample_count"] == 2
+    assert metrics["moving_track_continuity"] == 1.0
+    assert metrics["moving_distance_max_m"] == 0.0
+
+
 def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
     from scripts.score_onboard_loop import _mission_metrics
 
@@ -81,6 +95,23 @@ def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
     assert metrics["mission_alerts"][0]["time_s"] == 5.0
     assert metrics["mission_alerts"][0]["matches_query"] is True
     assert metrics["mission_alert_precision"] == 1.0
+
+
+def test_mover_worlds_have_explicit_splits_and_native_actor_trajectory(tmp_path) -> None:
+    from multidetect.simulator.world_gen import generate_mover_worlds
+
+    worlds = tmp_path / "worlds"
+    scenarios = tmp_path / "scenarios"
+    first = generate_mover_worlds(out_worlds=worlds, out_scenarios=scenarios)
+    before = (worlds / "gen_mov_w0000.sdf").read_bytes()
+    second = generate_mover_worlds(out_worlds=worlds, out_scenarios=scenarios)
+    assert before == (worlds / "gen_mov_w0000.sdf").read_bytes()
+    assert first == second
+    assert {entry["split"] for entry in first["worlds"]} == {"train", "val", "test"}
+    text = before.decode()
+    assert "<actor name=\"target_true_gen_mov_w0000\"" in text
+    assert "<trajectory id=\"move\"" in text
+    assert "gz-sim-trajectory-follower-system" not in text
 
 
 def test_count_metrics_match_findings_to_distinct_members() -> None:
