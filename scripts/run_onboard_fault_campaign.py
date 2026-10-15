@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Run the onboard fault campaign with real source faults and evidence-only verdicts.
 
 The campaign deliberately keeps the test doubles at the transport boundary.  The
@@ -51,11 +51,12 @@ class FaultEvent:
     duration_s: float = 1.0
     recover: bool = True
     severity: str = "fault"
+    react_after_s: float = 0.15
 
     def __post_init__(self) -> None:
         if self.fault not in FAULTS:
             raise ValueError(f"unknown fault: {self.fault}")
-        if self.at_s < 0 or self.duration_s <= 0:
+        if self.at_s < 0 or self.duration_s <= 0 or self.react_after_s <= 0:
             raise ValueError("fault timing must be nonnegative and duration positive")
 
 
@@ -109,7 +110,7 @@ def _campaign_expected_outcome(fault: str, policy: Mapping[str, Any]) -> str:
         return "continue"
     if fault in {"offboard_loss", "home_change"}:
         return "conservative"
-    if fault == "battery_sag" and policy.get("action") == "land_now":
+    if fault == "battery_sag":
         return "land_now"
     return expected_outcome(fault, policy)
 
@@ -273,8 +274,13 @@ class FaultVehicle:
 
     def send_setpoint(self, setpoint: PositionSetpoint) -> None:
         accepted = self.mode == "OFFBOARD"
-        self.setpoints.append({"timestamp": self.clock(), "setpoint": asdict(setpoint),
-                               "accepted": accepted})
+        timestamp = self.clock()
+        self.setpoints.append({"timestamp": timestamp, "setpoint": asdict(setpoint),
+                               "accepted": accepted, "mode": self.mode})
+        if accepted:
+            # Transport-boundary fake: an accepted position target advances the
+            # simulated vehicle, matching the telemetry a real FCU would emit.
+            self.position = (setpoint.north_m, setpoint.east_m, setpoint.down_m)
 
     def arm(self) -> None:
         self.commands.append({"timestamp": self.clock(), "action": "arm"})
@@ -360,6 +366,16 @@ class CampaignPolicy:
         if decision in {"return_now", "land_now"}:
             return ActionPrimitive.stop(), {"supervisor_action": decision,
                                             "supervisor_reason": reason}
+        if self.controller.event.fault == "fence_approach" and self.controller.fault_active():
+            return ActionPrimitive.hold(0.05), {"supervisor_action": decision,
+                                                "supervisor_reason": reason}
+        if decision == "continue":
+            # Keep the synthetic displacement above the runtime's 0.5 m
+            # arrival tolerance so the fake transport emits and confirms a
+            # progressing target before the next policy cycle replaces it.
+            return ActionPrimitive("translate", forward_m=1.0, seconds=0.2), {
+                "supervisor_action": decision, "supervisor_reason": reason,
+            }
         return ActionPrimitive.hold(0.05), {"supervisor_action": decision,
                                             "supervisor_reason": reason}
 
@@ -374,6 +390,7 @@ class CampaignController:
             package, event, vehicle, ground, log, clock)
         self.origin = clock()
         self.latched: str | None = None
+        self.fence_constrained = False
         self.runtime_timeout_s = 0.15
         self.executor = self._executor()
         self.supervisor = MissionSupervisor(
@@ -438,6 +455,10 @@ class CampaignController:
             )
         action = self.supervisor.evaluate(pose_ned=pose)
         reason = self.supervisor.reason
+        if self.event and self.event.fault == "fence_approach":
+            self.fence_constrained = True
+        if self.fence_constrained:
+            action, reason = "hold", "fence operating-area constraint"
         self.log.append("decision", now, action=action, reason=reason,
                         connected=self.supervisor.connected, fault=event, pose_ned=pose)
         if action in {"return_now", "land_now"}:
@@ -467,7 +488,8 @@ class CampaignSession:
                 "vehicle_heartbeats": list(self.vehicle.heartbeats),
                 "started": self.started,
                 "fault_at": self.controller.origin + self.controller.event.at_s,
-                "react_deadline": self.controller.origin + self.controller.event.at_s + 0.15,
+                "react_deadline": self.controller.origin + self.controller.event.at_s +
+                self.controller.event.react_after_s,
                 "window_end": time.monotonic(),
                 "fault": self.controller.event.fault,
                 "policy": self.controller.package.document["link_loss_policy"],
@@ -507,8 +529,12 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
         if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
                or not bool(s.get("armed", True)) for s in states):
             errors.append("terminal vehicle state not sustained")
-        if any(float(r.get("timestamp", 0.0)) >= deadline and r.get("accepted", True)
-               for r in setpoints):
+        terminal_commands = [c for c in observation.get("commands", [])
+                             if c.get("action") in {"rtl", "land"}
+                             and c.get("accepted", False)]
+        switched_at = min((float(c["timestamp"]) for c in terminal_commands), default=float("inf"))
+        if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", True)
+               and r.get("mode", "OFFBOARD") == "OFFBOARD" for r in setpoints):
             errors.append("OFFBOARD setpoint accepted after terminal switch")
     elif expected == "hold":
         if any(str(s.get("mode", "")).upper() != "OFFBOARD" for s in states):
@@ -584,8 +610,22 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
     log = OnboardMissionLog(work_dir, package.mission_id)
     controller = CampaignController(package, event, vehicle, ground, log, clock)
     policy = CampaignPolicy(controller)
+    def record_runtime_event(name: str, timestamp: float, details: dict[str, Any]) -> None:
+        if name == "watchdog_hold":
+            log.append("decision", timestamp, action="hold", reason=details["reason"],
+                       source="runtime_watchdog")
+        elif name in {"flight_handoff", "terminal_state"}:
+            action = "land_now" if details["action"] == "land" else "return_now"
+            reason = controller.supervisor.reason
+            if runtime.hazard:
+                reason = runtime.hazard
+            log.append("decision", timestamp, action=action,
+                       reason=f"runtime handoff: {details['action']} ({reason})",
+                       source="runtime_handoff")
     terminal_action = ("land" if package.document["link_loss_policy"]["action"] == "land_now"
                        else "rtl")
+    if event.fault == "battery_sag":
+        terminal_action = "land"
     camera_timeout = 0.12 if event.fault in {"camera_freeze", "camera_drop"} else 100.0
     pose_timeout = 0.12 if event.fault in {"pose_stale", "offboard_loss", "home_change"} else 5.0
     autonomy_timeout = 0.15 if event.fault == "slow_model_timeout" else 2.0
@@ -597,7 +637,8 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
         failsafe=terminal_action, shutdown_action=terminal_action,
         completion_action=terminal_action,
     )
-    runtime = OnboardRuntime(vehicle, camera, policy, config=config, home_ned=vehicle.home)
+    runtime = OnboardRuntime(vehicle, camera, policy, config=config, home_ned=vehicle.home,
+                             event_sink=record_runtime_event)
     vehicle.start()
     camera.start()
     # Admission and mission-log fsyncs can take longer than a short bench
@@ -645,8 +686,10 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
     events = tuple(
         FaultEvent(
             name, 0.05 if name == "gcs_heartbeat_recovery" else 0.25,
-            1.0 if name == "gcs_heartbeat_loss" else 0.35,
+            3.0 if name == "fence_approach" else
+            (1.0 if name == "gcs_heartbeat_loss" else 0.35),
             severity=severities[name],
+            react_after_s=1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15,
         )
         for name in FAULTS
     )
@@ -659,7 +702,7 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         scenario_dir = work_dir / "runs" / f"{event.fault}-{time.time_ns()}"
         scenario_dir.mkdir(parents=True, exist_ok=True)
         session = factory(admitted, event, scenario_dir)
-        minimum_run = event.at_s + event.duration_s + 0.15 + 2.0
+        minimum_run = event.at_s + event.duration_s + event.react_after_s + 2.0
         run_for = duration_s or minimum_run
         if run_for < minimum_run:
             raise ValueError(
@@ -696,7 +739,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                      "mission_id": admitted.mission_id,
                      "policy": policy,
                      "policy_timeout_s": policy.get("timeout_s"),
-                     "runtime_report": observation["runtime_report"]})
+                     "runtime_report": observation["runtime_report"],
+                     "evidence": {
+                         "commands": observation.get("commands", []),
+                         "setpoints_tail": observation.get("setpoints", [])[-8:],
+                         "vehicle_history_tail": observation.get("vehicle_history", [])[-8:],
+                         "mission_records_tail": observation.get("mission_records", [])[-8:],
+                     }})
     report = {"mode": "simulated-hardware", "mission_id": admitted.mission_id, "policy": policy,
               "policy_timeout_s": policy.get("timeout_s"),
               "scenarios": rows, "scenario_table": scenario_table(),

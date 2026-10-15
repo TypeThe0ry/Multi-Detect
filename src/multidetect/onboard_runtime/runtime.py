@@ -145,11 +145,15 @@ class SetpointPump:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
+        self.request_stop()
         if self._thread:
             self._thread.join(timeout=2)
             if self._thread.is_alive():
                 raise RuntimeError("setpoint transport did not stop within two seconds")
+
+    def request_stop(self) -> None:
+        """Request an immediate stop without joining from a coordinator lock."""
+        self._stop.set()
 
     def report(self) -> dict[str, Any]:
         with self._lock:
@@ -174,10 +178,12 @@ class OnboardRuntime:
         self, vehicle: VehicleInterface, camera: CameraSource, policy: Policy, *,
         config: RuntimeConfig | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        event_sink: Callable[[str, float, dict[str, Any]], None] | None = None,
     ) -> None:
         self.vehicle, self.camera, self.policy = vehicle, camera, policy
         self.config = config or RuntimeConfig()
         self.home_ned = home_ned
+        self.event_sink = event_sink
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
@@ -206,7 +212,10 @@ class OnboardRuntime:
         self.mission_complete = False
 
     def _event(self, name: str, **details: Any) -> None:
-        self.events.append({"event": name, "monotonic_s": time.monotonic(), **details})
+        timestamp = time.monotonic()
+        self.events.append({"event": name, "monotonic_s": timestamp, **details})
+        if self.event_sink is not None:
+            self.event_sink(name, timestamp, dict(details))
 
     def _freshness_fault(
         self, state: VehicleState, frame: CameraFrame | None, now: float,
@@ -395,6 +404,12 @@ class OnboardRuntime:
         if action == "hold":
             return
 
+        # Once a terminal handoff is requested, OFFBOARD streaming must stop.
+        # Continuing to publish the old target can fight PX4's RTL/LAND mode
+        # transition and is unsafe even when the command itself is accepted.
+        if self.pump is not None:
+            self.pump.request_stop()
+
         def send() -> None:
             try:
                 if action == "land":
@@ -436,6 +451,8 @@ class OnboardRuntime:
                         self._command(self.config.failsafe)
                 return
             if self.failsafe_sent in {"land", "rtl"}:
+                self._event("terminal_state", action=self.failsafe_sent,
+                            reason=self.hazard or "terminal handoff latched")
                 try:
                     confirmed = self._handoff_confirmed(self.vehicle.snapshot())
                 except Exception:
