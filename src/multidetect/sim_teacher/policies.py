@@ -244,6 +244,10 @@ class ExpertSearchPolicy:
     altitude_m: float = 5.0
     obstacles: tuple[SDFObstacle, ...] = ()
     camera_pitch_rad: float = 0.18
+    # Route used for target-blind bounded searches.  ``current`` preserves the
+    # historical expanding-square behaviour; alternate routes are useful for
+    # zone search/count experiments and remain target independent.
+    search_pattern: str = "current"
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -252,11 +256,15 @@ class ExpertSearchPolicy:
             raise ValueError("search radius and translation bound must be positive")
         if not 60.0 <= self.scan_increment_deg <= 90.0:
             raise ValueError("scan increment must be between 60 and 90 degrees")
+        if self.search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
         self._commanded_yaw_deg: float | None = None
         self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
         self._waypoint_index = 0
-        self._waypoints = self._build_spiral()
+        self._waypoints = self._build_route()
         self._last_inside = False
         self._last_approach_range: float | None = None
         self._approach_stall_steps = 0
@@ -297,6 +305,37 @@ class ExpertSearchPolicy:
                 direction_index += 1
             length += spacing
         return points
+
+    def _build_route(self) -> list[tuple[float, float]]:
+        """Build the configured bounded route in absolute N/E coordinates.
+
+        The coverage helpers intentionally share the same camera geometry as
+        the offline evaluator.  ``two_altitude`` currently uses its high
+        altitude lawnmower leg here; altitude changes are owned by the loop's
+        ``search_altitude_m`` descent policy, so this route remains safe for
+        existing hosts while exposing the configuration consistently.
+        """
+        if self.search_pattern == "current":
+            return self._build_spiral()
+        from multidetect.search_coverage import CoverageCamera, expanding_spiral, lawnmower
+
+        camera = CoverageCamera(
+            fx=float(self.intrinsics["fx"]),
+            fy=float(self.intrinsics["fy"]),
+            cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
+            cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
+            width_px=int(self.image_size[0]),
+            height_px=int(self.image_size[1]),
+            pitch_down_deg=math.degrees(self.camera_pitch_rad),
+        )
+        if self.search_pattern in {"lawnmower", "two_altitude"}:
+            relative = lawnmower(self.search_radius_m, camera, max(self.altitude_m, 1e-3))
+        else:
+            relative = expanding_spiral(
+                self.search_radius_m, camera, max(self.altitude_m, 1e-3)
+            )
+        home_n, home_e = self.home_ned[:2]
+        return [(home_n + n, home_e + e) for n, e in relative[1:]]
 
     def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
         self.state = state
