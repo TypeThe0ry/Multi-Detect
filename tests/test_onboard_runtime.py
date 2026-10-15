@@ -16,6 +16,11 @@ from multidetect.onboard_runtime.runtime import (
 from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleState
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
+# Real threads and wall-clock deadlines: these results depend on host load, so the
+# deterministic onboard gate skips them; run them with `run_onboard_gate --with-timing`
+# on a quiet machine.
+pytestmark = pytest.mark.timing
+
 
 class FakeVehicle:
     def __init__(self):
