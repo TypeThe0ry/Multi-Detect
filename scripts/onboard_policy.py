@@ -670,8 +670,11 @@ class OnboardPolicy:
                 from scripts.eval_slow_system import _http_json
 
                 refs = options.get("refs") or {}
+                post_attempted = False
 
                 def post(prompt: str, schema: dict[str, Any]) -> str:
+                    nonlocal post_attempted
+                    post_attempted = True
                     body = {
                         "model": "local",
                         "temperature": 0,
@@ -709,11 +712,15 @@ class OnboardPolicy:
                         capabilities=capabilities,
                     )
                 except Exception:
-                    self.health.record_slow_call(0.0, ok=False)
+                    # Planning/validation failures are not model-call results.
+                    # ``post`` records the HTTP outcome at the call site; do
+                    # not count this exception a second time as a slow fault.
+                    self.health.record_planning_failure()
+                    if not post_attempted:
+                        self.health.record_slow_call(0.0, ok=False)
                     raise
                 self.mission_plan, self.mission_plan_report = plan, report
                 if report.get("error"):
-                    self.health.record_slow_call(0.0, ok=False)
                     if self.mission_package is not None:
                         self.slow.close()
                     raise ValueError(f"mission plan compilation failed: {report['error']}")
@@ -798,9 +805,7 @@ class OnboardPolicy:
                 # Telemetry readers stamp receipts with host monotonic time,
                 # while SIM supervisors run on the simulation clock. Keep a
                 # fixed affine offset so both values are compared in one domain.
-                self._energy_receipt_clock_offset = (
-                    self.supervisor._now - time.monotonic()
-                )
+                self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
@@ -967,26 +972,37 @@ class OnboardPolicy:
                     landed=observation.get("landed"),
                     timestamp_s=_observation_timestamp_s(observation),
                 )
-                return action, {
-                    "onboard": {
-                        **info,
-                        "state": "supervised",
-                        "detections": 0,
-                        "tracks": [],
-                        "slow_calls": [],
-                        "confirmed": None,
-                        "alert_vote_clusters": [],
-                        "fast_latency_s": 0.0,
-                        "mission": {"history": list(self.supervisor.history)},
-                        "health": {},
-                    }
+                supervised_labels = {
+                    **info,
+                    "state": "supervised",
+                    "detections": 0,
+                    "tracks": [],
+                    "slow_calls": [],
+                    "confirmed": None,
+                    "alert_vote_clusters": [],
+                    "fast_latency_s": 0.0,
+                    "mission": {"history": list(self.supervisor.history)},
                 }
+                if getattr(getattr(self, "health", None), "config", None) is not None and getattr(
+                    self.health.config, "enabled", False
+                ):
+                    supervised_labels["health"] = {}
+                return action, {"onboard": supervised_labels}
         health_monitor = getattr(self, "health", None)
         health_decision = (
             health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
             if health_monitor is not None
             else HealthDecision()
         )
+        # A completed recovery must not be reused by a later degradation
+        # cycle.  Likewise, once health is back to ``ok`` and the main
+        # mission resumes, discard any stale recovery executor so the next
+        # escalation gets a fresh plan and state.
+        if (
+            health_decision.decision == "ok"
+            and getattr(self, "_health_recovery_executor", None) is not None
+        ):
+            self._health_recovery_executor = None
         if health_decision.decision in {"return_home", "land"}:
             if self.supervisor is not None:
                 self.supervisor._escalate(
@@ -1025,7 +1041,8 @@ class OnboardPolicy:
         suffix = "jpg" if self.frame_format == "jpeg" else "png"
         frame_path = self.work_dir / f"frame_{step:04d}.{suffix}"
         if health_decision.stop_frame_writes:
-            pass  # Low disk: keep flying on the in-memory frame, write nothing.
+            # Low disk: write no frame; slow calls are skipped by _slow_identity.
+            pass
         elif self.frame_format == "jpeg":
             Image.fromarray(rgb, mode="RGB").save(
                 frame_path, format="JPEG", quality=self.frame_quality, optimize=True
@@ -1161,9 +1178,12 @@ class OnboardPolicy:
             recovery.home = getattr(self.executor, "home", None)
             recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
             self._health_recovery_executor = recovery
-        return self._health_recovery_executor.next_action(
+        action, info = self._health_recovery_executor.next_action(
             pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, timestamp_s=timestamp_s
         )
+        if self._health_recovery_executor.done:
+            self._health_recovery_executor = None
+        return action, info
 
     def _act_mission(
         self,

@@ -84,6 +84,7 @@ class _State:
     sample_failures: int = 0
     clock_raw: float | None = None
     elapsed_s: float = 0.0
+    planning_failures: int = 0
 
 
 class HealthMonitor:
@@ -325,6 +326,11 @@ class HealthMonitor:
         )
         self._trans("slow_latency_drift", drift, n, latency_s=latency)
         return HealthDecision("hold", "slow_latency_drift") if drift else HealthDecision()
+
+    def record_planning_failure(self):
+        """Record a constructor-time planning failure without degrading slow health."""
+        if self.config.enabled:
+            self.state.planning_failures += 1
 
 
 OnboardHealthMonitor = HealthMonitor
