@@ -14,7 +14,9 @@ from scripts.generate_appearance_test_set import generate_appearance_test_set
 def test_all_appearance_presets_emit_valid_scene_and_light(tmp_path: Path) -> None:
     for preset in APPEARANCE_PRESETS:
         root = tmp_path / preset
-        index = generate_worlds(1, 77, out_worlds=root / "worlds", out_scenarios=root / "scenarios", appearance=preset)
+        index = generate_worlds(
+            1, 77, out_worlds=root / "worlds", out_scenarios=root / "scenarios", appearance=preset
+        )
         sdf = ET.parse(root / "worlds" / index["worlds"][0]["world_file"]).getroot()
         world = sdf.find("world")
         assert world is not None
@@ -26,6 +28,9 @@ def test_all_appearance_presets_emit_valid_scene_and_light(tmp_path: Path) -> No
         expected = _appearance_values(preset, __import__("random").Random(77))
         assert world.findtext("scene/shadows") == str(expected["shadows"]).lower()
         assert float(world.findtext("light/intensity")) == expected["intensity"]
+        direction = [float(v) for v in world.findtext("light/direction").split()]
+        assert abs(sum(v * v for v in direction) ** 0.5 - 1.0) < 1e-3  # 4-decimal SDF output
+        assert direction[2] < 0  # sun above the ground
 
 
 def test_appearance_mirror_has_test_split_and_exact_truth(tmp_path: Path) -> None:
@@ -40,9 +45,17 @@ def test_appearance_mirror_has_test_split_and_exact_truth(tmp_path: Path) -> Non
     assert len(document["worlds"]) == 6
     assert {item["split"] for item in document["worlds"]} == {"test"}
     for item in document["worlds"]:
-        original = json.loads((Path("configs/scenarios/generated-v2") / f"{item['source_world_id']}.truth.json").read_text(encoding="utf-8"))
-        mirrored = json.loads((source / "scenarios" / f"{item['world_id']}.truth.json").read_text(encoding="utf-8"))
-        assert [target["pose"] for target in original["targets"]] == [target["pose"] for target in mirrored["targets"]]
+        original = json.loads(
+            (
+                Path("configs/scenarios/generated-v2") / f"{item['source_world_id']}.truth.json"
+            ).read_text(encoding="utf-8")
+        )
+        mirrored = json.loads(
+            (source / "scenarios" / f"{item['world_id']}.truth.json").read_text(encoding="utf-8")
+        )
+        assert [target["pose"] for target in original["targets"]] == [
+            target["pose"] for target in mirrored["targets"]
+        ]
         ET.parse(source / "worlds" / item["world_file"])
 
 

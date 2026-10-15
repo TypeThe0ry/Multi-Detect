@@ -130,7 +130,7 @@
         },
         "world": {
           "path": "gen_v2a_w0002.sdf",
-          "sha256": "b401fee9ee76345239209bf5884a790f90a4dbe9368a90db82721fa3d86db2cf"
+          "sha256": "d39d576a2005f972831594c5f2b0e7de85c6e35febadf2a6679304925ff7f808"
         }
       },
       "seed": 20261047,
@@ -216,7 +216,7 @@
         },
         "world": {
           "path": "gen_v2a_w0004.sdf",
-          "sha256": "89140c4278d851f0bb25ff413713654317371d29f2e0a740d0a1455e853dd798"
+          "sha256": "295997cd5d07b9143aaea09467ded46c188486188c7aa42be3cac2bc5298a93a"
         }
       },
       "seed": 20261049,
@@ -259,7 +259,7 @@
         },
         "world": {
           "path": "gen_v2a_w0005.sdf",
-          "sha256": "142a93f0c79a830385335d4ed24be9f1112b5c30a2d224ede60c5efa84deabed"
+          "sha256": "03b13a855b48a24ad3e44eb42a1e7afb5010deca2b9d2bb840b674904914c07e"
         }
       },
       "seed": 20261050,

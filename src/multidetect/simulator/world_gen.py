@@ -126,6 +126,9 @@ def _appearance_values(name: str, rng: random.Random) -> dict[str, Any]:
             math.sin(azimuth) * math.cos(elevation),
             -math.sin(elevation),
         )
+    # Directional lights take a unit vector; normalise the fixed presets too.
+    norm = math.sqrt(sum(component * component for component in values["direction"]))
+    values["direction"] = tuple(component / norm for component in values["direction"])
     return values
 
 
