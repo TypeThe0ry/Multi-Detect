@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>飞行复盘 · @@TITLE@@</title>
+<style>
+:root{--bg:#09131c;
+--panel:#12212d;
+--panel2:#172a38;
+--text:#e7eff4;
+--muted:#a2b5c1;
+--line:#29404e;
+--cyan:#6dd6d0;
+--blue:#64a9ff;
+--green:#55d6a1;
+--red:#ff737d;
+--amber:#ffc66d}
+
+*{box-sizing:border-box}
+body{margin:0;
+background:radial-gradient(1100px 500px at 80% -10%,#1c3444 0%,transparent 68%),var(--bg);
+color:var(--text);
+font:15px/1.55 system-ui,"Microsoft YaHei",sans-serif}
+
+header.hero{padding:30px max(22px,calc((100vw - 1400px)/2));
+border-bottom:1px solid var(--line)}
+h1{font-size:clamp(25px,3vw,38px);
+line-height:1.2;
+margin:0 0 9px}
+h2{font-size:20px;
+margin:0 0 14px}
+h3{font-size:16px;
+margin:0 0 8px}
+p{margin:7px 0}
+.muted{color:var(--muted)}
+main{max-width:1440px;
+margin:auto;
+padding:20px 22px 48px}
+.grid{display:grid;
+gap:16px}
+.overview{grid-template-columns:repeat(auto-fit,minmax(155px,1fr));
+margin:14px 0 20px}
+.card,.panel{background:linear-gradient(150deg,var(--panel2),var(--panel));
+border:1px solid var(--line);
+border-radius:14px;
+padding:17px;
+box-shadow:0 12px 34px #0002}
+.metric strong{display:block;
+font-size:25px;
+color:var(--cyan);
+font-variant-numeric:tabular-nums}
+.metric span{color:var(--muted);
+font-size:13px}
+.two-col{grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);
+align-items:start}
+.map-wrap{overflow:auto}
+.map-svg{width:100%;
+min-width:500px;
+display:block}
+.map-grid{stroke:#29404e;
+stroke-width:1;
+opacity:.6}
+.zone{fill:#5bc3d311;
+stroke:#65d5cc;
+stroke-dasharray:7 5;
+stroke-width:1.6}
+.route{fill:none;
+stroke:#c4a3ff;
+stroke-width:2.5;
+stroke-dasharray:6 4}
+.route-point{fill:#c4a3ff}
+.trajectory{fill:none;
+stroke:#68aaff;
+stroke-width:2;
+stroke-linejoin:round;
+stroke-linecap:round;
+opacity:.85}
+.home{fill:#e8f4fb;
+stroke:#65d5cc;
+stroke-width:3}
+.home-cross{stroke:#0f2530;
+stroke-width:2}
+.flight-end{fill:#68aaff;
+stroke:#d6eaff;
+stroke-width:2}
+.track-positive{fill:var(--green);
+stroke:#072c22;
+stroke-width:1}
+.track-negative{fill:var(--red);
+stroke:#35151a;
+stroke-width:1}
+.track-unknown{fill:#a6b6c1;
+stroke:#162b39;
+stroke-width:1}
+.truth-matched{fill:var(--green);
+stroke:white;
+stroke-width:1.2}
+.truth-false{fill:var(--red);
+stroke:white;
+stroke-width:1.2}
+.truth-missed{fill:var(--amber);
+stroke:white;
+stroke-width:1.2}
+.false-call{stroke:var(--red);
+stroke-width:2.6}
+.map-label,.axis-label{fill:#e1edf3;
+font-size:11px;
+paint-order:stroke;
+stroke:#101d28;
+stroke-width:3px;
+stroke-linejoin:round}
+.axis-label{font-size:12px;
+stroke-width:4px}
+.legend{display:flex;
+flex-wrap:wrap;
+gap:11px 17px;
+margin:12px 0 0;
+color:var(--muted);
+font-size:13px}
+.dot{display:inline-block;
+width:10px;
+height:10px;
+border-radius:50%;
+margin-right:6px}
+.diamond{display:inline-block;
+width:10px;
+height:10px;
+transform:rotate(45deg);
+margin:0 7px 0 2px}
+
+.timeline{display:grid;
+gap:10px}
+.step{border:1px solid var(--line);
+background:#10202b;
+border-radius:12px;
+padding:13px 15px}
+.step summary{cursor:pointer;
+list-style:none;
+display:flex;
+gap:12px;
+align-items:center;
+flex-wrap:wrap}
+.step summary::-webkit-details-marker{display:none}
+.step summary::before{content:"＋";
+color:var(--cyan);
+font-weight:700}
+.step[open] summary::before{content:"－"}
+.step-num{color:var(--cyan);
+font-weight:700;
+font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;
+align-items:center;
+padding:2px 9px;
+border-radius:99px;
+border:1px solid var(--line);
+background:#1a3040;
+color:#d8e8f0;
+font-size:12px}
+.pill.positive{color:var(--green);
+border-color:#398a70}
+.pill.negative{color:var(--red);
+border-color:#a84b56}
+.action{margin:10px 0;
+color:#d0e0e8}
+.call-list{display:flex;
+flex-wrap:wrap;
+gap:8px;
+margin-top:10px}
+button.call{background:#1a3140;
+border:1px solid #385464;
+color:var(--text);
+border-radius:9px;
+padding:8px 11px;
+cursor:pointer;
+text-align:left}
+button.call:hover,button.call[aria-pressed="true"]{border-color:var(--cyan);
+background:#204153}
+.detail{min-height:110px;
+margin-top:14px}
+.detail-grid{display:grid;
+grid-template-columns:minmax(0,1.2fr) minmax(180px,.8fr);
+gap:14px;
+align-items:start}
+.frame-box{position:relative;
+max-width:800px}
+.frame-box img{display:block;
+width:100%;
+height:auto;
+border-radius:8px}
+.frame-box svg{position:absolute;
+inset:0;
+width:100%;
+height:100%;
+pointer-events:none}
+.focus{fill:#ff404022;
+stroke:#ff6c76;
+stroke-width:3;
+vector-effect:non-scaling-stroke}
+.crop{width:100%;max-width:100%;
+height:auto;
+display:block;
+background:#0b1720;
+border:1px solid var(--line);
+border-radius:8px}
+.object-list,.alert-list{display:grid;
+gap:8px;
+padding:0;
+margin:0;
+list-style:none}
+.object-list li,.alert-list li{display:flex;
+gap:8px;
+align-items:start;
+border-bottom:1px solid #29404e;
+padding:7px 0}
+.status{font-size:12px;
+font-weight:700;
+white-space:nowrap}
+.matched{color:var(--green)}
+.false{color:var(--red)}
+.missed{color:var(--amber)}
+pre{white-space:pre-wrap;
+overflow-wrap:anywhere;
+background:#0c1821;
+border:1px solid var(--line);
+border-radius:9px;
+padding:12px;
+color:#d1e2eb;
+font:13px/1.5 ui-monospace,Consolas,monospace;
+max-height:520px;
+overflow:auto}
+.section{margin-top:19px}
+.cols{display:grid;
+grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+gap:14px}
+.note{border-left:3px solid var(--amber);
+padding:8px 11px;
+background:#ffc66d10;
+color:#d9e2e7}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}
+.detail-grid{grid-template-columns:1fr}
+main{padding:14px}
+}
+
+.truth-distractor{fill:#758895;stroke:white;stroke-width:1.2}.finding{fill:none;stroke:#f2dc8e;stroke-width:2.2}</style></head><body>
+<header class="hero"><h1>飞行复盘</h1><p class="muted">@@TITLE@@</p><p class="muted">Episode：@@EPISODE@@ · 状态：@@STATUS@@</p></header>
+<main>
+<section class="grid overview" id="overview"></section>
+<section class="grid two-col">
+ <div class="panel"><h2>俯视轨迹与目标</h2><div class="map-wrap">@@MAP@@</div><div class="legend"><span><i class="dot" style="background:#68aaff"></i>飞行轨迹</span><span><i class="dot" style="background:#55d6a1"></i>慢模型肯定</span><span><i class="dot" style="background:#ff737d"></i>慢模型否定</span><span><i class="dot" style="background:#a6b6c1"></i>无判定</span><span><i class="diamond" style="background:#55d6a1"></i>真值已匹配</span><span><i class="diamond" style="background:#ff737d"></i>误报对象</span><span><i class="diamond" style="background:#ffc66d"></i>漏报对象</span></div></div>
+ <div class="grid"><section class="panel"><h2>真值目标</h2><p class="muted">标记按慢模型肯定票与地面位置关联；漏报只针对任务类别。正式评分见最终报告。</p><div id="truth-list"></div></section><section class="panel"><h2>告警、发现与计数</h2><div id="findings"></div></section></div>
+</section>
+<section class="panel section"><h2>步骤时间线</h2><div class="timeline" id="timeline"></div><div class="panel detail" id="call-detail"><p class="muted">点击一条慢模型调用，查看原始帧、焦点框和裁剪图。</p></div></section>
+<section class="panel section"><h2>任务计划与最终任务报告</h2><div class="cols"><div><h3>计划</h3><div id="plan"></div></div><div><h3>最终报告 / 摘要</h3><div id="report"></div></div></div></section>
+<p class="muted section">页面完全离线；图片已缩小并内嵌。@@NOTE@@</p>
+</main>
+<script id="review-data" type="application/json">@@DATA@@</script>
+<script>
+const d = JSON.parse(document.getElementById('review-data').textContent);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
+const fmt = value => value === null || value === undefined ? '—' :
+  typeof value === 'number' ? (Number.isInteger(value) ? String(value) : value.toFixed(2)) :
+  String(value);
+const percent = value => value === null || value === undefined ? '—' :
+  (Number(value) * 100).toFixed(1) + '%';
+const cards = [
+  ['飞行步数', d.summary.step_count],
+  ['航程', `${fmt(d.summary.distance_flown_m)} m`],
+  ['慢模型调用', d.summary.slow_calls],
+  ['肯定 / 否定', `${d.summary.positive_calls} / ${d.summary.negative_calls}`],
+  ['轨迹记录 / 唯一目标', `${d.summary.track_observations} / ${d.summary.unique_tracks}`],
+  ['真值', d.summary.truth_available ? '已解析' : '未解析']
+];
+document.getElementById('overview').innerHTML = cards.map(([label, value]) =>
+  `<article class="card metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></article>`
+).join('');
+const stateName = state => ({
+  searching: '搜索', approaching: '接近', confirming: '确认', returning: '返航',
+  done: '完成', monitor: '监视', patrol: '巡逻', inspect: '检查'
+}[state] || state || '未知');
+const verdictName = verdict => ({positive: '肯定', negative: '否定', unknown: '未判定'}[verdict]);
+const callById = Object.fromEntries(d.calls.map(call => [call.id, call]));
+const timeline = document.getElementById('timeline');
+timeline.innerHTML = d.steps.map(step => {
+  const calls = step.calls.map(id => {
+    const call = callById[id];
+    return `<button class="call" data-call-id="${esc(call.id)}" aria-pressed="false">
+      <span class="pill ${esc(call.verdict)}">${esc(verdictName(call.verdict))}</span>
+      轨迹 ${esc(call.track_id)} · 置信度 ${percent(call.confidence)}
+      ${call.frame_asset || call.crop_asset ? ' · 查看帧' : ''}</button>`;
+  }).join('');
+  return `<details class="step"><summary><span class="step-num">第 ${esc(step.index)} 步</span>
+    <span class="pill">${esc(stateName(step.state_before))} →
+    ${esc(stateName(step.state_after))}</span>
+    <span class="pill">执行器：${esc(step.executor_step || '—')} /
+    ${esc(step.executor_skill || '—')} · ${esc(step.executor_state || '—')}</span>
+    <span class="muted">${esc(step.time || '')}</span></summary>
+    <div class="action"><b>动作：</b>${esc(step.action)}
+    ${step.action_detail ? ' · ' + esc(step.action_detail) : ''}</div>
+    ${step.transition ? `<p class="muted">执行器步骤切换：${esc(step.transition)}</p>` : ''}
+    ${step.history.length ? `<p class="muted">执行器结果：${esc(JSON.stringify(step.history))}</p>` : ''}
+    <div class="call-list">${calls || '<span class="muted">本步没有慢模型调用</span>'}</div>
+    </details>`;
+}).join('') || '<p class="muted">没有记录步骤。</p>';
+const truthStatus = {matched: '已匹配', false: '误报', missed: '漏报', distractor: '干扰物'};
+document.getElementById('truth-list').innerHTML = d.truth_objects.length ?
+  `<ul class="object-list">${d.truth_objects.map(object => `<li>
+    <span class="status ${esc(object.status)}">${truthStatus[object.status]}</span>
+    <span><b>${esc(object.category)}</b>${object.true_target ? ' · 任务目标' : ''}<br>
+    <small class="muted">${esc(object.id)} · 北 ${fmt(object.north)} m /
+    东 ${fmt(object.east)} m</small></span></li>`).join('')}</ul>` :
+  '<p class="muted">未解析到场景真值。</p>';
+const list = (title, values) => values.length ? `<h3>${esc(title)}</h3>
+  <ul class="alert-list">${values.map(value => `<li>${esc(typeof value === 'string' ?
+    value : JSON.stringify(value))}</li>`).join('')}</ul>` :
+  `<p class="muted">${esc(title)}：无</p>`;
+document.getElementById('findings').innerHTML = list('告警', d.mission.alerts) +
+  list('发现位置', d.mission.positions) + `<h3>计数</h3>
+  <pre>${esc(JSON.stringify(d.mission.counts || {}, null, 2))}</pre>` +
+  (d.mission_metrics?.mission_alert_count !== undefined ?
+    `<p>告警精确率：${percent(d.mission_metrics.mission_alert_precision)} ·
+     召回率：${percent(d.mission_metrics.mission_alert_recall)}</p>` : '');
+document.getElementById('plan').innerHTML = d.plan ?
+  `<pre>${esc(JSON.stringify(d.plan, null, 2))}</pre>` :
+  '<p class="muted">本 episode 没有任务计划记录。</p>';
+document.getElementById('report').innerHTML = `<pre>${esc(JSON.stringify({
+  状态: d.summary.flight_status, 确认: d.summary.confirmed,
+  最终步骤: d.mission.history?.slice(-1)[0] || null, 步骤历史: d.mission.history || [],
+  回答: d.mission.answers || [], 证据: d.mission.evidence || [], 真值评分: d.mission_metrics
+}, null, 2))}</pre>`;
+const detail = document.getElementById('call-detail');
+const namespace = document.querySelector('.map-svg').namespaceURI;
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-call-id]');
+  if (!button) return;
+  document.querySelectorAll('[data-call-id]').forEach(item =>
+    item.setAttribute('aria-pressed', 'false'));
+  button.setAttribute('aria-pressed', 'true');
+  const call = callById[button.dataset.callId];
+  detail.replaceChildren();
+  const heading = document.createElement('h3');
+  heading.textContent = `慢模型调用 · 第 ${call.step} 步 · 轨迹 ${call.track_id} ·
+    ${verdictName(call.verdict)}`;
+  detail.append(heading);
+  const meta = document.createElement('p');
+  meta.textContent = `身份：${call.identity} · 决策：${call.decision || '—'} ·
+    置信度：${percent(call.confidence)} · 延迟：${fmt(call.latency_s)} s`;
+  detail.append(meta);
+  if (call.reason) {
+    const reason = document.createElement('p');
+    reason.textContent = '原因：' + call.reason;
+    detail.append(reason);
+  }
+  const grid = document.createElement('div');
+  grid.className = 'detail-grid';
+  const left = document.createElement('div');
+  const frameUri = d.assets[call.frame_asset];
+  if (frameUri) {
+    const wrap = document.createElement('div');
+    wrap.className = 'frame-box';
+    const image = document.createElement('img');
+    image.src = frameUri;
+    image.alt = '慢模型输入帧';
+    wrap.append(image);
+    if (call.bbox && call.frame_width && call.frame_height) {
+      const svg = document.createElementNS(namespace, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${call.frame_width} ${call.frame_height}`);
+      const rect = document.createElementNS(namespace, 'rect');
+      rect.setAttribute('x', call.bbox[0]);
+      rect.setAttribute('y', call.bbox[1]);
+      rect.setAttribute('width', call.bbox[2] - call.bbox[0]);
+      rect.setAttribute('height', call.bbox[3] - call.bbox[1]);
+      rect.setAttribute('class', 'focus');
+      svg.append(rect);
+      wrap.append(svg);
+    }
+    left.append(wrap);
+  } else {
+    left.textContent = '原始帧未嵌入（找不到图像或达到页面大小上限）。';
+  }
+  grid.append(left);
+  const right = document.createElement('div');
+  const cropUri = d.assets[call.crop_asset];
+  if (cropUri) {
+    const label = document.createElement('p');
+    label.textContent = '焦点裁剪（含少量周边区域）';
+    right.append(label);
+    const crop = document.createElement('img');
+    crop.className = 'crop';
+    crop.src = cropUri;
+    crop.alt = '焦点裁剪';
+    right.append(crop);
+  } else {
+    right.textContent = '没有可用的焦点裁剪图。';
+  }
+  grid.append(right);
+  detail.append(grid);
+});
+</script></body></html>
