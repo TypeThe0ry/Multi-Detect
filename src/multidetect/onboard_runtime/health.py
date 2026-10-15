@@ -170,7 +170,8 @@ class HealthMonitor:
                 ok = bool(fn(timeout_s=self.config.probe_timeout_s))
             except Exception:
                 ok = False
-            self.state.probe_succeeded = ok
+            if ok:
+                self.state.probe_succeeded = True
         else:
             self.state.probe_succeeded = False
 

@@ -910,7 +910,20 @@ class OnboardPolicy:
                     landed=observation.get("landed"),
                     timestamp_s=_observation_timestamp_s(observation),
                 )
-                return action, {"onboard": {**info, "state": "supervised", "health": {}}}
+                return action, {
+                    "onboard": {
+                        **info,
+                        "state": "supervised",
+                        "detections": 0,
+                        "tracks": [],
+                        "slow_calls": [],
+                        "confirmed": None,
+                        "alert_vote_clusters": [],
+                        "fast_latency_s": 0.0,
+                        "mission": {"history": list(self.supervisor.history)},
+                        "health": {},
+                    }
+                }
         health_monitor = getattr(self, "health", None)
         health_decision = (
             health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
