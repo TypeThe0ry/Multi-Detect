@@ -30,6 +30,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.sim_teacher import (  # noqa: E402
     EpisodeRecorder,
     ExpertSearchPolicy,
@@ -54,14 +55,6 @@ PINNED_IMAGE = (
 )
 DEFAULT_TIMEOUT_S = 300.0
 SENSOR_FRAME_WAIT_S = 15.0
-DEFAULT_CAMERA_INFO = {
-    "width": 1280,
-    "height": 960,
-    "fx": 539.93636802453,
-    "fy": 539.93636802453,
-    "cx": 640.0,
-    "cy": 480.0,
-}
 DEFAULT_RGB_SIZE = (640, 480)
 DEFAULT_DEPTH_SIZE = (320, 240)
 DEFAULT_DEPTH_ENCODING = "UINT16_MM"

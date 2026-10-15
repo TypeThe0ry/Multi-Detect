@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from multidetect.camera_defaults import DEFAULT_CAMERA_INFO, DEFAULT_CAMERA_PITCH_DOWN_RAD
 from multidetect.simulator.task_semantics import TYPICAL_SIZE_M
 
 
@@ -21,13 +22,29 @@ from multidetect.simulator.task_semantics import TYPICAL_SIZE_M
 class CoverageCamera:
     # Recorded onboard episodes use the 1280x960, 540 px focal-length camera
     # model (the same values used by the policy tests).
-    fx: float = 540.0
-    fy: float = 540.0
-    cx: float = 640.0
-    cy: float = 360.0
-    width_px: int = 1280
-    height_px: int = 960
-    pitch_down_deg: float = 10.3
+    fx: float = DEFAULT_CAMERA_INFO["fx"]
+    fy: float = DEFAULT_CAMERA_INFO["fy"]
+    cx: float = DEFAULT_CAMERA_INFO["cx"]
+    # Recorded 1280x960 episodes use the optical centre at (640, 480).
+    cy: float = DEFAULT_CAMERA_INFO["cy"]
+    width_px: int = DEFAULT_CAMERA_INFO["width"]
+    height_px: int = DEFAULT_CAMERA_INFO["height"]
+    pitch_down_deg: float = math.degrees(DEFAULT_CAMERA_PITCH_DOWN_RAD)
+
+    @classmethod
+    def from_runtime(
+        cls,
+        camera_info: Mapping[str, float],
+        *,
+        pitch_down_rad: float = DEFAULT_CAMERA_PITCH_DOWN_RAD,
+    ) -> CoverageCamera:
+        """Build from the ``DEFAULT_CAMERA_INFO``/OnboardPolicy camera mapping."""
+        return cls(
+            fx=float(camera_info["fx"]), fy=float(camera_info["fy"]),
+            cx=float(camera_info["cx"]), cy=float(camera_info["cy"]),
+            width_px=int(camera_info["width"]), height_px=int(camera_info["height"]),
+            pitch_down_deg=math.degrees(float(pitch_down_rad)),
+        )
 
     @property
     def hfov_rad(self) -> float:
@@ -76,6 +93,10 @@ class CoverageCamera:
 
     def expected_pixel_size(self, object_size_m: float, altitude_m: float) -> float:
         """Approximate the smallest projected object dimension in pixels."""
+        if object_size_m <= 0 or not math.isfinite(object_size_m):
+            raise ValueError("object_size_m must be finite and positive")
+        if altitude_m <= 0 or not math.isfinite(altitude_m):
+            raise ValueError("altitude_m must be finite and positive")
         return min(self.fx, self.fy) * object_size_m / max(altitude_m, 1e-6)
 
 
@@ -87,19 +108,43 @@ class CoverageConfig:
     flight_speed_mps: float = 8.0
     turn_time_s: float = 2.0
     hover_per_slow_call_s: float = 1.0
-    proposal_floor_px: float = 10.0
+    # Runtime gates: candidate filter, slow-verdict eligibility, confirmation.
+    # ``proposal_floor_px`` is retained as the public simulator name for the
+    # first gate because older callers use it.
+    proposal_floor_px: float = 6.0
+    slow_verdict_min_px: float = 10.0
+    confirmation_min_px: float = 20.0
     max_detection_range_m: float = 80.0
     overlap: float = 0.20
     object_count: int = 200
     seed: int = 7
 
     def __post_init__(self) -> None:
-        if self.radius_m <= 0 or self.flight_speed_mps <= 0:
-            raise ValueError("radius and flight speed must be positive")
+        numeric = (
+            self.radius_m,
+            self.altitude_m,
+            self.low_altitude_m,
+            self.flight_speed_mps,
+            self.turn_time_s,
+            self.hover_per_slow_call_s,
+            self.proposal_floor_px,
+            self.slow_verdict_min_px,
+            self.confirmation_min_px,
+            self.max_detection_range_m,
+        )
+        if not all(math.isfinite(value) and value > 0 for value in numeric):
+            raise ValueError("radius, altitudes, timing, thresholds and range must be positive")
+        if self.low_altitude_m > self.altitude_m:
+            raise ValueError("low_altitude_m must not exceed altitude_m")
         if not 0 <= self.overlap < 1:
             raise ValueError("overlap must be in [0, 1)")
         if self.object_count <= 0:
             raise ValueError("object_count must be positive")
+
+    @property
+    def candidate_filter_px(self) -> float:
+        """The fast proposer/candidate gate (LoopConfig.min_box_side_px)."""
+        return self.proposal_floor_px
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,10 +153,19 @@ class CoverageMetrics:
     object_size_m: float
     radius_m: float
     seen_well_fraction: float
+    candidate_fraction: float
+    slow_verdict_fraction: float
+    confirmation_fraction: float
     time_to_cover_90_s: float | None
+    candidate_time_to_cover_90_s: float | None
+    slow_verdict_time_to_cover_90_s: float | None
+    confirmation_time_to_cover_90_s: float | None
     total_time_s: float
     expected_slow_calls: float
     objects_seen_well: int
+    candidates_seen: int
+    slow_verdict_eligible: int
+    confirmed: int
     object_count: int
 
 
@@ -158,7 +212,10 @@ def current_expanding_square(
     camera_forward = onset * math.cos(pitch) + altitude_m * math.sin(pitch)
     half_swath = math.tan(hfov / 2.0) * max(0.0, camera_forward)
     spacing = min(70.0, radius_m / 2.0, max(8.0, 1.6 * half_swath))
-    points: list[Point] = [(0.0, 0.0)]
+    # ExpertSearchPolicy._build_spiral starts with the first waypoint; home is
+    # deliberately not part of that list.  The simulator adds home only when
+    # accounting for the initial flight leg.
+    points: list[Point] = []
     north = east = 0.0
     length, direction_index = spacing, 0
     directions = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
@@ -167,7 +224,10 @@ def current_expanding_square(
             dn, de = directions[direction_index % 4]
             candidate = (north + dn * length, east + de * length)
             if math.hypot(*candidate) > radius_m:
-                points.append(_clip_to_circle((north, east), candidate, radius_m))
+                # The policy scales the overshoot radially from home, rather
+                # than intersecting the current leg with the circle.
+                scale = radius_m / max(math.hypot(*candidate), 1e-12)
+                points.append((candidate[0] * scale, candidate[1] * scale))
                 return points
             north, east = candidate
             points.append(candidate)
@@ -252,58 +312,80 @@ def simulate_pattern(
         path = lawnmower(config.radius_m, camera, high, config.overlap)
     else:
         raise ValueError(f"unknown pattern: {pattern}")
+    # All routes start at the zone centre in the vehicle state.  The current
+    # policy's waypoint list intentionally omits home, so account for that
+    # initial leg in the offline route without changing its exact waypoint
+    # reproduction helper.
+    if not path or path[0] != (0.0, 0.0):
+        path = [(0.0, 0.0), *path]
     objects = _objects(config.radius_m, config.object_count, config.seed)
-    width, _ = camera.footprint(high)
-    high_range = min(
-        config.max_detection_range_m,
-        high / max(1e-6, math.sin(math.radians(camera.pitch_down_deg))),
-    )
-    high_floor = config.proposal_floor_px * (0.5 if pattern == "two_altitude" else 1.0)
     seen: set[int] = set()
-    first_seen: list[float] = []
+    slow: set[int] = set()
+    confirmed: set[int] = set()
+    candidate_times: list[float] = []
+    slow_times: list[float] = []
+    confirm_times: list[float] = []
     elapsed = 0.0
-    for a, b in _segments(path):
-        elapsed += math.dist(a, b) / config.flight_speed_mps
-        for i, obj in enumerate(objects):
-            if i in seen or _distance_to_segment(obj, a, b) > width / 2:
-                continue
-            if math.dist(obj, (0.0, 0.0)) > config.radius_m:
-                continue
-            rng = math.hypot(obj[0] - b[0], obj[1] - b[1])
-            if rng <= high_range and camera.expected_pixel_size(size, high) >= high_floor:
-                seen.add(i)
-                first_seen.append(elapsed)
-        elapsed += config.turn_time_s
+    def run_pass(pass_path: Sequence[Point], altitude: float) -> None:
+        nonlocal elapsed
+        width, _ = camera.footprint(altitude)
+        pixels = camera.expected_pixel_size(size, altitude)
+        for a, b in _segments(pass_path):
+            elapsed += math.dist(a, b) / config.flight_speed_mps
+            for i, obj in enumerate(objects):
+                if _distance_to_segment(obj, a, b) > width / 2:
+                    continue
+                if math.dist(obj, (0.0, 0.0)) > config.radius_m:
+                    continue
+                ground_range = _distance_to_segment(obj, a, b)
+                if math.hypot(ground_range, altitude) > config.max_detection_range_m:
+                    continue
+                if pixels >= config.proposal_floor_px and i not in seen:
+                    seen.add(i)
+                    candidate_times.append(elapsed)
+                if pixels >= config.slow_verdict_min_px and i not in slow:
+                    slow.add(i)
+                    slow_times.append(elapsed)
+                if pixels >= config.confirmation_min_px and i not in confirmed:
+                    confirmed.add(i)
+                    confirm_times.append(elapsed)
+            elapsed += config.turn_time_s
+
+    run_pass(path, high)
     if pattern == "two_altitude":
         low = max(1.0, config.low_altitude_m)
         low_path = lawnmower(config.radius_m, camera, low, config.overlap)
-        low_width, _ = camera.footprint(low)
-        for a, b in _segments(low_path):
-            elapsed += math.dist(a, b) / config.flight_speed_mps
-            for i, obj in enumerate(objects):
-                if i in seen or _distance_to_segment(obj, a, b) > low_width / 2:
-                    continue
-                rng = math.hypot(obj[0] - b[0], obj[1] - b[1])
-                if (
-                    rng <= config.max_detection_range_m
-                    and camera.expected_pixel_size(size, low) >= config.proposal_floor_px
-                ):
-                    seen.add(i)
-                    first_seen.append(elapsed)
-            elapsed += config.turn_time_s
-    first_seen.sort()
+        # The runtime performs a bounded descent between passes.  Count the
+        # descent time approximately as vertical distance at flight speed.
+        elapsed += max(0.0, high - low) / config.flight_speed_mps
+        run_pass(low_path, low)
+    candidate_times.sort()
+    slow_times.sort()
+    confirm_times.sort()
     n90 = math.ceil(0.9 * config.object_count)
-    t90 = first_seen[n90 - 1] + config.hover_per_slow_call_s if len(first_seen) >= n90 else None
-    total = elapsed + len(seen) * config.hover_per_slow_call_s
+    t90 = slow_times[n90 - 1] + config.hover_per_slow_call_s if len(slow_times) >= n90 else None
+
+    def gate90(values: list[float]) -> float | None:
+        return values[n90 - 1] if len(values) >= n90 else None
+    total = elapsed + len(slow) * config.hover_per_slow_call_s
     return CoverageMetrics(
         pattern,
         size,
         config.radius_m,
+        len(slow) / config.object_count,
         len(seen) / config.object_count,
+        len(slow) / config.object_count,
+        len(confirmed) / config.object_count,
         t90,
+        gate90(candidate_times),
+        gate90(slow_times),
+        gate90(confirm_times),
         total,
-        float(len(seen)),
+        float(len(slow)),
+        len(slow),
         len(seen),
+        len(slow),
+        len(confirmed),
         config.object_count,
     )
 
