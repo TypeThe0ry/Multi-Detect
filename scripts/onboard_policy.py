@@ -65,6 +65,7 @@ from multidetect.sim_teacher.policies import (  # noqa: E402
     load_sdf_obstacles,
     segment_clear_of_obstacles,
 )
+from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
 from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
@@ -559,6 +560,10 @@ class OnboardPolicy:
         else:
             self.slow = slow_runner
         self.health.runner = self.slow
+        if isinstance(health_options, dict):
+            timeout = health_options.get("slow_timeout_s")
+            if timeout is not None and hasattr(self.slow, "call_timeout_s"):
+                self.slow.call_timeout_s = float(timeout)
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -709,6 +714,11 @@ class OnboardPolicy:
     def _health_log(self, reason: str, details: dict[str, Any]) -> None:
         if self.supervisor is not None:
             self.supervisor._record("health_degradation", reason=reason, details=details)
+        else:
+            record = {"reason": reason, "details": details, "timestamp": time.time()}
+            path = self.work_dir / "health.log.jsonl"
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
@@ -778,12 +788,32 @@ class OnboardPolicy:
         }
         from scripts.eval_slow_system import decision_confidence, parse_model_decision
 
+        health = getattr(self, "health", None)
+        if health is not None and not health.state.slow_available:
+            self._health_log("slow_call_skipped_unavailable", {"track_id": focus.track_id})
+            return {
+                "track_id": focus.track_id, "identity": None,
+                "error": "slow_unavailable", "latency_s": 0.0,
+            }
+        if health is not None and health.state.stop_frames:
+            self._health_log("slow_call_skipped_low_disk", {"track_id": focus.track_id})
+            return {
+                "track_id": focus.track_id, "identity": None,
+                "error": "low_disk", "latency_s": 0.0,
+            }
+        if (health is not None and health.state.slow_rate_scale < 1.0
+                and self._step % 2):
+            self._health_log("slow_call_rate_limited", {"track_id": focus.track_id})
+            return {
+                "track_id": focus.track_id, "identity": None,
+                "error": "slow_rate_limited", "latency_s": 0.0,
+            }
         started = time.perf_counter()
         try:
             raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
-            if getattr(self, "health", None):
-                self.health.record_slow_call(time.perf_counter() - started, ok=False)
+            if health is not None:
+                health.record_slow_call(time.perf_counter() - started, ok=False)
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -791,8 +821,8 @@ class OnboardPolicy:
                 "latency_s": time.perf_counter() - started,
             }
         self.slow_calls += 1
-        if getattr(self, "health", None):
-            self.health.record_slow_call(float(latency), ok=True)
+        if health is not None:
+            health.record_slow_call(float(latency), ok=True)
         decision, error = parse_model_decision(raw)
         identity = identity_of(decision["decision"]) if decision else None
         return {
@@ -862,9 +892,13 @@ class OnboardPolicy:
             action, info = self.supervisor.next_action(
                 pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
             )
-            return action, {"onboard": {**info, "health": health.state.__dict__}}
+            return action, {"onboard": {**info, "health": health.snapshot()}}
         if not detector_ok:
             raise RuntimeError("detector_failure")
+        if health is not None and health.state.detector_rate_scale < 1.0:
+            # Thermal/memory pressure halves proposal frequency while preserving state.
+            if self._step % 2:
+                detections = []
         fast_s = time.perf_counter() - started
         camera_info = observation["camera_info"]
         ground_model = self.ground_projection.for_observation(observation)
@@ -905,6 +939,12 @@ class OnboardPolicy:
                     remembered=verdict.get("remembered", False),
                 )
                 slow.append(verdict)
+                if verdict.get("error") in {"slow_unavailable", "low_disk"}:
+                    action = ActionPrimitive.hold(1.0)
+                    labels = {"onboard": {"state": "health_hold", "slow_calls": slow}}
+                    if health is not None:
+                        labels["onboard"]["health"] = health.snapshot()
+                    return action, labels
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -934,6 +974,8 @@ class OnboardPolicy:
                 "confirmed": self.loop.confirmed,
             }
         }
+        if health is not None and health.state.reasons:
+            labels["onboard"]["health"] = health.snapshot()
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         return action, labels
@@ -957,7 +999,7 @@ class OnboardPolicy:
                     action, info = self.supervisor.next_action(
                         pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
                     )
-                    return action, {"onboard": {**info, "health": self.health.state.__dict__}}
+                    return action, {"onboard": {**info, "health": self.health.snapshot()}}
                 continue
             loop = getattr(executor, "active_loop", None)
             # Inspection capture asks a distinct question from each deliberate
@@ -976,6 +1018,27 @@ class OnboardPolicy:
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
             slow.append(verdict)
+            if verdict.get("error") in {"slow_unavailable", "low_disk", "slow_rate_limited"}:
+                self._health_log(
+                    "mission_slow_call_skipped",
+                    {"track_id": track.track_id, "error": verdict["error"]},
+                )
+                if self.supervisor is not None:
+                    self.supervisor.health_fault(
+                        "slow_identity_unavailable", action="return_now"
+                    )
+                    action, info = self.supervisor.next_action(
+                        pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                    )
+                    return action, {
+                        "onboard": {**info, "health": self.health.snapshot()}
+                    }
+                return ActionPrimitive.hold(1.0), {
+                    "onboard": {
+                        "state": "health_hold", "slow_calls": slow,
+                        "health": self.health.snapshot(),
+                    }
+                }
         alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
             pose_ned=tuple(pose_ned),
