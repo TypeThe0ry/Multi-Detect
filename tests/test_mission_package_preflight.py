@@ -4,9 +4,11 @@ from copy import deepcopy
 
 import pytest
 
+from multidetect.autonomy.mission_executor import ExecutorConfig
 from multidetect.autonomy.mission_package import (
     MissionPackage,
     check_plan_against_package,
+    estimate_plan_duration,
     load_mission_package,
 )
 from multidetect.autonomy.mission_plan import validate_mission_plan
@@ -164,6 +166,59 @@ def test_route_and_no_fly_segment_are_checked() -> None:
     )
     codes = {v["code"] for v in check_plan_against_package(plan, package)}
     assert "NO_FLY_ZONE" in codes
+
+
+def test_actual_home_to_target_leg_is_checked_for_no_fly_crossing() -> None:
+    raw = _document()
+    raw["zones"]["zone:closed"] = {
+        "centre_ne": [10, 0], "radius_m": 2, "risk_tag": "no-fly"
+    }
+    raw["task_text"] = "test"
+    package = _package(raw=raw)
+    plan = validate_mission_plan(_plan(_goto_home()))
+    codes = {v["code"] for v in check_plan_against_package(plan, package)}
+    assert "NO_FLY_ZONE" in codes
+
+
+def test_reserve_return_admits_open_ended_monitor_plan() -> None:
+    raw = _document()
+    raw["budget"] = {
+        "time_s": 150, "reserve_time_s": 30,
+        "energy_wh": 300, "reserve_energy_wh": 30,
+    }
+    raw["task_text"] = "monitor until reserve return"
+    package = _package(raw=raw)
+    plan = validate_mission_plan(
+        _plan([
+            {
+                "id": "watch",
+                "skill": "monitor",
+                "params": {"region": "zone:yard", "query": "car", "duration_s": 900},
+                "on_success": "home", "on_fail": "home",
+            },
+            _goto_home()[1],
+        ])
+    )
+    assert check_plan_against_package(plan, package) == []
+
+
+def test_patrol_estimate_tracks_final_waypoint_for_return_home() -> None:
+    raw = _document()
+    raw["task_text"] = "patrol and return"
+    package = _package(raw=raw)
+    plan = validate_mission_plan(
+        _plan([
+            {
+                "id": "patrol",
+                "skill": "patrol",
+                "params": {"route_ref": "route:yard", "query": "fence", "loops": 1},
+                "on_success": "home", "on_fail": "home",
+            },
+            _goto_home()[1],
+        ])
+    )
+    estimate = estimate_plan_duration(plan, package, executor_config=ExecutorConfig())
+    assert estimate > 2 * (20 / 1.03)
 
 
 def test_time_budget_capability_and_terminal_reachability() -> None:

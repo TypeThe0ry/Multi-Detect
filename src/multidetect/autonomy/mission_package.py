@@ -249,7 +249,7 @@ def estimate_plan_duration(
         else:
             duration = step_budget
         total += max(0.0, duration)
-        if skill in OPEN_ENDED_SKILLS:
+        if skill in OPEN_ENDED_SKILLS and skill != "patrol":
             previous = None
         elif skill == "inspect":
             previous = target

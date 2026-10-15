@@ -173,6 +173,53 @@ def test_compile_mission_plan_accepts_valid_model_response():
     assert report["error"] is None
 
 
+def test_compile_passes_payload_capability_to_plan_validation():
+    raw = json.dumps({
+        "plan_version": 1,
+        "goal": "deliver",
+        "steps": [
+            {
+                "id": "drop",
+                "skill": "deliver",
+                "params": {"target_ref": "home", "payload_ref": "home"},
+                "on_success": "home",
+                "on_fail": "home",
+            },
+            {
+                "id": "home", "skill": "return_home", "params": {},
+                "on_success": None, "on_fail": None,
+            },
+        ],
+        "report": [],
+    })
+    plan, report = compile_mission_plan(
+        lambda _prompt, _schema: raw,
+        "deliver",
+        capabilities=frozenset({"payload"}),
+    )
+    assert plan is not None
+    assert report["error"] is None
+
+
+def test_retry_clears_package_violations_and_raw_before_transport_error():
+    responses = iter(("{}", RuntimeError("transport down")))
+
+    def post(_prompt, _schema):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    def reject(_plan):
+        return [{"code": "NO_FLY_ZONE", "message_zh": "禁飞", "message_en": "no fly"}]
+
+    plan, report = compile_mission_plan(post, "find", plan_checker=reject)
+    assert plan is None
+    assert report["error"] == "transport down"
+    assert report["raw"] == ""
+    assert "package_violations" not in report
+
+
 def test_compile_mission_plan_repairs_retry_back_edge():
     raw = json.dumps(_find_plan(retry_back_edge=True))
     calls = []
