@@ -95,14 +95,27 @@ def _admit_package(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]:
     """Admit a package before opening a camera, vehicle, or model backend."""
     package_path = getattr(args, "mission_package", None)
     if package_path is None:
-        if not getattr(args, "task", None) and getattr(args, "mode", None) == "real":
-            raise ValueError("--task is required when --mission-package is not supplied")
+        if getattr(args, "mode", None) == "real":
+            if not getattr(args, "policy_config", None):
+                raise ValueError(
+                    "--policy-config is required when --mission-package is not supplied"
+                )
+            if not getattr(args, "task", None):
+                raise ValueError("--task is required when --mission-package is not supplied")
         return None, {}
+    # Admission and execution must refer to the exact same files.  Resolve the
+    # paths once here, before any source/model backend is opened, and retain the
+    # resolved values on the namespace for callers that construct their own
+    # execution path.
+    package_path = Path(package_path).expanduser().resolve()
+    args.mission_package = package_path
     if not package_path.is_file():
         raise ValueError(f"mission package not found: {package_path}")
     key_path = getattr(args, "operator_key", None)
     if key_path is None:
         raise ValueError("--operator-key is required for a signed mission package")
+    key_path = Path(key_path).expanduser().resolve()
+    args.operator_key = key_path
     if not key_path.is_file():
         raise ValueError(f"operator key not found: {key_path}")
     try:
@@ -250,6 +263,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             camera_info=calibrated.camera_info, image_size=(calibrated.width, calibrated.height),
             work_dir=args.work_dir, config=options, proposer=proposer, slow_runner=slow,
             ground_projector=projector, home_ned=(home[0], home[1], 0),
+            mission_package=package,
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
         # Model startup may take minutes. Recheck input freshness before streaming.
@@ -326,14 +340,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _has_option(argv: list[str], name: str) -> bool:
+    """Return whether *name* is present as a flag or ``--name=value``."""
+    return any(token == name or token.startswith(name + "=") for token in argv)
+
+
 def main(argv=None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     # A package-only invocation is the explicit comms-free real entry. Legacy
     # callers that name a mode continue to use the subcommand grammar.
-    if argv is not None and argv and argv[0] not in {"real", "replay", "-h", "--help"}:
+    if argv and argv[0] not in {"real", "replay", "-h", "--help"}:
         argv = ["real", *argv]
-        if "--mission-package" in argv and "--failsafe" not in argv:
+        if _has_option(argv, "--mission-package") and not _has_option(argv, "--failsafe"):
             argv.extend(["--failsafe", "land"])
     args = build_parser().parse_args(argv)
     try:
