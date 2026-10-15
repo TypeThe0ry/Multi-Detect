@@ -66,16 +66,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--old-manifest", type=Path, required=True)
-    parser.add_argument(
-        "--index", type=Path, default=ROOT / "configs/scenarios/generated/index.json"
-    )
+    parser.add_argument("--index", type=Path, required=True)
     parser.add_argument("--truth-root", action="append", type=Path, default=[])
     parser.add_argument("--min-box-px", type=float, default=2.0)
     parser.add_argument("--min-seg-area-px", type=int, default=1)
     parser.add_argument("--negative-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=20261015)
     parser.add_argument("--max-frames", type=int)
+    parser.add_argument(
+        "--holdout-mode",
+        choices=("historical-three", "generated-v2-six"),
+        default="historical-three",
+    )
     args = parser.parse_args(argv)
+    holdout_assets = set()
+    if args.holdout_mode == "generated-v2-six":
+        holdout_assets = {
+            "stop_sign",
+            "suv",
+            "walking_person",
+            "pickup",
+            "postbox",
+            "standing_person",
+        }
     campaigns = [args.old_campaign, *args.campaign_root]
     manifest = build_dataset(
         campaigns,
@@ -88,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         label_source="segmentation",
         truth_roots=args.truth_root,
         max_frames=args.max_frames,
+        holdout_assets=holdout_assets,
     )
     old = json.loads(args.old_manifest.read_text(encoding="utf-8"))
     report = {
@@ -96,12 +110,24 @@ def main(argv: list[str] | None = None) -> int:
             "label_source": "segmentation",
             "min_box_px": args.min_box_px,
             "min_seg_area_px": args.min_seg_area_px,
+            "holdout_mode": args.holdout_mode,
+            "holdout_definition": (
+                "historical r3 detector-class holdout (default; comparable with r3)"
+                if args.holdout_mode == "historical-three"
+                else "generated-v2 six asset-slug holdout from segmentation truth"
+            ),
+            "detector_holdout_classes": ["stop_sign", "postbox", "pickup"],
+            "asset_holdout_slugs": sorted(holdout_assets),
         },
         "new_manifest": str((args.output / "manifest.json").resolve()),
         "old_manifest": str(args.old_manifest.resolve()),
         "old_counts": old.get("counts", {}),
         "new_counts": manifest.get("counts", {}),
         "dedupe": manifest.get("dedupe", {}),
+        "heldout_asset_verification": {
+            "remaining_train_val_instances": manifest.get("remaining_asset_instances", {}),
+            "excluded_train_val_images": manifest.get("heldout_asset_images", {}),
+        },
         "category_size_histogram": compare_histograms(
             manifest_histogram(old), manifest_histogram(manifest)
         ),

@@ -53,12 +53,20 @@ def iou(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     return inter / (aa + ab - inter) if aa + ab - inter else 0.0
 
 
-def collect_frames(roots: list[Path], *, max_frames: int | None = None) -> list[dict[str, Any]]:
+def collect_frames(
+    roots: list[Path], index_path: Path, *, max_frames: int | None = None
+) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
     seen_sha: set[str] = set()
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    splits = {str(row["world_id"]): str(row["split"]) for row in index.get("worlds", [])}
     for root in roots:
         for episode in sorted(p.parent for p in root.rglob("steps.jsonl")):
             world = next((p for p in episode.parts if p.startswith("gen_")), episode.parent.name)
+            if splits.get(world) != "test":
+                raise ValueError(
+                    f"evaluator requires test world, got {world!r} split={splits.get(world)!r}"
+                )
             truth_path = _find_truth(world, [ROOT, root])
             if truth_path is None:
                 continue
@@ -122,8 +130,24 @@ def score(
     counters = defaultdict(lambda: {"objects": 0, "hit03": 0, "hit05": 0})
     for frame in frames:
         boxes = predictions.get(str(frame["image"]), [])
-        for obj in frame["objects"]:
-            overlap = max((iou(obj["box"], box) for box in boxes), default=0.0)
+        pairs = sorted(
+            (
+                (iou(obj["box"], box), oi, pi)
+                for oi, obj in enumerate(frame["objects"])
+                for pi, box in enumerate(boxes)
+            ),
+            reverse=True,
+        )
+        overlaps = {}
+        used_objects: set[int] = set()
+        used_predictions: set[int] = set()
+        for overlap, oi, pi in pairs:
+            if oi not in used_objects and pi not in used_predictions:
+                overlaps[oi] = overlap
+                used_objects.add(oi)
+                used_predictions.add(pi)
+        for oi, obj in enumerate(frame["objects"]):
+            overlap = overlaps.get(oi, 0.0)
             for dim, value in (
                 ("category", obj["category"]),
                 ("size", obj["size_bucket"]),
@@ -164,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--old-weights", type=Path, required=True)
+    parser.add_argument("--index", type=Path, required=True)
     parser.add_argument("--new-weights", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--imgsz", type=int, action="append", default=[1280, 960])
@@ -172,9 +197,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    frames = collect_frames(args.campaign_root, max_frames=args.max_frames)
+    frames = collect_frames(args.campaign_root, args.index, max_frames=args.max_frames)
     report: dict[str, Any] = {
         "status": "dry_run" if args.dry_run else "measured",
+        "evaluation_scope": "class-agnostic proposal recall on index worlds with split=test",
+        "matching": "greedy one-to-one prediction/ground-truth matching",
         "frames": len(frames),
         "imgsz": sorted(set(args.imgsz)),
         "confidence": args.confidence,

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Build a world-disjoint YOLO dataset from SIM teacher campaigns.
+"""Build a fail-closed, world-disjoint YOLO dataset from SIM campaigns.
 
 Labels are generated from privileged scenario truth and are used only while
-building the training artifact.  Every frame is assigned to the split of its
-world (from generated ``index.json``); no episode or frame can cross splits.
+building the training artifact. Every indexed world uses the split recorded in
+the supplied index. Only the explicitly train-only ``gen_cfs_w`` and
+``gen_cfs2_w`` confuser prefixes may be absent from the index; all other
+unknown worlds fail closed.
 """
 
 from __future__ import annotations
@@ -285,6 +287,7 @@ def build_dataset(
     min_seg_area_px: int = 4,
     truth_roots: list[Path] | None = None,
     max_frames: int | None = None,
+    holdout_assets: set[str] | None = None,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
@@ -309,15 +312,20 @@ def build_dataset(
     seen_perceptual: set[str] = set()
     dedupe = Counter()
     scanned_frames = 0
+    heldout_asset_images = Counter()
+    remaining_asset_instances = Counter()
     for campaign in campaign_roots:
         for episode in _episode_dirs(campaign):
             metadata_path = episode / "episode.json"
             if not metadata_path.is_file() or _load(metadata_path).get("status") != "complete":
                 continue
             world = _world_id(episode)
-            # Onboard DAgger confuser worlds are intentionally outside the
-            # generated-v2 split index; keep them in train by default.
-            split = splits.get(world, "train")
+            if world in splits:
+                split = splits[world]
+            elif world.startswith(("gen_cfs_w", "gen_cfs2_w")):
+                split = "train"
+            else:
+                raise ValueError(f"world {world!r} is missing from required index {index_path}")
             if split not in ("train", "val", "test"):
                 raise ValueError(f"invalid split {split!r} for {world}")
             roots = [index_path.parent, campaign, Path.cwd(), *(truth_roots or [])]
@@ -389,6 +397,19 @@ def build_dataset(
                         segmentation_boxes = boxes_from_segmentation(
                             seg_image, truth, min_area_px=min_seg_area_px, min_box_px=min_box_px
                         )
+                    # Holdout is defined by the segmentation-truth asset slug.
+                    # Do not infer it from the detector class: walking_person
+                    # and standing_person both map to detector class person.
+                    asset_slugs = {
+                        str(label.get("asset_slug") or "")
+                        for label in truth.get("segmentation_labels", {}).values()
+                        if isinstance(label, dict) and label.get("asset_slug")
+                    }
+                    blocked_assets = asset_slugs & (holdout_assets or set())
+                    if split in ("train", "val") and blocked_assets:
+                        for asset in blocked_assets:
+                            heldout_asset_images[(split, asset)] += 1
+                        continue
                     labels: list[str] = []
                     classes: list[str] = []
                     objects: list[dict[str, Any]] = []
@@ -472,6 +493,9 @@ def build_dataset(
                                 **(segmentation or {}),
                             }
                         )
+                        asset_slug = str(target.get("asset_slug") or target.get("asset") or "")
+                        if asset_slug in (holdout_assets or set()):
+                            remaining_asset_instances[(split, asset_slug)] += 1
                     records.append(
                         {
                             "source": str(rgb),
@@ -633,6 +657,21 @@ def build_dataset(
             "unique_perceptual": len(seen_perceptual),
         },
         "scanned_frames": scanned_frames,
+        "holdout_assets": sorted(holdout_assets or set()),
+        "heldout_asset_images": {
+            split: {
+                asset: heldout_asset_images[(split, asset)]
+                for asset in sorted(holdout_assets or set())
+            }
+            for split in ("train", "val")
+        },
+        "remaining_asset_instances": {
+            split: {
+                asset: remaining_asset_instances[(split, asset)]
+                for asset in sorted(holdout_assets or set())
+            }
+            for split in ("train", "val")
+        },
         "frames": manifest_rows,
     }
     (output / "manifest.json").write_text(
@@ -670,6 +709,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-seg-area-px", type=int, default=4)
     parser.add_argument("--truth-root", action="append", type=Path, default=[])
     parser.add_argument("--max-frames", type=int)
+    parser.add_argument("--holdout-asset", action="append", default=[])
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -686,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
         min_seg_area_px=args.min_seg_area_px,
         truth_roots=args.truth_root,
         max_frames=args.max_frames,
+        holdout_assets=set(args.holdout_asset),
     )
     print(
         json.dumps(
