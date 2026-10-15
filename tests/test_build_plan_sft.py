@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+import build_plan_sft  # noqa: E402
 from build_plan_sft import mission_v3  # noqa: E402
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
@@ -178,3 +179,59 @@ def test_cli_rejects_missing_training_skills(version, options, missing):
         assert not output.exists()
     finally:
         shutil.rmtree(output, ignore_errors=True)
+
+
+@pytest.mark.parametrize("selection", ["default", "grouped", "repeated"])
+@pytest.mark.parametrize("version", ["v2", "v4"])
+def test_cli_excludes_all_selected_eval_files(monkeypatch, selection, version):
+    workspace = ROOT / "tmp" / f"plan-sft-held-out-{uuid.uuid4().hex}"
+    try:
+        eval_dir = workspace / "configs/onboard"
+        eval_dir.mkdir(parents=True)
+        empty = workspace / "empty.json"
+        empty.write_text('{"tasks": []}', encoding="utf-8")
+        common = ["--rows", "20", "--val-rows", "2", "--version", version, "--require-skills"]
+        baseline = workspace / "baseline"
+        assert build_plan_sft.main(
+            ["--output", str(baseline), *common, "--eval-tasks", str(empty)]
+        ) == 0
+        baseline_rows = [
+            json.loads(line)
+            for line in (baseline / "train.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        held_out = {row["task_text"] for row in baseline_rows[:2]}
+        paths = [eval_dir / "plan-eval-tasks.json", eval_dir / "plan-eval-tasks-v2.json"]
+        for path, row in zip(paths, baseline_rows, strict=False):
+            # Match the generator's whitespace normalization, including newlines.
+            path.write_text(
+                json.dumps({"tasks": [{"text": "  " + row["task_text"] + "\n"}]}),
+                encoding="utf-8",
+            )
+        monkeypatch.setattr(build_plan_sft, "ROOT", workspace)
+        options = {
+            "default": [],
+            "grouped": ["--eval-tasks", *(str(path) for path in paths)],
+            "repeated": ["--eval-tasks", str(paths[0]), "--eval-tasks", str(paths[1])],
+        }[selection]
+        output = workspace / "filtered"
+        assert build_plan_sft.main(["--output", str(output), *common, *options]) == 0
+        generated = {
+            json.loads(line)["task_text"]
+            for split in ("train", "val")
+            for line in (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()
+        }
+        assert len(generated) == 22
+        assert not generated & held_out
+
+        # Loading extra files must not consume RNG state when no text collides.
+        for path in paths:
+            path.write_text(
+                '{"tasks": [{"text": "An unrelated held-out instruction"}]}',
+                encoding="utf-8",
+            )
+        unchanged = workspace / "unchanged"
+        assert build_plan_sft.main(["--output", str(unchanged), *common, *options]) == 0
+        for name in ("train.jsonl", "val.jsonl", "manifest.json"):
+            assert (unchanged / name).read_bytes() == (baseline / name).read_bytes()
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
