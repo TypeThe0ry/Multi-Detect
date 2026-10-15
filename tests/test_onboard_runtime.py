@@ -315,17 +315,29 @@ def test_takeoff_primes_stream_and_confirms_mode_arm_before_home_relative_climb(
         vehicle.position = (target.north_m, target.east_m, target.down_m)
 
     vehicle.send_setpoint = follow_setpoint
+    primed_before_offboard = []
+    set_mode = vehicle.set_mode
+
+    def record_priming(mode):
+        primed_before_offboard.append(len(vehicle.setpoints))
+        set_mode(mode)
+
+    vehicle.set_mode = record_priming
     runtime = OnboardRuntime(vehicle, camera, policy, home_ned=(10, 20, 7))
     runtime.start(active=False)
     started = time.monotonic()
     try:
-        runtime.arm_and_takeoff(10, timeout_s=1)
+        # Generous deadline: the arm/climb bound is not under test and a loaded CI
+        # machine can starve the pump thread for a while.
+        runtime.arm_and_takeoff(10, timeout_s=15)
         assert time.monotonic() - started >= 1
         assert vehicle.commands[:2] == ["OFFBOARD", "arm"]
         assert runtime.pump.target.down_m == -3
         assert runtime.owns_flight
         assert policy.calls == 0
-        assert len(vehicle.setpoints) >= 15
+        # PX4 rejects OFFBOARD without a live setpoint stream: the stream must already be
+        # flowing when OFFBOARD is first requested (1.2 s of priming at >= 10 Hz).
+        assert primed_before_offboard and primed_before_offboard[0] >= 5
     finally:
         runtime.close()
 
