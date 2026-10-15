@@ -1,0 +1,2031 @@
+{
+  "schema_version": 1,
+  "note": "Hand-written held-out v3 operator tasks. Known refs are inherited unless a task overrides refs. expected_steps provides concrete witnesses for the scored skill labels; implicit endings return home. Eight expect_invalid cases require rejection or a safe host fallback, not execution of the requested mission.",
+  "refs": [
+    "poi:gate (大门 / the gate)",
+    "poi:pad (起降坪 / the landing pad)",
+    "poi:tower (水塔 / the water tower)",
+    "poi:shed (仓库 / the shed)",
+    "poi:bridge (桥 / the bridge)",
+    "zone:lot (停车场 / the parking lot)",
+    "zone:field (场地 / the field)",
+    "zone:farm (农田 / the farm)",
+    "zone:yard (院子 / the yard)",
+    "zone:roof (屋顶 / the roof)",
+    "route:fence (围栏路线 / the fence route)",
+    "route:north (北线 / the north route)",
+    "route:road (道路路线 / the road route)"
+  ],
+  "tasks": [
+    {
+      "text": "停车场那堆电瓶车给我报个总数，凑够十二辆就停手。",
+      "language": "zh",
+      "skills": [
+        "count",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:lot",
+            "query": "electric bicycle",
+            "max_count": 12
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "院里散着几只鹅？给个准数，算到7只就够，别另外找别的。",
+      "language": "zh",
+      "skills": [
+        "count",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:yard",
+            "query": "goose",
+            "max_count": 7
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先到桥头就位，农田里拖拉机一共几台帮我算清，收工落起降坪。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "count",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:bridge"
+          }
+        },
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:farm",
+            "query": "tractor"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        }
+      ]
+    },
+    {
+      "text": "场地上的安全帽按顶报数；报完去水塔，再落下来。",
+      "language": "zh",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:field",
+            "query": "hard hat"
+          }
+        },
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:tower"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "停车场有个紫色行李箱，帮忙瞅瞅在哪儿，认准后留张影像作凭据。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:lot",
+            "query": "purple suitcase"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "purple suitcase"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "院子里替我寻一下断掉的树枝，定位到就存一张图，原处等25秒再回起飞点。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "broken branch"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "broken branch"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 25
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "到仓库那边去，搜搜有没有绿色垃圾桶，有的话把画面存档，完事落地。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "area_search",
+        "record",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:shed"
+          }
+        },
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:all",
+            "query": "green dumpster"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "green dumpster"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "农田那头的橙色水桶不见了，替我找出来，照片别忘了存，拍好停四十秒再撤回。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:farm",
+            "query": "orange bucket"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "orange bucket"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 40
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "场地里那辆叉车给我搜出来，隔着十米绕着瞅四面，检查完回起点。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:field",
+            "query": "forklift"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "forklift",
+            "views": 4,
+            "standoff_m": 10
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "院内有个裂开的花盆，帮我定位，留出8米距离拍六个方位，之后落地。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "inspect",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "cracked flowerpot"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "cracked flowerpot",
+            "views": 6,
+            "standoff_m": 8
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先往大门去，把黄色校车找着，保持十二米间距转一圈查3个角度，然后回来。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "area_search",
+        "inspect",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:all",
+            "query": "yellow school bus"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "yellow school bus",
+            "views": 3,
+            "standoff_m": 12
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "场地上穿蓝外套那人在哪儿？搜到就跟着他走一分半钟，结束回起飞点。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:field",
+            "query": "person in blue jacket"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "person in blue jacket",
+            "duration_s": 90
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "院里跑的黑狗给我找着，盯着它挪动两分钟，别只停在原地看，结束降落。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "follow",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "black dog"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "black dog",
+            "duration_s": 120
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "停车场替我寻出那辆银色皮卡，跟车走180秒，回来前存一下它的影像。",
+      "language": "zh",
+      "skills": [
+        "area_search",
+        "follow",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:lot",
+            "query": "silver pickup truck"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "silver pickup truck",
+            "duration_s": 180
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "silver pickup truck"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "围栏那条路线去溜一圈，路上留神野猪，走完返场。",
+      "language": "zh",
+      "skills": [
+        "patrol",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:fence",
+            "query": "wild boar",
+            "loops": 1
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "北线来回按整圈跑三趟，有货车就留意，结束落地。",
+      "language": "zh",
+      "skills": [
+        "patrol",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:north",
+            "query": "truck",
+            "loops": 3
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "道路路线替我走2圈查骑车的人，再回大门就位，最后返场。",
+      "language": "zh",
+      "skills": [
+        "patrol",
+        "goto",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:road",
+            "query": "cyclist",
+            "loops": 2
+          }
+        },
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先把围栏路线兜两圈，注意狐狸；随后院子里再盯狐狸三分钟，完事回来。",
+      "language": "zh",
+      "skills": [
+        "patrol",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:fence",
+            "query": "fox",
+            "loops": 2
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:yard",
+            "query": "fox",
+            "duration_s": 180
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "屋顶拼一幅完整航拍图，相邻照片压住七成，做完交差。",
+      "language": "zh",
+      "skills": [
+        "survey",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:roof",
+            "overlap": 0.7
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "农田需要一份拼接底图，照片之间留65%的重叠，完成就落地。",
+      "language": "zh",
+      "skills": [
+        "survey",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:farm",
+            "overlap": 0.65
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先去水塔，接着给场地采集测绘照片，前后重叠百分之八十，任务完了回起点。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "survey",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:tower"
+          }
+        },
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:field",
+            "overlap": 0.8
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "停车场做航测，重叠留六成；做完院子也测一遍，同样六成，收尾落起降坪。",
+      "language": "zh",
+      "skills": [
+        "survey",
+        "survey",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:lot",
+            "overlap": 0.6
+          }
+        },
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:yard",
+            "overlap": 0.6
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        }
+      ]
+    },
+    {
+      "text": "院子这边替我守着五分钟，看有没有猫进来，人别跟出去。",
+      "language": "zh",
+      "skills": [
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:yard",
+            "query": "cat",
+            "duration_s": 300
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "停车场盯着救护车90秒，时间到了就降落。",
+      "language": "zh",
+      "skills": [
+        "monitor",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:lot",
+            "query": "ambulance",
+            "duration_s": 90
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先在大门就位，再观察场地上的工人六分钟，随后返场。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:field",
+            "query": "worker",
+            "duration_s": 360
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "农田里的鹿先观察4分钟，再观察院里的狗两分钟，最后回来。",
+      "language": "zh",
+      "skills": [
+        "monitor",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:farm",
+            "query": "deer",
+            "duration_s": 240
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:yard",
+            "query": "dog",
+            "duration_s": 120
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "到桥那儿稳住别动，待四十五秒，随后回起点。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:bridge"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 45
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先别挪窝，定住15秒，接着在当前位置落下来。",
+      "language": "zh",
+      "skills": [
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 15
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "挪到仓库，原处等一分二十秒，收尾回起飞点。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:shed"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 80
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "去起降坪上方，稳稳悬着三十秒，再在起降坪着陆。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 30
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        }
+      ]
+    },
+    {
+      "text": "把眼前这块红色路牌的画面存一份就行，别满场找，存好回起点。",
+      "language": "zh",
+      "skills": [
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "record",
+          "params": {
+            "query": "red road sign"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "当前镜头里的白色轿车拍照留档，等十秒再落地，不用搜索。",
+      "language": "zh",
+      "skills": [
+        "record",
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "record",
+          "params": {
+            "query": "white car"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 10
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "先到水塔就位，眼前的天线直接存图作证，不用再找，接着返场。",
+      "language": "zh",
+      "skills": [
+        "goto",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:tower"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "antenna"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "别接着干了，直接回咱们放飞的位置。",
+      "language": "zh",
+      "skills": [
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "就在脚下这个位置着陆吧。",
+      "language": "zh",
+      "skills": [
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "屋顶航测按75%重叠做完，盯屋顶的鸽子两分钟，把它们的画面存档，随后落地。",
+      "language": "zh",
+      "skills": [
+        "survey",
+        "monitor",
+        "record",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:roof",
+            "overlap": 0.75
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:roof",
+            "query": "pigeon",
+            "duration_s": 120
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "pigeon"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "飞到地图上没标出的青石码头，到了再回来；不要拿别的地点顶替。",
+      "language": "zh",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "去未登记的旧气象站落地，不是水塔也不是仓库。",
+      "language": "zh",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "这架机没有载荷配送能力，把急救包送到大门。",
+      "language": "zh",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "当前没有挂载货物，也不具备投送功能，仍把一箱电池运到仓库。",
+      "language": "zh",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "I need a headcount of workers across the field; stop once you reach nine.",
+      "language": "en",
+      "skills": [
+        "count",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:field",
+            "query": "worker",
+            "max_count": 9
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Give me the total for yellow taxis in the parking lot, with a cutoff of 14.",
+      "language": "en",
+      "skills": [
+        "count",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:lot",
+            "query": "yellow taxi",
+            "max_count": 14
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Get yourself to the shed first; I need the number of sheep in the farm, followed by a landing.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "count",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:shed"
+          }
+        },
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:farm",
+            "query": "sheep"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Work out the number of crates in the yard, head over to the bridge afterward, and put down there.",
+      "language": "en",
+      "skills": [
+        "count",
+        "goto",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "count",
+          "params": {
+            "region": "zone:yard",
+            "query": "crate"
+          }
+        },
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:bridge"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:bridge"
+          }
+        }
+      ]
+    },
+    {
+      "text": "There is a striped umbrella somewhere in the yard. Locate it and keep a still image for the incident log.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "striped umbrella"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "striped umbrella"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "The field is missing a red wheelbarrow. Track down its location, save visual proof, wait thirty-five seconds on the spot, and head back to launch.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:field",
+            "query": "red wheelbarrow"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "red wheelbarrow"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 35
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Make your way to the gate, pick out the orange delivery van somewhere in the area, and archive its image before landing.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "area_search",
+        "record",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:all",
+            "query": "orange delivery van"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "orange delivery van"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Locate the blue drum in the farm; the paperwork needs a saved photo. Hold position for 55 seconds after that and bring the aircraft back.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "record",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:farm",
+            "query": "blue drum"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "blue drum"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 55
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Pick out the excavator in the field and examine five viewpoints from eleven metres away; wrap up back at launch.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "inspect",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:field",
+            "query": "excavator"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "excavator",
+            "views": 5,
+            "standoff_m": 11
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "The yard has a damaged bench somewhere. Locate it, circle for 8 inspection views at a twelve-metre stand-off, then set down.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "inspect",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "damaged bench"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "damaged bench",
+            "views": 8,
+            "standoff_m": 12
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Reposition to the water tower, locate a white minibus in the area, and examine four sides while keeping 9 metres clear. Bring it back afterward.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "area_search",
+        "inspect",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:tower"
+          }
+        },
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:all",
+            "query": "white minibus"
+          }
+        },
+        {
+          "skill": "inspect",
+          "params": {
+            "target_ref": "finding:1",
+            "query": "white minibus",
+            "views": 4,
+            "standoff_m": 9
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Pick out the runner with a green cap in the field, then move along with that runner for four minutes before heading back to launch.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "follow",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:field",
+            "query": "runner in green cap"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "runner in green cap",
+            "duration_s": 240
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Locate the brown dog in the yard and stay with it as it moves for 75 seconds. Finish with a landing.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "follow",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:yard",
+            "query": "brown dog"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "brown dog",
+            "duration_s": 75
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Somewhere in the parking lot is a blue scooter. Locate it, move with it for two minutes, and save its image before bringing the drone back.",
+      "language": "en",
+      "skills": [
+        "area_search",
+        "follow",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "area_search",
+          "params": {
+            "region": "zone:lot",
+            "query": "blue scooter"
+          }
+        },
+        {
+          "skill": "follow",
+          "params": {
+            "track_ref": "track:1",
+            "query": "blue scooter",
+            "duration_s": 120
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "blue scooter"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Do one circuit of the north route, keeping an eye out for deer; that is the whole job.",
+      "language": "en",
+      "skills": [
+        "patrol",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:north",
+            "query": "deer",
+            "loops": 1
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Give the road route four complete passes for stray dogs, then set the aircraft down.",
+      "language": "en",
+      "skills": [
+        "patrol",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:road",
+            "query": "stray dog",
+            "loops": 4
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Run 3 circuits of the fence route for bicycles; once done, reposition to the shed and bring it back to launch.",
+      "language": "en",
+      "skills": [
+        "patrol",
+        "goto",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:fence",
+            "query": "bicycle",
+            "loops": 3
+          }
+        },
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:shed"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Make two rounds of the north route for tractors, then keep the farm under observation for tractors for six minutes. Bring it back when the timer ends.",
+      "language": "en",
+      "skills": [
+        "patrol",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "patrol",
+          "params": {
+            "route_ref": "route:north",
+            "query": "tractor",
+            "loops": 2
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:farm",
+            "query": "tractor",
+            "duration_s": 360
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Build a photo mosaic of the yard, making neighbouring images overlap by sixty-eight percent.",
+      "language": "en",
+      "skills": [
+        "survey",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:yard",
+            "overlap": 0.68
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "The parking lot needs mapping imagery with 72% shared coverage between adjacent frames; set down after collecting it.",
+      "language": "en",
+      "skills": [
+        "survey",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:lot",
+            "overlap": 0.72
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Take station at the bridge first, then collect a mapping pass over the farm with eighty-five percent image overlap and bring it back.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "survey",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:bridge"
+          }
+        },
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:farm",
+            "overlap": 0.85
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Map the field at 55 percent overlap, repeat that mapping job over the roof at the same overlap, and finish down on the pad.",
+      "language": "en",
+      "skills": [
+        "survey",
+        "survey",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:field",
+            "overlap": 0.55
+          }
+        },
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:roof",
+            "overlap": 0.55
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Keep the roof under observation for gulls for eleven minutes. Stay watching that area rather than chasing a bird.",
+      "language": "en",
+      "skills": [
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:roof",
+            "query": "gull",
+            "duration_s": 660
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Spend 150 seconds observing the parking lot for motorcycles, then put the drone down.",
+      "language": "en",
+      "skills": [
+        "monitor",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:lot",
+            "query": "motorcycle",
+            "duration_s": 150
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Take station at the gate, observe the yard for delivery vans for eight minutes, and bring it back to launch afterward.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:yard",
+            "query": "delivery van",
+            "duration_s": 480
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Observe the field for rabbits for three minutes, then the farm for foxes for 5 minutes, and bring the aircraft home.",
+      "language": "en",
+      "skills": [
+        "monitor",
+        "monitor",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:field",
+            "query": "rabbit",
+            "duration_s": 180
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:farm",
+            "query": "fox",
+            "duration_s": 300
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Position yourself at the water tower and stay absolutely still for seventy seconds before heading back to launch.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:tower"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 70
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Stay right where you are for 18 seconds; after the pause, touch down on the spot.",
+      "language": "en",
+      "skills": [
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 18
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Reposition to the gate, hold that position for a minute and a half, and bring it back.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "hover",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:gate"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 90
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Move over the pad and hold steady for twenty-five seconds, then touch down on the pad.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 25
+          }
+        },
+        {
+          "skill": "land",
+          "params": {
+            "target_ref": "poi:pad"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Save a still of the green toolbox already in view for the maintenance record, then bring it back. No search is needed.",
+      "language": "en",
+      "skills": [
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "record",
+          "params": {
+            "query": "green toolbox"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "The orange cone is already visible: preserve its image, pause for 12 seconds, and put the drone down.",
+      "language": "en",
+      "skills": [
+        "record",
+        "hover",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "record",
+          "params": {
+            "query": "orange traffic cone"
+          }
+        },
+        {
+          "skill": "hover",
+          "params": {
+            "duration_s": 12
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Reposition to the shed and save an image of the ladder in the current view without doing a search; head back to launch afterward.",
+      "language": "en",
+      "skills": [
+        "goto",
+        "record",
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "goto",
+          "params": {
+            "target_ref": "poi:shed"
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "ladder"
+          }
+        },
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "We are finished out here; bring the aircraft straight back to where it took off.",
+      "language": "en",
+      "skills": [
+        "return_home"
+      ],
+      "expected_steps": [
+        {
+          "skill": "return_home",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Put the aircraft down at its current position; the job is over.",
+      "language": "en",
+      "skills": [
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Collect the roof mosaic at 78% overlap, observe that roof for crows for four minutes, archive an image of the crows, and set down.",
+      "language": "en",
+      "skills": [
+        "survey",
+        "monitor",
+        "record",
+        "land"
+      ],
+      "expected_steps": [
+        {
+          "skill": "survey",
+          "params": {
+            "region": "zone:roof",
+            "overlap": 0.78
+          }
+        },
+        {
+          "skill": "monitor",
+          "params": {
+            "region": "zone:roof",
+            "query": "crow",
+            "duration_s": 240
+          }
+        },
+        {
+          "skill": "record",
+          "params": {
+            "query": "crow"
+          }
+        },
+        {
+          "skill": "land",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "text": "Take the aircraft to the unregistered East Pump House, then bring it back; no listed place is a substitute.",
+      "language": "en",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "Touch down at Raven Pier, which is absent from the known places. Do not substitute the bridge or pad.",
+      "language": "en",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "This aircraft has no payload capability; deliver a medical parcel to the bridge anyway.",
+      "language": "en",
+      "skills": [],
+      "expect_invalid": true
+    },
+    {
+      "text": "Carry a spare radio to the tower even though no cargo is attached and delivery capability is unavailable.",
+      "language": "en",
+      "skills": [],
+      "expect_invalid": true
+    }
+  ]
+}

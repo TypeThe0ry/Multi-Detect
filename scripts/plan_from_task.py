@@ -5,6 +5,8 @@ reference rules and two examples; decoding is constrained by the per-skill JSON
 schema. Each plan is checked with ``validate_mission_plan``; on failure the model
 gets one retry with the error. Scored against the expected skill sequence on the
 success path of hand-written tasks (configs/onboard/plan-eval-tasks.json).
+Tasks marked ``expect_invalid: true`` instead require host rejection or repair
+to a single return_home fallback. Per-task ``refs`` override the document refs.
 """
 
 from __future__ import annotations
@@ -51,6 +53,33 @@ def compile_task(post, task: str, refs: tuple[str, ...], schema: dict[str, Any])
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
 
+def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> dict[str, Any]:
+    """Score a sequence, or a host rejection/repair to the safe home fallback.
+
+    Invalid tasks carry ``expect_invalid: true`` and may omit ``skills``. A
+    repaired operational plan is not a refusal, even if its references changed.
+    An unmodified home plan alone is also not evidence of host rejection.
+    """
+    path = success_path(plan) if plan is not None else None
+    expected = item.get("skills", [])
+    if item.get("expect_invalid", False):
+        accepted = plan is None or (
+            len(plan.steps) == 1
+            and path == ["return_home"]
+            and isinstance(outcome, list)
+            and bool(outcome)
+        )
+        return {
+            "expected": expected, "predicted": path, "valid": plan is not None,
+            "exact": accepted, "same_skills": accepted, "expect_invalid": True,
+        }
+    return {
+        "expected": expected, "predicted": path, "valid": plan is not None,
+        "exact": path == expected or path in item.get("alternatives", []),
+        "same_skills": path is not None and set(path) == set(expected),
+    }
+
+
 def compute_diagnosis(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize task-level recall, aligned skill errors and language accuracy."""
     expected_counts: Counter[str] = Counter()
@@ -59,8 +88,9 @@ def compute_diagnosis(rows: list[dict[str, Any]]) -> dict[str, Any]:
     language_counts: Counter[str] = Counter()
     language_matches: Counter[str] = Counter()
     for row in rows:
-        expected = row["expected"]
-        predicted = row.get("predicted") or []
+        # Invalid tasks contribute to language accuracy, not skill confusion.
+        expected = [] if row.get("expect_invalid") else row["expected"]
+        predicted = [] if row.get("expect_invalid") else row.get("predicted") or []
         expected_counts.update(set(expected))
         recalled_counts.update(set(expected) & set(predicted))
         for opcode, i, j, k, end in SequenceMatcher(
@@ -143,16 +173,12 @@ def main(argv: list[str] | None = None) -> int:
     rows = []
     try:
         for item in document["tasks"]:
-            plan, raw, attempts, error = compile_task(post, item["text"], refs, schema)
-            path = success_path(plan) if plan else None
+            task_refs = tuple(item.get("refs", refs))
+            plan, raw, attempts, error = compile_task(post, item["text"], task_refs, schema)
             rows.append(
                 {
                     "text": item["text"],
-                    "expected": item["skills"],
-                    "predicted": path,
-                    "valid": plan is not None,
-                    "exact": path == item["skills"] or path in item.get("alternatives", []),
-                    "same_skills": path is not None and set(path) == set(item["skills"]),
+                    **score_task(item, plan, error),
                     "attempts_s": attempts,
                     "error": None if isinstance(error, list) else error,
                     "repairs": error if isinstance(error, list) else None,

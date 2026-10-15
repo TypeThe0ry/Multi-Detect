@@ -492,10 +492,22 @@ def main(argv: list[str] | None = None) -> int:
         "pass without values to disable)",
     )
     parser.add_argument(
-        "--eval-tasks", type=Path, default=ROOT / "configs/onboard/plan-eval-tasks.json"
+        "--eval-tasks",
+        type=Path,
+        nargs="+",
+        action="extend",
+        default=None,
+        help="held-out task files (repeatable; default: all configs/onboard/plan-eval-tasks*.json)",
     )
     args = parser.parse_args(argv)
-    held_out = {t["text"] for t in json.loads(args.eval_tasks.read_text(encoding="utf-8"))["tasks"]}
+    eval_paths = args.eval_tasks
+    if eval_paths is None:
+        eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
+    held_out = {
+        " ".join(task["text"].split())
+        for path in eval_paths
+        for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
+    }
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
