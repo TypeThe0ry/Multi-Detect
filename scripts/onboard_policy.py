@@ -36,7 +36,10 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
     plan_for_find_task,
     task_text_for,
 )
-from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_package import (  # noqa: E402
+    MissionPackage,
+    load_mission_package,
+)
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
@@ -389,6 +392,7 @@ class OnboardPolicy:
         runtime_mode: str | None = None,
         frame_format: str = "png",
         frame_quality: int = 90,
+        mission_package: MissionPackage | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
@@ -431,7 +435,10 @@ class OnboardPolicy:
         if isinstance(package_raw, str):
             package_path = Path(package_raw)
             package_raw = package_path if package_path.is_absolute() else ROOT / package_path
-        self.mission_package = (
+        # ``mission_package`` is supplied by the admission layer when the
+        # comms-free entry is used.  Reusing that exact object prevents a
+        # second load from observing a different path/file after admission.
+        self.mission_package = mission_package or (
             load_mission_package(
                 package_raw,
                 key_path=key_setting,
