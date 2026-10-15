@@ -53,12 +53,15 @@ class ExecutorConfig:
     # Flown yaw lands within ~15 deg of the command; the camera sees +-50 deg.
     turn_tolerance_deg: float = 20.0
     min_altitude_m: float = 8.0
+    max_altitude_m: float = 120.0
     # Inspection views look at the centre this far below the camera axis.
     inspect_depression_margin_rad: float = 0.35
     # Shallower survey rays are too distant for reliable detection.
     survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
     hold_s: float = 1.0
+    follow_stale_s: float = 3.0
+    follow_stale_cycles: int = 2
     # Patrol/monitor alerts require this many identity-positive votes.  The
     # default preserves the historical first-positive behaviour.
     alert_min_identity_matches: int = 1
@@ -123,6 +126,12 @@ class _StepRun:
     waypoint_index: int = 0
     visited: int = 0
     elapsed_s: float = 0.0
+    clock_origin_s: float | None = None
+    last_timestamp_s: float | None = None
+    pending_elapsed_s: float = 0.0
+    observation_start_s: float | None = None
+    coverage_points: list[tuple[float, float]] = field(default_factory=list)
+    covered_points: set[int] = field(default_factory=set)
     # Patrol/monitor identity votes are pooled by ground position because the
     # tracker may give the same object several track IDs.
     alert_clusters: list[_AlertCluster] = field(default_factory=list)
@@ -131,6 +140,9 @@ class _StepRun:
     acquire_track: bool = False
     lost_cycles: int = 0
     follow_finding: dict[str, Any] | None = None
+    fresh_ground_tracks: set[str] = field(default_factory=set)
+    last_ground_s: float | None = None
+    follow_blocked_attempts: int = 0
 
 
 class MissionExecutor:
@@ -228,9 +240,10 @@ class MissionExecutor:
         assert run is not None
         run.state, run.reason = state, reason
         self._last_loop = run.loop
-        self.history.append(
-            {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
-        )
+        status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
+        if run.step.skill == "count":
+            status["count_is_lower_bound"] = reason in {"budget_exhausted", "max_count"}
+        self.history.append(status)
         if state == "failed":
             self.alerts.append(f"{run.step.id}:{reason or 'failed'}")
         following = run.step.on_success if state == "succeeded" else run.step.on_fail
@@ -312,9 +325,24 @@ class MissionExecutor:
         if run.step.skill in _TRACKING_SKILLS:
             # These skills own flight; advance association/verdict age without loop control.
             run.loop.step_index += 1
+        # A visible box can retain its previous ground estimate when its latest
+        # ray misses the ground. Following must distinguish that from a fresh fix.
+        projected = {}
+        project = ground_point
+        if run.step.skill == "follow" and ground_point is not None:
+            def project(u, v):
+                point = ground_point(u, v)
+                projected[u, v] = point
+                return point
         self._current = run.loop.update_tracks(
-            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=ground_point
+            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=project
         )
+        if run.step.skill == "follow":
+            run.fresh_ground_tracks = {
+                track.track_id for track in self._current
+                if projected.get(((track.bbox[0] + track.bbox[2]) / 2.0, track.bbox[3]))
+                is not None
+            }
         if run.step.skill == "inspect":
             if run.phase != "capture":
                 return []
@@ -428,12 +456,14 @@ class MissionExecutor:
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
         frame_id: str | None = None,
+        timestamp_s: float | None = None,
     ) -> tuple[ActionPrimitive, dict[str, Any]]:
         self._init_home(pose_ned)
         for _ in range(len(self.plan.steps) + 1):
             run = self._run
             if run is None:
                 return ActionPrimitive.stop(), {"mission": "done"}
+            self._advance_time(run, timestamp_s)
             if run.primitives >= self._budget(run.step):
                 self._budget_end(run)
                 continue
@@ -442,16 +472,52 @@ class MissionExecutor:
                 continue  # the step finished without moving; start the next one now
             action, info = result
             run.primitives += 1
-            if run.step.skill in _TRACKING_SKILLS:
-                if action.kind == "translate":
-                    run.elapsed_s += (
-                        math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
-                    )
-                elif action.kind == "hold":
-                    run.elapsed_s += action.seconds
+            # Used only when the next observation has no pose/simulation clock.
+            # Never credit a commanded hold before its following observation.
+            run.pending_elapsed_s = self._estimated_seconds(action)
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
+
+    @staticmethod
+    def _estimated_seconds(action: ActionPrimitive) -> float:
+        if action.kind == "translate":
+            return math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
+        if action.kind == "turn":
+            return abs(action.yaw_delta_deg) / 90.0
+        return action.seconds if action.kind == "hold" else 0.0
+
+    def _advance_time(self, run: _StepRun, timestamp_s: float | None) -> None:
+        """Prefer the observation's pose clock; wall-clock inference time is unrelated.
+
+        Missing clocks use primitive estimates. A returning clock reconciles
+        those estimates, while duplicate/backward stamps cannot advance time.
+        """
+        valid = (
+            isinstance(timestamp_s, (int, float))
+            and not isinstance(timestamp_s, bool)
+            and math.isfinite(timestamp_s)
+            and timestamp_s >= 0
+        )
+        if valid:
+            if run.clock_origin_s is None:
+                # Before the first clock there is no measured interval. Retain
+                # the preceding action's fallback estimate when anchoring it.
+                run.elapsed_s += run.pending_elapsed_s
+                run.clock_origin_s = timestamp_s - run.elapsed_s
+            if run.last_timestamp_s is None or timestamp_s >= run.last_timestamp_s:
+                run.elapsed_s = max(0.0, timestamp_s - run.clock_origin_s)
+                run.last_timestamp_s = timestamp_s
+        else:
+            run.elapsed_s += run.pending_elapsed_s
+        run.pending_elapsed_s = 0.0
+        if run.observation_start_s is not None:
+            run.held_s = max(0.0, run.elapsed_s - run.observation_start_s)
+
+    @staticmethod
+    def _begin_observation(run: _StepRun) -> None:
+        if run.observation_start_s is None:
+            run.observation_start_s = run.elapsed_s
 
     def _budget(self, step: MissionStep) -> int:
         if step.skill == "hover":
@@ -463,9 +529,12 @@ class MissionExecutor:
     def _budget_end(self, run: _StepRun) -> None:
         if run.step.skill == "count":
             self._report_count(run)
-            self._finish("succeeded", "budget_reached")
+            self._finish("succeeded", "budget_exhausted")
         elif run.step.skill == "follow" and run.follow_finding is not None and run.lost_cycles <= 6:
-            self._finish("succeeded", "duration_elapsed")
+            if run.step.params.get("duration_s") is None or self._duration_reached(run):
+                self._finish("succeeded", "duration_elapsed")
+            else:
+                self._finish("failed", "step_budget")
         else:
             self._finish("failed", "step_budget")
 
@@ -716,6 +785,87 @@ class MissionExecutor:
         self._finish("succeeded", "duration_elapsed")
         return None
 
+    def _monitor_centre_altitude(self, radius: float) -> float | None:
+        """Height whose pinhole footprint contains the entire ground disk.
+
+        Each image edge is a half-plane on the ground. Its closest point on
+        the disk must remain inside; a camera with a nadir blind spot cannot
+        cover the disk from its centre at any height.
+        """
+        camera = self._probe.camera
+        sine, cosine = math.sin(camera.pitch_down_rad), math.cos(camera.pitch_down_rad)
+        edges = (
+            (sine, abs(cosine)),
+            (camera.cx * sine, math.hypot(camera.cx * cosine, camera.fx)),
+            ((camera.width - camera.cx) * sine,
+             math.hypot((camera.width - camera.cx) * cosine, camera.fx)),
+            (camera.fy * cosine + camera.cy * sine,
+             abs(camera.cy * cosine - camera.fy * sine)),
+            ((camera.height - camera.cy) * sine - camera.fy * cosine,
+             abs((camera.height - camera.cy) * cosine + camera.fy * sine)),
+        )
+        if any(coefficient <= 1e-6 for coefficient, _ in edges):
+            return None
+        return max(radius * extent / coefficient for coefficient, extent in edges)
+
+    def _plan_monitor(self, run: _StepRun, pose: Pose) -> None:
+        region = self.region_of(run.step)
+        altitude = float(run.step.params.get("altitude_m", max(0.0, -pose[2])))
+        if region is not None:
+            north, east, radius = region
+            needed = self._monitor_centre_altitude(radius)
+            if needed is not None and needed <= self.config.max_altitude_m and (
+                "altitude_m" not in run.step.params or altitude >= needed
+            ):
+                altitude = max(altitude, needed)
+                run.waypoints = [(north, east)]
+            else:
+                # A shallow camera leaves a blind disk at the centre. Observe
+                # from eight positions inside the zone instead, at a lower
+                # height when no explicit altitude was requested.
+                if "altitude_m" not in run.step.params:
+                    altitude = min(altitude, max(self.config.min_altitude_m, radius / 2.0))
+                start = math.atan2(pose[1] - east, pose[0] - north)
+                run.waypoints = [
+                    (north + 0.75 * radius * math.cos(start + index * math.pi / 4.0),
+                     east + 0.75 * radius * math.sin(start + index * math.pi / 4.0))
+                    for index in range(8)
+                ]
+            # Equal-area disk samples estimate the union of actual camera
+            # footprints; reaching all waypoints alone never implies coverage.
+            run.coverage_points = [
+                (north + radius * math.sqrt((ring + 0.5) / 12.0) * math.cos(angle * math.tau / 48),
+                 east + radius * math.sqrt((ring + 0.5) / 12.0) * math.sin(angle * math.tau / 48))
+                for ring in range(12) for angle in range(48)
+            ]
+            self.coverage[run.step.id] = 0.0
+        else:
+            run.waypoints = [run.goal_ne]
+        run.goal_altitude_m = max(
+            self.config.min_altitude_m, min(self.config.max_altitude_m, altitude)
+        )
+
+    def _monitor_coverage(self, run: _StepRun, pose: Pose, yaw: float, frame_id) -> None:
+        camera = self._probe.camera
+        heading = math.radians(yaw)
+        sine, cosine = math.sin(camera.pitch_down_rad), math.cos(camera.pitch_down_rad)
+        altitude = max(0.0, -pose[2])
+        for index, (north, east) in enumerate(run.coverage_points):
+            dn, de = north - pose[0], east - pose[1]
+            forward = dn * math.cos(heading) + de * math.sin(heading)
+            right = -dn * math.sin(heading) + de * math.cos(heading)
+            depth = forward * cosine + altitude * sine
+            if depth <= 1e-6:
+                continue
+            u = camera.cx + camera.fx * right / depth
+            v = camera.cy + camera.fy * (-forward * sine + altitude * cosine) / depth
+            if 0 <= u <= camera.width and 0 <= v <= camera.height:
+                run.covered_points.add(index)
+        if run.coverage_points:
+            self.coverage[run.step.id] = len(run.covered_points) / len(run.coverage_points)
+        if frame_id:
+            self.evidence.append(frame_id)
+
     def _monitor(self, run, pose, yaw, ground_point, frame_id):
         if run.goal_ne is None:
             region = self.region_of(run.step)
@@ -723,40 +873,56 @@ class MissionExecutor:
             if run.goal_ne is None:
                 self._finish("failed", "unknown_ref")
                 return None
-            if "altitude_m" in run.step.params:
-                run.goal_altitude_m = float(run.step.params["altitude_m"])
+            self._plan_monitor(run, pose)
+        if run.observation_start_s is not None:
+            self._monitor_coverage(run, pose, yaw, frame_id)
+            if run.held_s >= float(run.step.params["duration_s"]) - 1e-6:
+                self._finish("succeeded", "duration_elapsed")
+                return None
         if run.phase == "fly":
-            moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+            goal = run.waypoints[run.waypoint_index % len(run.waypoints)]
+            moved = self._move_to(run, pose, yaw, goal, run.goal_altitude_m)
             if moved == "blocked":
                 self._finish("failed", "blocked")
                 return None
             if moved is not None:
                 return moved, {"phase": "fly"}
             run.phase = "hold"
-        # The observation interval starts at the centre, after transit.
+            self._begin_observation(run)
+            self._monitor_coverage(run, pose, yaw, frame_id)
+        # Transit to the first viewpoint is excluded. Turns and travel between
+        # subsequent viewpoints are part of the active observation interval.
         remaining = float(run.step.params["duration_s"]) - run.held_s
         if remaining <= 1e-6:
             self._finish("succeeded", "duration_elapsed")
             return None
         if run.phase == "turn":
+            if run.captured >= 4 and len(run.waypoints) > 1:
+                run.waypoint_index += 1
+                run.captured = 0
+                run.phase = "fly"
+                return self._monitor(run, pose, yaw, ground_point, frame_id)
             run.phase = "hold"
             return ActionPrimitive.turn(90.0), {"phase": "turn"}
         seconds = min(2.0, remaining)
-        run.held_s += seconds
+        run.captured += 1
         run.phase = "turn"
         return ActionPrimitive.hold(seconds), {"phase": "hold", "remaining_s": remaining - seconds}
 
     def _follow(self, run, pose, yaw, ground_point, frame_id):
         if run.follow_track_id is None and run.acquire_track:
             candidate = next(
-                (t for t in self._current if t.verdict in {"confirm", "approach"} and t.ground),
+                (t for t in self._current if t.verdict in {"confirm", "approach"}
+                 and t.track_id in run.fresh_ground_tracks),
                 None,
             )
             if candidate is not None:
                 run.follow_track_id = candidate.track_id
         track = next((t for t in self._current if t.track_id == run.follow_track_id), None)
-        if track is not None and track.ground is not None:
+        fresh = track is not None and track.track_id in run.fresh_ground_tracks
+        if fresh:
             run.lost_cycles = 0
+            run.last_ground_s = run.elapsed_s
             if run.follow_finding is None:
                 self._add_finding(
                     run,
@@ -773,7 +939,7 @@ class MissionExecutor:
         if self._duration_reached(run):
             self._finish("succeeded", "duration_elapsed")
             return None
-        if track is None or track.ground is None:
+        if not fresh:
             run.lost_cycles += 1
             if run.lost_cycles > 6:
                 if run.follow_finding is not None:
@@ -781,7 +947,26 @@ class MissionExecutor:
                 else:
                     self._finish("failed", "target_not_found")
                 return None
-            return ActionPrimitive.hold(self.config.hold_s), {"lost_cycles": run.lost_cycles}
+            age = None if run.last_ground_s is None else max(0.0, run.elapsed_s - run.last_ground_s)
+            stale = run.lost_cycles >= self.config.follow_stale_cycles or (
+                age is not None and age >= self.config.follow_stale_s
+            )
+            confidence = 0.0 if age is None else 2.0 ** (
+                -max(age / max(self.config.follow_stale_s, 1e-6),
+                     run.lost_cycles / max(self.config.follow_stale_cycles, 1))
+            )
+            info = {
+                "lost_cycles": run.lost_cycles,
+                "ground_age_s": age,
+                "follow_confidence": confidence,
+                "follow_state": "searching" if stale else "holding",
+            }
+            # Reacquire locally instead of translating toward a retained fix.
+            action = (
+                ActionPrimitive.turn(30.0 if run.lost_cycles % 2 == 0 else -30.0)
+                if stale else ActionPrimitive.hold(self.config.hold_s)
+            )
+            return action, info
         altitude = run.step.params.get("altitude_m")
         moved = self._move_to(
             run, pose, yaw, pose[:2], None if altitude is None else float(altitude)
@@ -794,7 +979,10 @@ class MissionExecutor:
         dn, de = track.ground[0] - pose[0], track.ground[1] - pose[1]
         distance = math.hypot(dn, de)
         standoff = max(15.0, run.loop._keep_range(max(0.0, -pose[2])))
-        info = {"track_id": track.track_id, "range_m": distance, "standoff_m": standoff}
+        info = {
+            "track_id": track.track_id, "range_m": distance, "standoff_m": standoff,
+            "follow_confidence": 1.0, "ground_age_s": 0.0, "follow_state": "tracking",
+        }
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
         if abs(delta) > self.config.turn_tolerance_deg:
             return ActionPrimitive.turn(delta), info
@@ -803,8 +991,13 @@ class MissionExecutor:
                 track.ground[0] - standoff * dn / distance,
                 track.ground[1] - standoff * de / distance,
             )
+            blocked_before = run.blocked
             moved = self._move_to(run, pose, yaw, goal)
-            if moved == "blocked":
+            if run.blocked > blocked_before:
+                run.follow_blocked_attempts += 1
+            # Keep a separate obstruction budget: intermittent successful
+            # positioning must not reset repeated blocked standoff attempts.
+            if moved == "blocked" or run.follow_blocked_attempts > self.config.max_blocked_legs:
                 self._finish("failed", "blocked")
                 return None
             if moved is not None:
@@ -877,12 +1070,12 @@ class MissionExecutor:
         return moved, {}
 
     def _hover(self, run, pose, yaw, ground_point, frame_id):
+        self._begin_observation(run)
         remaining = float(run.step.params["duration_s"]) - run.held_s
         if remaining <= 1e-6:
             self._finish("succeeded", "duration_elapsed")
             return None
         seconds = min(5.0, remaining)
-        run.held_s += seconds
         return ActionPrimitive.hold(seconds), {"remaining_s": remaining - seconds}
 
     def _land(self, run, pose, yaw, ground_point, frame_id):

@@ -94,6 +94,24 @@ MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
 
+def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
+    """Use the collector's pose/Gazebo simulation stamps, never receive time."""
+    for key, units_per_s in (
+        ("pose_time_boot_ms", 1_000.0),
+        ("pose_sim_stamp_ns", 1_000_000_000.0),
+        ("frame_sensor_stamp_ns", 1_000_000_000.0),
+    ):
+        value = observation.get(key)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        ):
+            return value / units_per_s
+    return None
+
+
 def perception_task_text(step: MissionStep, original: str) -> str:
     """Use a plan query for slow perception unless the query is non-ASCII."""
     query = step.params.get("query") if step is not None else None
@@ -446,6 +464,7 @@ class OnboardPolicy:
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
+                timestamp_s=_observation_timestamp_s(observation),
             )
         current = self.loop.update_tracks(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -496,7 +515,9 @@ class OnboardPolicy:
             raise RuntimeError("non-finite pose")
         return action, labels
 
-    def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
+    def _act_mission(
+        self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, timestamp_s=None
+    ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
@@ -532,6 +553,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_id=frame_path.name,
+            timestamp_s=timestamp_s,
         )
         confirmed = None
         if len(executor.findings) > findings_before:
