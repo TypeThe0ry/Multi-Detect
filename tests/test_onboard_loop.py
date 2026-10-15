@@ -24,6 +24,14 @@ def _box(cx: float, cy: float, side: float) -> tuple[float, float, float, float]
     return (cx - side / 2, cy - side / 2, cx + side / 2, cy + side / 2)
 
 
+def test_loop_without_clearance_configuration_fails_closed() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(1.0, 0.0, 0.0),
+    )
+    assert loop._segment_clear((0.0, 0.0, -10.0), 1.0, 0.0) is False
+
+
 def test_ground_point_of_image_centre_follows_camera_pitch() -> None:
     north, east = CAMERA.ground_point(640.0, 480.0, north=0.0, east=0.0, height_m=20.0, yaw_deg=0.0)
     assert math.isclose(north, 20.0 / math.tan(0.18), rel_tol=1e-6)

@@ -9,6 +9,7 @@ several sources composed conservatively.
 from __future__ import annotations
 
 import math
+import threading
 import time
 from collections.abc import Iterable, Mapping
 from typing import Protocol, runtime_checkable
@@ -18,6 +19,7 @@ try:  # Keep the historical static-map path lightweight when vision extras are a
 except ImportError:  # pragma: no cover - exercised only in minimal deployments.
     np = None  # type: ignore[assignment]
 
+from multidetect.autonomy.ground_model import GroundModel
 from multidetect.sim_teacher.policies import SDFObstacle, segment_clear_of_obstacles
 
 PoseNed = tuple[float, float, float]
@@ -96,9 +98,11 @@ class DepthGridSource:
 
     __slots__ = (
         "cells", "resolution_m", "max_age_s", "min_depth_m", "max_depth_m",
-        "height_tolerance_m", "max_points", "fallback", "occupied", "height_min",
-        "height_max", "_points", "_anchor", "_last_timestamp", "_last_pose",
-        "_received_monotonic",
+        "height_tolerance_m", "ground_tolerance_m", "ground_model", "max_points",
+        "fallback", "occupied", "terrain", "height_min", "height_max", "_points",
+        "_anchor", "_last_timestamp", "_last_pose", "_received_monotonic",
+        "_timestamp_unit", "_lock",
+        "_last_sensor_seconds",
     )
 
     def __init__(
@@ -110,48 +114,82 @@ class DepthGridSource:
         min_depth_m: float = 0.2,
         max_depth_m: float = 80.0,
         height_tolerance_m: float = 2.0,
+        ground_tolerance_m: float = 0.25,
+        ground_model: GroundModel | None = None,
         max_points: int = 20_000,
         fallback: ObstacleSource | None = None,
+        timestamp_unit: str = "s",
     ) -> None:
         if np is None:
             raise ImportError("DepthGridSource requires the optional numpy vision dependency")
         if int(cells) <= 0 or float(resolution_m) <= 0:
             raise ValueError("cells and resolution_m must be positive")
         if (
-            float(max_age_s) < 0
+            float(max_age_s) <= 0
             or float(min_depth_m) <= 0
             or float(max_depth_m) <= float(min_depth_m)
         ):
-            raise ValueError("invalid depth range or max_age_s")
+            raise ValueError("invalid depth range or max_age_s; max_age_s must be > 0")
+        self._timestamp_unit = self._normalise_timestamp_unit(timestamp_unit)
         self.cells = int(cells)
         self.resolution_m = float(resolution_m)
         self.max_age_s = float(max_age_s)
         self.min_depth_m = float(min_depth_m)
         self.max_depth_m = float(max_depth_m)
         self.height_tolerance_m = max(0.0, float(height_tolerance_m))
+        if not math.isfinite(float(ground_tolerance_m)) or float(ground_tolerance_m) < 0:
+            raise ValueError("ground_tolerance_m must be finite and non-negative")
+        self.ground_tolerance_m = float(ground_tolerance_m)
+        self.ground_model = ground_model
         self.max_points = max(1, int(max_points))
         self.fallback = fallback
         self.occupied = np.zeros((self.cells, self.cells), dtype=bool)
+        # Terrain is retained separately from obstacle occupancy.  A return is
+        # an obstacle only when it is sufficiently above the local ground
+        # surface; callers may inspect this layer for diagnostics.
+        self.terrain = np.zeros((self.cells, self.cells), dtype=bool)
         self.height_min = np.full((self.cells, self.cells), np.nan, dtype=np.float32)
         self.height_max = np.full((self.cells, self.cells), np.nan, dtype=np.float32)
-        self._points: list[tuple[float, float, float, float | None]] = []
+        self._points: list[tuple[float, float, float, float | None, bool]] = []
         self._anchor: tuple[float, float] | None = None
         self._last_timestamp: float | None = None
         self._last_pose: PoseNed | None = None
         self._received_monotonic: float | None = None
+        self._lock = threading.RLock()
+        self._last_sensor_seconds: float | None = None
+
+    @staticmethod
+    def _normalise_timestamp_unit(unit: str) -> str:
+        aliases = {
+            "s": "s", "sec": "s", "second": "s", "seconds": "s",
+            "ms": "ms", "millisecond": "ms", "milliseconds": "ms",
+            "us": "us", "microsecond": "us", "microseconds": "us",
+            "ns": "ns", "nanosecond": "ns", "nanoseconds": "ns",
+        }
+        try:
+            return aliases[str(unit).strip().lower()]
+        except (KeyError, TypeError):
+            raise ValueError("timestamp_unit must be one of s, ms, us or ns") from None
+
+    @staticmethod
+    def _timestamp_seconds(value: float, unit: str) -> float:
+        return value / {"s": 1.0, "ms": 1e3, "us": 1e6, "ns": 1e9}[unit]
 
     @property
     def grid(self) -> np.ndarray:
         """Boolean occupancy grid (north/east cells)."""
-        return self.occupied
+        with self._lock:
+            return self.occupied.copy()
 
     @property
     def last_timestamp(self) -> float | None:
-        return self._last_timestamp
+        with self._lock:
+            return self._last_timestamp
 
     @property
     def last_pose(self) -> PoseNed | None:
-        return self._last_pose
+        with self._lock:
+            return self._last_pose
 
     def _fallback_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
         # A missing or stale range observation is unsafe for flight.  Compose
@@ -161,31 +199,34 @@ class DepthGridSource:
         return self.fallback.segment_clear(start_ned, end_ned)
 
     def _fresh(self, now: float | None = None) -> bool:
-        if self._last_timestamp is None or not self._points:
-            return False
-        if self.max_age_s == 0:
-            return True
-        # Recorded SIM stamps are usually relative seconds, whereas live
-        # callers may provide monotonic stamps.  Relative stamps cannot be
-        # compared with this process clock, so use receipt age for them.
-        clock = time.monotonic() if now is None else float(now)
-        if self._last_timestamp > 100_000.0:
-            delta = clock - self._last_timestamp
-        else:
-            delta = clock - (self._received_monotonic or clock)
-        return delta <= self.max_age_s
+        with self._lock:
+            if self._last_timestamp is None or not self._points:
+                return False
+            receipt = self._received_monotonic
+            if receipt is None:
+                return False
+            # Sensor timestamps are metadata only.  Freshness uses the local
+            # monotonic receipt clock, so relative, epoch and nanosecond sensor
+            # domains can never be confused with the host clock.
+            clock = time.monotonic() if now is None else float(now)
+            age = clock - receipt
+            return 0.0 <= age <= self.max_age_s
 
     def _rebuild(self) -> None:
         self.occupied.fill(False)
+        self.terrain.fill(False)
         self.height_min.fill(np.nan)
         self.height_max.fill(np.nan)
         if self._anchor is None:
             return
         half = self.cells * self.resolution_m / 2.0
-        for north, east, down, _stamp in self._points:
+        for north, east, down, _stamp, is_obstacle in self._points:
             col = int(math.floor((north - self._anchor[0] + half) / self.resolution_m))
             row = int(math.floor((east - self._anchor[1] + half) / self.resolution_m))
             if not (0 <= row < self.cells and 0 <= col < self.cells):
+                continue
+            if not is_obstacle:
+                self.terrain[row, col] = True
                 continue
             self.occupied[row, col] = True
             old_min = self.height_min[row, col]
@@ -200,11 +241,24 @@ class DepthGridSource:
         intrinsics: Mapping[str, float],
         *,
         timestamp: float | None = None,
+        timestamp_unit: str | None = None,
+        encoding: str = "FLOAT32_M",
         camera_rotation: np.ndarray | None = None,
         camera_offset_ned: tuple[float, float, float] = (0.0, 0.0, 0.0),
     ) -> int:
         """Project one frame into the rolling grid and return valid point count."""
-        image = np.asarray(depth, dtype=np.float32)
+        raw = np.asarray(depth)
+        encoding_name = str(encoding).strip().upper()
+        if encoding_name == "UINT16_MM":
+            if raw.dtype.kind not in "ui":
+                raise ValueError("UINT16_MM depth must use an integer array")
+            image = raw.astype(np.float32) * 0.001
+        elif encoding_name == "FLOAT32_M":
+            if raw.dtype.kind != "f":
+                raise ValueError("FLOAT32_M depth must use a floating-point array")
+            image = raw.astype(np.float32, copy=False)
+        else:
+            raise ValueError("encoding must be FLOAT32_M or UINT16_MM")
         if image.ndim == 3 and image.shape[-1] == 1:
             image = image[..., 0]
         if image.ndim != 2:
@@ -237,45 +291,122 @@ class DepthGridSource:
         world[:, 0] += pose[0] + float(camera_offset_ned[0])
         world[:, 1] += pose[1] + float(camera_offset_ned[1])
         world[:, 2] += pose[2] + float(camera_offset_ned[2])
-        # A monotonic local stamp keeps frames fresh for live callers that do
-        # not carry sensor timestamps; recorded timestamps are retained as-is.
-        stamp = time.monotonic() if timestamp is None else float(timestamp)
-        self._anchor = (pose[0], pose[1])
-        self._last_pose = pose
-        self._last_timestamp = stamp
-        self._received_monotonic = time.monotonic()
-        self._points = [(float(n), float(e), float(d), stamp) for n, e, d in world]
-        self._rebuild()
-        return len(self._points)
+        # Retain the sensor stamp for diagnostics, but always use local receipt
+        # age for freshness.  Units are explicit and never inferred from value
+        # magnitude (in particular, nanosecond stamps are valid metadata).
+        receipt = time.monotonic()
+        if timestamp is None:
+            stamp = receipt
+            stamp_unit = "s"
+        else:
+            stamp = float(timestamp)
+            if not math.isfinite(stamp):
+                raise ValueError("timestamp must be finite")
+            stamp_unit = self._normalise_timestamp_unit(
+                self._timestamp_unit if timestamp_unit is None else timestamp_unit
+            )
+            sensor_seconds = self._timestamp_seconds(stamp, stamp_unit)
+        # Classify returns against the supplied local ground model.  The
+        # GroundModel API returns the horizontal hit only, so recover its NED
+        # down coordinate from the ray parameter and the camera height.
+        camera_origin_ned = (
+            pose[0] + float(camera_offset_ned[0]),
+            pose[1] + float(camera_offset_ned[1]),
+            pose[2] + float(camera_offset_ned[2]),
+        )
+        camera_origin_neu = (camera_origin_ned[0], camera_origin_ned[1], -camera_origin_ned[2])
+        classified: list[tuple[float, float, float, float | None, bool]] = []
+        for north, east, down in world:
+            is_obstacle = True
+            if self.ground_model is not None:
+                ray = (
+                    float(north) - camera_origin_ned[0],
+                    float(east) - camera_origin_ned[1],
+                    float(down) - camera_origin_ned[2],
+                )
+                try:
+                    hit = self.ground_model.intersect_ray(camera_origin_neu, ray)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    hit = None
+                if hit is not None:
+                    hit_n, hit_e = float(hit[0]), float(hit[1])
+                    horizontal = (ray[0], ray[1])
+                    denom = horizontal[0] * horizontal[0] + horizontal[1] * horizontal[1]
+                    if denom > 1e-12:
+                        t = (
+                            (hit_n - camera_origin_ned[0]) * horizontal[0]
+                            + (hit_e - camera_origin_ned[1]) * horizontal[1]
+                        ) / denom
+                        ground_down = camera_origin_ned[2] + ray[2] * t
+                        # NED down: points with smaller down than terrain are
+                        # above the surface and may be obstacles.
+                        is_obstacle = (ground_down - float(down)) >= self.ground_tolerance_m
+                    else:
+                        # A nadir ray has no horizontal baseline from which to
+                        # recover the intersection parameter.  Probe the same
+                        # ray with a tiny horizontal component; this preserves
+                        # the local ground height while yielding a stable t for
+                        # flat and DEM ground models alike.
+                        epsilon = 1.0e-3
+                        try:
+                            probe = self.ground_model.intersect_ray(
+                                camera_origin_neu, (epsilon, 0.0, ray[2])
+                            )
+                        except (TypeError, ValueError, ZeroDivisionError):
+                            probe = None
+                        if probe is not None:
+                            t = (float(probe[0]) - camera_origin_ned[0]) / epsilon
+                            ground_down = camera_origin_ned[2] + ray[2] * t
+                            is_obstacle = (ground_down - float(down)) >= self.ground_tolerance_m
+                        else:
+                            is_obstacle = False
+            classified.append((float(north), float(east), float(down), stamp, is_obstacle))
+        # Build all arrays before publication.  The lock makes the assignment
+        # of this complete generation atomic with respect to clearance queries.
+        with self._lock:
+            if timestamp is not None and self._last_sensor_seconds is not None:
+                if sensor_seconds < self._last_sensor_seconds:
+                    # An out-of-order frame must never replace a newer map.
+                    return 0
+            self._anchor = (pose[0], pose[1])
+            self._last_pose = pose
+            self._last_timestamp = stamp
+            self._received_monotonic = receipt
+            if timestamp is not None:
+                self._last_sensor_seconds = sensor_seconds
+            self._points = classified
+            self._rebuild()
+            return len(self._points)
 
     # Explicit aliases make integration with camera backends self-explanatory.
     add_frame = update
     ingest = update
 
     def segment_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
-        if not self._fresh() or self._anchor is None:
-            return self._fallback_clear(start_ned, end_ned)
-        start = tuple(float(v) for v in start_ned)
-        end = tuple(float(v) for v in end_ned)
-        distance = math.dist(start[:2], end[:2])
-        samples = max(1, int(math.ceil(distance / max(self.resolution_m * 0.5, 1e-3))))
-        half = self.cells * self.resolution_m / 2.0
-        for index in range(samples + 1):
-            ratio = index / samples
-            north = start[0] + ratio * (end[0] - start[0])
-            east = start[1] + ratio * (end[1] - start[1])
-            down = start[2] + ratio * (end[2] - start[2])
-            col = int(math.floor((north - self._anchor[0] + half) / self.resolution_m))
-            row = int(math.floor((east - self._anchor[1] + half) / self.resolution_m))
-            if 0 <= row < self.cells and 0 <= col < self.cells and self.occupied[row, col]:
-                low, high = self.height_min[row, col], self.height_max[row, col]
-                if (
-                    float(low) - self.height_tolerance_m
-                    <= down
-                    <= float(high) + self.height_tolerance_m
-                ):
-                    return False
-        return True
+        with self._lock:
+            if not self._fresh() or self._anchor is None:
+                return self._fallback_clear(start_ned, end_ned)
+            start = tuple(float(v) for v in start_ned)
+            end = tuple(float(v) for v in end_ned)
+            distance = math.dist(start[:2], end[:2])
+            samples = max(1, int(math.ceil(distance / max(self.resolution_m * 0.5, 1e-3))))
+            half = self.cells * self.resolution_m / 2.0
+            for index in range(samples + 1):
+                ratio = index / samples
+                north = start[0] + ratio * (end[0] - start[0])
+                east = start[1] + ratio * (end[1] - start[1])
+                down = start[2] + ratio * (end[2] - start[2])
+                col = int(math.floor((north - self._anchor[0] + half) / self.resolution_m))
+                row = int(math.floor((east - self._anchor[1] + half) / self.resolution_m))
+                if 0 <= row < self.cells and 0 <= col < self.cells and self.occupied[row, col]:
+                    low, high = self.height_min[row, col], self.height_max[row, col]
+                    if (
+                        float(low) - self.height_tolerance_m
+                        <= down
+                        <= float(high) + self.height_tolerance_m
+                    ):
+                        return False
+            return True
 
 
 __all__ = ["CompositeSource", "DepthGridSource", "ObstacleSource", "PoseNed", "StaticMapSource"]

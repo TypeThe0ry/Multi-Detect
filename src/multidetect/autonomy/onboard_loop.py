@@ -22,8 +22,8 @@ Box = tuple[float, float, float, float]
 
 
 def _clear_default(_pose: tuple[float, float, float], _north: float, _east: float) -> bool:
-    """Fallback used when a loop is created without a clearance source."""
-    return True
+    """Fail closed when no obstacle source or callback was configured."""
+    return False
 
 
 def _iou(a: Box, b: Box) -> float:
