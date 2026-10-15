@@ -1,0 +1,77 @@
+{
+  "summary": {
+    "task": "Count the orange traffic cones in the site and report their positions.",
+    "skills": [
+      "count",
+      "return_home"
+    ],
+    "steps": [
+      {
+        "id": "s1",
+        "skill": "count",
+        "state": "succeeded",
+        "reason": "budget_reached"
+      },
+      {
+        "id": "s2",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "counts": [
+      {
+        "step": "s1",
+        "value": 3,
+        "lower_bound": true,
+        "reason": "budget_reached"
+      }
+    ],
+    "findings": [
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          -22.0,
+          28.4
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          19.8,
+          24.0
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          9.5,
+          -15.1
+        ],
+        "frame_id": null
+      }
+    ],
+    "alerts": [],
+    "answers": [],
+    "coverage": {},
+    "evidence": [
+      "frame_0004.png",
+      "frame_0010.png",
+      "frame_0020.png"
+    ],
+    "not_done": [
+      {
+        "step": "s1",
+        "reason": "full_search_not_established:budget_reached"
+      }
+    ],
+    "omitted": {}
+  },
+  "zh": "任务：Count the orange traffic cones in the site and report their positions.\n结果：s1：至少 3 个（下限；搜索预算耗尽）；目标名称未记录 (N -22.0 m, E 28.4 m；证据帧=对应关系未记录)；目标名称未记录 (N 19.8 m, E 24.0 m；证据帧=对应关系未记录)；目标名称未记录 (N 9.5 m, E -15.1 m；证据帧=对应关系未记录)；已返航（报告记录）\n步骤：s1 count：成功（搜索预算耗尽）；s2 return_home：成功（已到达）\n证据帧（未关联的不推断对应目标）：[\"frame_0004.png\", \"frame_0010.png\", \"frame_0020.png\"]\n未完成/未证实：s1: 完整搜索未证实：搜索预算耗尽",
+  "en": "Task: Count the orange traffic cones in the site and report their positions.\nResult: s1: at least 3 (lower bound; budget_reached); identity not recorded (N -22.0 m, E 28.4 m; frame=association not recorded); identity not recorded (N 19.8 m, E 24.0 m; frame=association not recorded); identity not recorded (N 9.5 m, E -15.1 m; frame=association not recorded); returned home (reported)\nSteps: s1 count: succeeded (budget_reached); s2 return_home: succeeded (arrived)\nEvidence frames (unlinked unless recorded): [\"frame_0004.png\", \"frame_0010.png\", \"frame_0020.png\"]\nNot done / not established: s1: full_search_not_established:budget_reached"
+}

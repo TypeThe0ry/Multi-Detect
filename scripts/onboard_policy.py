@@ -17,6 +17,7 @@ import math
 import os
 import sys
 import time
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
     compile_mission_plan,
     plan_json_schema,
 )
+from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -364,7 +366,44 @@ class OnboardPolicy:
         self.slow_calls = 0
 
     def close(self) -> None:
-        self.slow.close()
+        try:
+            self.slow.close()
+        finally:
+            if self.executor is not None:
+                try:
+                    self._write_mission_summary()
+                except OSError as exc:
+                    warnings.warn(f"Could not write mission summary: {exc}", stacklevel=2)
+
+    def _write_mission_summary(self) -> None:
+        """Persist at teardown, beside the collector's steps.jsonl labels."""
+        executor = self.executor
+        report = executor.report()
+        summary, chinese, english = summarize_mission(
+            {
+                "history": list(executor.history),
+                "findings": list(executor.findings),
+                "counts": dict(executor.counts),
+                "coverage": dict(executor.coverage),
+                "evidence": list(report.evidence_frame_ids),
+                "answers": list(report.state_answers),
+                "alerts": list(report.alerts),
+            },
+            executor.plan,
+            self.task_text,
+        )
+        # The collector uses <out>/<episode-id>-onboard-frames as work_dir.
+        suffix = "-onboard-frames"
+        directory = (
+            self.work_dir.parent / "episodes" / self.work_dir.name.removesuffix(suffix)
+            if self.work_dir.name.endswith(suffix)
+            else self.work_dir
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "mission_summary.json").write_text(summary_json(summary), encoding="utf-8")
+        (directory / "mission_summary.txt").write_text(
+            chinese + "\n\n" + english + "\n", encoding="utf-8"
+        )
 
     def _slow_identity(
         self, frame_path: Path, current, focus, task_text: str | None = None

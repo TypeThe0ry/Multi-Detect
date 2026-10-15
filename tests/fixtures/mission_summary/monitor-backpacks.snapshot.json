@@ -1,0 +1,91 @@
+{
+  "summary": {
+    "task": "Monitor the site for backpacks for five minutes and report alerts.",
+    "skills": [
+      "monitor",
+      "return_home"
+    ],
+    "steps": [
+      {
+        "id": "s1",
+        "skill": "monitor",
+        "state": "failed",
+        "reason": "step_budget"
+      },
+      {
+        "id": "s2",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "counts": [],
+    "findings": [
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          33.1,
+          20.6
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          -34.5,
+          -24.2
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          21.5,
+          1.4
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          17.1,
+          16.5
+        ],
+        "frame_id": null
+      },
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          32.9,
+          -35.2
+        ],
+        "frame_id": null
+      }
+    ],
+    "alerts": [
+      "s1:alert:backpack@33.1,20.6",
+      "s1:alert:backpack@-34.5,-24.2",
+      "s1:alert:backpack@21.5,1.4",
+      "s1:alert:backpack@17.1,16.5",
+      "s1:alert:backpack@32.9,-35.2",
+      "s1:step_budget"
+    ],
+    "answers": [],
+    "coverage": {},
+    "evidence": [],
+    "not_done": [
+      {
+        "step": "s1",
+        "reason": "step_budget"
+      }
+    ],
+    "omitted": {}
+  },
+  "zh": "任务：Monitor the site for backpacks for five minutes and report alerts.\n结果：目标名称未记录 (N 33.1 m, E 20.6 m；证据帧=对应关系未记录)；目标名称未记录 (N -34.5 m, E -24.2 m；证据帧=对应关系未记录)；目标名称未记录 (N 21.5 m, E 1.4 m；证据帧=对应关系未记录)；目标名称未记录 (N 17.1 m, E 16.5 m；证据帧=对应关系未记录)；目标名称未记录 (N 32.9 m, E -35.2 m；证据帧=对应关系未记录)；已返航（报告记录）\n步骤：s1 monitor：失败（步骤预算耗尽）；s2 return_home：成功（已到达）\n告警：[\"s1:alert:backpack@33.1,20.6\", \"s1:alert:backpack@-34.5,-24.2\", \"s1:alert:backpack@21.5,1.4\", \"s1:alert:backpack@17.1,16.5\", \"s1:alert:backpack@32.9,-35.2\", \"s1:step_budget\"]\n步骤失败：s1（步骤预算耗尽）\n未完成/未证实：s1: 步骤预算耗尽",
+  "en": "Task: Monitor the site for backpacks for five minutes and report alerts.\nResult: identity not recorded (N 33.1 m, E 20.6 m; frame=association not recorded); identity not recorded (N -34.5 m, E -24.2 m; frame=association not recorded); identity not recorded (N 21.5 m, E 1.4 m; frame=association not recorded); identity not recorded (N 17.1 m, E 16.5 m; frame=association not recorded); identity not recorded (N 32.9 m, E -35.2 m; frame=association not recorded); returned home (reported)\nSteps: s1 monitor: failed (step_budget); s2 return_home: succeeded (arrived)\nAlerts: [\"s1:alert:backpack@33.1,20.6\", \"s1:alert:backpack@-34.5,-24.2\", \"s1:alert:backpack@21.5,1.4\", \"s1:alert:backpack@17.1,16.5\", \"s1:alert:backpack@32.9,-35.2\", \"s1:step_budget\"]\nFailed steps: s1 (step_budget)\nNot done / not established: s1: step_budget"
+}
