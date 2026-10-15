@@ -277,7 +277,13 @@ def run(args, *, backend_factory=make_backend) -> dict:
              "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "snapshot": str(snapshot)}
     if args.resume:
         prior = json.loads((output / "checkpoint/state.json").read_text(encoding="utf-8"))
-        if any(prior[key] != state[key] for key in ("dataset_sha256", "options", "snapshot")):
+        # checkpoint_every only changes how often progress is saved, not the training math,
+        # so a resume may save more often (e.g. when a shared GPU keeps interrupting it).
+        def _training_options(options: dict) -> dict:
+            return {k: v for k, v in options.items() if k != "checkpoint_every"}
+
+        if (prior["dataset_sha256"] != state["dataset_sha256"] or prior["snapshot"] != state["snapshot"]
+                or _training_options(prior["options"]) != _training_options(state["options"])):
             raise ValueError("Resume dataset, model or options differ from checkpoint")
         # Load the checkpoint into the default adapter that training updates and saves.
         # (An earlier version trained a second "resume" adapter, saved under resume/,
