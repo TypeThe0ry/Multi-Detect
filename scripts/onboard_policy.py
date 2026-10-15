@@ -48,6 +48,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.obstacle_source import StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -363,6 +364,7 @@ class OnboardPolicy:
     sim_timeline: SimGroundTimeline | None = None
     mission_plan: MissionPlan | None = None
     ground_projection = ground_projection_from_config(None, base_dir=ROOT)
+    frame_format = "png"
 
     def __init__(
         self,
@@ -531,6 +533,7 @@ class OnboardPolicy:
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
+            obstacle_source = StaticMapSource(obstacles)
             if region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -549,6 +552,7 @@ class OnboardPolicy:
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
+                obstacle_source=obstacle_source,
                 config=LoopConfig(**{**loop_defaults, **overrides}),
             )
             if home_ned is not None:
@@ -876,7 +880,10 @@ class OnboardPolicy:
             self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
             if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
                 action, info = self.supervisor.next_action(
-                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                    pose_ned=tuple(pose_ned),
+                    yaw_deg=yaw_deg,
+                    landed=observation.get("landed"),
+                    timestamp_s=_observation_timestamp_s(observation),
                 )
                 return action, {
                     "onboard": {
@@ -933,6 +940,7 @@ class OnboardPolicy:
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
+                landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
             )
         current = self.loop.update_tracks(
@@ -985,14 +993,27 @@ class OnboardPolicy:
         return action, labels
 
     def _act_mission(
-        self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, timestamp_s=None
+        self,
+        frame_path,
+        detections,
+        fast_s,
+        *,
+        pose_ned,
+        yaw_deg,
+        ground_point,
+        landed=None,
+        timestamp_s=None,
     ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            landed=landed,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -1020,6 +1041,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_id=frame_path.name,
+            landed=landed,
             timestamp_s=timestamp_s,
         )
         confirmed = None
