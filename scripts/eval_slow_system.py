@@ -228,8 +228,9 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 class LlamaServerRunner:
     fast_identity = False  # tests build bare instances
 
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True):
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True, call_timeout_s: float = 20.0):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
+        self.call_timeout_s = call_timeout_s
         # Identity rows: prefill the pinned args, read one token's log-probabilities
         # for the three verdicts instead of decoding the whole JSON (~50 tokens).
         self.fast_identity = fast_identity and identity_only
@@ -252,8 +253,9 @@ class LlamaServerRunner:
         command = [str(executable), "-m", str(model), "-mm", str(mmproj), "-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"]
         if adapter:
             command.extend(["--lora", str(adapter)])
+        self._command, self._cwd = command, str(executable.parent)
         self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
-        self.process = subprocess.Popen(command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=self.server_log)
+        self.process = subprocess.Popen(self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
@@ -268,6 +270,27 @@ class LlamaServerRunner:
             time.sleep(1)
         self.close()
         raise TimeoutError("llama-server did not become healthy")
+
+    def health_check(self, *, timeout: float = 2.0) -> bool:
+        """Bounded health probe used by the onboard degradation monitor."""
+        if self.process.poll() is not None:
+            return False
+        try:
+            return _http_json(f"http://127.0.0.1:{self.port}/health", timeout=timeout).get("status") == "ok"
+        except (OSError, ValueError, urllib.error.URLError):
+            return False
+
+    def restart(self) -> None:
+        self.close()
+        self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
+        self.process = subprocess.Popen(self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if self.health_check(timeout=1):
+                return
+            time.sleep(0.25)
+        self.close()
+        raise TimeoutError("llama-server restart did not become healthy")
 
     def _verdict_first_tokens(self, prefix: str) -> dict[str, int]:
         """Token id that starts each verdict right after ``prefix`` (BPE merges across the quote)."""
@@ -300,7 +323,7 @@ class LlamaServerRunner:
             "messages": [{"role": "user", "content": content}, {"role": "assistant", "content": prefix}],
         }
         started = time.perf_counter()
-        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body, timeout=self.call_timeout_s)
         elapsed = time.perf_counter() - started
         try:
             entries = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
@@ -345,7 +368,11 @@ class LlamaServerRunner:
         if not self.cache_prompt:
             body["cache_prompt"] = False
         started = time.perf_counter()
-        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        response = _http_json(
+            f"http://127.0.0.1:{self.port}/v1/chat/completions",
+            body,
+            timeout=self.call_timeout_s,
+        )
         elapsed = time.perf_counter() - started
         self.last_logprobs = (response["choices"][0].get("logprobs") or {}).get("content")
         self.last_usage = response.get("usage")

@@ -269,6 +269,17 @@ class MissionSupervisor:
                 energy=self.energy_estimate,
             )
 
+    def health_fault(self, reason: str, *, action: str = "return_now", **details: Any) -> str:
+        """Latch an onboard health degradation under the operator policy."""
+        if action not in {"return_now", "land_now"}:
+            raise ValueError("health action must be return_now or land_now")
+        self._time()
+        if self.policy == "land_now":
+            action = "land_now"
+        self._escalate(action, f"onboard health: {reason}")
+        self._record("health_degradation", action=action, reason=reason, details=details)
+        return self.action
+
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
         doc = self.package.document

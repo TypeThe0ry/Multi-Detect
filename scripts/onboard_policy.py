@@ -59,6 +59,7 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
+from multidetect.onboard_runtime.health import HealthConfig, OnboardHealthMonitor  # noqa: E402
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
     load_sdf_obstacles,
@@ -412,6 +413,21 @@ class OnboardPolicy:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
         self.ground_projector = ground_projector
+        health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
+        self.health = OnboardHealthMonitor(
+            config=HealthConfig(**{
+                k: (float(v) if k not in {"slow_latency_samples", "max_restarts", "disk_free_bytes"}
+                    else int(v))
+                for k, v in health_options.items()
+                if k in HealthConfig.__dataclass_fields__
+            }),
+            runner=slow_runner,
+            source=(options.get("health_source")
+                    if callable(options.get("health_source"))
+                    else OnboardHealthMonitor.jetson_source),
+            disk_path=work_dir,
+            logger=self._health_log,
+        )
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
         # Size-aware search altitude: low enough that an object of the task's typical
@@ -542,6 +558,7 @@ class OnboardPolicy:
             )
         else:
             self.slow = slow_runner
+        self.health.runner = self.slow
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -689,6 +706,10 @@ class OnboardPolicy:
                     except OSError as exc:
                         warnings.warn(f"Could not write mission summary: {exc}", stacklevel=2)
 
+    def _health_log(self, reason: str, details: dict[str, Any]) -> None:
+        if self.supervisor is not None:
+            self.supervisor._record("health_degradation", reason=reason, details=details)
+
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
         return self.supervisor.ground_event(event) if self.supervisor is not None else False
@@ -761,6 +782,8 @@ class OnboardPolicy:
         try:
             raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
+            if getattr(self, "health", None):
+                self.health.record_slow_call(time.perf_counter() - started, ok=False)
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -768,6 +791,8 @@ class OnboardPolicy:
                 "latency_s": time.perf_counter() - started,
             }
         self.slow_calls += 1
+        if getattr(self, "health", None):
+            self.health.record_slow_call(float(latency), ok=True)
         decision, error = parse_model_decision(raw)
         identity = identity_of(decision["decision"]) if decision else None
         return {
@@ -815,9 +840,31 @@ class OnboardPolicy:
         self._step += 1
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
         frame_path = self.work_dir / f"frame_{step:04d}.png"
-        frame_path.write_bytes(observation["rgb"])
+        health = getattr(self, "health", None)
+        health_state = (health.tick(
+            camera_age_s=(time.monotonic() - observation.get("frame_received_monotonic_ns", 0) / 1e9
+                          if observation.get("frame_received_monotonic_ns") else None),
+        ) if health is not None else None)
+        if health_state is None or not health_state.stop_frames:
+            frame_path.write_bytes(observation["rgb"])
         started = time.perf_counter()
-        detections = self.proposer(rgb[:, :, ::-1].copy())
+        detector_started = time.perf_counter()
+        try:
+            detections = self.proposer(rgb[:, :, ::-1].copy())
+            detector_ok = True
+        except Exception:
+            detections, detector_ok = [], False
+        if health is not None:
+            health.tick(detector_latency_s=time.perf_counter() - detector_started,
+                        detector_ok=detector_ok)
+        if not detector_ok and self.supervisor is not None:
+            self.supervisor.health_fault("detector_failure", action="return_now")
+            action, info = self.supervisor.next_action(
+                pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+            )
+            return action, {"onboard": {**info, "health": health.state.__dict__}}
+        if not detector_ok:
+            raise RuntimeError("detector_failure")
         fast_s = time.perf_counter() - started
         camera_info = observation["camera_info"]
         ground_model = self.ground_projection.for_observation(observation)
@@ -904,6 +951,14 @@ class OnboardPolicy:
         current = list(executor.current_tracks)
         slow = []
         for track in needing[:3]:
+            if getattr(self, "health", None) is not None and not self.health.state.slow_available:
+                if self.supervisor is not None:
+                    self.supervisor.health_fault("slow_model_unavailable", action="return_now")
+                    action, info = self.supervisor.next_action(
+                        pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                    )
+                    return action, {"onboard": {**info, "health": self.health.state.__dict__}}
+                continue
             loop = getattr(executor, "active_loop", None)
             # Inspection capture asks a distinct question from each deliberate
             # view, so those answers always come from the VLM.
