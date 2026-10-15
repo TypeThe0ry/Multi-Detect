@@ -149,6 +149,8 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
                     base / "scenarios" / name,
                     base / "scenarios" / "generated" / name,
                     base / "scenarios" / "generated-v2" / name,
+                    base / "scenarios" / "generated-confusers" / name,
+                    base / "scenarios" / "generated-confusers-2" / name,
                 ):
                     if candidate.is_file():
                         return candidate
@@ -281,6 +283,8 @@ def build_dataset(
     min_visible_fraction: float = 0.3,
     label_source: str = "projection",
     min_seg_area_px: int = 4,
+    truth_roots: list[Path] | None = None,
+    max_frames: int | None = None,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
@@ -303,18 +307,21 @@ def build_dataset(
     dropped_occluded = 0
     seen_sha: set[str] = set()
     seen_perceptual: set[str] = set()
+    dedupe = Counter()
+    scanned_frames = 0
     for campaign in campaign_roots:
         for episode in _episode_dirs(campaign):
             metadata_path = episode / "episode.json"
             if not metadata_path.is_file() or _load(metadata_path).get("status") != "complete":
                 continue
             world = _world_id(episode)
-            if world.startswith("gen_") and world not in splits:
-                raise ValueError(f"world {world} is missing from {index_path}")
+            # Onboard DAgger confuser worlds are intentionally outside the
+            # generated-v2 split index; keep them in train by default.
             split = splits.get(world, "train")
             if split not in ("train", "val", "test"):
                 raise ValueError(f"invalid split {split!r} for {world}")
-            truth_path = _find_truth(world, [index_path.parent, campaign, Path.cwd()])
+            roots = [index_path.parent, campaign, Path.cwd(), *(truth_roots or [])]
+            truth_path = _find_truth(world, roots)
             truth = _load(truth_path) if truth_path else {}
             sdf_path = _find_sdf(world, [campaign, Path.cwd()])
             obstacles = load_sdf_obstacles(sdf_path) if sdf_path is not None else ()
@@ -352,9 +359,16 @@ def build_dataset(
                     image = cv2.imread(str(rgb), cv2.IMREAD_COLOR)
                     if image is None:
                         continue
+                    if max_frames is not None and scanned_frames >= max_frames:
+                        break
+                    scanned_frames += 1
                     digest = _sha(rgb)
                     pkey = _perceptual_key(image)
-                    if digest in seen_sha or pkey in seen_perceptual:
+                    if digest in seen_sha:
+                        dedupe["exact_sha"] += 1
+                        continue
+                    if pkey in seen_perceptual:
+                        dedupe["perceptual"] += 1
                         continue
                     seen_sha.add(digest)
                     seen_perceptual.add(pkey)
@@ -484,6 +498,12 @@ def build_dataset(
                             "image": image,
                         }
                     )
+                if max_frames is not None and scanned_frames >= max_frames:
+                    break
+            if max_frames is not None and scanned_frames >= max_frames:
+                break
+        if max_frames is not None and scanned_frames >= max_frames:
+            break
     # Keep approximately requested fraction of negatives, deterministically.
     by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
@@ -503,6 +523,7 @@ def build_dataset(
         rng.shuffle(negatives)
         kept.extend(positives + negatives[:nneg])
     counts = Counter()
+    category_size_counts = Counter()
     split_counts = Counter()
     manifest_rows = []
     for idx, record in enumerate(
@@ -519,6 +540,21 @@ def build_dataset(
         )
         for cls in record["classes"]:
             counts[cls] += 1
+        for obj in record["objects"]:
+            box = obj["bbox_xyxy"]
+            short = min(box[2] - box[0], box[3] - box[1])
+            bucket = (
+                "<8"
+                if short < 8
+                else "8-16"
+                if short < 16
+                else "16-32"
+                if short < 32
+                else "32-64"
+                if short < 64
+                else ">=64"
+            )
+            category_size_counts[(obj["class"], bucket)] += 1
         split_counts[(record["split"], "frames")] += 1
         split_counts[(record["split"], "positives" if record["labels"] else "negatives")] += 1
         manifest_rows.append(
@@ -583,7 +619,20 @@ def build_dataset(
                 s: {k: v for (ss, k), v in split_counts.items() if ss == s}
                 for s in ("train", "val", "test")
             },
+            "category_size_histogram": {
+                category: {
+                    bucket: category_size_counts[(category, bucket)]
+                    for bucket in ("<8", "8-16", "16-32", "32-64", ">=64")
+                }
+                for category in class_names
+            },
         },
+        "dedupe": {
+            **dict(dedupe),
+            "unique_sha": len(seen_sha),
+            "unique_perceptual": len(seen_perceptual),
+        },
+        "scanned_frames": scanned_frames,
         "frames": manifest_rows,
     }
     (output / "manifest.json").write_text(
@@ -619,6 +668,8 @@ def main(argv: list[str] | None = None) -> int:
         "--label-source", choices=("projection", "segmentation"), default="projection"
     )
     parser.add_argument("--min-seg-area-px", type=int, default=4)
+    parser.add_argument("--truth-root", action="append", type=Path, default=[])
+    parser.add_argument("--max-frames", type=int)
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -633,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
         min_visible_fraction=args.min_visible_fraction,
         label_source=args.label_source,
         min_seg_area_px=args.min_seg_area_px,
+        truth_roots=args.truth_root,
+        max_frames=args.max_frames,
     )
     print(
         json.dumps(

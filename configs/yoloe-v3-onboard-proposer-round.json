@@ -1,0 +1,25 @@
+{
+  "round": "yoloe-v3-onboard-proposer",
+  "base_experiment": "artifacts/experiments/yoloe-v2-r3-seg-drop-full",
+  "label_source": "segmentation",
+  "min_box_px": 2,
+  "min_seg_area_px": 1,
+  "holdout_classes": ["stop_sign", "postbox", "pickup"],
+  "holdout_policy": "drop-images",
+  "mode": "full",
+  "epochs": 25,
+  "batch": {"1280": 2, "960": 4},
+  "commands": {
+    "build": "python scripts/build_yoloe_proposer_round.py --old-campaign D:/Projects/Multi-Detect/artifacts/datasets/sim-teacher/campaign-20261012-v2-r3-seg --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-cfs-r8-low --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-cfs2-r12-fast --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-train-r8-low --old-manifest D:/Projects/Multi-Detect/artifacts/datasets/sim-detector-v2-r3-seg/manifest.json --truth-root configs/scenarios/generated-confusers --truth-root configs/scenarios/generated-confusers-2 --output tmp/yoloe-v3-onboard-dataset",
+    "view_1280": "python scripts/train_open_vocab_detector.py --data tmp/yoloe-v3-onboard-dataset/data.yaml --holdout-classes stop_sign,postbox,pickup --holdout-policy drop-images --out tmp/yoloe-v3-onboard-1280 --weights D:/Projects/Multi-Detect/artifacts/cache/yoloe/yoloe-11s-seg.pt --epochs 25 --imgsz 1280 --batch 2 --mode full --device 0 --workers 0",
+    "view_960": "python scripts/train_open_vocab_detector.py --data tmp/yoloe-v3-onboard-dataset/data.yaml --holdout-classes stop_sign,postbox,pickup --holdout-policy drop-images --out tmp/yoloe-v3-onboard-960 --weights D:/Projects/Multi-Detect/artifacts/cache/yoloe/yoloe-11s-seg.pt --epochs 25 --imgsz 960 --batch 4 --mode full --device 0 --workers 0",
+    "eval_cpu": "python scripts/evaluate_yoloe_proposer_round.py --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r12multi --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r8multi --old-weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt --new-weights tmp/yoloe-v3-onboard-1280/train/weights/best.pt --imgsz 1280 --imgsz 960 --device cpu --out tmp/yoloe-v3-proposer-eval.json",
+    "open_vocab_old": "python scripts/eval_open_vocab_detector.py --weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt --data D:/Projects/Multi-Detect/artifacts/datasets/sim-detector-v2-r3-seg/data.yaml --split test --holdout-classes stop_sign,postbox,pickup --confidence 0.25 --predict-conf 0.001 --imgsz 1280 --device cpu --out tmp/yoloe-v2-open-vocab-test.json",
+    "open_vocab_new": "python scripts/eval_open_vocab_detector.py --weights tmp/yoloe-v3-onboard-1280/train/weights/best.pt --data D:/Projects/Multi-Detect/artifacts/datasets/sim-detector-v2-r3-seg/data.yaml --split test --holdout-classes stop_sign,postbox,pickup --confidence 0.25 --predict-conf 0.001 --imgsz 1280 --device cpu --out tmp/yoloe-v3-open-vocab-test.json"
+  },
+  "gpu_time_estimate": {
+    "source": "r3 train/results.csv epoch 25 elapsed 9371.95 s on prior RTX 4060 run",
+    "1280": "about 2.6 h for 25 epochs at batch 2; budget 3 h for larger dataset and export/setup",
+    "960": "about 1.5-2.0 h for 25 epochs at batch 4; verify memory and throughput on the lead's 4060"
+  }
+}
