@@ -69,11 +69,14 @@ def run_mode2_payload_hil_acceptance(project_root: Path) -> dict[str, Any]:
     payload_delivery_attempts = 0
     authorization_delivery_attempts = 0
     transport_started_s = time.perf_counter()
+    replay_root = Path.cwd() / ".multidetect-replay-state"
+    replay_root.mkdir(parents=True, exist_ok=True)
     with UdpOperatorSelectionServer(
         bind_host="127.0.0.1",
         port=0,
         mavlink=jetson,
-        guard=SelectionCommandGuard(_GEOMETRY),
+        guard=SelectionCommandGuard(_GEOMETRY, state_path=replay_root / "payload-server.json"),
+        replay_state_path=replay_root / "payload-server.json",
         receive_timeout_s=0.05,
     ) as server:
         server.start_background()
@@ -83,6 +86,7 @@ def run_mode2_payload_hil_acceptance(project_root: Path) -> dict[str, Any]:
             mavlink=operator,
             retry_interval_s=0.25,
             maximum_attempts=3,
+            replay_state_path=replay_root / "payload-client.json",
         ) as client:
             selection_now_s = time.time()
             selection = TargetSelectionCommand(

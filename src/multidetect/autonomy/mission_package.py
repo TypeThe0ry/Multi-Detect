@@ -734,6 +734,8 @@ def load_mission_package(
     key: bytes | None = None,
     require_signature: bool = False,
     operator_key_path: str | Path | None = None,
+    mode: str | None = None,
+    flight_mode: bool | None = None,
 ) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
@@ -743,6 +745,24 @@ def load_mission_package(
     # Verify the exact uploaded document before normalisation or compilation.
     # Key material is never retained in the package or emitted to the log.
     key_path = key_path or operator_key_path
+    if mode is not None and (not isinstance(mode, str) or not mode.strip()):
+        raise ValueError("mode must be non-empty text")
+    if flight_mode is not None and not isinstance(flight_mode, bool):
+        raise ValueError("flight_mode must be boolean")
+    # Any explicit flight/real mode is fail-closed.  A configured key also
+    # means the caller opted into authenticated operation, so unsigned input
+    # must not silently become a SIM package.
+    mode_requires_signature = mode is not None and mode.strip().lower() in {
+        "flight", "real", "hil", "live"
+    }
+    if flight_mode is True:
+        mode_requires_signature = True
+    require_signature = bool(
+        require_signature
+        or mode_requires_signature
+        or key is not None
+        or key_path is not None
+    )
     if key is None and key_path is not None:
         key = load_key(key_path)
     has_signature = "signature" in raw or "signature_alg" in raw
@@ -770,13 +790,30 @@ def load_mission_package(
         },
         {
             "task_text", "plan", "ref_labels", "heartbeat_timeout_s",
-            "signature", "signature_alg", "capabilities",
+            "signature", "signature_alg", "key_id",
+            "accepted_px4_overrides",
+            "px4_offboard_loss_action",
+            "capabilities",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
         raise ValueError("mission_id is required")
     if not isinstance(obj["risk_level"], str) or obj["risk_level"] not in RISK_DEFAULTS:
         raise ValueError("invalid risk_level")
+    overrides = obj.get("accepted_px4_overrides", {})
+    if not isinstance(overrides, Mapping):
+        raise ValueError("accepted_px4_overrides must be an object")
+    for parameter, override in overrides.items():
+        if (not isinstance(parameter, str) or not parameter.strip()
+                or not isinstance(override, Mapping)):
+            raise ValueError("accepted_px4_overrides entries must be objects keyed by parameter")
+        if (override.get("accepted") is not True
+                or not isinstance(override.get("reason"), str)
+                or not override["reason"].strip()):
+            raise ValueError(f"{parameter}: accepted PX4 override needs accepted=true and a reason")
+    offboard_action = obj.get("px4_offboard_loss_action")
+    if offboard_action is not None and offboard_action not in {3, 4, 5}:
+        raise ValueError("px4_offboard_loss_action must be PX4 Return/Land/Hold enum 3, 4 or 5")
     parse_policy(obj["link_loss_policy"])
     obj["heartbeat_timeout_s"] = number(
         obj.get("heartbeat_timeout_s", 5), "heartbeat_timeout_s", minimum=0.001
@@ -826,10 +863,12 @@ def load_mission_package(
             "reserve_time_s",
             "energy_wh",
             "reserve_energy_wh",
-        },
+        }, {"battery_capacity_wh"},
     )
     for key, value in budget.items():
         budget[key] = number(value, key)
+    if "battery_capacity_wh" in budget and budget["battery_capacity_wh"] <= 0:
+        raise ValueError("battery_capacity_wh must be positive")
     if (
         budget["time_s"] <= budget["reserve_time_s"]
         or budget["energy_wh"] <= budget["reserve_energy_wh"]

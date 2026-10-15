@@ -17,9 +17,10 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -163,6 +164,84 @@ def _near_duplicate(signature: int, prior: list[int]) -> bool:
     return any((signature ^ old).bit_count() <= 3 for old in prior)
 
 
+def _augmentation_config(option: str | Mapping[str, object]) -> dict[str, object]:
+    presets: dict[str, dict[str, object]] = {
+        "mild": {"brightness": (0.82, 1.18), "contrast": (0.85, 1.15), "color_temperature": (-0.12, 0.12), "blur": (0.0, 0.8), "noise": (0.0, 5.0)},
+        "weather": {"brightness": (0.62, 1.05), "contrast": (0.70, 1.05), "color_temperature": (-0.22, 0.18), "blur": (0.0, 1.8), "noise": (0.0, 10.0)},
+    }
+    if isinstance(option, str):
+        if option not in presets:
+            raise ValueError(f"unknown image augmentation preset: {option}")
+        return dict(presets[option])
+    result = dict(option)
+    unknown = set(result) - {"brightness", "contrast", "color_temperature", "blur", "noise"}
+    if unknown:
+        raise ValueError(f"unknown image augmentation fields: {sorted(unknown)}")
+    return result
+
+
+def _sample_augmentation(value: object, rng: random.Random, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return rng.uniform(float(value[0]), float(value[1]))
+    return float(value)
+
+
+def _augment_image(image: Image.Image, option: str | Mapping[str, object], seed: int) -> Image.Image:
+    config = _augmentation_config(option)
+    rng = random.Random(seed)
+    brightness = _sample_augmentation(config.get("brightness"), rng, 1.0)
+    contrast = _sample_augmentation(config.get("contrast"), rng, 1.0)
+    temperature = _sample_augmentation(config.get("color_temperature"), rng, 0.0)
+    blur = max(0.0, _sample_augmentation(config.get("blur"), rng, 0.0))
+    noise = max(0.0, _sample_augmentation(config.get("noise"), rng, 0.0))
+    output = image.convert("RGB")
+    if brightness != 1.0:
+        output = ImageEnhance.Brightness(output).enhance(brightness)
+    if contrast != 1.0:
+        output = ImageEnhance.Contrast(output).enhance(contrast)
+    if temperature:
+        red = 1.0 + max(-0.45, min(0.45, temperature))
+        blue = 1.0 - max(-0.45, min(0.45, temperature))
+        channels = output.split()
+        channels = (channels[0].point(lambda p: max(0, min(255, int(p * red)))), channels[1], channels[2].point(lambda p: max(0, min(255, int(p * blue)))))
+        output = Image.merge("RGB", channels)
+    if blur:
+        output = output.filter(ImageFilter.GaussianBlur(blur))
+    if noise:
+        pixels = []
+        for red, green, blue in output.getdata():
+            pixels.append(tuple(max(0, min(255, int(channel + rng.gauss(0.0, noise)))) for channel in (red, green, blue)))
+        output.putdata(pixels)
+    return output
+
+
+def _materialize_image_augmentation(rows: dict[str, list[dict]], output: Path, option: str | Mapping[str, object], seed: int, source_hashes: dict[str, str]) -> None:
+    cache: dict[str, str] = {}
+    augmented_root = output / "augmented-images"
+    for split_rows in rows.values():
+        for row in split_rows:
+            original_name = str(row["image_path"])
+            if original_name not in cache:
+                source = Path(original_name)
+                if not source.is_absolute():
+                    source = ROOT / source
+                if not source.is_file():
+                    raise FileNotFoundError(f"cannot augment missing image: {source}")
+                key = hashlib.sha256(f"{original_name}:{seed}:{repr(option)}".encode()).hexdigest()[:20]
+                destination = augmented_root / f"{key}.png"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with Image.open(source) as opened:
+                    _augment_image(opened, option, int(key, 16)).save(destination, format="PNG")
+                try:
+                    cache[original_name] = _relative(destination)
+                except ValueError:
+                    cache[original_name] = destination.as_posix()
+                source_hashes[cache[original_name]] = _sha(destination)
+            row["image_path"] = cache[original_name]
+
+
 def _normalized(box: tuple[float, float, float, float], width: int, height: int) -> list[float]:
     return [round(value / (width if index % 2 == 0 else height), 4) for index, value in enumerate(box)]
 
@@ -277,7 +356,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
             if world is None or (not urban and world not in world_splits):
                 continue
             split = "train" if urban else world_splits[world]
-            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers-2" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
+            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2-appearance" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers-2" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
             sdf_path = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
             if not urban and not truth_path.is_file():
                 continue
@@ -491,6 +570,7 @@ def build_dataset(
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
     identity_variant: str = "default",
     balance_task_categories: float | None = None, max_upsample: int = 4,
+    image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
@@ -682,7 +762,9 @@ def build_dataset(
                 raise ValueError("Duplicate sample ID")
             seen.add(row["sample_id"])
             parse_onboard_decision(row["assistant_target"])
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
+    if image_augmentation is not None:
+        _materialize_image_augmentation(selected, output, image_augmentation, seed, source_hashes)
     output_hashes = {}
     for split, rows in selected.items():
         path = output / f"{split}.jsonl"
@@ -712,6 +794,8 @@ def build_dataset(
         "source_sha256": dict(sorted(source_hashes.items())),
         "output_sha256": output_hashes,
     }
+    if image_augmentation is not None:
+        report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
     if identity_variant != "default":
         frame_side, crop_side = identity_image_sizes({}, identity_variant=identity_variant)
         report["identity_variant"] = identity_variant
@@ -746,9 +830,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
+    parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
