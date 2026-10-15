@@ -226,7 +226,7 @@ def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
         package=package_path,
         operator_key=key_path,
         runtime_factory=_mutant_factory(mutator),
-        duration_s=0.75,
+        duration_s=3.0,
     )
     assert report["passed"] is False
     failed = {row["scenario"] for row in report["scenarios"] if not row["passed"]}

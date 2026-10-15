@@ -154,7 +154,9 @@ def verdict(expected: str, observed_action: str | None = None, reason: str = "",
         action_ok = observed == "land_now"
     else:
         action_ok = False
-    return {"passed": bool(action_ok and elapsed_s <= deadline_s and bool(reason)),
+    return {"passed": bool(action_ok and elapsed_s <= deadline_s and bool(reason)
+                         and not observation.get("verdict_error", "") if observation else
+                         action_ok and elapsed_s <= deadline_s and bool(reason)),
             "observed_action": observed, "reason": reason,
             "elapsed_s": elapsed_s, "deadline_s": deadline_s}
 
@@ -233,9 +235,11 @@ class FaultVehicle:
         self.history: list[dict[str, Any]] = []
         self.closed = False
         self.mode = "OFFBOARD"
+        self.accept_mode_commands = True
         self.home = (0.0, 0.0, 0.0)
         self.position = (0.0, 0.0, -10.0)
         self.battery = 90.0
+        self.heartbeats: list[float] = []
 
     def start(self) -> FaultVehicle:
         return self
@@ -248,6 +252,7 @@ class FaultVehicle:
 
     def snapshot(self) -> VehicleState:
         now = self.clock()
+        self.heartbeats.append(now)
         mode = "HOLD" if self._active("offboard_loss") else self.mode
         home = (2.0, 2.0, 0.0) if self._active("home_change") else self.home
         position = self.position
@@ -267,22 +272,34 @@ class FaultVehicle:
         return state
 
     def send_setpoint(self, setpoint: PositionSetpoint) -> None:
-        self.setpoints.append({"timestamp": self.clock(), "setpoint": asdict(setpoint)})
+        accepted = self.mode == "OFFBOARD"
+        self.setpoints.append({"timestamp": self.clock(), "setpoint": asdict(setpoint),
+                               "accepted": accepted})
 
     def arm(self) -> None:
         self.commands.append({"timestamp": self.clock(), "action": "arm"})
 
     def set_mode(self, mode: str) -> None:
-        self.mode = mode.upper()
-        self.commands.append({"timestamp": self.clock(), "action": "mode", "mode": self.mode})
+        requested = mode.upper()
+        now = self.clock()
+        self.commands.append({"timestamp": now, "action": "mode", "mode": requested,
+                              "accepted": self.accept_mode_commands})
+        if self.accept_mode_commands:
+            self.mode = requested
 
     def land(self) -> None:
-        self.commands.append({"timestamp": self.clock(), "action": "land"})
-        self.mode = "LAND"
+        now = self.clock()
+        self.commands.append({"timestamp": now, "action": "land",
+                              "accepted": self.accept_mode_commands})
+        if self.accept_mode_commands:
+            self.mode = "LAND"
 
     def rtl(self) -> None:
-        self.commands.append({"timestamp": self.clock(), "action": "rtl"})
-        self.mode = "RTL"
+        now = self.clock()
+        self.commands.append({"timestamp": now, "action": "rtl",
+                              "accepted": self.accept_mode_commands})
+        if self.accept_mode_commands:
+            self.mode = "RTL"
 
     def close(self) -> None:
         self.closed = True
@@ -446,104 +463,88 @@ class CampaignSession:
             ]
         return {"setpoints": list(self.vehicle.setpoints), "commands": list(self.vehicle.commands),
                 "runtime_report": self.runtime.report(), "mission_records": records,
+                "vehicle_history": list(self.vehicle.history),
+                "vehicle_heartbeats": list(self.vehicle.heartbeats),
                 "started": self.started,
                 "fault_at": self.controller.origin + self.controller.event.at_s,
+                "react_deadline": self.controller.origin + self.controller.event.at_s + 0.15,
+                "window_end": time.monotonic(),
                 "fault": self.controller.event.fault,
+                "policy": self.controller.package.document["link_loss_policy"],
                 "operating_area": dict(self.controller.package.document["operating_area"]),
                 "finished": time.monotonic(), "latched": self.controller.latched}
 
 
 def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str, float]:
     fault_at = float(observation.get("fault_at", observation.get("started", 0.0)))
+    deadline = float(observation.get("react_deadline", fault_at + 0.15))
+    end = float(observation.get("window_end", observation.get("finished", deadline)))
+    fault = str(observation.get("fault", ""))
+    expected = _campaign_expected_outcome(fault, observation.get("policy", {}))
     records = observation.get("mission_records", [])
     decisions = [r for r in records if r.get("kind") == "decision"
-                 and float(r.get("timestamp", 0.0)) >= fault_at]
-    runtime = observation.get("runtime_report", {})
-    runtime_events = [event for event in runtime.get("events", [])
-                      if float(event.get("monotonic_s", 0.0)) >= fault_at]
-    commands = [c for c in observation.get("commands", [])
-                if float(c.get("timestamp", 0.0)) >= fault_at]
-    fault = observation.get("fault")
-    if fault == "fence_approach":
+                 and deadline <= float(r.get("timestamp", 0.0)) <= end]
+    setpoints = [r for r in observation.get("setpoints", [])
+                 if deadline <= float(r.get("timestamp", 0.0)) <= end]
+    heartbeats = [float(t) for t in observation.get("vehicle_heartbeats", [])
+                  if deadline <= t <= end]
+    samples = sorted([float(r["timestamp"]) for r in setpoints] + heartbeats)
+    errors: list[str] = []
+    if end - deadline < 2.0:
+        errors.append("evaluation window shorter than 2.0 s")
+    if not samples or any(b - a > float(observation.get("max_output_gap_s", 0.3))
+                          for a, b in zip(samples, samples[1:], strict=False)):
+        errors.append("output gap")
+    last_decision = decisions[-1] if decisions else {}
+    reason = str(last_decision.get("reason", ""))
+    histories = [h for h in observation.get("vehicle_history", [])
+                 if deadline <= float(h.get("timestamp", 0.0)) <= end]
+    states = [h.get("state", {}) for h in histories]
+    if not states:
+        errors.append("no vehicle state in evaluation window")
+    if expected in {"return_now", "land_now"}:
+        wanted = "LAND" if expected == "land_now" else "RTL"
+        if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
+               or not bool(s.get("armed", True)) for s in states):
+            errors.append("terminal vehicle state not sustained")
+        if any(float(r.get("timestamp", 0.0)) >= deadline and r.get("accepted", True)
+               for r in setpoints):
+            errors.append("OFFBOARD setpoint accepted after terminal switch")
+    elif expected == "hold":
+        if any(str(s.get("mode", "")).upper() != "OFFBOARD" for s in states):
+            errors.append("hold left OFFBOARD")
+        anchor = states[0].get("position_ned")
+        for row in setpoints:
+            sp = row.get("setpoint", {})
+            if anchor and ((float(sp["north_m"]) - anchor[0]) ** 2
+                           + (float(sp["east_m"]) - anchor[1]) ** 2) ** 0.5 > 0.5:
+                errors.append("hold drift exceeds 0.5 m")
+    elif expected == "continue":
+        coords = [(float(r["setpoint"]["north_m"]), float(r["setpoint"]["east_m"]))
+                  for r in setpoints]
+        if len(coords) < 2 or coords[-1] == coords[0]:
+            errors.append("mission setpoints did not progress")
+    elif expected == "constrained":
         area = observation.get("operating_area", {})
         margin = 0.05
-        post_setpoints = [row.get("setpoint", {}) for row in observation.get("setpoints", [])
-                          if float(row.get("timestamp", 0.0)) >= fault_at]
-        inside = bool(post_setpoints) and all(
-            area["north_min_m"] - margin <= float(sp["north_m"]) <= area["north_max_m"] + margin
-            and area["east_min_m"] - margin <= float(sp["east_m"]) <= area["east_max_m"] + margin
-            and -area["max_altitude_m"] - margin
-            <= float(sp["down_m"]) <= -area["min_altitude_m"] + margin
-            for sp in post_setpoints
-        )
-        if inside:
-            action, reason = "constrained", "operating area fence constrains unsafe setpoint"
-        else:
-            action, reason = "unknown", "post-fault setpoint escaped operating area"
-    elif any(c.get("action") == "land" for c in commands):
-        action = "land_now"
-    elif any(c.get("action") == "rtl" for c in commands):
-        action = "return_now"
-    elif any(r.get("action") == "return_now" for r in decisions):
-        action = "return_now"
-    elif any(r.get("action") == "land_now" for r in decisions):
-        action = "land_now"
-    elif any(r.get("action") == "constrained" for r in decisions):
-        action = "constrained"
-    elif any(r.get("action") == "hold" for r in decisions) or runtime.get("hazard"):
-        action = "hold"
-    else:
-        action = "continue" if decisions else "unknown"
-    terminal = [c for c in commands if c.get("action") in {"land", "rtl"}]
-    if terminal and decisions:
-        terminal_time = max(float(c.get("timestamp", 0.0)) for c in terminal)
-        if any(float(row.get("timestamp", 0.0)) > terminal_time
-               and row.get("action") in {"continue", "hold"} for row in decisions):
-            action = "unknown"
-    watchdog_events = [event for event in runtime_events
-                       if event.get("event") == "watchdog_hold"]
-    reason = ""
-    expected_fragment = _expected_reason_fragment(str(fault)) if fault else ""
-    if decisions:
-        wanted = {
-            "constrained": "constrained", "hold": "hold",
-            "return_now": "return_now", "land_now": "land_now",
-        }.get(action)
-        matching = [row for row in decisions
-                    if wanted is None or row.get("action") == wanted]
-        candidates = matching or decisions
-        # Prefer a post-fault runtime reason that identifies this injected
-        # fault.  A later generic policy decision must not erase the evidence
-        # from the fault window.
-        fault_matching = [row for row in candidates
-                          if expected_fragment.lower() in str(row.get("reason", "")).lower()]
-        watchdog_matching = [row for row in watchdog_events
-                             if expected_fragment.lower() in str(row.get("reason", "")).lower()]
-        reason = str((fault_matching or watchdog_matching or candidates)[-1].get("reason", ""))
-    elif watchdog_events:
-        reason = str(watchdog_events[-1].get("reason", ""))
-    if fault == "fence_approach":
-        reason = ("operating area fence constrains unsafe setpoint" if action == "constrained"
-                  else "post-fault setpoint escaped operating area")
-    started = float(observation.get("started", time.monotonic()))
-    fault_at = float(observation.get("fault_at", started))
-    finished = float(observation.get("finished", started))
-    candidates: list[float] = []
-    candidates.extend(
-        float(row.get("monotonic_s", started))
-        for row in runtime.get("events", [])
-        if row.get("event") == "watchdog_hold"
-    )
-    candidates.extend(
-        float(row.get("timestamp", started)) for row in commands
-        if row.get("action") in {"land", "rtl"}
-    )
-    candidates.extend(
-        float(row.get("timestamp", started)) for row in decisions
-        if row.get("action") in {"hold", "constrained", "return_now", "land_now"}
-    )
-    response = min((stamp for stamp in candidates if stamp >= fault_at), default=finished)
-    return action, reason, max(0.0, response - fault_at)
+        for row in setpoints:
+            sp = row["setpoint"]
+            north_ok = (area["north_min_m"] - margin <= float(sp["north_m"])
+                        <= area["north_max_m"] + margin)
+            east_ok = (area["east_min_m"] - margin <= float(sp["east_m"])
+                       <= area["east_max_m"] + margin)
+            if not (north_ok and east_ok):
+                errors.append("setpoint escaped operating area")
+        for state in states:
+            pos = state.get("position_ned") or (999, 999, 999)
+            if not (area["north_min_m"] - margin <= pos[0] <= area["north_max_m"] + margin
+                    and area["east_min_m"] - margin <= pos[1] <= area["east_max_m"] + margin):
+                errors.append("vehicle escaped operating area")
+    if not reason:
+        errors.append("missing last-window decision reason")
+    observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
+    action = expected if not errors else "unknown"
+    return action, reason, max(0.0, deadline - fault_at)
 
 
 def _default_package(work_dir: Path) -> Any:
@@ -658,9 +659,23 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         scenario_dir = work_dir / "runs" / f"{event.fault}-{time.time_ns()}"
         scenario_dir.mkdir(parents=True, exist_ok=True)
         session = factory(admitted, event, scenario_dir)
-        run_for = duration_s or (event.at_s + event.duration_s + 0.65)
+        minimum_run = event.at_s + event.duration_s + 0.15 + 2.0
+        run_for = duration_s or minimum_run
+        if run_for < minimum_run:
+            raise ValueError(
+                f"scenario {event.fault} evaluation window must be at least 2.0 s "
+                f"after react_deadline; duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
+            )
         try:
             session.runtime.run(run_for)
+            # OnboardRuntime may stop its worker early after a terminal action.
+            # Keep the fake transport sampling until the declared evaluation
+            # end so the verdict can prove sustained state, continuity, and
+            # latch behavior over the whole window.
+            end_at = session.started + run_for
+            while time.monotonic() < end_at:
+                session.vehicle.snapshot()
+                time.sleep(0.05)
         finally:
             observation = session.observation()
             session.runtime.close()
@@ -668,6 +683,7 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         # Include bounded shutdown/command handoff jitter while preserving the
         # scenario's explicit injection window as the primary deadline.
         check = verdict(expected, observation=observation, deadline_s=run_for + 0.5)
+        check["verdict_error"] = observation.get("verdict_error", "")
         reason_rule = _expected_reason_fragment(event.fault)
         check["reason_rule"] = reason_rule
         check["reason_matches"] = reason_rule.lower() in check["reason"].lower()
