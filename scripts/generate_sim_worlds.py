@@ -22,6 +22,7 @@ def main() -> int:
     parser.add_argument("--out-worlds", type=Path, default=Path("simulation/gazebo/worlds"))
     parser.add_argument("--out-scenarios", type=Path, default=Path("configs/scenarios/generated"))
     parser.add_argument("--real-time-factor", type=float, default=1.0)
+    parser.add_argument("--appearance", choices=("noon_clear", "morning_low_sun", "evening_low_sun", "overcast_flat", "dusk_dim", "haze"), default=None)
     parser.add_argument("--asset-mode", choices=("box", "fuel_v1"), default="box")
     parser.add_argument(
         "--segmentation-labels",
@@ -44,6 +45,7 @@ def main() -> int:
             args.out_worlds,
             args.out_scenarios,
             args.real_time_factor,
+            appearance=args.appearance,
             segmentation_labels=args.segmentation_labels,
             unambiguous_tasks=args.unambiguous_tasks,
         )
@@ -55,6 +57,7 @@ def main() -> int:
             args.out_worlds,
             args.out_scenarios,
             args.real_time_factor,
+            appearance=args.appearance,
         )
     print(f"generated {document['count']} worlds (seed={document['seed']})")
     return 0

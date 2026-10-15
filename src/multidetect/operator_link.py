@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import secrets
+import tempfile
 from collections import deque
 from dataclasses import dataclass
 from math import isfinite
+from pathlib import Path
 
 from .approach_hil import ApproachHilPhase
 from .compat import StrEnum
@@ -35,6 +40,11 @@ from .unified_tracking import UnifiedTrackState
 OPERATOR_LINK_PROTOCOL_VERSION = 1
 MAX_SELECTION_TTL_S = 5.0
 MAX_AUTHORIZATION_DECISION_TTL_S = 5.0
+# Sequence numbers are unsigned 32-bit serials.  A peer may advance through a
+# bounded window, but an authenticated packet must never be allowed to move a
+# high-water mark an arbitrary distance (which would permanently brick the
+# stream).  The value is deliberately generous for the low-rate operator link.
+DEFAULT_MAX_SEQUENCE_FORWARD_JUMP = 1_000_000
 # A range packet is display/evidence metadata, but it must not keep an old
 # measurement alive merely because its authenticated transport envelope is
 # fresh.  Keep this transport bound aligned with the QGC target/evidence
@@ -220,6 +230,171 @@ if len(RELEASE_REASON_IDS) > 32 or len(set(RELEASE_REASON_IDS)) != len(RELEASE_R
     raise RuntimeError("operator release registry exceeds its wire mask or contains duplicates")
 if len(APPROACH_REASON_IDS) > 32 or len(set(APPROACH_REASON_IDS)) != len(APPROACH_REASON_IDS):
     raise RuntimeError("operator approach registry exceeds its wire mask or contains duplicates")
+
+
+class ReplayStateError(RuntimeError):
+    """Replay state could not be trusted; callers must re-handshake."""
+
+
+def serial_forward_distance(candidate: int, previous: int) -> int:
+    """Return the RFC-1982-style forward distance for a uint32 serial."""
+
+    return (int(candidate) - int(previous)) & 0xFFFFFFFF
+
+
+def serial_is_newer(
+    candidate: int,
+    previous: int,
+    *,
+    max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+) -> bool:
+    """Compare uint32 sequence numbers with wrap handling and a jump bound."""
+
+    distance = serial_forward_distance(candidate, previous)
+    return 0 < distance < 0x80000000 and distance <= max_forward_jump
+
+
+class PersistentReplayState:
+    """Small atomic sidecar for sequence high-water and replay identifiers.
+
+    The file is created on first use and updated with ``fsync`` + ``os.replace``.
+    A malformed or unreadable existing file raises :class:`ReplayStateError`;
+    silently starting from zero would reopen the reboot replay vulnerability.
+    """
+
+    _VERSION = 1
+
+    def __init__(self, path: str | os.PathLike[str] | None) -> None:
+        self.path = None if path is None else Path(path)
+        self.boot_epoch = secrets.token_hex(16)
+        self.sequences: dict[str, int] = {}
+        self.identifiers: list[str] = []
+        if self.path is None:
+            return
+        try:
+            if self.path.exists():
+                document = json.loads(self.path.read_text(encoding="utf-8"))
+                if not isinstance(document, dict) or document.get("version") != self._VERSION:
+                    raise ValueError("unsupported replay-state version")
+                epoch = document.get("boot_epoch")
+                sequences = document.get("sequences")
+                identifiers = document.get("identifiers", [])
+                if (
+                    not isinstance(epoch, str)
+                    or not epoch
+                    or not isinstance(sequences, dict)
+                    or not isinstance(identifiers, list)
+                    or not all(isinstance(item, str) for item in identifiers)
+                ):
+                    raise ValueError("invalid replay-state fields")
+                self.boot_epoch = epoch
+                self.sequences = {str(key): int(value) for key, value in sequences.items()}
+                if any(not 0 <= value <= 0xFFFFFFFF for value in self.sequences.values()):
+                    raise ValueError("invalid replay-state sequence")
+                self.identifiers = identifiers[-256:]
+                # A restart gets a fresh local boot epoch while retaining the
+                # durable high-water marks.  The epoch is available to the
+                # authenticated challenge/session layer for re-handshake.
+                self.boot_epoch = secrets.token_hex(16)
+                self._write()
+            else:
+                self._write()
+        except ReplayStateError:
+            raise
+        except Exception as exc:
+            raise ReplayStateError(
+                f"operator replay state is unreadable; re-handshake required: {self.path}"
+            ) from exc
+
+    @property
+    def ready(self) -> bool:
+        return True
+
+    def accept_sequence(
+        self,
+        key: str,
+        candidate: int,
+        *,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+    ) -> bool:
+        if not 0 <= candidate <= 0xFFFFFFFF:
+            return False
+        previous = self.sequences.get(key)
+        if previous is not None and not serial_is_newer(
+            candidate,
+            previous,
+            max_forward_jump=max_forward_jump,
+        ):
+            return False
+        self.sequences[key] = candidate
+        self._write()
+        return True
+
+    def next_sequence(
+        self,
+        key: str,
+        *,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+    ) -> int:
+        """Atomically advance a persisted uint32 sequence, including wrap."""
+
+        previous = self.sequences.get(key)
+        candidate = 0 if previous is None else (previous + 1) & 0xFFFFFFFF
+        if previous is not None and not serial_is_newer(
+            candidate,
+            previous,
+            max_forward_jump=max_forward_jump,
+        ):
+            raise ReplayStateError(f"cannot advance persisted sequence {key!r}")
+        self.sequences[key] = candidate
+        self._write()
+        return candidate
+
+    def remember_identifier(self, identifier: str, *, capacity: int = 256) -> None:
+        if identifier in self.identifiers:
+            return
+        self.identifiers.append(identifier)
+        del self.identifiers[:-capacity]
+        self._write()
+
+    def contains_identifier(self, identifier: str) -> bool:
+        return identifier in self.identifiers
+
+    def _write(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        document = {
+            "version": self._VERSION,
+            "boot_epoch": self.boot_epoch,
+            "sequences": self.sequences,
+            "identifiers": self.identifiers[-256:],
+        }
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.",
+            suffix=".tmp",
+            dir=self.path.parent,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(document, stream, sort_keys=True, separators=(",", ":"))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_name, self.path)
+            try:
+                directory_fd = os.open(self.path.parent, os.O_RDONLY)
+            except OSError:
+                directory_fd = None
+            if directory_fd is not None:
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
 
 
 class SelectionAction(StrEnum):
@@ -515,16 +690,22 @@ class SelectionCommandGuard:
         *,
         clock_tolerance_s: float = 0.5,
         replay_window_size: int = 256,
+        state_path: str | os.PathLike[str] | None = None,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
     ) -> None:
         if not isfinite(clock_tolerance_s) or clock_tolerance_s < 0.0:
             raise ValueError("clock_tolerance_s must be finite and non-negative")
         if replay_window_size <= 0:
             raise ValueError("replay_window_size must be positive")
+        if not 0 < max_forward_jump < 0x80000000:
+            raise ValueError("max_forward_jump must be in (0, 2**31)")
         self.active_geometry = active_geometry
         self.clock_tolerance_s = clock_tolerance_s
         self._seen_ids: set[str] = set()
         self._seen_order: deque[str] = deque(maxlen=replay_window_size)
         self._last_sequence_by_session: dict[str, int] = {}
+        self._replay_state = PersistentReplayState(state_path)
+        self.max_forward_jump = max_forward_jump
 
     def evaluate(
         self, command: TargetSelectionCommand, *, received_at_s: float
@@ -547,10 +728,16 @@ class SelectionCommandGuard:
             reasons.append("selection command is stale")
         if received_at_s < command.issued_at_s - self.clock_tolerance_s:
             reasons.append("selection command is dated in the future")
-        if command.command_id in self._seen_ids:
+        if command.command_id in self._seen_ids or self._replay_state.contains_identifier(
+            command.command_id
+        ):
             reasons.append("selection command ID has already been processed")
         previous_sequence = self._last_sequence_by_session.get(command.session_id)
-        if previous_sequence is not None and command.sequence <= previous_sequence:
+        if previous_sequence is not None and not serial_is_newer(
+            command.sequence,
+            previous_sequence,
+            max_forward_jump=self.max_forward_jump,
+        ):
             reasons.append("selection sequence is not newer than the last accepted command")
 
         if reasons:
@@ -561,7 +748,17 @@ class SelectionCommandGuard:
             self._seen_ids.remove(oldest)
         self._seen_order.append(command.command_id)
         self._seen_ids.add(command.command_id)
+        if not self._replay_state.accept_sequence(
+            f"selection:{command.session_id}",
+            command.sequence,
+            max_forward_jump=self.max_forward_jump,
+        ):
+            return SelectionAcceptance(
+                False,
+                ("selection sequence is not newer than the persisted high-water mark",),
+            )
         self._last_sequence_by_session[command.session_id] = command.sequence
+        self._replay_state.remember_identifier(command.command_id)
         return SelectionAcceptance(True, ())
 
 
@@ -670,11 +867,15 @@ class AuthorizationDecisionCommandGuard:
         *,
         clock_tolerance_s: float = 0.5,
         replay_window_size: int = 256,
+        state_path: str | os.PathLike[str] | None = None,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
     ) -> None:
         if not isfinite(clock_tolerance_s) or clock_tolerance_s < 0:
             raise ValueError("authorization clock tolerance must be finite and non-negative")
         if replay_window_size <= 0:
             raise ValueError("authorization replay window must be positive")
+        if not 0 < max_forward_jump < 0x80000000:
+            raise ValueError("max_forward_jump must be in (0, 2**31)")
         self.clock_tolerance_s = clock_tolerance_s
         self._active: AuthorizationChallengeStatusMessage | None = None
         self._active_snapshots: deque[AuthorizationChallengeStatusMessage] = deque(maxlen=32)
@@ -685,6 +886,8 @@ class AuthorizationDecisionCommandGuard:
         ] = {}
         self._processed_order: deque[int] = deque(maxlen=replay_window_size)
         self._decided_challenges: set[int] = set()
+        self._replay_state = PersistentReplayState(state_path)
+        self.max_forward_jump = max_forward_jump
 
     def set_active_challenge(
         self,
@@ -710,6 +913,13 @@ class AuthorizationDecisionCommandGuard:
         if not isfinite(received_at_s) or received_at_s < 0:
             raise ValueError("authorization receipt timestamp must be finite and non-negative")
         cached = self._processed.get(command.command_token)
+        if cached is None and self._replay_state.contains_identifier(
+            f"authorization:{command.command_token}"
+        ):
+            return AuthorizationDecisionAcceptance(
+                False,
+                ("authorization command was already processed before restart",),
+            )
         if cached is not None:
             previous, acceptance = cached
             if previous == command:
@@ -772,13 +982,29 @@ class AuthorizationDecisionCommandGuard:
         if received_at_s < command.issued_at_s - self.clock_tolerance_s:
             reasons.append("authorization command is dated in the future")
         previous_sequence = self._last_sequence_by_session.get(command.session_token)
-        if previous_sequence is not None and command.sequence <= previous_sequence:
+        if previous_sequence is not None and not serial_is_newer(
+            command.sequence,
+            previous_sequence,
+            max_forward_jump=self.max_forward_jump,
+        ):
             reasons.append("authorization sequence is not newer than the last command")
 
         acceptance = AuthorizationDecisionAcceptance(not reasons, tuple(reasons))
         self._remember(command, acceptance)
         if acceptance.allowed:
+            if not self._replay_state.accept_sequence(
+                f"authorization:{command.session_token}",
+                command.sequence,
+                max_forward_jump=self.max_forward_jump,
+            ):
+                rejection = AuthorizationDecisionAcceptance(
+                    False,
+                    ("authorization sequence is not newer than persisted high-water mark",),
+                )
+                self._remember(command, rejection)
+                return rejection
             self._last_sequence_by_session[command.session_token] = command.sequence
+            self._replay_state.remember_identifier(f"authorization:{command.command_token}")
             self._decided_challenges.add(command.challenge_token)
         return acceptance
 
@@ -1847,6 +2073,8 @@ class ApproachConfirmationCommandGuard:
         minimum_completion_fraction: float = 0.98,
         clock_tolerance_s: float = 0.5,
         replay_window_size: int = 256,
+        state_path: str | os.PathLike[str] | None = None,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
     ) -> None:
         if not 0.0 < minimum_slide_duration_s < maximum_slide_duration_s:
             raise ValueError("approach slide duration guard is invalid")
@@ -1856,6 +2084,8 @@ class ApproachConfirmationCommandGuard:
             raise ValueError("approach clock tolerance must be finite and non-negative")
         if replay_window_size <= 0:
             raise ValueError("approach replay window must be positive")
+        if not 0 < max_forward_jump < 0x80000000:
+            raise ValueError("max_forward_jump must be in (0, 2**31)")
         self.minimum_slide_duration_s = minimum_slide_duration_s
         self.maximum_slide_duration_s = maximum_slide_duration_s
         self.minimum_completion_fraction = minimum_completion_fraction
@@ -1868,6 +2098,8 @@ class ApproachConfirmationCommandGuard:
         ] = {}
         self._processed_order: deque[int] = deque(maxlen=replay_window_size)
         self._consumed_challenges: set[int] = set()
+        self._replay_state = PersistentReplayState(state_path)
+        self.max_forward_jump = max_forward_jump
 
     def set_active_challenge(self, challenge: ApproachChallengeStatusMessage | None) -> None:
         self._active = challenge
@@ -1881,6 +2113,13 @@ class ApproachConfirmationCommandGuard:
         if not isfinite(received_at_s) or received_at_s < 0.0:
             raise ValueError("approach receipt timestamp must be finite and non-negative")
         cached = self._processed.get(command.command_token)
+        if cached is None and self._replay_state.contains_identifier(
+            f"approach:{command.command_token}"
+        ):
+            return ApproachConfirmationAcceptance(
+                False,
+                ("approach command was already processed before restart",),
+            )
         if cached is not None:
             previous, acceptance = cached
             if previous == command:
@@ -1917,7 +2156,11 @@ class ApproachConfirmationCommandGuard:
         if received_at_s < command.issued_at_s - self.clock_tolerance_s:
             reasons.append("approach command is dated in the future")
         previous_sequence = self._last_sequence_by_session.get(command.session_token)
-        if previous_sequence is not None and command.sequence <= previous_sequence:
+        if previous_sequence is not None and not serial_is_newer(
+            command.sequence,
+            previous_sequence,
+            max_forward_jump=self.max_forward_jump,
+        ):
             reasons.append("approach sequence is not newer than the last command")
         if (
             not command.continuous
@@ -1930,7 +2173,19 @@ class ApproachConfirmationCommandGuard:
         acceptance = ApproachConfirmationAcceptance(not reasons, tuple(reasons))
         self._remember(command, acceptance)
         if acceptance.allowed:
+            if not self._replay_state.accept_sequence(
+                f"approach:{command.session_token}",
+                command.sequence,
+                max_forward_jump=self.max_forward_jump,
+            ):
+                rejection = ApproachConfirmationAcceptance(
+                    False,
+                    ("approach sequence is not newer than persisted high-water mark",),
+                )
+                self._remember(command, rejection)
+                return rejection
             self._last_sequence_by_session[command.session_token] = command.sequence
+            self._replay_state.remember_identifier(f"approach:{command.command_token}")
             self._consumed_challenges.add(command.challenge_token)
         return acceptance
 
@@ -2076,6 +2331,8 @@ class PayloadTargetConfirmationCommandGuard:
         minimum_completion_fraction: float = 0.98,
         clock_tolerance_s: float = 0.5,
         replay_window_size: int = 256,
+        state_path: str | os.PathLike[str] | None = None,
+        max_forward_jump: int = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
     ) -> None:
         if not 0.0 < minimum_slide_duration_s < maximum_slide_duration_s:
             raise ValueError("payload target slide duration guard is invalid")
@@ -2085,6 +2342,8 @@ class PayloadTargetConfirmationCommandGuard:
             raise ValueError("payload target clock tolerance must be finite and non-negative")
         if replay_window_size <= 0:
             raise ValueError("payload target replay window must be positive")
+        if not 0 < max_forward_jump < 0x80000000:
+            raise ValueError("max_forward_jump must be in (0, 2**31)")
         self.minimum_slide_duration_s = minimum_slide_duration_s
         self.maximum_slide_duration_s = maximum_slide_duration_s
         self.minimum_completion_fraction = minimum_completion_fraction
@@ -2097,6 +2356,8 @@ class PayloadTargetConfirmationCommandGuard:
         ] = {}
         self._processed_order: deque[int] = deque(maxlen=replay_window_size)
         self._consumed_challenges: set[int] = set()
+        self._replay_state = PersistentReplayState(state_path)
+        self.max_forward_jump = max_forward_jump
 
     def set_active_challenge(
         self,
@@ -2113,6 +2374,13 @@ class PayloadTargetConfirmationCommandGuard:
         if not isfinite(received_at_s) or received_at_s < 0.0:
             raise ValueError("payload target receipt timestamp must be finite and non-negative")
         cached = self._processed.get(command.command_token)
+        if cached is None and self._replay_state.contains_identifier(
+            f"payload-target:{command.command_token}"
+        ):
+            return PayloadTargetConfirmationAcceptance(
+                False,
+                ("payload target command was already processed before restart",),
+            )
         if cached is not None:
             previous, acceptance = cached
             if previous == command:
@@ -2151,7 +2419,11 @@ class PayloadTargetConfirmationCommandGuard:
         if received_at_s < command.issued_at_s - self.clock_tolerance_s:
             reasons.append("payload target command is dated in the future")
         previous_sequence = self._last_sequence_by_session.get(command.session_token)
-        if previous_sequence is not None and command.sequence <= previous_sequence:
+        if previous_sequence is not None and not serial_is_newer(
+            command.sequence,
+            previous_sequence,
+            max_forward_jump=self.max_forward_jump,
+        ):
             reasons.append("payload target sequence is not newer than the last command")
         if (
             not command.continuous
@@ -2164,7 +2436,19 @@ class PayloadTargetConfirmationCommandGuard:
         acceptance = PayloadTargetConfirmationAcceptance(not reasons, tuple(reasons))
         self._remember(command, acceptance)
         if acceptance.allowed:
+            if not self._replay_state.accept_sequence(
+                f"payload-target:{command.session_token}",
+                command.sequence,
+                max_forward_jump=self.max_forward_jump,
+            ):
+                rejection = PayloadTargetConfirmationAcceptance(
+                    False,
+                    ("payload target sequence is not newer than persisted high-water mark",),
+                )
+                self._remember(command, rejection)
+                return rejection
             self._last_sequence_by_session[command.session_token] = command.sequence
+            self._replay_state.remember_identifier(f"payload-target:{command.command_token}")
             self._consumed_challenges.add(command.challenge_token)
         return acceptance
 

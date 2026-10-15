@@ -80,7 +80,11 @@ def run_software_acceptance(project_root: Path) -> dict[str, Any]:
         sequence=1,
         produced_at_s=fixed_frames[-1].captured_at_s + 0.05,
     )
-    remote_guard = AuthorizationDecisionCommandGuard(clock_tolerance_s=0.0)
+    replay_root = root / ".multidetect-replay-state"
+    replay_root.mkdir(parents=True, exist_ok=True)
+    remote_guard = AuthorizationDecisionCommandGuard(
+        clock_tolerance_s=0.0, state_path=replay_root / "acceptance-authorization.json"
+    )
     remote_guard.set_active_challenge(challenge_status)
     remote_command = AuthorizationDecisionCommand(
         command_token=operator_identifier_token("software-acceptance-command"),
@@ -175,7 +179,9 @@ def run_software_acceptance(project_root: Path) -> dict[str, Any]:
         bbox=BoundingBox(0.32, 0.21, 0.61, 0.72),
         displayed_frame_id="frame-100",
     )
-    selection_guard = SelectionCommandGuard(geometry, clock_tolerance_s=0.0)
+    selection_guard = SelectionCommandGuard(
+        geometry, clock_tolerance_s=0.0, state_path=replay_root / "acceptance-selection.json"
+    )
     selection_acceptance = selection_guard.evaluate(selection, received_at_s=100.1)
     selection_replay = selection_guard.evaluate(selection, received_at_s=100.2)
     if not (
