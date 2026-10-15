@@ -30,6 +30,10 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 
 在任务配置中设置 `operator_key_path`（也接受 `mission_key_path`、`mission_signing_key_path` 或 `security.key_path`）。路径可为绝对路径或相对仓库根目录。设置该路径后，未签名或验签失败的任务包会在机载接受前拒绝。命令安全参数可放在 `security` 下：`timestamp_window_s` 默认 30 秒、`clock_skew_s` 默认 5 秒、`rate_limit` 默认 20、`rate_window_s` 默认 10 秒。
 
+任务包验签和地面命令验签可分别配置为 `mission_package_verify_key` 与 `ground_command_verify_key`；旧的 `operator_key_path` 等字段仍兼容但已弃用。飞行模式拒绝使用 `ed25519-private:` 私钥作为验签配置。每个任务首次接纳时会先原子创建 replay high-water 文件；重启后文件缺失或损坏只拒绝地面命令并记录“replay state lost; re-provision mission”，自主任务仍按链路丢失策略运行。命令不携带 session nonce，使用签名绑定的 mission_id、严格递增 sequence 和 freshness timestamp。
+
+地面命令在验签前限制为 8 KiB、嵌套深度 8、字符串 1 KiB；重复 JSON 键会拒绝，认证失败使用 token bucket 限流。`ground_event` 由单一锁保护认证、限流、状态变更和 replay 提交。
+
 密钥 provisioning 和 rotation 流程：在离线操作员主机生成新密钥；通过受控介质把 public key（或 HMAC 预共享密钥）写入机载密钥文件并限制权限；先发布使用新 key 的任务包；确认机载日志中的验签成功后再撤销旧 key。轮换期间只能短暂地在配置层允许两个 key，并以任务版本/有效期区分，禁止把 private key、预共享密钥或命令签名放进日志、JSON 示例、命令行参数和仓库。
 
 时间戳使用机载本地时钟并允许 clock skew；没有 GPS 时间时不会把 GPS 当作认证时钟。sequence 在当前 Supervisor 会话内严格递增；重启或换包时应重新签发任务会话，不能复用旧会话命令。

@@ -6,6 +6,7 @@ import json
 import math
 import os
 import secrets
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -21,6 +22,7 @@ from .mission_package import POLICIES, MissionPackage, number, parse_policy
 from .mission_plan import validate_mission_plan
 from .mission_security import load_key, verify_document
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
+from .serialization import strict_json_loads
 
 
 class MissionSupervisor:
@@ -52,6 +54,7 @@ class MissionSupervisor:
         runtime_mode: str | None = None,
         flight_mode: bool | None = None,
         require_signature: bool | None = None,
+        ground_command_verify_key: bytes | None = None,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
@@ -59,7 +62,9 @@ class MissionSupervisor:
         self.wall_clock = wall_clock
         if security_key is None and security_key_path is not None:
             security_key = load_key(security_key_path)
-        self._security_key = security_key
+        self._security_key = ground_command_verify_key or security_key
+        self._ground_lock = threading.RLock()
+        self._auth_failures: deque[float] = deque()
         mode_text = runtime_mode.strip().lower() if isinstance(runtime_mode, str) else ""
         self._flight_mode = bool(flight_mode) if flight_mode is not None else mode_text in {
             "flight", "real", "hil", "live"
@@ -92,8 +97,6 @@ class MissionSupervisor:
         self._replay_state_path = Path(replay_state_path) if replay_state_path is not None else None
         self._replay_state_loaded = False
         self._replay_state_error: str | None = None
-        self._session_required = False
-        self._session_nonce = secrets.token_hex(16)
         self._last_remote_heartbeat: float | None = None
         self._last_remote_timestamp_domain: str | None = None
         self.started = self._now = clock()
@@ -112,6 +115,9 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        # An existing mission log means this is a restart.  A missing replay
+        # file in that case is evidence loss and must fail closed.
+        self._had_prior_log = self.log.path.exists()
         self.energy_estimator = OnboardEnergyEstimator(
             EnergyConfig.from_budget(
                 package.document["budget"], asdict(energy_config) if energy_config else None
@@ -125,9 +131,15 @@ class MissionSupervisor:
             plan=asdict(executor.plan),
             energy_model=asdict(self.energy_estimator.config),
         )
+        self._ensure_replay_state(admission=True)
 
     def __getattr__(self, name):
         return getattr(self.executor, name)
+
+    @property
+    def session_nonce(self) -> str:
+        """Deprecated compatibility accessor; nonce is no longer security state."""
+        return ""
 
     @property
     def done(self) -> bool:
@@ -144,19 +156,18 @@ class MissionSupervisor:
             and self._now - self.last_heartbeat < self.package.document["heartbeat_timeout_s"]
         )
 
-    @property
-    def session_nonce(self) -> str:
-        """Current boot/session nonce for an authenticated handshake."""
-        return self._session_nonce
-
     @staticmethod
     def _atomic_json(path: Path, document: dict[str, Any]) -> None:
         """Write replay state so a torn write cannot reset the high-water mark."""
         path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            os.chmod(path.parent, 0o700)
         temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
         encoded = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
         try:
             with temporary.open("xb") as handle:
+                if os.name != "nt":
+                    os.chmod(temporary, 0o600)
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -181,52 +192,77 @@ class MissionSupervisor:
             self._replay_state_path = self.log.directory / "ground-replay-state.json"
         return self._replay_state_path
 
-    def _ensure_replay_state(self) -> bool:
-        """Load and rotate the authenticated boot/session epoch once per process."""
+    def _ensure_replay_state(self, *, admission: bool = False) -> bool:
+        """Load mission-scoped high-water state; create only on first admission."""
         if self._replay_state_loaded:
             return self._replay_state_error is None
         path = self._replay_path()
         try:
+            if path.parent.is_symlink():
+                raise ValueError("replay state directory symlink is refused")
+            if path.is_symlink():
+                raise ValueError("replay state symlink is refused")
+            if os.name != "nt":
+                parent_stat = path.parent.stat()
+                if parent_stat.st_uid != os.getuid():
+                    raise PermissionError("replay state owner mismatch")
+                if path.exists():
+                    state_stat = path.stat()
+                    if state_stat.st_uid != os.getuid():
+                        raise PermissionError("replay state owner mismatch")
+                    if state_stat.st_mode & 0o077:
+                        raise PermissionError("replay state permissions are too broad")
             prior_sequence = self._last_sequence
             had_prior_state = path.exists()
-            self._session_required = had_prior_state
             if had_prior_state:
                 raw = json.loads(path.read_text(encoding="utf-8"))
-                if not isinstance(raw, dict) or raw.get("mission_id") != self.package.mission_id:
-                    raise ValueError("replay state mission mismatch")
-                if raw.get("version") != 1:
+                if not isinstance(raw, dict):
+                    raise ValueError("replay state is invalid")
+                if raw.get("version") not in {1, 2}:
                     raise ValueError("replay state version is invalid")
-                prior_sequence = raw.get("last_sequence")
+                if raw.get("version") == 2:
+                    prior_sequence = raw.get("missions", {}).get(self.package.mission_id)
+                    if prior_sequence is None:
+                        prior_sequence = 0
+                else:
+                    if raw.get("mission_id") != self.package.mission_id:
+                        raise ValueError("replay state mission mismatch")
+                    prior_sequence = raw.get("last_sequence")
                 if (
                     isinstance(prior_sequence, bool)
                     or not isinstance(prior_sequence, int)
                     or not 0 <= prior_sequence < self._sequence_modulus
                 ):
                     raise ValueError("replay state sequence is invalid")
-                prior_nonce = raw.get("session_nonce")
-                if not isinstance(prior_nonce, str) or not prior_nonce:
-                    raise ValueError("replay state session nonce is invalid")
+            elif self._had_prior_log:
+                raise ValueError("replay state lost; re-provision mission")
             self._last_sequence = prior_sequence
+            if not had_prior_state:
+                self._atomic_json(path, {"version": 2, "missions": {self.package.mission_id: 0}})
             self._replay_state_loaded = True
             return True
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             self._replay_state_error = str(exc)
             self._replay_state_loaded = True
+            if admission:
+                self._record(
+                    "replay_state_lost",
+                    status="replay state lost; re-provision mission",
+                    error=str(exc),
+                )
             return False
 
     def _commit_sequence(self, sequence: int) -> None:
         if not self._ensure_replay_state():
             raise ValueError("replay state unavailable")
         path = self._replay_path()
-        self._atomic_json(
-            path,
-            {
-                "version": 1,
-                "mission_id": self.package.mission_id,
-                "last_sequence": sequence,
-                "session_nonce": self._session_nonce,
-            },
-        )
+        missions = {}
+        if path.exists():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            missions = dict(raw.get("missions", {})) if raw.get("version") == 2 else {}
+        missions[self.package.mission_id] = sequence
+        state = {"version": 2, "missions": missions}
+        self._atomic_json(path, state)
         self._last_sequence = sequence
 
     def _serial_distance(self, sequence: int) -> int:
@@ -243,11 +279,53 @@ class MissionSupervisor:
         self._now = now
 
     def ground_event(self, event: dict[str, Any]) -> bool:
+        with self._ground_lock:
+            return self._ground_event_locked(event)
+
+    def _ground_event_locked(self, event: dict[str, Any]) -> bool:
         self._time()
+        raw_input = event
+        if isinstance(event, (str, bytes, bytearray)):
+            if len(raw_input) > 8192:
+                self._record(
+                    "ground_event_rejected",
+                    reason="pre-authentication byte limit exceeded",
+                )
+                return False
+            try:
+                event = strict_json_loads(event, name="ground command")
+            except (TypeError, ValueError):
+                return False
         if not isinstance(event, dict):
             self._record("ground_event_rejected", reason="event must be an object")
             return False
         secured = self._security_key is not None
+        raw_size = len(json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode())
+
+        def depth(value, level=0):
+            if level > 8:
+                return level
+            if isinstance(value, dict):
+                return max([level, *(depth(v, level + 1) for v in value.values())])
+            if isinstance(value, list):
+                return max([level, *(depth(v, level + 1) for v in value)])
+            return level
+
+        def strings_ok(value, key=None):
+            if isinstance(value, str):
+                limit = 128 if key in {"signature", "mac"} else 1024
+                return len(value) <= limit
+            if isinstance(value, dict):
+                return all(strings_ok(v, k) for k, v in value.items())
+            if isinstance(value, list):
+                return all(strings_ok(v, key) for v in value)
+            return True
+
+        if raw_size > 8192 or depth(event) > 8 or not strings_ok(event):
+            self._record("ground_event_rejected", reason="pre-authentication limits exceeded")
+            return False
+        while self._auth_failures and self._now - self._auth_failures[0] > 60:
+            self._auth_failures.popleft()
         if self._require_signature and not secured:
             self._record("ground_event_rejected", reason="flight control requires authentication")
             return False
@@ -258,6 +336,13 @@ class MissionSupervisor:
             sequence = event.get("sequence")
             signature = event.get("signature", event.get("mac"))
             if not isinstance(signature, str) or not verify_document(event, self._security_key):
+                self._auth_failures.append(self._now)
+                if len(self._auth_failures) > 20:
+                    self._record(
+                        "ground_event_rejected",
+                        reason="authentication failure token bucket",
+                    )
+                    return False
                 self._record("ground_event_rejected", reason="event authentication failed")
                 return False
             try:
@@ -278,13 +363,6 @@ class MissionSupervisor:
             distance = self._serial_distance(sequence)
             if distance == 0 or distance > self.max_sequence_jump:
                 self._record("ground_event_rejected", reason="sequence replay or jump too large")
-                return False
-            supplied_nonce = event.get("session_nonce")
-            if self._session_required and supplied_nonce != self._session_nonce:
-                self._record("ground_event_rejected", reason="session nonce required")
-                return False
-            if supplied_nonce is not None and supplied_nonce != self._session_nonce:
-                self._record("ground_event_rejected", reason="session nonce mismatch")
                 return False
             timestamp_domain = event.get("timestamp_domain")
             if event.get("timestamp_version") != 1:

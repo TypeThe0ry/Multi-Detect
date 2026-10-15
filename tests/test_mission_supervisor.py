@@ -393,19 +393,16 @@ def test_heartbeat_cannot_postpone_pause_deadline(tmp_path, policy):
     assert s.evaluate() == "return_now"
 
 
-def test_signed_replay_high_water_survives_restart_and_rotates_session(tmp_path):
+def test_signed_replay_high_water_survives_restart_without_session_nonce(tmp_path):
     s, now, _log, key = secured_supervisor(tmp_path)
     assert s.ground_event(signed_event(key, 1, now[0]))
     state = tmp_path / "ground-replay-state.json"
-    old_session = json.loads(state.read_text(encoding="utf-8"))["session_nonce"]
+    assert "session_nonce" not in json.loads(state.read_text(encoding="utf-8"))
 
     restarted, restarted_now, _log, restarted_key = secured_supervisor(tmp_path)
-    assert restarted_key == key and restarted.session_nonce != old_session
+    assert restarted_key == key
     assert not restarted.ground_event(signed_event(key, 1, restarted_now[0]))
-    assert not restarted.ground_event(signed_event(key, 2, restarted_now[0]))
-    assert restarted.ground_event(
-        signed_event(key, 2, restarted_now[0], session_nonce=restarted.session_nonce)
-    )
+    assert restarted.ground_event(signed_event(key, 2, restarted_now[0]))
 
 
 def test_sequence_wrap_and_bounded_forward_jump(tmp_path):
@@ -422,8 +419,9 @@ def test_sequence_wrap_and_bounded_forward_jump(tmp_path):
         ),
         encoding="utf-8",
     )
+    s._replay_state_loaded = False
     assert s.ground_event(
-        signed_event(key, 0, now[0], session_nonce=s.session_nonce)
+        signed_event(key, 0, now[0])
     )
     assert not s.ground_event(
         signed_event(key, 10, now[0], session_nonce=s.session_nonce)

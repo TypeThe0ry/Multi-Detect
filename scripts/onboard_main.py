@@ -160,6 +160,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         options = json.loads(args.policy_config.read_text(encoding="utf-8"))
         options.setdefault("mission", "find")
         _validate_local_models(options)
+        if args.mode == "real" and not options.get("mission_package"):
+            raise ValueError("real runtime requires a signed mission_package")
         # The shared controller's image bearing/rotation assumes a forward camera.
         # Calibrated ground rays support all axes, but flight control does not yet.
         for key in ("mount_yaw_right_deg", "mount_roll_clockwise_deg"):

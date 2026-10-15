@@ -142,7 +142,27 @@ def load_key(path: str | Path) -> AuthenticationKey:
     # byte. In particular, 0x09-0x0d and 0x20 are valid edge bytes in raw keys.
     try:
         text_source = raw.decode("ascii")
-        source = text_source.strip().encode("ascii")
+        stripped = text_source.strip()
+        textual = any(
+            stripped.lower().startswith(p)
+            for p in ("ed25519-public:", "ed25519-private:", "hmac:")
+        )
+        # A raw fixed-size key wins over an accidentally base64-looking byte
+        # string.  This preserves whitespace bytes at either edge.
+        if not textual and len(raw) != 32:
+            textual = len(stripped) % 2 == 0 and all(
+                c in "0123456789abcdefABCDEF" for c in stripped
+            )
+            try:
+                textual = textual or len(base64.b64decode(stripped, validate=True)) in {
+                    16, 24, 32, 64
+                }
+            except (ValueError, binascii.Error):
+                pass
+        source = stripped.encode("ascii") if textual else raw
+        if not textual and len(raw) == 32:
+            # Keep the exact bytes, including ASCII whitespace at either edge.
+            text_source = None
     except UnicodeDecodeError:
         text_source = None
         source = raw
@@ -192,6 +212,8 @@ def load_key(path: str | Path) -> AuthenticationKey:
             else:
                 raise ValueError("text authentication keys require a supported prefix")
     _check_secret_permissions(key_path, secret=(algorithm == "hmac-sha256" or private))
+    if private:
+        raise ValueError("verification key must be an Ed25519 public key")
     return AuthenticationKey(algorithm, material, _key_id(parsed_key_id))
 
 
@@ -244,14 +266,7 @@ def verify_bytes(
         except (ValueError, binascii.Error):
             signature = bytes.fromhex(encoded)
         if configured.algorithm == "ed25519":
-            try:
-                Ed25519PublicKey.from_public_bytes(configured.key).verify(signature, payload)
-            except Exception:
-                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-                Ed25519PrivateKey.from_private_bytes(configured.key).public_key().verify(
-                    signature, payload
-                )
+            Ed25519PublicKey.from_public_bytes(configured.key).verify(signature, payload)
             return True
         expected = hmac.new(configured.key, payload, hashlib.sha256).digest()
         return hmac.compare_digest(signature, expected)

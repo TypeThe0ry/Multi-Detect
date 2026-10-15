@@ -389,12 +389,33 @@ class OnboardPolicy:
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        if (
+            effective_runtime_mode
+            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
+            and package_raw is None
+        ):
+            raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
         key_setting = (
-            options.get("operator_key_path")
+            options.get("mission_package_verify_key")
+            or options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
+        )
+        if key_setting is not None and not (
+            options.get("mission_package_verify_key")
+            or security.get("mission_package_verify_key")
+        ):
+            warnings.warn(
+                "operator_key_path is deprecated; use mission_package_verify_key",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        ground_key_setting = (
+            security.get("ground_command_verify_key")
+            or options.get("ground_command_verify_key")
+            or key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
@@ -690,7 +711,9 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    security_key_path=(
+                        str(ground_key_setting) if ground_key_setting is not None else None
+                    ),
                     timestamp_window_s=float(
                         options.get(
                             "command_timestamp_window_s",
