@@ -143,11 +143,24 @@ class PX4PreflightGate:
             "GNSS fix, satellites and HDOP are fresh and sufficient.",
             "GNSS 定位、卫星数和 HDOP 新鲜且满足要求。"))
 
+        home_requested = False
         if hasattr(self.vehicle, "request_home_position"):
             try:
                 self.vehicle.request_home_position()
+                home_requested = True
             except Exception:
-                pass
+                self.checks.append(_check("home_request", False, {}, {"reply": True},
+                    "HOME_POSITION request failed.", "HOME_POSITION 请求失败。"))
+        if home_requested:
+            deadline = now + max(3.0, self.timeout_s * 3)
+            while self.clock() < deadline:
+                current = self.vehicle.snapshot()
+                if (getattr(current, "home_ned", None) is not None
+                        and getattr(current, "home_geodetic", None) is not None
+                        and getattr(current, "home_monotonic", 0) >= now):
+                    state = current
+                    break
+                time.sleep(0.01)
         home_ok = (get("home_ned") is not None and get("home_geodetic") is not None
                    and fresh(get("home_monotonic")))
         self.checks.append(_check("home", home_ok,
@@ -185,7 +198,7 @@ class PX4PreflightGate:
             if name.startswith("GF_MAX_"):
                 ok = actual > 0 and actual >= float(wanted)
             elif name == "COM_DL_LOSS_T":
-                ok = 5 <= actual <= 300
+                ok = math.isclose(actual, float(wanted), rel_tol=0, abs_tol=0)
             elif name == "COM_OF_LOSS_T":
                 ok = 0 <= actual <= 60
             elif name == "BAT_LOW_THR":
@@ -224,6 +237,12 @@ class PX4PreflightGate:
 
     def apply(self) -> dict[str, Any]:
         expected = build_parameter_matrix(self.package)
+        invalid = self._invalid_targets(expected)
+        if invalid:
+            self.checks = [_check("matrix_values", False, {"invalid": invalid},
+                {"PX4_metadata_ranges": True}, "Package targets are outside PX4 ranges.",
+                "任务包目标值超出 PX4 范围。")]
+            return self.report()
         previous: dict[str, float] = {}
         written: list[str] = []
         try:
@@ -235,24 +254,61 @@ class PX4PreflightGate:
                     continue
                 if math.isclose(previous[name], float(wanted), rel_tol=0, abs_tol=1e-3):
                     continue
+                written.append(name)
                 self.vehicle.write_parameter(name, float(wanted), timeout_s=self.timeout_s,
                                              retries=self.retries)
-                written.append(name)
         except Exception as exc:
-            rollback = {}
-            for name in reversed(written):
-                try:
-                    self.vehicle.write_parameter(name, previous[name], timeout_s=self.timeout_s,
-                                                 retries=self.retries)
-                    rollback[name] = True
-                except Exception:
-                    rollback[name] = False
+            rollback = self._rollback(written, previous)
+            failed = [name for name, ok in rollback.items() if not ok]
+            error = str(exc)
+            if failed:
+                error += "; PX4 parameters may be partially modified: " + ", ".join(failed)
             self.checks = [_check("apply", False,
-                {"written": written, "rollback": rollback, "error": str(exc)},
+                {"written": written, "rollback": rollback, "error": error},
                 {"rollback": "best effort"}, "PX4 write failed; rollback was attempted.",
                 "PX4 写入失败，已尝试回滚。")]
+            if failed:
+                self.checks.append(_check("apply_rollback", False, {"rollback": rollback}, {},
+                    error, "PX4 参数可能部分修改：" + ", ".join(failed)))
             return self.report()
-        return self.run()
+        report = self.run()
+        if not report["passed"]:
+            rollback = self._rollback(written, previous)
+            failed = [name for name, ok in rollback.items() if not ok]
+            report["checks"].append(_check("apply_rollback", not failed,
+                {"rollback": rollback}, {"verified": True},
+                "Post-apply admission failed; rollback was attempted.",
+                "应用后准入失败，已尝试回滚。"))
+            if failed:
+                report["passed"] = False
+                report["blocking_failures"].append(
+                    "PX4 parameters may be partially modified: " + ", ".join(failed))
+        return report
+
+    def _rollback(self, names: list[str], previous: Mapping[str, float]) -> dict[str, bool]:
+        results = {}
+        for name in reversed(names):
+            try:
+                self.vehicle.write_parameter(name, previous[name], timeout_s=self.timeout_s,
+                                             retries=self.retries)
+                actual = self.vehicle.read_parameter(name, timeout_s=self.timeout_s,
+                                                     retries=self.retries)
+                results[name] = math.isclose(actual, previous[name], rel_tol=0, abs_tol=0)
+            except Exception:
+                results[name] = False
+        return results
+
+    @staticmethod
+    def _invalid_targets(expected: Mapping[str, Any]) -> list[str]:
+        ranges = {"COM_DL_LOSS_T": (5, 300), "COM_OF_LOSS_T": (0, 60),
+                  "GF_MAX_HOR_DIST": (0, 10000), "GF_MAX_VER_DIST": (0, 10000),
+                  "BAT_LOW_THR": (0.12, 0.5), "BAT_CRIT_THR": (0.05, 0.5)}
+        invalid = [name for name, (lo, hi) in ranges.items()
+                   if expected.get(name) is not None and not lo <= float(expected[name]) <= hi]
+        if (expected.get("BAT_LOW_THR") is not None and expected.get("BAT_CRIT_THR") is not None
+                and expected["BAT_LOW_THR"] <= expected["BAT_CRIT_THR"]):
+            invalid.append("BAT_LOW_THR")
+        return invalid
 
     def report(self) -> dict[str, Any]:
         failures = [check.name for check in self.checks if check.blocking and not check.passed]
