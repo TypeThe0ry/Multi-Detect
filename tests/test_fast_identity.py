@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from onboard_factories import make_llama_runner
 
 from scripts import eval_slow_system as slow
 
@@ -28,10 +29,7 @@ def _runner(monkeypatch, top_logprobs, *, merged_first: bool = False):
         return {"choices": [{"logprobs": {"content": [{"top_logprobs": top_logprobs}]}}]}
 
     monkeypatch.setattr(slow, "_http_json", fake_http)
-    runner = object.__new__(slow.LlamaServerRunner)
-    runner.port, runner.fast_identity, runner._verdict_tokens = 1, True, {}
-    runner._verdict_pieces = {}
-    runner.last_logprobs = None
+    runner = make_llama_runner(port=1, fast_identity=True)
     return runner, calls
 
 
@@ -82,3 +80,21 @@ def test_fast_identity_unexpected_response_shape_falls_back(monkeypatch):
     prefix = '{"args":{"duration_s":null,"region":null,"track_id":"t"},"decision":"'
     runner._verdict_tokens[prefix] = FIRST
     assert runner._fast_identity({"focus_track_id": "t"}, []) is None
+
+
+def test_fast_identity_honours_prompt_cache_setting_and_records_usage(monkeypatch):
+    top = [{"id": 12, "logprob": -0.01}]
+    runner, calls = _runner(monkeypatch, top)
+    runner.cache_prompt = False
+    original = slow._http_json
+
+    def with_usage(url, body=None, timeout=None):
+        response = original(url, body, timeout)
+        if url.endswith("/chat/completions"):
+            response["usage"] = {"prompt_tokens": 470, "completion_tokens": 1}
+        return response
+
+    monkeypatch.setattr(slow, "_http_json", with_usage)
+    runner._fast_identity({"focus_track_id": "t"}, [])
+    assert calls[-1][1]["cache_prompt"] is False
+    assert runner.last_usage == {"prompt_tokens": 470, "completion_tokens": 1}

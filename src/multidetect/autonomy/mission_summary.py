@@ -52,6 +52,9 @@ def summarize_mission(
             undone.append({"step": step.id, "reason": reason or "no_recorded_completion"})
         elif reason in {"budget_reached", "search_exhausted", "max_count"}:
             undone.append({"step": step.id, "reason": f"full_search_not_established:{reason}"})
+    landing_unconfirmed = any(
+        step["reason"] == "landing_commanded_unconfirmed" for step in steps
+    )
     counts = []
     for sid, value in raw.get("counts", {}).items():
         outcome = next((s for s in steps if s["id"] == sid), {})
@@ -133,6 +136,9 @@ def summarize_mission(
         "not_done": undone,
         "omitted": {},
     }
+    if landing_unconfirmed:
+        # A dispatched landing command is not confirmed mission completion.
+        result["status"] = "landing_commanded_unconfirmed"
     zh, en = _text(result)
     _bound(result)
     return result, zh, en
@@ -200,6 +206,9 @@ def _reason_zh(reason: str) -> str:
 def _text(s: dict[str, Any]) -> tuple[str, str]:
     zh = [f"任务：{_excerpt(s['task'], 240)}"]
     en = [f"Task: {_excerpt(s['task'], 240)}"]
+    if s.get("status") == "landing_commanded_unconfirmed":
+        zh.append("总体状态：已发出降落指令，但尚未确认落地")
+        en.append("Overall status: landing commanded but not confirmed")
     values = s["counts"]
     zh_result = [
         f"{c['step'] or 'total'}：至少 {c['value']} 个（下限；{_reason_zh(c['reason'])}）"

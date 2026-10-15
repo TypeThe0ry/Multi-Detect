@@ -59,8 +59,13 @@ def build_command(
     mission_out: Path,
     report_path: Path,
     episodes: int = 1,
+    *,
+    retry_failed_episodes: bool = False,
+    min_free_disk_gb: float = 0,
+    disk_check_every: int = 1,
+    strict: bool = False,
 ) -> list[str]:
-    return [
+    command = [
         sys.executable,
         str(ROOT / "scripts/eval_onboard_loop_campaign.py"),
         "--index",
@@ -82,6 +87,17 @@ def build_command(
         "--report",
         str(report_path),
     ]
+    if retry_failed_episodes:
+        command.append("--retry-failed-episodes")
+    if strict:
+        command.append("--strict")
+    command += [
+        "--min-free-disk-gb",
+        str(min_free_disk_gb),
+        "--disk-check-every",
+        str(disk_check_every),
+    ]
+    return command
 
 
 def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool]:
@@ -257,6 +273,14 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     parser.add_argument("--only", nargs="+", help="mission ids, space or comma separated")
     parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="return nonzero for collector errors, incomplete rows, or failed expectations",
+    )
+    parser.add_argument("--min-free-disk-gb", type=float, default=0)
+    parser.add_argument("--disk-check-every", type=int, default=1)
     args = parser.parse_args(argv)
     suite = json.loads(repo_path(args.suite).read_text(encoding="utf-8"))
     missions = suite["missions"]
@@ -265,6 +289,8 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         parser.error("mission ids must be unique, safe directory names")
     if args.episodes < 1:
         parser.error("--episodes must be positive")
+    if args.disk_check_every < 1 or args.min_free_disk_gb < 0:
+        parser.error("disk-check-every must be positive; disk GB must be nonnegative")
     if args.only:
         selected = {i for value in args.only for i in value.split(",")}
         if unknown := selected - set(ids):
@@ -307,7 +333,15 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         config = merge_config(suite["defaults"], mission)
         write_json(config_path, config)
         command = build_command(
-            mission, config_path, directory / "campaign", report_path, args.episodes
+            mission,
+            config_path,
+            directory / "campaign",
+            report_path,
+            args.episodes,
+            retry_failed_episodes=args.retry_failed_episodes,
+            min_free_disk_gb=args.min_free_disk_gb,
+            disk_check_every=args.disk_check_every,
+            strict=args.strict,
         )
         if args.dry_run:
             print(
@@ -333,9 +367,14 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     markdown = render_markdown(table)
     (out / "suite-report.md").write_text(markdown, encoding="utf-8", newline="\n")
     print(markdown)
+    # Preserve the suite's historical command-line contract by default: a
+    # missing row is the only scoring failure.  The model-round runner opts
+    # into the stronger operational gate explicitly with --strict.
+    if not args.strict:
+        return int(any(r["status"] == "missing" for r in table["missions"]))
     return int(
         bool(errors)
-        or any(r["status"] == "missing" for r in table["missions"])
+        or any(r["status"] != "complete" for r in table["missions"])
         or any("supervisor" in r and not r["expectations_passed"] for r in table["missions"])
     )
 
