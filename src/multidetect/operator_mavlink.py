@@ -115,11 +115,14 @@ class OperatorMavlinkTunnelAdapter:
         signing_key: bytes,
         signing_link_id: int,
         initial_signing_timestamp: int,
+        receive_signing_link_id: int | None = None,
     ) -> None:
         if len(signing_key) != 32:
             raise ValueError("MAVLink2 signing key must contain exactly 32 bytes")
         if not 0 <= signing_link_id <= 255:
             raise ValueError("MAVLink2 signing link ID must be in [0, 255]")
+        if receive_signing_link_id is not None and not 0 <= receive_signing_link_id <= 255:
+            raise ValueError("MAVLink2 receive signing link ID must be in [0, 255]")
         if not 0 <= initial_signing_timestamp < 1 << 48:
             raise ValueError("MAVLink2 signing timestamp must fit in 48 bits")
         self.codec = codec
@@ -136,6 +139,20 @@ class OperatorMavlinkTunnelAdapter:
         self._serializer.signing.sign_outgoing = True
         self._parser = mavlink2.MAVLink(None)
         self._parser.signing.secret_key = bytes(signing_key)
+        # One signing key is provisioned per physical link.  The outgoing link
+        # id belongs to this endpoint; the receive id defaults to the configured
+        # remote endpoint's link id so a bidirectional adapter can encode and
+        # decode both directions without accepting a third link.  pymavlink uses
+        # ``parser.signing.link_id`` for outgoing state only; receive-side
+        # parsing still accepts another link id, so decode_authenticated_datagram
+        # performs the explicit comparison below.
+        self.signing_link_id = signing_link_id
+        self.receive_signing_link_id = (
+            endpoint.remote_component_id
+            if receive_signing_link_id is None
+            else receive_signing_link_id
+        )
+        self._parser.signing.link_id = self.receive_signing_link_id
 
     def encode_selection(self, command: TargetSelectionCommand) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_selection(command))
@@ -346,6 +363,14 @@ class OperatorMavlinkTunnelAdapter:
         # spoofed source as a metadata recipient.
         if not message.get_signed():
             raise OperatorProtocolError("unsigned MAVLink operator frames are not allowed")
+        try:
+            received_link_id = int(message.get_link_id())
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise OperatorProtocolError("MAVLink signature does not expose a link ID") from exc
+        if received_link_id != self.receive_signing_link_id:
+            raise OperatorProtocolError(
+                "MAVLink signing link ID does not match the configured link"
+            )
         if message.get_srcSystem() != self.endpoint.remote_system_id:
             raise OperatorProtocolError("MAVLink operator source system does not match")
         if message.get_srcComponent() != self.endpoint.remote_component_id:

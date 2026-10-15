@@ -447,6 +447,18 @@ def test_operator_endpoint_rejects_tampering_and_exact_signed_frame_replay() -> 
         _adapter(JETSON_ENDPOINT).decode_frame(bytes(tampered))
 
 
+def test_operator_endpoint_rejects_a_frame_signed_for_another_link_id() -> None:
+    sender = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        G20_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=7,
+        initial_signing_timestamp=1_000_007,
+    )
+    with pytest.raises(OperatorProtocolError, match="link ID"):
+        _adapter(JETSON_ENDPOINT).decode_frame(sender.encode_selection(_selection()))
+
+
 def test_operator_adapter_requires_a_full_mavlink_signing_key() -> None:
     with pytest.raises(ValueError, match="exactly 32 bytes"):
         OperatorMavlinkTunnelAdapter(
