@@ -155,7 +155,13 @@ def _count_plan(max_count):
 
 
 def test_count_keeps_searching_and_dedupes_by_ground_position():
-    executor = MissionExecutor(_count_plan(2), loop_factory=_factory())
+    make = _factory()
+
+    def without_reid(task_text, **overrides):
+        return make(task_text, **{**overrides, "ground_reid_max_steps": 0})
+
+    # Dedupe is still needed when re-id is disabled or cannot recover an id.
+    executor = MissionExecutor(_count_plan(2), loop_factory=without_reid)
     sim = Sim()
     # Three confirmations: object A, object A again (new track id, 2 m away), object B.
     script = [(10.0, 0.0), (10.0, 2.0), (40.0, -20.0)]
@@ -182,6 +188,31 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
     assert executor.counts == {"count": 2}
     assert executor.history[0]["reason"] == "max_count"
     assert executor.report().count == 2 and len(executor.findings) == 2
+
+
+def test_count_revives_exhausted_identity_without_recounting_or_slow_call():
+    executor = MissionExecutor(_count_plan(2), loop_factory=_factory())
+    sim = Sim()
+    box = [Detection(_box(640, 700, 40), 0.5)]
+    for _ in range(4):
+        _, info = _cycle(
+            executor, sim, box, ground=lambda u, v: (10.0, 0.0),
+            verdicts=lambda t: "confirm_target",
+        )
+        if "counted" in info:
+            break
+    track = executor.current_tracks[0]
+    assert track.exhausted and executor.counts == {"count": 1}
+    for _ in range(8):
+        _cycle(executor, sim)
+    needing = executor.observe(
+        box, pose_ned=sim.ned, yaw_deg=sim.yaw, ground_point=lambda u, v: (10.0, 1.0)
+    )
+    assert executor.current_tracks[0] is track
+    assert needing == []
+    _, info = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw)
+    assert "counted" not in info and "duplicate_of_counted" not in info
+    assert executor.counts == {"count": 1}
 
 
 def test_count_default_loop_behaviour_is_unchanged():
@@ -710,6 +741,7 @@ def test_follow_reuses_search_track_keeps_standoff_and_reports_last_position():
     sim = Sim()
     target = [50.0, 0.0]
     run = _start_follow(executor, sim, target)
+    assert run.loop.config.ground_reid_max_steps == 0
     moved = 0
     for _ in range(18):
         target[0] += 2.0

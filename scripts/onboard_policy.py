@@ -239,12 +239,16 @@ class OnboardPolicy:
                 else bool(value)
             )
         for key, convert in (
+            ("ground_reid_radius_m", float),
             ("memory_radius_m", float),
             ("memory_min_verdicts", int),
             ("memory_max_range_ratio", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
+        if "ground_reid_max_steps" in options:
+            value = options["ground_reid_max_steps"]
+            loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search

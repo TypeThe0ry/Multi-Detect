@@ -219,7 +219,13 @@ class MissionExecutor:
                 run.acquire_track = True
                 run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
             run.loop.config = replace(
-                run.loop.config, lost_after_steps=max(7, run.loop.config.lost_after_steps)
+                run.loop.config,
+                lost_after_steps=max(7, run.loop.config.lost_after_steps),
+                # Following moving objects must not opt into static-place re-id.
+                ground_reid_max_steps=(
+                    0 if run.loop.config.ground_reid_max_steps is None
+                    else run.loop.config.ground_reid_max_steps
+                ),
             )
         return run
 

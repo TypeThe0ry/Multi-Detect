@@ -150,6 +150,10 @@ class LoopConfig:
     # Ground association gate: max(min, fraction * range to the candidate).
     ground_gate_min_m: float = 4.0
     ground_gate_range_fraction: float = 0.15
+    # None enables 60-step ground re-identification for continuing (count,
+    # patrol, monitor) loops only. Zero disables it, including for those loops.
+    ground_reid_max_steps: int | None = None
+    ground_reid_radius_m: float = 3.0
     # Keep the focus this much farther than the lowest visible ground ray.
     keep_in_view_margin: float = 1.25
     # False keeps searching after a confirmation (counting); confirmations within
@@ -181,6 +185,14 @@ class LoopConfig:
     memory_max_range_ratio: float = 0.7
 
     def __post_init__(self) -> None:
+        if self.ground_reid_max_steps is not None and (
+            isinstance(self.ground_reid_max_steps, bool)
+            or not isinstance(self.ground_reid_max_steps, int)
+            or self.ground_reid_max_steps < 0
+        ):
+            raise ValueError("ground_reid_max_steps must be a non-negative integer or None")
+        if not math.isfinite(self.ground_reid_radius_m) or self.ground_reid_radius_m <= 0:
+            raise ValueError("ground_reid_radius_m must be finite and positive")
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
             raise ValueError("memory_radius_m must be finite and positive")
         if self.memory_min_verdicts < 1:
@@ -325,6 +337,11 @@ class OnboardLoop:
         point under its bottom centre, so association survives both turns and
         translations. The pixel fallback rotates the previous box by the measured
         yaw change (or the last commanded turn when no yaw is given).
+
+        Continuing missions may revive an unmatched, recently lost track by a
+        reliable ground anchor. Active matches have priority; stale image boxes
+        never supply a re-identification score. The existing track retains its
+        verdict age and evidence, so revival does not manufacture a fresh look.
         """
         current: list[Track] = []
         free = {
@@ -351,6 +368,7 @@ class OnboardLoop:
                 t.bbox[2] + pu - u,
                 t.bbox[3] + pv - v,
             )
+        pending: list[tuple[Detection, tuple[float, float] | None, Track | None]] = []
         for detection in self.filter_detections(detections):
             ground = None
             if ground_point is not None and pose_ned is not None:
@@ -375,11 +393,55 @@ class OnboardLoop:
                 if score > best_score:
                     best, best_score = track, score
             if best is None or best_score < 0.2:
+                best = None
+            else:
+                free.pop(best.track_id)
+            pending.append((detection, ground, best))
+
+        reid_steps = self.config.ground_reid_max_steps
+        if reid_steps is None:
+            reid_steps = 0 if self.config.stop_on_confirm else 60
+
+        def reliable(box: Box, point: tuple[float, float] | None) -> bool:
+            margin = self.config.border_margin_px
+            return (
+                point is not None
+                and all(math.isfinite(value) for value in point)
+                and box[0] > margin
+                and box[1] > margin
+                and box[2] < self.camera.width - margin
+                and box[3] < self.camera.height - margin
+            )
+
+        # _tracks already retains lost tracks for evidence. Use that task-local
+        # graveyard without extending the active/focus timeout or pixel gate.
+        lost = [
+            track
+            for track in self._tracks.values()
+            if self.config.lost_after_steps < self.step_index - track.last_step <= reid_steps
+            and reliable(track.bbox, track.ground)
+        ] if reid_steps else []
+        pairs = sorted(
+            (math.dist(ground, track.ground), index, track.track_id)
+            for index, (detection, ground, best) in enumerate(pending)
+            if best is None and reliable(detection.bbox, ground)
+            for track in lost
+            if math.dist(ground, track.ground) <= self.config.ground_reid_radius_m
+        )
+        revived: dict[int, Track] = {}
+        used: set[str] = set()
+        for _, index, track_id in pairs:
+            if index not in revived and track_id not in used:
+                revived[index] = self._tracks[track_id]
+                used.add(track_id)
+
+        for index, (detection, ground, best) in enumerate(pending):
+            best = best or revived.get(index)
+            if best is None:
                 best = Track(f"t{self._next_id}", detection.bbox, self.step_index, self.step_index)
                 self._next_id += 1
                 self._tracks[best.track_id] = best
             else:
-                free.pop(best.track_id)
                 best.bbox = detection.bbox
                 best.last_step = self.step_index
                 best.hits += 1
