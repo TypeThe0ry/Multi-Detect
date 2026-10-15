@@ -32,7 +32,7 @@ def test_replay_measures_identity_and_ttl_cost_without_changing_inputs():
     assert rows == original
     assert result["causes"] == {"lost_within_gate": 1}
     assert result["old_ids"] == 2 and result["new_ids"] == 1
-    assert result["old_slow_candidates"] == 2 and result["new_slow_candidates"] == 1
+    assert result["old_slow_candidates"] == 2 and result["new_slow_candidates"] == 2
     assert result["baseline_exact_id_boxes"] == 2
     cluster = result["clusters"][0]
     assert cluster["recorded_ids"] == cluster["old_ids"] == ["t1", "t2"]
@@ -42,7 +42,7 @@ def test_replay_measures_identity_and_ttl_cost_without_changing_inputs():
     ttl_rows = [_row("t1")] + [_row() for _ in range(15)] + [_row("t2")]
     ttl = replay_rows(ttl_rows)
     assert ttl["new_ids"] == 1 and ttl["new_slow_candidates"] == 2
-    assert ttl["new_first_look_candidates"] == 1
+    assert ttl["new_first_look_candidates"] == 2
 
 
 def test_replay_separates_tasks_and_keeps_find_association_unchanged():

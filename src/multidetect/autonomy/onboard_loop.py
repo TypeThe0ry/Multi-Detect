@@ -235,6 +235,7 @@ class Track:
     # Track ids observed as separate detections in one frame are permanently
     # distinct, even when later ground projections are close.
     co_visible_with: set[str] = field(default_factory=set)
+    needs_fresh_verdict: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +267,8 @@ class LoopConfig:
     # None enables 60-step ground re-identification for continuing (count,
     # patrol, monitor) loops only. Zero disables it, including for those loops.
     ground_reid_max_steps: int | None = None
-    ground_reid_radius_m: float = 3.0
+    ground_reid_radius_m: float = 1.5
+    ground_reid_footprint_factor: float = 1.5
     appearance_size_ratio: float = 1.6
     appearance_aspect_ratio: float = 1.6
     appearance_color_distance: float = 0.45
@@ -310,6 +312,11 @@ class LoopConfig:
             raise ValueError("ground_reid_max_steps must be a non-negative integer or None")
         if not math.isfinite(self.ground_reid_radius_m) or self.ground_reid_radius_m <= 0:
             raise ValueError("ground_reid_radius_m must be finite and positive")
+        if (
+            not math.isfinite(self.ground_reid_footprint_factor)
+            or self.ground_reid_footprint_factor < 0
+        ):
+            raise ValueError("ground_reid_footprint_factor must be finite and non-negative")
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
             raise ValueError("memory_radius_m must be finite and positive")
         if not math.isfinite(self.memory_footprint_factor) or self.memory_footprint_factor < 0:
@@ -473,6 +480,8 @@ class OnboardLoop:
     _revisit: dict[str, Any] | None = None
     _revisits_done: int = 0
     _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
+    _co_visibility_pairs: dict[tuple[str, str], int] = field(default_factory=dict)
+    co_visibility_max_pairs: int = 4096
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -624,13 +633,23 @@ class OnboardLoop:
             if self.config.lost_after_steps < self.step_index - track.last_step <= reid_steps
             and reliable(track.bbox, track.ground)
         ] if reid_steps else []
+        def revival_radius(track: Track, appearance: AppearanceSignature | None) -> float:
+            footprint = (appearance.footprint_m if appearance else None) or (
+                track.appearance.footprint_m if track.appearance else None
+            )
+            return max(
+                1.5,
+                self.config.ground_reid_radius_m,
+                self.config.ground_reid_footprint_factor * (footprint or 0.0),
+            )
+
         pairs = sorted(
             (math.dist(ground, track.ground), index, track.track_id)
             for index, (detection, ground, best, appearance) in enumerate(pending)
             if best is None and reliable(detection.bbox, ground)
             for track in lost
             if appearances_consistent(track.appearance, appearance, self.config)
-            if math.dist(ground, track.ground) <= self.config.ground_reid_radius_m
+            if math.dist(ground, track.ground) < revival_radius(track, appearance)
         )
         revived: dict[int, Track] = {}
         used: set[str] = set()
@@ -640,6 +659,7 @@ class OnboardLoop:
                 used.add(track_id)
 
         for index, (detection, ground, best, appearance) in enumerate(pending):
+            was_revived = best is None and index in revived
             best = best or revived.get(index)
             if best is None:
                 best = Track(f"t{self._next_id}", detection.bbox, self.step_index, self.step_index)
@@ -649,18 +669,53 @@ class OnboardLoop:
                 best.bbox = detection.bbox
                 best.last_step = self.step_index
                 best.hits += 1
+                if was_revived:
+                    best.needs_fresh_verdict = True
+                    best.confirm_steps.clear()
+                    best.match_steps.clear()
+                    best.approach_steps = 0
+                    best.verdict = None
+                    best.verdict_step = -1
+                    best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
             if appearance is not None:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
             current.append(best)
-        # Separate detections in one frame are distinct objects forever.
+        # Separate detections in one frame are distinct objects forever. Prune
+        # stale relations so long monitor missions stay bounded.
+        reid_window = self.config.ground_reid_max_steps
+        if reid_window is None:
+            reid_window = 0 if self.config.stop_on_confirm else 60
+        live_ids = {
+            t.track_id for t in self._tracks.values()
+            if self.step_index - t.last_step <= max(self.config.lost_after_steps, reid_window)
+        }
+        for track in self._tracks.values():
+            track.co_visible_with.intersection_update(live_ids)
         for left_index, left in enumerate(current):
             for right in current[left_index + 1 :]:
                 if left.track_id != right.track_id:
                     left.co_visible_with.add(right.track_id)
                     right.co_visible_with.add(left.track_id)
+                    key = tuple(sorted((left.track_id, right.track_id)))
+                    self._co_visibility_pairs[key] = self.step_index
+        for key in list(self._co_visibility_pairs):
+            if key[0] not in live_ids or key[1] not in live_ids:
+                self._co_visibility_pairs.pop(key, None)
+        while len(self._co_visibility_pairs) > self.co_visibility_max_pairs:
+            oldest = min(self._co_visibility_pairs, key=self._co_visibility_pairs.get)
+            self._co_visibility_pairs.pop(oldest, None)
+            left = self._tracks.get(oldest[0])
+            right = self._tracks.get(oldest[1])
+            if left is not None:
+                left.co_visible_with.discard(oldest[1])
+            if right is not None:
+                right.co_visible_with.discard(oldest[0])
+        for track in self._tracks.values():
+            if len(track.co_visible_with) > 4096:
+                track.co_visible_with = set(sorted(track.co_visible_with)[-4096:])
         return current
 
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
@@ -671,6 +726,8 @@ class OnboardLoop:
             if _min_side(t.bbox) >= self.config.min_verdict_side_px
             and not t.exhausted
             and (
+                t.needs_fresh_verdict
+                or
                 t.verdict is None
                 or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
                 # Re-verify the approach focus from each new view until confirmed.
@@ -702,6 +759,8 @@ class OnboardLoop:
         track = self._tracks.get(track_id)
         if track is None:
             return
+        if track.needs_fresh_verdict and remembered:
+            return
         if remembered and decision not in {"reject_track", "approach_track"}:
             raise ValueError("only reject_track and approach_track may be remembered")
         if not remembered:
@@ -729,6 +788,7 @@ class OnboardLoop:
         ):
             return
         track.verdict, track.verdict_step = verdict, self.step_index
+        track.needs_fresh_verdict = False
         track.verdict_remembered = remembered
         if verdict in {"confirm", "approach"}:
             track.identity_positive_matches += 1
@@ -763,7 +823,7 @@ class OnboardLoop:
         memory, since it deliberately seeks evidence from another side.
         """
         track = self._tracks.get(track_id)
-        if track is None or self._revisit is not None:
+        if track is None or self._revisit is not None or track.needs_fresh_verdict:
             return None
         if track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}:
             return None
@@ -996,6 +1056,11 @@ class OnboardLoop:
             )
             for prior in self.confirmations
         )
+        if track.needs_fresh_verdict:
+            info["count_blocked"] = "fresh_verdict_required"
+            self.state, self._focus = "searching", None
+            self._approach_sizes.clear()
+            return self._search_step(pose_ned, yaw_deg), info
         if duplicate:
             info["duplicate_of_counted"] = track.track_id
         else:
@@ -1211,7 +1276,7 @@ class OnboardLoop:
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
             info["match_views"] = matches
-            if unclipped and not best.verdict_remembered and (
+            if unclipped and not best.needs_fresh_verdict and not best.verdict_remembered and (
                 votes >= self.config.confirm_matches
                 or (votes >= 1 and (stalled or near))
                 or (

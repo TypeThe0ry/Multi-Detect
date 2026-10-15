@@ -45,10 +45,8 @@ def test_continuing_loop_revives_identity_evidence_and_verdict_age_after_scan():
     assert revived.first_step == 1 and revived.last_step == 9 and revived.hits == 2
     assert revived.identity_positive_matches == 1
     assert revived.identity_verdict_history == ["approach"]
-    assert revived.match_steps == [1] and revived.confirm_steps == [1]
-    assert revived.verdict_step == 1
-    assert loop.tracks_needing_verdict([revived]) == []
-    loop.step_index = 14
+    assert revived.match_steps == [] and revived.confirm_steps == []
+    assert revived.needs_fresh_verdict and revived.verdict_step == -1
     assert loop.tracks_needing_verdict([revived]) == [revived]
 
 
@@ -89,9 +87,11 @@ def test_reid_age_is_bounded_and_does_not_extend_active_timeout(age, same):
     assert (_observe(loop, age) is original) is same
 
 
-@pytest.mark.parametrize("distance, same", [(3.0, True), (3.001, False), (10.0, False)])
-def test_lost_reid_has_stricter_fixed_gate_than_active_range_gate(distance, same):
-    loop = _loop(stop_on_confirm=False)
+@pytest.mark.parametrize(
+    "distance, same", [(1.499, True), (1.5, False), (3.0, False), (10.0, False)]
+)
+def test_lost_reid_uses_strict_footprint_radius(distance, same):
+    loop = _loop(stop_on_confirm=False, ground_reid_footprint_factor=0.0)
     original = _observe(loop, 0, (300.0, 0.0))
     assert (_observe(loop, 8, (300.0 + distance, 0.0)) is original) is same
 
