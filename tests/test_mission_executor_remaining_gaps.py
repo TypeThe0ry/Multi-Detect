@@ -169,34 +169,45 @@ def test_patrol_duration_includes_actual_turn_and_control_latency():
 def test_requested_holds_do_not_advance_duration_faster_than_pose_clock(skill):
     params = {"duration_s": 6}
     if skill == "monitor":
-        params.update(region="poi:a", query="car")
-    executor = _executor(skill, params, refs={"poi:a": (0, 0)})
+        params.update(region="zone:a", query="car")
+    executor = _executor(skill, params, refs={"zone:a": (0, 0, 20)})
     flight = Flight()
     run = executor._run
     for stamp in (0, 0.25, 0.5, 0.75, 1):
         flight.tick(executor, stamp=stamp)
         assert not executor.history
-    assert run.held_s == 1
+    # The monitor planner may spend the first measured interval reaching a
+    # valid observation altitude/viewpoint; only time after that starts the
+    # duration clock.
+    expected_held = 1.0 if skill == "hover" else 0.5
+    assert run.held_s == pytest.approx(expected_held)
     flight.tick(executor, stamp=6)
-    assert run.held_s == 6
+    assert run.held_s == pytest.approx(6.0 if skill == "hover" else 5.5)
+    if skill == "monitor":
+        flight.tick(executor, stamp=7)
     assert executor.history[0]["reason"] == "duration_elapsed"
 
 
 def test_monitor_clock_starts_after_initial_transit_and_counts_turn_time():
     executor = _executor(
-        "monitor", {"region": "poi:a", "query": "car", "duration_s": 5},
-        refs={"poi:a": (100, 0)},
+        "monitor", {"region": "zone:a", "query": "car", "duration_s": 5},
+        refs={"zone:a": (100, 0, 20)},
     )
     flight = Flight()
     run = executor._run
     flight.tick(executor, stamp=100)
     flight.pose[0] = 100
     action, _ = flight.tick(executor, stamp=200)
-    assert action.kind == "hold" and run.held_s == 0
+    assert action.kind == "turn" and run.held_s == pytest.approx(0)
     action, _ = flight.tick(executor, stamp=201)
-    assert action.kind == "turn" and run.held_s == 1
-    flight.tick(executor, stamp=205)
+    assert action.kind == "translate" and run.held_s == pytest.approx(0)
+    flight.pose[0], flight.pose[1] = run.waypoints[0]
+    flight.tick(executor, stamp=202)
+    action, _ = flight.tick(executor, stamp=203)
+    assert action.kind in {"turn", "hold"} and run.held_s == pytest.approx(1)
+    flight.tick(executor, stamp=207)
     assert run.held_s == 5
+    flight.tick(executor, stamp=208)
     assert executor.history[0]["reason"] == "duration_elapsed"
 
 
@@ -345,6 +356,35 @@ def test_follow_repeated_blocked_standoff_legs_are_bounded_despite_intermittent_
         flight.tick(executor, detections=[BOX], ground=lambda u, v: (200, 0))
     assert executor.history[0]["state"] == "failed"
     assert executor.history[0]["reason"] == "blocked"
+
+
+def test_return_home_climbs_out_of_obstacle_footprint_before_clearance_check():
+    def clear(pose, _north, _east):
+        return -pose[2] >= 10.0
+
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    executor = MissionExecutor(
+        plan, config=None,
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            segment_clear=clear,
+            config=LoopConfig(**overrides),
+        ),
+    )
+    executor.home = (0.0, 0.0)
+    executor.cruise_altitude_m = 10.0
+    flight = Flight(altitude=2.0)
+
+    action, _ = flight.tick(executor)
+    assert action.kind == "translate" and action.up_m == 8.0
+    flight.tick(executor)
+    assert executor.history[0]["state"] == "succeeded"
+    assert executor.history[0]["reason"] == "arrived"
 
 
 @pytest.mark.parametrize("confirmed", [0, 2])

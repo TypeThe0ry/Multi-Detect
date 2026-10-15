@@ -77,6 +77,7 @@ def observation_for(frame: CameraFrame, state: VehicleState) -> dict[str, Any]:
         "attitude": {"roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw},
         "velocity": state.velocity_ned,
         "home_ned_m": state.home_ned,
+        "landed": state.landed,
         "battery_remaining": state.battery_remaining,
         "sensor_status": "live",
         "frame_received_monotonic_ns": int(frame.timestamp_monotonic * 1e9),

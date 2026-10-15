@@ -316,7 +316,12 @@ def run_campaign(
             passed, report = _audit_passed(dataset)
             # A cached audit.json can be stale after files are changed.  The
             # auditor must validate the dataset again before a resume skip.
-            if passed or (dataset / "episodes").is_dir():
+            aborted = any(
+                json.loads(path.read_text(encoding="utf-8")).get("status") == "aborted_low_disk"
+                for path in dataset.glob("episodes/*/episode.json")
+                if path.is_file()
+            )
+            if not aborted and (passed or (dataset / "episodes").is_dir()):
                 report, _ = _run_audit(dataset, run, executable, max_episode_s)
                 passed = report is not None
             if passed:
@@ -392,6 +397,10 @@ def run_campaign(
                     attempt_log.parent.mkdir(parents=True, exist_ok=True)
                     attempt_log.write_text(output, encoding="utf-8")
                     if result.returncode == 0:
+                        if "aborted_low_disk" in output:
+                            status = "aborted_low_disk"
+                            last_error = "collector stopped: aborted_low_disk"
+                            break
                         audit_report, last_error = _run_audit(
                             dataset, run, executable, max_episode_s
                         )
@@ -491,13 +500,16 @@ def _write_campaign(
         "counts": dict(counts),
         "counts_by_split": {k: dict(v) for k, v in by_split.items()},
         "counts_by_world": {k: dict(v) for k, v in by_world.items()},
-        "success_rate": (counts.get("success", 0) + counts.get("skipped", 0)) / total
-        if total
+        "success_rate": (counts.get("success", 0) + counts.get("skipped", 0)) /
+        max(1, total - counts.get("aborted_low_disk", 0))
+        if total - counts.get("aborted_low_disk", 0) > 0
         else 0.0,
         "acquisition_rate": acquired / expert_labels if expert_labels else 0.0,
         "expert_label_count": expert_labels,
         "acquired_label_count": acquired,
         "total_transitions": total_transitions,
+        "aborted_low_disk": counts.get("aborted_low_disk", 0),
+        "aborted_low_disk_excluded_from_success_rate": True,
     }
     document = {
         "schema_version": 1,

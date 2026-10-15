@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 import cv2
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -24,6 +23,7 @@ from multidetect.autonomy.policy_v2.perception_bridge import (  # noqa: E402
     PerceptionBridge,
     build_detector,
 )
+from multidetect.sim_teacher.recording import load_depth_array  # noqa: E402
 
 DEFAULT_COCO_MODEL = ROOT / "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx"
 DEFAULT_RED_MODEL = (
@@ -71,7 +71,7 @@ def annotate_episode(episode: Path, bridge: PerceptionBridge, *, overwrite: bool
                 raw_depth = observation.get("depth_path")
                 if raw_depth:
                     depth_path = _sensor_path(episode, raw_depth)
-                    depth = np.load(depth_path, allow_pickle=False)
+                    depth = load_depth_array(depth_path)
                 else:
                     depth_path = None
                 output = bridge.annotate_observation(
