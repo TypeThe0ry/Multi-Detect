@@ -399,3 +399,31 @@ def test_live_battery_energy_can_stop_mission_before_image_or_models(tmp_path, m
         assert not list(policy.work_dir.glob("frame_*.png"))
     finally:
         policy.close()
+
+
+def test_sim_energy_receipt_timestamp_is_converted_to_sim_clock(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        action, labels = policy.act(
+            {
+                "frame_sensor_stamp_ns": 0,
+                "mission_estimates": {"remaining_energy_wh": 0},
+                "energy_telemetry": [{
+                    "received_monotonic_s": time.monotonic(),
+                    "message": {
+                        "mavpackettype": "BATTERY_STATUS",
+                        "id": 0,
+                        "battery_remaining": 90,
+                        "voltages": [16000] + [65535] * 9,
+                        "current_battery": -1,
+                        "current_consumed": 0,
+                    },
+                }],
+            },
+            pose_ned=(0, 0, -20),
+            yaw_deg=0,
+        )
+        assert action is not None
+        assert labels["onboard"]["energy"] is not None
+    finally:
+        policy.close()

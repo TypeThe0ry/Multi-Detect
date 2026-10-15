@@ -15,9 +15,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
+from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 Box = tuple[float, float, float, float]
+
+
+def _clear_default(_pose: tuple[float, float, float], _north: float, _east: float) -> bool:
+    """Fail closed when no obstacle source or callback was configured."""
+    return False
 
 
 def _iou(a: Box, b: Box) -> float:
@@ -188,6 +194,7 @@ class LoopConfig:
     memory_radius_m: float = 4.0
     memory_min_verdicts: int = 3
     memory_max_range_ratio: float = 0.7
+    max_blocked_legs: int = 2
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
@@ -198,6 +205,8 @@ class LoopConfig:
             0 < self.memory_max_range_ratio <= 1
         ):
             raise ValueError("memory_max_range_ratio must be in (0, 1]")
+        if self.max_blocked_legs < 1:
+            raise ValueError("max_blocked_legs must be positive")
 
 
 @dataclass(slots=True)
@@ -282,8 +291,11 @@ class OnboardLoop:
 
     camera: CameraModel
     search_action: Callable[[tuple[float, float, float], float], ActionPrimitive]
-    segment_clear: Callable[[tuple[float, float, float], float, float], bool]
+    segment_clear: Callable[[tuple[float, float, float], float, float], bool] = _clear_default
     config: LoopConfig = field(default_factory=LoopConfig)
+    # Optional typed source.  ``segment_clear`` remains accepted for backwards
+    # compatibility; when a source is provided it is authoritative.
+    obstacle_source: ObstacleSource | None = None
     state: str = "searching"
     step_index: int = 0
     home: tuple[float, float] | None = None
@@ -304,6 +316,14 @@ class OnboardLoop:
     _revisit: dict[str, Any] | None = None
     _revisits_done: int = 0
     _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
+    _blocked_search_legs: int = 0
+
+    def _segment_clear(
+        self, pose_ned: tuple[float, float, float], north: float, east: float
+    ) -> bool:
+        if self.obstacle_source is not None:
+            return self.obstacle_source.segment_clear(pose_ned, (north, east, pose_ned[2]))
+        return self.segment_clear(pose_ned, north, east)
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -555,7 +575,7 @@ class OnboardLoop:
                 self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
             )
             goal = (gx + standoff * math.cos(away), gy + standoff * math.sin(away))
-            if self.segment_clear(pose_ned, goal[0], goal[1]):
+            if self._segment_clear(pose_ned, goal[0], goal[1]):
                 # A blocked route provides no new view; keep the candidate
                 # eligible for a later attempt from another search position.
                 item["revisited"] = True
@@ -640,7 +660,7 @@ class OnboardLoop:
         yaw = math.radians(yaw_deg)
         end_n = pose_ned[0] + action.forward_m * math.cos(yaw) - action.right_m * math.sin(yaw)
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
-        return action if self.segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
+        return action if self._segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
 
     def _count_confirmation(
         self,
@@ -682,9 +702,19 @@ class OnboardLoop:
         if target is not None and altitude > target + 1.0:
             drop = min(altitude - target, 2.0 * self.config.descent_step_m)
             lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
-            if self.segment_clear(lower, pose_ned[0], pose_ned[1]):
+            if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
-        return self.search_action(pose_ned, yaw_deg)
+        action = self.search_action(pose_ned, yaw_deg)
+        if self.obstacle_source is None:
+            return action
+        safe = self._safe(pose_ned, action, yaw_deg)
+        if action.kind == "translate" and safe.kind != "translate":
+            self._blocked_search_legs += 1
+            if self._blocked_search_legs >= self.config.max_blocked_legs:
+                self.state = "blocked"
+        elif action.kind == "translate":
+            self._blocked_search_legs = 0
+        return safe
 
     def _keep_range(self, altitude_m: float) -> float:
         """Closest ground range still inside the image at ``altitude_m`` (with margin)."""
@@ -719,7 +749,7 @@ class OnboardLoop:
             step = min(step, horizontal - self._keep_range(altitude - max(0.0, descend)))
             if step < self.config.min_translate_m:
                 lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                if descend > 0.5 and self.segment_clear(lower, pose_ned[0], pose_ned[1]):
+                if descend > 0.5 and self._segment_clear(lower, pose_ned[0], pose_ned[1]):
                     # Too close to fly on at this altitude: descend in place instead.
                     self._last_translated = True
                     info["descend_m"] = descend
@@ -732,7 +762,7 @@ class OnboardLoop:
             yaw = math.radians(yaw_deg)
             end_n = pose_ned[0] + step * math.cos(yaw)
             end_e = pose_ned[1] + step * math.sin(yaw)
-            if self.segment_clear(lower, end_n, end_e):
+            if self._segment_clear(lower, end_n, end_e):
                 action = ActionPrimitive.translate(step, 0.0, -descend)
                 self._last_translated = True
                 info["descend_m"] = descend
@@ -924,4 +954,11 @@ class OnboardLoop:
         return ActionPrimitive.stop(), info
 
 
-__all__ = ["CameraModel", "Detection", "LoopConfig", "OnboardLoop", "PlaceVerdictMemory", "Track"]
+__all__ = [
+    "CameraModel",
+    "Detection",
+    "LoopConfig",
+    "OnboardLoop",
+    "PlaceVerdictMemory",
+    "Track",
+]

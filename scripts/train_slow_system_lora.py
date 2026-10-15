@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 # Must be set before torch initialises CUDA: limits allocator fragmentation on the shared
 # 8 GB GPU, where long runs otherwise fail with "CUDA error: out of memory".
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+# A small fixed cuBLAS workspace: cuBLAS allocates outside the caching allocator and a
+# failed workspace allocation poisons the CUDA context ("CUDA error: out of memory").
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision
 from scripts.slow_system_runtime import ROOT, chat_messages, dataset_crop_policy, load_jsonl
@@ -172,6 +175,11 @@ def make_backend(snapshot: Path, options: TrainOptions):
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise RuntimeError("Qwen3-VL LoRA training requires a free BF16 CUDA GPU")
+    # Cap the caching allocator below the card size so kernels/cuBLAS keep headroom on a GPU
+    # shared with the desktop; an over-budget batch then raises a catchable allocator OOM.
+    torch.cuda.set_per_process_memory_fraction(
+        float(os.environ.get("SLOW_TRAIN_GPU_MEMORY_FRACTION", "0.88"))
+    )
     quantization = resolve_quantization(options.quantization)
     torch.manual_seed(options.seed)
     torch.cuda.manual_seed_all(options.seed)
@@ -312,6 +320,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
             cursor = state["cursor"] if epoch == state["epoch"] else 0
             while cursor < len(order):
                 end = min(cursor + options.accumulation, len(order))
+                batch_losses = None
                 for attempt in range(OOM_RETRIES + 1):
                     optimizer.zero_grad(set_to_none=True)
                     try:
@@ -324,13 +333,28 @@ def run(args, *, backend_factory=make_backend) -> dict:
                         # The GPU is shared with other jobs; a transient out-of-memory must not
                         # end a multi-hour run. The batch is recomputed from zeroed gradients,
                         # so a retried step is identical to an uninterrupted one.
-                        if "out of memory" not in str(error) or attempt == OOM_RETRIES:
+                        if "out of memory" not in str(error):
                             raise
                         optimizer.zero_grad(set_to_none=True)
+                        if not isinstance(error, torch.OutOfMemoryError):
+                            raise  # driver-level OOM: the CUDA context is unusable; resume.
                         torch.cuda.empty_cache()
+                        if attempt == OOM_RETRIES:
+                            break
                         print(f"CUDA out of memory at step {state['optimizer_steps'] + 1}; "
                               f"retry {attempt + 1}/{OOM_RETRIES}", file=sys.stderr, flush=True)
                         time.sleep(OOM_RETRY_WAIT_S)
+                if batch_losses is None:
+                    # This batch never fits under the allocator cap: skip it (recorded in the
+                    # log and the report) rather than lose the run.
+                    skipped = [rows[i]["sample_id"] for i in order[cursor:end]]
+                    state.setdefault("skipped_samples", []).extend(skipped)
+                    cursor = end
+                    state.update(epoch=epoch, cursor=cursor)
+                    log.write(json.dumps({"epoch": epoch + 1, "cursor": cursor,
+                                          "skipped_oom": skipped}, sort_keys=True) + "\n")
+                    log.flush()
+                    continue
                 losses.extend(batch_losses)
                 torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True)
                 optimizer.step()
@@ -380,6 +404,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
         "adapter_path": str(output / "adapter") if completed else None,
         "lora_b_mean_abs": lora_b_mean_abs,
+        "skipped_oom_samples": state.get("skipped_samples", []),
     }
     (output / "training-report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
     return report
