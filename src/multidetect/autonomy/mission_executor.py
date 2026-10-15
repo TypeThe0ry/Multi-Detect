@@ -15,6 +15,8 @@ slow verdict), ``apply_verdict`` for each answered track, then ``next_action``.
 from __future__ import annotations
 
 import math
+import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -71,6 +73,25 @@ class ExecutorConfig:
     # positions are within this radius.  This is also the historical alert
     # de-duplication radius.
     alert_cluster_radius_m: float = 4.0
+    deliver_min_altitude_m: float = 1.0
+    deliver_max_altitude_m: float = 5.0
+    deliver_altitude_m: float = 2.0
+    deliver_position_tolerance_m: float = 1.0
+    deliver_hold_s: float = 2.0
+    deliver_ack_timeout_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        values = (
+            self.deliver_min_altitude_m, self.deliver_max_altitude_m,
+            self.deliver_altitude_m, self.deliver_position_tolerance_m,
+            self.deliver_hold_s, self.deliver_ack_timeout_s,
+        )
+        if any(isinstance(v, bool) or not math.isfinite(v) or v <= 0 for v in values):
+            raise ValueError("deliver settings must be finite positive numbers")
+        if not (
+            self.deliver_min_altitude_m <= self.deliver_altitude_m <= self.deliver_max_altitude_m
+        ):
+            raise ValueError("deliver altitude must be within configured bounds")
 
 
 @dataclass(slots=True)
@@ -143,6 +164,11 @@ class _StepRun:
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
+    # Delivery is a host request/ack handshake, never a hardware operation.
+    release_altitude_m: float | None = None
+    release_request_id: str | None = None
+    release_deadline: float = 0.0
+    release_ack: bool | None = None
 
 
 class MissionExecutor:
@@ -154,8 +180,17 @@ class MissionExecutor:
         refs: Mapping[str, Sequence[float] | Sequence[tuple[float, float]]] | None = None,
         config: ExecutorConfig | None = None,
         task_text: Callable[[MissionStep], str] = task_text_for,
+        capabilities: frozenset[str] = frozenset(),
+        release_authorized: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(plan)
+        # Validate the contract here; execution gates fail the step through on_fail.
+        self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
+            plan, capabilities=frozenset({"payload"})
+        )
+        self.capabilities = frozenset(capabilities)
+        self.release_authorized = release_authorized is True
+        self._clock = clock
         self.loop_factory = loop_factory
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
@@ -522,7 +557,7 @@ class MissionExecutor:
     def _budget(self, step: MissionStep) -> int:
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
-        if step.skill in {"goto", "inspect", "return_home", "survey"} | _TRACKING_SKILLS:
+        if step.skill in {"goto", "inspect", "return_home", "survey", "deliver"} | _TRACKING_SKILLS:
             return self.config.travel_budget
         return self.config.step_budget
 
@@ -553,6 +588,7 @@ class MissionExecutor:
             "return_home": self._return_home,
             "land": self._land,
             "record": self._record,
+            "deliver": self._deliver,
         }.get(skill)
         if handler is None:
             self._finish("failed", "skill_not_implemented")
@@ -1005,10 +1041,11 @@ class MissionExecutor:
         return ActionPrimitive.hold(self.config.hold_s), info
 
     # -- geometry skills -------------------------------------------------------
-    def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None):
+    def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None, *, tolerance_m=None):
         """One primitive toward ``goal_ne`` (altitude first); None when arrived."""
         altitude = max(0.0, -pose[2])
-        if altitude_m is not None and abs(altitude - altitude_m) > 1.0:
+        altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
+        if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
             target = (pose[0], pose[1], -altitude_m)
             if altitude_m < altitude and not self._probe.segment_clear(target, pose[0], pose[1]):
                 run.blocked += 1
@@ -1018,7 +1055,7 @@ class MissionExecutor:
             return ActionPrimitive.translate(0.0, 0.0, altitude_m - altitude)
         dn, de = goal_ne[0] - pose[0], goal_ne[1] - pose[1]
         distance = math.hypot(dn, de)
-        if distance <= self.config.arrive_tolerance_m:
+        if distance <= (self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m):
             return None
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
         if abs(delta) > self.config.turn_tolerance_deg:
@@ -1033,6 +1070,109 @@ class MissionExecutor:
             return ActionPrimitive.hold(self.config.hold_s)
         run.blocked = 0
         return ActionPrimitive.translate(step, 0.0, 0.0)
+
+    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
+        """Accept one host receipt for the active request, before its deadline."""
+        run = self._run
+        if (
+            run is None or run.step.skill != "deliver" or run.phase != "await_ack"
+            or run.release_request_id != request_id or run.release_ack is not None
+            or self._clock() >= run.release_deadline or type(released) is not bool
+        ):
+            return False
+        run.release_ack = released
+        return True
+
+    def _deliver(self, run, pose, yaw, ground_point, frame_id):
+        if "payload" not in self.capabilities:
+            self._finish("failed", "payload_capability_required")
+            return None
+        if not self.release_authorized:
+            self._finish("failed", "payload_release_not_authorized")
+            return None
+        if not all(math.isfinite(v) for v in (*pose, yaw)):
+            self._finish("failed", "invalid_pose")
+            return None
+        cfg = self.config
+        tolerance = cfg.deliver_position_tolerance_m
+        if run.goal_ne is None:
+            run.goal_ne = self.resolve(str(run.step.params["target_ref"]))
+            if run.goal_ne is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            requested = float(run.step.params.get("altitude_m", cfg.deliver_altitude_m))
+            if not math.isfinite(requested):
+                self._finish("failed", "invalid_release_altitude")
+                return None
+            run.release_altitude_m = max(
+                cfg.deliver_min_altitude_m, min(cfg.deliver_max_altitude_m, requested)
+            )
+            run.goal_altitude_m = max(
+                -pose[2], self.cruise_altitude_m or 0.0,
+                cfg.min_altitude_m, run.release_altitude_m,
+            )
+
+        release_pose = (*run.goal_ne, -run.release_altitude_m)
+        # Check the low endpoint before descent, release, and each wait cycle.
+        # The map API checks horizontal clearance at the supplied altitude.
+        if run.phase != "climb" and not self._probe.segment_clear(
+            release_pose, run.goal_ne[0], run.goal_ne[1]
+        ):
+            self._finish("failed", "release_obstacle")
+            return None
+
+        if run.phase in {"hold", "await_ack"}:
+            error = math.dist(pose, release_pose)
+            if error > tolerance:
+                self._finish("failed", "release_position_error")
+                return None
+            if run.phase == "hold":
+                run.release_request_id = uuid.uuid4().hex
+                run.release_deadline = self._clock() + cfg.deliver_ack_timeout_s
+                run.phase = "await_ack"
+                return ActionPrimitive.hold(cfg.hold_s), {
+                    "phase": "await_ack",
+                    "event": {
+                        "kind": "payload_release",
+                        "request_id": run.release_request_id,
+                        "payload_ref": str(run.step.params["payload_ref"]),
+                        "target_ref": str(run.step.params["target_ref"]),
+                        "position_ned": list(release_pose),
+                        "timeout_s": cfg.deliver_ack_timeout_s,
+                    },
+                }
+            if run.release_ack is False:
+                self._finish("failed", "payload_release_rejected")
+                return None
+            if run.release_ack is True:
+                self.answers.append(f"{run.step.id}:payload_release_ack:{run.release_request_id}")
+                run.phase = "climb"
+            else:
+                remaining = run.release_deadline - self._clock()
+                if remaining <= 0:
+                    self._finish("failed", "payload_release_ack_timeout")
+                    return None
+                return ActionPrimitive.hold(min(cfg.hold_s, remaining)), {
+                    "phase": "await_ack", "request_id": run.release_request_id,
+                }
+
+        altitude = run.release_altitude_m if run.phase == "descend" else run.goal_altitude_m
+        moved = self._move_to(
+            run, pose, yaw, run.goal_ne, altitude, tolerance_m=tolerance / 2.0
+        )
+        if moved == "blocked" or run.blocked:
+            self._finish("failed", "blocked")
+            return None
+        if moved is not None:
+            return moved, {"phase": run.phase}
+        if run.phase == "fly":
+            run.phase = "descend"
+            return self._deliver(run, pose, yaw, ground_point, frame_id)
+        if run.phase == "descend":
+            run.phase = "hold"
+            return ActionPrimitive.hold(cfg.deliver_hold_s), {"phase": "hold"}
+        self._finish("succeeded", "payload_released")
+        return None
 
     def _goto(self, run, pose, yaw, ground_point, frame_id):
         if run.goal_ne is None:

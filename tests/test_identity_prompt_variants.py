@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from onboard_factories import make_llama_runner
 from PIL import Image
 
 from scripts import build_slow_system_sft as builder
@@ -146,18 +147,15 @@ def test_evaluation_token_usage_is_actual_and_unknown_stays_null(tmp_path):
 
 def test_llama_request_uses_variant_and_cold_prefill_cache_setting(tmp_path, monkeypatch):
     bodies = []
-    runner = evaluator.LlamaServerRunner.__new__(evaluator.LlamaServerRunner)
-    runner.port, runner.max_new_tokens, runner.crop_policy, runner.max_side = (
-        9933,
-        128,
-        "candidate_zoom_v2",
-        448,
-    )
-    runner.identity_variant, runner.identity_only, runner.logprobs, runner.cache_prompt = (
-        "compact",
-        False,
-        False,
-        False,
+    runner = make_llama_runner(
+        port=9933,
+        max_new_tokens=128,
+        crop_policy="candidate_zoom_v2",
+        max_side=448,
+        identity_variant="compact",
+        identity_only=False,
+        logprobs=False,
+        cache_prompt=False,
     )
 
     def reply(url, body):
