@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -228,9 +229,18 @@ def test_supervisor_expectations_check_durable_decisions_and_recovery():
     assert row["expectations_passed"] is True
     assert row["expectation_checks"]["supervisor.original_mission_completed"] is True
     assert row["supervisor"]["original_mission_completed"] is False
-    markdown = suite.render_markdown({"summary": {"missions": 1, "episodes": 1,
-        "plan_accuracy": 1, "completion_rate": 0, "expectation_pass_rate": 1},
-        "missions": [row]})
+    markdown = suite.render_markdown(
+        {
+            "summary": {
+                "missions": 1,
+                "episodes": 1,
+                "plan_accuracy": 1,
+                "completion_rate": 0,
+                "expectation_pass_rate": 1,
+            },
+            "missions": [row],
+        }
+    )
     assert "Supervisor outcomes" in markdown
     assert "explicit operator abort" in markdown
 
@@ -294,12 +304,45 @@ def test_expectation_failure_exit_preserves_legacy_behavior(work_tmp, supervised
             json.dumps({"episodes": [episode]}), encoding="utf-8"
         )
 
-    assert suite.main(
-        ["--suite", str(suite_path), "--out", str(work_tmp / "out")], runner=fake_runner
-    ) == int(supervised)
+    # The historical default only treats a missing scored row as a failing
+    # suite exit.  Failed expectations remain visible in the report but do
+    # not change that default status.
+    assert (
+        suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out")], runner=fake_runner)
+        == 0
+    )
     table = json.loads((work_tmp / "out/suite-report.json").read_text("utf-8"))
     assert ("supervisor" in table["missions"][0]) == supervised
     assert ("Supervisor outcomes" in suite.render_markdown(table)) == supervised
+
+
+def test_strict_exit_rejects_expectation_failure_and_collector_error(work_tmp):
+    mission = _mission()
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps({"defaults": {}, "missions": [mission]}), encoding="utf-8")
+
+    def fake_runner(command, **kwargs):
+        raise subprocess.CalledProcessError(7, command)
+
+    # Strict mode is opt-in for model-round runs.  It reports the collector
+    # failure as nonzero while the default mode above remains legacy-compatible.
+    assert (
+        suite.main(
+            ["--suite", str(suite_path), "--out", str(work_tmp / "strict"), "--strict"],
+            runner=fake_runner,
+        )
+        == 1
+    )
+
+
+def test_build_command_strict_is_explicit():
+    mission = _mission()
+    base = suite.build_command(mission, Path("onboard.json"), Path("campaign"), Path("report.json"))
+    strict = suite.build_command(
+        mission, Path("onboard.json"), Path("campaign"), Path("report.json"), strict=True
+    )
+    assert "--strict" not in base
+    assert strict[strict.index("--strict")] == "--strict"
 
 
 def test_dry_run_rejects_invalid_package_before_writing_config(work_tmp):
