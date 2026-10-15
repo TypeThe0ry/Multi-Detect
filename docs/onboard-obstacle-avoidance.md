@@ -2,9 +2,9 @@
 
 执行器和 `OnboardLoop` 使用 `ObstacleSource.segment_clear(start_ned, end_ned)` 做局部 NED 线段检查。默认仍由已有的 `segment_clear` callback 或 `StaticMapSource` 提供静态 SDF clearance；没有 callback 和 source 时 `OnboardLoop` fail-closed，返回 blocked。`CompositeSource` 对所有 source 取逻辑 AND。
 
-`DepthGridSource` 的参数包括 `cells`、`resolution_m`、`max_age_s`（必须大于零）、`min_depth_m`、`max_depth_m`、`height_tolerance_m`、`ground_tolerance_m`、`ground_model`、`fallback` 和 `timestamp_unit`（`s/ms/us/ns`）。输入 `update()` 时必须显式指定 `encoding="FLOAT32_M"` 或 `encoding="UINT16_MM"`；不会根据数值大小猜单位。深度帧会按完整相机姿态与旋转后的机身安装偏移投影到滚动局部栅格。查询只读取一个原子快照；更新先完成整代栅格再交换。freshness 只使用本机 monotonic receipt age，传感器 timestamp 仅用于诊断。
+`DepthGridSource` 和 `AsyncDepthGridSource` 当前均为 experimental，未经 flight-safety qualification。`DepthGridSource` 的参数包括 `cells`、`resolution_m`、`max_age_s`（必须大于零）、`min_depth_m`、`max_depth_m`、`height_tolerance_m`、`ground_tolerance_m`、`ground_model`、`fallback` 和 `timestamp_unit`（`s/ms/us/ns`）。输入 `update()` 时必须显式指定 `encoding="FLOAT32_M"` 或 `encoding="UINT16_MM"`；不会根据数值大小猜单位。深度帧会按完整相机姿态与旋转后的机身安装偏移投影到滚动局部栅格。查询只读取一个原子快照；更新先完成整代栅格再交换。freshness 只使用本机 monotonic receipt age，传感器 timestamp 仅用于诊断。
 
-地面返回和障碍返回分层保存。传入 `GroundModel` 时，落在局部地面面片附近（小于 `ground_tolerance_m` 的上方高度）的点进入 `terrain` 层，不参与障碍阻挡；高出地面足够距离的点进入 `occupied` 层。3-D clearance 的语义是：线段在 N/E 平面采样到 occupied cell，且线段 NED down 高度落在该 cell 的观测高度范围加 `height_tolerance_m` 内，则 blocked。没有新鲜深度时调用 `fallback`，没有 fallback 时 blocked。
+地面返回和障碍返回分层保存。传入 `GroundModel` 时，落在局部地面面片附近（小于 `ground_tolerance_m` 的上方高度）的点进入 `terrain` 层，不参与障碍阻挡；高出地面足够距离的点进入 `occupied` 层。3-D clearance 的语义是：线段在 N/E 平面采样到 occupied cell，且线段 NED down 高度落在该 cell 的观测高度范围加 `height_tolerance_m` 内，则 blocked。没有新鲜深度时默认 blocked；只有显式 `stale_policy="static_fallback"` 才调用 `fallback`，并设置 `degraded` 标志。
 
 ## SIM 离线评估
 
@@ -40,5 +40,5 @@ python scripts/evaluate_depth_obstacle_source.py `
 \n
 
 
-AsyncDepthGridSource 使用单 worker 和容量为 1 的 latest-frame-wins 队列，深度摄取必须保持 opt-in，不能放在 20 Hz setpoint 或 detector path；Jetson Orin Nano 上应以 PX4 Collision Prevention / DISTANCE_SENSOR 作为硬实时后备。默认 stale depth 始终 blocked；只有显式 stale_policy=static_fallback 才使用 fallback，并设置 degraded=True。
+AsyncDepthGridSource 使用单 worker 和容量为 1 的 latest-frame-wins 队列；`frame_budget_s` 超时计入 `deadline_misses`，该帧不会被视为 fresh，深度摄取必须保持 opt-in，不能放在 20 Hz setpoint 或 detector path；Jetson Orin Nano 上应以 PX4 Collision Prevention / DISTANCE_SENSOR 作为硬实时后备。默认 stale depth 始终 blocked；只有显式 stale_policy=static_fallback 才使用 fallback，并设置 degraded=True。
 \n

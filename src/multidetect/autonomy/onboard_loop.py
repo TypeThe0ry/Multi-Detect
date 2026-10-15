@@ -194,6 +194,7 @@ class LoopConfig:
     memory_radius_m: float = 4.0
     memory_min_verdicts: int = 3
     memory_max_range_ratio: float = 0.7
+    max_blocked_legs: int = 2
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
@@ -204,6 +205,8 @@ class LoopConfig:
             0 < self.memory_max_range_ratio <= 1
         ):
             raise ValueError("memory_max_range_ratio must be in (0, 1]")
+        if self.max_blocked_legs < 1:
+            raise ValueError("max_blocked_legs must be positive")
 
 
 @dataclass(slots=True)
@@ -313,6 +316,7 @@ class OnboardLoop:
     _revisit: dict[str, Any] | None = None
     _revisits_done: int = 0
     _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
+    _blocked_search_legs: int = 0
 
     def _segment_clear(
         self, pose_ned: tuple[float, float, float], north: float, east: float
@@ -703,7 +707,14 @@ class OnboardLoop:
         action = self.search_action(pose_ned, yaw_deg)
         if self.obstacle_source is None:
             return action
-        return self._safe(pose_ned, action, yaw_deg)
+        safe = self._safe(pose_ned, action, yaw_deg)
+        if action.kind == "translate" and safe.kind != "translate":
+            self._blocked_search_legs += 1
+            if self._blocked_search_legs >= self.config.max_blocked_legs:
+                self.state = "blocked"
+        elif action.kind == "translate":
+            self._blocked_search_legs = 0
+        return safe
 
     def _keep_range(self, altitude_m: float) -> float:
         """Closest ground range still inside the image at ``altitude_m`` (with margin)."""

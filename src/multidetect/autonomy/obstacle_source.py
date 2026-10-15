@@ -434,6 +434,12 @@ class AsyncDepthGridSource:
         self._queue: queue.Queue[tuple[tuple, dict] | None] = queue.Queue(maxsize=1)
         self._stop = threading.Event()
         self.dropped_frames = 0
+        self.deadline_misses = 0
+        self.last_error: str | None = None
+        self.error_count = 0
+        self._failed = False
+        self._closed = False
+        self._mutex = threading.Lock()
         self._worker = threading.Thread(target=self._run, name="depth-grid", daemon=True)
         self._worker.start()
 
@@ -447,33 +453,72 @@ class AsyncDepthGridSource:
                 return
             args, kwargs = item
             started = time.monotonic()
-            self.source.update(*args, **kwargs)
-            if time.monotonic() - started > self.frame_budget_s:
-                self.dropped_frames += 0
+            try:
+                self.source.update(*args, **kwargs)
+                elapsed = time.monotonic() - started
+                with self._mutex:
+                    if elapsed > self.frame_budget_s:
+                        self.deadline_misses += 1
+                        self.source._received_monotonic = (
+                            time.monotonic() - self.source.max_age_s - 1.0
+                        )
+                    else:
+                        self.last_error = None
+                        self._failed = False
+            except Exception as exc:  # worker must survive a bad sensor frame
+                with self._mutex:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
+                    self.error_count += 1
+                    self._failed = True
 
     def update(self, *args, **kwargs) -> bool:
         item = (args, kwargs)
-        try:
-            self._queue.put_nowait(item)
-        except queue.Full:
+        with self._mutex:
+            if self._closed:
+                return False
             try:
+                self._queue.put_nowait(item)
+            except queue.Full:
                 self._queue.get_nowait()
-            except queue.Empty:
-                pass
-            self.dropped_frames += 1
-            self._queue.put_nowait(item)
+                self.dropped_frames += 1
+                self._queue.put_nowait(item)
         return True
 
     def segment_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
+        with self._mutex:
+            if self._failed and not self.source._fresh():
+                return False
         return self.source.segment_clear(start_ned, end_ned)
 
-    def close(self) -> None:
+    def status(self) -> dict[str, object]:
+        with self._mutex:
+            return {
+                "closed": self._closed,
+                "failed": self._failed,
+                "worker_alive": self._worker.is_alive(),
+                "last_error": self.last_error,
+                "error_count": self.error_count,
+                "dropped_frames": self.dropped_frames,
+                "deadline_misses": self.deadline_misses,
+            }
+
+    def close(self, *, join_timeout_s: float = 1.0) -> bool:
+        with self._mutex:
+            if self._closed:
+                return not self._worker.is_alive()
+            self._closed = True
         self._stop.set()
         try:
             self._queue.put_nowait(None)
         except queue.Full:
             pass
-        self._worker.join(timeout=1.0)
+        self._worker.join(timeout=join_timeout_s)
+        alive = self._worker.is_alive()
+        if alive:
+            with self._mutex:
+                self._failed = True
+                self.last_error = "worker did not stop before close timeout"
+        return not alive
 
 
 __all__ = [

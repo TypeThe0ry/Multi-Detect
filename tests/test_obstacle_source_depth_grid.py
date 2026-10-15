@@ -194,6 +194,69 @@ def test_async_depth_ingest_is_nonblocking_and_latest_frame_wins(monkeypatch) ->
     async_source.close()
 
 
+def test_async_worker_recovers_after_update_error() -> None:
+    class FailingSource(DepthGridSource):
+        fail = True
+
+        def update(self, *args, **kwargs):
+            if self.fail:
+                self.fail = False
+                raise ValueError("bad frame")
+            return super().update(*args, **kwargs)
+
+    source = FailingSource()
+    async_source = AsyncDepthGridSource(source)
+    frame = np.ones((2, 2), dtype=np.float32)
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS)
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and async_source.status()["error_count"] == 0:
+        time.sleep(0.01)
+    assert async_source.status()["error_count"] == 1
+    assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS)
+    while time.monotonic() < deadline and async_source.status()["failed"]:
+        time.sleep(0.01)
+    assert async_source.status()["failed"] is False
+    async_source.close()
+
+
+def test_async_close_timeout_marks_failed_and_rejects_updates() -> None:
+    release = threading.Event()
+
+    class SlowSource(DepthGridSource):
+        def update(self, *args, **kwargs):
+            release.wait(1.0)
+            return super().update(*args, **kwargs)
+
+    source = SlowSource()
+    async_source = AsyncDepthGridSource(source)
+    frame = np.ones((2, 2), dtype=np.float32)
+    assert async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS)
+    time.sleep(0.02)
+    assert async_source.close(join_timeout_s=0.001) is False
+    assert async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS) is False
+    assert async_source.status()["failed"] is True
+    release.set()
+    async_source.close()
+
+
+def test_async_deadline_miss_is_counted_and_frame_is_stale() -> None:
+    class SlowSource(DepthGridSource):
+        def update(self, *args, **kwargs):
+            time.sleep(0.03)
+            return super().update(*args, **kwargs)
+
+    source = SlowSource(max_age_s=0.01)
+    async_source = AsyncDepthGridSource(source, frame_budget_s=0.001)
+    async_source.update(np.ones((2, 2), dtype=np.float32), (0.0, 0.0, 0.0), INTRINSICS)
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and async_source.status()["deadline_misses"] == 0:
+        time.sleep(0.01)
+    assert async_source.status()["deadline_misses"] == 1
+    assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    async_source.close()
+
+
 def test_out_of_order_sensor_frame_does_not_replace_newer_generation() -> None:
     source = DepthGridSource(max_age_s=0.5, timestamp_unit="ms")
     depth = np.ones((2, 2), dtype=np.float32)
@@ -231,6 +294,3 @@ def test_static_source_matches_historical_clearance() -> None:
     start, end = (0.0, 0.0, -10.0), (6.0, 0.0, -10.0)
     expected = segment_clear_of_obstacles(start, end, 10.0, obstacles)
     assert StaticMapSource(obstacles).segment_clear(start, end) is expected
-
-
-\n
