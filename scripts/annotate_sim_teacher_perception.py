@@ -13,8 +13,6 @@ from pathlib import Path
 
 import cv2
 
-from multidetect.sim_teacher.recording import load_depth_array
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
@@ -25,6 +23,7 @@ from multidetect.autonomy.policy_v2.perception_bridge import (  # noqa: E402
     PerceptionBridge,
     build_detector,
 )
+from multidetect.sim_teacher.recording import load_depth_array  # noqa: E402
 
 DEFAULT_COCO_MODEL = ROOT / "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx"
 DEFAULT_RED_MODEL = (

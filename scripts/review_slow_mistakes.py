@@ -15,8 +15,6 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from multidetect.sim_teacher.recording import load_depth_array
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
@@ -24,6 +22,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from slow_system_runtime import image_list_for_row  # noqa: E402
 
+from multidetect.sim_teacher.recording import load_depth_array  # noqa: E402
 from multidetect.sim_teacher.segmentation import (  # noqa: E402
     boxes_from_segmentation,
     load_labels_map,

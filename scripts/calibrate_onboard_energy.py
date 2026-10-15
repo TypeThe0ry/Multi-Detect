@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -27,7 +28,8 @@ def summarize(logs: list[Path]) -> dict:
         phase = "unknown"
         battery_times = []
         battery_soc = []
-        for raw in path.open("rb"):
+        opener = gzip.open if path.suffix.lower() == ".gz" else open
+        for raw in opener(path, "rb"):
             digest.update(raw)
             try:
                 record = json.loads(raw)

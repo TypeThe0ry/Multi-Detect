@@ -80,7 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     for world in worlds:
         world_id = world["world_id"]
         out = args.out / world_id
-        done = sorted(out.glob("episodes/*/episode.json")) if out.is_dir() else []
+        done = [
+            path for path in (sorted(out.glob("episodes/*/episode.json")) if out.is_dir() else [])
+            if json.loads(path.read_text(encoding="utf-8")).get("status") != "aborted_low_disk"
+        ]
         missing = max(0, args.episodes - len(done))
         if missing:
             command = [
@@ -114,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"world": world_id, "collector_exit": code}), flush=True)
         truth = json.loads((scenarios / f"{world_id}.truth.json").read_text(encoding="utf-8"))
         for episode in sorted(out.glob("episodes/*/")):
-            if not (episode / "steps.jsonl").is_file():
+            if not (episode / "episode.json").is_file():
                 continue
             scored = score_episode(
                 episode,
@@ -135,8 +138,9 @@ def main(argv: list[str] | None = None) -> int:
                             "success",
                             "false_confirm",
                             "task_equivalent",
-                            "confirmed",
+                        "confirmed",
                         )
+                    if k in scored
                     }
                 ),
                 flush=True,

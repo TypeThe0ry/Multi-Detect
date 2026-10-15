@@ -471,7 +471,11 @@ class DockerSimEnvironment:
         raise TimeoutError(f"SIM container did not become running within {timeout_s:.1f}s")
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if self.started and not (exc_type is not None and self.plan.keep_container_on_failure):
+        if self.started and not (
+            exc_type is not None
+            and self.plan.keep_container_on_failure
+            and exc_type is not LowDiskSpace
+        ):
             subprocess.run(
                 ["docker", "rm", "--force", self.name],
                 capture_output=True,
@@ -1939,6 +1943,35 @@ def run_episode(
                 policy.close()
             except Exception:
                 pass
+        if gcs_heartbeat_stop is not None:
+            gcs_heartbeat_stop.set()
+        if gcs_heartbeat_thread is not None:
+            gcs_heartbeat_thread.join(timeout=2.0)
+        if sensor_reader is not None:
+            sensor_reader.stop()
+        if setpoint_streamer is not None:
+            setpoint_streamer.stop()
+        if mav_reader is not None:
+            mav_reader.stop()
+        if sensor_process is not None:
+            try:
+                sensor_process.terminate()
+                sensor_process.wait(timeout=3)
+            except Exception:
+                try:
+                    sensor_process.kill()
+                except Exception:
+                    pass
+        for connection in (telemetry_connection,):
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+        # Stop the reader before closing the recorder file: callbacks must not
+        # append telemetry after the terminal metadata is written.
+        if mav_reader is not None:
+            mav_reader.stop()
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir

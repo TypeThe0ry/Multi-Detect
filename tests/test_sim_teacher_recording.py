@@ -70,6 +70,15 @@ def test_opt_in_depth_formats_load_to_equivalent_arrays(tmp_path: Path, depth_fo
     np.testing.assert_array_equal(loaded, expected)
 
 
+def test_default_recorder_metadata_has_legacy_shape_and_fallback(tmp_path: Path) -> None:
+    recorder = EpisodeRecorder(tmp_path, "episode")
+    meta = json.loads(recorder.episode_path.read_text(encoding="utf-8"))
+    assert "depth_format" not in meta
+    recorder.record_step({"depth": {"legacy": 1}}, {})
+    path = recorder.episode_dir / "depth" / "000000_before.npy"
+    assert json.loads(path.read_text(encoding="utf-8")) == {"legacy": 1}
+
+
 def _obs(value: float = 1.0) -> dict:
     return {
         "rgb": b"not-a-real-png",

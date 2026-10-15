@@ -66,13 +66,14 @@ class EpisodeRecorder:
         self._mavlink_lock = threading.Lock()
         self._mavlink_count = 0
         self._mavlink_last_flush = time.monotonic()
-        self.meta.update(
-            {
-                "depth_format": depth_format,
-                "deduplicate_depth": deduplicate_depth,
-                "mavlink_compressed": compress_mavlink,
-            }
-        )
+        if depth_format != "npy" or deduplicate_depth or compress_mavlink:
+            self.meta.update(
+                {
+                    "depth_format": depth_format,
+                    "deduplicate_depth": deduplicate_depth,
+                    "mavlink_compressed": compress_mavlink,
+                }
+            )
 
     def begin_mavlink_stream(self) -> None:
         with self._mavlink_lock:
@@ -126,18 +127,18 @@ class EpisodeRecorder:
         if depth is not None:
             import numpy as np
 
-            array = np.asarray(depth)
-            duplicate = (
-                self.deduplicate_depth
-                and self._previous_depth is not None
-                and np.array_equal(array, self._previous_depth, equal_nan=True)
-            )
-            if duplicate:
-                out["depth_path"] = self._previous_depth_path
-            else:
-                suffix = {"npy": ".npy", "npz": ".npz", "png16": ".png"}[self.depth_format]
-                path = self.depth_dir / f"{stem}{suffix}"
-                try:
+            suffix = {"npy": ".npy", "npz": ".npz", "png16": ".png"}[self.depth_format]
+            path = self.depth_dir / f"{stem}{suffix}"
+            try:
+                array = np.asarray(depth)
+                duplicate = (
+                    self.deduplicate_depth
+                    and self._previous_depth is not None
+                    and np.array_equal(array, self._previous_depth, equal_nan=True)
+                )
+                if duplicate:
+                    out["depth_path"] = self._previous_depth_path
+                else:
                     if self.depth_format == "npz":
                         np.savez_compressed(path, depth=array)
                     elif self.depth_format == "png16":
@@ -152,11 +153,12 @@ class EpisodeRecorder:
                         Image.fromarray(array, mode="I;16").save(path, format="PNG", optimize=True)
                     else:
                         np.save(path, array.astype("float32"))
-                except Exception:
-                    path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
+                    out["depth_path"] = str(path.relative_to(self.episode_dir))
+                    self._previous_depth = array.copy()
+                    self._previous_depth_path = out["depth_path"]
+            except Exception:
+                path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
                 out["depth_path"] = str(path.relative_to(self.episode_dir))
-                self._previous_depth = np.asarray(depth).copy()
-                self._previous_depth_path = out["depth_path"]
         segmentation = obs.get("segmentation")
         if segmentation is not None:
             import numpy as np
