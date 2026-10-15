@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from multidetect.autonomy.onboard_decision import (
     DECISION_JSON_SCHEMA,
+    IDENTITY_DECISIONS,
     identity_decision_schema,
     identity_of,
     parse_onboard_decision,
@@ -202,8 +203,13 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 
 
 class LlamaServerRunner:
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False):
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
+        # Identity rows: prefill the pinned args, read one token's log-probabilities
+        # for the three verdicts instead of decoding the whole JSON (~50 tokens).
+        self.fast_identity = fast_identity and identity_only
+        self._verdict_tokens: dict[str, dict[str, int]] = {}
+        self._verdict_pieces: dict[str, dict[str, str | None]] = {}
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -237,10 +243,69 @@ class LlamaServerRunner:
         self.close()
         raise TimeoutError("llama-server did not become healthy")
 
+    def _verdict_first_tokens(self, prefix: str) -> dict[str, int]:
+        """Token id that starts each verdict right after ``prefix`` (BPE merges across the quote)."""
+        if prefix not in self._verdict_tokens:
+            def tokens(text: str) -> list[int]:
+                return [t["id"] if isinstance(t, dict) else t for t in _http_json(f"http://127.0.0.1:{self.port}/tokenize", {"content": text})["tokens"]]
+
+            base, firsts = tokens(prefix), {}
+            for verdict in IDENTITY_DECISIONS:
+                full = tokens(prefix + verdict + '"')
+                if full[: len(base)] != base or len(full) <= len(base):
+                    raise RuntimeError(f"verdict {verdict} does not extend the prefix tokenisation")
+                firsts[verdict] = full[len(base)]
+            if len(set(firsts.values())) != len(firsts):
+                raise RuntimeError(f"verdicts share a first token: {firsts}")
+            self._verdict_tokens[prefix] = firsts
+            # Token text too, for servers whose top_logprobs carry no id.
+            self._verdict_pieces[prefix] = {
+                verdict: _http_json(f"http://127.0.0.1:{self.port}/detokenize", {"tokens": [token]}).get("content")
+                for verdict, token in firsts.items()
+            }
+        return self._verdict_tokens[prefix]
+
+    def _fast_identity(self, row: dict[str, Any], content: list[dict[str, Any]]) -> tuple[str, float] | None:
+        args = {"duration_s": None, "region": None, "track_id": row["focus_track_id"]}
+        prefix = json.dumps({"args": args}, separators=(",", ":"))[:-1] + ',"decision":"'
+        firsts = self._verdict_first_tokens(prefix)
+        body = {
+            "model": "local", "temperature": 0, "max_tokens": 1, "stream": False, "logprobs": True, "top_logprobs": 20,
+            "messages": [{"role": "user", "content": content}, {"role": "assistant", "content": prefix}],
+        }
+        started = time.perf_counter()
+        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        elapsed = time.perf_counter() - started
+        try:
+            entries = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
+        except (KeyError, IndexError, TypeError):
+            return None  # unexpected shape: decode the full answer instead
+        pieces = self._verdict_pieces.get(prefix, {})
+        scores: dict[str, float] = {}
+        for verdict, token in firsts.items():
+            for entry in entries:
+                if entry.get("id") == token or (entry.get("id") is None and entry.get("token") == pieces.get(verdict)):
+                    scores[verdict] = float(entry["logprob"])
+                    break
+        if not scores:
+            return None
+        decision = max(scores, key=scores.get)
+        # Same shape as a decoded answer; logprobs feed decision_confidence as before.
+        self.last_logprobs = [
+            {"token": prefix, "logprob": None},
+            {"token": decision, "logprob": scores[decision], "top_logprobs": [{"token": v, "logprob": p} for v, p in scores.items()]},
+        ]
+        answer = {"args": args, "decision": decision, "reason": "single-token identity verdict"}
+        return json.dumps(answer, separators=(",", ":"), sort_keys=True), elapsed
+
     def __call__(self, row: dict[str, Any]) -> tuple[str, float]:
         images = ["data:image/jpeg;base64," + base64.b64encode(value).decode("ascii") for value in image_jpeg_bytes_list(row, self.max_side, self.crop_policy)]
         content = [{"type": "text", "text": prompt_for_row({**row, "_crop_policy": self.crop_policy})}]
         content.extend({"type": "image_url", "image_url": {"url": value}} for value in images)
+        if self.fast_identity and row.get("focus_track_id"):
+            fast = self._fast_identity(row, content)
+            if fast is not None:
+                return fast
         body = {
             "model": "local", "temperature": 0, "max_tokens": self.max_new_tokens, "stream": False,
             "messages": [{"role": "user", "content": content}],
@@ -280,7 +345,7 @@ def run(args) -> dict[str, Any]:
         else:
             if not args.gguf_model or not args.mmproj:
                 raise ValueError("GGUF backend needs --gguf-model and --mmproj")
-            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side, identity_only=args.identity_only)
+            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side, identity_only=args.identity_only, fast_identity=args.fast_identity)
         return evaluate_predictor(rows, runner)
     finally:
         if isinstance(runner, LlamaServerRunner):
@@ -304,6 +369,7 @@ def main(argv=None) -> int:
     parser.add_argument("--context", type=int, default=4096)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--identity-only", action="store_true", help="GGUF: rows with a focus track may only answer approach/confirm/reject")
+    parser.add_argument("--fast-identity", action="store_true", help="GGUF with --identity-only: one-token verdict from log-probabilities after a prefilled answer prefix")
     args = parser.parse_args(argv)
     result = run(args)
     payload = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)

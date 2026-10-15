@@ -290,6 +290,9 @@ class OnboardPolicy:
             # Every onboard call names a focus track: only identity verdicts are allowed.
             identity_only=True,
             logprobs=True,
+            # One-token verdict after a prefilled answer prefix: same verdicts, a
+            # fraction of the decode time (matters on a Jetson Orin Nano).
+            fast_identity=str(options.get("fast_identity", False)).lower() in {"1", "true", "yes"},
         )
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
