@@ -1500,6 +1500,11 @@ def run_episode(
         deduplicate_depth=plan.deduplicate_depth,
         compress_mavlink=plan.compress_mavlink,
     )
+    # Persist the effective per-episode seed/index so a campaign can retry an
+    # individual failed recording exactly, even when its next invocation uses a
+    # different --episodes value.
+    recorder.meta["episode_index"] = episode_index
+    recorder.meta["seed"] = plan.seed + episode_index
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
@@ -1968,10 +1973,6 @@ def run_episode(
                     connection.close()
                 except Exception:
                     pass
-        # Stop the reader before closing the recorder file: callbacks must not
-        # append telemetry after the terminal metadata is written.
-        if mav_reader is not None:
-            mav_reader.stop()
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir

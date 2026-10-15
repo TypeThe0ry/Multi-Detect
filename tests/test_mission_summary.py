@@ -8,11 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from onboard_factories import make_policy
 
 from multidetect.autonomy.mission_executor import plan_for_count_task, plan_for_find_task
 from multidetect.autonomy.mission_plan import MissionPlan, MissionReport, MissionStep
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json
-from scripts.onboard_policy import OnboardPolicy
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mission_summary"
 
@@ -138,9 +138,9 @@ def _policy(tmp_path):
         coverage={},
         report=MissionReport,
     )
-    policy = object.__new__(OnboardPolicy)
+    policy = make_policy(work_dir=tmp_path / "episode-0001-onboard-frames")
+    policy.work_dir.rmdir()
     policy.executor = executor
-    policy.work_dir = tmp_path / "episode-0001-onboard-frames"
     policy.task_text = "找交通锥"
     policy.slow = SimpleNamespace(close=lambda: None)
     return policy
