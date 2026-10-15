@@ -15,11 +15,11 @@ from .serialization import strict_json_loads
 
 POLICIES = ("continue", "continue_then_return", "hold_then_return", "return_now", "land_now")
 RISK_DEFAULTS = {"low": "continue", "medium": "continue_then_return", "high": "return_now"}
-# Median horizontal commanded speed from 309 translate outcomes in
+# 25th-percentile horizontal commanded speed from 309 translate outcomes in
 # artifacts/benchmarks/mission-suite-v1-r12/*/campaign/**/steps.jsonl:
-# 1.0344827586 m/s, rounded to 1.03. This is a planning estimate, not an
-# upper bound; the corresponding report.json files identify the campaigns.
-CALIBRATED_TRAVEL_SPEED_MPS = 1.03
+# 0.75 m/s (inclusive percentile). This deliberately conservative planning
+# estimate is deterministic and is not an upper bound.
+CALIBRATED_TRAVEL_SPEED_MPS = 0.75
 OPEN_ENDED_SKILLS = frozenset({"area_search", "count", "monitor", "patrol", "survey", "follow"})
 
 
@@ -325,15 +325,8 @@ def _minimum_mandatory_duration(
 
         executor_config = ExecutorConfig()
     hold_s = max(0.1, float(executor_config.hold_s))
-    # Admission uses a lower bound: the executor can command at most one
-    # max_translate_m leg per control cycle, and open-ended work may be cut
-    # short when the supervisor starts reserve-return. The calibrated speed is
-    # reserved for the nominal estimate above, which is intentionally not an
-    # upper bound.
-    max_translate_m = max(0.1, float(executor_config.max_translate_m))
-
     def transit_seconds(distance: float) -> float:
-        return math.ceil(distance / max_translate_m) * hold_s if distance > 0 else 0.0
+        return distance / CALIBRATED_TRAVEL_SPEED_MPS if distance > 0 else 0.0
 
     step_budget = max(1, int(executor_config.step_budget)) * hold_s
     travel_budget = max(1, int(executor_config.travel_budget)) * hold_s
@@ -395,6 +388,81 @@ def _minimum_mandatory_duration(
             # handle that runtime leg instead of rejecting the package here.
             previous = None
     return total
+
+
+def estimate_plan_energy(
+    plan: MissionPlan,
+    package: MissionPackage,
+    *,
+    executor_config: Any | None = None,
+) -> float:
+    """Estimate mandatory horizontal transit energy using the onboard model."""
+    from .energy_estimator import EnergyConfig
+
+    config = EnergyConfig.from_budget(package.document["budget"])
+    home = tuple(float(v) for v in package.document["home"])
+    refs = package.refs
+    by_id = {step.id: step for step in plan.steps}
+    terminals = {step.id for step in plan.steps if _is_terminal_step(step)}
+
+    def reaches_terminal(step_id: str, seen: set[str]) -> bool:
+        if step_id in terminals:
+            return True
+        if step_id in seen or step_id not in by_id:
+            return False
+        step = by_id[step_id]
+        return all(
+            ref is not None and reaches_terminal(ref, seen | {step_id})
+            for ref in (step.on_success, step.on_fail)
+        )
+
+    distance = 0.0
+    vertical_wh = 0.0
+    current_altitude = 0.0
+    previous = home
+    for step in plan.steps:
+        anchor = _static_step_anchor(step, refs, home)
+        requested_altitude = step.params.get("altitude_m")
+        if (
+            isinstance(requested_altitude, (int, float))
+            and not isinstance(requested_altitude, bool)
+        ):
+            target_altitude = max(0.0, float(requested_altitude))
+            if target_altitude > current_altitude:
+                vertical_wh += config.climb_power_w * (
+                    target_altitude - current_altitude
+                ) / max(0.01, config.climb_speed_mps) / 3600
+            elif target_altitude < current_altitude:
+                vertical_wh += config.hover_power_w * (
+                    current_altitude - target_altitude
+                ) / max(0.01, config.descent_speed_mps) / 3600
+            current_altitude = target_altitude
+        if step.skill == "patrol":
+            route_points = _route_points(refs.get(step.params.get("route_ref")))
+            if route_points:
+                anchor = route_points[0]
+        if previous is not None and anchor is not None:
+            distance += math.dist(previous, anchor)
+        open_ended = step.skill in OPEN_ENDED_SKILLS and reaches_terminal(step.id, set())
+        if step.skill == "patrol" and not open_ended:
+            route_points = _route_points(refs.get(step.params.get("route_ref")))
+            loops = max(1, int(step.params.get("loops", 1)))
+            if len(route_points) > 1:
+                distance += sum(
+                    math.dist(a, b) for a, b in zip(route_points, route_points[1:], strict=False)
+                ) * loops
+                distance += (loops - 1) * math.dist(route_points[-1], route_points[0])
+        if step.skill in OPEN_ENDED_SKILLS or step.skill == "inspect":
+            previous = None
+        elif anchor is not None:
+            previous = anchor
+    speed = max(0.01, config.cruise_speed_mps - config.unknown_wind_mps)
+    horizontal_s = distance / speed
+    return config.safety_factor * (
+        config.translate_power_w * horizontal_s
+        + config.hover_power_w * config.landing_time_s
+        + vertical_wh * 3600
+    ) / 3600
 
 
 def check_plan_against_package(
@@ -490,7 +558,7 @@ def check_plan_against_package(
             add(
                 "OUTSIDE_OPERATING_AREA",
                 step,
-                f"步骤 {step.id} 的区域、目标或航线超出作业区域",
+                "Package constraint violation",
                 f"Step {step.id} has a region, target, or route outside the operating area",
             )
 
@@ -518,7 +586,7 @@ def check_plan_against_package(
             add(
                 "NO_FLY_ZONE",
                 step,
-                f"步骤 {step.id} 进入禁飞区 {names}",
+                f"Step {step.id} enters no-fly zone(s) {names}",
                 f"Step {step.id} enters no-fly zone(s) {names}",
             )
 
@@ -529,7 +597,7 @@ def check_plan_against_package(
             add(
                 "ALTITUDE_OUT_OF_BOUNDS",
                 step,
-                f"步骤 {step.id} 的高度超出允许范围",
+                "Package constraint violation",
                 f"Step {step.id} altitude is outside the operating limits",
             )
 
@@ -541,7 +609,7 @@ def check_plan_against_package(
                 add(
                     "MISSING_CAPABILITY",
                     step,
-                    f"步骤 {step.id} 需要载荷能力，但当前飞行器不具备该能力",
+                    "Package constraint violation",
                     f"Step {step.id} requires the payload capability, which is unavailable",
                 )
 
@@ -562,9 +630,9 @@ def check_plan_against_package(
                 "TERMINAL_UNREACHABLE",
                 terminal.id if terminal else None,
                 (
-                    f"终端步骤 {terminal.id} 从计划起点不可达"
+                    "Package constraint violation"
                     if terminal
-                    else "计划没有可达的终端步骤"
+                    else "No reachable terminal step"
                 ),
                 (
                     f"Terminal step {terminal.id} is unreachable from the plan start"
@@ -597,7 +665,7 @@ def check_plan_against_package(
                     _package_violation(
                         "TERMINAL_OUTGOING_EDGE",
                         step.id,
-                        f"终端步骤 {step.id} 不得有后续分支",
+                        "Package constraint violation",
                         f"Terminal step {step.id} must not have outgoing branches",
                     )
                 )
@@ -608,7 +676,7 @@ def check_plan_against_package(
                     _package_violation(
                         "TERMINAL_UNREACHABLE",
                         step.id,
-                        f"步骤 {step.id} 的failure分支无法到达安全终端",
+                        "Package constraint violation",
                         f"Step {step.id} failure branch does not reach a safe terminal",
                     )
                 )
@@ -619,7 +687,7 @@ def check_plan_against_package(
                     _package_violation(
                         "TERMINAL_UNREACHABLE",
                         step.id,
-                        f"步骤 {step.id} 的{branch}分支无法到达安全终端",
+                        "Package constraint violation",
                         f"Step {step.id} {branch} branch does not reach a safe terminal",
                     )
                 )
@@ -637,15 +705,23 @@ def check_plan_against_package(
             ),
             plan.steps[-1].id if plan.steps else None,
         )
+        violations.append(_package_violation(
+            "TIME_BUDGET_EXCEEDED", step_id,
+            f"Plan duration {estimate:.1f}s exceeds available time {available_time:.1f}s",
+            "Minimum mandatory plan duration exceeds the time budget after reserve",
+        ))
+    energy_budget = float(budget["energy_wh"]) - float(budget["reserve_energy_wh"])
+    energy_estimate = estimate_plan_energy(plan, package, executor_config=executor_config)
+    if energy_estimate > energy_budget:
+        step_id = plan.steps[-1].id if plan.steps else None
         violations.append(
             _package_violation(
-                "TIME_BUDGET_EXCEEDED",
+                "ENERGY_BUDGET_EXCEEDED",
                 step_id,
-                f"计划最低必需耗时 {estimate:.1f} 秒，"
-                f"超过扣除余量后的时间预算 {available_time:.1f} 秒",
-                "Minimum mandatory plan duration "
-                f"{estimate:.1f}s exceeds the time budget after reserve "
-                f"({available_time:.1f}s)",
+                f"Energy budget exceeded: {energy_estimate:.1f} Wh / {energy_budget:.1f} Wh",
+                "Minimum mandatory plan energy "
+                f"{energy_estimate:.1f} Wh exceeds the energy budget after reserve "
+                f"({energy_budget:.1f} Wh)",
             )
         )
     return violations
@@ -832,6 +908,7 @@ def load_mission_package(
 __all__ = [
     "MissionPackage",
     "check_plan_against_package",
+    "estimate_plan_energy",
     "estimate_plan_duration",
     "load_mission_package",
     "number",

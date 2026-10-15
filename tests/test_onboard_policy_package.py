@@ -354,7 +354,9 @@ def test_sim_pause_resume_order_and_abort_act_bypass_models(tmp_path, model_stub
 def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
     package = document("return_now" if mode == "link" else "continue")
     if mode == "budget":
-        package["budget"].update(time_s=90, reserve_time_s=60)
+        # Admission must fit the mandatory 40 m out-and-back at the calibrated
+        # 0.75 m/s speed; the supervisor still escalates once reserve is reached.
+        package["budget"].update(time_s=180, reserve_time_s=60)
     policy = _construct(tmp_path, {
         "mission_package": package,
         "sim_ground_events": [{"t_s": 10, "event": "link_lost"}] if mode == "link" else [],
@@ -362,7 +364,8 @@ def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
     try:
         assert _sim_advance(policy, 0) == "continue"
         assert _sim_advance(policy, 10) == "continue"
-        assert _sim_advance(policy, 30) == "return_now"
+        # Reserve escalation occurs after the admitted 120 s usable window.
+        assert _sim_advance(policy, 130) == "return_now"
         assert policy.supervisor.reason == (
             "operator link-loss policy" if mode == "link" else "remaining time at or below reserve"
         )

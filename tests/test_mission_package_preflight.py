@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -218,7 +220,97 @@ def test_patrol_estimate_tracks_final_waypoint_for_return_home() -> None:
         ])
     )
     estimate = estimate_plan_duration(plan, package, executor_config=ExecutorConfig())
-    assert estimate > 2 * (20 / 1.03)
+    assert estimate > 2 * (20 / 0.75)
+
+
+def test_long_return_leg_uses_conservative_calibrated_speed() -> None:
+    raw = _document()
+    raw["places"]["poi:far"] = [150, 0]
+    raw["operating_area"].update(north_max_m=200)
+    raw["task_text"] = "long return"
+    raw["budget"] = {
+        "time_s": 120, "reserve_time_s": 60,
+        "energy_wh": 1000, "reserve_energy_wh": 30,
+    }
+    package = _package(raw=raw)
+    package = MissionPackage(package.document, {**package.refs, "poi:far": (150.0, 0.0)}, None)
+    plan = validate_mission_plan(_plan([
+        {"id": "go", "skill": "goto", "params": {"target_ref": "poi:far"},
+         "on_success": "home", "on_fail": "home"},
+        _goto_home()[1],
+    ]))
+    assert any(
+        v["code"] == "TIME_BUDGET_EXCEEDED"
+        for v in check_plan_against_package(plan, package)
+    )
+
+
+def test_energy_budget_admission_refuses_mandatory_transit() -> None:
+    raw = _document()
+    raw["places"]["poi:far"] = [150, 0]
+    raw["operating_area"].update(north_max_m=200)
+    raw["task_text"] = "energy return"
+    raw["budget"] = {
+        "time_s": 1000, "reserve_time_s": 60,
+        "energy_wh": 10, "reserve_energy_wh": 5,
+    }
+    package = _package(raw=raw)
+    package = MissionPackage(package.document, {**package.refs, "poi:far": (150.0, 0.0)}, None)
+    plan = validate_mission_plan(_plan([
+        {"id": "go", "skill": "goto", "params": {"target_ref": "poi:far"},
+         "on_success": "home", "on_fail": "home"},
+        _goto_home()[1],
+    ]))
+    assert any(
+        v["code"] == "ENERGY_BUDGET_EXCEEDED"
+        for v in check_plan_against_package(plan, package)
+    )
+
+
+def test_plan_eval_v3_common_valid_witnesses_are_admitted() -> None:
+    source = json.loads(
+        (Path(__file__).parents[1] / "configs" / "onboard" / "plan-eval-tasks-v3.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    raw = _document()
+    raw["budget"] = {
+        "time_s": 100000, "reserve_time_s": 60,
+        "energy_wh": 100000, "reserve_energy_wh": 30,
+    }
+    raw["places"] = {
+        ref.split(" ", 1)[0]: [10, 10]
+        for ref in source["refs"]
+        if ref.startswith("poi:")
+    }
+    raw["zones"] = {
+        ref.split(" ", 1)[0]: {"centre_ne": [10, 10], "radius_m": 5}
+        for ref in source["refs"] if ref.startswith("zone:")
+    }
+    raw["routes"] = {
+        ref.split(" ", 1)[0]: [[0, 0], [10, 10]]
+        for ref in source["refs"] if ref.startswith("route:")
+    }
+    raw["task_text"] = "plan evaluation"
+    package = _package(raw=raw)
+    for task in source["tasks"]:
+        if task.get("expect_invalid"):
+            continue
+        rows = task["expected_steps"]
+        steps = []
+        for index, row in enumerate(rows):
+            next_id = f"s{index + 1}" if index + 1 < len(rows) else None
+            steps.append({
+                "id": f"s{index}", "skill": row["skill"], "params": row.get("params", {}),
+                "on_success": next_id, "on_fail": next_id,
+            })
+        if rows[-1]["skill"] not in {"return_home", "land"}:
+            steps[-1]["on_success"] = "home"
+            steps[-1]["on_fail"] = "home"
+            steps.append({"id": "home", "skill": "return_home", "params": {},
+                          "on_success": None, "on_fail": None})
+        plan = validate_mission_plan(_plan(steps), capabilities=frozenset({"payload"}))
+        assert check_plan_against_package(plan, package) == [], task["text"]
 
 
 def test_time_budget_capability_and_terminal_reachability() -> None:
@@ -227,16 +319,14 @@ def test_time_budget_capability_and_terminal_reachability() -> None:
     raw["task_text"] = "test"
     package = _package(raw=raw)
     monitor = {
-        "id": "watch",
-        "skill": "monitor",
-        "params": {"region": "zone:yard", "query": "car", "duration_s": 20},
-        "on_success": None,
-        "on_fail": None,
+        "id": "watch", "skill": "goto",
+        "params": {"target_ref": "poi:gate"},
+        "on_success": "home", "on_fail": "home",
     }
     plan = MissionPlan(
         1,
         "preflight test",
-        (MissionStep("watch", "monitor", monitor["params"], None, None),
+        (MissionStep("watch", "goto", monitor["params"], "home", "home"),
          MissionStep("home", "return_home", {}, None, None)),
         ("status",),
     )

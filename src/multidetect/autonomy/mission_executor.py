@@ -61,6 +61,9 @@ class ExecutorConfig:
     # Shallower survey rays are too distant for reliable detection.
     survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
+    # Three metres keeps the commanded path clear of circle-boundary and
+    # position-estimation error; the package checker uses the same margin.
+    no_fly_margin_m: float = 3.0
     hold_s: float = 1.0
     follow_stale_s: float = 3.0
     follow_stale_cycles: int = 2
@@ -1289,51 +1292,72 @@ class MissionExecutor:
     def _return_home_detour(
         self, start: tuple[float, float], goal: tuple[float, float]
     ) -> list[tuple[float, float]] | None:
-        """Find a short two-segment route around every crossed no-fly circle."""
+        """Find a shortest visibility-graph route around inflated circles."""
         area = self.operating_area
         if not isinstance(area, Mapping):
             return None
-        crossed = [
-            (centre, radius)
-            for centre, radius in self.no_fly_zones
-            if self._segment_circle_distance(start, goal, centre) <= radius
-        ]
-        if not crossed:
+        margin = max(0.0, float(self.config.no_fly_margin_m))
+        circles = [(centre, radius + margin) for centre, radius in self.no_fly_zones]
+        if not circles:
             return []
-        dn, de = goal[0] - start[0], goal[1] - start[1]
-        length = math.hypot(dn, de)
-        if length <= 1e-9:
+        def inside(point: tuple[float, float]) -> bool:
+            return (
+                area["north_min_m"] <= point[0] <= area["north_max_m"]
+                and area["east_min_m"] <= point[1] <= area["east_max_m"]
+            )
+        if not inside(start) or not inside(goal) or any(
+            math.dist(point, centre) <= radius for point in (start, goal)
+            for centre, radius in circles
+        ):
             return None
-        perp = (-de / length, dn / length)
-        margin = 1.0
-        candidates: list[tuple[float, float]] = []
-        for centre, radius in crossed:
-            clearance = radius + margin
-            for sign in (-1.0, 1.0):
-                candidates.append(
-                    (centre[0] + sign * perp[0] * clearance,
-                     centre[1] + sign * perp[1] * clearance)
-                )
-        valid = []
-        for waypoint in candidates:
-            if not (
-                area["north_min_m"] <= waypoint[0] <= area["north_max_m"]
-                and area["east_min_m"] <= waypoint[1] <= area["east_max_m"]
-            ):
+        import heapq
+
+        vertices: list[tuple[float, float]] = [start, goal]
+        sides = 32
+        for centre, radius in circles:
+            vertex_radius = radius / math.cos(math.pi / sides)
+            for index in range(sides):
+                angle = 2 * math.pi * index / sides
+                point = (centre[0] + vertex_radius * math.cos(angle),
+                         centre[1] + vertex_radius * math.sin(angle))
+                if inside(point) and all(math.dist(point, c) > r for c, r in circles):
+                    vertices.append(point)
+
+        def visible(a: tuple[float, float], b: tuple[float, float]) -> bool:
+            # Tangent polygon edges are valid; only entering the inflated disk
+            # is blocked (the tolerance absorbs floating-point error).
+            return inside(a) and inside(b) and all(
+                self._segment_circle_distance(a, b, centre) >= radius - 1e-6
+                for centre, radius in circles
+            )
+
+        distances = [math.inf] * len(vertices)
+        previous: list[int | None] = [None] * len(vertices)
+        distances[0] = 0.0
+        queue = [(0.0, 0)]
+        while queue:
+            distance, index = heapq.heappop(queue)
+            if distance != distances[index]:
                 continue
-            if any(math.dist(waypoint, centre) <= radius for centre, radius in self.no_fly_zones):
-                continue
-            if any(
-                self._segment_circle_distance(start, waypoint, centre) <= radius
-                or self._segment_circle_distance(waypoint, goal, centre) <= radius
-                for centre, radius in self.no_fly_zones
-            ):
-                continue
-            valid.append(waypoint)
-        if not valid:
+            if index == 1:
+                break
+            for other, point in enumerate(vertices):
+                if other == index or not visible(vertices[index], point):
+                    continue
+                candidate = distance + math.dist(vertices[index], point)
+                if candidate < distances[other]:
+                    distances[other] = candidate
+                    previous[other] = index
+                    heapq.heappush(queue, (candidate, other))
+        if not math.isfinite(distances[1]):
             return None
-        waypoint = min(valid, key=lambda point: math.dist(start, point) + math.dist(point, goal))
-        return [waypoint]
+        path: list[tuple[float, float]] = []
+        index: int | None = 1
+        while index is not None:
+            path.append(vertices[index])
+            index = previous[index]
+        path.reverse()
+        return path[1:-1]
 
     def _leg_enters_no_fly(
         self, start: tuple[float, float], end: Sequence[float]

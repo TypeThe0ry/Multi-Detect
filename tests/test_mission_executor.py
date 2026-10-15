@@ -410,6 +410,33 @@ def test_return_home_lands_in_place_when_no_detour_fits_area():
     assert "s:no_fly_zone_land_fallback" in executor.alerts
 
 
+def test_return_home_visibility_graph_handles_overlapping_no_fly_circles():
+    executor = MissionExecutor(
+        validate_mission_plan({
+            "plan_version": 1, "goal": "return", "steps": [{
+                "id": "s", "skill": "return_home", "params": {},
+                "on_success": None, "on_fail": None,
+            }], "report": [],
+        }),
+        loop_factory=_factory(),
+        no_fly_zones=(((10.0, 0.0), 2.0), ((10.0, 4.0), 2.0)),
+    )
+    executor.home = (0.0, 0.0)
+    executor.operating_area = {
+        "north_min_m": -30.0, "north_max_m": 30.0,
+        "east_min_m": -30.0, "east_max_m": 30.0,
+    }
+    run = executor._run
+    assert run is not None
+    path = executor._return_home_detour((20.0, 0.0), (0.0, 0.0))
+    assert path and len(path) >= 2
+    assert all(
+        math.dist(point, centre) > radius + executor.config.no_fly_margin_m - 1e-6
+        for point in path
+        for centre, radius in executor.no_fly_zones
+    )
+
+
 @pytest.mark.parametrize("min_depression", [0.35, 0.5])
 def test_survey_spacing_uses_reliable_ground_footprint_and_scales_with_altitude(min_depression):
     assert ExecutorConfig().survey_min_depression_rad == 0.35
