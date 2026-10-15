@@ -3,10 +3,12 @@
 Local coordinates use metres in PX4's estimator NED frame. Angles exposed to
 the autonomy boundary use degrees; only MAVLink encoding uses radians.
 """
+# ruff: noqa: E501
 
 from __future__ import annotations
 
 import math
+import struct
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -50,7 +52,21 @@ class VehicleState:
     home_geodetic: Vector3 | None = None
     home_monotonic: float | None = None
     battery_monotonic: float | None = None
+    battery_status_monotonic: float | None = None
     landed_monotonic: float | None = None
+    sensor_present: int | None = None
+    sensor_enabled: int | None = None
+    sensor_health: int | None = None
+    estimator_flags: int | None = None
+    gps_fix_type: int | None = None
+    gps_satellites: int | None = None
+    gps_hdop: float | None = None
+    sys_status_monotonic: float | None = None
+    estimator_monotonic: float | None = None
+    gps_monotonic: float | None = None
+    battery_voltage_v: float | None = None
+    battery_current_a: float | None = None
+    battery_consumed_mah: float | None = None
 
 
 @runtime_checkable
@@ -70,6 +86,18 @@ class VehicleInterface(Protocol):
     def rtl(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+
+@runtime_checkable
+class PreflightVehicle(VehicleInterface, Protocol):
+    """Optional PX4-only capabilities used by the real-aircraft preflight gate."""
+
+    def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
+
+    def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
+
+    def request_home_position(self) -> None: ...
 
 
 def _vector(message: Mapping[str, Any], names: tuple[str, str, str]) -> Vector3 | None:
@@ -151,6 +179,11 @@ class PymavlinkVehicle:
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
+        self._parameters: dict[str, tuple[float, int, float]] = {}
+        self._parameter_events: dict[str, threading.Event] = {}
+        self._parameter_pending_since: dict[str, float] = {}
+        self._parameter_transactions: dict[str, dict[str, Any]] = {}
+        self._parameter_locks: dict[str, threading.Lock] = {}
 
     def snapshot(self) -> VehicleState:
         if self._reader is not None:
@@ -227,6 +260,62 @@ class PymavlinkVehicle:
                 )):
                     updates.update(battery_remaining=None if value < 0 else float(value),
                                    battery_monotonic=stamp)
+                if kind == "SYS_STATUS":
+                    updates.update(sensor_present=message.get("onboard_control_sensors_present"),
+                                   sensor_enabled=message.get("onboard_control_sensors_enabled"),
+                                   sensor_health=message.get("onboard_control_sensors_health"),
+                                   sys_status_monotonic=stamp)
+                else:
+                    voltage = message.get("voltage_battery")
+                    current = message.get("current_battery")
+                    consumed = message.get("current_consumed")
+                    updates.update(
+                        battery_status_monotonic=stamp,
+                        battery_voltage_v=(float(voltage) / 1000 if isinstance(voltage, (int, float)) and 0 < voltage < 65535 else None),
+                        battery_current_a=(float(current) / 100 if isinstance(current, (int, float)) and current >= 0 else None),
+                        battery_consumed_mah=(float(consumed) if isinstance(consumed, (int, float)) and consumed >= 0 else None),
+                    )
+            elif kind == "ESTIMATOR_STATUS":
+                flags = message.get("flags")
+                if isinstance(flags, (int, float)) and int(flags) >= 0:
+                    updates.update(estimator_flags=int(flags), estimator_monotonic=stamp)
+            elif kind == "GPS_RAW_INT":
+                fix, sats, eph = message.get("fix_type"), message.get("satellites_visible"), message.get("eph")
+                if isinstance(fix, (int, float)):
+                    updates.update(gps_fix_type=int(fix), gps_satellites=int(sats) if isinstance(sats, (int, float)) else None,
+                                   gps_hdop=(None if eph in (None, 65535) else float(eph) / 100.0
+                                             if isinstance(eph, (int, float)) and eph >= 0 else None),
+                                   gps_monotonic=stamp)
+            elif kind == "PARAM_VALUE":
+                name = message.get("param_id", message.get("param_name"))
+                if isinstance(name, bytes):
+                    name = name.decode("ascii", "ignore")
+                if isinstance(name, str) and isinstance(message.get("param_value"), (int, float)):
+                    clean = name.rstrip("\x00")
+                    ptype = int(message.get("param_type", 9))
+                    raw = float(message["param_value"])
+                    value = (float(struct.unpack("<i", struct.pack("<f", raw))[0])
+                             if ptype == 6 else raw)
+                    transaction = self._parameter_transactions.get(clean)
+                    if transaction is not None and transaction.get("state") == "arming":
+                        return
+                    pending = self._parameter_pending_since.get(clean)
+                    if pending is not None and stamp <= pending:
+                        # A response queued before the request/set must not
+                        # satisfy or overwrite the pending transaction.
+                        return
+                    if pending is not None and stamp > pending:
+                        transaction = self._parameter_transactions.get(clean, {})
+                        expected = transaction.get("expected")
+                        type_expected = transaction.get("param_type")
+                        if type_expected is not None and ptype != type_expected:
+                            return
+                        if expected is not None and not math.isclose(value, expected, rel_tol=0, abs_tol=0):
+                            return
+                    self._parameters[clean] = (value, ptype, stamp)
+                    if pending is not None and stamp > pending:
+                        event = self._parameter_events.setdefault(clean, threading.Event())
+                        event.set()
             if updates:
                 self._state = replace(state, **updates)
         if kind == "HEARTBEAT" and self._reader is not None and not self._streams_requested:
@@ -279,6 +368,87 @@ class PymavlinkVehicle:
             system, component = self._target()
             values = (*params, *([0.0] * (7 - len(params))))
             self.connection.mav.command_long_send(system, component, command, 0, *values)
+
+    def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
+        """Read one parameter.
+
+        The cache is cleared before each request and the first PARAM_VALUE
+        ingested after the send is accepted. PX4 parameters only change through
+        our own writes, so a queued older reply cannot represent a different
+        value without an intervening write transaction.
+        """
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("parameter name must be nonempty")
+        if timeout_s <= 0 or retries < 1:
+            raise ValueError("parameter timeout and retries must be positive")
+        clean = name.strip()
+        lock = self._parameter_locks.setdefault(clean, threading.Lock())
+        with lock:
+            for _ in range(retries):
+                event = self._parameter_events.setdefault(clean, threading.Event())
+                event.clear()
+                self._parameters.pop(clean, None)
+                self._parameter_transactions[clean] = {"state": "arming"}
+                with self._sending():
+                    system, component = self._target()
+                    sender = getattr(self.connection.mav, "param_request_read_send", None)
+                    if sender is None:
+                        raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
+                    sender(system, component, clean.encode("ascii"), -1)
+                sent = self._clock()
+                self._parameter_pending_since[clean] = sent
+                self._parameter_transactions[clean] = {"state": "awaiting"}
+                if event.wait(timeout_s):
+                    value, _, received = self._parameters[clean]
+                    if received > sent:
+                        self._parameter_pending_since.pop(clean, None)
+                        self._parameter_transactions.pop(clean, None)
+                        return value
+            self._parameter_transactions.pop(clean, None)
+            raise TimeoutError(f"PARAM_VALUE timeout for {clean}")
+
+    def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float:
+        """Set a PX4 parameter and verify its readback; callers must opt in."""
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ValueError("parameter value must be finite")
+        lock = self._parameter_locks.setdefault(name, threading.Lock())
+        with lock:
+            for _ in range(retries):
+                with self._sending():
+                    system, component = self._target()
+                    sender = getattr(self.connection.mav, "param_set_send", None)
+                    if sender is None:
+                        raise RuntimeError("MAVLink connection lacks PARAM_SET")
+                    ptype = self._parameters.get(name, (0.0, 6 if name in {
+                        "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
+                        "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
+                    wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
+                            if ptype == 6 else float(value))
+                    self._parameter_transactions[name] = {
+                        "state": "arming", "expected": float(value),
+                        "param_type": ptype,
+                    }
+                    self._parameter_events.setdefault(name, threading.Event()).clear()
+                    sender(system, component, name.encode("ascii"), wire, ptype)
+                sent = self._clock()
+                self._parameter_pending_since[name] = sent
+                self._parameter_transactions[name]["state"] = "awaiting"
+                event = self._parameter_events.setdefault(name, threading.Event())
+                if event.wait(timeout_s):
+                    actual, _, received = self._parameters[name]
+                    if received > sent and math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                        self._parameter_pending_since.pop(name, None)
+                        self._parameter_transactions.pop(name, None)
+                        return actual
+                if getattr(self.read_parameter, "__func__", None) is not PymavlinkVehicle.read_parameter:
+                    actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
+                    if math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                        return actual
+            self._parameter_transactions.pop(name, None)
+            raise TimeoutError(f"parameter write/readback failed for {name}")
+
+    def request_home_position(self) -> None:
+        self._command(512, 242.0)
 
     def _request_streams(self) -> None:
         self._streams_requested = True
