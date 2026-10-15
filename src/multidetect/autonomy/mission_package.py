@@ -21,6 +21,12 @@ RISK_DEFAULTS = {"low": "continue", "medium": "continue_then_return", "high": "r
 # estimate is deterministic and is not an upper bound.
 CALIBRATED_TRAVEL_SPEED_MPS = 0.75
 OPEN_ENDED_SKILLS = frozenset({"area_search", "count", "monitor", "patrol", "survey", "follow"})
+MAX_NO_FLY_ZONES = 64
+
+
+def effective_no_fly_radius(radius_m: float, margin_m: float = 3.0) -> float:
+    """Return the shared runtime/preflight no-fly boundary."""
+    return float(radius_m) + max(0.0, float(margin_m))
 
 
 def _is_terminal_step(step: MissionStep) -> bool:
@@ -487,6 +493,22 @@ def check_plan_against_package(
         if _zone_tag_is_no_fly(zone.get("risk_tag")):
             no_fly.append((name, tuple(zone["centre_ne"]), float(zone["radius_m"])))
 
+    if len(no_fly) > MAX_NO_FLY_ZONES:
+        step = plan.steps[0]
+        violations.append(_package_violation(
+            "NO_FLY_ZONE_LIMIT_EXCEEDED", step.id,
+            f"????? {len(no_fly)} ???? {MAX_NO_FLY_ZONES}",
+            f"No-fly zone count {len(no_fly)} exceeds limit {MAX_NO_FLY_ZONES}",
+        ))
+
+    if executor_config is None:
+        from .mission_executor import ExecutorConfig
+
+        executor_config = ExecutorConfig()
+    margin = max(0.0, float(executor_config.no_fly_margin_m))
+    no_fly = [(name, centre, effective_no_fly_radius(radius, margin))
+              for name, centre, radius in no_fly]
+
     def add(code: str, step: MissionStep, zh: str, en: str) -> None:
         violations.append(_package_violation(code, step.id, zh, en))
 
@@ -567,17 +589,17 @@ def check_plan_against_package(
         entered_no_fly = False
         for path in paths:
             for point in path:
-                if any(math.dist(point, centre) <= radius for _, centre, radius in no_fly):
+                if any(math.dist(point, centre) < radius - 1e-9 for _, centre, radius in no_fly):
                     entered_no_fly = True
             for start, end in zip(path, path[1:], strict=False):
                 if any(
-                    _segment_circle_distance(start, end, centre) <= radius
+                    _segment_circle_distance(start, end, centre) < radius - 1e-9
                     for _, centre, radius in no_fly
                 ):
                     entered_no_fly = True
         for centre, radius, _ in regions:
             if any(
-                math.dist(centre, forbidden_centre) <= radius + forbidden_radius
+                math.dist(centre, forbidden_centre) < radius + forbidden_radius - 1e-9
                 for _, forbidden_centre, forbidden_radius in no_fly
             ):
                 entered_no_fly = True

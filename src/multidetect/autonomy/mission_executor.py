@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from multidetect.autonomy.mission_package import MAX_NO_FLY_ZONES, effective_no_fly_radius
 from multidetect.autonomy.mission_plan import (
     MissionPlan,
     MissionReport,
@@ -41,6 +42,7 @@ GroundPoint = Callable[[float, float], tuple[float, float] | None]
 Pose = tuple[float, float, float]
 _TRACKING_SKILLS = frozenset({"patrol", "monitor", "follow"})
 PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"}) | _TRACKING_SKILLS
+_DETOUR_TIMEOUT = object()
 
 
 def _wrap(degrees: float) -> float:
@@ -71,6 +73,8 @@ class ExecutorConfig:
     # Three metres keeps the commanded path clear of circle-boundary and
     # position-estimation error; the package checker uses the same margin.
     no_fly_margin_m: float = 3.0
+    detour_replan_budget_ms: float = 50.0
+    detour_max_replan_failures: int = 3
     hold_s: float = 1.0
     follow_stale_s: float = 3.0
     follow_stale_cycles: int = 2
@@ -106,6 +110,16 @@ class ExecutorConfig:
             self.deliver_min_altitude_m <= self.deliver_altitude_m <= self.deliver_max_altitude_m
         ):
             raise ValueError("deliver altitude must be within configured bounds")
+        if (isinstance(self.no_fly_margin_m, bool) or not math.isfinite(self.no_fly_margin_m)
+                or self.no_fly_margin_m < 0):
+            raise ValueError("no-fly margin must be finite and non-negative")
+        if (isinstance(self.detour_replan_budget_ms, bool)
+                or not math.isfinite(self.detour_replan_budget_ms)
+                or self.detour_replan_budget_ms <= 0):
+            raise ValueError("detour replan budget must be finite and positive")
+        if (isinstance(self.detour_max_replan_failures, bool)
+                or self.detour_max_replan_failures < 1):
+            raise ValueError("detour max failures must be positive")
 
 
 @dataclass(slots=True)
@@ -192,6 +206,7 @@ class _StepRun:
     detour_waypoints: list[tuple[float, float]] = field(default_factory=list)
     detour_index: int = 0
     detour_planned: bool = False
+    detour_replan_failures: int = 0
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -241,6 +256,15 @@ class MissionExecutor:
             if isinstance(package_document, Mapping)
             else None
         )
+        self._inflated_no_fly_zones = tuple(
+            (centre, effective_no_fly_radius(radius, self.config.no_fly_margin_m))
+            for centre, radius in self.no_fly_zones
+        )
+        self._visibility_graph_build_ms = 0.0
+        self._detour_vertices: list[tuple[float, float]] = []
+        self._detour_edges: dict[int, list[tuple[int, float]]] = {}
+        self._visibility_graph_area_key: tuple[tuple[str, float], ...] | None = None
+        self._build_visibility_graph()
         self.obstacle_source = obstacle_source
         self._steps = {step.id: step for step in self.plan.steps}
         # A probe loop gives the camera model and the configured clearance source.
@@ -717,6 +741,23 @@ class MissionExecutor:
             if action.kind == "translate" and self._translate_enters_no_fly(
                 pose_ned, yaw_deg, action
             ):
+                if run.step.skill == "return_home":
+                    # A live pose can invalidate a cached tangent leg (for
+                    # example after wind or a delayed observation).  Never
+                    # fail recovery in the air: discard the stale route and
+                    # let _move_to rebuild it on the next cycle.
+                    run.detour_planned = False
+                    run.detour_waypoints = []
+                    run.detour_index = 0
+                    run.detour_replan_failures += 1
+                    if run.detour_replan_failures >= self.config.detour_max_replan_failures:
+                        self.alerts.append(f"{run.step.id}:no_fly_detour_guard_land_fallback")
+                        run.phase = "land_fallback"
+                        continue
+                    return ActionPrimitive.hold(self.config.hold_s), {
+                        "step": run.step.id, "skill": run.step.skill,
+                        "step_state": run.state, "detour_replan": True,
+                    }
                 self.alerts.append(f"{run.step.id}:no_fly_zone")
                 self._finish("failed", "no_fly_zone")
                 continue
@@ -755,8 +796,8 @@ class MissionExecutor:
         )
         start = (pose[0], pose[1])
         return any(
-            self._segment_circle_distance(start, end, centre) <= radius
-            for centre, radius in self.no_fly_zones
+            self._segment_circle_distance(start, end, centre) < radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
         )
 
     @staticmethod
@@ -1313,7 +1354,15 @@ class MissionExecutor:
             "follow_confidence": 1.0, "ground_age_s": 0.0, "follow_state": "tracking",
         }
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
-        if abs(delta) > self.config.turn_tolerance_deg:
+        # Detour edges are tangent to the inflated polygon.  The normal
+        # flight tolerance can cut across that tangent, so align the vehicle
+        # tightly before each cached-detour leg.
+        turn_tolerance = (
+            1.0
+            if run.step.skill == "return_home" and run.detour_planned
+            else self.config.turn_tolerance_deg
+        )
+        if abs(delta) > turn_tolerance:
             return ActionPrimitive.turn(delta), info
         if distance > standoff + 3.0:
             goal = (
@@ -1369,8 +1418,24 @@ class MissionExecutor:
             if run.detour_index < len(run.detour_waypoints):
                 target = run.detour_waypoints[run.detour_index]
         if self._leg_enters_no_fly((pose[0], pose[1]), target):
+            if run.step.skill == "return_home" and run.detour_planned:
+                # Numerical error or a changed pose invalidated this cached
+                # tangent. Replan from the observed position on the next
+                # cycle; recovery must not be failed in the air.
+                run.detour_planned = False
+                run.detour_waypoints = []
+                run.detour_index = 0
+                return ActionPrimitive.hold(self.config.hold_s)
             if run.step.skill == "return_home" and not run.detour_planned:
                 detour = self._return_home_detour((pose[0], pose[1]), target)
+                if detour is _DETOUR_TIMEOUT:
+                    run.detour_replan_failures += 1
+                    if run.detour_replan_failures >= self.config.detour_max_replan_failures:
+                        self.alerts.append(f"{run.step.id}:no_fly_detour_timeout_land_fallback")
+                        run.phase = "land_fallback"
+                        return "land_fallback"
+                    return ActionPrimitive.hold(self.config.hold_s)
+                run.detour_replan_failures = 0
                 run.detour_planned = True
                 if detour:
                     run.detour_waypoints = detour
@@ -1389,7 +1454,11 @@ class MissionExecutor:
         if distance <= (self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m):
             return None
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
-        if abs(delta) > self.config.turn_tolerance_deg:
+        turn_tolerance = (
+            1.0 if run.step.skill == "return_home" and run.detour_planned
+            else self.config.turn_tolerance_deg
+        )
+        if abs(delta) > turn_tolerance:
             return ActionPrimitive.turn(delta)
         step = min(self.config.max_translate_m, distance)
         heading = math.radians(yaw)
@@ -1404,13 +1473,22 @@ class MissionExecutor:
 
     def _return_home_detour(
         self, start: tuple[float, float], goal: tuple[float, float]
-    ) -> list[tuple[float, float]] | None:
-        """Find a shortest visibility-graph route around inflated circles."""
+    ) -> list[tuple[float, float]] | None | object:
+        """Connect live endpoints to the cached static visibility graph."""
+        started = time.perf_counter()
         area = self.operating_area
         if not isinstance(area, Mapping):
             return None
-        margin = max(0.0, float(self.config.no_fly_margin_m))
-        circles = [(centre, radius + margin) for centre, radius in self.no_fly_zones]
+        area_key = tuple(sorted(
+            (str(key), float(area[key]))
+            for key in ("north_min_m", "north_max_m", "east_min_m", "east_max_m")
+            if key in area
+        ))
+        # Some integrations attach the package area after executor creation.
+        # Build the static graph once when that area first becomes available.
+        if self._visibility_graph_area_key != area_key:
+            self._build_visibility_graph()
+        circles = self._inflated_no_fly_zones
         if not circles:
             return []
         def inside(point: tuple[float, float]) -> bool:
@@ -1419,31 +1497,27 @@ class MissionExecutor:
                 and area["east_min_m"] <= point[1] <= area["east_max_m"]
             )
         if not inside(start) or not inside(goal) or any(
-            math.dist(point, centre) <= radius for point in (start, goal)
+            math.dist(point, centre) < radius - 1e-9 for point in (start, goal)
             for centre, radius in circles
         ):
             return None
         import heapq
-
-        vertices: list[tuple[float, float]] = [start, goal]
-        sides = 32
-        for centre, radius in circles:
-            vertex_radius = radius / math.cos(math.pi / sides)
-            for index in range(sides):
-                angle = 2 * math.pi * index / sides
-                point = (centre[0] + vertex_radius * math.cos(angle),
-                         centre[1] + vertex_radius * math.sin(angle))
-                if inside(point) and all(math.dist(point, c) > r for c, r in circles):
-                    vertices.append(point)
-
-        def visible(a: tuple[float, float], b: tuple[float, float]) -> bool:
-            # Tangent polygon edges are valid; only entering the inflated disk
-            # is blocked (the tolerance absorbs floating-point error).
-            return inside(a) and inside(b) and all(
-                self._segment_circle_distance(a, b, centre) >= radius - 1e-6
-                for centre, radius in circles
-            )
-
+        vertices = [start, goal, *self._detour_vertices]
+        edges: dict[int, list[tuple[int, float]]] = {i: list(self._detour_edges.get(i - 2, ()))
+                                                       for i in range(2, len(vertices))}
+        for i in range(2, len(vertices)):
+            edges[i] = [(j + 2, d) for j, d in edges[i]]
+        edges[0], edges[1] = [], []
+        for endpoint_index, endpoint in ((0, start), (1, goal)):
+            for node_index, node in enumerate(self._detour_vertices, start=2):
+                if self._detour_visible(endpoint, node):
+                    length = math.dist(endpoint, node)
+                    edges[endpoint_index].append((node_index, length))
+                    edges.setdefault(node_index, []).append((endpoint_index, length))
+        if self._detour_visible(start, goal):
+            length = math.dist(start, goal)
+            edges[0].append((1, length))
+            edges[1].append((0, length))
         distances = [math.inf] * len(vertices)
         previous: list[int | None] = [None] * len(vertices)
         distances[0] = 0.0
@@ -1454,10 +1528,8 @@ class MissionExecutor:
                 continue
             if index == 1:
                 break
-            for other, point in enumerate(vertices):
-                if other == index or not visible(vertices[index], point):
-                    continue
-                candidate = distance + math.dist(vertices[index], point)
+            for other, length in edges.get(index, ()):
+                candidate = distance + length
                 if candidate < distances[other]:
                     distances[other] = candidate
                     previous[other] = index
@@ -1470,7 +1542,69 @@ class MissionExecutor:
             path.append(vertices[index])
             index = previous[index]
         path.reverse()
+        if (time.perf_counter() - started) * 1000.0 > self.config.detour_replan_budget_ms:
+            return _DETOUR_TIMEOUT
         return path[1:-1]
+
+    def _detour_visible(self, a: tuple[float, float], b: tuple[float, float]) -> bool:
+        area = self.operating_area
+        return (
+            isinstance(area, Mapping)
+            and self._point_inside_area(a, area)
+            and self._point_inside_area(b, area)
+            and all(
+            self._segment_circle_distance(a, b, centre) >= radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
+            )
+        )
+
+    @staticmethod
+    def _point_inside_area(point: tuple[float, float], area: Mapping[str, float]) -> bool:
+        return (area["north_min_m"] <= point[0] <= area["north_max_m"]
+                and area["east_min_m"] <= point[1] <= area["east_max_m"])
+
+    def _build_visibility_graph(self) -> None:
+        """Build the static polygon vertices and their mutual visibility once."""
+        started = time.perf_counter()
+        if len(self._inflated_no_fly_zones) > MAX_NO_FLY_ZONES:
+            self._visibility_graph_build_ms = (time.perf_counter() - started) * 1000.0
+            return
+        area = self.operating_area
+        if not isinstance(area, Mapping):
+            return
+        area_key = tuple(sorted(
+            (str(key), float(area[key]))
+            for key in ("north_min_m", "north_max_m", "east_min_m", "east_max_m")
+            if key in area
+        ))
+        if self._visibility_graph_area_key == area_key:
+            return
+        self._detour_vertices.clear()
+        self._detour_edges.clear()
+        sides = 16
+        for centre, radius in self._inflated_no_fly_zones:
+            # A millimetre beyond the circumscribed polygon absorbs floating
+            # point error while retaining tangent-edge semantics for the
+            # actual inflated circle.
+            vertex_radius = radius / math.cos(math.pi / sides) + 1e-3
+            for index in range(sides):
+                angle = 2 * math.pi * index / sides
+                point = (centre[0] + vertex_radius * math.cos(angle),
+                         centre[1] + vertex_radius * math.sin(angle))
+                if self._point_inside_area(point, area) and all(
+                    math.dist(point, c) >= r - 1e-9 for c, r in self._inflated_no_fly_zones
+                ):
+                    self._detour_vertices.append(point)
+        self._detour_edges = {i: [] for i in range(len(self._detour_vertices))}
+        for i, a in enumerate(self._detour_vertices):
+            for j in range(i + 1, len(self._detour_vertices)):
+                b = self._detour_vertices[j]
+                if self._detour_visible(a, b):
+                    length = math.dist(a, b)
+                    self._detour_edges[i].append((j, length))
+                    self._detour_edges[j].append((i, length))
+        self._visibility_graph_build_ms = (time.perf_counter() - started) * 1000.0
+        self._visibility_graph_area_key = area_key
 
     def _leg_enters_no_fly(
         self, start: tuple[float, float], end: Sequence[float]
@@ -1478,8 +1612,8 @@ class MissionExecutor:
         """Return whether a complete straight NED leg intersects a no-fly circle."""
         finish = (float(end[0]), float(end[1]))
         return any(
-            self._segment_circle_distance(start, finish, centre) <= radius
-            for centre, radius in self.no_fly_zones
+            self._segment_circle_distance(start, finish, centre) < radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
         )
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
