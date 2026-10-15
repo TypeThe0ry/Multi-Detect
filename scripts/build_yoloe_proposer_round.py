@@ -24,6 +24,29 @@ from build_sim_detector_dataset import _split_map, build_dataset  # noqa: E402
 BUCKETS = ("<8", "8-16", "16-32", "32-64", ">=64")
 
 
+def cache_image_keys(path: Path) -> set[str]:
+    """Read proposal-cache image keys exactly as the r3 analyzer does."""
+    keys: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            keys.add(str(json.loads(line)["image"]).replace("\\", "/"))
+    return keys
+
+
+def assert_cache_keys_match(reference: Path, candidate: Path) -> dict[str, int]:
+    """Require byte-for-byte equivalent image-key sets before r3 comparison."""
+    expected = cache_image_keys(reference)
+    actual = cache_image_keys(candidate)
+    if expected != actual:
+        missing = sorted(expected - actual)[:5]
+        extra = sorted(actual - expected)[:5]
+        raise ValueError(
+            f"proposal cache image-key mismatch: missing={len(expected - actual)} "
+            f"extra={len(actual - expected)} examples missing={missing} extra={extra}"
+        )
+    return {"reference_images": len(expected), "candidate_images": len(actual)}
+
+
 def size_bucket(short_side: float) -> str:
     if short_side < 8:
         return "<8"
@@ -76,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--preflight-weights", type=Path)
     parser.add_argument("--skip-cross-task-check", action="store_true")
+    parser.add_argument("--r3-cache", type=Path)
+    parser.add_argument("--new-cache", type=Path)
     parser.add_argument(
         "--holdout-mode",
         choices=("historical-three", "generated-v2-six"),
@@ -85,6 +110,11 @@ def main(argv: list[str] | None = None) -> int:
     from evaluate_yoloe_proposer_round import cross_task_split_check
 
     cross_task_split_check(_split_map(args.index), skip=args.skip_cross_task_check, required=True)
+    cache_check = None
+    if (args.r3_cache is None) != (args.new_cache is None):
+        parser.error("--r3-cache and --new-cache must be supplied together")
+    if args.r3_cache is not None:
+        cache_check = assert_cache_keys_match(args.r3_cache, args.new_cache)
     if args.preflight:
         if args.preflight_weights is None:
             parser.error("--preflight requires --preflight-weights")
@@ -159,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
                 + f"--batch {2 if size == 1280 else 4} --mode full --device 0 --workers 0"
             )
             for size in (1280, 960)
+        },
+        "r3_comparable_cache": {
+            "analyzer": "scripts/analyze_small_object_proposals.py unchanged",
+            "cache_key_check": cache_check,
         },
         "category_size_histogram": compare_histograms(
             manifest_histogram(old), manifest_histogram(manifest)

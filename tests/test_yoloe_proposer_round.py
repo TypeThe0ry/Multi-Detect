@@ -7,12 +7,50 @@ import numpy as np
 
 from scripts.build_sim_detector_dataset import _split_map, build_dataset
 from scripts.build_yoloe_proposer_round import (
+    assert_cache_keys_match,
     compare_histograms,
     manifest_histogram,
     size_bucket,
 )
 from scripts.evaluate_yoloe_proposer_round import collect_frames, score
 from scripts.preflight_yoloe_proposer_round import run_preflight
+
+
+def test_cache_onboard_proposals_uses_detection_score_and_custom_weights(tmp_path, monkeypatch):
+    from scripts import cache_onboard_proposals as cache
+
+    campaign = tmp_path / "campaign"
+    episode = campaign / "gen_w0000" / "episode"
+    (episode / "rgb").mkdir(parents=True)
+    image = np.zeros((4, 5, 3), dtype=np.uint8)
+    cv2.imwrite(str(episode / "rgb" / "f.png"), image)
+    (episode / "steps.jsonl").write_text(
+        json.dumps({"obs_before": {"rgb_path": "rgb/f.png"}}) + "\n", encoding="utf-8"
+    )
+
+    class Detection:
+        bbox = (1.04, 2.06, 3.07, 4.08)
+        score = 0.87654
+
+    class Proposer:
+        def __init__(self, weights, confidence, imgsz):
+            assert str(weights).endswith("new.pt")
+            assert confidence == 0.2 and imgsz == 960
+        def __call__(self, bgr): return [Detection()]
+
+    class Loop:
+        def __init__(self, **kwargs): pass
+        def filter_detections(self, detections): return detections
+
+    monkeypatch.setattr(cache, "YoloeProposer", Proposer)
+    monkeypatch.setattr(cache, "OnboardLoop", Loop)
+    out = tmp_path / "cache.jsonl"
+    assert cache.main([
+        "--campaign", str(campaign), "--output", str(out), "--weights", str(tmp_path / "new.pt"),
+        "--imgsz", "960", "--confidence", "0.2",
+    ]) == 0
+    row = json.loads(out.read_text())
+    assert row["boxes"] == [[1.0, 2.1, 3.1, 4.1, 0.8765]]
 
 
 def test_size_buckets_match_small_object_contract() -> None:
@@ -38,6 +76,19 @@ def test_histogram_comparison_preserves_old_and_new_counts() -> None:
     result = compare_histograms(old, new)
     assert result["backpack"]["<8"] == {"old": 2, "new": 5}
     assert result["cone"][">=64"] == {"old": 0, "new": 4}
+
+
+def test_round_cache_key_check_rejects_different_image_sets(tmp_path):
+    reference = tmp_path / "r3.jsonl"
+    candidate = tmp_path / "new.jsonl"
+    reference.write_text(json.dumps({"image": "a.png", "boxes": []}) + "\n")
+    candidate.write_text(json.dumps({"image": "b.png", "boxes": []}) + "\n")
+    try:
+        assert_cache_keys_match(reference, candidate)
+    except ValueError as exc:
+        assert "image-key mismatch" in str(exc)
+    else:
+        raise AssertionError("cache key mismatch must fail closed")
 
 
 def test_generated_v2_missing_from_wrong_index_fails_closed(tmp_path):
