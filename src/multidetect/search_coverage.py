@@ -119,6 +119,26 @@ class CoverageConfig:
     object_count: int = 200
     seed: int = 7
 
+    def __init__(self, radius_m: float, **kwargs):
+        aliases = {
+            "min_box_side_px": "proposal_floor_px",
+            "min_verdict_side_px": "slow_verdict_min_px",
+            "confirm_min_side_px": "confirmation_min_px",
+        }
+        for old, new in aliases.items():
+            if old in kwargs:
+                if new in kwargs:
+                    raise TypeError(f"{old} and {new} are aliases; pass one")
+                kwargs[new] = kwargs.pop(old)
+        object.__setattr__(self, "radius_m", radius_m)
+        for field in self.__dataclass_fields__:
+            if field != "radius_m":
+                default = self.__dataclass_fields__[field].default
+                object.__setattr__(self, field, kwargs.pop(field, default))
+        if kwargs:
+            raise TypeError(f"unexpected config keys: {', '.join(kwargs)}")
+        self.__post_init__()
+
     def __post_init__(self) -> None:
         numeric = (
             self.radius_m,
@@ -170,6 +190,7 @@ class CoverageMetrics:
 
 
 Point = tuple[float, float]
+RoutePoint = tuple[float, float, float]
 
 
 def _inside(point: Point, radius: float) -> bool:
@@ -251,6 +272,36 @@ def lawnmower(
     if not lines:
         lines = [(-radius_m, 0.0), (radius_m, 0.0)]
     return [(0.0, 0.0), *lines]
+
+
+def two_altitude_route(
+    radius_m: float,
+    camera: CoverageCamera,
+    high_altitude_m: float,
+    low_altitude_m: float,
+    overlap: float = 0.2,
+    max_altitude_step_m: float = 8.0,
+) -> list[RoutePoint]:
+    """Return the finite high+descent+low route used by the runtime policy.
+
+    Centre waypoints are intentionally dropped: the vehicle starts at the
+    centre, and the low pass starts at its first sweep line after descending at
+    the final high waypoint.  A caller may repeat the low suffix for counting.
+    """
+    if not 0 < low_altitude_m <= high_altitude_m or max_altitude_step_m <= 0:
+        raise ValueError("invalid two-altitude heights or step")
+    high = lawnmower(radius_m, camera, high_altitude_m, overlap)[1:]
+    low = lawnmower(radius_m, camera, low_altitude_m, overlap)[1:]
+    if not high or not low:
+        return []
+    route: list[RoutePoint] = [(n, e, high_altitude_m) for n, e in high]
+    n, e, _ = route[-1]
+    altitude = high_altitude_m
+    while altitude - low_altitude_m > 0.5:
+        altitude = max(low_altitude_m, altitude - max_altitude_step_m)
+        route.append((n, e, altitude))
+    route.extend((n, e, low_altitude_m) for n, e in low)
+    return route
 
 
 def expanding_spiral(
@@ -351,13 +402,18 @@ def simulate_pattern(
                     confirm_times.append(elapsed)
             elapsed += config.turn_time_s
 
-    run_pass(path, high)
-    if pattern == "two_altitude":
+    if pattern != "two_altitude":
+        run_pass(path, high)
+    else:
         low = max(1.0, config.low_altitude_m)
-        low_path = lawnmower(config.radius_m, camera, low, config.overlap)
-        # The runtime performs a bounded descent between passes.  Count the
-        # descent time approximately as vertical distance at flight speed.
-        elapsed += max(0.0, high - low) / config.flight_speed_mps
+        route = two_altitude_route(config.radius_m, camera, high, low, config.overlap)
+        # The shared route contains the high pass, stepped descent, and low pass.
+        high_path = [(0.0, 0.0), *[(n, e) for n, e, z in route if z == high]]
+        run_pass(high_path, high)
+        for (_n1, _e1, z1), (_n2, _e2, z2) in zip(route, route[1:], strict=False):
+            if z1 != z2:
+                elapsed += abs(z1 - z2) / config.flight_speed_mps
+        low_path = [(route[-1][0], route[-1][1]), *[(n, e) for n, e, z in route if z == low]]
         run_pass(low_path, low)
     candidate_times.sort()
     slow_times.sort()

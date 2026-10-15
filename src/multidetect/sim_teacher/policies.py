@@ -254,6 +254,8 @@ class ExpertSearchPolicy:
     # primitive and keeps the route target-blind.
     low_altitude_m: float | None = None
     max_altitude_step_m: float = 8.0
+    max_blocked_attempts: int = 3
+    max_blocked_consecutive: int = 10
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -286,13 +288,18 @@ class ExpertSearchPolicy:
             if low is None:
                 low = min(self.altitude_m, max(8.0, min(12.0, 0.5 * self.altitude_m)))
             self.low_altitude_m = low
-            self._low_waypoints = self._build_coverage_route(low)
+            shared = self._build_two_altitude_route()
+            self._waypoints = [(n, e) for n, e, z in shared if z == self.altitude_m]
+            self._low_waypoints = [(n, e) for n, e, z in shared if z == self.low_altitude_m]
         self._last_inside = False
         self._last_approach_range: float | None = None
         self._approach_stall_steps = 0
         self._approach_replan_pending = False
         self._approach_replanned = False
         self._safety_replanned = False
+        self._blocked_attempts = 0
+        self._blocked_consecutive = 0
+        self._blocked = False
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         # Space legs from the pitched camera ground swath, with overlap.
@@ -361,6 +368,22 @@ class ExpertSearchPolicy:
         home_n, home_e = self.home_ned[:2]
         return [(home_n + n, home_e + e) for n, e in relative[1:]]
 
+    def _build_two_altitude_route(self) -> list[tuple[float, float, float]]:
+        from multidetect.search_coverage import CoverageCamera, two_altitude_route
+        camera = CoverageCamera(
+            fx=float(self.intrinsics["fx"]), fy=float(self.intrinsics["fy"]),
+            cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
+            cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
+            width_px=int(self.image_size[0]), height_px=int(self.image_size[1]),
+            pitch_down_deg=math.degrees(self.camera_pitch_rad),
+        )
+        route = two_altitude_route(
+            self.search_radius_m, camera, self.altitude_m, float(self.low_altitude_m),
+            max_altitude_step_m=self.max_altitude_step_m,
+        )
+        home_n, home_e = self.home_ned[:2]
+        return [(home_n + n, home_e + e, z) for n, e, z in route]
+
     def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
         self.state = state
         self._commanded_yaw_deg = yaw_deg
@@ -374,6 +397,9 @@ class ExpertSearchPolicy:
         self._approach_replan_pending = False
         self._approach_replanned = False
         self._safety_replanned = False
+        self._blocked_attempts = 0
+        self._blocked_consecutive = 0
+        self._blocked = False
 
     def _search_leg_action(self, pose_ned, waypoint) -> ActionPrimitive:
         """Turn onto a spiral leg, then fly it body-forward."""
@@ -483,12 +509,23 @@ class ExpertSearchPolicy:
                 cn = self.home_ned[0] + rel_n * scale
                 ce = self.home_ned[1] + rel_e * scale
             if self._segment_safe(pose_ned, cn, ce):
+                self._blocked_attempts = 0
+                self._blocked_consecutive = 0
                 dn, de = cn - pose_ned[0], ce - pose_ned[1]
                 return ActionPrimitive.translate(
                     dn * math.cos(yaw) + de * math.sin(yaw),
                     -dn * math.sin(yaw) + de * math.cos(yaw),
                     0.0,
                 )
+        self._blocked_attempts += 1
+        self._blocked_consecutive += 1
+        if self._blocked_attempts >= self.max_blocked_attempts:
+            self._waypoint_index += 1
+            self._blocked_attempts = 0
+        if self._blocked_consecutive >= self.max_blocked_consecutive:
+            self._blocked = True
+            self.state = "done"
+            return ActionPrimitive.stop()
         return ActionPrimitive.hold(0.0)
 
     @property
