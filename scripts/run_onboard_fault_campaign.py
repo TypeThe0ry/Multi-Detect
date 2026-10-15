@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Run the onboard fault campaign with real source faults and evidence-only verdicts.
 
 The campaign deliberately keeps the test doubles at the transport boundary.  The
@@ -206,6 +206,11 @@ class FaultCameraSource:
         if not self.started:
             return None
         self._publish()
+        # Keep the healthy source independently live even while another
+        # source (for example pose) is the injected fault.  This prevents a
+        # producer scheduling gap from changing the observed fault reason.
+        if self.frame is None and not self._active():
+            self.frame = CameraFrame(b"synthetic-frame", self.clock(), self.calibration)
         return self.frame
 
     def close(self) -> None:
@@ -521,7 +526,6 @@ def _default_package(work_dir: Path) -> Any:
 
 
 def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignSession:
-    origin = time.monotonic()
     clock = time.monotonic
     area = package.document["operating_area"]
     vehicle = FaultVehicle(clock, event, area)
@@ -637,51 +641,19 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         lines = [
-            "# Onboard 故障注入活动报告", "",
-            "| 场景 | 预期 | 观测 | 原因 | 结果 |", "|---|---|---|---|---|",
-        ]
-        lines = [
-            "# Onboard 故障注入活动报告", "",
-            "| 场景 | 预期 | 观测 | 原因 | 结果 |", "|---|---|---|---|---|",
-        ]
-        lines.extend(
-            f"| {row['scenario']} | {row['expected']} | {row['observed_action']} | "
-            f"{row['reason']} | {'通过' if row['passed'] else '失败'} |"
-            for row in rows
-        )
-        lines = [
-            "# Onboard 故障注入活动报告", "",
-            "| 场景 | 预期 | 观测 | 原因 | 结果 |", "|---|---|---|---|---|",
-        ]
-        lines.extend(
-            f"| {row['scenario']} | {row['expected']} | {row['observed_action']} | "
-            f"{row['reason']} | {'通过' if row['passed'] else '失败'} |"
-            for row in rows
-        )
-        output.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        chinese = [
-            "# Onboard 故障注入活动报告", "",
-            "| 场景 | 预期 | 观测 | 原因 | 结果 |", "|---|---|---|---|---|",
-        ]
-        chinese.extend(
-            f"| {row['scenario']} | {row['expected']} | {row['observed_action']} | "
-            f"{row['reason']} | {'通过' if row['passed'] else '失败'} |"
-            for row in rows
-        )
-        output.with_suffix(".md").write_text("\n".join(chinese) + "\n", encoding="utf-8")
-    if output:
-        chinese = [
             "# Onboard \u6545\u969c\u6ce8\u5165\u6d3b\u52a8\u62a5\u544a", "",
             "| \u573a\u666f | \u9884\u671f | \u89c2\u6d4b | \u539f\u56e0 | \u7ed3\u679c |",
             "|---|---|---|---|---|",
         ]
-        chinese.extend(
+        lines.extend(
             f"| {row['scenario']} | {row['expected']} | {row['observed_action']} | "
             f"{row['reason']} | "
             f"{(chr(0x901a) + chr(0x8fc7)) if row['passed'] else (chr(0x5931) + chr(0x8d25))} |"
             for row in rows
         )
-        output.with_suffix(".md").write_text("\n".join(chinese) + "\n", encoding="utf-8")
+        output.with_suffix(".md").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
     return report
 
 
@@ -712,7 +684,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output.write_text(json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
                                     encoding="utf-8")
             args.output.with_suffix(".md").write_text(
-                "# Onboard 故障注入活动报告\n\n运行失败：" + failure["error"] + "\n",
+                "# Onboard \u6545\u969c\u6ce8\u5165\u6d3b\u52a8\u62a5\u544a\n\n"
+                "\u8fd0\u884c\u5931\u8d25\uff1a" + failure["error"] + "\n",
                 encoding="utf-8",
             )
         return 1
