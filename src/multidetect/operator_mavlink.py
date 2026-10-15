@@ -16,6 +16,7 @@ from .operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
+    PersistentReplayState,
     PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
@@ -116,6 +117,7 @@ class OperatorMavlinkTunnelAdapter:
         signing_link_id: int,
         initial_signing_timestamp: int,
         receive_signing_link_id: int | None = None,
+        replay_state_path: str | None = None,
     ) -> None:
         if len(signing_key) != 32:
             raise ValueError("MAVLink2 signing key must contain exactly 32 bytes")
@@ -147,12 +149,14 @@ class OperatorMavlinkTunnelAdapter:
         # parsing still accepts another link id, so decode_authenticated_datagram
         # performs the explicit comparison below.
         self.signing_link_id = signing_link_id
-        self.receive_signing_link_id = (
-            endpoint.remote_component_id
-            if receive_signing_link_id is None
-            else receive_signing_link_id
-        )
-        self._parser.signing.link_id = self.receive_signing_link_id
+        self.receive_signing_link_id = receive_signing_link_id
+        self._receive_replay_state = PersistentReplayState(replay_state_path)
+        if self.receive_signing_link_id is None:
+            for identifier in reversed(self._receive_replay_state.identifiers):
+                if identifier.startswith("mavlink-link-id:"):
+                    self.receive_signing_link_id = int(identifier.rsplit(":", 1)[1])
+                    break
+        self._parser.signing.link_id = signing_link_id
 
     def encode_selection(self, command: TargetSelectionCommand) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_selection(command))
@@ -367,6 +371,11 @@ class OperatorMavlinkTunnelAdapter:
             received_link_id = int(message.get_link_id())
         except (AttributeError, TypeError, ValueError) as exc:
             raise OperatorProtocolError("MAVLink signature does not expose a link ID") from exc
+        if self.receive_signing_link_id is None:
+            self.receive_signing_link_id = received_link_id
+            self._receive_replay_state.remember_identifier(
+                f"mavlink-link-id:{received_link_id}"
+            )
         if received_link_id != self.receive_signing_link_id:
             raise OperatorProtocolError(
                 "MAVLink signing link ID does not match the configured link"

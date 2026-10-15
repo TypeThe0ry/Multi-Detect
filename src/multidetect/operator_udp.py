@@ -287,6 +287,8 @@ class UdpOperatorSelectionServer:
         )
         self._command_peer: tuple[str, int] | None = configured_peer
         self._peer_session_established = configured_peer is not None
+        self.allow_first_packet_peer = allow_first_packet_peer
+        self._first_packet_peer_rejection_logged = False
         self._replay_state = PersistentReplayState(replay_state_path)
         self._max_sequence_forward_jump = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP
         self._command_rate_per_second = command_rate_per_second
@@ -417,6 +419,16 @@ class UdpOperatorSelectionServer:
             self._accept_runtime_status_ack(packet.message, peer=peer)
             return None
         if self._command_peer is None:
+            if not self.allow_first_packet_peer:
+                if not self._first_packet_peer_rejection_logged:
+                    self._first_packet_peer_rejection_logged = True
+                    self._record_background_error(
+                        OperatorProtocolError(
+                            "authenticated command rejected: configured_peer is required"
+                        ),
+                        peer=peer,
+                    )
+                return None
             self._bind_initial_command_peer(peer)
         # Existing command traffic may discover a metadata peer for interactive
         # operation, but only an authenticated HEARTBEAT marks it eligible for

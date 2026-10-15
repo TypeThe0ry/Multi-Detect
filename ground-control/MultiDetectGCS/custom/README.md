@@ -16,10 +16,14 @@ return-observe advisory, mission, safety, authorization challenge, bound operato
 application packet carries an HMAC-SHA256 authentication tag. Production traffic additionally requires
 outer MAVLink 2 signing.
 
-The direct operator metadata link uses MAVLink signing link ID **1** on the
-GCS side. The Python Jetson endpoint must configure `receive_signing_link_id=1`
-for frames received from GCS; one signing key is provisioned per physical link
-and a frame signed for another link ID is rejected.
+The direct operator metadata link uses the link ID assigned by QGC's signing
+channel allocator. The Python Jetson endpoint may set
+`receive_signing_link_id=<id>` when the channel is fixed. If it is omitted, the
+endpoint learns the link ID from the first signature-verified frame received
+from the configured peer, persists that pin with replay state, and rejects any
+different link ID for the rest of the session and after restart. One signing
+key is provisioned per physical link; link ID is part of the endpoint/session
+identity.
 
 ## Control ownership
 
