@@ -4,10 +4,10 @@ import io
 from types import SimpleNamespace
 
 import pytest
+from onboard_factories import make_policy
 from PIL import Image
 
 from multidetect.autonomy.mission_executor import MissionReport
-from scripts.onboard_policy import OnboardPolicy
 
 
 def _policy(tmp_path):
@@ -23,9 +23,9 @@ def _policy(tmp_path):
         next_action=lambda **kwargs: (received.append(kwargs) or None, {}),
         report=MissionReport,
     )
-    policy = OnboardPolicy.__new__(OnboardPolicy)
+    policy = make_policy(work_dir=tmp_path)
+    policy.work_dir.mkdir(parents=True, exist_ok=True)
     policy._step = 0
-    policy.work_dir = tmp_path
     policy.proposer = lambda frame: []
     policy.executor = executor
     policy.task_text = "Monitor the zone."

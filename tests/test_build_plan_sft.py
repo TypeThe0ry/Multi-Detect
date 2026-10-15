@@ -24,17 +24,21 @@ def _texts(path: Path) -> set[str]:
 
 
 @pytest.mark.parametrize("variant", ["no_examples", "two_examples", "compact_rules", "compact"])
-def test_cli_short_prompt_variant_is_used_for_retraining(variant):
+@pytest.mark.parametrize("version", ["v4", "v5"])
+def test_cli_short_prompt_variant_is_used_for_retraining(variant, version):
     output = ROOT / "tmp" / f"plan-sft-short-{uuid.uuid4().hex}"
     try:
         assert build_plan_sft.main([
             "--output", str(output), "--rows", "4", "--val-rows", "2",
+            "--version", version,
             "--prompt-variant", variant, "--require-skills",
         ]) == 0
         manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["prompt_variant"] == variant
         expected_examples = {"no_examples": 0, "two_examples": 2,
                              "compact_rules": 6, "compact": 0}[variant]
+        if version == "v5":
+            expected_examples -= manifest["excluded_prompt_examples"]
         for split in ("train", "val"):
             rows = [json.loads(line) for line in
                     (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -91,7 +95,7 @@ def test_eval_v2_is_disjoint_from_v1_and_generated_samples():
     assert not (generated & (v1 | v2))
 
 
-@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"
     try:
@@ -138,7 +142,7 @@ def test_cli_writes_requested_rows(version):
         shutil.rmtree(output, ignore_errors=True)
 
 
-@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_default_skill_coverage(version):
     output = ROOT / "tmp" / f"plan-sft-coverage-{version}-{uuid.uuid4().hex}"
     try:
@@ -207,7 +211,7 @@ def test_cli_rejects_missing_training_skills(version, options, missing):
 
 
 @pytest.mark.parametrize("selection", ["default", "grouped", "repeated"])
-@pytest.mark.parametrize("version", ["v2", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v4", "v5"])
 def test_cli_excludes_all_selected_eval_files(monkeypatch, selection, version):
     workspace = ROOT / "tmp" / f"plan-sft-held-out-{uuid.uuid4().hex}"
     try:
@@ -226,6 +230,11 @@ def test_cli_excludes_all_selected_eval_files(monkeypatch, selection, version):
         ]
         held_out = {row["task_text"] for row in baseline_rows[:2]}
         paths = [eval_dir / "plan-eval-tasks.json", eval_dir / "plan-eval-tasks-v2.json"]
+        if version == "v5":
+            # V5 always retains default exclusions, including few-shot examples.
+            for path in (ROOT / "configs/onboard").glob("plan-eval-tasks*.json"):
+                shutil.copyfile(path, eval_dir / path.name)
+            paths = [eval_dir / f"plan-eval-tasks-extra-{i}.json" for i in range(2)]
         for path, row in zip(paths, baseline_rows, strict=False):
             # Match the generator's whitespace normalization, including newlines.
             path.write_text(

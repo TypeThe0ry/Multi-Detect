@@ -1433,6 +1433,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(plan.out, episode_id, task_text=task_text, sensor_status="live")
+    # Persist the effective per-episode seed/index so a campaign can retry an
+    # individual failed recording exactly, even when its next invocation uses a
+    # different --episodes value.
+    recorder.meta["episode_index"] = episode_index
+    recorder.meta["seed"] = plan.seed + episode_index
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
