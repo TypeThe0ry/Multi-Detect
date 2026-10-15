@@ -32,13 +32,16 @@ def canonical_auth_bytes(value: Mapping[str, Any], *excluded: str) -> bytes:
 
 
 def _decode_key(raw: bytes) -> bytes:
-    text = raw.strip()
-    if not text:
+    if not raw.strip():
         raise ValueError("authentication key file is empty")
     try:
-        decoded = text.decode("ascii")
+        decoded = raw.decode("ascii")
     except UnicodeDecodeError:
-        return bytes(text)
+        # Binary key material is used verbatim: stripping it would drop key bytes that
+        # happen to be whitespace (0x09-0x0d, 0x20) at either end.
+        return bytes(raw)
+    text = raw.strip()
+    decoded = decoded.strip()
     for prefix in ("ed25519-public:", "ed25519-private:", "hmac:"):
         if decoded.lower().startswith(prefix):
             decoded = decoded[len(prefix):].strip()

@@ -6,10 +6,13 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
+from scripts import collect_sim_teacher_episodes as collector
 from scripts import eval_onboard_loop_campaign as campaign
 from scripts import run_mission_suite as suite
+from scripts.train_policy_v2_bc import _real_depth
 
 
 @pytest.fixture
@@ -225,3 +228,98 @@ def test_retry_preserves_original_seed_and_does_not_reuse_complete_seed(tmp_path
         == 0
     )
     assert seeds == ["99"]
+
+
+def test_initial_low_disk_abort_persists_seed_and_retry_reuses_it(tmp_path, monkeypatch):
+    campaign_out = tmp_path / "campaign"
+    plan = SimpleNamespace(out=campaign_out / "test", min_free_gb=15.0, seed=100)
+    aborted = collector.run_episode(plan, Path("unused"), 0, free_space_fn=lambda _: 1)
+    metadata = json.loads((aborted / "episode.json").read_text(encoding="utf-8"))
+    assert metadata["episode_index"] == 0
+    assert metadata["seed"] == 100
+
+    index = tmp_path / "index.json"
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test"}]}))
+    (tmp_path / "test.truth.json").write_text("{}")
+    seeds = []
+
+    def run(command, **kwargs):
+        seeds.append(command[command.index("--seed") + 1])
+        recording(Path(command[command.index("--out") + 1]), "replacement", "complete")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
+    monkeypatch.setattr(
+        campaign,
+        "score_episode",
+        lambda *args, **kwargs: {"status": "complete", "success": False, "false_confirm": False,
+                                 "task_equivalent": False, "confirmed": False},
+    )
+    assert campaign.main([
+        "--index", str(index), "--out", str(campaign_out), "--episodes", "1",
+        "--retry-failed-episodes",
+    ]) == 0
+    assert seeds == ["100"]
+
+
+def test_zero_exit_abort_does_not_fill_missing_and_reports_low_disk(tmp_path, monkeypatch, capsys):
+    index = tmp_path / "index.json"
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test"}]}))
+    (tmp_path / "test.truth.json").write_text("{}")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        out = Path(command[command.index("--out") + 1])
+        recording(out, "aborted", "aborted_low_disk", steps=False)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
+    assert campaign.main(
+        ["--index", str(index), "--out", str(tmp_path / "out"), "--episodes", "1"]
+    ) == 0
+    assert len(calls) == 1
+    assert "not filled: low disk" in capsys.readouterr().out
+    with pytest.raises(RuntimeError, match="not filled: low disk"):
+        campaign.main([
+            "--index", str(index), "--out", str(tmp_path / "strict-out"),
+            "--episodes", "1", "--strict"
+        ])
+
+
+def test_complete_replacement_reduces_missing(tmp_path, monkeypatch):
+    index = tmp_path / "index.json"
+    index.write_text(json.dumps({"worlds": [{"world_id": "test", "split": "test"}]}))
+    (tmp_path / "test.truth.json").write_text("{}")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        out = Path(command[command.index("--out") + 1])
+        count = int(command[command.index("--episodes") + 1])
+        for i in range(count):
+            recording(out, f"complete-{len(calls)}-{i}", "complete")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
+    monkeypatch.setattr(
+        campaign, "score_episode",
+        lambda *args, **kwargs: {"status": "complete", "success": False, "false_confirm": False,
+                                 "task_equivalent": False, "confirmed": False},
+    )
+    assert campaign.main([
+        "--index", str(index), "--out", str(tmp_path / "out"), "--episodes", "2",
+        "--disk-check-every", "2",
+    ]) == 0
+    assert len(calls) == 1
+
+
+def test_training_admission_normalizes_backslash_depth_paths(tmp_path):
+    episode = tmp_path / "episode"
+    depth = episode / "depth"
+    depth.mkdir(parents=True)
+    np.save(depth / "before.npy", np.ones((2, 2), dtype=np.float32))
+    assert _real_depth(episode, "depth\\before.npy")

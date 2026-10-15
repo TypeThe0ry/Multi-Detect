@@ -59,6 +59,22 @@ C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe `
   --dataset artifacts/datasets/sim-teacher/urban-explore-r30
 ```
 
+### 可选紧凑格式
+
+默认输出保持历史格式：`depth/*.npy`（float32、米）、`mavlink.jsonl`，以及
+原有 PNG 文件名和内容。以下选项必须显式启用：
+
+- `--depth-format npz` 使用 compressed NPZ，数组键为 `depth`，数值语义仍是米。
+- `--depth-format png16` 使用无损 PNG 容器保存 UINT16 毫米值。这个格式是有损量化：
+  深度按 1 mm 四舍五入，超过 65.535 m 的值饱和到 65.535 m；读取时必须按毫米解释。
+- `--deduplicate-depth` 在连续深度数组完全相同的时候复用上一文件路径。
+- `--compress-mavlink` 写入 `mavlink.jsonl.gz`。
+- onboard policy 可用 `onboard_frame_format=jpeg` 和 `onboard_frame_quality` 将重复的
+  onboard frame copy 写成 JPEG；默认仍为 PNG。
+
+`load_depth_array()` 和 replay/calibration 工具同时支持旧格式与这些 opt-in 格式。
+PNG16 的量化损失只影响该格式；NPZ 和 gzip 不改变数组或 JSON 记录语义。
+
 alignment gate 的默认上限是 250 ms、位姿移动门槛是 1 m；需要审计回放或调整门槛时可传 `--max-sim-skew-ms` 和 `--pose-motion-threshold-m`。
 
 审计生成 SHA-256 manifest，检查文件、step 配对、有限 pose、GPS、ACK、时间单调性、frame/pose skew、成功率、动作直方图、覆盖范围、episode 时长和 achieved-vs-commanded 误差。发现损坏时返回非零状态。

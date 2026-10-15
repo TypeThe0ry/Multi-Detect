@@ -99,6 +99,7 @@ addopts = "-q"
 testpaths = ["tests"]
 markers = [
     "onboard: fast regression gate for onboard autonomy and mission-planning tests",
+    "timing: depends on real threads and wall-clock timing; excluded from the default onboard gate",
 ]
 
 [tool.ruff]
