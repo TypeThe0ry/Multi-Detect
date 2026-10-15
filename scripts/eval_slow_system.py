@@ -209,6 +209,7 @@ class LlamaServerRunner:
         # for the three verdicts instead of decoding the whole JSON (~50 tokens).
         self.fast_identity = fast_identity and identity_only
         self._verdict_tokens: dict[str, dict[str, int]] = {}
+        self._verdict_pieces: dict[str, dict[str, str | None]] = {}
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -257,6 +258,11 @@ class LlamaServerRunner:
             if len(set(firsts.values())) != len(firsts):
                 raise RuntimeError(f"verdicts share a first token: {firsts}")
             self._verdict_tokens[prefix] = firsts
+            # Token text too, for servers whose top_logprobs carry no id.
+            self._verdict_pieces[prefix] = {
+                verdict: _http_json(f"http://127.0.0.1:{self.port}/detokenize", {"tokens": [token]}).get("content")
+                for verdict, token in firsts.items()
+            }
         return self._verdict_tokens[prefix]
 
     def _fast_identity(self, row: dict[str, Any], content: list[dict[str, Any]]) -> tuple[str, float] | None:
@@ -270,8 +276,17 @@ class LlamaServerRunner:
         started = time.perf_counter()
         response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
         elapsed = time.perf_counter() - started
-        top = {entry.get("id"): entry["logprob"] for entry in response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]}
-        scores = {verdict: top[token] for verdict, token in firsts.items() if token in top}
+        try:
+            entries = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
+        except (KeyError, IndexError, TypeError):
+            return None  # unexpected shape: decode the full answer instead
+        pieces = self._verdict_pieces.get(prefix, {})
+        scores: dict[str, float] = {}
+        for verdict, token in firsts.items():
+            for entry in entries:
+                if entry.get("id") == token or (entry.get("id") is None and entry.get("token") == pieces.get(verdict)):
+                    scores[verdict] = float(entry["logprob"])
+                    break
         if not scores:
             return None
         decision = max(scores, key=scores.get)
