@@ -53,6 +53,13 @@ def test_real_cli_requires_explicit_failsafe_and_finite_positive_timing():
     assert args.baud == 921600
 
 
+def test_real_mission_package_admission_requires_signature_key():
+    from multidetect.autonomy.mission_package import load_mission_package
+
+    with pytest.raises(ValueError, match="operator key path"):
+        load_mission_package({}, require_signature=True)
+
+
 def test_missing_model_assets_fail_before_camera_or_vehicle_is_opened(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("invalid model assets must fail before hardware is opened")

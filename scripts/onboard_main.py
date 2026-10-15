@@ -17,6 +17,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
 from multidetect.onboard_runtime.bench import (  # noqa: E402
     LatencyProposer,
     LatencySlowRunner,
@@ -27,6 +29,7 @@ from multidetect.onboard_runtime.camera import (  # noqa: E402
     OpenCVCameraSource,
 )
 from multidetect.onboard_runtime.policy import HomeRelativePolicy  # noqa: E402
+from multidetect.onboard_runtime.preflight import PX4PreflightGate  # noqa: E402
 from multidetect.onboard_runtime.projection import GroundProjector  # noqa: E402
 from multidetect.onboard_runtime.replay import (  # noqa: E402
     ReplayCameraSource,
@@ -62,6 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
     real.add_argument("--takeoff-timeout", type=_positive, default=45)
     real.add_argument("--shutdown-action", choices=("land", "rtl"), default="land")
     real.add_argument("--completion-action", choices=("land", "rtl"), default="land")
+    real.add_argument("--mission-package", type=Path,
+                      help="signed/validated mission package used for PX4 preflight")
+    real.add_argument("--operator-key-path", type=Path,
+                      help="operator key used to admit the signed mission package")
+    real.add_argument("--apply-px4-params", action="store_true",
+                      help="write the matrix and verify every PX4 parameter")
+    real.add_argument("--accept-preflight-warnings", action="store_true",
+                      help="accept non-blocking warnings; blocking failures refuse arm")
     replay = modes.add_parser("replay", help="recorded RGB/MAVLink; fake model latency only")
     source = replay.add_mutually_exclusive_group(required=True)
     source.add_argument("--episode", type=Path)
@@ -162,6 +173,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
+        package = (load_mission_package(args.mission_package, require_signature=True,
+                                        operator_key_path=args.operator_key_path)
+                   if args.mission_package else None)
         task = args.task
     runtime = None
     policy = None
@@ -179,6 +193,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
         if args.mode == "real" and (state.armed is not False or state.landed is not True):
             raise RuntimeError("real runtime must start on the ground, disarmed")
+        if args.mode == "real":
+            if package is None:
+                raise RuntimeError("--mission-package is required for real PX4 preflight")
+            gate = PX4PreflightGate(vehicle, package)
+            preflight = gate.apply() if args.apply_px4_params else gate.run()
+            report["preflight"] = preflight
+            log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
+            log.append("px4_preflight", time.monotonic(), report=preflight,
+                       apply_px4_params=bool(args.apply_px4_params))
+            if not preflight["passed"]:
+                failures = ", ".join(preflight["blocking_failures"])
+                raise RuntimeError("PX4 preflight blocked arming: " + failures)
         home = state.home_ned or (state.position_ned[0], state.position_ned[1], 0)
         calibrated = frame.calibration
         projector = GroundProjector(calibrated) if args.mode == "real" else None
