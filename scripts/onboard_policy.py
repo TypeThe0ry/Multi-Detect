@@ -1081,16 +1081,15 @@ class OnboardPolicy:
                 timestamp_s=_observation_timestamp_s(observation),
             )
             if self._slow_failed_current:
-                return ActionPrimitive.hold(1.0), {
-                    "onboard": {
-                        "state": "health_hold",
-                        "health": {"decision": "hold", "reason": "slow_call_failed"},
-                    }
-                }
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
             if self._slow_skipped_current:
-                return ActionPrimitive.hold(1.0), {
-                    "onboard": {"state": "health_hold", "health": {"reason": "low_disk"}}
-                }
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"reason": "low_disk"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
             return result
         current = self.loop.update_tracks(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -1140,16 +1139,15 @@ class OnboardPolicy:
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         if self._slow_failed_current:
-            return ActionPrimitive.hold(1.0), {
-                "onboard": {
-                    "state": "health_hold",
-                    "health": {"decision": "hold", "reason": "slow_call_failed"},
-                }
-            }
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
         if self._slow_skipped_current:
-            return ActionPrimitive.hold(1.0), {
-                "onboard": {"state": "health_hold", "health": {"reason": "low_disk"}}
-            }
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"reason": "low_disk"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
         return action, labels
 
     def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool, timestamp_s=None):

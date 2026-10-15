@@ -9,6 +9,7 @@ from PIL import Image
 
 from multidetect.onboard_runtime.health import HealthConfig, HealthMonitor
 from multidetect.sim_teacher.primitives import ActionPrimitive
+from multidetect.sim_teacher.primitives import body_to_ned
 from scripts import onboard_policy
 from onboard_factories import make_policy
 from multidetect.autonomy.onboard_loop import Detection
@@ -260,3 +261,169 @@ def test_9_healthy_enabled_identity_matches_disabled(monkeypatch):
     a1, i1 = enabled.act(obs, pose_ned=(0, 0, -20), yaw_deg=0)
     assert a0.to_dict() == a1.to_dict()
     assert json.dumps(i0, sort_keys=True, separators=(",", ":")) == json.dumps(i1, sort_keys=True, separators=(",", ":"))
+
+
+def _drive_translate(pose, action, yaw_deg=0.0):
+    if action.kind == "translate":
+        north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw_deg)
+        pose[0] += north
+        pose[1] += east
+        pose[2] += down
+
+
+def test_health_two_degradation_cycles_recover_home_and_use_fresh_executor(tmp_path):
+    resources = {"temperature_c": 90.0}
+    clock = Clock()
+    policy = make_policy(
+        work_dir=tmp_path,
+        home_ned=(0.0, 0.0),
+        config={"mission": "find", "health": {"enabled": True, "escalate_after_s": 1.0}},
+    )
+    policy.health.clock = clock
+    policy.health.resources = lambda: resources
+    pose = [10.0, 0.0, -20.0]
+    yaw = [0.0]
+    recovery_executors = []
+
+    def run_recovery(expect_new=False):
+        clock.t = max(clock.t + 2.0, 2.0)
+        for _ in range(100):
+            clock.t += 0.1
+            action, _ = policy.act(_observation(), pose_ned=tuple(pose), yaw_deg=yaw[0])
+            current = policy._health_recovery_executor
+            if current is not None and current not in recovery_executors:
+                recovery_executors.append(current)
+            _drive_translate(pose, action, yaw[0])
+            if action.kind == "turn":
+                yaw[0] += action.yaw_delta_deg
+            if not recovery_executors:
+                continue
+            if not recovery_executors[-1].done and abs(pose[0]) < 0.01 and abs(pose[1]) < 0.01:
+                # The executor reaches home on the next action after the setpoint is reached.
+                continue
+            if current is None and abs(pose[0]) < 0.01 and abs(pose[1]) < 0.01 and (not expect_new or len(recovery_executors) > 1):
+                return
+        pytest.fail(f"return_home recovery did not reach home: pose={pose}, executors={len(recovery_executors)}, state={policy.health.state}")
+
+    run_recovery()
+    assert len(recovery_executors) == 1
+    resources["temperature_c"] = 70.0
+    clock.t += 0.1
+    policy.act(_observation(), pose_ned=tuple(pose), yaw_deg=0)
+    assert policy._health_recovery_executor is None
+
+    resources["temperature_c"] = 90.0
+    clock.t += 2.0
+    run_recovery(expect_new=True)
+    assert len(recovery_executors) == 2
+    assert recovery_executors[1] is not recovery_executors[0]
+    assert abs(pose[0]) < 0.01 and abs(pose[1]) < 0.01
+
+
+@pytest.mark.parametrize("frame_format, suffix", [("png", ".png"), ("jpeg", ".jpg")])
+def test_low_disk_many_frames_skip_writes_runner_and_failures(tmp_path, frame_format, suffix):
+    class Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, row):
+            self.calls += 1
+            return {"decision": "confirm"}, 0.1
+
+    runner = Runner()
+    clock = Clock()
+    policy = make_policy(
+        work_dir=tmp_path,
+        frame_format=frame_format,
+        config={
+            "mission": "find",
+            "health": {
+                "enabled": True,
+                "disk_hard_floor_bytes": 10**18,
+                "escalate_after_s": 1.0,
+            },
+        },
+        slow_runner=runner,
+        proposer=lambda frame: [Detection((1, 1, 20, 20), 0.9, "x")],
+    )
+    policy.health.clock = clock
+    policy.health.resources = lambda: {"disk_free_bytes": 1}
+    for i in range(8):
+        clock.t = i * 0.25
+        action, labels = policy.act(_observation(), pose_ned=(0, 0, -20), yaw_deg=0)
+    assert not list(tmp_path.glob(f"frame_*{suffix}"))
+    assert runner.calls == 0
+    assert policy.health.state.consecutive_slow_failures == 0
+    assert labels["onboard"]["health"]["decision"] == "return_home"
+
+
+def _assert_no_health(value):
+    if isinstance(value, dict):
+        assert "health" not in value
+        for item in value.values():
+            _assert_no_health(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _assert_no_health(item)
+
+
+@pytest.mark.parametrize("config", [{}, {"health": {"enabled": False}}])
+def test_health_disabled_labels_have_no_health_key_including_supervised_fast_path(tmp_path, config):
+    class InvalidRunner:
+        def __call__(self, row):
+            return "not-json", 0.1
+
+    policy = make_policy(work_dir=tmp_path, config={**config, "mission": "find"})
+    policy.proposer = lambda frame: [Detection((1, 1, 20, 20), 0.9, "x")]
+    policy.slow = InvalidRunner()
+    action, labels = policy.act(_observation(), pose_ned=(0, 0, -20), yaw_deg=0)
+    _assert_no_health(labels)
+
+    clock = Clock()
+    supervised, supervisor = _supervised_policy(tmp_path / "supervised", clock)
+    supervised.health.config = HealthConfig(enabled=False)
+    event = _observation()
+    event["ground_events"] = [{"mission_id": "health-test", "type": "abort"}]
+    _, labels = supervised.act(event, pose_ned=(0, 0, -20), yaw_deg=0)
+    _assert_no_health(labels)
+
+
+def test_from_text_http_failure_counts_one_slow_failure(monkeypatch, tmp_path):
+    seen = {}
+    real = onboard_policy.HealthMonitor
+
+    def capture(*args, **kwargs):
+        seen["monitor"] = real(*args, **kwargs)
+        return seen["monitor"]
+
+    monkeypatch.setattr(onboard_policy, "HealthMonitor", capture)
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", lambda *a, **k: a[2]("p", {}))
+    monkeypatch.setattr("scripts.eval_slow_system._http_json", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))
+    with pytest.raises(OSError):
+        make_policy(work_dir=tmp_path, config={"mission": "from_text", "health": {"enabled": True}})
+    assert seen["monitor"].state.consecutive_slow_failures == 1
+
+
+def test_from_text_validation_failure_after_http_is_planning_only(monkeypatch, tmp_path):
+    seen = {}
+    real = onboard_policy.HealthMonitor
+
+    def capture(*args, **kwargs):
+        seen["monitor"] = real(*args, **kwargs)
+        return seen["monitor"]
+
+    monkeypatch.setattr(onboard_policy, "HealthMonitor", capture)
+    monkeypatch.setattr(
+        "scripts.eval_slow_system._http_json",
+        lambda *a, **k: {"choices": [{"message": {"content": "{}"}}]},
+    )
+
+    def invalid_plan(*args, **kwargs):
+        args[2]("p", {})
+        raise ValueError("invalid plan")
+
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", invalid_plan)
+    with pytest.raises(ValueError):
+        make_policy(work_dir=tmp_path, config={"mission": "from_text", "health": {"enabled": True}})
+    assert seen["monitor"].state.planning_failures == 1
+    assert seen["monitor"].state.consecutive_slow_failures == 0
