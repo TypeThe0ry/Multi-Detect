@@ -160,8 +160,9 @@ def verdict(expected: str, observed_action: str | None = None, reason: str = "",
 
 
 def scenario_table() -> list[dict[str, Any]]:
-    return [{"fault": name, "stage": "bench/replay" if name not in
-             {"offboard_loss", "home_change", "fence_approach"} else "HIL/tethered"}
+    return [{"fault": name, "stage": "bench/simulated-hardware" if name not in
+             {"offboard_loss", "home_change", "fence_approach"}
+             else "requires HIL rig, not run"}
             for name in FAULTS]
 
 
@@ -372,11 +373,24 @@ class CampaignController:
         return self.event.at_s <= elapsed < self.event.at_s + self.event.duration_s
 
     def _executor(self):
+        area = self.package.document["operating_area"]
+
+        def segment_clear(pose, north, east):
+            # The same operating-area geometry used by the runtime path
+            # validator: reject the whole segment when either endpoint leaves
+            # the bounded horizontal prism.
+            return (
+                area["north_min_m"] <= pose[0] <= area["north_max_m"]
+                and area["east_min_m"] <= pose[1] <= area["east_max_m"]
+                and area["north_min_m"] <= north <= area["north_max_m"]
+                and area["east_min_m"] <= east <= area["east_max_m"]
+            )
+
         def loop_factory(_task, **kwargs):
             return OnboardLoop(
                 camera=CameraModel(120, 120, 80, 60, 160, 120),
                 search_action=lambda pose, yaw: ActionPrimitive.hold(0.05),
-                segment_clear=lambda pose, north, east: True,
+                segment_clear=segment_clear,
                 config=LoopConfig(**kwargs),
             )
 
@@ -407,17 +421,6 @@ class CampaignController:
             )
         action = self.supervisor.evaluate(pose_ned=pose)
         reason = self.supervisor.reason
-        if event == "fence_approach" and action == "continue":
-            action, reason = "constrained", "operating area fence constrains unsafe setpoint"
-            # Keep the rejected target and the actually emitted hold target in
-            # the durable mission evidence.  The fake vehicle's setpoint trace
-            # is the authoritative command record; this row explains why the
-            # unsafe proposal never reached it.
-            area = self.package.document["operating_area"]
-            proposed = (area["north_max_m"] + 1.0, area["east_max_m"] + 1.0, pose[2])
-            emitted = tuple(pose)
-            self.log.append("fence_rejection", now, reason=reason,
-                            proposed_setpoint=proposed, emitted_setpoint=emitted)
         self.log.append("decision", now, action=action, reason=reason,
                         connected=self.supervisor.connected, fault=event, pose_ned=pose)
         if action in {"return_now", "land_now"}:
@@ -445,15 +448,39 @@ class CampaignSession:
                 "runtime_report": self.runtime.report(), "mission_records": records,
                 "started": self.started,
                 "fault_at": self.controller.origin + self.controller.event.at_s,
+                "fault": self.controller.event.fault,
+                "operating_area": dict(self.controller.package.document["operating_area"]),
                 "finished": time.monotonic(), "latched": self.controller.latched}
 
 
 def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str, float]:
+    fault_at = float(observation.get("fault_at", observation.get("started", 0.0)))
     records = observation.get("mission_records", [])
-    decisions = [r for r in records if r.get("kind") == "decision"]
+    decisions = [r for r in records if r.get("kind") == "decision"
+                 and float(r.get("timestamp", 0.0)) >= fault_at]
     runtime = observation.get("runtime_report", {})
-    commands = observation.get("commands", [])
-    if any(c.get("action") == "land" for c in commands):
+    runtime_events = [event for event in runtime.get("events", [])
+                      if float(event.get("monotonic_s", 0.0)) >= fault_at]
+    commands = [c for c in observation.get("commands", [])
+                if float(c.get("timestamp", 0.0)) >= fault_at]
+    fault = observation.get("fault")
+    if fault == "fence_approach":
+        area = observation.get("operating_area", {})
+        margin = 0.05
+        post_setpoints = [row.get("setpoint", {}) for row in observation.get("setpoints", [])
+                          if float(row.get("timestamp", 0.0)) >= fault_at]
+        inside = bool(post_setpoints) and all(
+            area["north_min_m"] - margin <= float(sp["north_m"]) <= area["north_max_m"] + margin
+            and area["east_min_m"] - margin <= float(sp["east_m"]) <= area["east_max_m"] + margin
+            and -area["max_altitude_m"] - margin
+            <= float(sp["down_m"]) <= -area["min_altitude_m"] + margin
+            for sp in post_setpoints
+        )
+        if inside:
+            action, reason = "constrained", "operating area fence constrains unsafe setpoint"
+        else:
+            action, reason = "unknown", "post-fault setpoint escaped operating area"
+    elif any(c.get("action") == "land" for c in commands):
         action = "land_now"
     elif any(c.get("action") == "rtl" for c in commands):
         action = "return_now"
@@ -467,15 +494,37 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
         action = "hold"
     else:
         action = "continue" if decisions else "unknown"
-    reason = str(runtime.get("watchdog_reason") or "")
-    if not reason and decisions:
+    terminal = [c for c in commands if c.get("action") in {"land", "rtl"}]
+    if terminal and decisions:
+        terminal_time = max(float(c.get("timestamp", 0.0)) for c in terminal)
+        if any(float(row.get("timestamp", 0.0)) > terminal_time
+               and row.get("action") in {"continue", "hold"} for row in decisions):
+            action = "unknown"
+    watchdog_events = [event for event in runtime_events
+                       if event.get("event") == "watchdog_hold"]
+    reason = ""
+    expected_fragment = _expected_reason_fragment(str(fault)) if fault else ""
+    if decisions:
         wanted = {
             "constrained": "constrained", "hold": "hold",
             "return_now": "return_now", "land_now": "land_now",
         }.get(action)
         matching = [row for row in decisions
                     if wanted is None or row.get("action") == wanted]
-        reason = str((matching or decisions)[-1].get("reason", ""))
+        candidates = matching or decisions
+        # Prefer a post-fault runtime reason that identifies this injected
+        # fault.  A later generic policy decision must not erase the evidence
+        # from the fault window.
+        fault_matching = [row for row in candidates
+                          if expected_fragment.lower() in str(row.get("reason", "")).lower()]
+        watchdog_matching = [row for row in watchdog_events
+                             if expected_fragment.lower() in str(row.get("reason", "")).lower()]
+        reason = str((fault_matching or watchdog_matching or candidates)[-1].get("reason", ""))
+    elif watchdog_events:
+        reason = str(watchdog_events[-1].get("reason", ""))
+    if fault == "fence_approach":
+        reason = ("operating area fence constrains unsafe setpoint" if action == "constrained"
+                  else "post-fault setpoint escaped operating area")
     started = float(observation.get("started", time.monotonic()))
     fault_at = float(observation.get("fault_at", started))
     finished = float(observation.get("finished", started))
@@ -632,7 +681,7 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                      "policy": policy,
                      "policy_timeout_s": policy.get("timeout_s"),
                      "runtime_report": observation["runtime_report"]})
-    report = {"mode": "replay", "mission_id": admitted.mission_id, "policy": policy,
+    report = {"mode": "simulated-hardware", "mission_id": admitted.mission_id, "policy": policy,
               "policy_timeout_s": policy.get("timeout_s"),
               "scenarios": rows, "scenario_table": scenario_table(),
               "passed": all(row["passed"] for row in rows), "generated_at": time.time(),
@@ -659,8 +708,6 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--episode", type=Path,
-                        help="Optional replay recording (source fakes remain authoritative).")
     parser.add_argument("--mission-package", type=Path)
     parser.add_argument("--operator-key", type=Path)
     parser.add_argument(
@@ -669,7 +716,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--work-dir", type=Path)
     args = parser.parse_args(argv)
     try:
-        report = run_campaign(episode=args.episode, package=args.mission_package,
+        report = run_campaign(package=args.mission_package,
                               operator_key=args.operator_key,
                               output=args.output, work_dir=args.work_dir)
     except Exception as exc:
@@ -677,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
             {"passed": False, "error": f"{type(exc).__name__}: {exc}"},
             ensure_ascii=False,
         ))
-        failure = {"mode": "replay", "passed": False,
+        failure = {"mode": "simulated-hardware", "passed": False,
                    "error": f"{type(exc).__name__}: {exc}"}
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)

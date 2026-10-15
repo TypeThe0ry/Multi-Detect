@@ -74,18 +74,18 @@ def test_package_shorthand_detects_equals_options_and_preserves_explicit_failsaf
     capsys.readouterr()
 
 
-def test_legacy_real_admission_requires_policy_config_and_task():
+def test_real_admission_requires_signed_package_and_key():
     missing_policy = type("Args", (), {"mode": "real", "mission_package": None,
                                        "policy_config": None, "task": "inspect"})()
-    with pytest.raises(ValueError, match="--policy-config is required"):
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
         onboard_main._admit_package(missing_policy)
     missing_task = type("Args", (), {"mode": "real", "mission_package": None,
                                       "policy_config": "policy.json", "task": None})()
-    with pytest.raises(ValueError, match="--task is required"):
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
         onboard_main._admit_package(missing_task)
 
 
-def test_missing_model_assets_fail_before_camera_or_vehicle_is_opened(tmp_path, monkeypatch):
+def test_real_legacy_path_is_refused_before_hardware_is_opened(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("invalid model assets must fail before hardware is opened")
 
@@ -103,7 +103,7 @@ def test_missing_model_assets_fail_before_camera_or_vehicle_is_opened(tmp_path, 
         "--calibration", str(calibration), "--policy-config", str(policy),
         "--task", "Find a car", "--failsafe", "rtl",
     ])
-    with pytest.raises(FileNotFoundError, match="automatic download disabled"):
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
         onboard_main.run(args)
 
 

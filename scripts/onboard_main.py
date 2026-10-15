@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     real.add_argument("--camera", help="/dev/video0, device index or pipeline")
     real.add_argument("--camera-backend", choices=("v4l2", "gstreamer"), default="v4l2")
     real.add_argument("--calibration", type=Path)
+    # Accepted for migration diagnostics, but _admit_package rejects this
+    # legacy path for real flight; policy/task remain valid for replay only.
     real.add_argument("--policy-config", type=Path)
     real.add_argument("--task")
     real.add_argument("--mission-package", type=Path,
@@ -96,12 +98,9 @@ def _admit_package(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]:
     package_path = getattr(args, "mission_package", None)
     if package_path is None:
         if getattr(args, "mode", None) == "real":
-            if not getattr(args, "policy_config", None):
-                raise ValueError(
-                    "--policy-config is required when --mission-package is not supplied"
-                )
-            if not getattr(args, "task", None):
-                raise ValueError("--task is required when --mission-package is not supplied")
+            raise ValueError(
+                "real runtime requires a signed --mission-package and --operator-key"
+            )
         return None, {}
     # Admission and execution must refer to the exact same files.  Resolve the
     # paths once here, before any source/model backend is opened, and retain the
@@ -214,7 +213,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                    "confirm_min_side_px": 1000000}
     else:
         options = (json.loads(args.policy_config.read_text(encoding="utf-8"))
-                   if args.policy_config else {})
+                   if getattr(args, "policy_config", None) else {})
         options.setdefault("mission", "find")
         _validate_local_models(options)
         # The shared controller's image bearing/rotation assumes a forward camera.
@@ -225,7 +224,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
-        task = (package_options.get("task_text") if package else None) or args.task
+        task = package_options.get("task_text") if package else getattr(args, "task", None)
     if package:
         options.update(package_options)
         area = package.document["operating_area"]

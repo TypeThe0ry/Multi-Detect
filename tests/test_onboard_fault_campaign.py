@@ -9,8 +9,10 @@ from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_security import sign_document
 from scripts.onboard_main import _admit_package
 from scripts.run_onboard_fault_campaign import (
+    FAULTS,
     CampaignSession,
     FaultEvent,
+    PositionSetpoint,
     _build_session,
     expected_outcome,
     run_campaign,
@@ -106,12 +108,60 @@ def _ignores_policy(session: CampaignSession) -> None:
 
 def _relaxes_latched_policy(session: CampaignSession) -> None:
     """Release a terminal supervisor action after it has been observed."""
+    if session.controller.event.fault == "gcs_heartbeat_loss":
+        session.controller.decide = lambda _pose: (
+            "continue", "mutant released latched policy"
+        )
+        return
 
     original = session.controller.decide
 
     def decide(pose):
         action, reason = original(pose)
         if action in {"return_now", "land_now"}:
+            session.controller.latched = None
+            return "continue", "mutant released latched policy"
+        return action, reason
+
+    session.controller.decide = decide
+
+
+def _prefault_rtl_then_continue(session: CampaignSession) -> None:
+    """Inject a pre-fault RTL, then incorrectly continue after GCS loss."""
+    if session.controller.event.fault == "gcs_heartbeat_loss":
+        session.vehicle.rtl()
+        session.controller.decide = lambda _pose: (
+            "continue", "mutant continued after pre-fault rtl"
+        )
+
+
+def _out_of_area_after_fence(session: CampaignSession) -> None:
+    """Emit an unsafe post-fault setpoint only in the fence scenario."""
+    if session.controller.event.fault != "fence_approach":
+        return
+    original = session.vehicle.send_setpoint
+    area = session.vehicle.area
+
+    def send(setpoint):
+        if session.controller.fault_active():
+            setpoint = PositionSetpoint(
+                area["north_max_m"] + 1.0, setpoint.east_m, setpoint.down_m,
+                setpoint.yaw_deg
+            )
+        original(setpoint)
+
+    session.vehicle.send_setpoint = send
+
+
+def _released_latch(session: CampaignSession) -> None:
+    """Release a GCS-loss terminal latch after it is set."""
+    if session.controller.event.fault != "gcs_heartbeat_loss":
+        return
+    original = session.controller.decide
+
+    def decide(pose):
+        action, reason = original(pose)
+        if action == "return_now":
             session.controller.latched = None
             return "continue", "mutant released latched policy"
         return action, reason
@@ -140,12 +190,26 @@ def _no_op_runtime(session: CampaignSession) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutator", [_no_op_runtime, _always_hold, _always_return, _ignores_policy,
-                _relaxes_latched_policy],
+    ("mutator", "expected_failed"), [
+        (_no_op_runtime, set(FAULTS)),
+        (_always_hold, {"gcs_heartbeat_loss", "battery_sag", "battery_stale",
+                        "gcs_heartbeat_recovery"}),
+        (_always_return, {"camera_freeze", "camera_drop", "pose_stale",
+                          "slow_model_timeout", "slow_model_crash", "detector_exception",
+                          "gcs_heartbeat_loss", "gcs_heartbeat_recovery", "offboard_loss",
+                          "battery_sag", "battery_stale", "home_change"}),
+        (_ignores_policy, {"gcs_heartbeat_loss", "gcs_heartbeat_recovery",
+                           "battery_sag", "battery_stale"}),
+        (_relaxes_latched_policy, {"gcs_heartbeat_loss"}),
+        (_prefault_rtl_then_continue, {"gcs_heartbeat_loss"}),
+        (_out_of_area_after_fence, {"fence_approach"}),
+        (_released_latch, {"gcs_heartbeat_loss"}),
+    ],
     ids=["no-op", "always-hold", "always-return", "ignores-package-policy",
-         "releases-latched-policy"],
+         "releases-latched-policy", "prefault-rtl-then-continue",
+         "fence-out-of-area", "released-latch"],
 )
-def test_campaign_rejects_defective_runtime(mutator, tmp_path):
+def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
     from test_mission_supervisor import document
 
     key = b"campaign-mutation-key"
@@ -165,4 +229,5 @@ def test_campaign_rejects_defective_runtime(mutator, tmp_path):
         duration_s=0.75,
     )
     assert report["passed"] is False
-    assert any(not row["passed"] for row in report["scenarios"])
+    failed = {row["scenario"] for row in report["scenarios"] if not row["passed"]}
+    assert expected_failed <= failed
