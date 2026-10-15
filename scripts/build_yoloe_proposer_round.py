@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_sim_detector_dataset import build_dataset  # noqa: E402
+from build_sim_detector_dataset import _split_map, build_dataset  # noqa: E402
 
 BUCKETS = ("<8", "8-16", "16-32", "32-64", ">=64")
 
@@ -75,12 +75,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--preflight-weights", type=Path)
+    parser.add_argument("--skip-cross-task-check", action="store_true")
     parser.add_argument(
         "--holdout-mode",
         choices=("historical-three", "generated-v2-six"),
         default="historical-three",
     )
     args = parser.parse_args(argv)
+    from evaluate_yoloe_proposer_round import cross_task_split_check
+
+    cross_task_split_check(_split_map(args.index), skip=args.skip_cross_task_check, required=True)
     if args.preflight:
         if args.preflight_weights is None:
             parser.error("--preflight requires --preflight-weights")
@@ -145,6 +149,16 @@ def main(argv: list[str] | None = None) -> int:
         "heldout_asset_verification": {
             "remaining_train_val_instances": manifest.get("remaining_asset_instances", {}),
             "excluded_train_val_images": manifest.get("heldout_asset_images", {}),
+        },
+        "training_commands": {
+            str(size): (
+                f"python scripts/train_open_vocab_detector.py --data {args.output}/data.yaml "
+                + ("--holdout-classes stop_sign,postbox,pickup --holdout-policy drop-images "
+                   if args.holdout_mode == "historical-three" else "")
+                + f"--out tmp/yoloe-v3-onboard-{size} --imgsz {size} --epochs 25 "
+                + f"--batch {2 if size == 1280 else 4} --mode full --device 0 --workers 0"
+            )
+            for size in (1280, 960)
         },
         "category_size_histogram": compare_histograms(
             manifest_histogram(old), manifest_histogram(manifest)

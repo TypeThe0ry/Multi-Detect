@@ -12,6 +12,7 @@ from scripts.build_yoloe_proposer_round import (
     size_bucket,
 )
 from scripts.evaluate_yoloe_proposer_round import collect_frames, score
+from scripts.preflight_yoloe_proposer_round import run_preflight
 
 
 def test_size_buckets_match_small_object_contract() -> None:
@@ -78,7 +79,7 @@ def test_evaluator_rejects_non_test_world(tmp_path):
         raise AssertionError("evaluator must reject train/val worlds")
 
 
-def test_score_reports_legacy_and_one_to_one_metrics():
+def test_score_reports_one_to_one_extra_metric_only():
     objects = [
         {"category": "a", "box": (0, 0, 10, 10), "size_bucket": "8-16"},
         {"category": "a", "box": (0, 0, 10, 10), "size_bucket": "8-16"},
@@ -86,8 +87,53 @@ def test_score_reports_legacy_and_one_to_one_metrics():
     frames = [{"image": "x", "objects": objects}]
     predictions = {"x": [((0, 0, 10, 10), 0.5)]}
     report = score(frames, predictions)
-    assert report["legacy_r3_recall"]["tables"]["overall"][0]["hit03"] == 2
+    assert "legacy_r3_recall" not in report
     assert report["one_to_one_recall"]["tables"]["overall"][0]["hit03"] == 1
+
+
+def test_preflight_retries_batch_one_after_oom():
+    class Tensor:
+        def float(self): return self
+        def mean(self): return self
+        def __radd__(self, other): return self
+        def backward(self): self.backward_count += 1
+        backward_count = 0
+
+    class Cuda:
+        def is_available(self): return True
+        def reset_peak_memory_stats(self, device): pass
+        def empty_cache(self): pass
+        def max_memory_allocated(self, device): return 11
+        def max_memory_reserved(self, device): return 22
+        def get_device_properties(self, device): return type("P", (), {"total_memory": 33})()
+
+    class Optim:
+        def __init__(self, params, lr): self.steps = 0
+        def zero_grad(self, set_to_none=True): pass
+        def step(self): self.steps += 1
+
+    class Torch:
+        cuda = Cuda()
+        optim = type("O", (), {"SGD": Optim})
+        def device(self, name): return name
+        def zeros(self, shape, device):
+            if shape[0] == 2:
+                raise RuntimeError("CUDA out of memory")
+            return Tensor()
+        def is_tensor(self, value): return isinstance(value, Tensor)
+
+    class Model:
+        def to(self, device): return self
+        def train(self): return self
+        def parameters(self): return []
+        def __call__(self, dummy): return Tensor()
+
+    result = run_preflight(
+        torch_module=Torch(), model_factory=lambda _: type("Y", (), {"model": Model()})(),
+        weights=__import__("pathlib").Path("weights.pt"), imgsz=1280, requested_batch=2,
+    )
+    assert result["batch"] == 1
+    assert result["peak_gpu_memory_bytes"] == 11
 
 
 def test_split_map_merges_indexes_and_rejects_conflict(tmp_path):

@@ -30,31 +30,55 @@ from multidetect.sim_teacher.segmentation import (  # noqa: E402
 BUCKETS = ("<8", "8-16", "16-32", "32-64", ">=64")
 
 
-def cross_task_split_check(splits: dict[str, str]) -> dict[str, Any]:
+def cross_task_split_check(
+    splits: dict[str, str], *, skip: bool = False, required: bool = False
+) -> dict[str, Any]:
     """Check optional slow-system SFT/flight test manifests for overlap."""
-    candidates = [
-        ROOT / "artifacts/datasets/slow-system-sft-v2-r13-bal/test.jsonl",
-        ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r12fast.json",
-    ]
-    found = next((path for path in candidates if path.is_file()), None)
-    if found is None:
-        return {
+    if skip:
+        return {"status": "skipped_explicitly", "note": "--skip-cross-task-check"}
+    artifact_roots = [ROOT / "artifacts", Path("D:/Projects/Multi-Detect/artifacts")]
+    candidates = []
+    for root in artifact_roots:
+        candidates.extend(
+            [
+                root / "datasets/slow-system-sft-v2-r13-bal/test.jsonl",
+                root / "benchmarks/flight-identity-eval-v1-r12fast.json",
+                root / "datasets/flight-identity-eval-v1/test.jsonl",
+            ]
+        )
+    found = [path for path in candidates if path.is_file()]
+    if not found:
+        result = {
             "status": "skipped",
             "note": "optional slow-system SFT/flight split artifact absent",
         }
-    worlds: set[str] = set()
-    for line in found.read_text(encoding="utf-8").splitlines():
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        value = row.get("world_id") if isinstance(row, dict) else None
-        if value:
-            worlds.add(str(value))
-    overlap = sorted(world for world in worlds if splits.get(world) == "train")
-    if overlap:
-        raise ValueError(f"detector train worlds overlap slow-system test worlds: {overlap}")
-    return {"status": "checked", "source": str(found), "worlds": len(worlds), "overlap": []}
+        if required:
+            raise FileNotFoundError(result["note"])
+        return result
+    details = []
+    all_worlds: set[str] = set()
+    for path in found:
+        text = path.read_text(encoding="utf-8")
+        documents = [json.loads(text)] if path.suffix == ".json" else [
+            json.loads(line) for line in text.splitlines() if line.strip()
+        ]
+        worlds: set[str] = set()
+        for document in documents:
+            rows = document.get("rows", []) if isinstance(document, dict) else [document]
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                value = item.get("world") or item.get("world_id")
+                if value:
+                    worlds.add(str(value))
+        if not worlds:
+            raise ValueError(f"cross-task artifact contains zero parsed worlds: {path}")
+        overlap = sorted(world for world in worlds if splits.get(world) == "train")
+        if overlap:
+            raise ValueError(f"detector train worlds overlap cross-task test worlds: {overlap}")
+        all_worlds.update(worlds)
+        details.append({"source": str(path), "worlds": len(worlds), "overlap": []})
+    return {"status": "checked", "sources": details, "worlds": len(all_worlds), "overlap": []}
 
 
 def bucket(value: float) -> str:
@@ -81,7 +105,9 @@ def iou(a: tuple[float, ...], b: tuple[float, ...]) -> float:
 
 
 def collect_frames(
-    roots: list[Path], index_paths: list[Path], *, max_frames: int | None = None
+    roots: list[Path], index_paths: list[Path], *, max_frames: int | None = None,
+    include_confusers: bool = False, allow_missing_truth: bool = False,
+    missing_truth: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
     seen_sha: set[str] = set()
@@ -93,8 +119,20 @@ def collect_frames(
                 raise ValueError(
                     f"evaluator requires test world, got {world!r} split={splits.get(world)!r}"
                 )
-            truth_path = _find_truth(world, [ROOT, root])
+            truth_roots = [
+                ROOT,
+                root,
+                ROOT / "configs/scenarios/generated-confusers",
+                ROOT / "configs/scenarios/generated-confusers-2",
+                Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers"),
+                Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers-2"),
+            ]
+            truth_path = _find_truth(world, truth_roots)
             if truth_path is None:
+                if missing_truth is not None:
+                    missing_truth.append(world)
+                if not allow_missing_truth:
+                    raise ValueError(f"missing truth for evaluated world {world!r}")
                 continue
             truth = json.loads(truth_path.read_text(encoding="utf-8"))
             targets = {
@@ -126,12 +164,8 @@ def collect_frames(
                     for target_id, item in visible.items():
                         target = targets.get(str(target_id))
                         mapping = truth["segmentation_labels"].get(str(target_id), {})
-                        if target is None or mapping.get("role") not in (
-                            "target",
-                            "distractor",
-                            "confuser",
-                            None,
-                        ):
+                        allowed_roles = ("target", "distractor", "confuser", None)
+                        if target is None or mapping.get("role") not in allowed_roles:
                             continue
                         box = tuple(float(v) for v in item["box"])
                         objects.append(
@@ -141,6 +175,7 @@ def collect_frames(
                                 ).replace(" ", "_"),
                                 "box": box,
                                 "size_bucket": bucket(min(box[2] - box[0], box[3] - box[1])),
+                                "role": mapping.get("role"),
                             }
                         )
                     if objects:
@@ -160,21 +195,24 @@ def _confidence(item: tuple[Any, ...]) -> float:
     return float(item[1]) if item and isinstance(item[0], (tuple, list)) and len(item) > 1 else 0.0
 
 
-def _tables(frames, predictions, *, one_to_one: bool) -> dict[str, Any]:
-    """Build recall tables for either legacy or one-to-one matching."""
+def _tables(frames, predictions, *, include_confusers: bool) -> dict[str, Any]:
+    """Build the versioned strict greedy one-to-one recall tables."""
     counters = defaultdict(lambda: {"objects": 0, "hit03": 0, "hit05": 0})
     for frame in frames:
+        objects = [
+            obj for obj in frame["objects"] if include_confusers or obj.get("role") != "confuser"
+        ]
         boxes = predictions.get(str(frame["image"]), [])
         pairs = [
             (iou(obj["box"], _box(box)), oi, pi)
-            for oi, obj in enumerate(frame["objects"])
+            for oi, obj in enumerate(objects)
             for pi, box in enumerate(boxes)
         ]
         pairs.sort(
             key=lambda row: (
                 -row[0],
                 -_confidence(boxes[row[2]]),
-                tuple(frame["objects"][row[1]]["box"]),
+                tuple(objects[row[1]]["box"]),
                 _box(boxes[row[2]]),
             )
         )
@@ -186,12 +224,8 @@ def _tables(frames, predictions, *, one_to_one: bool) -> dict[str, Any]:
                 overlaps[oi] = overlap
                 used_objects.add(oi)
                 used_predictions.add(pi)
-        for oi, obj in enumerate(frame["objects"]):
-            overlap = (
-                overlaps.get(oi, 0.0)
-                if one_to_one
-                else max((iou(obj["box"], _box(box)) for box in boxes), default=0.0)
-            )
+        for oi, obj in enumerate(objects):
+            overlap = overlaps.get(oi, 0.0)
             for dim, value in (
                 ("category", obj["category"]),
                 ("size", obj["size_bucket"]),
@@ -217,15 +251,17 @@ def _tables(frames, predictions, *, one_to_one: bool) -> dict[str, Any]:
 
 def score(frames, predictions):
     return {
-        "legacy_r3_recall": _tables(frames, predictions, one_to_one=False),
-        "one_to_one_recall": _tables(frames, predictions, one_to_one=True),
+        "one_to_one_recall": _tables(frames, predictions, include_confusers=False),
+        "with_confusers": {
+            "one_to_one_recall": _tables(frames, predictions, include_confusers=True),
+        },
         "metric_versions": {
-            "legacy_r3_recall": (
-                "independent per-GT max IoU, thresholds 0.3/0.5, "
-                "matching analyze_small_object_proposals.py"
-            ),
             "one_to_one_recall": (
                 "greedy one-to-one; sort (-iou, -confidence, gt box, prediction box)"
+            ),
+            "legacy_r3_recall": (
+                "not computed here; run unchanged scripts/analyze_small_object_proposals.py "
+                "on the generated proposal cache"
             ),
         },
     }
@@ -258,8 +294,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--include-confusers", action="store_true")
+    parser.add_argument("--allow-missing-truth", action="store_true")
+    parser.add_argument("--skip-cross-task-check", action="store_true")
     args = parser.parse_args(argv)
-    frames = collect_frames(args.campaign_root, args.index, max_frames=args.max_frames)
+    missing_truth: list[str] = []
+    frames = collect_frames(
+        args.campaign_root, args.index, max_frames=args.max_frames,
+        include_confusers=args.include_confusers,
+        allow_missing_truth=args.allow_missing_truth,
+        missing_truth=missing_truth,
+    )
     report: dict[str, Any] = {
         "status": "dry_run" if args.dry_run else "measured",
         "evaluation_scope": "class-agnostic proposal recall on index worlds with split=test",
@@ -269,7 +314,11 @@ def main(argv: list[str] | None = None) -> int:
         "cross_task_split_contract": (
             "detector train worlds must not occur in slow-system SFT test worlds"
         ),
-        "cross_task_split_check": cross_task_split_check(_split_map(args.index)),
+        "cross_task_split_check": cross_task_split_check(
+            _split_map(args.index), skip=args.skip_cross_task_check, required=not args.dry_run
+        ),
+        "missing_truth": {"count": len(missing_truth), "worlds": sorted(set(missing_truth))},
+        "include_confusers": args.include_confusers,
         "frames": len(frames),
         "imgsz": sorted(set(args.imgsz)),
         "confidence": args.confidence,
