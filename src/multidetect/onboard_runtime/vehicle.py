@@ -87,9 +87,17 @@ class VehicleInterface(Protocol):
 
     def close(self) -> None: ...
 
+
+
+@runtime_checkable
+class PreflightVehicle(VehicleInterface, Protocol):
+    """Optional PX4-only capabilities used by the real-aircraft preflight gate."""
+
     def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
 
     def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float: ...
+
+    def request_home_position(self) -> None: ...
 
 
 def _vector(message: Mapping[str, Any], names: tuple[str, str, str]) -> Vector3 | None:
