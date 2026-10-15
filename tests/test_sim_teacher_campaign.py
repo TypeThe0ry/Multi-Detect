@@ -112,6 +112,34 @@ def test_campaign_skips_existing_audit(tmp_path: Path) -> None:
     assert result["episodes"][0]["status"] == "skipped"
 
 
+def test_campaign_does_not_skip_aborted_and_excludes_it_from_rate(tmp_path: Path) -> None:
+    scenario = tmp_path / "gen_abort.scenario.json"
+    scenario.write_text("{}", encoding="utf-8")
+    dataset = tmp_path / "out" / "gen_abort" / "7"
+    episode = dataset / "episodes" / "episode-0000"
+    episode.mkdir(parents=True)
+    (episode / "episode.json").write_text(
+        json.dumps({"status": "aborted_low_disk", "failure": "floor"}), encoding="utf-8"
+    )
+    (episode / "steps.jsonl").write_text("", encoding="utf-8")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if "audit_sim_teacher_dataset.py" in command[1]:
+            raise AssertionError("aborted dataset must not be resumed as skipped")
+        return subprocess.CompletedProcess(command, 0, "aborted_low_disk", "")
+
+    result = run_campaign(
+        [scenario], teacher="explore", episodes_per_scenario=1, steps_per_episode=1,
+        seed_base=7, out=tmp_path / "out", max_retries=0,
+        command_runner=fake_run, cleanup=lambda: None,
+    )
+    assert result["episodes"][0]["status"] == "aborted_low_disk"
+    assert result["summary"]["success_rate"] == 0.0
+    assert result["summary"]["aborted_low_disk"] == 1
+
+
 def test_cleanup_removes_matching_containers() -> None:
     calls = []
 
