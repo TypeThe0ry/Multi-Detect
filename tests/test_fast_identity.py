@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from onboard_factories import make_llama_runner
 
 from scripts import eval_slow_system as slow
 
@@ -28,10 +29,7 @@ def _runner(monkeypatch, top_logprobs, *, merged_first: bool = False):
         return {"choices": [{"logprobs": {"content": [{"top_logprobs": top_logprobs}]}}]}
 
     monkeypatch.setattr(slow, "_http_json", fake_http)
-    runner = object.__new__(slow.LlamaServerRunner)
-    runner.port, runner.fast_identity, runner._verdict_tokens = 1, True, {}
-    runner._verdict_pieces = {}
-    runner.last_logprobs = None
+    runner = make_llama_runner(port=1, fast_identity=True)
     return runner, calls
 
 
