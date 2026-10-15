@@ -363,6 +363,7 @@ class OnboardPolicy:
     sim_timeline: SimGroundTimeline | None = None
     mission_plan: MissionPlan | None = None
     ground_projection = ground_projection_from_config(None, base_dir=ROOT)
+    frame_format = "png"
 
     def __init__(
         self,
