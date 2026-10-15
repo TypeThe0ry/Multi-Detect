@@ -602,12 +602,23 @@ def score_episode(
     radius_m: float = 10.0,
     mission_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+    if meta.get("status") == "aborted_low_disk":
+        return {
+            "episode": str(episode),
+            "status": "aborted_low_disk",
+            "steps": 0,
+            "success": False,
+            "false_confirm": False,
+            "task_equivalent": False,
+            "excluded_from_model_failure_metrics": True,
+            "abort_reason": meta.get("failure"),
+        }
     rows = [
         json.loads(line)
         for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
     target = _true_target(truth)
     confirmed_row = None
     slow_calls, remembered_verdicts, slow_latency, fast_latency, flown = 0, 0, [], [], 0.0

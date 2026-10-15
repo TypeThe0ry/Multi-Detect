@@ -1,0 +1,8 @@
+{
+  "offline": "artifacts/benchmarks/slow-system-gguf-q5-v2-r12-multi-identity-fast-cmp.json",
+  "flight": "artifacts/benchmarks/flight-identity-eval-v1-r12fast.json",
+  "planning": "artifacts/benchmarks/mission-plan-r12multi-q5-labelled-idle.json",
+  "planning-v2": "artifacts/benchmarks/mission-plan-r12multi-q5-v2tasks.json",
+  "find": "artifacts/benchmarks/onboard-loop-v2-test-r12multi.json",
+  "suite-v1": "artifacts/benchmarks/mission-suite-v1-r12/suite-report.json"
+}

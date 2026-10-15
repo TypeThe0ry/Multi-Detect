@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from slow_system_runtime import image_list_for_row  # noqa: E402
 
+from multidetect.sim_teacher.recording import load_depth_array  # noqa: E402
 from multidetect.sim_teacher.segmentation import (  # noqa: E402
     boxes_from_segmentation,
     load_labels_map,
@@ -104,13 +105,13 @@ def _depth_range(episode: Path, obs: dict[str, Any], box: list[float]) -> float 
     if not path.is_file():
         return None
     try:
-        depth = np.asarray(np.load(path), dtype=float)
+        depth = np.asarray(load_depth_array(path), dtype=float)
         height, width = depth.shape[:2]
         x1, y1, x2, y2 = (max(0, int(v)) for v in box)
         x2, y2 = min(width, int(box[2])), min(height, int(box[3]))
         values = depth[y1:y2, x1:x2]
         values = values[np.isfinite(values) & (values > 0)]
-        return round(float(np.median(values)) / 1000.0, 2) if values.size else None
+        return round(float(np.median(values)), 2) if values.size else None
     except (OSError, ValueError):
         return None
 

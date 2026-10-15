@@ -261,3 +261,18 @@ def test_mission_metrics_without_mission_labels_preserve_existing_find_and_count
         assert result["matched_count"] == 0
         assert result["count_exact"] is False
         assert not any(key.startswith("mission_") for key in result)
+
+
+def test_low_disk_score_checks_metadata_before_missing_or_truncated_steps(tmp_path: Path) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    episode = tmp_path / "aborted"
+    episode.mkdir()
+    (episode / "episode.json").write_text(
+        json.dumps({"status": "aborted_low_disk", "failure": "disk floor"}),
+        encoding="utf-8",
+    )
+    (episode / "steps.jsonl").write_text('{"step_index": 0}\n{"truncated', encoding="utf-8")
+    result = score_episode(episode, {"targets": []})
+    assert result["status"] == "aborted_low_disk"
+    assert result["excluded_from_model_failure_metrics"] is True

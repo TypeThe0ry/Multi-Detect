@@ -752,6 +752,15 @@ def build_observation(
     }
     if gps_fix["fix_type"] < 3:
         raise RuntimeError(f"GPS fix is not valid: {gps_fix['fix_type']}")
+    extended_state = mavlink.get("EXTENDED_SYS_STATE")
+    landed_state = _field(extended_state, "landed_state", None)
+    landed = (
+        landed_state == 1
+        if isinstance(landed_state, int)
+        and not isinstance(landed_state, bool)
+        and landed_state in {1, 2, 3, 4}
+        else None
+    )
     rgb_value: Any = sensor.rgb
     if isinstance(sensor.rgb, (bytes, bytearray, memoryview)):
         try:
@@ -838,6 +847,7 @@ def build_observation(
         if mavlink.energy_telemetry is not None
         else _energy_telemetry(mavlink),
         "gps_fix": gps_fix,
+        "landed": landed,
         "sensor_status": "live",
         "frame_sensor_stamp_ns": sensor.sensor_stamp_ns,
         "pose_time_boot_ms": pose_time_boot_ms,
