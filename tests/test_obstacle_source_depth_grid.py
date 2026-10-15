@@ -220,6 +220,38 @@ def test_async_worker_recovers_after_update_error() -> None:
     async_source.close()
 
 
+def test_async_error_blocks_fresh_old_grid_and_out_of_order_does_not_recover() -> None:
+    class FailingSource(DepthGridSource):
+        fail = False
+
+        def update(self, *args, **kwargs):
+            if self.fail:
+                raise ValueError("bad frame")
+            return super().update(*args, **kwargs)
+
+    source = FailingSource(max_age_s=1.0, timestamp_unit="ms")
+    async_source = AsyncDepthGridSource(source)
+    frame = np.ones((2, 2), dtype=np.float32)
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS, timestamp=2000, timestamp_unit="ms")
+    time.sleep(0.05)
+    source.fail = True
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS, timestamp=3000, timestamp_unit="ms")
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and async_source.status()["error_count"] == 0:
+        time.sleep(0.01)
+    assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    source.fail = False
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS, timestamp=1000, timestamp_unit="ms")
+    time.sleep(0.05)
+    assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS, timestamp=4000, timestamp_unit="ms")
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and async_source.status()["failed"]:
+        time.sleep(0.01)
+    assert async_source.status()["failed"] is False
+    async_source.close()
+
+
 def test_async_close_timeout_marks_failed_and_rejects_updates() -> None:
     release = threading.Event()
 
@@ -254,6 +286,36 @@ def test_async_deadline_miss_is_counted_and_frame_is_stale() -> None:
         time.sleep(0.01)
     assert async_source.status()["deadline_misses"] == 1
     assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    async_source.close()
+
+
+def test_late_frame_is_never_published_during_concurrent_queries() -> None:
+    class SlowSource(DepthGridSource):
+        def update(self, *args, **kwargs):
+            time.sleep(0.03)
+            return super().update(*args, **kwargs)
+
+    source = SlowSource(max_age_s=1.0)
+    async_source = AsyncDepthGridSource(source, frame_budget_s=0.001)
+    frame = np.ones((2, 2), dtype=np.float32)
+    source.update(frame, (0.0, 0.0, 0.0), INTRINSICS)
+    generation = source.generation
+    results: list[bool] = []
+    stop = threading.Event()
+
+    def query() -> None:
+        while not stop.is_set():
+            results.append(async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
+
+    thread = threading.Thread(target=query)
+    thread.start()
+    async_source.update(frame, (10.0, 0.0, 0.0), INTRINSICS)
+    time.sleep(0.08)
+    stop.set()
+    thread.join()
+    assert source.generation == generation
+    assert async_source.status()["deadline_misses"] == 1
+    assert results
     async_source.close()
 
 

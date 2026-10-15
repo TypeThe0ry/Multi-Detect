@@ -105,6 +105,7 @@ class DepthGridSource:
         "_timestamp_unit", "_lock",
         "_last_sensor_seconds",
         "stale_policy", "degraded",
+        "_generation",
     )
 
     def __init__(
@@ -164,6 +165,7 @@ class DepthGridSource:
             raise ValueError("stale_policy must be 'fail_closed' or 'static_fallback'")
         self.stale_policy = stale_policy
         self.degraded = False
+        self._generation = 0
 
     @staticmethod
     def _normalise_timestamp_unit(unit: str) -> str:
@@ -197,6 +199,11 @@ class DepthGridSource:
     def last_pose(self) -> PoseNed | None:
         with self._lock:
             return self._last_pose
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
 
     def _fallback_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
         # A missing or stale range observation is unsafe for flight.  Compose
@@ -253,6 +260,7 @@ class DepthGridSource:
         encoding: str = "FLOAT32_M",
         camera_rotation: np.ndarray | None = None,
         camera_offset_ned: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        deadline_monotonic: float | None = None,
     ) -> int:
         """Project one frame into the rolling grid and return valid point count."""
         raw = np.asarray(depth)
@@ -372,6 +380,8 @@ class DepthGridSource:
         # Build all arrays before publication.  The lock makes the assignment
         # of this complete generation atomic with respect to clearance queries.
         with self._lock:
+            if deadline_monotonic is not None and time.monotonic() > float(deadline_monotonic):
+                return 0
             if timestamp is not None and self._last_sensor_seconds is not None:
                 if sensor_seconds < self._last_sensor_seconds:
                     # An out-of-order frame must never replace a newer map.
@@ -384,6 +394,7 @@ class DepthGridSource:
                 self._last_sensor_seconds = sensor_seconds
             self._points = classified
             self._rebuild()
+            self._generation += 1
             return len(self._points)
 
     # Explicit aliases make integration with camera backends self-explanatory.
@@ -453,16 +464,16 @@ class AsyncDepthGridSource:
                 return
             args, kwargs = item
             started = time.monotonic()
+            generation_before = self.source.generation
             try:
+                kwargs = dict(kwargs)
+                kwargs["deadline_monotonic"] = started + self.frame_budget_s
                 self.source.update(*args, **kwargs)
                 elapsed = time.monotonic() - started
                 with self._mutex:
                     if elapsed > self.frame_budget_s:
                         self.deadline_misses += 1
-                        self.source._received_monotonic = (
-                            time.monotonic() - self.source.max_age_s - 1.0
-                        )
-                    else:
+                    elif self.source.generation > generation_before:
                         self.last_error = None
                         self._failed = False
             except Exception as exc:  # worker must survive a bad sensor frame
@@ -486,7 +497,7 @@ class AsyncDepthGridSource:
 
     def segment_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
         with self._mutex:
-            if self._failed and not self.source._fresh():
+            if self._failed:
                 return False
         return self.source.segment_clear(start_ned, end_ned)
 
