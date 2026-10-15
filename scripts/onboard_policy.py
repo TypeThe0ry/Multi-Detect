@@ -446,6 +446,7 @@ class OnboardPolicy:
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
+                landed=observation.get("landed"),
             )
         current = self.loop.update_tracks(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -496,13 +497,19 @@ class OnboardPolicy:
             raise RuntimeError("non-finite pose")
         return action, labels
 
-    def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
+    def _act_mission(
+        self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, landed=None
+    ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            landed=landed,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -532,6 +539,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_id=frame_path.name,
+            landed=landed,
         )
         confirmed = None
         if len(executor.findings) > findings_before:
