@@ -300,6 +300,10 @@ class ExpertSearchPolicy:
         self._blocked_attempts = 0
         self._blocked_consecutive = 0
         self._blocked = False
+        self._waypoint_attempts: dict[tuple[str, int], int] = {}
+        self._waypoint_last_distance: dict[tuple[str, int], float] = {}
+        self.skipped_waypoints: list[dict[str, Any]] = []
+        self._search_outcome = "running"
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         # Space legs from the pitched camera ground swath, with overlap.
@@ -494,6 +498,14 @@ class ExpertSearchPolicy:
         if self._segment_safe(pose_ned, end_n, end_e):
             return action
         self._safety_replanned = True
+        phase = self._search_phase
+        waypoints = self._low_waypoints if phase == "low" else self._waypoints
+        waypoint_key = (phase, self._waypoint_index)
+        waypoint = waypoints[self._waypoint_index] if self.state == "search" and waypoints else None
+        distance = (
+            math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1])
+            if waypoint is not None else None
+        )
         # A short perpendicular sidestep clears the blocking footprint when possible.
         # If the first pair is clipped/blocked, escalate to a larger lateral
         # offset and then a short leg in the opposite heading.  The original
@@ -504,7 +516,7 @@ class ExpertSearchPolicy:
         candidates.extend((yaw, right) for right in (lateral, -lateral) if lateral > length + 1e-6)
         opposite = yaw + math.pi
         candidates.extend((opposite, right) for right in (length, -length))
-        for candidate_yaw, right in candidates:
+        for candidate_no, (candidate_yaw, right) in enumerate(candidates):
             cn = pose_ned[0] - right * math.sin(candidate_yaw)
             ce = pose_ned[1] + right * math.cos(candidate_yaw)
             # Obstacle recovery must retain the same zone bound as an ordinary
@@ -512,13 +524,36 @@ class ExpertSearchPolicy:
             # to leave the circular search area.
             rel_n, rel_e = cn - self.home_ned[0], ce - self.home_ned[1]
             radius = math.hypot(rel_n, rel_e)
-            if radius > self.search_radius_m:
+            clipped = radius > self.search_radius_m
+            if clipped:
                 scale = self.search_radius_m / radius
                 cn = self.home_ned[0] + rel_n * scale
                 ce = self.home_ned[1] + rel_e * scale
             if self._segment_safe(pose_ned, cn, ce):
-                self._blocked_attempts = 0
+                if waypoint is not None and distance is not None:
+                    new_distance = math.hypot(waypoint[0] - cn, waypoint[1] - ce)
+                    previous = self._waypoint_last_distance.get(waypoint_key, distance)
+                    if new_distance < previous - 1e-6:
+                        self._waypoint_attempts[waypoint_key] = 0
+                    else:
+                        self._waypoint_attempts[waypoint_key] = (
+                            self._waypoint_attempts.get(waypoint_key, 0) + 1
+                        )
+                    self._waypoint_last_distance[waypoint_key] = new_distance
+                    if self._waypoint_attempts[waypoint_key] >= self.max_blocked_attempts:
+                        self.skipped_waypoints.append({
+                            "waypoint_index": self._waypoint_index,
+                            "ned": tuple(waypoint),
+                            "phase": phase,
+                            "attempts": self._waypoint_attempts[waypoint_key],
+                        })
+                        self._waypoint_index += 1
+                        self._waypoint_attempts.pop(waypoint_key, None)
+                        self._waypoint_last_distance.pop(waypoint_key, None)
                 self._blocked_consecutive = 0
+                if candidate_no < 2 and not clipped:
+                    # Preserve the historical current-pattern action exactly.
+                    return ActionPrimitive.translate(0.0, right, 0.0)
                 dn, de = cn - pose_ned[0], ce - pose_ned[1]
                 return ActionPrimitive.translate(
                     dn * math.cos(yaw) + de * math.sin(yaw),
@@ -527,11 +562,27 @@ class ExpertSearchPolicy:
                 )
         self._blocked_attempts += 1
         self._blocked_consecutive += 1
-        if self._blocked_attempts >= self.max_blocked_attempts:
+        attempts = (
+            self._waypoint_attempts.get(waypoint_key, 0) + 1
+            if waypoint is not None
+            else self._blocked_attempts
+        )
+        self._waypoint_attempts[waypoint_key] = attempts
+        if attempts >= self.max_blocked_attempts:
+            if waypoint is not None:
+                self.skipped_waypoints.append({
+                    "waypoint_index": self._waypoint_index,
+                    "ned": tuple(waypoint),
+                    "phase": phase,
+                    "attempts": attempts,
+                })
             self._waypoint_index += 1
             self._blocked_attempts = 0
+            self._waypoint_attempts.pop(waypoint_key, None)
+            self._waypoint_last_distance.pop(waypoint_key, None)
         if self._blocked_consecutive >= self.max_blocked_consecutive:
             self._blocked = True
+            self._search_outcome = "blocked"
             self.state = "done"
             return ActionPrimitive.stop()
         return ActionPrimitive.hold(0.0)
@@ -561,6 +612,8 @@ class ExpertSearchPolicy:
             return ActionPrimitive.stop()
         if self.state == "hold":
             self.state = "done"
+            if self._search_outcome != "blocked":
+                self._search_outcome = "done"
             return ActionPrimitive.stop()
         if self.state not in {"approach", "hold", "done"} and inside:
             self.state = "approach"
@@ -655,6 +708,8 @@ class ExpertSearchPolicy:
             "approach_replanned": self._approach_replanned,
             "safety_replanned": self._safety_replanned,
             "standoff_m": self.effective_standoff_m,
+            "skipped_waypoints": [dict(item) for item in self.skipped_waypoints],
+            "search_pass_outcome": self._search_outcome,
         }
 
 
