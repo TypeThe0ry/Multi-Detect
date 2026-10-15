@@ -45,9 +45,32 @@
 ```json
 {
   "ground_reid_max_steps": null,
-  "ground_reid_radius_m": 3.0
+  "ground_reid_radius_m": 1.5
 }
 ```
+
+## Current replay and conservative identity bounds (2026-10-16)
+
+The current 30-campaign replay is **653 -> 268 track IDs**.  Slow-call
+candidates are **426 -> 426**: a revived track is deliberately marked as
+`needs_fresh_verdict`, so its prior confirmation history remains diagnostic but
+cannot satisfy a new decision without another slow verdict.
+
+The older comparison table below is retained as historical context; its
+current-result row is superseded by the replay totals above.
+
+Ground revival uses a strict `<` test with
+`max(1.5 m, configured minimum, 1.5 * estimated footprint)` as the radius.
+The default `memory_radius_m` changed from **4.0 m to 1.5 m**.  This reduces
+merging of nearby objects in place memory; the footprint factor still expands
+the radius for genuinely large objects.
+
+Residual cases are explicit: no ground projection means no ground re-ID;
+edge-cut boxes cannot provide a reliable anchor; observations outside the
+re-ID window create a new track; and an object swap inside the accepted radius
+remains indistinguishable when the objects were never co-visible.  The latter
+is accepted because ground projection error makes a larger radius unsafe; the
+co-visibility veto and appearance gate cover the observable cases.
 
 `ground_reid_max_steps=null` 自动对 `stop_on_confirm=False` 的 count/patrol/monitor 启用 60 步，对默认 find/inspect 关闭。`MissionExecutor` 对移动目标 follow 将自动值解析为 0，保留其既有 7 步失踪规则。显式 `0` 可恢复旧关联；显式正整数覆盖自动值（也可为 find/follow 手工开启）。半径必须有限且大于 0，年龄必须是非负整数或空值。
 

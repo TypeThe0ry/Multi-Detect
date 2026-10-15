@@ -153,6 +153,30 @@ def test_reid_uses_nearest_pairs_once_and_keeps_neighbouring_objects_separate():
     assert current[1].track_id not in {t.track_id for t in first}
 
 
+def test_covisibility_eviction_marks_tracks_and_blocks_revival():
+    loop = _loop(stop_on_confirm=False)
+    loop.co_visibility_max_pairs = 1
+    loop.step_index = 0
+    first = loop.update_tracks(
+        [Detection(BOX), Detection(OTHER_BOX)], pose_ned=POSE, yaw_deg=0,
+        ground_point=lambda u, v: (30.0, 0.0 if u < 800 else 8.0),
+    )
+    assert len(loop._co_visibility_pairs) == 1
+    loop.step_index = 8
+    loop.update_tracks(
+        [Detection((100.0, 100.0, 140.0, 140.0)), Detection((300.0, 100.0, 340.0, 140.0))],
+        pose_ned=POSE, yaw_deg=0,
+        ground_point=lambda u, v: (60.0, 20.0 if u < 200 else 28.0),
+    )
+    assert first[0].covis_truncated and first[1].covis_truncated
+    loop.step_index = 16
+    replacement = loop.update_tracks(
+        [Detection(BOX)], pose_ned=POSE, yaw_deg=0,
+        ground_point=lambda u, v: (30.1, 0.0),
+    )[0]
+    assert replacement is not first[0]
+
+
 @pytest.mark.parametrize("options", [
     {"ground_reid_max_steps": -1}, {"ground_reid_max_steps": 1.5},
     {"ground_reid_max_steps": True}, {"ground_reid_radius_m": 0},

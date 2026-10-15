@@ -235,6 +235,9 @@ class Track:
     # Track ids observed as separate detections in one frame are permanently
     # distinct, even when later ground projections are close.
     co_visible_with: set[str] = field(default_factory=set)
+    # True once bounded co-visibility history has been truncated.  The
+    # remaining history is incomplete, so this track must not be ground-reid.
+    covis_truncated: bool = False
     needs_fresh_verdict: bool = False
 
 
@@ -632,6 +635,7 @@ class OnboardLoop:
             for track in self._tracks.values()
             if self.config.lost_after_steps < self.step_index - track.last_step <= reid_steps
             and reliable(track.bbox, track.ground)
+            and not track.covis_truncated
         ] if reid_steps else []
         def revival_radius(track: Track, appearance: AppearanceSignature | None) -> float:
             footprint = (appearance.footprint_m if appearance else None) or (
@@ -710,12 +714,20 @@ class OnboardLoop:
             left = self._tracks.get(oldest[0])
             right = self._tracks.get(oldest[1])
             if left is not None:
+                left.covis_truncated = True
                 left.co_visible_with.discard(oldest[1])
             if right is not None:
+                right.covis_truncated = True
                 right.co_visible_with.discard(oldest[0])
         for track in self._tracks.values():
             if len(track.co_visible_with) > 4096:
-                track.co_visible_with = set(sorted(track.co_visible_with)[-4096:])
+                removed = track.co_visible_with - set(sorted(track.co_visible_with)[-4096:])
+                track.covis_truncated = True
+                track.co_visible_with.difference_update(removed)
+                for other_id in removed:
+                    other = self._tracks.get(other_id)
+                    if other is not None:
+                        other.covis_truncated = True
         return current
 
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
