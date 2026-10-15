@@ -16,6 +16,7 @@ from multidetect.operator_link import (
     PayloadTargetChallengeStatusMessage,
     PayloadTargetConfirmationCommand,
     PayloadTargetConfirmationCommandGuard,
+    ReplayStateError,
     SelectionAction,
     SelectionCommandGuard,
     TargetSelectionCommand,
@@ -249,6 +250,34 @@ def test_cancel_requires_no_bbox_and_selection_requires_bbox() -> None:
 def test_selection_is_not_allowed_to_have_a_long_lived_ttl() -> None:
     with pytest.raises(ValueError, match="TTL"):
         _selection(expires_at_s=106.0)
+
+
+def test_selection_replay_state_is_atomic_wrap_aware_bounded_and_fail_closed(tmp_path) -> None:
+    state_path = tmp_path / "operator-replay.json"
+    first = SelectionCommandGuard(
+        GEOMETRY,
+        state_path=state_path,
+        max_forward_jump=4,
+    )
+    assert first.evaluate(
+        _selection(command_id="selection-last", sequence=0xFFFFFFFF),
+        received_at_s=100.1,
+    ).allowed
+
+    restarted = SelectionCommandGuard(
+        GEOMETRY,
+        state_path=state_path,
+        max_forward_jump=4,
+    )
+    assert restarted.evaluate(
+        _selection(command_id="selection-wrap", sequence=0),
+        received_at_s=100.1,
+    ).allowed
+    assert not restarted.evaluate(_selection(sequence=10), received_at_s=100.1).allowed
+
+    state_path.write_text("not-json", encoding="utf-8")
+    with pytest.raises(ReplayStateError, match="re-handshake"):
+        SelectionCommandGuard(GEOMETRY, state_path=state_path)
 
 
 def test_active_track_status_carries_overlay_metadata_only() -> None:

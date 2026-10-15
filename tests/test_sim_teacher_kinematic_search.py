@@ -265,6 +265,51 @@ def test_expert_replans_translate_that_intersects_tall_obstacle() -> None:
     assert policy._segment_safe((0.0, 0.0, -5.0), end_n, end_e)
 
 
+def test_blocked_boundary_sidesteps_terminate_instead_of_holding_forever() -> None:
+    policy = _policy((80.0, 0.0, -5.0))
+    policy.search_radius_m = 10.0
+    policy._segment_safe = lambda *_args: False
+    pose = (9.9, 0.0, -5.0)
+    actions = [
+        policy._safe_translation(pose, ActionPrimitive.translate(5.0, 0.0, 0.0), 0.0)
+        for _ in range(12)
+    ]
+    assert any(action.kind == "stop" for action in actions)
+
+
+def test_sidesteps_without_progress_skip_waypoint_and_are_reported() -> None:
+    policy = _policy((80.0, 0.0, -5.0))
+    policy.state = "search"
+    policy._waypoints = [(10.0, 0.0)]
+    policy._waypoint_index = 0
+    policy._segment_safe = lambda _pose, n, e: abs(n) < 1e-6 and abs(e) > 1e-6
+    pose = (0.0, 0.0, -5.0)
+    for _ in range(policy.max_blocked_attempts):
+        policy._safe_translation(pose, ActionPrimitive.translate(5.0, 0.0, 0.0), 0.0)
+    labels = policy.labels(pose_ned=pose)
+    assert labels["skipped_waypoints"][0]["waypoint_index"] == 0
+    assert labels["skipped_waypoints"][0]["phase"] == "high"
+
+
+@pytest.mark.parametrize("phase", ["high", "low"])
+def test_two_altitude_blocked_skip_records_each_pass(phase: str) -> None:
+    policy = ExpertSearchPolicy(
+        target_ned=(80.0, 0.0, -5.0), intrinsics=DEFAULT_CAMERA_INFO,
+        image_size=(1280, 960), standoff_m=STANDOFF_M, search_radius_m=SEARCH_RADIUS_M,
+        max_detection_range_m=80.0, altitude_m=5.0, obstacles=(),
+        camera_pitch_rad=CAMERA_PITCH_RAD, search_pattern="two_altitude", low_altitude_m=4.0,
+    )
+    policy.state = "search"
+    policy._search_phase = phase
+    policy._waypoints = [(10.0, 0.0)]
+    policy._low_waypoints = [(10.0, 0.0)]
+    policy._waypoint_index = 0
+    policy._segment_safe = lambda _pose, n, e: abs(n) < 1e-6 and abs(e) > 1e-6
+    for _ in range(policy.max_blocked_attempts):
+        policy._safe_translation((0.0, 0.0, -5.0), ActionPrimitive.translate(5.0, 0.0, 0.0), 0.0)
+    assert policy.labels(pose_ned=(0.0, 0.0, -5.0))["skipped_waypoints"][0]["phase"] == phase
+
+
 def test_expert_generated_world_segments_remain_clear() -> None:
     world_dir = Path("simulation/gazebo/worlds")
     for index in range(10):
