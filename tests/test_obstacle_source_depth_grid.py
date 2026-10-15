@@ -1,12 +1,18 @@
-"""CPU checks for the rolling depth obstacle source."""
+﻿"""CPU checks for the rolling depth obstacle source."""
 
+import threading
 import time
 
 import numpy as np
 import pytest
 
 from multidetect.autonomy.ground_model import FlatGround
-from multidetect.autonomy.obstacle_source import CompositeSource, DepthGridSource, StaticMapSource
+from multidetect.autonomy.obstacle_source import (
+    AsyncDepthGridSource,
+    CompositeSource,
+    DepthGridSource,
+    StaticMapSource,
+)
 from multidetect.sim_teacher.policies import SDFObstacle, segment_clear_of_obstacles
 
 
@@ -84,7 +90,9 @@ def test_camera_rotation_and_pose_are_applied() -> None:
 
 def test_stale_or_empty_depth_uses_fallback() -> None:
     fallback = _Fallback(False)
-    source = DepthGridSource(fallback=fallback, max_age_s=0.01)
+    source = DepthGridSource(
+        fallback=fallback, max_age_s=0.01, stale_policy="static_fallback"
+    )
     depth = np.ones((2, 2), dtype=np.float32)
     source.update(depth, (0.0, 0.0, 0.0), INTRINSICS, timestamp=time.monotonic() - 1.0)
     # Sensor timestamp domains do not determine freshness; age the local
@@ -95,6 +103,21 @@ def test_stale_or_empty_depth_uses_fallback() -> None:
     empty = DepthGridSource(fallback=fallback)
     empty.update(np.full((2, 2), np.nan), (0.0, 0.0, 0.0), INTRINSICS)
     assert empty.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+
+
+def test_stale_depth_fails_closed_unless_static_fallback_is_opted_in() -> None:
+    fallback = _Fallback(True)
+    source = DepthGridSource(fallback=fallback, max_age_s=0.01)
+    source.update(np.ones((2, 2), dtype=np.float32), (0.0, 0.0, 0.0), INTRINSICS)
+    source._received_monotonic -= 1.0
+    assert source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    assert source.degraded is True
+    opted = DepthGridSource(
+        fallback=fallback, max_age_s=0.01, stale_policy="static_fallback"
+    )
+    opted.update(np.ones((2, 2), dtype=np.float32), (0.0, 0.0, 0.0), INTRINSICS)
+    opted._received_monotonic -= 1.0
+    assert opted.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is True
 
 
 def test_freshness_uses_receipt_age_for_explicit_nanosecond_stamps() -> None:
@@ -149,6 +172,28 @@ def test_depth_encoding_is_explicit_and_validated() -> None:
         )
 
 
+def test_async_depth_ingest_is_nonblocking_and_latest_frame_wins(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    class SlowSource(DepthGridSource):
+        def update(self, *args, **kwargs):
+            started.set()
+            release.wait(1.0)
+            return super().update(*args, **kwargs)
+
+    source = SlowSource()
+    async_source = AsyncDepthGridSource(source)
+    frame = np.ones((2, 2), dtype=np.float32)
+    async_source.update(frame, (0.0, 0.0, 0.0), INTRINSICS)
+    assert started.wait(1.0)
+    for index in range(5):
+        async_source.update(frame, (float(index), 0.0, 0.0), INTRINSICS)
+    assert async_source.segment_clear((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) is False
+    assert async_source.dropped_frames >= 1
+    release.set()
+    async_source.close()
+
+
 def test_out_of_order_sensor_frame_does_not_replace_newer_generation() -> None:
     source = DepthGridSource(max_age_s=0.5, timestamp_unit="ms")
     depth = np.ones((2, 2), dtype=np.float32)
@@ -187,3 +232,5 @@ def test_static_source_matches_historical_clearance() -> None:
     expected = segment_clear_of_obstacles(start, end, 10.0, obstacles)
     assert StaticMapSource(obstacles).segment_clear(start, end) is expected
 
+
+\n

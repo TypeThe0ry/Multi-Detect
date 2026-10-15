@@ -9,6 +9,7 @@ several sources composed conservatively.
 from __future__ import annotations
 
 import math
+import queue
 import threading
 import time
 from collections.abc import Iterable, Mapping
@@ -103,6 +104,7 @@ class DepthGridSource:
         "_anchor", "_last_timestamp", "_last_pose", "_received_monotonic",
         "_timestamp_unit", "_lock",
         "_last_sensor_seconds",
+        "stale_policy", "degraded",
     )
 
     def __init__(
@@ -119,6 +121,7 @@ class DepthGridSource:
         max_points: int = 20_000,
         fallback: ObstacleSource | None = None,
         timestamp_unit: str = "s",
+        stale_policy: str = "fail_closed",
     ) -> None:
         if np is None:
             raise ImportError("DepthGridSource requires the optional numpy vision dependency")
@@ -157,6 +160,10 @@ class DepthGridSource:
         self._received_monotonic: float | None = None
         self._lock = threading.RLock()
         self._last_sensor_seconds: float | None = None
+        if stale_policy not in {"fail_closed", "static_fallback"}:
+            raise ValueError("stale_policy must be 'fail_closed' or 'static_fallback'")
+        self.stale_policy = stale_policy
+        self.degraded = False
 
     @staticmethod
     def _normalise_timestamp_unit(unit: str) -> str:
@@ -194,7 +201,8 @@ class DepthGridSource:
     def _fallback_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
         # A missing or stale range observation is unsafe for flight.  Compose
         # with StaticMapSource when a map is available; otherwise fail closed.
-        if self.fallback is None:
+        self.degraded = True
+        if self.stale_policy != "static_fallback" or self.fallback is None:
             return False
         return self.fallback.segment_clear(start_ned, end_ned)
 
@@ -386,6 +394,7 @@ class DepthGridSource:
         with self._lock:
             if not self._fresh() or self._anchor is None:
                 return self._fallback_clear(start_ned, end_ned)
+            self.degraded = False
             start = tuple(float(v) for v in start_ned)
             end = tuple(float(v) for v in end_ned)
             distance = math.dist(start[:2], end[:2])
@@ -409,4 +418,65 @@ class DepthGridSource:
             return True
 
 
-__all__ = ["CompositeSource", "DepthGridSource", "ObstacleSource", "PoseNed", "StaticMapSource"]
+class AsyncDepthGridSource:
+    """Single-worker, latest-frame-wins adapter for the setpoint thread.
+
+    ``update`` only copies the frame reference into a one-slot queue; all
+    projection work happens on the worker.  A busy worker therefore cannot
+    block clearance queries or the 20 Hz control path.
+    """
+
+    def __init__(self, source: DepthGridSource, *, frame_budget_s: float = 0.1) -> None:
+        if frame_budget_s <= 0 or not math.isfinite(frame_budget_s):
+            raise ValueError("frame_budget_s must be finite and positive")
+        self.source = source
+        self.frame_budget_s = float(frame_budget_s)
+        self._queue: queue.Queue[tuple[tuple, dict] | None] = queue.Queue(maxsize=1)
+        self._stop = threading.Event()
+        self.dropped_frames = 0
+        self._worker = threading.Thread(target=self._run, name="depth-grid", daemon=True)
+        self._worker.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                item = self._queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if item is None:
+                return
+            args, kwargs = item
+            started = time.monotonic()
+            self.source.update(*args, **kwargs)
+            if time.monotonic() - started > self.frame_budget_s:
+                self.dropped_frames += 0
+
+    def update(self, *args, **kwargs) -> bool:
+        item = (args, kwargs)
+        try:
+            self._queue.put_nowait(item)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            self.dropped_frames += 1
+            self._queue.put_nowait(item)
+        return True
+
+    def segment_clear(self, start_ned: PoseNed, end_ned: PoseNed) -> bool:
+        return self.source.segment_clear(start_ned, end_ned)
+
+    def close(self) -> None:
+        self._stop.set()
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
+        self._worker.join(timeout=1.0)
+
+
+__all__ = [
+    "AsyncDepthGridSource", "CompositeSource", "DepthGridSource", "ObstacleSource",
+    "PoseNed", "StaticMapSource",
+]

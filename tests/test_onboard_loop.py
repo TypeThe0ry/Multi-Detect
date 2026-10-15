@@ -32,6 +32,23 @@ def test_loop_without_clearance_configuration_fails_closed() -> None:
     assert loop._segment_clear((0.0, 0.0, -10.0), 1.0, 0.0) is False
 
 
+class _BlockSource:
+    def segment_clear(self, _start, _end):
+        return False
+
+
+def test_search_action_keeps_legacy_behavior_without_source_but_is_gated_with_source() -> None:
+    pose = (0.0, 0.0, -10.0)
+    legacy = _loop()
+    assert legacy._search_step(pose, 0.0).kind == "translate"
+    guarded = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        obstacle_source=_BlockSource(),
+    )
+    assert guarded._search_step(pose, 0.0).kind == "hold"
+
+
 def test_ground_point_of_image_centre_follows_camera_pitch() -> None:
     north, east = CAMERA.ground_point(640.0, 480.0, north=0.0, east=0.0, height_m=20.0, yaw_deg=0.0)
     assert math.isclose(north, 20.0 / math.tan(0.18), rel_tol=1e-6)

@@ -88,6 +88,19 @@ def _rotation(observation: dict[str, Any]) -> np.ndarray:
     return np.asarray(world_axes, dtype=np.float32).T
 
 
+def _camera_offset_ned(observation: dict[str, Any]) -> tuple[float, float, float]:
+    attitude = observation.get("attitude", {})
+    roll = math.radians(float(attitude.get("roll_deg", 0.0)))
+    pitch = math.radians(float(attitude.get("pitch_deg", 0.0)))
+    yaw = math.radians(float(attitude.get("yaw_deg", 0.0)))
+    return _body_to_world_ned(
+        (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
+        roll_rad=roll,
+        pitch_rad=pitch,
+        yaw_rad=yaw,
+    )
+
+
 def _depth_metres(array: np.ndarray, info: dict[str, Any]) -> np.ndarray:
     encoding = info.get("encoding")
     if not isinstance(encoding, str):
@@ -309,7 +322,7 @@ def evaluate_episode(
                 timestamp_unit="ns",
                 encoding="FLOAT32_M",
                 camera_rotation=_rotation(before),
-                camera_offset_ned=(CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
+                camera_offset_ned=_camera_offset_ned(before),
             )
             timings.append((time.perf_counter_ns() - started) / 1e6)
             frames += 1

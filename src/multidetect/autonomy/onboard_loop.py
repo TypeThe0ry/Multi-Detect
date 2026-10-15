@@ -700,7 +700,10 @@ class OnboardLoop:
             lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
             if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
-        return self.search_action(pose_ned, yaw_deg)
+        action = self.search_action(pose_ned, yaw_deg)
+        if self.obstacle_source is None:
+            return action
+        return self._safe(pose_ned, action, yaw_deg)
 
     def _keep_range(self, altitude_m: float) -> float:
         """Closest ground range still inside the image at ``altitude_m`` (with margin)."""
