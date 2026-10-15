@@ -40,9 +40,8 @@ while [[ $# -gt 0 ]]; do
         *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
-# Every generated report stays inside this checkout, including worktree use.
+# Relative output paths are relative to this checkout.
 OUTPUT_DIR="$([[ "$OUTPUT_DIR" = /* || "$OUTPUT_DIR" =~ ^[A-Za-z]: ]] && printf '%s' "$OUTPUT_DIR" || printf '%s/%s' "$ROOT" "$OUTPUT_DIR")"
-"$PYTHON" -c 'import pathlib,sys; pathlib.Path(sys.argv[2]).resolve().relative_to(pathlib.Path(sys.argv[1]).resolve())' "$ROOT" "$OUTPUT_DIR"
 
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export PYTHONDONTWRITEBYTECODE=1
