@@ -183,6 +183,7 @@ class PymavlinkVehicle:
         self._parameter_events: dict[str, threading.Event] = {}
         self._parameter_pending_since: dict[str, float] = {}
         self._parameter_transactions: dict[str, dict[str, Any]] = {}
+        self._parameter_locks: dict[str, threading.Lock] = {}
 
     def snapshot(self) -> VehicleState:
         if self._reader is not None:
@@ -295,12 +296,14 @@ class PymavlinkVehicle:
                     raw = float(message["param_value"])
                     value = (float(struct.unpack("<i", struct.pack("<f", raw))[0])
                              if ptype == 6 else raw)
+                    transaction = self._parameter_transactions.get(clean)
+                    if transaction is not None and transaction.get("state") == "arming":
+                        return
                     pending = self._parameter_pending_since.get(clean)
                     if pending is not None and stamp <= pending:
                         # A response queued before the request/set must not
                         # satisfy or overwrite the pending transaction.
                         return
-                    self._parameters[clean] = (value, ptype, stamp)
                     if pending is not None and stamp > pending:
                         transaction = self._parameter_transactions.get(clean, {})
                         expected = transaction.get("expected")
@@ -309,6 +312,8 @@ class PymavlinkVehicle:
                             return
                         if expected is not None and not math.isclose(value, expected, rel_tol=0, abs_tol=0):
                             return
+                    self._parameters[clean] = (value, ptype, stamp)
+                    if pending is not None and stamp > pending:
                         event = self._parameter_events.setdefault(clean, threading.Event())
                         event.set()
             if updates:
@@ -377,62 +382,70 @@ class PymavlinkVehicle:
         if timeout_s <= 0 or retries < 1:
             raise ValueError("parameter timeout and retries must be positive")
         clean = name.strip()
-        for _ in range(retries):
-            sent = self._clock()
-            event = self._parameter_events.setdefault(clean, threading.Event())
-            event.clear()
-            self._parameter_pending_since[clean] = sent
-            self._parameter_transactions[clean] = {}
-            self._parameters.pop(clean, None)
-            with self._sending():
-                system, component = self._target()
-                sender = getattr(self.connection.mav, "param_request_read_send", None)
-                if sender is None:
-                    raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
-                sender(system, component, clean.encode("ascii"), -1)
-            if event.wait(timeout_s):
-                value, _, received = self._parameters[clean]
-                if received > sent:
-                    self._parameter_pending_since.pop(clean, None)
-                    self._parameter_transactions.pop(clean, None)
-                    return value
-        raise TimeoutError(f"PARAM_VALUE timeout for {clean}")
+        lock = self._parameter_locks.setdefault(clean, threading.Lock())
+        with lock:
+            for _ in range(retries):
+                event = self._parameter_events.setdefault(clean, threading.Event())
+                event.clear()
+                self._parameters.pop(clean, None)
+                self._parameter_transactions[clean] = {"state": "arming"}
+                with self._sending():
+                    system, component = self._target()
+                    sender = getattr(self.connection.mav, "param_request_read_send", None)
+                    if sender is None:
+                        raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
+                    sender(system, component, clean.encode("ascii"), -1)
+                sent = self._clock()
+                self._parameter_pending_since[clean] = sent
+                self._parameter_transactions[clean] = {"state": "awaiting"}
+                if event.wait(timeout_s):
+                    value, _, received = self._parameters[clean]
+                    if received > sent:
+                        self._parameter_pending_since.pop(clean, None)
+                        self._parameter_transactions.pop(clean, None)
+                        return value
+            self._parameter_transactions.pop(clean, None)
+            raise TimeoutError(f"PARAM_VALUE timeout for {clean}")
 
     def write_parameter(self, name: str, value: float, *, timeout_s: float = 1.0, retries: int = 3) -> float:
         """Set a PX4 parameter and verify its readback; callers must opt in."""
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             raise ValueError("parameter value must be finite")
-        for _ in range(retries):
-            sent = self._clock()
-            with self._sending():
-                system, component = self._target()
-                sender = getattr(self.connection.mav, "param_set_send", None)
-                if sender is None:
-                    raise RuntimeError("MAVLink connection lacks PARAM_SET")
-                ptype = self._parameters.get(name, (0.0, 6 if name in {
-                    "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
-                    "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
-                wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
-                        if ptype == 6 else float(value))
+        lock = self._parameter_locks.setdefault(name, threading.Lock())
+        with lock:
+            for _ in range(retries):
+                with self._sending():
+                    system, component = self._target()
+                    sender = getattr(self.connection.mav, "param_set_send", None)
+                    if sender is None:
+                        raise RuntimeError("MAVLink connection lacks PARAM_SET")
+                    ptype = self._parameters.get(name, (0.0, 6 if name in {
+                        "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
+                        "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
+                    wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
+                            if ptype == 6 else float(value))
+                    self._parameter_transactions[name] = {
+                        "state": "arming", "expected": float(value),
+                        "param_type": ptype,
+                    }
+                    self._parameter_events.setdefault(name, threading.Event()).clear()
+                    sender(system, component, name.encode("ascii"), wire, ptype)
+                sent = self._clock()
                 self._parameter_pending_since[name] = sent
-                self._parameter_transactions[name] = {
-                    "count": 0, "last_value": None, "expected": float(value),
-                    "param_type": ptype,
-                }
-                self._parameter_events.setdefault(name, threading.Event()).clear()
-                sender(system, component, name.encode("ascii"), wire, ptype)
-            event = self._parameter_events.setdefault(name, threading.Event())
-            if event.wait(timeout_s):
-                actual, _, received = self._parameters[name]
-                if received > sent and math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
-                    self._parameter_pending_since.pop(name, None)
-                    self._parameter_transactions.pop(name, None)
-                    return actual
-            if getattr(self.read_parameter, "__func__", None) is not PymavlinkVehicle.read_parameter:
-                actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
-                if math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
-                    return actual
-        raise TimeoutError(f"parameter write/readback failed for {name}")
+                self._parameter_transactions[name]["state"] = "awaiting"
+                event = self._parameter_events.setdefault(name, threading.Event())
+                if event.wait(timeout_s):
+                    actual, _, received = self._parameters[name]
+                    if received > sent and math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                        self._parameter_pending_since.pop(name, None)
+                        self._parameter_transactions.pop(name, None)
+                        return actual
+                if getattr(self.read_parameter, "__func__", None) is not PymavlinkVehicle.read_parameter:
+                    actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
+                    if math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                        return actual
+            self._parameter_transactions.pop(name, None)
+            raise TimeoutError(f"parameter write/readback failed for {name}")
 
     def request_home_position(self) -> None:
         self._command(512, 242.0)
