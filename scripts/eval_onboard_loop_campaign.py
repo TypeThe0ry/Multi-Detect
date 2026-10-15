@@ -10,15 +10,48 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from scripts.model_round_guard import ensure_free_disk  # noqa: E402
 from scripts.score_onboard_loop import score_episode  # noqa: E402
+
+
+def retry_failed_episodes(out: Path) -> list[Path]:
+    """Archive failed/incomplete recordings, leaving completed episodes untouched.
+
+    The collector allocates UUID episode names. Keeping previous attempts outside
+    ``episodes`` preserves diagnostics without counting attempts as extra episodes.
+    """
+    archived = []
+    for episode in sorted((out / "episodes").glob("*")):
+        if not episode.is_dir():
+            continue
+        try:
+            metadata = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if metadata.get("status") == "complete" and (episode / "steps.jsonl").is_file():
+            continue
+        destination = out / "retry-history" / f"{episode.name}-{uuid.uuid4().hex[:8]}"
+        root = out.resolve()
+        if not episode.resolve().is_relative_to(root) or not destination.resolve().is_relative_to(
+            root
+        ):
+            raise RuntimeError(f"Retry archive path escapes campaign output: {episode}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(episode), str(destination))
+        archived.append(destination)
+    return archived
 
 
 def _expert_reference(campaign: Path, world: str) -> dict[str, Any] | None:
@@ -62,10 +95,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--radius-m", type=float, default=10.0)
     parser.add_argument("--onboard-config", type=Path, default=None)
     parser.add_argument("--max-episode-s", type=int, default=2400)
+    parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument("--min-free-disk-gb", type=float, default=0)
+    parser.add_argument("--disk-check-every", type=int, default=1)
     parser.add_argument(
         "--worlds", nargs="*", default=None, help="only these world ids (default: the whole split)"
     )
     args = parser.parse_args(argv)
+    if args.episodes < 1 or args.disk_check_every < 1 or args.min_free_disk_gb < 0:
+        parser.error("episodes and disk-check-every must be positive; disk GB must be nonnegative")
     mission_config = (
         json.loads(args.onboard_config.read_text(encoding="utf-8")) if args.onboard_config else None
     )
@@ -80,9 +118,13 @@ def main(argv: list[str] | None = None) -> int:
     for world in worlds:
         world_id = world["world_id"]
         out = args.out / world_id
+        if args.retry_failed_episodes:
+            retry_failed_episodes(out)
         done = sorted(out.glob("episodes/*/episode.json")) if out.is_dir() else []
         missing = max(0, args.episodes - len(done))
-        if missing:
+        while missing:
+            ensure_free_disk(args.out, args.min_free_disk_gb)
+            batch = min(missing, args.disk_check_every)
             command = [
                 sys.executable,
                 str(ROOT / "scripts/collect_sim_teacher_episodes.py"),
@@ -91,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
                 "--teacher",
                 "onboard",
                 "--episodes",
-                str(missing),
+                str(batch),
+                "--seed",
+                str(args.episodes - missing),
                 "--steps-per-episode",
                 str(args.steps),
                 "--out",
@@ -112,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
                     command, stdout=handle, stderr=subprocess.STDOUT, check=False
                 ).returncode
             print(json.dumps({"world": world_id, "collector_exit": code}), flush=True)
+            if code:
+                raise RuntimeError(f"Collector failed for {world_id}: exit {code}; see {log}")
+            missing -= batch
         truth = json.loads((scenarios / f"{world_id}.truth.json").read_text(encoding="utf-8"))
         for episode in sorted(out.glob("episodes/*/")):
             if not (episode / "steps.jsonl").is_file():
@@ -227,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0
+    return int(len(rows) < len(worlds) * args.episodes or len(complete) != len(rows))
 
 
 if __name__ == "__main__":
