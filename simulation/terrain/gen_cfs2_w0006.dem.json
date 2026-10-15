@@ -1,0 +1,54 @@
+{
+  "coordinate_reference": "WGS84",
+  "east_origin_m": -200.0,
+  "east_spacing_m": 100.0,
+  "elevation_m": [
+    [
+      18.0,
+      18.0,
+      18.0,
+      18.0,
+      18.0
+    ],
+    [
+      18.0,
+      18.0,
+      18.0,
+      18.0,
+      18.0
+    ],
+    [
+      18.0,
+      18.0,
+      18.0,
+      18.0,
+      18.0
+    ],
+    [
+      18.0,
+      18.0,
+      18.0,
+      18.0,
+      18.0
+    ],
+    [
+      18.0,
+      18.0,
+      18.0,
+      18.0,
+      18.0
+    ]
+  ],
+  "north_origin_m": -200.0,
+  "north_spacing_m": 100.0,
+  "origin": {
+    "elevation_m": 18.0,
+    "latitude_deg": 1.3521,
+    "longitude_deg": 103.8198
+  },
+  "scenario_id": "gen_cfs2_w0006",
+  "schema_version": 1,
+  "slope_sigma_m_per_m": 0.002,
+  "vertical_datum": "MSL",
+  "vertical_sigma_m": 0.4
+}

@@ -50,6 +50,7 @@ def truth_for_episode(
     default_roots = (
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
+        ROOT / "configs/scenarios/generated-confusers-2",
         ROOT / "configs/scenarios/generated-v2",
     )
     for root in default_roots:
