@@ -36,6 +36,106 @@ SCHEMA_VERSION = 1
 ORIGIN_LAT = 1.352100
 ORIGIN_LON = 103.819800
 WORLD_RADIUS_M = 150.0
+
+# Gazebo Harmonic's SDF scene/light fields are deliberately kept as plain
+# scalar values here.  ``haze`` is a contrast/ambient fallback: Ogre2 does
+# not reliably render SDF ``scene/fog`` in the Harmonic stack, so the camera
+# augmentation path is the portable way to add atmospheric haze.
+APPEARANCE_PRESETS = (
+    "noon_clear",
+    "morning_low_sun",
+    "evening_low_sun",
+    "overcast_flat",
+    "dusk_dim",
+    "haze",
+)
+
+
+def _appearance_values(name: str, rng: random.Random) -> dict[str, Any]:
+    """Return deterministic scene/light values for one appearance preset."""
+    if name not in APPEARANCE_PRESETS:
+        raise ValueError(f"unknown appearance preset: {name}")
+    # Keep noon_clear equal to the existing Fuel world values.  A tiny seeded
+    # azimuth change for the other profiles prevents every world sharing one
+    # identical shadow direction while leaving object placement untouched.
+    profiles: dict[str, dict[str, Any]] = {
+        "noon_clear": {
+            "ambient": (0.45, 0.45, 0.45),
+            "background": (0.75, 0.80, 0.88),
+            "shadows": True,
+            "intensity": 1.0,
+            "direction": (-0.4, 0.3, -0.8),
+            "diffuse": (1.0, 1.0, 1.0),
+            "specular": (0.2, 0.2, 0.2),
+        },
+        "morning_low_sun": {
+            "ambient": (0.34, 0.36, 0.40),
+            "background": (0.78, 0.75, 0.70),
+            "shadows": True,
+            "intensity": 0.82,
+            "elevation": 0.30,
+            "azimuth": -1.15,
+            "diffuse": (1.0, 0.78, 0.58),
+            "specular": (0.18, 0.14, 0.10),
+        },
+        "evening_low_sun": {
+            "ambient": (0.30, 0.30, 0.34),
+            "background": (0.72, 0.62, 0.58),
+            "shadows": True,
+            "intensity": 0.68,
+            "elevation": 0.22,
+            "azimuth": 1.05,
+            "diffuse": (1.0, 0.58, 0.38),
+            "specular": (0.16, 0.10, 0.08),
+        },
+        "overcast_flat": {
+            "ambient": (0.62, 0.64, 0.68),
+            "background": (0.70, 0.73, 0.78),
+            "shadows": False,
+            "intensity": 0.48,
+            "direction": (-0.25, 0.18, -0.95),
+            "diffuse": (0.82, 0.86, 0.92),
+            "specular": (0.03, 0.03, 0.03),
+        },
+        "dusk_dim": {
+            "ambient": (0.16, 0.18, 0.25),
+            "background": (0.18, 0.22, 0.32),
+            "shadows": True,
+            "intensity": 0.30,
+            "elevation": 0.08,
+            "azimuth": 0.65,
+            "diffuse": (0.52, 0.60, 0.82),
+            "specular": (0.04, 0.05, 0.08),
+        },
+        "haze": {
+            "ambient": (0.52, 0.55, 0.58),
+            "background": (0.68, 0.72, 0.76),
+            "shadows": False,
+            "intensity": 0.58,
+            "direction": (-0.35, 0.25, -0.90),
+            "diffuse": (0.82, 0.86, 0.90),
+            "specular": (0.05, 0.05, 0.05),
+        },
+    }
+    values = dict(profiles[name])
+    if "elevation" in values:
+        elevation = float(values.pop("elevation"))
+        azimuth = float(values.pop("azimuth")) + rng.uniform(-0.25, 0.25)
+        values["direction"] = (
+            math.cos(azimuth) * math.cos(elevation),
+            math.sin(azimuth) * math.cos(elevation),
+            -math.sin(elevation),
+        )
+    return values
+
+
+def _appearance_sequence(appearance: str | Sequence[str] | None) -> tuple[str, ...] | None:
+    if appearance is None:
+        return None
+    values = (appearance,) if isinstance(appearance, str) else tuple(appearance)
+    if not values or any(value not in APPEARANCE_PRESETS for value in values):
+        raise ValueError(f"appearance must be one of {APPEARANCE_PRESETS}")
+    return values
 def _cn(*codes: int) -> str:
     return "".join(chr(code) for code in codes)
 TASK_TEMPLATES = (
@@ -123,7 +223,38 @@ def _obstacle_sdf(name: str, x: float, y: float, z: float, sx: float, sy: float,
     </model>'''
 
 
-def _world_sdf(world_id: str, objects: list[_Object], obstacles: list[tuple[Any, ...]], rng: random.Random, real_time_factor: float) -> str:
+def _world_sdf(
+    world_id: str,
+    objects: list[_Object],
+    obstacles: list[tuple[Any, ...]],
+    rng: random.Random,
+    real_time_factor: float,
+    appearance: str | None = None,
+) -> str:
+    if appearance is not None:
+        values = _appearance_values(appearance, rng)
+        ambient = " ".join(f"{v:.3f}" for v in values["ambient"]) + " 1"
+        background = " ".join(f"{v:.3f}" for v in values["background"]) + " 1"
+        direction = " ".join(f"{v:.4f}" for v in values["direction"])
+        diffuse = " ".join(f"{v:.3f}" for v in values["diffuse"]) + " 1"
+        specular = " ".join(f"{v:.3f}" for v in values["specular"]) + " 1"
+        scene = f"<scene><grid>false</grid><ambient>{ambient}</ambient><background>{background}</background><shadows>{str(values['shadows']).lower()}</shadows></scene>"
+        light = f"<light name=\"sun\" type=\"directional\"><pose>0 0 500 0 0 0</pose><cast_shadows>{str(values['shadows']).lower()}</cast_shadows><intensity>{values['intensity']:.3f}</intensity><direction>{direction}</direction><diffuse>{diffuse}</diffuse><specular>{specular}</specular></light>"
+        bits = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9"><world name="default">
+  <physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor><real_time_update_rate>250</real_time_update_rate></physics>
+  <gravity>0 0 -9.80665</gravity><magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field><atmosphere type="adiabatic"/>
+  {scene}
+  <spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>{ORIGIN_LAT:.6f}</latitude_deg><longitude_deg>{ORIGIN_LON:.6f}</longitude_deg><elevation>18</elevation></spherical_coordinates>
+  {light}
+  <model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><ambient>0.25 0.38 0.22 1</ambient><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+  <model name="multirotor_home_pad"><static>true</static><link name="pad_link"><collision name="pad_collision"><pose>0 0 0.05 0 0 0</pose><geometry><cylinder><radius>5</radius><length>0.1</length></cylinder></geometry></collision><visual name="pad_visual"><pose>0 0 0.05 0 0 0</pose><geometry><cylinder><radius>5</radius><length>0.1</length></cylinder></geometry><material><ambient>0.15 0.16 0.18 1</ambient><diffuse>0.25 0.27 0.30 1</diffuse></material></visual></link></model>''']
+        bits.extend(_obstacle_sdf(*item) for item in obstacles)
+        bits.extend(_object_sdf(obj) for obj in objects)
+        bits.append("</world></sdf>\n")
+        return "\n".join(bits)
+    # This branch is intentionally unchanged: default generation is a
+    # byte-identity contract for existing worlds and fixtures.
     ambient = rng.uniform(0.35, 0.60)
     bg = rng.uniform(0.65, 0.88)
     intensity = rng.uniform(0.75, 1.35)
@@ -165,13 +296,14 @@ def _write_map_and_terrain(maps_dir: Path, terrain_dir: Path, world_id: str) -> 
     _write(terrain_dir / f"{world_id}.dem.json", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "vertical_datum": "MSL", "origin": {"latitude_deg": ORIGIN_LAT, "longitude_deg": ORIGIN_LON, "elevation_m": 18.0}, "north_origin_m": -200.0, "east_origin_m": -200.0, "north_spacing_m": 100.0, "east_spacing_m": 100.0, "elevation_m": [[18.0] * 5 for _ in range(5)], "vertical_sigma_m": 0.4, "slope_sigma_m_per_m": 0.002})
 
 
-def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0) -> dict[str, Any]:
+def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0, appearance: str | Sequence[str] | None = None) -> dict[str, Any]:
     """Generate ``count`` worlds and return the deterministic index document."""
     if count < 1 or seed < 0 or real_time_factor <= 0:
         raise ValueError("count/seed must be non-negative (count > 0), and real_time_factor > 0")
     if len(split_ratios) != 3 or any(r < 0 for r in split_ratios) or not math.isclose(sum(split_ratios), 1.0, abs_tol=1e-9):
         raise ValueError("split_ratios must be three non-negative values summing to 1")
     worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
+    appearances = _appearance_sequence(appearance)
     maps_dir, terrain_dir = _map_terrain_dirs(worlds_dir)
     rng = random.Random(seed)
     entries: list[dict[str, Any]] = []
@@ -204,7 +336,8 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
             kind_cn, kind = KINDS[(index + distractor_index + 1) % len(KINDS)]
             dx, dy = point(4.0)
             objects.append(_Object(f"distractor_{index:04d}_{distractor_index:02d}", dx, dy, 0.75, rng.uniform(-math.pi, math.pi), 4.0, f"{color}_{kind}", color_cn, rgb, kind))
-        sdf = _world_sdf(world_id, objects, obstacles, rng, real_time_factor)
+        profile = appearances[index % len(appearances)] if appearances else None
+        sdf = _world_sdf(world_id, objects, obstacles, random.Random(seed + index), real_time_factor, profile) if profile else _world_sdf(world_id, objects, obstacles, rng, real_time_factor)
         world_path = worlds_dir / f"{world_id}.sdf"
         worlds_dir.mkdir(parents=True, exist_ok=True)
         world_path.write_text(sdf, encoding="utf-8", newline="\n")
@@ -223,9 +356,14 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
         scenario["channels"] = {"runtime_input": {"path": runtime_path.name, "sha256": canonical_sha256(runtime)}, "truth": {"path": truth_path.name, "sha256": canonical_sha256(truth)}, "expectations": {"path": expectations_path.name, "sha256": canonical_sha256(expectations)}}
         scenario_path = scenarios_dir / f"{world_id}.scenario.json"
         scenario_hash = _write(scenario_path, scenario)
-        entries.append({"world_id": world_id, "split": split, "seed": seed + index, "task_text": TASK_TEMPLATES[index % len(TASK_TEMPLATES)].format(color=target_color_cn, kind=target_kind_cn), "world_file": world_path.name, "files": {"world": {"path": world_path.name, "sha256": hashlib.sha256(world_path.read_bytes()).hexdigest()}, "scenario": {"path": scenario_path.name, "sha256": scenario_hash}, "runtime": {"path": runtime_path.name, "sha256": runtime_hash}, "truth": {"path": truth_path.name, "sha256": truth_hash}, "expectations": {"path": expectations_path.name, "sha256": expectations_hash}}, "true_target_id": objects[0].object_id, "target_pose": {"x_east_m": objects[0].x, "y_north_m": objects[0].y, "z_up_m": objects[0].z, "yaw_rad": objects[0].yaw}})
+        entry = {"world_id": world_id, "split": split, "seed": seed + index, "task_text": TASK_TEMPLATES[index % len(TASK_TEMPLATES)].format(color=target_color_cn, kind=target_kind_cn), "world_file": world_path.name, "files": {"world": {"path": world_path.name, "sha256": hashlib.sha256(world_path.read_bytes()).hexdigest()}, "scenario": {"path": scenario_path.name, "sha256": scenario_hash}, "runtime": {"path": runtime_path.name, "sha256": runtime_hash}, "truth": {"path": truth_path.name, "sha256": truth_hash}, "expectations": {"path": expectations_path.name, "sha256": expectations_hash}}, "true_target_id": objects[0].object_id, "target_pose": {"x_east_m": objects[0].x, "y_north_m": objects[0].y, "z_up_m": objects[0].z, "yaw_rad": objects[0].yaw}}
+        if profile is not None:
+            entry["appearance"] = profile
+        entries.append(entry)
         _write_map_and_terrain(maps_dir, terrain_dir, world_id)
     index_doc = {"schema_version": 1, "generator": "multidetect.simulator.world_gen", "seed": seed, "count": count, "split_ratios": list(split_ratios), "real_time_factor": real_time_factor, "worlds": entries}
+    if appearances is not None:
+        index_doc["appearance_presets"] = list(appearances)
     _write(scenarios_dir / "index.json", index_doc)
     return index_doc
 
@@ -244,7 +382,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          count_slugs: tuple[str, ...] | None = None,
                          spread_m: tuple[float, float] = (24.0, 120.0),
                          confusers: Mapping[str, Sequence[str]] | None = None,
-                         confuser_copies: int = 1) -> dict[str, Any]:
+                         confuser_copies: int = 1,
+                         appearance: str | Sequence[str] | None = None) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
     ``unambiguous_tasks`` keeps out distractors that the generated task text would
@@ -273,6 +412,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         raise ValueError("split_ratios must be three non-negative values summing to 1")
     if len(spread_m) != 2 or not 0 <= spread_m[0] < spread_m[1] <= WORLD_RADIUS_M:
         raise ValueError("spread_m must satisfy 0 <= min < max <= WORLD_RADIUS_M")
+    appearances = _appearance_sequence(appearance)
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
     eligible = [a for a in assets if "target" in a.get("role_eligibility", [])]
@@ -435,7 +575,19 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                 }
                 next_label += 1
             models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id))
-        sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
+        profile = appearances[i % len(appearances)] if appearances else None
+        if profile is None:
+            sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
+        else:
+            values = _appearance_values(profile, random.Random(seed + i))
+            ambient = " ".join(f"{v:.3f}" for v in values["ambient"]) + " 1"
+            background = " ".join(f"{v:.3f}" for v in values["background"]) + " 1"
+            direction = " ".join(f"{v:.4f}" for v in values["direction"])
+            diffuse = " ".join(f"{v:.3f}" for v in values["diffuse"]) + " 1"
+            specular = " ".join(f"{v:.3f}" for v in values["specular"]) + " 1"
+            lit = (f'<scene><ambient>{ambient}</ambient><background>{background}</background><shadows>{str(values["shadows"]).lower()}</shadows></scene>'
+                   f'<light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>{direction}</direction><cast_shadows>{str(values["shadows"]).lower()}</cast_shadows><intensity>{values["intensity"]:.3f}</intensity><diffuse>{diffuse}</diffuse><specular>{specular}</specular></light>')
+            sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity>{lit}<model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
         world_path=worlds_dir/f"{world_id}.sdf"
         sdf=sdf.replace("<gravity>0 0 -9.80665</gravity>", f"<gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>{ORIGIN_LAT}</latitude_deg><longitude_deg>{ORIGIN_LON}</longitude_deg><elevation>18</elevation></spherical_coordinates>")
         world_path.write_text(sdf,encoding="utf-8",newline="\n")
@@ -465,6 +617,12 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         elif confusers is not None:
             counting_fields = {"task_kind": "find", "expected_count": 1,
                                "find_task_text": task_text, "find_task_text_en": task_text_en}
-        entries.append({"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0], **counting_fields})
-    doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}; _write(scenarios_dir/"index.json",doc); return doc
+        entry = {"world_id":world_id,"split":split,"seed":seed+i,"task_text":task_text,"task_text_en":task_text_en,"asset_mode":"fuel_v1","target_combo":{"slug":target["slug"],"category":target["category"],"color":target.get("color")},"world_file":world_path.name,"true_target_id":objects[0][0], **counting_fields}
+        if profile is not None:
+            entry["appearance"] = profile
+        entries.append(entry)
+    doc={"schema_version":1,"generator":"multidetect.simulator.world_gen","asset_mode":"fuel_v1","seed":seed,"count":count,"split_ratios":list(split_ratios),"held_out_target_combos":[x for x in target_combos if x["split"]=="test"],"worlds":entries}
+    if appearances is not None:
+        doc["appearance_presets"] = list(appearances)
+    _write(scenarios_dir/"index.json",doc); return doc
 

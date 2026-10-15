@@ -54,7 +54,7 @@ def _truth_path(world: str, scenarios: Path | None) -> Path:
     roots = [scenarios] if scenarios else []
     roots.extend(
         ROOT / "configs/scenarios" / name
-        for name in ("generated-count-site", "generated-confusers", "generated-v2")
+        for name in ("generated-count-site", "generated-confusers", "generated-v2-appearance", "generated-v2")
     )
     return next(
         root / f"{world}.truth.json" for root in roots if (root / f"{world}.truth.json").is_file()

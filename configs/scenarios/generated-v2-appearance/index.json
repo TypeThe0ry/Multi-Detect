@@ -1,0 +1,280 @@
+{
+  "appearance_presets": [
+    "morning_low_sun",
+    "evening_low_sun",
+    "overcast_flat",
+    "dusk_dim",
+    "haze",
+    "noon_clear"
+  ],
+  "asset_mode": "fuel_v1",
+  "count": 6,
+  "generator": "scripts.generate_appearance_test_set",
+  "schema_version": 1,
+  "seed": 20261011,
+  "split_ratios": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "worlds": [
+    {
+      "appearance": "morning_low_sun",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0000.expectations.json",
+          "sha256": "3072a7dc77eac43c9deaefb53e7dda29981f9e25099944fbe9ddae0a793d64e7"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0000.runtime.json",
+          "sha256": "0b5c48b7afbf23752a7ceea1520ec5867ce03c76072a39f9ad0a8d4092bb2dcd"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0000.runtime_input.json",
+          "sha256": "9f1f8c7bc588a35a62fa78f46a4cba1cc5474c52cbbc8ee806bd2a23c745fbb0"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0000.scenario.json",
+          "sha256": "34987c5a0769cdd6d5790e2a24da9c04d9283d000d0888d3b56c55f614ad7d32"
+        },
+        "truth": {
+          "path": "gen_v2a_w0000.truth.json",
+          "sha256": "80054701fa6eb8c1d4c5a0d9cca8ef595ab7737d7b5cfffec5e43020822b6d4e"
+        },
+        "world": {
+          "path": "gen_v2a_w0000.sdf",
+          "sha256": "f52d86e015c14e693b60fbaaeb0e602f9a95d64b0ddb872dcfbf34c7057f6a3c"
+        }
+      },
+      "seed": 20261045,
+      "source_world_id": "gen_v2_w0034",
+      "split": "test",
+      "target_combo": {
+        "category": "stop_sign",
+        "color": "red",
+        "slug": "stop_sign"
+      },
+      "task_text": "找到红色停止标志并记录位置",
+      "task_text_en": "Find the red stop sign and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0000",
+      "world_file": "gen_v2a_w0000.sdf",
+      "world_id": "gen_v2a_w0000"
+    },
+    {
+      "appearance": "evening_low_sun",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0001.expectations.json",
+          "sha256": "99de00f6c11f9ec3e7bb426c0781360a692bfa8c36e3787d4ddb7b948fa36c94"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0001.runtime.json",
+          "sha256": "af162678357b60fc29768810179496fa5ea0ec34c43f87ca0b526ac0ad77c1a8"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0001.runtime_input.json",
+          "sha256": "ddba789a17818c0f7a0b6e2b169651a17a5e3f9f9052b61afd8d0f8f47ed26c8"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0001.scenario.json",
+          "sha256": "8f59afe2912b123c11ac899c9dc707fb588a4f28389f5d0221c944d57c7b3016"
+        },
+        "truth": {
+          "path": "gen_v2a_w0001.truth.json",
+          "sha256": "7d978e909aab436dc9657d9b844860d5a4cf0e7bc094c1927f4d20ddada300ec"
+        },
+        "world": {
+          "path": "gen_v2a_w0001.sdf",
+          "sha256": "ca327b61e54af1ec269ced055d5524007740f78fc448e7bb74ef3fb99f495ba4"
+        }
+      },
+      "seed": 20261046,
+      "source_world_id": "gen_v2_w0035",
+      "split": "test",
+      "target_combo": {
+        "category": "suv",
+        "color": null,
+        "slug": "suv"
+      },
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0001",
+      "world_file": "gen_v2a_w0001.sdf",
+      "world_id": "gen_v2a_w0001"
+    },
+    {
+      "appearance": "overcast_flat",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0002.expectations.json",
+          "sha256": "ecfae298ced6fb99438f1cc49e5f28a549767f9eea6e214d292a2b4fd3fac404"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0002.runtime.json",
+          "sha256": "27f44c2d6aa5732e50854fdeb507d26480e52eafd7a38514c68f30587e45c094"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0002.runtime_input.json",
+          "sha256": "5a3e35872453fe7943ce108c433abb80891c9f9f7c8a2461326736f627ef65cf"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0002.scenario.json",
+          "sha256": "87e9ee54f19919c83e032b46d4e06745f68b0b655df5948467113aa0348f0382"
+        },
+        "truth": {
+          "path": "gen_v2a_w0002.truth.json",
+          "sha256": "85fa01992c0b48119b3c37b47e27365301fe8b91cabc8c56efdbe39f0d65e923"
+        },
+        "world": {
+          "path": "gen_v2a_w0002.sdf",
+          "sha256": "b401fee9ee76345239209bf5884a790f90a4dbe9368a90db82721fa3d86db2cf"
+        }
+      },
+      "seed": 20261047,
+      "source_world_id": "gen_v2_w0036",
+      "split": "test",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "walking_person"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0002",
+      "world_file": "gen_v2a_w0002.sdf",
+      "world_id": "gen_v2a_w0002"
+    },
+    {
+      "appearance": "dusk_dim",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0003.expectations.json",
+          "sha256": "2b5ba1b31627079c61f6abed0025254351a5d5f3df100994f64430d6cc14c009"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0003.runtime.json",
+          "sha256": "6791214784d77a577eb1660069ba31428460951d22d169afc70d8dde76be24cc"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0003.runtime_input.json",
+          "sha256": "be56459963e623cc5e9b60c0d06f5a90ae3e93eae6f286867f8620557c3d4c77"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0003.scenario.json",
+          "sha256": "4415fb01b592632b436c8b9694f3979e90fa2e3831ea190d9619dc20230757c4"
+        },
+        "truth": {
+          "path": "gen_v2a_w0003.truth.json",
+          "sha256": "e721f1bb41c65fea2e519f45de0c3d250cc2a33687df63793437288a70878d05"
+        },
+        "world": {
+          "path": "gen_v2a_w0003.sdf",
+          "sha256": "1fbb8266c6709100261459083a19730970f5a42ffc1fe6581997988d34b02184"
+        }
+      },
+      "seed": 20261048,
+      "source_world_id": "gen_v2_w0037",
+      "split": "test",
+      "target_combo": {
+        "category": "pickup",
+        "color": null,
+        "slug": "pickup"
+      },
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0003",
+      "world_file": "gen_v2a_w0003.sdf",
+      "world_id": "gen_v2a_w0003"
+    },
+    {
+      "appearance": "haze",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0004.expectations.json",
+          "sha256": "c1988e510dd4b7839764cb3a337e6d6de6d6308a7319075f981d46b62575835f"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0004.runtime.json",
+          "sha256": "e86e2c8f3bbcf8a8f60b74afce4f410bf7db507d2496583f949550c5f4764a78"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0004.runtime_input.json",
+          "sha256": "f932bf08876a508434861aefb6b501b2a4da9ee8b9816b823066ce048698b896"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0004.scenario.json",
+          "sha256": "7396a9cea1c10e006868547a2897e3b151c9b5ad88e42dace022679c65a3d4f6"
+        },
+        "truth": {
+          "path": "gen_v2a_w0004.truth.json",
+          "sha256": "b9e680cebbbf5d1bebc86bbe390634da5d1820ef79736d28b8ab38e43aae976d"
+        },
+        "world": {
+          "path": "gen_v2a_w0004.sdf",
+          "sha256": "89140c4278d851f0bb25ff413713654317371d29f2e0a740d0a1455e853dd798"
+        }
+      },
+      "seed": 20261049,
+      "source_world_id": "gen_v2_w0038",
+      "split": "test",
+      "target_combo": {
+        "category": "postbox",
+        "color": null,
+        "slug": "postbox"
+      },
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0004",
+      "world_file": "gen_v2a_w0004.sdf",
+      "world_id": "gen_v2a_w0004"
+    },
+    {
+      "appearance": "noon_clear",
+      "asset_mode": "fuel_v1",
+      "files": {
+        "expectations": {
+          "path": "gen_v2a_w0005.expectations.json",
+          "sha256": "90fb1765f0161bee8bbf17942f43a8624509c13335d0d26643b8f9c31f6ddff6"
+        },
+        "runtime": {
+          "path": "gen_v2a_w0005.runtime.json",
+          "sha256": "8f8b50e4e614ef514a5211b7183c5613959e9beceae623a3f7abd80b2e289eec"
+        },
+        "runtime_input": {
+          "path": "gen_v2a_w0005.runtime_input.json",
+          "sha256": "14b811d6ee227f027711441899f5610e239f630b85c19c60d2ddb46d6d0e2e70"
+        },
+        "scenario": {
+          "path": "gen_v2a_w0005.scenario.json",
+          "sha256": "d0f98c1910befbb069ab45535d28196e73dc7120259ef90aed2e7847418ded0e"
+        },
+        "truth": {
+          "path": "gen_v2a_w0005.truth.json",
+          "sha256": "87c1734d1791ae74328c0c1534d13eb8e27a715cdefb64a507c46f936eb6be79"
+        },
+        "world": {
+          "path": "gen_v2a_w0005.sdf",
+          "sha256": "142a93f0c79a830385335d4ed24be9f1112b5c30a2d224ede60c5efa84deabed"
+        }
+      },
+      "seed": 20261050,
+      "source_world_id": "gen_v2_w0039",
+      "split": "test",
+      "target_combo": {
+        "category": "person",
+        "color": null,
+        "slug": "standing_person"
+      },
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "true_target_id": "target_true_gen_v2a_w0005",
+      "world_file": "gen_v2a_w0005.sdf",
+      "world_id": "gen_v2a_w0005"
+    }
+  ]
+}
