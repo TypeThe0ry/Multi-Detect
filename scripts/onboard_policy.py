@@ -33,6 +33,7 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
     plan_for_find_task,
     task_text_for,
 )
+from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
@@ -42,12 +43,17 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
     compile_mission_plan,
     plan_json_schema,
 )
+from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
     Detection,
     LoopConfig,
     OnboardLoop,
+)
+from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
+    DownlinkQueue,
+    OnboardMissionLog,
 )
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
@@ -176,6 +182,22 @@ class OnboardPolicy:
         config: dict[str, Any] | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        package_raw = options.get("mission_package")
+        if isinstance(package_raw, str):
+            package_path = Path(package_raw)
+            package_raw = package_path if package_path.is_absolute() else ROOT / package_path
+        self.mission_package = (
+            load_mission_package(package_raw) if package_raw is not None else None
+        )
+        if self.mission_package is not None:
+            package = self.mission_package
+            options["refs"] = package.refs
+            options["ref_labels"] = package.document.get("ref_labels", {})
+            options["task_text"] = package.document.get("task_text") or package.plan.goal
+            options["mission"] = "package" if package.plan is not None else "from_text"
+            area = package.document["operating_area"]
+            if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
+                raise ValueError("launch altitude outside mission package limits")
         for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
             # Config paths are relative to the repository root.
             path = Path(options[key])
@@ -270,7 +292,7 @@ class OnboardPolicy:
 
         self.loop = make_loop(task_text)
         mission = options.get("mission")
-        if mission not in {None, "find", "count", "find_and_inspect", "from_text"}:
+        if mission not in {None, "find", "count", "find_and_inspect", "from_text", "package"}:
             raise ValueError(f"unknown mission template {mission!r}")
         self._step = 0
         self.proposer = YoloeProposer(
@@ -295,9 +317,16 @@ class OnboardPolicy:
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
         # Optional multi-skill mode: a MissionPlan compiled from the complete task sentence.
-        self.executor: MissionExecutor | None = None
+        self.executor: MissionExecutor | MissionSupervisor | None = None
+        self.supervisor: MissionSupervisor | None = None
+        self.downlink: DownlinkQueue | None = None
         if mission:
-            if mission == "find":
+            if mission == "package":
+                if self.mission_package is None:
+                    raise ValueError("mission=package requires mission_package")
+                plan = self.mission_package.plan
+                self.mission_plan = plan
+            elif mission == "find":
                 plan = plan_for_find_task("target")
             elif mission == "count":
                 plan = plan_for_count_task("target", region=str(options.get("region", "zone:all")))
@@ -338,15 +367,24 @@ class OnboardPolicy:
                     sorted_keys=bool(options.get("plan_sorted_keys", True)),
                 )
                 self.mission_plan, self.mission_plan_report = plan, report
+                if self.mission_package is not None and report.get("error"):
+                    self.slow.close()
+                    raise ValueError(f"mission package plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
+            if self.mission_package is not None:
+                try:
+                    self.mission_package.validate_plan(plan)
+                except ValueError:
+                    self.slow.close()
+                    raise
             self.executor = MissionExecutor(
                 plan,
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
                 task_text=(
                     (lambda step: perception_task_text(step, self.task_text))
-                    if mission == "from_text"
+                    if mission in {"from_text", "package"}
                     else (lambda step: self.task_text)
                 ),
                 config=ExecutorConfig(
@@ -361,10 +399,37 @@ class OnboardPolicy:
                     alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
                 ),
             )
+            if self.mission_package is not None:
+                self.executor.cruise_altitude_m = altitude_m
+                log = OnboardMissionLog(
+                    self.work_dir / "mission_log", self.mission_package.mission_id
+                )
+                self.downlink = DownlinkQueue(log, sender=None)
+                self.supervisor = MissionSupervisor(
+                    self.executor, self.mission_package, log=log, downlink=self.downlink
+                )
+                self.executor = self.supervisor
+                for event in options.get("ground_events", []):
+                    self.supervisor.ground_event(event)
         self.slow_calls = 0
 
     def close(self) -> None:
-        self.slow.close()
+        try:
+            if self.supervisor is not None:
+                self.supervisor.finish()
+            if self.downlink is not None:
+                self.downlink.close()
+        finally:
+            self.slow.close()
+
+    def ground_event(self, event: dict[str, Any]) -> bool:
+        """Optional transport adapter: timestamps are local receipt times."""
+        return self.supervisor.ground_event(event) if self.supervisor is not None else False
+
+    def set_downlink_sender(self, sender: Callable[[dict[str, Any]], object] | None) -> None:
+        """Attach an optional acknowledged transport; delivery runs in the queue worker."""
+        if self.downlink is not None:
+            self.downlink.set_sender(sender)
 
     def _slow_identity(
         self, frame_path: Path, current, focus, task_text: str | None = None
@@ -419,6 +484,27 @@ class OnboardPolicy:
         }
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        if self.supervisor is not None:
+            for event in observation.get("ground_events", []):
+                self.supervisor.ground_event(event)
+            self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
+            if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
+                action, info = self.supervisor.next_action(
+                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                )
+                return action, {
+                    "onboard": {
+                        **info,
+                        "state": "supervised",
+                        "detections": 0,
+                        "tracks": [],
+                        "slow_calls": [],
+                        "confirmed": None,
+                        "alert_vote_clusters": [],
+                        "fast_latency_s": 0.0,
+                        "mission": {"history": list(self.supervisor.history)},
+                    }
+                }
         import numpy as np
         from PIL import Image
 
@@ -518,9 +604,7 @@ class OnboardPolicy:
             if verdict is None:
                 verdict = self._slow_identity(frame_path, current, track, perception_text)
             if verdict.get("remembered", False):
-                executor.apply_verdict(
-                    track.track_id, verdict["decision"], remembered=True
-                )
+                executor.apply_verdict(track.track_id, verdict["decision"], remembered=True)
             else:
                 executor.apply_verdict(
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
