@@ -53,22 +53,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest="mode", required=True)
     real = modes.add_parser("real", help="serial/UDP PX4 and V4L2/CSI camera")
-    real.add_argument("--endpoint", required=True, help="/dev/ttyTHS1 or udpin:0.0.0.0:14540")
+    real.add_argument("--endpoint", help="/dev/ttyTHS1 or udpin:0.0.0.0:14540")
     real.add_argument("--baud", type=int, default=921600)
-    real.add_argument("--camera", required=True, help="/dev/video0, device index or pipeline")
+    real.add_argument("--camera", help="/dev/video0, device index or pipeline")
     real.add_argument("--camera-backend", choices=("v4l2", "gstreamer"), default="v4l2")
-    real.add_argument("--calibration", type=Path, required=True)
-    real.add_argument("--policy-config", type=Path, required=True)
-    real.add_argument("--task", required=True)
+    real.add_argument("--calibration", type=Path)
+    # Accepted for migration diagnostics, but _admit_package rejects this
+    # legacy path for real flight; policy/task remain valid for replay only.
+    real.add_argument("--policy-config", type=Path)
+    real.add_argument("--task")
+    real.add_argument("--mission-package", type=Path,
+                      help="signed self-contained mission package admitted onboard")
+    real.add_argument("--operator-key-path", "--operator-key", dest="operator_key_path",
+                      type=Path, help="operator verification key for --mission-package")
     real.add_argument("--altitude", type=_positive, default=10)
     real.add_argument("--startup-timeout", type=_positive, default=30)
     real.add_argument("--takeoff-timeout", type=_positive, default=45)
     real.add_argument("--shutdown-action", choices=("land", "rtl"), default="land")
     real.add_argument("--completion-action", choices=("land", "rtl"), default="land")
-    real.add_argument("--mission-package", type=Path,
-                      help="signed/validated mission package used for PX4 preflight")
-    real.add_argument("--operator-key-path", type=Path,
-                      help="operator key used to admit the signed mission package")
     real.add_argument("--apply-px4-params", action="store_true",
                       help="write the matrix and verify every PX4 parameter")
     real.add_argument("--accept-preflight-warnings", action="store_true",
@@ -78,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--episode", type=Path)
     source.add_argument("--generate-fixture", type=Path, help="explicit synthetic bench input")
     replay.add_argument("--calibration", type=Path)
+    replay.add_argument("--mission-package", type=Path)
+    replay.add_argument(
+        "--operator-key-path", "--operator-key", dest="operator_key_path", type=Path
+    )
     replay.add_argument("--slow-latency", type=float, default=1.5)
     replay.add_argument("--detector-latency", type=float, default=0.07)
     for mode in (real, replay):
@@ -93,6 +99,52 @@ def build_parser() -> argparse.ArgumentParser:
         mode.add_argument("--work-dir", type=Path, default=ROOT / "tmp/onboard-runtime/frames")
         mode.add_argument("--output", type=Path)
     return parser
+
+
+def _admit_package(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]:
+    """Admit a package before opening a camera, vehicle, or model backend."""
+    package_path = getattr(args, "mission_package", None)
+    if package_path is None:
+        if getattr(args, "mode", None) == "real":
+            raise ValueError(
+                "real runtime requires a signed --mission-package and --operator-key"
+            )
+        return None, {}
+    # Admission and execution must refer to the exact same files.  Resolve the
+    # paths once here, before any source/model backend is opened, and retain the
+    # resolved values on the namespace for callers that construct their own
+    # execution path.
+    package_path = Path(package_path).expanduser().resolve()
+    args.mission_package = package_path
+    if not package_path.is_file():
+        raise ValueError(f"mission package not found: {package_path}")
+    key_path = (getattr(args, "operator_key_path", None)
+                or getattr(args, "operator_key", None))
+    if key_path is None:
+        raise ValueError("--operator-key is required for a signed mission package")
+    key_path = Path(key_path).expanduser().resolve()
+    args.operator_key_path = key_path
+    if not key_path.is_file():
+        raise ValueError(f"operator key not found: {key_path}")
+    try:
+        package = load_mission_package(
+            package_path, operator_key_path=key_path, require_signature=True
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"mission package admission refused: {exc}") from exc
+    document = package.document
+    task = document.get("task_text") or (package.plan.goal if package.plan else None)
+    if not task:
+        raise ValueError("mission package has no task_text or plan goal")
+    # Package values are authoritative. A policy file can only provide local model
+    # and runtime tuning overrides; MissionSupervisor retains the uploaded policy.
+    return package, {
+        "mission_package": str(package_path),
+        "operator_key_path": str(key_path),
+        "task_text": task,
+        "mission": "package" if package.plan else "from_text",
+        "refs": package.refs,
+    }
 
 
 def _ready(vehicle, camera, config: RuntimeConfig, timeout_s: float, *, require_ground=False):
@@ -139,6 +191,12 @@ def _validate_local_models(config: dict[str, Any]) -> None:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    package, package_options = _admit_package(args)
+    if args.mode == "real":
+        missing = [name for name in ("endpoint", "camera", "calibration")
+                   if getattr(args, name, None) is None]
+        if missing:
+            raise ValueError("real runtime requires " + ", ".join(f"--{name}" for name in missing))
     # Replay priming waits for the injected latency backends before its short
     # wall-clock run; recorded sensor stamps must remain fresh during that
     # deterministic setup window.
@@ -164,15 +222,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         vehicle = ReplayVehicle(recording, timeline)
         proposer = LatencyProposer(args.detector_latency)
         slow = LatencySlowRunner(args.slow_latency)
-        task = recording.task_text or "Find the object and record its position."
+        task = ((package_options.get("task_text") if package else None)
+                or recording.task_text or "Find the object and record its position.")
         options: dict[str, Any] = {"mission": "find", "memory_enabled": False,
                                    "confirm_min_side_px": 1000000}
     else:
-        options = json.loads(args.policy_config.read_text(encoding="utf-8"))
+        options = (json.loads(args.policy_config.read_text(encoding="utf-8"))
+                   if getattr(args, "policy_config", None) else {})
         options.setdefault("mission", "find")
         _validate_local_models(options)
-        if args.mode == "real" and not options.get("mission_package"):
-            raise ValueError("real runtime requires a signed mission_package")
+        # Real mode admission has already verified and loaded the signed
+        # package above; execution receives that exact object below.
         # The shared controller's image bearing/rotation assumes a forward camera.
         # Calibrated ground rays support all axes, but flight control does not yet.
         for key in ("mount_yaw_right_deg", "mount_roll_clockwise_deg"):
@@ -181,10 +241,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
-        package = (load_mission_package(args.mission_package, require_signature=True,
-                                        operator_key_path=args.operator_key_path)
-                   if args.mission_package else None)
-        task = args.task
+        task = package_options.get("task_text") if package else getattr(args, "task", None)
+    if package:
+        options.update(package_options)
+        area = package.document["operating_area"]
+        altitude = getattr(args, "altitude", None)
+        if altitude is not None and not (
+            area["min_altitude_m"] <= altitude <= area["max_altitude_m"]
+        ):
+            raise ValueError("launch altitude outside mission package limits")
     runtime = None
     policy = None
     previous_signals = {}
@@ -226,6 +291,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             camera_info=calibrated.camera_info, image_size=(calibrated.width, calibrated.height),
             work_dir=args.work_dir, config=options, proposer=proposer, slow_runner=slow,
             ground_projector=projector, home_ned=(home[0], home[1], 0),
+            mission_package=package,
             runtime_mode=args.mode,
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
@@ -328,7 +394,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _has_option(argv: list[str], name: str) -> bool:
+    """Return whether *name* is present as a flag or ``--name=value``."""
+    return any(token == name or token.startswith(name + "=") for token in argv)
+
+
 def main(argv=None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    # A package-only invocation is the explicit comms-free real entry. Legacy
+    # callers that name a mode continue to use the subcommand grammar.
+    if argv and argv[0] not in {"real", "replay", "-h", "--help"}:
+        argv = ["real", *argv]
+        if _has_option(argv, "--mission-package") and not _has_option(argv, "--failsafe"):
+            argv.extend(["--failsafe", "land"])
     args = build_parser().parse_args(argv)
     try:
         report = run(args)

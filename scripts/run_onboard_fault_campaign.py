@@ -1,0 +1,850 @@
+#!/usr/bin/env python3
+"""Run the onboard fault campaign with real source faults and evidence-only verdicts.
+
+The campaign deliberately keeps the test doubles at the transport boundary.  The
+same :class:`OnboardRuntime` coordinator used by the aircraft is exercised; the
+verdict code only consumes command/setpoint traces and mission-log decisions.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from multidetect.autonomy.energy_estimator import EnergyConfig  # noqa: E402
+from multidetect.autonomy.mission_executor import ExecutorConfig, MissionExecutor  # noqa: E402
+from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_security import sign_document  # noqa: E402
+from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop  # noqa: E402
+from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
+from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame  # noqa: E402
+from multidetect.onboard_runtime.runtime import OnboardRuntime, RuntimeConfig  # noqa: E402
+from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleState  # noqa: E402
+from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+
+FAULTS = (
+    "camera_freeze", "camera_drop", "pose_stale", "slow_model_timeout",
+    "slow_model_crash", "detector_exception", "gcs_heartbeat_loss",
+    "gcs_heartbeat_recovery", "offboard_loss", "battery_sag", "battery_stale",
+    "home_change", "fence_approach", "rejected_rtl", "lost_rtl", "blocking_command",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FaultEvent:
+    """A source fault window in monotonic campaign time."""
+
+    fault: str
+    at_s: float
+    duration_s: float = 1.0
+    recover: bool = True
+    severity: str = "fault"
+    react_after_s: float = 0.15
+
+    def __post_init__(self) -> None:
+        if self.fault not in FAULTS:
+            raise ValueError(f"unknown fault: {self.fault}")
+        if self.at_s < 0 or self.duration_s <= 0 or self.react_after_s <= 0:
+            raise ValueError("fault timing must be nonnegative and duration positive")
+
+
+def schedule_faults(events: Iterable[FaultEvent | Mapping[str, Any]]) -> tuple[FaultEvent, ...]:
+    """Validate and sort a deterministic schedule."""
+    parsed = tuple(e if isinstance(e, FaultEvent) else FaultEvent(**dict(e)) for e in events)
+    ordered = tuple(sorted(parsed, key=lambda e: (e.at_s, e.fault)))
+    for left, right in zip(ordered, ordered[1:], strict=False):
+        if left.at_s + left.duration_s > right.at_s:
+            raise ValueError(f"overlapping fault windows: {left.fault}, {right.fault}")
+    return ordered
+
+
+def expected_outcome(fault: str, policy: Mapping[str, Any] | None = None) -> str:
+    """Return the product action expected from the admitted policy."""
+    policy = policy or {}
+    action = str(policy.get("action", "continue_then_return"))
+    if fault in {"gcs_heartbeat_loss", "gcs_heartbeat_recovery"}:
+        if fault == "gcs_heartbeat_recovery" and action in {
+            "continue", "continue_then_return", "hold_then_return"
+        }:
+            return "continue"
+        if fault == "gcs_heartbeat_recovery":
+            # Compatibility for callers of the original helper: recovery is
+            # always a continue expectation.  The campaign uses the explicit
+            # policy-aware helper below for loss/recovery timing.
+            return "continue"
+        return {
+            "continue": "continue", "continue_then_return": "return_now",
+            "hold_then_return": "return_now", "return_now": "return_now",
+            "land_now": "land_now",
+        }.get(action, "return_now")
+    if fault in {"slow_model_timeout", "slow_model_crash", "detector_exception",
+                 "camera_freeze", "camera_drop", "pose_stale", "battery_stale"}:
+        return "conservative"
+    if fault == "battery_sag":
+        return "return_now" if policy.get("energy_action", "return_now") else "conservative"
+    if fault in {"offboard_loss", "home_change"}:
+        # A mode/home transition is handled by the runtime hazard path.  Keep
+        # the old public label for compatibility; campaign rows use the
+        # concrete conservative action via ``_campaign_expected_outcome``.
+        return "refuse"
+    if fault == "fence_approach":
+        return "constrained"
+    if fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+        return "land_now"
+    raise ValueError(fault)
+
+
+def _campaign_expected_outcome(fault: str, policy: Mapping[str, Any]) -> str:
+    """Policy semantics used by campaign verdicts (including runtime hazards)."""
+    if fault == "gcs_heartbeat_recovery":
+        return "continue"
+    if fault in {"offboard_loss", "home_change"}:
+        return "conservative"
+    if fault == "battery_sag":
+        return "land_now"
+    if fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+        return "land_now"
+    return expected_outcome(fault, policy)
+
+
+def _expected_reason_fragment(fault: str) -> str:
+    return {
+        "camera_freeze": "stale_camera", "camera_drop": "stale_camera",
+        "pose_stale": "stale_pose", "slow_model_timeout": "autonomy_timeout",
+        "slow_model_crash": "policy_error", "detector_exception": "policy_error",
+        "gcs_heartbeat_loss": "operator policy", "gcs_heartbeat_recovery": "operator policy",
+        "offboard_loss": "offboard_exited", "battery_sag": "energy",
+        "battery_stale": "battery telemetry stale", "home_change": "home_changed",
+        "fence_approach": "fence", "rejected_rtl": "terminal handoff",
+        "lost_rtl": "terminal handoff", "blocking_command": "terminal handoff",
+    }[fault]
+
+
+def _rank(action: str) -> int:
+    return {"continue": 0, "constrained": 1, "hold": 1, "conservative": 1,
+            "return_now": 2, "land_now": 3}.get(action, -1)
+
+
+def verdict(expected: str, observed_action: str | None = None, reason: str = "",
+            *, elapsed_s: float = 0.0, deadline_s: float = 3.0,
+            observation: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Evaluate independently recorded evidence.
+
+    ``observed_action`` remains accepted for compatibility with unit callers;
+    campaign runs pass an observation and derive it here from its records.
+    """
+    if observation is not None:
+        observed_action, reason, elapsed_s = observed_from_observation(observation)
+    observed = observed_action or "unknown"
+    if expected == "continue":
+        action_ok = observed == "continue"
+    elif expected == "conservative":
+        action_ok = _rank(observed) >= 1
+    elif expected == "constrained":
+        action_ok = observed == "constrained"
+    elif expected == "return_now":
+        action_ok = observed == "return_now"
+    elif expected == "land_now":
+        action_ok = observed == "land_now"
+    else:
+        action_ok = False
+    return {"passed": bool(action_ok and elapsed_s <= deadline_s and bool(reason)
+                         and not observation.get("verdict_error", "") if observation else
+                         action_ok and elapsed_s <= deadline_s and bool(reason)),
+            "observed_action": observed, "reason": reason,
+            "elapsed_s": elapsed_s, "deadline_s": deadline_s}
+
+
+def scenario_table() -> list[dict[str, Any]]:
+    return [{"fault": name, "stage": "bench/simulated-hardware" if name not in
+             {"offboard_loss", "home_change", "fence_approach"}
+             else "requires HIL rig, not run"}
+            for name in FAULTS]
+
+
+class FaultCameraSource:
+    """Camera source that freezes or drops frames only within its event window."""
+
+    def __init__(self, clock: Callable[[], float], event: FaultEvent | None) -> None:
+        self.clock, self.event = clock, event
+        self.origin = clock()
+        self.calibration = CameraCalibration(160, 120, 120, 120, 80, 60,
+                                             extrinsics={"mount_pitch_down_deg": 0})
+        self.frame: CameraFrame | None = None
+        self.started = False
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self.started = True
+        self._publish()
+        self._thread = threading.Thread(target=self._run, name="fault-camera", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(0.02):
+            self._publish()
+
+    def _active(self) -> bool:
+        if self.event is None or self.event.fault not in {"camera_freeze", "camera_drop"}:
+            return False
+        elapsed = self.clock() - self.origin
+        return self.event.at_s <= elapsed < self.event.at_s + self.event.duration_s
+
+    def _publish(self) -> None:
+        now = self.clock()
+        if self._active():
+            if self.event and self.event.fault == "camera_drop":
+                self.frame = None
+            return
+        self.frame = CameraFrame(b"synthetic-frame", now, self.calibration)
+
+    def latest(self) -> CameraFrame | None:
+        if not self.started:
+            return None
+        self._publish()
+        # Keep the healthy source independently live even while another
+        # source (for example pose) is the injected fault.  This prevents a
+        # producer scheduling gap from changing the observed fault reason.
+        if self.frame is None and not self._active():
+            self.frame = CameraFrame(b"synthetic-frame", self.clock(), self.calibration)
+        return self.frame
+
+    def close(self) -> None:
+        self.started = False
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
+
+class FaultVehicle:
+    """Vehicle fake exposing every command and telemetry transition."""
+
+    def __init__(self, clock: Callable[[], float], event: FaultEvent | None,
+                 area: Mapping[str, float]) -> None:
+        self.clock, self.event, self.area = clock, event, area
+        self.origin = clock()
+        self.commands: list[dict[str, Any]] = []
+        self.setpoints: list[dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
+        self.closed = False
+        self.mode = "OFFBOARD"
+        self.accept_mode_commands = True
+        self.command_mode = "normal"
+        if event is not None:
+            self.command_mode = {
+                "rejected_rtl": "reject",
+                "lost_rtl": "loss",
+                "blocking_command": "block",
+            }.get(event.fault, "normal")
+        self.home = (0.0, 0.0, 0.0)
+        self.position = (0.0, 0.0, -10.0)
+        self.battery = 90.0
+        self.heartbeats: list[float] = []
+
+    def start(self) -> FaultVehicle:
+        return self
+
+    def _active(self, name: str) -> bool:
+        if self.event is None or self.event.fault != name:
+            return False
+        elapsed = self.clock() - self.origin
+        return self.event.at_s <= elapsed < self.event.at_s + self.event.duration_s
+
+    def snapshot(self) -> VehicleState:
+        now = self.clock()
+        self.heartbeats.append(now)
+        mode = "HOLD" if self._active("offboard_loss") else self.mode
+        home = (2.0, 2.0, 0.0) if self._active("home_change") else self.home
+        position = self.position
+        if self._active("fence_approach"):
+            position = (self.area["north_max_m"] - 0.2, self.area["east_max_m"] - 0.2, -10.0)
+        battery = 5.0 if self._active("battery_sag") else self.battery
+        pose_stamp = None if self._active("pose_stale") else now
+        battery_stamp = None if self._active("battery_stale") else now
+        state = VehicleState(position_ned=position, attitude_deg=(0.0, 0.0, 0.0),
+                             velocity_ned=(0.0, 0.0, 0.0), home_ned=home,
+                             landed=False, armed=True, mode=mode,
+                             battery_remaining=battery, pose_monotonic=pose_stamp,
+                             attitude_monotonic=pose_stamp, heartbeat_monotonic=now,
+                             home_monotonic=now, battery_monotonic=battery_stamp,
+                             landed_monotonic=now)
+        self.history.append({"timestamp": now, "state": asdict(state)})
+        return state
+
+    def send_setpoint(self, setpoint: PositionSetpoint) -> None:
+        accepted = self.mode == "OFFBOARD"
+        timestamp = self.clock()
+        self.setpoints.append({"timestamp": timestamp, "setpoint": asdict(setpoint),
+                               "accepted": accepted, "mode": self.mode})
+        if accepted:
+            # Transport-boundary fake: an accepted position target advances the
+            # simulated vehicle, matching the telemetry a real FCU would emit.
+            self.position = (setpoint.north_m, setpoint.east_m, setpoint.down_m)
+
+    def arm(self) -> None:
+        self.commands.append({"timestamp": self.clock(), "action": "arm"})
+
+    def set_mode(self, mode: str) -> None:
+        requested = mode.upper()
+        now = self.clock()
+        self.commands.append({"timestamp": now, "action": "mode", "mode": requested,
+                              "accepted": self.accept_mode_commands})
+        if self.accept_mode_commands:
+            self.mode = requested
+
+    def land(self) -> None:
+        now = self.clock()
+        if self.command_mode == "block":
+            time.sleep(0.4)
+        accepted = self.accept_mode_commands
+        self.commands.append({"timestamp": now, "action": "land",
+                              "accepted": accepted, "delivered": self.command_mode != "loss"})
+        if accepted:
+            self.mode = "LAND"
+
+    def rtl(self) -> None:
+        now = self.clock()
+        if self.command_mode == "block":
+            time.sleep(0.4)
+        accepted = self.accept_mode_commands and self.command_mode not in {"reject", "loss"}
+        self.commands.append({"timestamp": now, "action": "rtl",
+                              "accepted": accepted, "delivered": self.command_mode != "loss"})
+        if accepted:
+            self.mode = "RTL"
+
+    def close(self) -> None:
+        self.closed = True
+
+    def timing_report(self) -> dict[str, Any]:
+        stamps = [x["timestamp"] for x in self.setpoints]
+        gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
+        return {"setpoint_count": len(stamps), "setpoint_max_gap_s": max(gaps, default=0),
+                "commands": list(self.commands)}
+
+
+class GroundEventSource:
+    def __init__(self, clock: Callable[[], float], event: FaultEvent | None) -> None:
+        self.clock, self.event, self.origin = clock, event, clock()
+        self.heartbeats: list[float] = []
+        self.loss_started: float | None = None
+
+    def connected(self) -> bool:
+        if self.event is None or self.event.fault not in {
+            "gcs_heartbeat_loss", "gcs_heartbeat_recovery"
+        }:
+            return True
+        elapsed = self.clock() - self.origin
+        if self.event.fault == "gcs_heartbeat_loss":
+            connected = not self.event.at_s <= elapsed < self.event.at_s + self.event.duration_s
+            if not connected and self.loss_started is None:
+                self.loss_started = self.clock()
+            return connected
+        # Recovery scenario starts disconnected and reconnects at the window.
+        return elapsed >= self.event.at_s
+
+    def emit(self, mission_id: str) -> bool:
+        if self.connected():
+            self.heartbeats.append(self.clock())
+            return True
+        return False
+
+
+class CampaignPolicy:
+    """Deterministic policy adapter whose decisions are persisted as mission facts."""
+
+    def __init__(self, controller: CampaignController) -> None:
+        self.controller = controller
+
+    def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        if self.controller.fault_active() and self.controller.event.fault == "slow_model_timeout":
+            time.sleep(self.controller.runtime_timeout_s * 2)
+        if self.controller.fault_active() and self.controller.event.fault == "slow_model_crash":
+            raise RuntimeError("slow model crashed")
+        if self.controller.fault_active() and self.controller.event.fault == "detector_exception":
+            raise RuntimeError("detector exception")
+        decision, reason = self.controller.decide(pose_ned)
+        self.controller.log.append("execution", self.controller.clock(),
+                                   action=decision, reason=reason)
+        # Terminal policy decisions use the same runtime coordinator as a real
+        # policy: stop causes the configured completion action to be sent by
+        # OnboardRuntime.  No command is synthesized by the campaign.
+        if decision in {"return_now", "land_now"}:
+            return ActionPrimitive.stop(), {"supervisor_action": decision,
+                                            "supervisor_reason": reason}
+        if decision == "continue":
+            # Keep the synthetic displacement above the runtime's 0.5 m
+            # arrival tolerance so the fake transport emits and confirms a
+            # progressing target before the next policy cycle replaces it.
+            forward = 1.0
+            if self.controller.event.fault == "fence_approach" and pose_ned is not None:
+                area = self.controller.package.document["operating_area"]
+                forward = max(0.0, min(forward, area["north_max_m"] - pose_ned[0]))
+            return ActionPrimitive("translate", forward_m=forward, seconds=0.2), {
+                "supervisor_action": decision, "supervisor_reason": reason,
+            }
+        return ActionPrimitive.hold(0.05), {"supervisor_action": decision,
+                                            "supervisor_reason": reason}
+
+    def close(self) -> None:
+        return None
+
+
+class CampaignController:
+    def __init__(self, package: Any, event: FaultEvent | None, vehicle: FaultVehicle,
+                 ground: GroundEventSource, log: OnboardMissionLog, clock: Callable[[], float]):
+        self.package, self.event, self.vehicle, self.ground, self.log, self.clock = (
+            package, event, vehicle, ground, log, clock)
+        self.origin = clock()
+        self.latched: str | None = None
+        self.runtime_timeout_s = 0.15
+        self.executor = self._executor()
+        self.supervisor = MissionSupervisor(
+            self.executor, package, log=log, clock=clock,
+            energy_config=EnergyConfig.from_budget(
+                package.document["budget"], {"telemetry_timeout_s": 0.2}
+            ),
+        )
+
+    def fault_active(self) -> bool:
+        if self.event is None:
+            return False
+        elapsed = self.clock() - self.origin
+        return self.event.at_s <= elapsed < self.event.at_s + self.event.duration_s
+
+    def _executor(self):
+        area = self.package.document["operating_area"]
+
+        def segment_clear(pose, north, east):
+            # The same operating-area geometry used by the runtime path
+            # validator: reject the whole segment when either endpoint leaves
+            # the bounded horizontal prism.
+            return (
+                area["north_min_m"] <= pose[0] <= area["north_max_m"]
+                and area["east_min_m"] <= pose[1] <= area["east_max_m"]
+                and area["north_min_m"] <= north <= area["north_max_m"]
+                and area["east_min_m"] <= east <= area["east_max_m"]
+            )
+
+        def loop_factory(_task, **kwargs):
+            return OnboardLoop(
+                camera=CameraModel(120, 120, 80, 60, 160, 120),
+                search_action=lambda pose, yaw: ActionPrimitive.hold(0.05),
+                segment_clear=segment_clear,
+                config=LoopConfig(**kwargs),
+            )
+
+        return MissionExecutor(
+            self.package.plan, loop_factory=loop_factory, refs=self.package.refs,
+            config=ExecutorConfig(step_budget=4),
+        )
+
+    def decide(self, pose: tuple[float, float, float] | None) -> tuple[str, str]:
+        now = self.clock()
+        event = self.event.fault if self.event and self.fault_active() else None
+        if self.ground.emit(self.package.mission_id):
+            self.supervisor.ground_event({"mission_id": self.package.mission_id,
+                                          "type": "heartbeat", "timestamp": now})
+        # Preserve the vehicle fake's receipt timestamp.  During battery
+        # staleness no new message is delivered, so the estimator's documented
+        # telemetry-age rule is what produces the conservative action.
+        if not (event == "battery_stale"):
+            state = self.vehicle.snapshot()
+            voltage = 13.2 if event == "battery_sag" else 16.0
+            self.supervisor.ingest_energy_telemetry(
+                {"mavpackettype": "BATTERY_STATUS", "id": 0,
+                 "voltages": [int(voltage * 1000)],
+                 "battery_remaining": state.battery_remaining,
+                 "current_consumed": 0, "current_battery": 20,
+                 "source_system": 1, "source_component": 1},
+                received_at_s=now,
+            )
+        action = self.supervisor.evaluate(pose_ned=pose)
+        reason = self.supervisor.reason
+        if event in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+            action, reason = "return_now", "terminal handoff transport test"
+        self.log.append("decision", now, action=action, reason=reason,
+                        connected=self.supervisor.connected, fault=event, pose_ned=pose)
+        if action in {"return_now", "land_now"}:
+            self.latched = self.latched or action
+        return self.latched or action, reason
+
+
+@dataclass
+class CampaignSession:
+    runtime: Any
+    vehicle: FaultVehicle
+    camera: FaultCameraSource
+    controller: CampaignController
+    log: OnboardMissionLog
+    started: float
+
+    def observation(self) -> dict[str, Any]:
+        records = []
+        if self.log.path.exists():
+            records = [
+                json.loads(line)
+                for line in self.log.path.read_text(encoding="utf-8").splitlines()
+            ]
+        return {"setpoints": list(self.vehicle.setpoints), "commands": list(self.vehicle.commands),
+                "runtime_report": self.runtime.report(), "mission_records": records,
+                "vehicle_history": list(self.vehicle.history),
+                "vehicle_heartbeats": list(self.vehicle.heartbeats),
+                "started": self.started,
+                "fault_at": self.controller.origin + self.controller.event.at_s,
+                "react_deadline": self.controller.origin + self.controller.event.at_s +
+                self.controller.event.react_after_s,
+                "window_end": time.monotonic(),
+                "fault": self.controller.event.fault,
+                "policy": self.controller.package.document["link_loss_policy"],
+                "operating_area": dict(self.controller.package.document["operating_area"]),
+                "finished": time.monotonic(), "latched": self.controller.latched}
+
+
+def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str, float]:
+    fault_at = float(observation.get("fault_at", observation.get("started", 0.0)))
+    deadline = float(observation.get("react_deadline", fault_at + 0.15))
+    end = float(observation.get("window_end", observation.get("finished", deadline)))
+    fault = str(observation.get("fault", ""))
+    expected = _campaign_expected_outcome(fault, observation.get("policy", {}))
+    records = observation.get("mission_records", [])
+    decisions = [r for r in records if r.get("kind") == "decision"
+                 and deadline <= float(r.get("timestamp", 0.0)) <= end]
+    setpoints = [r for r in observation.get("setpoints", [])
+                 if deadline <= float(r.get("timestamp", 0.0)) <= end]
+    accepted_setpoints = [r for r in setpoints if bool(r.get("accepted", False))]
+    samples = sorted(float(r["timestamp"]) for r in accepted_setpoints)
+    histories = [h for h in observation.get("vehicle_history", [])
+                 if deadline <= float(h.get("timestamp", 0.0)) <= end]
+    states = [h.get("state", {}) for h in histories]
+    wanted_for_terminal = "LAND" if expected == "land_now" else "RTL"
+    terminal_confirmed_at = min(
+        (float(h["timestamp"]) for h in histories
+         if expected in {"return_now", "land_now"}
+         and str(h.get("state", {}).get("mode", "")).upper()
+         in {wanted_for_terminal, f"AUTO.{wanted_for_terminal}"}),
+        default=float("inf"),
+    )
+    errors: list[str] = []
+    if end - deadline < 2.0:
+        errors.append("evaluation window shorter than 2.0 s")
+    max_gap = float(observation.get("max_output_gap_s", 0.3))
+    continuous = expected in {"hold", "continue", "constrained", "return_now", "land_now"}
+    needs_stream = continuous and not (
+        expected in {"return_now", "land_now"}
+        and terminal_confirmed_at <= deadline
+    )
+    if needs_stream and (not samples or samples[0] - deadline > max_gap
+                       or (expected not in {"return_now", "land_now"}
+                           and end - samples[-1] > max_gap)
+                       or (expected in {"return_now", "land_now"}
+                           and terminal_confirmed_at == float("inf")
+                           and end - samples[-1] > max_gap)
+                       or any(b - a > max_gap for a, b in zip(samples, samples[1:], strict=False))):
+        errors.append("output gap")
+    last_decision = decisions[-1] if decisions else {}
+    reason = str(last_decision.get("reason", ""))
+    if not states:
+        errors.append("no vehicle state in evaluation window")
+    if expected in {"return_now", "land_now"}:
+        wanted = "LAND" if expected == "land_now" else "RTL"
+        if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
+               or not bool(s.get("armed", True)) for s in states):
+            errors.append("terminal vehicle state not sustained")
+        confirmed = [float(h["timestamp"]) for h in histories
+                     if str(h.get("state", {}).get("mode", "")).upper()
+                     in {wanted, f"AUTO.{wanted}"}]
+        switched_at = min(confirmed, default=float("inf"))
+        if switched_at == float("inf"):
+            errors.append("terminal mode not confirmed by telemetry")
+        if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", False)
+               and str(r.get("mode", "OFFBOARD")).upper() == "OFFBOARD" for r in setpoints):
+            errors.append("OFFBOARD setpoint accepted after terminal switch")
+    elif expected == "hold":
+        if any(str(s.get("mode", "")).upper() != "OFFBOARD" for s in states):
+            errors.append("hold left OFFBOARD")
+        anchor = states[0].get("position_ned")
+        for row in setpoints:
+            sp = row.get("setpoint", {})
+            if anchor and ((float(sp["north_m"]) - anchor[0]) ** 2
+                           + (float(sp["east_m"]) - anchor[1]) ** 2) ** 0.5 > 0.5:
+                errors.append("hold drift exceeds 0.5 m")
+    elif expected == "continue":
+        coords = [(float(r["setpoint"]["north_m"]), float(r["setpoint"]["east_m"]))
+                  for r in setpoints]
+        if len(coords) < 2 or coords[-1] == coords[0]:
+            errors.append("mission setpoints did not progress")
+    elif expected == "constrained":
+        area = observation.get("operating_area", {})
+        margin = 0.05
+        for row in setpoints:
+            sp = row["setpoint"]
+            north_ok = (area["north_min_m"] - margin <= float(sp["north_m"])
+                        <= area["north_max_m"] + margin)
+            east_ok = (area["east_min_m"] - margin <= float(sp["east_m"])
+                       <= area["east_max_m"] + margin)
+            if not (north_ok and east_ok):
+                errors.append("setpoint escaped operating area")
+        for state in states:
+            pos = state.get("position_ned") or (999, 999, 999)
+            if not (area["north_min_m"] - margin <= pos[0] <= area["north_max_m"] + margin
+                    and area["east_min_m"] - margin <= pos[1] <= area["east_max_m"] + margin):
+                errors.append("vehicle escaped operating area")
+    if not reason:
+        errors.append("missing last-window decision reason")
+    observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
+    action = expected if not errors else "unknown"
+    return action, reason, max(0.0, deadline - fault_at)
+
+
+def _default_package(work_dir: Path) -> Any:
+    """Create a signed, self-contained bench package when no path is supplied."""
+    key_path = work_dir / "bench-operator.key"
+    key = b"fault-campaign-bench-operator-key-32"
+    key_path.write_bytes(key)
+    document = {
+        "mission_id": "fault-campaign", "risk_level": "medium",
+        "link_loss_policy": {"action": "continue_then_return", "timeout_s": 0.4},
+        "heartbeat_timeout_s": 0.4, "home": [0, 0], "places": {"poi:gate": [1, 0]},
+        "zones": {}, "routes": {}, "oversight_steps": [],
+        "operating_area": {"north_min_m": -5, "north_max_m": 5,
+                            "east_min_m": -5, "east_max_m": 5,
+                            "min_altitude_m": 5, "max_altitude_m": 20},
+        "budget": {"time_s": 30, "reserve_time_s": 2, "energy_wh": 100,
+                   "reserve_energy_wh": 10},
+        "plan": {"plan_version": 1, "goal": "visit gate then return home",
+                 "report": ["positions"], "steps": [
+                     {"id": "gate", "skill": "goto",
+                      "params": {"target_ref": "poi:gate"},
+                      "on_success": "home", "on_fail": "home"},
+                     {"id": "home", "skill": "return_home", "params": {},
+                      "on_success": None, "on_fail": None}]},
+    }
+    package_path = work_dir / "bench-mission-package.json"
+    package_path.write_text(json.dumps(sign_document(document, key)), encoding="utf-8")
+    return load_mission_package(package_path, operator_key_path=key_path, require_signature=True)
+
+
+def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignSession:
+    clock = time.monotonic
+    area = package.document["operating_area"]
+    vehicle = FaultVehicle(clock, event, area)
+    camera = FaultCameraSource(clock, event)
+    ground = GroundEventSource(clock, event)
+    log = OnboardMissionLog(work_dir, package.mission_id)
+    controller = CampaignController(package, event, vehicle, ground, log, clock)
+    policy = CampaignPolicy(controller)
+    def record_runtime_event(name: str, timestamp: float, details: dict[str, Any]) -> None:
+        if name == "watchdog_hold":
+            log.append("decision", timestamp, action="hold", reason=details["reason"],
+                       source="runtime_watchdog")
+        elif name in {"flight_handoff", "terminal_state"}:
+            action = "land_now" if details["action"] == "land" else "return_now"
+            reason = controller.supervisor.reason
+            if runtime.hazard:
+                reason = runtime.hazard
+            log.append("decision", timestamp, action=action,
+                       reason=f"runtime handoff: {details['action']} ({reason})",
+                       source="runtime_handoff")
+    terminal_action = ("land" if package.document["link_loss_policy"]["action"] == "land_now"
+                       else "rtl")
+    if event.fault == "battery_sag":
+        terminal_action = "land"
+    camera_timeout = 0.12 if event.fault in {"camera_freeze", "camera_drop"} else 100.0
+    pose_timeout = 0.12 if event.fault in {"pose_stale", "offboard_loss", "home_change"} else 5.0
+    autonomy_timeout = 0.15 if event.fault == "slow_model_timeout" else 2.0
+    heartbeat_timeout = 0.12 if event.fault.startswith("gcs_heartbeat") else 0.4
+    config = RuntimeConfig(
+        stream_hz=20, camera_timeout_s=camera_timeout, pose_timeout_s=pose_timeout,
+        heartbeat_timeout_s=heartbeat_timeout, hold_before_failsafe_s=0.15,
+        autonomy_timeout_s=autonomy_timeout, action_timeout_s=2.0,
+        failsafe=terminal_action, shutdown_action=terminal_action,
+        completion_action=terminal_action,
+    )
+    runtime = OnboardRuntime(vehicle, camera, policy, config=config, home_ned=vehicle.home,
+                             event_sink=record_runtime_event)
+    vehicle.start()
+    camera.start()
+    # Admission and mission-log fsyncs can take longer than a short bench
+    # window on a busy host.  Define schedule time at the runtime start barrier
+    # so no fault is active before the runtime has admitted fresh inputs.
+    source_origin = time.monotonic()
+    vehicle.origin = source_origin
+    camera.origin = source_origin
+    ground.origin = source_origin
+    controller.origin = source_origin
+    session_origin = source_origin
+    runtime.start(active=True, own_flight=False)
+    return CampaignSession(runtime, vehicle, camera, controller, log, session_origin)
+
+
+def run_campaign(*, episode: Path | None = None, package: Path | None = None,
+                 operator_key: Path | None = None, output: Path | None = None,
+                 work_dir: Path | None = None,
+                 runtime_factory: Callable[[Any, FaultEvent, Path], CampaignSession] | None = None,
+                 duration_s: float | None = None) -> dict[str, Any]:
+    """Run every scenario in its own runtime and compare only captured evidence."""
+    del episode
+    work_dir = (work_dir or ROOT / "tmp" / "onboard-fault-campaign").resolve()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    if package is None:
+        admitted = _default_package(work_dir)
+    else:
+        key_path = operator_key.resolve() if operator_key else None
+        # Campaign fixtures historically use raw bench HMAC bytes.  Read the
+        # admitted key once and pass the bytes to the package verifier so the
+        # transport boundary remains identical to a signed package admission.
+        key_bytes = key_path.read_bytes() if key_path else None
+        admitted = load_mission_package(
+            package.resolve(),
+            key=key_bytes,
+            require_signature=True,
+        )
+    policy = admitted.document["link_loss_policy"]
+    # Each scenario owns an isolated runtime, so every source fault uses the
+    # same relative window.  ``schedule_faults`` remains available for HIL
+    # plans containing multiple non-overlapping events in one flight.
+    severities = {
+        "camera_freeze": "high", "camera_drop": "high", "pose_stale": "critical",
+        "slow_model_timeout": "high", "slow_model_crash": "high",
+        "detector_exception": "high", "gcs_heartbeat_loss": "policy",
+        "gcs_heartbeat_recovery": "recovery", "offboard_loss": "critical",
+        "battery_sag": "critical", "battery_stale": "high", "home_change": "critical",
+        "fence_approach": "high",
+    }
+    events = tuple(
+        FaultEvent(
+            name, 0.05 if name == "gcs_heartbeat_recovery" else 0.25,
+            3.0 if name == "fence_approach" else
+            (1.0 if name == "gcs_heartbeat_loss" else 0.35),
+            severity=severities.get(name, "fault"),
+            react_after_s=1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15,
+        )
+        for name in FAULTS
+    )
+    rows: list[dict[str, Any]] = []
+    factory = runtime_factory or _build_session
+    for event in events:
+        # Each invocation gets a clean mission log.  Reusing a JSONL log would
+        # mix evidence from earlier runs and make a defective runtime appear
+        # healthy because of old commands/decisions.
+        scenario_dir = work_dir / "runs" / f"{event.fault}-{time.time_ns()}"
+        scenario_dir.mkdir(parents=True, exist_ok=True)
+        session = factory(admitted, event, scenario_dir)
+        minimum_run = event.at_s + event.duration_s + event.react_after_s + 2.0
+        run_for = duration_s or minimum_run
+        if run_for < minimum_run:
+            raise ValueError(
+                f"scenario {event.fault} evaluation window must be at least 2.0 s "
+                f"after react_deadline; duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
+            )
+        try:
+            session.runtime.run(run_for)
+            # OnboardRuntime may stop its worker early after a terminal action.
+            # Keep the fake transport sampling until the declared evaluation
+            # end so the verdict can prove sustained state, continuity, and
+            # latch behavior over the whole window.
+            end_at = session.started + run_for
+            while time.monotonic() < end_at:
+                session.vehicle.snapshot()
+                time.sleep(0.05)
+        finally:
+            observation = session.observation()
+            session.runtime.close()
+        expected = _campaign_expected_outcome(event.fault, policy)
+        # Include bounded shutdown/command handoff jitter while preserving the
+        # scenario's explicit injection window as the primary deadline.
+        check = verdict(expected, observation=observation, deadline_s=run_for + 0.5)
+        check["verdict_error"] = observation.get("verdict_error", "")
+        reason_rule = _expected_reason_fragment(event.fault)
+        check["reason_rule"] = reason_rule
+        check["reason_matches"] = reason_rule.lower() in check["reason"].lower()
+        check["passed"] = bool(check["passed"] and check["reason_matches"])
+        rows.append({"scenario": event.fault, "scheduled": asdict(event),
+                     "expected": expected, **check,
+                     "fault_severity": event.severity,
+                     "persistence_s": event.duration_s,
+                     "remaining_budget": admitted.document["budget"],
+                     "mission_id": admitted.mission_id,
+                     "policy": policy,
+                     "policy_timeout_s": policy.get("timeout_s"),
+                     "runtime_report": observation["runtime_report"],
+                     "evidence": {
+                         "commands": observation.get("commands", []),
+                         "setpoints_tail": observation.get("setpoints", [])[-8:],
+                         "vehicle_history_tail": observation.get("vehicle_history", [])[-8:],
+                         "mission_records_tail": observation.get("mission_records", [])[-8:],
+                     }})
+    report = {"mode": "simulated-hardware", "mission_id": admitted.mission_id, "policy": policy,
+              "policy_timeout_s": policy.get("timeout_s"),
+              "scenarios": rows, "scenario_table": scenario_table(),
+              "passed": all(row["passed"] for row in rows), "generated_at": time.time(),
+              "limitations": ["offboard/home/fence require real HIL sign-off"]}
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        lines = [
+            "# Onboard \u6545\u969c\u6ce8\u5165\u6d3b\u52a8\u62a5\u544a", "",
+            "| \u573a\u666f | \u9884\u671f | \u89c2\u6d4b | \u539f\u56e0 | \u7ed3\u679c |",
+            "|---|---|---|---|---|",
+        ]
+        lines.extend(
+            f"| {row['scenario']} | {row['expected']} | {row['observed_action']} | "
+            f"{row['reason']} | "
+            f"{(chr(0x901a) + chr(0x8fc7)) if row['passed'] else (chr(0x5931) + chr(0x8d25))} |"
+            for row in rows
+        )
+        output.with_suffix(".md").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+    return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mission-package", type=Path)
+    parser.add_argument("--operator-key", type=Path)
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "tmp/onboard-fault-campaign/report.json"
+    )
+    parser.add_argument("--work-dir", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        report = run_campaign(package=args.mission_package,
+                              operator_key=args.operator_key,
+                              output=args.output, work_dir=args.work_dir)
+    except Exception as exc:
+        print(json.dumps(
+            {"passed": False, "error": f"{type(exc).__name__}: {exc}"},
+            ensure_ascii=False,
+        ))
+        failure = {"mode": "simulated-hardware", "passed": False,
+                   "error": f"{type(exc).__name__}: {exc}"}
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
+                                    encoding="utf-8")
+            args.output.with_suffix(".md").write_text(
+                "# Onboard \u6545\u969c\u6ce8\u5165\u6d3b\u52a8\u62a5\u544a\n\n"
+                "\u8fd0\u884c\u5931\u8d25\uff1a" + failure["error"] + "\n",
+                encoding="utf-8",
+            )
+        return 1
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

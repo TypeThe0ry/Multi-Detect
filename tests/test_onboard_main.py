@@ -53,6 +53,38 @@ def test_real_cli_requires_explicit_failsafe_and_finite_positive_timing():
     assert args.baud == 921600
 
 
+def test_package_shorthand_detects_equals_options_and_preserves_explicit_failsafe(
+    monkeypatch, capsys
+):
+    captured = []
+
+    def fake_run(args):
+        captured.append(args)
+        return {"ok": True}
+
+    monkeypatch.setattr(onboard_main, "run", fake_run)
+    assert onboard_main.main([
+        "--mission-package=mission.json", "--operator-key=operator.key", "--failsafe=rtl",
+    ]) == 0
+    assert captured[0].mode == "real" and captured[0].failsafe == "rtl"
+    assert onboard_main.main([
+        "--mission-package=mission.json", "--operator-key=operator.key",
+    ]) == 0
+    assert captured[1].failsafe == "land"
+    capsys.readouterr()
+
+
+def test_real_admission_requires_signed_package_and_key():
+    missing_policy = type("Args", (), {"mode": "real", "mission_package": None,
+                                       "policy_config": None, "task": "inspect"})()
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
+        onboard_main._admit_package(missing_policy)
+    missing_task = type("Args", (), {"mode": "real", "mission_package": None,
+                                      "policy_config": "policy.json", "task": None})()
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
+        onboard_main._admit_package(missing_task)
+
+
 def test_real_mission_package_admission_requires_signature_key():
     from multidetect.autonomy.mission_package import load_mission_package
 
@@ -78,7 +110,7 @@ def test_missing_model_assets_fail_before_camera_or_vehicle_is_opened(tmp_path, 
         "--calibration", str(calibration), "--policy-config", str(policy),
         "--task", "Find a car", "--failsafe", "rtl",
     ])
-    with pytest.raises(FileNotFoundError, match="automatic download disabled"):
+    with pytest.raises(ValueError, match="signed --mission-package and --operator-key"):
         onboard_main.run(args)
 
 
