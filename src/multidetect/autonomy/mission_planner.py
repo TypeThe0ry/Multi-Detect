@@ -308,12 +308,24 @@ def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list
     return {**document, "steps": steps}, notes
 
 
-def plan_prompt(task_text: str, *, refs: tuple[str, ...] = (), error: str | None = None) -> str:
-    """Instruction for the slow model: skills, reference rules, examples, task."""
-    lines = [
-        "You plan drone missions. Turn the task into a JSON mission plan of bounded skills.",
-        "Skills (params in brackets, * = required):",
-    ]
+PLAN_PROMPT_VARIANTS = ("default", "no_examples", "two_examples", "compact_rules", "compact")
+
+
+def plan_prompt_parts(
+    task_text: str,
+    *,
+    refs: tuple[str, ...] = (),
+    error: str | None = None,
+    prompt_variant: str = "default",
+) -> dict[str, str]:
+    """Ordered prompt sections, including delimiters; concatenate values to render.
+
+    Short variants are experimental opt-ins; the fine-tuned default stays exact.
+    ``compact_rules`` changes only rules; ``compact`` also removes all examples.
+    """
+    if prompt_variant not in PLAN_PROMPT_VARIANTS:
+        raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
+    lines = ["Skills (params in brackets, * = required):"]
     for name, spec in SKILLS.items():
         if spec.gated:
             continue
@@ -331,14 +343,56 @@ def plan_prompt(task_text: str, *, refs: tuple[str, ...] = (), error: str | None
         "task says to land. Use only the steps the task asks for: no extra search, goto, "
         "record, inspect or hover that the task does not mention.",
     ]
-    if refs:
-        lines.append("Known places: " + ", ".join(refs) + ".")
-    for text, plan in EXAMPLES:
-        lines.append(f"Task: {text}\nPlan: {json.dumps(plan, ensure_ascii=False)}")
-    if error:
-        lines.append(f"The previous plan was rejected: {error}. Fix it.")
-    lines.append(f"Task: {task_text}\nPlan:")
-    return "\n".join(lines)
+    if prompt_variant in {"compact_rules", "compact"}:
+        # Keep the exact skill names/parameter list; grammar supplies their types.
+        lines = ["Skills (* required):"]
+        for name, spec in SKILLS.items():
+            if not spec.gated:
+                params = ",".join(
+                    ("*" if p in spec.required_params else "") + p
+                    for p in sorted(spec.allowed_params)
+                )
+                lines.append(f"{name}[{params}]")
+        lines += [
+            "Refs: home; zone:name (zone:all=whole area); poi:name; route:name; "
+            "finding:N=Nth object found earlier; track:N=tracked object.",
+            "query: short English colour/object noun phrase.",
+            "Each step has on_success/on_fail: later step id or null. No backward/self "
+            "edges or retries; failure goes next/final. End return_home unless task "
+            "requests land. Include only requested actions.",
+        ]
+    examples = EXAMPLES
+    if prompt_variant in {"no_examples", "compact"}:
+        examples = ()
+    elif prompt_variant == "two_examples":
+        examples = EXAMPLES[:2]
+    return {
+        "system": "You plan drone missions. Turn the task into a JSON mission plan "
+        "of bounded skills.\n",
+        "rules": "\n".join(lines) + "\n",
+        "refs": "Known places: " + ", ".join(refs) + ".\n" if refs else "",
+        "examples": "".join(
+            f"Task: {text}\nPlan: {json.dumps(plan, ensure_ascii=False)}\n"
+            for text, plan in examples
+        ),
+        "repair": f"The previous plan was rejected: {error}. Fix it.\n" if error else "",
+        "task": f"Task: {task_text}\nPlan:",
+    }
+
+
+def plan_prompt(
+    task_text: str,
+    *,
+    refs: tuple[str, ...] = (),
+    error: str | None = None,
+    prompt_variant: str = "default",
+) -> str:
+    """Instruction for the slow model; defaults match the training prompt exactly."""
+    return "".join(
+        plan_prompt_parts(
+            task_text, refs=refs, error=error, prompt_variant=prompt_variant
+        ).values()
+    )
 
 
 _REF_PARAMS = ("region", "target_ref", "route_ref", "track_ref")
@@ -386,17 +440,23 @@ def compile_mission_plan(
     refs: tuple[str, ...] = (),
     schema: dict[str, Any] | None = None,
     attempts: int = 2,
+    prompt_variant: str = "default",
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason."""
     if attempts < 1:
         raise ValueError("attempts must be positive")
+    if prompt_variant not in PLAN_PROMPT_VARIANTS:
+        raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
     schema = schema if schema is not None else plan_json_schema()
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
     for attempt in range(attempts):
         started = time.perf_counter()
         try:
-            raw = post(plan_prompt(task_text, refs=refs, error=error), schema)
+            raw = post(
+                plan_prompt(task_text, refs=refs, error=error, prompt_variant=prompt_variant),
+                schema,
+            )
         except Exception as exc:  # A model/transport failure must leave the caller a safe fallback.
             error = str(exc)[:200]
         else:
@@ -435,9 +495,11 @@ def compile_mission_plan(
 __all__ = [
     "check_plan_refs",
     "EXAMPLES",
+    "PLAN_PROMPT_VARIANTS",
     "SKILL_HELP",
     "compile_mission_plan",
     "plan_json_schema",
     "plan_prompt",
+    "plan_prompt_parts",
     "repair_plan_document",
 ]

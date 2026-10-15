@@ -44,6 +44,7 @@ from scripts.build_sim_detector_dataset import (  # noqa: E402
     _sdf_sizes,
     _urban_target,
 )
+from scripts.slow_system_runtime import IDENTITY_VARIANTS, identity_image_sizes  # noqa: E402
 
 CAMPAIGNS = ("campaign-20261011-r2", "campaign-20261011-r3", "campaign-20261011-r4")
 SPLITS = ("train", "val", "test")
@@ -463,6 +464,7 @@ def build_dataset(
     confirm_min_side_px: float | None = None,
     proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
+    identity_variant: str = "default",
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
@@ -470,6 +472,8 @@ def build_dataset(
         raise ValueError("negative_ratio must be finite and positive")
     if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
         raise ValueError("unsupported crop_policy")
+    if identity_variant not in IDENTITY_VARIANTS:
+        raise ValueError(f"unsupported identity variant: {identity_variant}")
     if not 0.0 <= float(min_visible_fraction) <= 1.0:
         raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
@@ -621,6 +625,8 @@ def build_dataset(
     seen = set()
     for split, rows in selected.items():
         for row in rows:
+            if identity_variant != "default":
+                row["identity_variant"] = identity_variant
             if row["world"] in world_splits and world_splits[row["world"]] != split:
                 raise ValueError("World crossed split boundary")
             if row["sample_id"] in seen:
@@ -657,6 +663,13 @@ def build_dataset(
         "source_sha256": dict(sorted(source_hashes.items())),
         "output_sha256": output_hashes,
     }
+    if identity_variant != "default":
+        frame_side, crop_side = identity_image_sizes({}, identity_variant=identity_variant)
+        report["identity_variant"] = identity_variant
+        report["image_policy"] = (
+            f"reference_existing_rgb_png_no_copy; full_frame_resize_to_{frame_side}_max_side_at_model_input; "
+            f"candidate_crop_resize_to_{crop_side}x{crop_side}_at_model_input"
+        )
     (output / "manifest.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return report
 
@@ -669,6 +682,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--negative-ratio", type=float, default=1.5)
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"), default="candidate_zoom_v2")
+    parser.add_argument("--identity-variant", choices=IDENTITY_VARIANTS, default="default", help="persist an opt-in short prompt/image policy for training and evaluation")
     parser.add_argument("--confirm-min-side-px", type=float, default=None, help="fuel_v1 worlds: confirm when the target box min side reaches this many pixels (default: legacy range rule)")
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     parser.add_argument("--proposals", type=Path, default=None, help="cached onboard FAST proposals (scripts/cache_onboard_proposals.py); adds rows labelled from live boxes")
@@ -677,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, identity_variant=args.identity_variant)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

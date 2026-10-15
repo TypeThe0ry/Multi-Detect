@@ -23,7 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
-from multidetect.autonomy.mission_planner import plan_prompt  # noqa: E402
+from multidetect.autonomy.mission_planner import (  # noqa: E402
+    PLAN_PROMPT_VARIANTS,
+    plan_prompt,
+)
 
 OBJECTS = [  # (english query, chinese)
     ("car", "轿车"),
@@ -481,6 +484,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261015)
+    parser.add_argument(
+        "--prompt-variant", choices=PLAN_PROMPT_VARIANTS, default="default",
+        help="experimental shorter training prompt (default preserves the trained prompt)",
+    )
     # v3 alone drops the inspect/monitor/survey/home/land templates; v4 mixes it into v2.
     parser.add_argument("--version", choices=("v2", "v3", "v4"), default="v4")
     parser.add_argument(
@@ -523,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
                 "kind": "mission_plan",
                 "world": "synthetic_plan",
                 "task_text": text,
-                "prompt": plan_prompt(text, refs=refs),
+                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
                 "assistant_target": plan,
             }
         )
@@ -536,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:
         "first_skill_counts": {},
         "final_skill_counts": {},
     }
+    if args.prompt_variant != "default":
+        manifest["prompt_variant"] = args.prompt_variant
     for name, part in splits.items():
         sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
         counts = {

@@ -109,7 +109,7 @@ def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
         LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
         _http_json=lambda *args: None,
     ))
-    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args: (
+    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args, **kwargs: (
         ["survey", "land"], "{}", [0.1], None,
     ))
     monkeypatch.setattr(plan_from_task, "success_path", lambda plan: plan)
@@ -119,3 +119,68 @@ def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
     assert result["diagnosis"]["language_exact_match_rate"] == {"test": 1.0}
     assert result["diagnosis"]["expected_skill_recall"] == {"inspect": 0.0, "land": 1.0}
     assert "inspect -> survey: 1" in capsys.readouterr().out
+
+
+def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
+    tasks = output_dir / "tasks.json"
+    output = output_dir / "result.json"
+    tasks.write_text(json.dumps({"tasks": [
+        {"text": "Return home.", "skills": ["return_home"]},
+        {"text": "Come back.", "skills": ["return_home"]},
+    ]}), encoding="utf-8")
+    plan = json.dumps({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s1", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    responses = iter([
+        {"choices": [{"message": {"content": "invalid json"}}],
+         "usage": {"prompt_tokens": 100, "completion_tokens": 3}},
+        {"choices": [{"message": {"content": plan}}],
+         "usage": {"prompt_tokens": 120, "completion_tokens": 22}},
+        {"choices": [{"message": {"content": plan}}]},
+    ])
+    requests, runners, closed = [], [], []
+
+    def http_json(url, body):
+        requests.append(body)
+        return next(responses)
+
+    def runner(*args, **kwargs):
+        runners.append(kwargs)
+        return SimpleNamespace(close=lambda: closed.append(True))
+
+    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
+        LlamaServerRunner=runner, _http_json=http_json,
+    ))
+    assert plan_from_task.main([
+        "--tasks", str(tasks), "--output", str(output), "--prompt-variant", "compact",
+        "--llama-server", str(output_dir / "llama-server"), "--device", "cpu",
+        "--no-prompt-cache",
+    ]) == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    first, second = result["rows"]
+    assert len(first["request_usage"]) == 2
+    assert first["prompt_tokens"] == 100
+    assert first["prompt_tokens_total"] == 220
+    assert first["completion_tokens_total"] == 25
+    assert second["prompt_tokens"] is None and second["prompt_tokens_total"] is None
+    assert second["completion_tokens_total"] is None
+    assert result["summary"]["mean_prompt_tokens"] == 100
+    assert result["summary"]["mean_prompt_tokens_total"] == 220
+    assert result["summary"]["mean_completion_tokens_total"] == 25
+    assert result["summary"]["tasks_with_prompt_usage"] == 1
+    assert result["summary"]["prompt_cache"] is False
+    assert all(request["cache_prompt"] is False for request in requests)
+    assert all(request["messages"][0]["content"].count("Task:") == 1 for request in requests)
+    assert "The previous plan was rejected:" in requests[1]["messages"][0]["content"]
+    assert runners[0]["device"] == "cpu"
+    assert runners[0]["executable"] == output_dir / "llama-server"
+    assert closed == [True]
+
+
+def test_usage_totals_are_unknown_if_any_retry_usage_is_missing():
+    assert plan_from_task._usage_total([], "prompt_tokens") is None
+    assert plan_from_task._usage_total(
+        [{"prompt_tokens": 100}, {"prompt_tokens": None}], "prompt_tokens"
+    ) is None

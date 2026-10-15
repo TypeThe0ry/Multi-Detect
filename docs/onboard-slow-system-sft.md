@@ -1,5 +1,8 @@
 # Onboard slow-system SFT handoff
 
+Opt-in shorter-prompt flags, offline token/Orin latency tables and the later
+one-command r12 evaluation matrix are in [prompt-budget experiments](onboard-prompt-budget.md).
+
 The offline builder is `scripts/build_slow_system_sft.py`. It uses the three
 2026-10-11 sim-teacher campaigns, projects each `obs_before` and `obs_after`
 independently, and writes references to the original RGB files. It does not

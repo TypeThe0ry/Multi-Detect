@@ -4,6 +4,7 @@ The HF and llama.cpp paths consume the same rendered prompt/image helper. No
 truth fields are sent to either model: truth is read only from assistant_target
 to compute metrics after inference.
 """
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from multidetect.autonomy.onboard_decision import (
     parse_onboard_decision,
 )
 from scripts.slow_system_runtime import (
+    IDENTITY_VARIANTS,
     ROOT,
     chat_messages,
     dataset_crop_policy,
@@ -96,6 +98,19 @@ def _percentile(values: list[float], quantile: float) -> float | None:
     return round(ordered[min(len(ordered) - 1, int((len(ordered) - 1) * quantile + 0.999999))], 4)
 
 
+def _token_summary(results: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    values = [float(row[key]) for row in results if row.get(key) is not None]
+    return {"count": len(values), "mean": sum(values) / len(values) if values else None,
+            "p50": _percentile(values, 0.5), "p95": _percentile(values, 0.95)}
+
+
+def _usage_count(usage: Any, key: str) -> int | None:
+    value = usage.get(key) if isinstance(usage, dict) else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
+        return int(value)
+    return None
+
+
 def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     valid = [row for row in results if row["valid"]]
     expected = [str(row["expected"]) for row in results]
@@ -130,6 +145,8 @@ def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "predicted_counts": {value: predictions.count(value) for value in sorted(set(predictions))},
         "latency_s": {"p50": _percentile([float(row["latency_s"]) for row in results], 0.5),
                       "p95": _percentile([float(row["latency_s"]) for row in results], 0.95)},
+        "prompt_tokens": _token_summary(results, "prompt_tokens"),
+        "completion_tokens": _token_summary(results, "completion_tokens"),
     }
 
 
@@ -149,19 +166,22 @@ def evaluate_predictor(rows: list[dict[str, Any]], predictor: Callable[[dict[str
                 "sample_id": row["sample_id"], "world": row["world"], "expected": row["assistant_target"]["decision"],
                 "raw_output": raw, "latency_s": elapsed, "valid": parsed is not None,
                 "decision": parsed["decision"] if parsed else None, "parsed_output": parsed, "failure": failure,
+                "prompt_tokens": _usage_count(getattr(predictor, "last_usage", None), "prompt_tokens"),
+                "completion_tokens": _usage_count(getattr(predictor, "last_usage", None), "completion_tokens"),
             }
         except Exception as exc:
             result = {
                 "sample_id": row["sample_id"], "world": row["world"], "expected": row["assistant_target"]["decision"],
                 "raw_output": None, "latency_s": time.perf_counter() - started, "valid": False,
                 "decision": None, "parsed_output": None, "failure": f"{type(exc).__name__}: {exc}",
+                "prompt_tokens": None, "completion_tokens": None,
             }
         results.append(result)
     return {"metrics": decision_metrics(results), "rows": results}
 
 
 class HFRunner:
-    def __init__(self, model_path: Path, adapter: Path | None, *, device: str = "cuda:0", max_side: int = 448, max_new_tokens: int = 128, crop_policy: str = "none"):
+    def __init__(self, model_path: Path, adapter: Path | None, *, device: str = "cuda:0", max_side: int = 448, max_new_tokens: int = 128, crop_policy: str = "none", identity_variant: str | None = None):
         import torch
         import transformers
 
@@ -169,6 +189,7 @@ class HFRunner:
             raise RuntimeError("HF evaluation requested CUDA but CUDA is unavailable")
         snapshot = local_snapshot(model_path)
         self.torch, self.max_new_tokens, self.max_side, self.crop_policy = torch, max_new_tokens, max_side, crop_policy
+        self.identity_variant, self.last_usage = identity_variant, None
         self.processor = transformers.AutoProcessor.from_pretrained(str(snapshot), local_files_only=True, trust_remote_code=False, max_pixels=max_side * max_side)
         self.model = transformers.Qwen3VLForConditionalGeneration.from_pretrained(
             str(snapshot), local_files_only=True, trust_remote_code=False,
@@ -181,9 +202,10 @@ class HFRunner:
             self.model = peft.PeftModel.from_pretrained(self.model, str(adapter), is_trainable=False).eval()
 
     def __call__(self, row: dict[str, Any]) -> tuple[str, float]:
+        self.last_usage = None
         torch = self.torch
         inputs = self.processor.apply_chat_template(
-            chat_messages(row, self.max_side, self.crop_policy), tokenize=True, add_generation_prompt=True,
+            chat_messages(row, self.max_side, self.crop_policy, identity_variant=self.identity_variant), tokenize=True, add_generation_prompt=True,
             return_dict=True, return_tensors="pt",
         ).to(next(self.model.parameters()).device)
         started = time.perf_counter()
@@ -191,6 +213,7 @@ class HFRunner:
             output = self.model.generate(**inputs, do_sample=False, max_new_tokens=self.max_new_tokens, use_cache=True)
         elapsed = time.perf_counter() - started
         input_tokens = inputs["input_ids"].shape[-1]
+        self.last_usage = {"prompt_tokens": input_tokens, "completion_tokens": output.shape[-1] - input_tokens}
         return self.processor.tokenizer.decode(output[0, input_tokens:].tolist(), skip_special_tokens=True, clean_up_tokenization_spaces=False), elapsed
 
 
@@ -202,8 +225,9 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 
 
 class LlamaServerRunner:
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False):
+    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, identity_variant: str | None = None, cache_prompt: bool = True):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
+        self.identity_variant, self.cache_prompt, self.last_usage = identity_variant, cache_prompt, None
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -238,8 +262,9 @@ class LlamaServerRunner:
         raise TimeoutError("llama-server did not become healthy")
 
     def __call__(self, row: dict[str, Any]) -> tuple[str, float]:
-        images = ["data:image/jpeg;base64," + base64.b64encode(value).decode("ascii") for value in image_jpeg_bytes_list(row, self.max_side, self.crop_policy)]
-        content = [{"type": "text", "text": prompt_for_row({**row, "_crop_policy": self.crop_policy})}]
+        self.last_usage = None
+        images = ["data:image/jpeg;base64," + base64.b64encode(value).decode("ascii") for value in image_jpeg_bytes_list(row, self.max_side, self.crop_policy, identity_variant=self.identity_variant)]
+        content = [{"type": "text", "text": prompt_for_row({**row, "_crop_policy": self.crop_policy}, identity_variant=self.identity_variant)}]
         content.extend({"type": "image_url", "image_url": {"url": value}} for value in images)
         body = {
             "model": "local", "temperature": 0, "max_tokens": self.max_new_tokens, "stream": False,
@@ -250,10 +275,13 @@ class LlamaServerRunner:
         }
         if self.logprobs:
             body["logprobs"], body["top_logprobs"] = True, 5
+        if not self.cache_prompt:
+            body["cache_prompt"] = False
         started = time.perf_counter()
         response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
         elapsed = time.perf_counter() - started
         self.last_logprobs = (response["choices"][0].get("logprobs") or {}).get("content")
+        self.last_usage = response.get("usage")
         return response["choices"][0]["message"].get("content", ""), elapsed
 
     def close(self) -> None:
@@ -267,6 +295,9 @@ class LlamaServerRunner:
 
 def run(args) -> dict[str, Any]:
     rows = load_jsonl(args.dataset / "test.jsonl", split="test")
+    if getattr(args, "data_root", None) is not None:
+        rows = [{**row, "image_path": str((args.data_root / row["image_path"]).resolve())}
+                if not Path(row["image_path"]).is_absolute() else row for row in rows]
     crop_policy = dataset_crop_policy(args.dataset, getattr(args, "crop_policy", None))
     if args.backend == "fake":
         def predictor(row):
@@ -276,11 +307,11 @@ def run(args) -> dict[str, Any]:
     runner = None
     try:
         if args.backend == "hf":
-            runner = HFRunner(args.model, args.adapter, device=args.device, max_side=args.max_side, max_new_tokens=args.max_new_tokens, crop_policy=crop_policy)
+            runner = HFRunner(args.model, args.adapter, device=args.device, max_side=args.max_side, max_new_tokens=args.max_new_tokens, crop_policy=crop_policy, identity_variant=getattr(args, "identity_variant", None))
         else:
             if not args.gguf_model or not args.mmproj:
                 raise ValueError("GGUF backend needs --gguf-model and --mmproj")
-            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side, identity_only=args.identity_only)
+            runner = LlamaServerRunner(args.gguf_model, args.mmproj, executable=args.llama_server, adapter=args.adapter, port=args.port, context=args.context, max_new_tokens=args.max_new_tokens, device=args.device, crop_policy=crop_policy, max_side=args.max_side, identity_only=args.identity_only, identity_variant=getattr(args, "identity_variant", None), cache_prompt=not getattr(args, "no_prompt_cache", False))
         return evaluate_predictor(rows, runner)
     finally:
         if isinstance(runner, LlamaServerRunner):
@@ -290,12 +321,15 @@ def run(args) -> dict[str, Any]:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--data-root", type=Path, help="resolve relative dataset image paths under this repository/data root")
     parser.add_argument("--backend", choices=("hf", "gguf", "fake"), default="hf")
     parser.add_argument("--model", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-side", type=int, default=448)
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
+    parser.add_argument("--identity-variant", choices=IDENTITY_VARIANTS, help="opt-in prompt/image budget experiment (otherwise use row metadata or default)")
+    parser.add_argument("--no-prompt-cache", action="store_true", help="GGUF: disable per-request prompt caching for cold-prefill latency")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--gguf-model", type=Path)
     parser.add_argument("--mmproj", type=Path)
