@@ -515,6 +515,17 @@ def score_episode(
         if line.strip()
     ]
     meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+    if meta.get("status") == "aborted_low_disk":
+        return {
+            "episode": str(episode),
+            "status": "aborted_low_disk",
+            "steps": 0,
+            "success": False,
+            "false_confirm": False,
+            "task_equivalent": False,
+            "excluded_from_model_failure_metrics": True,
+            "abort_reason": meta.get("failure"),
+        }
     target = _true_target(truth)
     true_ne = (float(target["pose"]["y_north_m"]), float(target["pose"]["x_east_m"]))
     confirmed_row = None

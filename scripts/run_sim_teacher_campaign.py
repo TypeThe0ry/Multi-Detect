@@ -392,6 +392,10 @@ def run_campaign(
                     attempt_log.parent.mkdir(parents=True, exist_ok=True)
                     attempt_log.write_text(output, encoding="utf-8")
                     if result.returncode == 0:
+                        if "aborted_low_disk" in output:
+                            status = "aborted_low_disk"
+                            last_error = "collector stopped: aborted_low_disk"
+                            break
                         audit_report, last_error = _run_audit(
                             dataset, run, executable, max_episode_s
                         )
@@ -498,6 +502,8 @@ def _write_campaign(
         "expert_label_count": expert_labels,
         "acquired_label_count": acquired,
         "total_transitions": total_transitions,
+        "aborted_low_disk": counts.get("aborted_low_disk", 0),
+        "aborted_low_disk_excluded_from_success_rate": True,
     }
     document = {
         "schema_version": 1,

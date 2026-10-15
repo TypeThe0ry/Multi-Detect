@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import json
 import math
@@ -30,6 +31,9 @@ class EpisodeRecorder:
         *,
         task_text: str = "",
         sensor_status: str = "unknown",
+        depth_format: str = "npy",
+        deduplicate_depth: bool = False,
+        compress_mavlink: bool = False,
     ):
         self.episode_dir = Path(root) / "episodes" / episode_id
         self.rgb_dir = self.episode_dir / "rgb"
@@ -37,7 +41,15 @@ class EpisodeRecorder:
         self.rgb_dir.mkdir(parents=True, exist_ok=True)
         self.depth_dir.mkdir(exist_ok=True)
         self.steps_path = self.episode_dir / "steps.jsonl"
-        self.mavlink_path = self.episode_dir / "mavlink.jsonl"
+        mavlink_name = "mavlink.jsonl.gz" if compress_mavlink else "mavlink.jsonl"
+        self.mavlink_path = self.episode_dir / mavlink_name
+        if depth_format not in {"npy", "npz", "png16"}:
+            raise ValueError("depth_format must be npy, npz, or png16")
+        self.depth_format = depth_format
+        self.deduplicate_depth = deduplicate_depth
+        self.compress_mavlink = compress_mavlink
+        self._previous_depth: Any = None
+        self._previous_depth_path: str | None = None
         self.episode_path = self.episode_dir / "episode.json"
         self.index = 0
         self.meta = {
@@ -54,13 +66,25 @@ class EpisodeRecorder:
         self._mavlink_lock = threading.Lock()
         self._mavlink_count = 0
         self._mavlink_last_flush = time.monotonic()
+        self.meta.update(
+            {
+                "depth_format": depth_format,
+                "deduplicate_depth": deduplicate_depth,
+                "mavlink_compressed": compress_mavlink,
+            }
+        )
 
     def begin_mavlink_stream(self) -> None:
         with self._mavlink_lock:
             if self._mavlink_file is None:
-                self._mavlink_file = self.mavlink_path.open(
-                    "a", encoding="utf-8", buffering=1024 * 1024
-                )
+                if self.compress_mavlink:
+                    self._mavlink_file = gzip.open(
+                        self.mavlink_path, "at", encoding="utf-8", compresslevel=6
+                    )
+                else:
+                    self._mavlink_file = self.mavlink_path.open(
+                        "a", encoding="utf-8", buffering=1024 * 1024
+                    )
 
     def close_mavlink_stream(self) -> None:
         with self._mavlink_lock:
@@ -100,14 +124,39 @@ class EpisodeRecorder:
             out["rgb_path"] = str(path.relative_to(self.episode_dir))
         depth = obs.get("depth")
         if depth is not None:
-            path = self.depth_dir / f"{stem}.npy"
-            try:
-                import numpy as np
+            import numpy as np
 
-                np.save(path, np.asarray(depth, dtype="float32"))
-            except Exception:
-                path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
-            out["depth_path"] = str(path.relative_to(self.episode_dir))
+            array = np.asarray(depth)
+            duplicate = (
+                self.deduplicate_depth
+                and self._previous_depth is not None
+                and np.array_equal(array, self._previous_depth, equal_nan=True)
+            )
+            if duplicate:
+                out["depth_path"] = self._previous_depth_path
+            else:
+                suffix = {"npy": ".npy", "npz": ".npz", "png16": ".png"}[self.depth_format]
+                path = self.depth_dir / f"{stem}{suffix}"
+                try:
+                    if self.depth_format == "npz":
+                        np.savez_compressed(path, depth=array)
+                    elif self.depth_format == "png16":
+                        from PIL import Image
+
+                        if array.dtype != np.uint16:
+                            array = (
+                                np.rint(np.asarray(array, dtype=np.float32) * 1000.0)
+                                .clip(0, 65535)
+                                .astype(np.uint16)
+                            )
+                        Image.fromarray(array, mode="I;16").save(path, format="PNG", optimize=True)
+                    else:
+                        np.save(path, array.astype("float32"))
+                except Exception:
+                    path.write_text(json.dumps(depth, default=_json_default), encoding="utf-8")
+                out["depth_path"] = str(path.relative_to(self.episode_dir))
+                self._previous_depth = np.asarray(depth).copy()
+                self._previous_depth_path = out["depth_path"]
         segmentation = obs.get("segmentation")
         if segmentation is not None:
             import numpy as np
@@ -117,7 +166,8 @@ class EpisodeRecorder:
             if array.dtype != np.uint8 or array.ndim != 3 or array.shape[2] != 3:
                 raise ValueError("segmentation must be a raw RGB uint8 panoptic labels map")
             if "camera_info" in obs and array.shape[:2] != (
-                int(obs["camera_info"]["height"]), int(obs["camera_info"]["width"])
+                int(obs["camera_info"]["height"]),
+                int(obs["camera_info"]["width"]),
             ):
                 raise ValueError("segmentation geometry differs from RGB camera_info")
             directory = self.episode_dir / "seg"
@@ -165,7 +215,12 @@ class EpisodeRecorder:
         row = {**row, "receive_monotonic_ns": time.monotonic_ns(), "receive_wall_time": time.time()}
         with self._mavlink_lock:
             if self._mavlink_file is None:
-                with self.mavlink_path.open("a", encoding="utf-8") as stream:
+                stream = (
+                    gzip.open(self.mavlink_path, "at", encoding="utf-8")
+                    if self.compress_mavlink
+                    else self.mavlink_path.open("a", encoding="utf-8")
+                )
+                with stream:
                     stream.write(json.dumps(row, default=_json_default) + "\n")
                 return
             self._mavlink_file.write(json.dumps(row, default=_json_default) + "\n")
@@ -222,12 +277,13 @@ def _has_gps_fix(gps: Any) -> bool:
     return _finite_number(fix) and float(fix) >= 2
 
 
-def _real_file(ep: Path, value: Any, suffix: str) -> bool:
+def _real_file(ep: Path, value: Any, suffix: str | tuple[str, ...]) -> bool:
     if not isinstance(value, str) or not value or Path(value).is_absolute():
         return False
     path = ep / value
     try:
-        if not path.is_file() or path.suffix.lower() != suffix or path.stat().st_size <= 0:
+        suffixes = (suffix,) if isinstance(suffix, str) else suffix
+        if not path.is_file() or path.suffix.lower() not in suffixes or path.stat().st_size <= 0:
             return False
         # Live RGB must be an actual PNG, avoiding JSON/placeholder fallbacks.
         if suffix == ".png":
@@ -266,16 +322,32 @@ DEFAULT_MAX_SIM_SKEW_MS = 250.0
 DEFAULT_POSE_MOTION_THRESHOLD_M = 1.0
 
 
+def load_depth_array(path: str | Path):
+    """Load legacy NPY and opt-in NPZ/16-bit PNG depth identically."""
+    import numpy as np
+    from PIL import Image
+
+    path = Path(path)
+    if path.suffix.lower() == ".npz":
+        with np.load(path, allow_pickle=False) as data:
+            return np.asarray(data["depth"] if "depth" in data else data[data.files[0]])
+    if path.suffix.lower() == ".png":
+        return np.asarray(Image.open(path), dtype=np.uint16)
+    return np.load(path, allow_pickle=False)
+
+
 def _depth_finite(ep: Path, value: Any) -> bool:
-    if not _real_file(ep, value, ".npy"):
+    if not _real_file(ep, value, (".npy", ".npz", ".png")):
         return False
     try:
         import numpy as np
 
-        array = np.load(ep / value, allow_pickle=False)
+        array = load_depth_array(ep / value)
         # Gazebo depth reports +/-inf for no-return pixels (sky, below near clip); those are
         # physical. NaN is corruption. Require a usable share of finite ranges.
-        if array.size == 0 or array.dtype != np.dtype("float32") or bool(np.isnan(array).any()):
+        if array.size == 0 or (
+            np.issubdtype(array.dtype, np.floating) and bool(np.isnan(array).any())
+        ):
             return False
         return float(np.isfinite(array).mean()) >= DEPTH_MIN_FINITE_FRACTION
     except Exception:
@@ -309,9 +381,7 @@ def _live_sim_alignment(
     """Validate and normalize simulation clock fields on one observation."""
     frame_stamp = obs.get("frame_sensor_stamp_ns")
     if isinstance(frame_stamp, bool) or not isinstance(frame_stamp, int) or frame_stamp <= 0:
-        raise DatasetAuditError(
-            f"live step {step_index} {name} has invalid frame_sensor_stamp_ns"
-        )
+        raise DatasetAuditError(f"live step {step_index} {name} has invalid frame_sensor_stamp_ns")
     pose_time = obs.get("pose_time_boot_ms")
     if isinstance(pose_time, bool) or not isinstance(pose_time, int) or pose_time < 0:
         raise DatasetAuditError(f"live step {step_index} {name} has invalid pose_time_boot_ms")
@@ -486,10 +556,7 @@ def audit_dataset(
                     # after observations exceed the limit.
                     if previous_frame_stamp_ns is not None and previous_pose is not None:
                         moved = math.sqrt(
-                            sum(
-                                (pose[axis] - previous_pose[axis]) ** 2
-                                for axis in range(3)
-                            )
+                            sum((pose[axis] - previous_pose[axis]) ** 2 for axis in range(3))
                         )
                         if (
                             moved > float(pose_motion_threshold_m)
@@ -602,4 +669,5 @@ __all__ = [
     "DEFAULT_MAX_SIM_SKEW_MS",
     "DEFAULT_POSE_MOTION_THRESHOLD_M",
     "audit_dataset",
+    "load_depth_array",
 ]

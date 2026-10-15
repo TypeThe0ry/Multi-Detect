@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+from multidetect.sim_teacher.recording import load_depth_array
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
@@ -103,7 +105,7 @@ def _depth_range(episode: Path, obs: dict[str, Any], box: list[float]) -> float 
     if not path.is_file():
         return None
     try:
-        depth = np.asarray(np.load(path), dtype=float)
+        depth = np.asarray(load_depth_array(path), dtype=float)
         height, width = depth.shape[:2]
         x1, y1, x2, y2 = (max(0, int(v)) for v in box)
         x2, y2 = min(width, int(box[2])), min(height, int(box[3]))

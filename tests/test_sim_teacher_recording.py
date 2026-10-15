@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -14,6 +15,59 @@ from multidetect.sim_teacher import (
     EpisodeRecorder,
     audit_dataset,
 )
+from multidetect.sim_teacher.recording import load_depth_array
+
+
+def test_low_disk_start_guard_records_abort_without_starting_episode(tmp_path: Path) -> None:
+    import scripts.collect_sim_teacher_episodes as collector
+    plan = type("Plan", (), {"out": str(tmp_path), "min_free_gb": 15.0})()
+    path = collector.run_episode(plan, Path("unused"), 0, free_space_fn=lambda _: 1)
+    meta = json.loads((path / "episode.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "aborted_low_disk"
+    assert "below" in meta["failure"]
+
+
+def test_low_disk_guard_checks_initial_and_periodic_samples() -> None:
+    import scripts.collect_sim_teacher_episodes as collector
+    values = iter([20 * 1024**3, 14 * 1024**3])
+    def fn(_):
+        return next(values)
+    assert collector.disk_space_abort_reason(".", 15.0, free_space_fn=fn) is None
+    assert "below" in collector.disk_space_abort_reason(".", 15.0, free_space_fn=fn)
+
+
+def test_campaign_and_scorer_report_abort_separately(tmp_path: Path) -> None:
+    from scripts.run_sim_teacher_campaign import _write_campaign
+    from scripts.score_onboard_loop import score_episode
+    episode = tmp_path / "episode"
+    (episode / "episodes").mkdir(parents=True)
+    ep = episode / "episodes" / "aborted"
+    ep.mkdir()
+    (ep / "episode.json").write_text(
+        json.dumps({"status": "aborted_low_disk", "failure": "disk floor"}), encoding="utf-8"
+    )
+    (ep / "steps.jsonl").write_text("", encoding="utf-8")
+    row = {"world": "w", "seed": 1, "split": "test", "teacher": "explore",
+           "dataset": str(episode), "status": "aborted_low_disk", "attempts": 1,
+           "duration_s": 0}
+    report = _write_campaign(tmp_path / "campaign.json", [row], "explore", 1, 1, 0, tmp_path, 1, 0)
+    assert report["summary"]["aborted_low_disk"] == 1
+    scored = score_episode(ep, {"targets": []})
+    assert scored["status"] == "aborted_low_disk"
+    assert scored["excluded_from_model_failure_metrics"] is True
+
+
+@pytest.mark.parametrize("depth_format", ["npy", "npz", "png16"])
+def test_opt_in_depth_formats_load_to_equivalent_arrays(tmp_path: Path, depth_format: str) -> None:
+    recorder = EpisodeRecorder(tmp_path, "episode", depth_format=depth_format)
+    source = np.array([[1.25, 2.5], [3.75, 4.0]], dtype=np.float32)
+    recorder.record_step({"depth": source}, {})
+    path = recorder.episode_dir / "depth" / next(
+        name for name in os.listdir(recorder.episode_dir / "depth")
+    )
+    loaded = load_depth_array(path)
+    expected = source if depth_format != "png16" else np.rint(source * 1000).astype(np.uint16)
+    np.testing.assert_array_equal(loaded, expected)
 
 
 def _obs(value: float = 1.0) -> dict:

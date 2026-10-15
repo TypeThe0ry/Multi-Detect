@@ -41,15 +41,24 @@ def summarize(logs: list[Path]) -> dict:
                 vx, vy, vz = (record.get(key) for key in ("vx", "vy", "vz"))
                 if all(numeric(value) for value in (vx, vy, vz)):
                     phase = (
-                        "climb" if vz < -0.3 else "descent" if vz > 0.3
-                        else "translate" if math.hypot(vx, vy) > 0.5 else "hover"
+                        "climb"
+                        if vz < -0.3
+                        else "descent"
+                        if vz > 0.3
+                        else "translate"
+                        if math.hypot(vx, vy) > 0.5
+                        else "hover"
                     )
                     phases[phase] += 1
             if kind not in {"BATTERY_STATUS", "SYS_STATUS"}:
                 continue
             for field in (
-                "current_battery", "current_consumed", "energy_consumed",
-                "battery_remaining", "time_remaining", "voltage_battery",
+                "current_battery",
+                "current_consumed",
+                "energy_consumed",
+                "battery_remaining",
+                "time_remaining",
+                "voltage_battery",
             ):
                 if numeric(record.get(field)):
                     fields[f"{kind}.{field}"][record[field]] += 1
@@ -71,25 +80,33 @@ def summarize(logs: list[Path]) -> dict:
             if voltage is not None and numeric(current) and current >= 0:
                 powers[phase].append(voltage * current / 100)
         duration = battery_times[-1] - battery_times[0] if len(battery_times) > 1 else None
-        sources.append({
-            "path": str(path.resolve()), "sha256": digest.hexdigest(),
-            "bytes": path.stat().st_size,
-            "battery_status_samples": local["BATTERY_STATUS"],
-            "sys_status_samples": local["SYS_STATUS"],
-            "battery_span_s": round(duration, 6) if duration else None,
-            "first_soc_percent": battery_soc[0] if battery_soc else None,
-            "last_soc_percent": battery_soc[-1] if battery_soc else None,
-        })
+        sources.append(
+            {
+                "path": str(path.resolve()),
+                "sha256": digest.hexdigest(),
+                "bytes": path.stat().st_size,
+                "battery_status_samples": local["BATTERY_STATUS"],
+                "sys_status_samples": local["SYS_STATUS"],
+                "battery_span_s": round(duration, 6) if duration else None,
+                "first_soc_percent": battery_soc[0] if battery_soc else None,
+                "last_soc_percent": battery_soc[-1] if battery_soc else None,
+            }
+        )
     field_report = {}
     for field, values in sorted(fields.items()):
         field_report[field] = {
-            "samples": sum(values.values()), "min": min(values), "max": max(values),
+            "samples": sum(values.values()),
+            "min": min(values),
+            "max": max(values),
             "unique_values": len(values),
             "most_common": [{"value": v, "count": n} for v, n in values.most_common(5)],
         }
     return {
-        "schema_version": 1, "log_count": len(logs), "sources": sources,
-        "message_counts": dict(sorted(counts.items())), "malformed_records": malformed,
+        "schema_version": 1,
+        "log_count": len(logs),
+        "sources": sources,
+        "message_counts": dict(sorted(counts.items())),
+        "malformed_records": malformed,
         "battery_fields": field_report,
         "phase_classification": {
             "source": "LOCAL_POSITION_NED velocities; all states, not restricted to armed",
@@ -97,12 +114,15 @@ def summarize(logs: list[Path]) -> dict:
             "sample_counts": dict(phases),
         },
         "phase_power_w": {
-            phase: {"samples": len(powers[phase]),
-                    "mean": sum(powers[phase]) / len(powers[phase]) if powers[phase] else None}
+            phase: {
+                "samples": len(powers[phase]),
+                "mean": sum(powers[phase]) / len(powers[phase]) if powers[phase] else None,
+            }
             for phase in ("hover", "translate", "climb", "descent", "unknown")
         },
         "calibration_status": (
-            "measured_current_available" if any(powers.values())
+            "measured_current_available"
+            if any(powers.values())
             else "unavailable_no_valid_current_or_consumed_energy"
         ),
         "caveats": [
@@ -125,7 +145,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.max_logs < 1:
         parser.error("--max-logs must be positive")
-    logs = sorted(args.input_root.rglob("mavlink.jsonl"))[:args.max_logs]
+    logs = sorted(
+        [*args.input_root.rglob("mavlink.jsonl"), *args.input_root.rglob("mavlink.jsonl.gz")]
+    )[: args.max_logs]
     if not logs:
         parser.error("no mavlink.jsonl files found")
     output = args.output.resolve()
@@ -134,13 +156,18 @@ def main() -> None:
         parser.error("--output must be inside this worktree")
     report = summarize(logs)
     report["selection"] = {
-        "input_root": str(args.input_root.resolve()), "max_logs": args.max_logs,
+        "input_root": str(args.input_root.resolve()),
+        "max_logs": args.max_logs,
         "order": "lexicographic relative paths; bounded prefix",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(output), "logs": len(logs),
-                      "status": report["calibration_status"]}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {"output": str(output), "logs": len(logs), "status": report["calibration_status"]},
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

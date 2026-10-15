@@ -38,6 +38,7 @@ from multidetect.autonomy.policy_v2.model import (
     export_onnx,
     states_to_tensors,
 )
+from multidetect.sim_teacher.recording import load_depth_array
 
 
 class DatasetAdmissionError(ValueError):
@@ -95,7 +96,7 @@ def _real_depth(ep: Path, value: object) -> bool:
     try:
         if np is None:
             return True
-        array = np.load(path, allow_pickle=False)
+        array = load_depth_array(path)
         return bool(array.size and np.isfinite(array).all())
     except Exception:
         return False

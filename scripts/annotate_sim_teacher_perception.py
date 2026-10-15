@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 
 import cv2
-import numpy as np
+
+from multidetect.sim_teacher.recording import load_depth_array
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -71,7 +72,7 @@ def annotate_episode(episode: Path, bridge: PerceptionBridge, *, overwrite: bool
                 raw_depth = observation.get("depth_path")
                 if raw_depth:
                     depth_path = _sensor_path(episode, raw_depth)
-                    depth = np.load(depth_path, allow_pickle=False)
+                    depth = load_depth_array(depth_path)
                 else:
                     depth_path = None
                 output = bridge.annotate_observation(
