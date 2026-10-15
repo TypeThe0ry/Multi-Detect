@@ -248,7 +248,7 @@ def _mission_area(
     return None
 
 
-def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float) -> dict[str, Any]:
+def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float) -> dict[str, Any]:
     """Score only SIM-timestamped target estimates; host timestamps are rejected."""
     samples = []
     for row in rows:
@@ -265,12 +265,19 @@ def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], ra
             continue
         samples.append({"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m})
     samples.sort(key=lambda item: item["time_s"])
+    times = [s["time_s"] for s in samples]
+    covered = max(0.0, min(task_duration_s, (times[-1] - times[0]) if times else 0.0))
+    gaps = [b - a for a, b in zip(times, times[1:])]
     return {
         "moving_track_samples": samples,
         "moving_distance_mean_m": (sum(s["distance_m"] for s in samples) / len(samples) if samples else None),
         "moving_distance_max_m": (max(s["distance_m"] for s in samples) if samples else None),
         "moving_track_continuity": (sum(s["within_radius"] for s in samples) / len(samples) if samples else None),
         "moving_track_sample_count": len(samples),
+        "moving_task_duration_s": task_duration_s,
+        "moving_time_coverage": covered / task_duration_s if task_duration_s > 0 else 0.0,
+        "moving_max_gap_s": max(gaps, default=float("inf")),
+        "moving_track_eligible": bool(samples and covered / task_duration_s >= 0.8 and max(gaps, default=float("inf")) <= 5.0 and sum(s["distance_m"] for s in samples) / len(samples) <= radius_m and sum(s["within_radius"] for s in samples) / len(samples) >= 0.8),
     }
 
 
@@ -450,7 +457,8 @@ def _mission_metrics(
         ),
     }
     if any(obj.get("trajectory") for obj in targets):
-        result.update(_moving_track_metrics(rows, _true_target(truth), radius_m))
+        duration = 120.0 if _true_target(truth).get("class") == "person" else 300.0
+        result.update(_moving_track_metrics(rows, _true_target(truth), radius_m, duration))
     return result
 
 
@@ -693,6 +701,8 @@ def score_episode(
         identity_source=source,
         success=bool(distance <= radius_m and overlap >= 0.1),
     )
+    if "moving_track_eligible" in result:
+        result["success"] = bool(result["success"] and result["moving_track_eligible"])
     result["false_confirm"] = not result["success"]
     if result["false_confirm"] and estimate:
         hit = _nearest_object(truth, estimate, radius_m, confirm_time_s)

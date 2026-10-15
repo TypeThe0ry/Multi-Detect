@@ -51,10 +51,20 @@ def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
         {"frame_sensor_stamp_ns": 0, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}},
         {"frame_sensor_stamp_ns": 5_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 5]}}}},
     ]
-    metrics = _moving_track_metrics(rows, target, 1.0)
+    metrics = _moving_track_metrics(rows, target, 1.0, 5.0)
     assert metrics["moving_track_sample_count"] == 2
     assert metrics["moving_track_continuity"] == 1.0
     assert metrics["moving_distance_max_m"] == 0.0
+
+
+def test_hovering_target_does_not_meet_time_coverage_or_mean_distance_gate() -> None:
+    from scripts.score_onboard_loop import _moving_track_metrics
+
+    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [100, 0]]}}
+    rows = [{"frame_sensor_stamp_ns": i * 1_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}} for i in range(0, 91, 10)]
+    metrics = _moving_track_metrics(rows, target, 2.0, 120.0)
+    assert metrics["moving_time_coverage"] < 0.8
+    assert metrics["moving_track_eligible"] is False
 
 
 def test_mission_alert_matches_mover_at_observation_sim_time() -> None:

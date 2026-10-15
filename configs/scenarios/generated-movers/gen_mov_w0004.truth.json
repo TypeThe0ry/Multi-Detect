@@ -3,6 +3,13 @@
   "scenario_id": "gen_mov_w0004",
   "scenario_version": 1,
   "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "generated_mover",
+      "role": "target",
+      "target_id": "target_true_gen_mov_w0004"
+    }
+  },
   "targets": [
     {
       "behavior": "moving",

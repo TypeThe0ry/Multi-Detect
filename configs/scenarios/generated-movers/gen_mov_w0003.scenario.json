@@ -10,7 +10,7 @@
     },
     "truth": {
       "path": "gen_mov_w0003.truth.json",
-      "sha256": "58a8db961a6a0820a96d1e5168408a57b4e315b7805834e9a30e7807c4dfc5df"
+      "sha256": "04853573b08a0511f0be13e7f5e384e1b160e94c7c2d908b35af18079af553ec"
     }
   },
   "scenario_id": "gen_mov_w0003",

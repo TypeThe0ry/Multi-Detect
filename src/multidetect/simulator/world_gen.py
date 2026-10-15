@@ -564,13 +564,22 @@ def generate_mover_worlds(
         start_x, start_y = trajectory["waypoints"][0]
         material = "<material><ambient>0.85 0.04 0.03 1</ambient><diffuse>0.95 0.05 0.04 1</diffuse></material>" if person else "<material><ambient>0.12 0.14 0.16 1</ambient><diffuse>0.20 0.22 0.25 1</diffuse></material>"
         # Native Gazebo actor script executes the motion; truth is sampled from sim time.
-        leg_times = [0.0]
-        for a, b in zip(trajectory["waypoints"], trajectory["waypoints"][1:]):
-            leg_times.append(leg_times[-1] + math.hypot(b[0] - a[0], b[1] - a[1]) / speed)
-        waypoints_xml = "".join(f"<waypoint>{px:.3f} {py:.3f} 0 {t:.3f}</waypoint>" for (px, py), t in zip(trajectory["waypoints"], leg_times))
-        total_time = leg_times[-1] + math.hypot(trajectory["waypoints"][0][0] - trajectory["waypoints"][-1][0], trajectory["waypoints"][0][1] - trajectory["waypoints"][-1][1]) / speed
-        waypoints_xml += f"<waypoint>{start_x:.3f} {start_y:.3f} 0 {total_time:.3f}</waypoint>"
-        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>{start_x:.3f} {start_y:.3f} {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}</visual></link><script><loop>true</loop><auto_start>true</auto_start><trajectory id="move" type="walking" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
+        # Densify every straight leg to <=0.5 s.  This bounds interpolation
+        # residual to <= speed*0.5/2 (0.25 m for people, 0.75 m for vehicles)
+        # even if a simulator interpolates between adjacent waypoints.
+        dense: list[tuple[float, float, float]] = []
+        sim_t = 0.0
+        points = trajectory["waypoints"] + [trajectory["waypoints"][0]]
+        for a, b in zip(points, points[1:]):
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            steps = max(1, math.ceil(length / (speed * 0.5)))
+            for j in range(steps):
+                f = j / steps
+                dense.append((a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]), sim_t + f * length / speed))
+            sim_t += length / speed
+        dense.append((start_x, start_y, sim_t))
+        waypoints_xml = "".join(f"<waypoint>{px:.3f} {py:.3f} 0 {t:.3f}</waypoint>" for px, py, t in dense)
+        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>0 0 {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}</visual></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin><script><loop>true</loop><auto_start>true</auto_start><trajectory id="move" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
         sdf = sdf.replace(
             "<gravity>0 0 -9.80665</gravity>",
             "<gravity>0 0 -9.80665</gravity>"
@@ -582,7 +591,7 @@ def generate_mover_worlds(
             1,
         )
         world_path = worlds_dir / f"{world_id}.sdf"; world_path.write_text(sdf, encoding="utf-8", newline="\n")
-        truth = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "asset_mode": "generated_mover_v1", "targets": [{"target_id": f"target_true_{world_id}", "label": label, "class": kind, "category_words": label.split(), "color": "red" if person else None, "pose": {"x_east_m": start_x, "y_north_m": start_y, "z_up_m": size[2]/2, "yaw_rad": 0.0}, "size_m": list(size), "measured_size_m": list(size), "bottom_offset_m": -size[2]/2, "behavior": "moving", "trajectory": trajectory, "true_target": True}]}
+        truth = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "asset_mode": "generated_mover_v1", "segmentation_labels": {"1": {"asset_slug": "generated_mover", "role": "target", "target_id": f"target_true_{world_id}"}}, "targets": [{"target_id": f"target_true_{world_id}", "label": label, "class": kind, "category_words": label.split(), "color": "red" if person else None, "pose": {"x_east_m": start_x, "y_north_m": start_y, "z_up_m": size[2]/2, "yaw_rad": 0.0}, "size_m": list(size), "measured_size_m": list(size), "bottom_offset_m": -size[2]/2, "behavior": "moving", "trajectory": trajectory, "true_target": True}]}
         runtime = {
             "schema_version": 1,
             "scenario_id": world_id,
