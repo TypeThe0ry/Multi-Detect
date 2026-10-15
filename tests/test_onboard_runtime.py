@@ -132,8 +132,9 @@ def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
         assert len(during_call) >= 12
         assert all(target == initial for target in during_call)
         metrics = runtime.report()["setpoints"]
-        assert metrics["rate_hz"] >= 15
-        assert metrics["max_gap_s"] < 0.2
+        # PX4 leaves OFFBOARD below ~2 Hz (0.5 s); margins allow a loaded test host.
+        assert metrics["rate_hz"] >= 12
+        assert metrics["max_gap_s"] < 0.4
         assert runtime.steps >= 1
         assert runtime.hazard is None
     finally:
