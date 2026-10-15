@@ -36,7 +36,10 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
     plan_for_find_task,
     task_text_for,
 )
-from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_package import (  # noqa: E402
+    check_plan_against_package,
+    load_mission_package,
+)
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
@@ -220,15 +223,26 @@ def build_mission_from_text(
     refs: Mapping[str, Any] | Sequence[str] | None,
     post: Callable[[str, dict], str],
     sorted_keys: bool = True,
+    *,
+    plan_checker: Callable[[MissionPlan], Sequence[Mapping[str, Any]]] | None = None,
+    attempts: int = 2,
+    capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan, dict[str, Any]]:
     """Compile a free task sentence, falling back to a validated return-home plan."""
-    schema = plan_json_schema()
+    schema = plan_json_schema(capabilities=capabilities)
     if sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
         schema = trained_key_order_schema(schema)
     ref_names = tuple(refs or ())
-    plan, report = compile_mission_plan(post, task_text, refs=ref_names, schema=schema)
+    plan, report = compile_mission_plan(
+        post,
+        task_text,
+        refs=ref_names,
+        schema=schema,
+        attempts=attempts,
+        plan_checker=plan_checker,
+    )
     if plan is None:
         plan = validate_mission_plan(
             {
@@ -399,6 +413,11 @@ class OnboardPolicy:
             area = package.document["operating_area"]
             if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
                 raise ValueError("launch altitude outside mission package limits")
+        package_capabilities = (
+            frozenset(self.mission_package.document.get("capabilities", ()))
+            if self.mission_package is not None
+            else frozenset()
+        )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
@@ -549,6 +568,17 @@ class OnboardPolicy:
         self.executor: MissionExecutor | MissionSupervisor | None = None
         self.supervisor: MissionSupervisor | None = None
         self.downlink: DownlinkQueue | None = None
+        executor_config = ExecutorConfig(
+            step_budget=int(options.get("step_budget", 60)),
+            alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
+            alert_require_majority=(
+                options.get("alert_require_majority", False)
+                if not isinstance(options.get("alert_require_majority", False), str)
+                else options["alert_require_majority"].strip().lower()
+                in {"1", "true", "yes", "on"}
+            ),
+            alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+        )
         if mission:
             if mission == "package":
                 if self.mission_package is None:
@@ -591,19 +621,56 @@ class OnboardPolicy:
                     return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
+                retry_setting = options.get(
+                    "retry_on_package_violation",
+                    options.get(
+                        "retry_on_package_violations",
+                        options.get("mission_package_retry", False),
+                    ),
+                )
+                package_retry = (
+                    retry_setting.strip().lower() in {"1", "true", "yes", "on"}
+                    if isinstance(retry_setting, str)
+                    else bool(retry_setting)
+                )
+                plan_checker = (
+                    (
+                        lambda candidate: check_plan_against_package(
+                            candidate,
+                            self.mission_package,
+                            capabilities=package_capabilities,
+                            executor_config=executor_config,
+                        )
+                    )
+                    if package_retry and self.mission_package is not None
+                    else None
+                )
                 plan, report = build_mission_from_text(
                     self.task_text,
                     tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
                     post,
                     sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                    plan_checker=plan_checker,
+                    capabilities=package_capabilities,
                 )
                 self.mission_plan, self.mission_plan_report = plan, report
                 if self.mission_package is not None and report.get("error"):
+                    package_violations = report.get("package_violations", [])
+                    if package_violations:
+                        self._refuse_package_plan(package_violations)
                     self.slow.close()
                     raise ValueError(f"mission package plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
+                violations = check_plan_against_package(
+                    plan,
+                    self.mission_package,
+                    capabilities=package_capabilities,
+                    executor_config=executor_config,
+                )
+                if violations:
+                    self._refuse_package_plan(violations)
                 try:
                     self.mission_package.validate_plan(plan)
                 except ValueError:
@@ -618,17 +685,7 @@ class OnboardPolicy:
                     if mission in {"from_text", "package"}
                     else (lambda step: self.task_text)
                 ),
-                config=ExecutorConfig(
-                    step_budget=int(options.get("step_budget", 60)),
-                    alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
-                    alert_require_majority=(
-                        options.get("alert_require_majority", False)
-                        if not isinstance(options.get("alert_require_majority", False), str)
-                        else options["alert_require_majority"].strip().lower()
-                        in {"1", "true", "yes", "on"}
-                    ),
-                    alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
-                ),
+                config=executor_config,
             )
             # Set home on the executor itself, before any supervisor wraps it.
             if home_ned is not None:
@@ -670,6 +727,35 @@ class OnboardPolicy:
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
+
+    def _refuse_package_plan(self, violations: Sequence[Mapping[str, Any]]) -> None:
+        """Persist a fail-closed admission decision before raising to the caller."""
+        if self.mission_package is None:
+            raise ValueError("mission plan violates package policy")
+        log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+        now = time.monotonic()
+        log.append(
+            "mission_refused",
+            now,
+            reason="package_policy_violation",
+            violations=list(violations),
+        )
+        log.finish(
+            now,
+            {
+                "status": "refused",
+                "reason": "package_policy_violation",
+                "violations": list(violations),
+            },
+        )
+        close = getattr(self.slow, "close", None)
+        if close is not None:
+            close()
+        details = "; ".join(
+            f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
+            for item in violations
+        )
+        raise ValueError(f"mission plan refused by package policy: {details}")
 
     def close(self) -> None:
         try:

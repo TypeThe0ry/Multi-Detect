@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .mission_plan import MissionPlan, validate_mission_plan
+from .mission_plan import MissionPlan, MissionStep, validate_mission_plan
 from .mission_security import load_key, verify_document
 from .serialization import strict_json_loads
 
@@ -97,6 +97,321 @@ class MissionPackage:
                 raise ValueError(f"{step.id}: altitude outside operating limits")
 
 
+def _package_violation(code: str, step_id: str | None, zh: str, en: str) -> dict[str, Any]:
+    """Build the stable, bilingual shape consumed by the planner and mission log."""
+    return {
+        "code": code,
+        "step_id": step_id,
+        "message_zh": zh,
+        "message_en": en,
+        "message": f"{zh} / {en}",
+    }
+
+
+def _inside_area(point: tuple[float, float], area: Mapping[str, float]) -> bool:
+    return (
+        area["north_min_m"] <= point[0] <= area["north_max_m"]
+        and area["east_min_m"] <= point[1] <= area["east_max_m"]
+    )
+
+
+def _segment_circle_distance(
+    start: tuple[float, float], end: tuple[float, float], centre: tuple[float, float]
+) -> float:
+    delta = (end[0] - start[0], end[1] - start[1])
+    length2 = delta[0] ** 2 + delta[1] ** 2
+    if length2 == 0:
+        return math.dist(start, centre)
+    t = max(
+        0.0,
+        min(
+            1.0,
+            ((centre[0] - start[0]) * delta[0] + (centre[1] - start[1]) * delta[1])
+            / length2,
+        ),
+    )
+    return math.dist(centre, (start[0] + t * delta[0], start[1] + t * delta[1]))
+
+
+def _zone_tag_is_no_fly(tag: Any) -> bool:
+    if not isinstance(tag, str):
+        return False
+    normalised = tag.strip().lower().replace("_", "-").replace(" ", "-")
+    return normalised in {"no-fly", "nofly", "no-fly-zone", "prohibited"}
+
+
+def _point_from_ref(ref: Any, refs: Mapping[str, Any], home: Any) -> tuple[float, float] | None:
+    if ref == "home":
+        value = home
+    else:
+        value = refs.get(ref)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) < 2:
+        return None
+    try:
+        point = (float(value[0]), float(value[1]))
+    except (TypeError, ValueError):
+        return None
+    return point if all(math.isfinite(v) for v in point) else None
+
+
+def estimate_plan_duration(
+    plan: MissionPlan,
+    package: MissionPackage,
+    *,
+    executor_config: Any | None = None,
+) -> float:
+    """Return a conservative CPU-only duration estimate in seconds.
+
+    The executor advances one primitive per control cycle.  Its translate cap
+    and hold interval therefore provide a useful speed estimate without
+    pretending that this preflight knows the aircraft's exact wind or route.
+    Explicit timed skills retain their requested duration.
+    """
+    if executor_config is None:
+        from .mission_executor import ExecutorConfig
+
+        executor_config = ExecutorConfig()
+    hold_s = max(0.1, float(executor_config.hold_s))
+    speed_mps = max(0.1, float(executor_config.max_translate_m)) / hold_s
+    step_budget = max(1, int(executor_config.step_budget)) * hold_s
+    travel_budget = max(1, int(executor_config.travel_budget)) * hold_s
+    refs = package.refs
+    home = tuple(float(v) for v in package.document["home"])
+    total = 0.0
+    previous = home
+    for step in plan.steps:
+        params = step.params
+        skill = step.skill
+        target = _point_from_ref(params.get("target_ref"), refs, home)
+        route = refs.get(params.get("route_ref"))
+        route_points = (
+            [tuple(float(v) for v in point[:2]) for point in route]
+            if isinstance(route, Sequence)
+            and not isinstance(route, (str, bytes))
+            and route
+            and isinstance(route[0], Sequence)
+            else []
+        )
+        distance = 0.0
+        if skill in {"goto", "deliver"} and target is not None:
+            distance = math.dist(previous, target)
+            previous = target
+        elif skill == "return_home":
+            distance = math.dist(previous, home)
+            previous = home
+        elif skill == "patrol" and len(route_points) > 1:
+            distance = sum(
+                math.dist(a, b) for a, b in zip(route_points, route_points[1:], strict=False)
+            )
+            distance *= int(params.get("loops", 1))
+        elif skill == "survey":
+            region = refs.get(params.get("region"))
+            radius = float(region[2]) if isinstance(region, Sequence) and len(region) >= 3 else 0.0
+            distance = 4.0 * radius
+        elif skill == "inspect":
+            distance = float(params.get("standoff_m", 0.0))
+        travel = distance / speed_mps
+        if skill in {"monitor", "follow", "hover"}:
+            duration = float(params.get("duration_s", travel_budget))
+        elif skill == "patrol":
+            duration = max(float(params.get("duration_s", 0.0)), travel)
+        elif skill in {"goto", "deliver", "return_home", "land"}:
+            duration = travel + hold_s
+        elif skill == "inspect":
+            duration = travel + int(params.get("views", 1)) * hold_s
+        elif skill in {"area_search", "count", "survey", "record"}:
+            duration = max(
+                travel, travel_budget if skill in {"area_search", "survey"} else step_budget
+            )
+        else:
+            duration = step_budget
+        total += max(0.0, duration)
+    return total
+
+
+def check_plan_against_package(
+    plan: MissionPlan,
+    package: MissionPackage,
+    *,
+    capabilities: frozenset[str] | None = None,
+    executor_config: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Check a compiled plan against operator constraints before takeoff.
+
+    This function is deliberately side-effect free.  It accepts a validated
+    ``MissionPlan`` but also tolerates hand-built plans so callers can report a
+    useful refusal instead of allowing a model mistake to reach the executor.
+    """
+    document = package.document
+    area = document["operating_area"]
+    refs = package.refs
+    violations: list[dict[str, Any]] = []
+    no_fly = []
+    for name, zone in document.get("zones", {}).items():
+        if _zone_tag_is_no_fly(zone.get("risk_tag")):
+            no_fly.append((name, tuple(zone["centre_ne"]), float(zone["radius_m"])))
+
+    def add(code: str, step: MissionStep, zh: str, en: str) -> None:
+        violations.append(_package_violation(code, step.id, zh, en))
+
+    for step in plan.steps:
+        params = step.params
+        paths: list[list[tuple[float, float]]] = []
+        regions: list[tuple[tuple[float, float], float, str]] = []
+        region_ref = params.get("region")
+        if region_ref and region_ref != "zone:all":
+            value = refs.get(region_ref)
+            if isinstance(value, Sequence) and len(value) >= 3:
+                centre = (float(value[0]), float(value[1]))
+                radius = float(value[2])
+                regions.append((centre, radius, str(region_ref)))
+                paths.append([centre])
+        target_ref = params.get("target_ref")
+        if target_ref in document.get("zones", {}) and target_ref in refs:
+            value = refs[target_ref]
+            if isinstance(value, Sequence) and len(value) >= 3:
+                centre = (float(value[0]), float(value[1]))
+                radius = float(value[2])
+                regions.append((centre, radius, str(target_ref)))
+                paths.append([centre])
+        else:
+            target = _point_from_ref(target_ref, refs, document["home"])
+            if target is not None:
+                paths.append([target])
+        route = refs.get(params.get("route_ref"))
+        if isinstance(route, Sequence) and route and isinstance(route[0], Sequence):
+            points = [tuple(float(v) for v in point[:2]) for point in route]
+            paths.append(points)
+
+        outside = False
+        for path in paths:
+            if any(not _inside_area(point, area) for point in path):
+                outside = True
+        for centre, radius, _ in regions:
+            if not (
+                area["north_min_m"] <= centre[0] - radius
+                and centre[0] + radius <= area["north_max_m"]
+                and area["east_min_m"] <= centre[1] - radius
+                and centre[1] + radius <= area["east_max_m"]
+            ):
+                outside = True
+        if outside:
+            add(
+                "OUTSIDE_OPERATING_AREA",
+                step,
+                f"步骤 {step.id} 的区域、目标或航线超出作业区域",
+                f"Step {step.id} has a region, target, or route outside the operating area",
+            )
+
+        entered_no_fly = bool(region_ref == "zone:all" and no_fly)
+        for path in paths:
+            for point in path:
+                if any(math.dist(point, centre) <= radius for _, centre, radius in no_fly):
+                    entered_no_fly = True
+            for start, end in zip(path, path[1:], strict=False):
+                if any(
+                    _segment_circle_distance(start, end, centre) <= radius
+                    for _, centre, radius in no_fly
+                ):
+                    entered_no_fly = True
+        for centre, radius, _ in regions:
+            if any(
+                math.dist(centre, forbidden_centre) <= radius + forbidden_radius
+                for _, forbidden_centre, forbidden_radius in no_fly
+            ):
+                entered_no_fly = True
+        if entered_no_fly:
+            names = ", ".join(name for name, _, _ in no_fly)
+            add(
+                "NO_FLY_ZONE",
+                step,
+                f"步骤 {step.id} 进入禁飞区 {names}",
+                f"Step {step.id} enters no-fly zone(s) {names}",
+            )
+
+        altitude = params.get("altitude_m")
+        if altitude is not None and not (
+            area["min_altitude_m"] <= altitude <= area["max_altitude_m"]
+        ):
+            add(
+                "ALTITUDE_OUT_OF_BOUNDS",
+                step,
+                f"步骤 {step.id} 的高度超出允许范围",
+                f"Step {step.id} altitude is outside the operating limits",
+            )
+
+        if step.skill == "deliver":
+            available = capabilities
+            if available is None:
+                available = frozenset(document.get("capabilities", ()))
+            if "payload" not in available:
+                add(
+                    "MISSING_CAPABILITY",
+                    step,
+                    f"步骤 {step.id} 需要载荷能力，但当前飞行器不具备该能力",
+                    f"Step {step.id} requires the payload capability, which is unavailable",
+                )
+
+    reachable = {plan.steps[0].id} if plan.steps else set()
+    by_id = {step.id: step for step in plan.steps}
+    frontier = list(reachable)
+    while frontier:
+        current = by_id[frontier.pop()]
+        for ref in (current.on_success, current.on_fail):
+            if ref is not None and ref in by_id and ref not in reachable:
+                reachable.add(ref)
+                frontier.append(ref)
+    terminals = [
+        step
+        for step in plan.steps
+        if step.skill in {"return_home", "land"}
+        or (step.skill == "hover" and step.on_success is None)
+    ]
+    if not terminals or not any(step.id in reachable for step in terminals):
+        terminal = terminals[0] if terminals else (plan.steps[-1] if plan.steps else None)
+        violations.append(
+            _package_violation(
+                "TERMINAL_UNREACHABLE",
+                terminal.id if terminal else None,
+                (
+                    f"终端步骤 {terminal.id} 从计划起点不可达"
+                    if terminal
+                    else "计划没有可达的终端步骤"
+                ),
+                (
+                    f"Terminal step {terminal.id} is unreachable from the plan start"
+                    if terminal
+                    else "The plan has no reachable terminal step"
+                ),
+            )
+        )
+
+    budget = document["budget"]
+    available_time = float(budget["time_s"]) - float(budget["reserve_time_s"])
+    estimate = estimate_plan_duration(plan, package, executor_config=executor_config)
+    if estimate > available_time:
+        step_id = next(
+            (
+                step.id
+                for step in plan.steps
+                if step.params.get("duration_s") is not None
+                or step.skill not in {"return_home", "land"}
+            ),
+            plan.steps[-1].id if plan.steps else None,
+        )
+        violations.append(
+            _package_violation(
+                "TIME_BUDGET_EXCEEDED",
+                step_id,
+                f"计划预计耗时 {estimate:.1f} 秒，超过扣除余量后的时间预算 {available_time:.1f} 秒",
+                "Estimated plan duration "
+                f"{estimate:.1f}s exceeds the time budget after reserve "
+                f"({available_time:.1f}s)",
+            )
+        )
+    return violations
+
+
 def load_mission_package(
     raw: Mapping[str, Any] | Path,
     *,
@@ -140,7 +455,7 @@ def load_mission_package(
         },
         {
             "task_text", "plan", "ref_labels", "heartbeat_timeout_s",
-            "signature", "signature_alg",
+            "signature", "signature_alg", "capabilities",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
@@ -155,6 +470,13 @@ def load_mission_package(
         not isinstance(s, str) for s in obj["oversight_steps"]
     ):
         raise ValueError("oversight_steps must be an array of step ids")
+    capabilities = obj.get("capabilities", [])
+    if not isinstance(capabilities, list) or any(
+        not isinstance(capability, str) or not capability.strip()
+        for capability in capabilities
+    ):
+        raise ValueError("capabilities must be an array of names")
+    obj["capabilities"] = list(dict.fromkeys(capabilities))
     area = _object(
         obj["operating_area"],
         "operating_area",
@@ -255,10 +577,24 @@ def load_mission_package(
     task = obj.get("task_text")
     if task is not None and (not isinstance(task, str) or not task.strip()):
         raise ValueError("task_text must be nonempty text")
-    plan = validate_mission_plan(obj["plan"]) if "plan" in obj else None
+    plan = (
+        validate_mission_plan(obj["plan"], capabilities=frozenset(obj["capabilities"]))
+        if "plan" in obj
+        else None
+    )
     if plan is None and not task:
         raise ValueError("mission package needs task_text or plan")
     package = MissionPackage(obj, refs, plan)
     if plan is not None:
         package.validate_plan(plan)
     return package
+
+
+__all__ = [
+    "MissionPackage",
+    "check_plan_against_package",
+    "estimate_plan_duration",
+    "load_mission_package",
+    "number",
+    "parse_policy",
+]
