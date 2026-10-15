@@ -305,6 +305,15 @@ class PX4PreflightGate:
                   "BAT_LOW_THR": (0.12, 0.5), "BAT_CRIT_THR": (0.05, 0.5)}
         invalid = [name for name, (lo, hi) in ranges.items()
                    if expected.get(name) is not None and not lo <= float(expected[name]) <= hi]
+        enum_ranges = {
+            "NAV_DLL_ACT": {0, 1, 2, 3, 5, 6},
+            "GF_ACTION": {1, 2, 3, 4, 5},
+            "COM_OBL_RC_ACT": {3, 4, 5},
+        }
+        for name, allowed in enum_ranges.items():
+            value = expected.get(name)
+            if value is not None and (not float(value).is_integer() or int(value) not in allowed):
+                invalid.append(name)
         if (expected.get("BAT_LOW_THR") is not None and expected.get("BAT_CRIT_THR") is not None
                 and expected["BAT_LOW_THR"] <= expected["BAT_CRIT_THR"]):
             invalid.append("BAT_LOW_THR")

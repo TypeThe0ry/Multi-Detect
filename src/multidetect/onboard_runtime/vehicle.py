@@ -309,12 +309,6 @@ class PymavlinkVehicle:
                             return
                         if expected is not None and not math.isclose(value, expected, rel_tol=0, abs_tol=0):
                             return
-                        previous = transaction.get("last_value")
-                        transaction["count"] = transaction.get("count", 0) + 1 if previous == value else 1
-                        transaction["last_value"] = value
-                        self._parameter_transactions[clean] = transaction
-                        if expected is None and transaction["count"] < 2:
-                            return
                         event = self._parameter_events.setdefault(clean, threading.Event())
                         event.set()
             if updates:
@@ -371,7 +365,13 @@ class PymavlinkVehicle:
             self.connection.mav.command_long_send(system, component, command, 0, *values)
 
     def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
-        """Request a PX4 parameter and return PARAM_VALUE, with bounded retries."""
+        """Read one parameter.
+
+        The cache is cleared before each request and the first PARAM_VALUE
+        ingested after the send is accepted. PX4 parameters only change through
+        our own writes, so a queued older reply cannot represent a different
+        value without an intervening write transaction.
+        """
         if not isinstance(name, str) or not name.strip():
             raise ValueError("parameter name must be nonempty")
         if timeout_s <= 0 or retries < 1:
@@ -382,7 +382,8 @@ class PymavlinkVehicle:
             event = self._parameter_events.setdefault(clean, threading.Event())
             event.clear()
             self._parameter_pending_since[clean] = sent
-            self._parameter_transactions[clean] = {"count": 0, "last_value": None}
+            self._parameter_transactions[clean] = {}
+            self._parameters.pop(clean, None)
             with self._sending():
                 system, component = self._target()
                 sender = getattr(self.connection.mav, "param_request_read_send", None)
