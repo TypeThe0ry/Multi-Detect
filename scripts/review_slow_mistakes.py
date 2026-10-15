@@ -48,6 +48,7 @@ def _truth_for(world: str, explicit: Path | None) -> tuple[dict[str, Any], Path]
     if explicit:
         return json.loads(explicit.read_text(encoding="utf-8")), explicit
     for directory in (
+        ROOT / "configs/scenarios/generated-movers",
         ROOT / "configs/scenarios/generated-v2",
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",

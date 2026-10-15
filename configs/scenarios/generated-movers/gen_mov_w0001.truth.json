@@ -1,0 +1,59 @@
+{
+  "asset_mode": "generated_mover_v1",
+  "scenario_id": "gen_mov_w0001",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "moving",
+      "bottom_offset_m": -0.8,
+      "category_words": [
+        "vehicle",
+        "car"
+      ],
+      "class": "vehicle",
+      "color": null,
+      "label": "vehicle car",
+      "measured_size_m": [
+        4.0,
+        2.0,
+        1.6
+      ],
+      "pose": {
+        "x_east_m": -23.0,
+        "y_north_m": 7.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.8
+      },
+      "size_m": [
+        4.0,
+        2.0,
+        1.6
+      ],
+      "target_id": "target_true_gen_mov_w0001",
+      "trajectory": {
+        "speed_mps": 3.0,
+        "type": "loop",
+        "waypoints": [
+          [
+            -23.0,
+            7.0
+          ],
+          [
+            1.0,
+            7.0
+          ],
+          [
+            1.0,
+            31.0
+          ],
+          [
+            -23.0,
+            31.0
+          ]
+        ]
+      },
+      "true_target": true
+    }
+  ]
+}

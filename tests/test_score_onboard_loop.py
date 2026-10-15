@@ -26,6 +26,63 @@ def test_unknown_colour_cannot_rule_out_and_category_match_counts() -> None:
     assert task_equivalent(person, {"category_words": ["woman"], "class": "person"})
 
 
+def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
+    from multidetect.simulator.world_gen import trajectory_position
+    from scripts.score_onboard_loop import target_pose_at_time
+
+    trajectory = {
+        "speed_mps": 2.0,
+        "waypoints": [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+    }
+    assert trajectory_position(trajectory, 0.0) == (0.0, 0.0)
+    assert trajectory_position(trajectory, 2.0) == (4.0, 0.0)
+    assert trajectory_position(trajectory, 4.0) == (4.0, 4.0)
+    assert trajectory_position(trajectory, 8.0) == (0.0, 0.0)
+    assert target_pose_at_time(
+        {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": trajectory}, 1.0
+    ) == {"x_east_m": 2.0, "y_north_m": 0.0}
+
+
+def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
+    from scripts.score_onboard_loop import _mission_metrics
+
+    truth = {
+        "targets": [
+            {
+                "target_id": "moving-car",
+                "label": "vehicle car",
+                "category_words": ["vehicle", "car"],
+                "class": "vehicle",
+                "pose": {"x_east_m": 0.0, "y_north_m": 0.0},
+                "trajectory": {
+                    "speed_mps": 1.0,
+                    "waypoints": [[0.0, 0.0], [10.0, 0.0]],
+                },
+                "true_target": True,
+            }
+        ]
+    }
+    rows = [
+        {
+            "frame_sensor_stamp_ns": 5_000_000_000,
+            "labels": {
+                "onboard": {
+                    "mission": {
+                        "plan": {"skills": ["monitor"]},
+                        "alerts": ["watch:alert:vehicle@0.0,5.0"],
+                    }
+                }
+            },
+        }
+    ]
+
+    metrics = _mission_metrics(rows, truth, radius_m=1.0)
+
+    assert metrics["mission_alerts"][0]["time_s"] == 5.0
+    assert metrics["mission_alerts"][0]["matches_query"] is True
+    assert metrics["mission_alert_precision"] == 1.0
+
+
 def test_count_metrics_match_findings_to_distinct_members() -> None:
     from scripts.score_onboard_loop import _count_metrics
 

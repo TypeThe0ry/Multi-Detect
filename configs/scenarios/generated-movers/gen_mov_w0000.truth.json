@@ -1,0 +1,59 @@
+{
+  "asset_mode": "generated_mover_v1",
+  "scenario_id": "gen_mov_w0000",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "moving",
+      "bottom_offset_m": -0.9,
+      "category_words": [
+        "person",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": "red",
+      "label": "person pedestrian",
+      "measured_size_m": [
+        1.0,
+        1.0,
+        1.8
+      ],
+      "pose": {
+        "x_east_m": -24.0,
+        "y_north_m": 22.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.9
+      },
+      "size_m": [
+        1.0,
+        1.0,
+        1.8
+      ],
+      "target_id": "target_true_gen_mov_w0000",
+      "trajectory": {
+        "speed_mps": 1.0,
+        "type": "loop",
+        "waypoints": [
+          [
+            -24.0,
+            22.0
+          ],
+          [
+            -12.0,
+            22.0
+          ],
+          [
+            -12.0,
+            34.0
+          ],
+          [
+            -24.0,
+            34.0
+          ]
+        ]
+      },
+      "true_target": true
+    }
+  ]
+}

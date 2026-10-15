@@ -1,0 +1,80 @@
+{
+  "asset_mode": "generated_mover_v1",
+  "count": 6,
+  "generator": "multidetect.simulator.world_gen",
+  "schema_version": 1,
+  "seed": 20261015,
+  "split_ratios": [
+    0.6666666666666666,
+    0,
+    0.3333333333333333
+  ],
+  "worlds": [
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261015,
+      "split": "train",
+      "task_kind": "follow",
+      "task_text": "找到那个穿红衣服的人后跟着它走两分钟，持续报告位置",
+      "task_text_en": "Find the person and follow it for two minutes, reporting its position.",
+      "true_target_id": "target_true_gen_mov_w0000",
+      "world_file": "gen_mov_w0000.sdf",
+      "world_id": "gen_mov_w0000"
+    },
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261016,
+      "split": "train",
+      "task_kind": "monitor",
+      "task_text": "监视区域五分钟，发现移动的车辆就报告位置",
+      "task_text_en": "Monitor the site for five minutes and report the moving vehicle.",
+      "true_target_id": "target_true_gen_mov_w0001",
+      "world_file": "gen_mov_w0001.sdf",
+      "world_id": "gen_mov_w0001"
+    },
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261017,
+      "split": "train",
+      "task_kind": "follow",
+      "task_text": "找到那个穿红衣服的人后跟着它走两分钟，持续报告位置",
+      "task_text_en": "Find the person and follow it for two minutes, reporting its position.",
+      "true_target_id": "target_true_gen_mov_w0002",
+      "world_file": "gen_mov_w0002.sdf",
+      "world_id": "gen_mov_w0002"
+    },
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261018,
+      "split": "train",
+      "task_kind": "monitor",
+      "task_text": "监视区域五分钟，发现移动的车辆就报告位置",
+      "task_text_en": "Monitor the site for five minutes and report the moving vehicle.",
+      "true_target_id": "target_true_gen_mov_w0003",
+      "world_file": "gen_mov_w0003.sdf",
+      "world_id": "gen_mov_w0003"
+    },
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261019,
+      "split": "test",
+      "task_kind": "follow",
+      "task_text": "找到那个穿红衣服的人后跟着它走两分钟，持续报告位置",
+      "task_text_en": "Find the person and follow it for two minutes, reporting its position.",
+      "true_target_id": "target_true_gen_mov_w0004",
+      "world_file": "gen_mov_w0004.sdf",
+      "world_id": "gen_mov_w0004"
+    },
+    {
+      "asset_mode": "generated_mover_v1",
+      "seed": 20261020,
+      "split": "test",
+      "task_kind": "monitor",
+      "task_text": "监视区域五分钟，发现移动的车辆就报告位置",
+      "task_text_en": "Monitor the site for five minutes and report the moving vehicle.",
+      "true_target_id": "target_true_gen_mov_w0005",
+      "world_file": "gen_mov_w0005.sdf",
+      "world_id": "gen_mov_w0005"
+    }
+  ]
+}
