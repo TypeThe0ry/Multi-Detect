@@ -76,6 +76,8 @@ class OnboardHealthMonitor:
         self._last_check = float("-inf")
         self._next_restart = 0.0
         self._restart_thread: threading.Thread | None = None
+        self._shutdown = threading.Event()
+        self._logged_reasons: set[str] = set()
 
     @staticmethod
     def jetson_source() -> Mapping[str, Any]:
@@ -104,15 +106,31 @@ class OnboardHealthMonitor:
         return result
 
     def _record(self, reason: str, **details: Any) -> None:
+        emit = False
         with self._lock:
             if reason not in self.state.reasons:
                 self.state.reasons.append(reason)
+            if reason not in self._logged_reasons:
+                self._logged_reasons.add(reason)
+                emit = True
             self.state.healthy = False
-        if self.logger:
-            self.logger(reason, details)
+        if emit and self.logger:
+            try:
+                self.logger(reason, details)
+            except Exception:
+                pass
+
+    def shutdown(self, timeout: float = 1.0) -> None:
+        self._shutdown.set()
+        with self._lock:
+            thread = self._restart_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=max(0.0, timeout))
 
     def _start_restart(self, now: float, *, force: bool = False) -> None:
         with self._lock:
+            if self._shutdown.is_set():
+                return
             if (self.runner is None or self.state.restarting
                     or (not force and now < self._next_restart)):
                 return
@@ -135,6 +153,10 @@ class OnboardHealthMonitor:
             self._record("slow_model_restart", attempt=attempt)
 
             def work() -> None:
+                if self._shutdown.is_set():
+                    with self._lock:
+                        self.state.restarting = False
+                    return
                 try:
                     restart()
                 except Exception as exc:
@@ -144,6 +166,17 @@ class OnboardHealthMonitor:
                         self.state.slow_available = False
                         self._next_restart = now + self.config.restart_backoff_s
                     self._record("slow_model_restart_failed", error=str(exc))
+                    return
+                if self._shutdown.is_set():
+                    close = getattr(self.runner, "close", None)
+                    if close:
+                        try:
+                            close()
+                        except Exception:
+                            pass
+                    with self._lock:
+                        self.state.restarting = False
+                        self.state.slow_available = False
                     return
                 with self._lock:
                     self.state.restarts += 1
@@ -158,8 +191,8 @@ class OnboardHealthMonitor:
             self._restart_thread = threading.Thread(
                 target=work, name="onboard-health-restart", daemon=True
             )
-            self._restart_thread.start()
-            self._restart_thread.join(timeout=0.01)
+            thread = self._restart_thread
+        thread.start()
 
     def tick(self, *, now: float | None = None, camera_age_s: float | None = None,
              detector_latency_s: float | None = None, detector_ok: bool = True) -> HealthState:
@@ -230,8 +263,13 @@ class OnboardHealthMonitor:
                 self._record("disk_check_error", error=str(exc))
         return self.state
 
-    def record_slow_call(self, latency_s: float, *, ok: bool = True) -> HealthState:
+    def record_slow_call(self, latency_s: float, *, ok: bool = True,
+                         generation: int | None = None) -> HealthState:
         latency = float(latency_s)
+        if not ok and generation is not None:
+            current = getattr(self.runner, "generation", None)
+            if current is not None and generation != current:
+                return self.snapshot()  # stale in-flight request
         with self._lock:
             self.state.slow_latencies.append(latency)
             del self.state.slow_latencies[:-self.config.slow_latency_samples]
@@ -248,6 +286,7 @@ class OnboardHealthMonitor:
                 self._start_restart(self.clock(), force=True)
         elif not math.isfinite(latency) or latency > self.config.slow_latency_budget_s:
             self._record("slow_call_latency", latency_s=latency)
+            drift = False
             with self._lock:
                 if len(self.state.slow_latencies) >= self.config.slow_latency_samples and all(
                     x > self.config.slow_latency_budget_s for x in self.state.slow_latencies
@@ -255,7 +294,9 @@ class OnboardHealthMonitor:
                     self.state.slow_available = False
                     self.state.hold = True
                     self.state.slow_rate_scale = min(self.state.slow_rate_scale, 0.5)
-                    self._record("slow_latency_drift", latency_s=latency)
+                    drift = True
+            if drift:
+                self._record("slow_latency_drift", latency_s=latency)
         return self.state
 
     def snapshot(self) -> dict[str, Any]:

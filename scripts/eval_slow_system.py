@@ -12,9 +12,11 @@ import argparse
 import base64
 import json
 import math
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -229,6 +231,8 @@ class LlamaServerRunner:
     fast_identity = False  # tests build bare instances
 
     def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True, call_timeout_s: float = 180.0):
+        self._lock = threading.RLock()
+        self._generation = 0
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
         self.call_timeout_s = call_timeout_s
         # Identity rows: prefill the pinned args, read one token's log-probabilities
@@ -280,6 +284,10 @@ class LlamaServerRunner:
         except (OSError, ValueError, urllib.error.URLError):
             return False
 
+    @property
+    def generation(self) -> int:
+        return getattr(self, "_generation", 0)
+
     def restart(self) -> None:
         old_log = getattr(self.server_log, "name", None)
         self.close()
@@ -291,22 +299,29 @@ class LlamaServerRunner:
         # Do not start a replacement while the previous listener can still
         # answer.  This is intentionally bounded; the caller runs it in the
         # health monitor's background thread.
-        until = time.monotonic() + 2.0
-        port_busy = False
-        while time.monotonic() < until:
-            try:
-                if _http_json(
-                    f"http://127.0.0.1:{self.port}/health", timeout=0.2
-                ).get("status") != "ok":
-                    break
-                port_busy = True
-            except (OSError, ValueError, urllib.error.URLError):
-                break
-            time.sleep(0.05)
-        if port_busy:
-            raise RuntimeError(f"llama-server port {self.port} remained busy during restart")
-        self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
-        self.process = subprocess.Popen(self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log)
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", self.port))
+            probe.close()
+        except OSError as exc:
+            raise RuntimeError(f"llama-server port {self.port} remained busy during restart") from exc
+        replacement_log = tempfile.NamedTemporaryFile(
+            prefix="llama-server-", suffix=".log", delete=False
+        )
+        try:
+            replacement = subprocess.Popen(
+                self._command, cwd=self._cwd,
+                stdout=subprocess.DEVNULL, stderr=replacement_log,
+            )
+        except Exception:
+            replacement_log.close()
+            Path(replacement_log.name).unlink(missing_ok=True)
+            raise
+        with self._lock:
+            self.server_log = replacement_log
+            self.process = replacement
+            self._generation = getattr(self, "_generation", 0) + 1
         replacement_pid = self.process.pid
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -420,8 +435,11 @@ class LlamaServerRunner:
         return response["choices"][0]["message"].get("content", ""), elapsed
 
     def close(self) -> None:
-        process = self.process
-        if process.poll() is None:
+        with getattr(self, "_lock", threading.RLock()):
+            process = getattr(self, "process", None)
+            self._generation = getattr(self, "_generation", 0) + 1
+            self.process = process
+        if process is not None and process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=10)
@@ -433,6 +451,10 @@ class LlamaServerRunner:
             try:
                 log.flush()
                 log.close()
+            except OSError:
+                pass
+            try:
+                Path(log.name).unlink(missing_ok=True)
             except OSError:
                 pass
 
