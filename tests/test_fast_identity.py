@@ -82,3 +82,21 @@ def test_fast_identity_unexpected_response_shape_falls_back(monkeypatch):
     prefix = '{"args":{"duration_s":null,"region":null,"track_id":"t"},"decision":"'
     runner._verdict_tokens[prefix] = FIRST
     assert runner._fast_identity({"focus_track_id": "t"}, []) is None
+
+
+def test_fast_identity_honours_prompt_cache_setting_and_records_usage(monkeypatch):
+    top = [{"id": 12, "logprob": -0.01}]
+    runner, calls = _runner(monkeypatch, top)
+    runner.cache_prompt = False
+    original = slow._http_json
+
+    def with_usage(url, body=None, timeout=None):
+        response = original(url, body, timeout)
+        if url.endswith("/chat/completions"):
+            response["usage"] = {"prompt_tokens": 470, "completion_tokens": 1}
+        return response
+
+    monkeypatch.setattr(slow, "_http_json", with_usage)
+    runner._fast_identity({"focus_track_id": "t"}, [])
+    assert calls[-1][1]["cache_prompt"] is False
+    assert runner.last_usage == {"prompt_tokens": 470, "completion_tokens": 1}
