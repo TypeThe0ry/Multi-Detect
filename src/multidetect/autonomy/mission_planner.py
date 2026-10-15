@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
+from multidetect.autonomy.mission_package import check_plan_against_package
 from multidetect.autonomy.mission_plan import SKILLS, MissionPlan, validate_mission_plan
 from multidetect.autonomy.serialization import AutonomyContractError
 
@@ -469,6 +470,7 @@ def compile_mission_plan(
     schema: dict[str, Any] | None = None,
     attempts: int = 2,
     prompt_variant: str = "default",
+    plan_checker: Callable[[MissionPlan], Any] | None = None,
     capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason."""
@@ -481,6 +483,8 @@ def compile_mission_plan(
     error: str | None = None
     for attempt in range(attempts):
         started = time.perf_counter()
+        report.pop("package_violations", None)
+        report["raw"] = ""
         try:
             raw = post(
                 plan_prompt(
@@ -515,10 +519,31 @@ def compile_mission_plan(
                         )
                     notes = notes + ref_notes
                 plan = validate_mission_plan(document, capabilities=capabilities)
+                if plan_checker is not None:
+                    violations = plan_checker(plan)
+                    if violations:
+                        report["package_violations"] = list(violations)
+                        messages = []
+                        for violation in violations:
+                            if isinstance(violation, Mapping):
+                                code = violation.get("code", "package policy")
+                                message = violation.get("message") or (
+                                    f"{violation.get('message_zh', '')} / "
+                                    f"{violation.get('message_en', '')}"
+                                )
+                            else:
+                                code = getattr(violation, "code", "package policy")
+                                message = getattr(violation, "message", str(violation))
+                            messages.append(f"{code}: {message}")
+                        raise ValueError(
+                            "mission package policy violations: "
+                            + "; ".join(messages)
+                        )
             except (AutonomyContractError, ValueError, TypeError, KeyError, AttributeError) as exc:
                 error = str(exc)[:200]
             else:
                 report["repairs"] = notes
+                report.pop("package_violations", None)
                 report["error"] = None
                 return plan, report
         finally:
@@ -528,6 +553,7 @@ def compile_mission_plan(
 
 
 __all__ = [
+    "check_plan_against_package",
     "check_plan_refs",
     "EXAMPLES",
     "PLAN_PROMPT_VARIANTS",

@@ -715,6 +715,8 @@ class MissionSupervisor:
                 loop_factory=self.executor.loop_factory,
                 refs=self.package.refs,
                 config=self.executor.config,
+                mission_package=self.package,
+                no_fly_zones=getattr(self.executor, "no_fly_zones", ()),
                 obstacle_source=self.executor.obstacle_source,
             )
             self._recovery.home = tuple(self.package.document["home"])

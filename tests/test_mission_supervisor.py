@@ -520,6 +520,16 @@ def test_completed_return_recovery_can_escalate_to_land(tmp_path):
     assert summary["summary"]["action"] == "land_now"
 
 
+def test_supervisor_return_recovery_uses_visibility_graph(tmp_path):
+    s, _now, _ = build(tmp_path, "return_now")
+    s.executor.no_fly_zones = (((10.0, 0.0), 2.0),)
+    s.action = "return_now"
+    recovery = s._recover((20.0, 0.0, -20.0))
+    path = recovery._return_home_detour((20.0, 0.0), (0.0, 0.0))
+    assert path
+    assert recovery.no_fly_zones == s.executor.no_fly_zones
+
+
 def test_package_copies_input_before_admission():
     doc = document()
     package = load_mission_package(doc)

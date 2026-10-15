@@ -38,6 +38,7 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
 )
 from multidetect.autonomy.mission_package import (  # noqa: E402
     MissionPackage,
+    check_plan_against_package,
     load_mission_package,
 )
 from multidetect.autonomy.mission_plan import (  # noqa: E402
@@ -239,6 +240,8 @@ def build_mission_from_text(
     post: Callable[[str, dict], str],
     sorted_keys: bool = True,
     *,
+    plan_checker: Callable[[MissionPlan], Sequence[Mapping[str, Any]]] | None = None,
+    attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan, dict[str, Any]]:
     """Compile a free task sentence, falling back to a validated return-home plan."""
@@ -249,7 +252,13 @@ def build_mission_from_text(
         schema = trained_key_order_schema(schema)
     ref_names = tuple(refs or ())
     plan, report = compile_mission_plan(
-        post, task_text, refs=ref_names, schema=schema, capabilities=capabilities
+        post,
+        task_text,
+        refs=ref_names,
+        schema=schema,
+        attempts=attempts,
+        plan_checker=plan_checker,
+        capabilities=capabilities,
     )
     if plan is None:
         plan = validate_mission_plan(
@@ -457,6 +466,11 @@ class OnboardPolicy:
             area = package.document["operating_area"]
             if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
                 raise ValueError("launch altitude outside mission package limits")
+        package_capabilities = (
+            frozenset(self.mission_package.document.get("capabilities", ()))
+            if self.mission_package is not None
+            else frozenset()
+        )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
@@ -662,7 +676,24 @@ class OnboardPolicy:
         self.executor: MissionExecutor | MissionSupervisor | None = None
         self.supervisor: MissionSupervisor | None = None
         self.downlink: DownlinkQueue | None = None
-        capabilities = (
+        executor_config = ExecutorConfig(
+            step_budget=int(options.get("step_budget", 60)),
+            alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
+            alert_require_majority=(
+                options.get("alert_require_majority", False)
+                if not isinstance(options.get("alert_require_majority", False), str)
+                else options["alert_require_majority"].strip().lower()
+                in {"1", "true", "yes", "on"}
+            ),
+            alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+            deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
+            deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
+            deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
+            deliver_position_tolerance_m=float(options.get("deliver_position_tolerance_m", 1.0)),
+            deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
+            deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
+        )
+        capabilities = frozenset(package_capabilities) | (
             frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
         )
         if mission:
@@ -718,12 +749,37 @@ class OnboardPolicy:
                     return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
+                retry_setting = options.get(
+                    "retry_on_package_violation",
+                    options.get(
+                        "retry_on_package_violations",
+                        options.get("mission_package_retry", False),
+                    ),
+                )
+                package_retry = (
+                    retry_setting.strip().lower() in {"1", "true", "yes", "on"}
+                    if isinstance(retry_setting, str)
+                    else bool(retry_setting)
+                )
+                plan_checker = (
+                    (
+                        lambda candidate: check_plan_against_package(
+                            candidate,
+                            self.mission_package,
+                            capabilities=capabilities,
+                            executor_config=executor_config,
+                        )
+                    )
+                    if package_retry and self.mission_package is not None
+                    else None
+                )
                 try:
                     plan, report = build_mission_from_text(
                         self.task_text,
                         tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
                         post,
                         sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                        plan_checker=plan_checker,
                         capabilities=capabilities,
                     )
                 except Exception:
@@ -737,11 +793,25 @@ class OnboardPolicy:
                 self.mission_plan, self.mission_plan_report = plan, report
                 if report.get("error"):
                     if self.mission_package is not None:
+                        package_violations = report.get("package_violations", [])
+                        if package_violations:
+                            self._refuse_package_plan(package_violations)
                         self.slow.close()
+                        raise ValueError(
+                            f"mission package plan compilation failed: {report['error']}"
+                        )
                     raise ValueError(f"mission plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
+                violations = check_plan_against_package(
+                    plan,
+                    self.mission_package,
+                    capabilities=capabilities,
+                    executor_config=executor_config,
+                )
+                if violations:
+                    self._refuse_package_plan(violations)
                 try:
                     self.mission_package.validate_plan(plan)
                 except ValueError:
@@ -752,31 +822,19 @@ class OnboardPolicy:
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
                 capabilities=capabilities,
+                mission_package=self.mission_package,
+                no_fly_zones=(
+                    self.mission_package.no_fly_zones
+                    if self.mission_package is not None
+                    else ()
+                ),
                 release_authorized=_enabled(options.get("release_authorized")),
                 task_text=(
                     (lambda step: perception_task_text(step, self.task_text))
                     if mission in {"from_text", "package"}
                     else (lambda step: self.task_text)
                 ),
-                config=ExecutorConfig(
-                    step_budget=int(options.get("step_budget", 60)),
-                    alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
-                    alert_require_majority=(
-                        options.get("alert_require_majority", False)
-                        if not isinstance(options.get("alert_require_majority", False), str)
-                        else options["alert_require_majority"].strip().lower()
-                        in {"1", "true", "yes", "on"}
-                    ),
-                    alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
-                    deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
-                    deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
-                    deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
-                    deliver_position_tolerance_m=float(
-                        options.get("deliver_position_tolerance_m", 1.0)
-                    ),
-                    deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
-                    deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
-                ),
+                config=executor_config,
             )
             # Set home on the executor itself, before any supervisor wraps it.
             if home_ned is not None:
@@ -825,6 +883,38 @@ class OnboardPolicy:
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
+
+    def _refuse_package_plan(self, violations: Sequence[Mapping[str, Any]]) -> None:
+        """Persist a fail-closed admission decision before raising to the caller."""
+        if self.mission_package is None:
+            raise ValueError("mission plan violates package policy")
+        log = None
+        try:
+            log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
+            log.append(
+                "mission_refused",
+                now,
+                reason="package_policy_violation",
+                violations=list(violations),
+            )
+            log.finish(
+                now,
+                {
+                    "status": "refused",
+                    "reason": "package_policy_violation",
+                    "violations": list(violations),
+                },
+            )
+        finally:
+            close = getattr(self.slow, "close", None)
+            if close is not None:
+                close()
+        details = "; ".join(
+            f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
+            for item in violations
+        )
+        raise ValueError(f"mission plan refused by package policy: {details}")
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Forward a host receipt; this policy has no payload hardware driver."""
