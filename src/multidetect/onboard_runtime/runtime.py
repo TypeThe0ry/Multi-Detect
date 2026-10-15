@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import queue
 import threading
 import time
 from collections import deque
@@ -38,6 +39,7 @@ class RuntimeConfig:
     yaw_tolerance_deg: float = 8.0
     speed_tolerance_mps: float = 0.5
     shutdown_timeout_s: float = 5.0
+    terminal_retry_timeout_s: float = 10.0
 
     def __post_init__(self) -> None:
         numeric = (
@@ -46,6 +48,7 @@ class RuntimeConfig:
             self.autonomy_timeout_s, self.action_timeout_s,
             self.position_tolerance_m, self.yaw_tolerance_deg,
             self.speed_tolerance_mps, self.shutdown_timeout_s,
+            self.terminal_retry_timeout_s,
         )
         if any(not math.isfinite(v) or v <= 0 for v in numeric):
             raise ValueError("runtime timing and tolerance values must be positive and finite")
@@ -197,6 +200,23 @@ class OnboardRuntime:
         self._handoff_started = 0.0
         self._command_thread: threading.Thread | None = None
         self._command_error: str | None = None
+        self._terminal_started = 0.0
+        self._terminal_attempts = 0
+        self._terminal_fallback_logged = False
+        self._event_sink_failures = 0
+        self._event_sink_failure_reported = False
+        self._event_sink_dropped = 0
+        # One worker drains a bounded queue: the sink can never stall or crash the
+        # pump/watchdog/coordinator, events keep their order, and no thread piles up.
+        self._event_queue: queue.Queue[tuple[str, float, dict[str, Any]] | None] = (
+            queue.Queue(maxsize=256)
+        )
+        self._event_worker: threading.Thread | None = None
+        if self.event_sink is not None:
+            self._event_worker = threading.Thread(
+                target=self._drain_events, name="onboard-event-sink", daemon=True
+            )
+            self._event_worker.start()
         self._motion: tuple[ActionPrimitive, float] | None = None
         self._last_frame_timestamp: float | None = None
         self._last_good_state: VehicleState | None = None
@@ -215,7 +235,42 @@ class OnboardRuntime:
         timestamp = time.monotonic()
         self.events.append({"event": name, "monotonic_s": timestamp, **details})
         if self.event_sink is not None:
-            self.event_sink(name, timestamp, dict(details))
+            try:
+                self._event_queue.put_nowait((name, timestamp, dict(details)))
+            except queue.Full:
+                self._event_sink_dropped += 1
+
+    def _drain_events(self) -> None:
+        while True:
+            item = self._event_queue.get()
+            if item is None:  # close(): every earlier event has been delivered
+                return
+            self._deliver_event(*item)
+
+    def _stop_event_worker(self, errors: list[str]) -> None:
+        if self._event_worker is None:
+            return
+        try:
+            self._event_queue.put(None, timeout=1.0)
+        except queue.Full:
+            errors.append("event sink queue full at shutdown")
+            return
+        self._event_worker.join(timeout=2.0)
+        if self._event_worker.is_alive():
+            errors.append("event sink did not drain within two seconds")
+
+    def _deliver_event(self, name: str, timestamp: float, details: dict[str, Any]) -> None:
+        try:
+            self.event_sink(name, timestamp, details)
+        except Exception as exc:
+            with self._lock:
+                self._event_sink_failures += 1
+                if not self._event_sink_failure_reported:
+                    self._event_sink_failure_reported = True
+                    self.events.append({
+                        "event": "event_sink_failure", "monotonic_s": time.monotonic(),
+                        "reason": str(exc),
+                    })
 
     def _freshness_fault(
         self, state: VehicleState, frame: CameraFrame | None, now: float,
@@ -394,21 +449,26 @@ class OnboardRuntime:
         self._worker.start()
 
     def _command(self, action: str) -> None:
-        if self._command_thread and self._command_thread.is_alive():
-            return
         if action != self.failsafe_sent:
             self._handoff_started = time.monotonic()
+            self._terminal_started = self._handoff_started
+            self._terminal_attempts = 0
+            self._terminal_fallback_logged = False
         self.failsafe_sent = action
         self._command_last_sent = time.monotonic()
+        self._terminal_attempts += 1
+        if self.pump is not None and self._last_good_state is not None:
+            # Keep a fresh hold stream until telemetry confirms the mode change.
+            self.pump.set_target(hold_setpoint(self._last_good_state))
         self._event("flight_handoff", action=action)
         if action == "hold":
             return
 
-        # Once a terminal handoff is requested, OFFBOARD streaming must stop.
-        # Continuing to publish the old target can fight PX4's RTL/LAND mode
-        # transition and is unsafe even when the command itself is accepted.
-        if self.pump is not None:
-            self.pump.request_stop()
+        if self._command_thread is not None and self._command_thread.is_alive():
+            # The previous MAVLink command is still blocked: do not pile up threads.
+            # The hold stream above keeps PX4 fed; the retry happens once it returns.
+            self._event("handoff_command_blocked", action=action)
+            return
 
         def send() -> None:
             try:
@@ -440,14 +500,15 @@ class OnboardRuntime:
                 return
             if self.hazard:
                 self._result = None
+                confirmed = False
                 if now - self._hazard_since >= self.config.hold_before_failsafe_s:
                     try:
                         confirmed = self._handoff_confirmed(self.vehicle.snapshot())
                     except Exception:
                         confirmed = False
-                    if (not self.failsafe_sent
-                        or (not confirmed
-                            and now - self._command_last_sent >= 1.0)):
+                if (not self.failsafe_sent
+                    or (not confirmed
+                        and now - self._command_last_sent >= 1.0)):
                         self._command(self.config.failsafe)
                 return
             if self.failsafe_sent in {"land", "rtl"}:
@@ -457,8 +518,26 @@ class OnboardRuntime:
                     confirmed = self._handoff_confirmed(self.vehicle.snapshot())
                 except Exception:
                     confirmed = False
-                if not confirmed and now - self._command_last_sent >= 1:
-                    self._command(self.failsafe_sent)
+                if confirmed:
+                    if self.pump:
+                        self.pump.request_stop()
+                    self._event("terminal_confirmed", action=self.failsafe_sent)
+                elif now - self._command_last_sent >= 1:
+                    if (
+                        self.failsafe_sent == "rtl"
+                        and now - self._terminal_started >= self.config.terminal_retry_timeout_s
+                    ):
+                        self._event("terminal_fallback", from_action="rtl", action="land",
+                                    attempts=self._terminal_attempts)
+                        self._command("land")
+                    elif (self.failsafe_sent == "land"
+                          and now - self._terminal_started >= self.config.terminal_retry_timeout_s):
+                        if not self._terminal_fallback_logged:
+                            self._terminal_fallback_logged = True
+                            self._event("terminal_fallback_exhausted",
+                                        action="land", attempts=self._terminal_attempts)
+                    else:
+                        self._command(self.failsafe_sent)
                 return
             if self.failsafe_sent or not self._active or not allow_policy:
                 return
@@ -595,6 +674,7 @@ class OnboardRuntime:
                 self._command_thread.join(timeout=2)
                 if self._command_thread.is_alive():
                     errors.append("flight command transport did not stop")
+            self._stop_event_worker(errors)
         if errors:
             raise RuntimeError("; ".join(errors))
 
@@ -609,4 +689,6 @@ class OnboardRuntime:
             "mission_complete": self.mission_complete,
             "policy_worker_stopped": self.policy_worker_stopped,
             "events": list(self.events),
+            "event_sink_failures": self._event_sink_failures,
+            "event_sink_dropped": self._event_sink_dropped,
         }

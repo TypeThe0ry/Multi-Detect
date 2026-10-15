@@ -57,3 +57,6 @@
 4. **相机—坐标—地形标定链**：intrinsics/extrinsics、时间同步、local origin/DEM/AGL 配准。  
 5. **无 GCS mission package 与故障注入 harness**：显式签名入口、机载 admission、断链 HIL 自动化、可审计日志；同时清理当前未合并工作树状态。
 
+### 终端切换与事件记录
+
+RTL/LAND 终端命令发送前，运行时先把 setpoint pump 的目标锁定在当前位置并持续发送。命令每秒重试，只有车辆遥测确认已经进入 RTL 或 LAND 后才停止 pump；命令丢失、拒绝或发送阻塞时继续保持新鲜的 hold 流，并在达到重试超时后按 RTL、LAND、保持 hold 的顺序升级。事件 sink 在独立线程中投递，慢或抛异常不会阻塞安全线程，失败只计数并记录一次。

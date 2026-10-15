@@ -38,7 +38,7 @@ FAULTS = (
     "camera_freeze", "camera_drop", "pose_stale", "slow_model_timeout",
     "slow_model_crash", "detector_exception", "gcs_heartbeat_loss",
     "gcs_heartbeat_recovery", "offboard_loss", "battery_sag", "battery_stale",
-    "home_change", "fence_approach",
+    "home_change", "fence_approach", "rejected_rtl", "lost_rtl", "blocking_command",
 )
 
 
@@ -101,6 +101,8 @@ def expected_outcome(fault: str, policy: Mapping[str, Any] | None = None) -> str
         return "refuse"
     if fault == "fence_approach":
         return "constrained"
+    if fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+        return "land_now"
     raise ValueError(fault)
 
 
@@ -111,6 +113,8 @@ def _campaign_expected_outcome(fault: str, policy: Mapping[str, Any]) -> str:
     if fault in {"offboard_loss", "home_change"}:
         return "conservative"
     if fault == "battery_sag":
+        return "land_now"
+    if fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
         return "land_now"
     return expected_outcome(fault, policy)
 
@@ -123,7 +127,8 @@ def _expected_reason_fragment(fault: str) -> str:
         "gcs_heartbeat_loss": "operator policy", "gcs_heartbeat_recovery": "operator policy",
         "offboard_loss": "offboard_exited", "battery_sag": "energy",
         "battery_stale": "battery telemetry stale", "home_change": "home_changed",
-        "fence_approach": "fence",
+        "fence_approach": "fence", "rejected_rtl": "terminal handoff",
+        "lost_rtl": "terminal handoff", "blocking_command": "terminal handoff",
     }[fault]
 
 
@@ -237,6 +242,13 @@ class FaultVehicle:
         self.closed = False
         self.mode = "OFFBOARD"
         self.accept_mode_commands = True
+        self.command_mode = "normal"
+        if event is not None:
+            self.command_mode = {
+                "rejected_rtl": "reject",
+                "lost_rtl": "loss",
+                "blocking_command": "block",
+            }.get(event.fault, "normal")
         self.home = (0.0, 0.0, 0.0)
         self.position = (0.0, 0.0, -10.0)
         self.battery = 90.0
@@ -295,16 +307,22 @@ class FaultVehicle:
 
     def land(self) -> None:
         now = self.clock()
+        if self.command_mode == "block":
+            time.sleep(0.4)
+        accepted = self.accept_mode_commands
         self.commands.append({"timestamp": now, "action": "land",
-                              "accepted": self.accept_mode_commands})
-        if self.accept_mode_commands:
+                              "accepted": accepted, "delivered": self.command_mode != "loss"})
+        if accepted:
             self.mode = "LAND"
 
     def rtl(self) -> None:
         now = self.clock()
+        if self.command_mode == "block":
+            time.sleep(0.4)
+        accepted = self.accept_mode_commands and self.command_mode not in {"reject", "loss"}
         self.commands.append({"timestamp": now, "action": "rtl",
-                              "accepted": self.accept_mode_commands})
-        if self.accept_mode_commands:
+                              "accepted": accepted, "delivered": self.command_mode != "loss"})
+        if accepted:
             self.mode = "RTL"
 
     def close(self) -> None:
@@ -366,14 +384,15 @@ class CampaignPolicy:
         if decision in {"return_now", "land_now"}:
             return ActionPrimitive.stop(), {"supervisor_action": decision,
                                             "supervisor_reason": reason}
-        if self.controller.event.fault == "fence_approach" and self.controller.fault_active():
-            return ActionPrimitive.hold(0.05), {"supervisor_action": decision,
-                                                "supervisor_reason": reason}
         if decision == "continue":
             # Keep the synthetic displacement above the runtime's 0.5 m
             # arrival tolerance so the fake transport emits and confirms a
             # progressing target before the next policy cycle replaces it.
-            return ActionPrimitive("translate", forward_m=1.0, seconds=0.2), {
+            forward = 1.0
+            if self.controller.event.fault == "fence_approach" and pose_ned is not None:
+                area = self.controller.package.document["operating_area"]
+                forward = max(0.0, min(forward, area["north_max_m"] - pose_ned[0]))
+            return ActionPrimitive("translate", forward_m=forward, seconds=0.2), {
                 "supervisor_action": decision, "supervisor_reason": reason,
             }
         return ActionPrimitive.hold(0.05), {"supervisor_action": decision,
@@ -390,7 +409,6 @@ class CampaignController:
             package, event, vehicle, ground, log, clock)
         self.origin = clock()
         self.latched: str | None = None
-        self.fence_constrained = False
         self.runtime_timeout_s = 0.15
         self.executor = self._executor()
         self.supervisor = MissionSupervisor(
@@ -455,10 +473,8 @@ class CampaignController:
             )
         action = self.supervisor.evaluate(pose_ned=pose)
         reason = self.supervisor.reason
-        if self.event and self.event.fault == "fence_approach":
-            self.fence_constrained = True
-        if self.fence_constrained:
-            action, reason = "hold", "fence operating-area constraint"
+        if event in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+            action, reason = "return_now", "terminal handoff transport test"
         self.log.append("decision", now, action=action, reason=reason,
                         connected=self.supervisor.connected, fault=event, pose_ned=pose)
         if action in {"return_now", "land_now"}:
@@ -508,20 +524,38 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
                  and deadline <= float(r.get("timestamp", 0.0)) <= end]
     setpoints = [r for r in observation.get("setpoints", [])
                  if deadline <= float(r.get("timestamp", 0.0)) <= end]
-    heartbeats = [float(t) for t in observation.get("vehicle_heartbeats", [])
-                  if deadline <= t <= end]
-    samples = sorted([float(r["timestamp"]) for r in setpoints] + heartbeats)
-    errors: list[str] = []
-    if end - deadline < 2.0:
-        errors.append("evaluation window shorter than 2.0 s")
-    if not samples or any(b - a > float(observation.get("max_output_gap_s", 0.3))
-                          for a, b in zip(samples, samples[1:], strict=False)):
-        errors.append("output gap")
-    last_decision = decisions[-1] if decisions else {}
-    reason = str(last_decision.get("reason", ""))
+    accepted_setpoints = [r for r in setpoints if bool(r.get("accepted", False))]
+    samples = sorted(float(r["timestamp"]) for r in accepted_setpoints)
     histories = [h for h in observation.get("vehicle_history", [])
                  if deadline <= float(h.get("timestamp", 0.0)) <= end]
     states = [h.get("state", {}) for h in histories]
+    wanted_for_terminal = "LAND" if expected == "land_now" else "RTL"
+    terminal_confirmed_at = min(
+        (float(h["timestamp"]) for h in histories
+         if expected in {"return_now", "land_now"}
+         and str(h.get("state", {}).get("mode", "")).upper()
+         in {wanted_for_terminal, f"AUTO.{wanted_for_terminal}"}),
+        default=float("inf"),
+    )
+    errors: list[str] = []
+    if end - deadline < 2.0:
+        errors.append("evaluation window shorter than 2.0 s")
+    max_gap = float(observation.get("max_output_gap_s", 0.3))
+    continuous = expected in {"hold", "continue", "constrained", "return_now", "land_now"}
+    needs_stream = continuous and not (
+        expected in {"return_now", "land_now"}
+        and terminal_confirmed_at <= deadline
+    )
+    if needs_stream and (not samples or samples[0] - deadline > max_gap
+                       or (expected not in {"return_now", "land_now"}
+                           and end - samples[-1] > max_gap)
+                       or (expected in {"return_now", "land_now"}
+                           and terminal_confirmed_at == float("inf")
+                           and end - samples[-1] > max_gap)
+                       or any(b - a > max_gap for a, b in zip(samples, samples[1:], strict=False))):
+        errors.append("output gap")
+    last_decision = decisions[-1] if decisions else {}
+    reason = str(last_decision.get("reason", ""))
     if not states:
         errors.append("no vehicle state in evaluation window")
     if expected in {"return_now", "land_now"}:
@@ -529,12 +563,14 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
         if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
                or not bool(s.get("armed", True)) for s in states):
             errors.append("terminal vehicle state not sustained")
-        terminal_commands = [c for c in observation.get("commands", [])
-                             if c.get("action") in {"rtl", "land"}
-                             and c.get("accepted", False)]
-        switched_at = min((float(c["timestamp"]) for c in terminal_commands), default=float("inf"))
-        if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", True)
-               and r.get("mode", "OFFBOARD") == "OFFBOARD" for r in setpoints):
+        confirmed = [float(h["timestamp"]) for h in histories
+                     if str(h.get("state", {}).get("mode", "")).upper()
+                     in {wanted, f"AUTO.{wanted}"}]
+        switched_at = min(confirmed, default=float("inf"))
+        if switched_at == float("inf"):
+            errors.append("terminal mode not confirmed by telemetry")
+        if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", False)
+               and str(r.get("mode", "OFFBOARD")).upper() == "OFFBOARD" for r in setpoints):
             errors.append("OFFBOARD setpoint accepted after terminal switch")
     elif expected == "hold":
         if any(str(s.get("mode", "")).upper() != "OFFBOARD" for s in states):
@@ -693,7 +729,7 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
             name, 0.05 if name == "gcs_heartbeat_recovery" else 0.25,
             3.0 if name == "fence_approach" else
             (1.0 if name == "gcs_heartbeat_loss" else 0.35),
-            severity=severities[name],
+            severity=severities.get(name, "fault"),
             react_after_s=1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15,
         )
         for name in FAULTS
