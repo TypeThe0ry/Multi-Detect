@@ -48,6 +48,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.obstacle_source import StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -514,6 +515,7 @@ class OnboardPolicy:
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
+            obstacle_source = StaticMapSource(obstacles)
             if region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -532,6 +534,7 @@ class OnboardPolicy:
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
+                obstacle_source=obstacle_source,
                 config=LoopConfig(**{**loop_defaults, **overrides}),
             )
             if home_ned is not None:
