@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -208,3 +209,78 @@ def test_mission_labels_include_compile_details_once():
     assert "plan" not in labels[1]
     assert policy.task_text != executor.current_task_text
     assert asked_texts == [executor.current_task_text] * 2
+
+
+def test_mission_policy_passes_landed_observation_through_executor():
+    plan = plan_for_find_task("red car")
+    candidate = SimpleNamespace(
+        track_id="observed-7",
+        bbox=(100.0, 200.0, 300.0, 400.0),
+        verdict=None,
+        ground=None,
+    )
+    observed = {}
+    executor = SimpleNamespace(
+        findings=[],
+        current_tracks=(candidate,),
+        current_step=plan.steps[0],
+        current_task_text="Find the red car and record its position.",
+        history=[],
+        counts={},
+        observe=lambda *args, **kwargs: (observed.__setitem__("observe", kwargs), [candidate])[1],
+        apply_verdict=lambda *args: None,
+        next_action=lambda **kwargs: (observed.setdefault("next_action", kwargs), {}),
+        report=MissionReport,
+    )
+    policy = SimpleNamespace(
+        task_text="Find a red car and return.",
+        executor=executor,
+        mission_plan=plan,
+        mission_plan_report=None,
+        _mission_plan_labeled=True,
+        _slow_identity=lambda *args, **kwargs: {"decision": "confirm_target"},
+        alert_vote_clusters=(),
+    )
+
+    OnboardPolicy._act_mission(
+        policy,
+        Path("frame.png"),
+        [],
+        0.01,
+        pose_ned=(0.0, 0.0, -20.0),
+        yaw_deg=0.0,
+        ground_point=None,
+        landed=True,
+    )
+
+    assert observed["observe"]["landed"] is True
+    assert observed["next_action"]["landed"] is True
+
+
+def test_act_reads_landed_from_policy_observation(tmp_path, monkeypatch):
+    from PIL import Image
+
+    forwarded = []
+
+    def act_mission(self, *args, **kwargs):
+        forwarded.append(kwargs["landed"])
+        return None, {}
+
+    monkeypatch.setattr(OnboardPolicy, "_act_mission", act_mission)
+    image = Image.new("RGB", (1, 1))
+    encoded = io.BytesIO()
+    image.save(encoded, format="PNG")
+    policy = OnboardPolicy.__new__(OnboardPolicy)
+    policy._step = 0
+    policy.work_dir = tmp_path
+    policy.proposer = lambda _image: []
+    policy.image_size = (1, 1)
+    policy.executor = object()
+
+    policy.act(
+        {"rgb": encoded.getvalue(), "camera_info": {}, "landed": True},
+        pose_ned=(0.0, 0.0, -1.0),
+        yaw_deg=0.0,
+    )
+
+    assert forwarded == [True]

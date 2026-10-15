@@ -369,6 +369,7 @@ class OnboardPolicy:
     sim_timeline: SimGroundTimeline | None = None
     mission_plan: MissionPlan | None = None
     ground_projection = ground_projection_from_config(None, base_dir=ROOT)
+    frame_format = "png"
 
     def __init__(
         self,
@@ -384,6 +385,8 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        frame_format: str = "png",
+        frame_quality: int = 90,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
         sim_events = validate_sim_ground_events(options)
@@ -434,6 +437,10 @@ class OnboardPolicy:
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
+        if frame_format not in {"png", "jpeg"}:
+            raise ValueError("frame_format must be png or jpeg")
+        self.frame_format = frame_format
+        self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
@@ -900,7 +907,10 @@ class OnboardPolicy:
             self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
             if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
                 action, info = self.supervisor.next_action(
-                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                    pose_ned=tuple(pose_ned),
+                    yaw_deg=yaw_deg,
+                    landed=observation.get("landed"),
+                    timestamp_s=_observation_timestamp_s(observation),
                 )
                 return action, {
                     "onboard": {
@@ -921,8 +931,15 @@ class OnboardPolicy:
         step = self._step
         self._step += 1
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
-        frame_path = self.work_dir / f"frame_{step:04d}.png"
-        if not health_decision.stop_frame_writes:
+        suffix = "jpg" if self.frame_format == "jpeg" else "png"
+        frame_path = self.work_dir / f"frame_{step:04d}.{suffix}"
+        if health_decision.stop_frame_writes:
+            pass  # Low disk: keep flying on the in-memory frame, write nothing.
+        elif self.frame_format == "jpeg":
+            Image.fromarray(rgb, mode="RGB").save(
+                frame_path, format="JPEG", quality=self.frame_quality, optimize=True
+            )
+        else:
             frame_path.write_bytes(observation["rgb"])
         started = time.perf_counter()
         detections = self.proposer(rgb[:, :, ::-1].copy())
@@ -952,6 +969,7 @@ class OnboardPolicy:
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
+                landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
             )
             if self._slow_failed_current:
@@ -1041,14 +1059,27 @@ class OnboardPolicy:
         return recovery.next_action(pose_ned=tuple(pose_ned), yaw_deg=yaw_deg)
 
     def _act_mission(
-        self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, timestamp_s=None
+        self,
+        frame_path,
+        detections,
+        fast_s,
+        *,
+        pose_ned,
+        yaw_deg,
+        ground_point,
+        landed=None,
+        timestamp_s=None,
     ):
         executor = self.executor
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
         needing = executor.observe(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            landed=landed,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -1076,6 +1107,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_id=frame_path.name,
+            landed=landed,
             timestamp_s=timestamp_s,
         )
         confirmed = None
@@ -1153,6 +1185,8 @@ def build_onboard_policy(
     image_size: tuple[int, int],
     work_dir: Path,
     config_path: Path | None = None,
+    frame_format: str = "png",
+    frame_quality: int = 90,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
     return OnboardPolicy(
@@ -1163,6 +1197,8 @@ def build_onboard_policy(
         image_size=image_size,
         work_dir=work_dir,
         config=config,
+        frame_format=frame_format,
+        frame_quality=frame_quality,
     )
 
 

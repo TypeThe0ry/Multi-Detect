@@ -80,12 +80,12 @@ def evaluate_onnx_test_worlds(
 ) -> dict[str, Any]:
     """Run the production raw/Nx6 wrapper on held-out world frames only."""
     import cv2
-    import numpy as np
 
     from multidetect.autonomy.policy_v2.perception_bridge import (
         bearing_from_pixel,
         robust_depth_median,
     )
+    from multidetect.sim_teacher.recording import load_depth_array
     from multidetect.vision import (
         OnnxNx6Config,
         OnnxNx6Detector,
@@ -146,7 +146,7 @@ def evaluate_onnx_test_worlds(
         if isinstance(depth_value, str) and depth_value:
             depth_path = _source_path(root, depth_value)
             if depth_path.is_file():
-                depth = np.load(depth_path)
+                depth = load_depth_array(depth_path)
         detections = detector.detect(image)
         truths = [
             item for item in frame.get("objects", [])
