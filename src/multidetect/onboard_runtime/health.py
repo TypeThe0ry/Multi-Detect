@@ -171,8 +171,10 @@ class HealthMonitor:
         try:
             rd = dict(self.resources() or {})
         except Exception as e:
-            self._log("health_source_error", True, n, error=str(e))
+            self._trans("health_source_error", True, n, error=str(e))
             rd = {}
+        else:
+            self._trans("health_source_error", False, n)
         self.state.last_resources = rd
         t = self._num(rd.get("temperature_c"))
         if t is None and isinstance(rd.get("temperatures_c"), Mapping):
@@ -201,6 +203,8 @@ class HealthMonitor:
                 and not thr
             )
         self.state.pressure_active = pressure
+        if not pressure:
+            self.state.pressure_toggle = False
         self._trans("resource_pressure", pressure, n, temperature_c=t, memory_pressure=m)
         free = self._num(rd.get("disk_free_bytes", rd.get("disk_free")))
         if free is None and self.disk_path is not None:
@@ -229,7 +233,7 @@ class HealthMonitor:
             holds.append("low_disk")
         if critical:
             return HealthDecision("land", "critical_resource_pressure", stop_frame_writes=low)
-        if any(n - self.state.hold_since.get(r, n) >= self.config.escalate_after_s for r in holds):
+        if any(n - self.state.hold_since.get(r, n) > self.config.escalate_after_s for r in holds):
             return HealthDecision("return_home", holds[0], stop_frame_writes=low)
         if low and mission_requires_images:
             return HealthDecision("hold", "low_disk", stop_frame_writes=True)
