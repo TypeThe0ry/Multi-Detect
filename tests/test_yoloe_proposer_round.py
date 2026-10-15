@@ -5,13 +5,13 @@ import json
 import cv2
 import numpy as np
 
-from scripts.build_sim_detector_dataset import build_dataset
+from scripts.build_sim_detector_dataset import _split_map, build_dataset
 from scripts.build_yoloe_proposer_round import (
     compare_histograms,
     manifest_histogram,
     size_bucket,
 )
-from scripts.evaluate_yoloe_proposer_round import collect_frames
+from scripts.evaluate_yoloe_proposer_round import collect_frames, score
 
 
 def test_size_buckets_match_small_object_contract() -> None:
@@ -76,6 +76,32 @@ def test_evaluator_rejects_non_test_world(tmp_path):
         assert "requires test world" in str(exc)
     else:
         raise AssertionError("evaluator must reject train/val worlds")
+
+
+def test_score_reports_legacy_and_one_to_one_metrics():
+    objects = [
+        {"category": "a", "box": (0, 0, 10, 10), "size_bucket": "8-16"},
+        {"category": "a", "box": (0, 0, 10, 10), "size_bucket": "8-16"},
+    ]
+    frames = [{"image": "x", "objects": objects}]
+    predictions = {"x": [((0, 0, 10, 10), 0.5)]}
+    report = score(frames, predictions)
+    assert report["legacy_r3_recall"]["tables"]["overall"][0]["hit03"] == 2
+    assert report["one_to_one_recall"]["tables"]["overall"][0]["hit03"] == 1
+
+
+def test_split_map_merges_indexes_and_rejects_conflict(tmp_path):
+    first, second, conflict = (tmp_path / name for name in ("a.json", "b.json", "c.json"))
+    first.write_text(json.dumps({"worlds": [{"world_id": "gen_cfs_w0000", "split": "train"}]}))
+    second.write_text(json.dumps({"worlds": [{"world_id": "gen_cfs2_w0000", "split": "train"}]}))
+    conflict.write_text(json.dumps({"worlds": [{"world_id": "gen_cfs_w0000", "split": "test"}]}))
+    assert _split_map([first, second])["gen_cfs2_w0000"] == "train"
+    try:
+        _split_map([first, conflict])
+    except ValueError as exc:
+        assert "conflicting splits" in str(exc)
+    else:
+        raise AssertionError("conflicting index declarations must fail")
 
 
 def test_asset_holdout_uses_segmentation_slug_for_person_variants(tmp_path):

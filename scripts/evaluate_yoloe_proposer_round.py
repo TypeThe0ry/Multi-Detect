@@ -20,7 +20,7 @@ import cv2
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
-from build_sim_detector_dataset import _find_truth  # noqa: E402
+from build_sim_detector_dataset import _find_truth, _split_map  # noqa: E402
 
 from multidetect.sim_teacher.segmentation import (  # noqa: E402
     boxes_from_segmentation,
@@ -28,6 +28,33 @@ from multidetect.sim_teacher.segmentation import (  # noqa: E402
 )
 
 BUCKETS = ("<8", "8-16", "16-32", "32-64", ">=64")
+
+
+def cross_task_split_check(splits: dict[str, str]) -> dict[str, Any]:
+    """Check optional slow-system SFT/flight test manifests for overlap."""
+    candidates = [
+        ROOT / "artifacts/datasets/slow-system-sft-v2-r13-bal/test.jsonl",
+        ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r12fast.json",
+    ]
+    found = next((path for path in candidates if path.is_file()), None)
+    if found is None:
+        return {
+            "status": "skipped",
+            "note": "optional slow-system SFT/flight split artifact absent",
+        }
+    worlds: set[str] = set()
+    for line in found.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        value = row.get("world_id") if isinstance(row, dict) else None
+        if value:
+            worlds.add(str(value))
+    overlap = sorted(world for world in worlds if splits.get(world) == "train")
+    if overlap:
+        raise ValueError(f"detector train worlds overlap slow-system test worlds: {overlap}")
+    return {"status": "checked", "source": str(found), "worlds": len(worlds), "overlap": []}
 
 
 def bucket(value: float) -> str:
@@ -54,12 +81,11 @@ def iou(a: tuple[float, ...], b: tuple[float, ...]) -> float:
 
 
 def collect_frames(
-    roots: list[Path], index_path: Path, *, max_frames: int | None = None
+    roots: list[Path], index_paths: list[Path], *, max_frames: int | None = None
 ) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
     seen_sha: set[str] = set()
-    index = json.loads(index_path.read_text(encoding="utf-8"))
-    splits = {str(row["world_id"]): str(row["split"]) for row in index.get("worlds", [])}
+    splits = _split_map(index_paths)
     for root in roots:
         for episode in sorted(p.parent for p in root.rglob("steps.jsonl")):
             world = next((p for p in episode.parts if p.startswith("gen_")), episode.parent.name)
@@ -124,19 +150,33 @@ def collect_frames(
     return frames
 
 
-def score(
-    frames: list[dict[str, Any]], predictions: dict[str, list[tuple[float, ...]]]
-) -> dict[str, Any]:
+def _box(item: tuple[Any, ...]) -> tuple[float, ...]:
+    return tuple(
+        float(v) for v in (item[0] if item and isinstance(item[0], (tuple, list)) else item)
+    )
+
+
+def _confidence(item: tuple[Any, ...]) -> float:
+    return float(item[1]) if item and isinstance(item[0], (tuple, list)) and len(item) > 1 else 0.0
+
+
+def _tables(frames, predictions, *, one_to_one: bool) -> dict[str, Any]:
+    """Build recall tables for either legacy or one-to-one matching."""
     counters = defaultdict(lambda: {"objects": 0, "hit03": 0, "hit05": 0})
     for frame in frames:
         boxes = predictions.get(str(frame["image"]), [])
-        pairs = sorted(
-            (
-                (iou(obj["box"], box), oi, pi)
-                for oi, obj in enumerate(frame["objects"])
-                for pi, box in enumerate(boxes)
-            ),
-            reverse=True,
+        pairs = [
+            (iou(obj["box"], _box(box)), oi, pi)
+            for oi, obj in enumerate(frame["objects"])
+            for pi, box in enumerate(boxes)
+        ]
+        pairs.sort(
+            key=lambda row: (
+                -row[0],
+                -_confidence(boxes[row[2]]),
+                tuple(frame["objects"][row[1]]["box"]),
+                _box(boxes[row[2]]),
+            )
         )
         overlaps = {}
         used_objects: set[int] = set()
@@ -147,7 +187,11 @@ def score(
                 used_objects.add(oi)
                 used_predictions.add(pi)
         for oi, obj in enumerate(frame["objects"]):
-            overlap = overlaps.get(oi, 0.0)
+            overlap = (
+                overlaps.get(oi, 0.0)
+                if one_to_one
+                else max((iou(obj["box"], _box(box)) for box in boxes), default=0.0)
+            )
             for dim, value in (
                 ("category", obj["category"]),
                 ("size", obj["size_bucket"]),
@@ -171,6 +215,22 @@ def score(
     return {"frames": len(frames), "tables": dict(tables)}
 
 
+def score(frames, predictions):
+    return {
+        "legacy_r3_recall": _tables(frames, predictions, one_to_one=False),
+        "one_to_one_recall": _tables(frames, predictions, one_to_one=True),
+        "metric_versions": {
+            "legacy_r3_recall": (
+                "independent per-GT max IoU, thresholds 0.3/0.5, "
+                "matching analyze_small_object_proposals.py"
+            ),
+            "one_to_one_recall": (
+                "greedy one-to-one; sort (-iou, -confidence, gt box, prediction box)"
+            ),
+        },
+    }
+
+
 def infer(
     weights: Path, frames: list[dict[str, Any]], *, imgsz: int, confidence: float, device: str
 ) -> dict[str, list[tuple[float, ...]]]:
@@ -180,7 +240,9 @@ def infer(
     out = {}
     for frame in frames:
         image = cv2.imread(str(frame["image"]), cv2.IMREAD_COLOR)
-        out[str(frame["image"])] = [tuple(d.bbox) for d in proposer(image)]
+        out[str(frame["image"])] = [
+            (tuple(d.bbox), float(getattr(d, "confidence", 0.0))) for d in proposer(image)
+        ]
     return out
 
 
@@ -188,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--old-weights", type=Path, required=True)
-    parser.add_argument("--index", type=Path, required=True)
+    parser.add_argument("--index", type=Path, action="append", required=True)
     parser.add_argument("--new-weights", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--imgsz", type=int, action="append", default=[1280, 960])
@@ -201,7 +263,13 @@ def main(argv: list[str] | None = None) -> int:
     report: dict[str, Any] = {
         "status": "dry_run" if args.dry_run else "measured",
         "evaluation_scope": "class-agnostic proposal recall on index worlds with split=test",
-        "matching": "greedy one-to-one prediction/ground-truth matching",
+        "matching": (
+            "legacy independent max headline plus documented greedy one-to-one secondary metric"
+        ),
+        "cross_task_split_contract": (
+            "detector train worlds must not occur in slow-system SFT test worlds"
+        ),
+        "cross_task_split_check": cross_task_split_check(_split_map(args.index)),
         "frames": len(frames),
         "imgsz": sorted(set(args.imgsz)),
         "confidence": args.confidence,

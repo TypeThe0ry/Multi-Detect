@@ -241,16 +241,20 @@ def _label_line(
     return f"{class_id} " + " ".join(f"{value:.8f}" for value in values)
 
 
-def _split_map(index_path: Path) -> dict[str, str]:
-    try:
-        doc = _load(index_path)
-    except Exception:
-        return {}
-    return {
-        str(w.get("world_id")): str(w.get("split", "train"))
-        for w in doc.get("worlds", [])
-        if isinstance(w, dict) and w.get("world_id")
-    }
+def _split_map(index_paths: Path | list[Path] | tuple[Path, ...]) -> dict[str, str]:
+    """Merge explicit world indexes; conflicting declarations are invalid."""
+    paths = [index_paths] if isinstance(index_paths, Path) else list(index_paths)
+    merged: dict[str, str] = {}
+    for path in paths:
+        doc = _load(path)
+        for world in doc.get("worlds", []):
+            if not isinstance(world, dict) or not world.get("world_id"):
+                continue
+            name, split = str(world["world_id"]), str(world.get("split"))
+            if name in merged and merged[name] != split:
+                raise ValueError(f"world {name!r} has conflicting splits in indexes")
+            merged[name] = split
+    return merged
 
 
 def _perceptual_key(image: Any) -> str:
@@ -275,7 +279,7 @@ def build_dataset(
     campaign_roots: list[Path],
     output: Path,
     *,
-    index_path: Path = Path("configs/scenarios/generated/index.json"),
+    index_path: Path | list[Path] = Path("configs/scenarios/generated/index.json"),
     min_box_px: float = 4.0,
     negative_ratio: float = 0.15,
     seed: int = 20261011,
@@ -322,13 +326,13 @@ def build_dataset(
             world = _world_id(episode)
             if world in splits:
                 split = splits[world]
-            elif world.startswith(("gen_cfs_w", "gen_cfs2_w")):
-                split = "train"
             else:
-                raise ValueError(f"world {world!r} is missing from required index {index_path}")
+                raise ValueError(f"world {world!r} is missing from required indexes {index_path}")
             if split not in ("train", "val", "test"):
                 raise ValueError(f"invalid split {split!r} for {world}")
-            roots = [index_path.parent, campaign, Path.cwd(), *(truth_roots or [])]
+            index_paths = index_path if isinstance(index_path, list) else [index_path]
+            roots = [*(path.parent for path in index_paths), campaign, Path.cwd()]
+            roots.extend(truth_roots or [])
             truth_path = _find_truth(world, roots)
             truth = _load(truth_path) if truth_path else {}
             sdf_path = _find_sdf(world, [campaign, Path.cwd()])
@@ -635,7 +639,11 @@ def build_dataset(
             "min_visible_fraction": float(min_visible_fraction),
             "dropped_occluded": dropped_occluded,
         },
-        "index_sha256": _sha(index_path) if index_path.is_file() else None,
+        "index_sha256": (
+            _sha(index_path)
+            if isinstance(index_path, Path)
+            else [_sha(path) for path in index_path]
+        ),
         "counts": {
             "frames": len(manifest_rows),
             "classes": dict(counts),
@@ -684,9 +692,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument(
-        "--index", type=Path, default=Path("configs/scenarios/generated/index.json")
-    )
+    parser.add_argument("--index", type=Path, action="append", required=True)
     parser.add_argument("--min-box-px", type=float, default=4.0)
     parser.add_argument("--negative-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=20261011)

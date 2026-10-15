@@ -66,19 +66,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--old-manifest", type=Path, required=True)
-    parser.add_argument("--index", type=Path, required=True)
+    parser.add_argument("--index", type=Path, action="append", required=True)
     parser.add_argument("--truth-root", action="append", type=Path, default=[])
     parser.add_argument("--min-box-px", type=float, default=2.0)
     parser.add_argument("--min-seg-area-px", type=int, default=1)
     parser.add_argument("--negative-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=20261015)
     parser.add_argument("--max-frames", type=int)
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--preflight-weights", type=Path)
     parser.add_argument(
         "--holdout-mode",
         choices=("historical-three", "generated-v2-six"),
         default="historical-three",
     )
     args = parser.parse_args(argv)
+    if args.preflight:
+        if args.preflight_weights is None:
+            parser.error("--preflight requires --preflight-weights")
+        from preflight_yoloe_proposer_round import main as preflight_main
+
+        return preflight_main(
+            [
+                "--weights", str(args.preflight_weights), "--imgsz", "1280",
+                "--batch", "2", "--out", str(args.output / "preflight.json")
+            ]
+        )
     holdout_assets = set()
     if args.holdout_mode == "generated-v2-six":
         holdout_assets = {
@@ -115,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
                 "historical r3 detector-class holdout (default; comparable with r3)"
                 if args.holdout_mode == "historical-three"
                 else "generated-v2 six asset-slug holdout from segmentation truth"
+            ),
+            "holdout_applied_at": (
+                "trainer dataset view via --holdout-classes/--holdout-policy"
+                if args.holdout_mode == "historical-three"
+                else "builder image exclusion from segmentation asset slugs"
             ),
             "detector_holdout_classes": ["stop_sign", "postbox", "pickup"],
             "asset_holdout_slugs": sorted(holdout_assets),
