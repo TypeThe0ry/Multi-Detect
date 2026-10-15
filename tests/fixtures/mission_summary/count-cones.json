@@ -1,0 +1,48 @@
+{
+  "source": {
+    "path": "count-cones/campaign/gen_cnt2_w0000/episodes/episode-0000-6d778e20/steps.jsonl",
+    "root": "artifacts/benchmarks/mission-suite-v1-r8",
+    "report_location": "final row: labels.onboard.mission",
+    "report_step_index": 144,
+    "task_location": "count-cones/onboard.json:task_text",
+    "plan_location": "first row: labels.onboard.mission.plan.skills",
+    "note": "Final recorded report preserved verbatim. Full MissionPlan was not recorded; plan is null. Original per-frame task_text is the detector query, so operator task uses onboard.json."
+  },
+  "task": "Count the orange traffic cones in the site and report their positions.",
+  "plan": null,
+  "plan_skills": [
+    "count",
+    "return_home"
+  ],
+  "report": {
+    "history": [
+      {
+        "step": "s1",
+        "skill": "count",
+        "state": "succeeded",
+        "reason": "budget_reached"
+      },
+      {
+        "step": "s2",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "evidence": [
+      "frame_0004.png",
+      "frame_0010.png",
+      "frame_0020.png"
+    ],
+    "answers": [],
+    "alerts": [],
+    "positions": [
+      "-22.0,28.4",
+      "19.8,24.0",
+      "9.5,-15.1"
+    ],
+    "counts": {
+      "s1": 3
+    }
+  }
+}
