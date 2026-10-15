@@ -179,6 +179,21 @@ class ExplorePolicy:
         return self.next_action()
 
 
+class HoverPolicy:
+    """Move once above a target start point, then hold position."""
+
+    def __init__(self, target_ned: tuple[float, float, float], hold_s: float = 2.0):
+        self.target_ned = target_ned
+        self.hold_s = hold_s
+        self._moved = False
+
+    def next_action(self) -> ActionPrimitive:
+        if not self._moved:
+            self._moved = True
+            return ActionPrimitive.translate(self.target_ned[0], self.target_ned[1], 0.0)
+        return ActionPrimitive.hold(self.hold_s)
+
+
 def target_in_fov(
     target_ned: tuple[float, float, float],
     pose_ned: tuple[float, float, float],
@@ -517,6 +532,7 @@ class ExpertSearchPolicy:
 __all__ = [
     "ExploreBounds",
     "ExplorePolicy",
+    "HoverPolicy",
     "ExpertSearchPolicy",
     "SDFObstacle",
     "load_sdf_obstacles",

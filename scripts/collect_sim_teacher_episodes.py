@@ -35,6 +35,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     ExpertSearchPolicy,
     ExploreBounds,
     ExplorePolicy,
+    HoverPolicy,
     PymavlinkPrimitiveExecutor,
     SetpointStreamer,
     primitive_to_ned,
@@ -676,6 +677,13 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         altitude_m=altitude_m,
         obstacles=obstacles,
     ), label
+
+
+def _hover_policy(plan: CollectionPlan, truth_path: Path):
+    data = json.loads(truth_path.read_text(encoding="utf-8"))
+    target = next(item for item in data.get("targets", []) if item.get("true_target"))
+    pose = target.get("pose") or {}
+    return HoverPolicy((float(pose["y_north_m"]), float(pose["x_east_m"]), -float(pose.get("z_up_m", 0.0))))
 
 
 def _field(message: Any, name: str, default: object = None) -> object:
@@ -1499,6 +1507,9 @@ def run_episode(
         task_text = _index_task_text(truth_path) or (
             "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
         )
+    elif plan.teacher == "hover":
+        policy = _hover_policy(plan, truth_path)
+        task_text = "Hover above the moving target path and record observations."
     else:
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
@@ -1846,6 +1857,9 @@ def run_episode(
                         detections=labels["onboard"]["detections"],
                         slow_calls=len(labels["onboard"]["slow_calls"]),
                     )
+                elif plan.teacher == "hover":
+                    action = policy.next_action()
+                    labels = {"teacher": "hover"}
                 else:
                     action = policy.next_action()
                     labels = {}
@@ -2028,7 +2042,7 @@ def run_episode(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
-    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard"), required=True)
+    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard", "hover"), required=True)
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
     parser.add_argument("--deduplicate-depth", action="store_true")
     parser.add_argument("--compress-mavlink", action="store_true")
@@ -2048,6 +2062,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--container-prefix", default="md-sim-teacher")
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--max-episode-s", type=float, default=None)
     parser.add_argument("--heartbeat-timeout-s", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_S)
@@ -2105,6 +2120,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         args.steps_per_episode,
         args.seed,
         str(args.out.resolve()),
+        container_prefix=args.container_prefix,
         timeout_s=args.timeout_s,
         max_episode_s=max_episode_s,
         heartbeat_timeout_s=args.heartbeat_timeout_s,

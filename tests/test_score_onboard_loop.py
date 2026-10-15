@@ -124,6 +124,24 @@ def test_mover_worlds_have_explicit_splits_and_native_actor_trajectory(tmp_path)
     assert "gz-sim-trajectory-follower-system" not in text
 
 
+def test_verify_mover_postprocess_projects_truth_and_reads_recorded_labels(tmp_path) -> None:
+    from PIL import Image
+    from scripts.verify_mover_world import postprocess_episode
+
+    episode = tmp_path / "episode-0000"
+    (episode / "seg").mkdir(parents=True)
+    (episode / "rgb").mkdir()
+    cam = {"width": 64, "height": 48, "fx": 40.0, "fy": 40.0, "cx": 32.0, "cy": 24.0}
+    pose = {"local_ned_m": [0.0, 0.0, -10.0], "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0}}
+    seg = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); seg[20:28, 28:36, 2] = 1
+    rgb = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); rgb[20:28, 28:36] = 255
+    Image.fromarray(seg).save(episode / "seg/frame.png"); Image.fromarray(rgb).save(episode / "rgb/frame.png")
+    (episode / "steps.jsonl").write_text(json.dumps({"obs_before": {"frame_sensor_stamp_ns": 0, "pose": pose, "camera_info": cam, "segmentation_path": "seg/frame.png", "rgb_path": "rgb/frame.png"}}) + "\n")
+    truth = {"targets": [{"target_id": "t", "true_target": True, "pose": {"x_east_m": 0.0, "y_north_m": 5.0, "z_up_m": 0.0}, "size_m": [2.0, 2.0, 2.0], "bottom_offset_m": -1.0}], "segmentation_labels": {"1": {"target_id": "t"}}}
+    result = postprocess_episode(episode, truth)
+    assert "median_centroid_error_px" in result
+
+
 def test_count_metrics_match_findings_to_distinct_members() -> None:
     from scripts.score_onboard_loop import _count_metrics
 
