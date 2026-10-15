@@ -259,7 +259,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
             if world is None or (not urban and world not in world_splits):
                 continue
             split = "train" if urban else world_splits[world]
-            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
+            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
             sdf_path = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
             if not urban and not truth_path.is_file():
                 continue
