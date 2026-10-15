@@ -183,11 +183,27 @@ class OnboardPolicy:
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
         package_raw = options.get("mission_package")
+        security = options.get("security") if isinstance(options.get("security"), dict) else {}
+        key_setting = (
+            options.get("operator_key_path")
+            or options.get("mission_key_path")
+            or options.get("mission_signing_key_path")
+            or security.get("key_path")
+        )
+        if isinstance(key_setting, str):
+            key_path = Path(key_setting)
+            key_setting = key_path if key_path.is_absolute() else ROOT / key_path
         if isinstance(package_raw, str):
             package_path = Path(package_raw)
             package_raw = package_path if package_path.is_absolute() else ROOT / package_path
         self.mission_package = (
-            load_mission_package(package_raw) if package_raw is not None else None
+            load_mission_package(
+                package_raw,
+                key_path=key_setting,
+                require_signature=key_setting is not None,
+            )
+            if package_raw is not None
+            else None
         )
         if self.mission_package is not None:
             package = self.mission_package
@@ -406,7 +422,26 @@ class OnboardPolicy:
                 )
                 self.downlink = DownlinkQueue(log, sender=None)
                 self.supervisor = MissionSupervisor(
-                    self.executor, self.mission_package, log=log, downlink=self.downlink
+                    self.executor,
+                    self.mission_package,
+                    log=log,
+                    downlink=self.downlink,
+                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    timestamp_window_s=float(
+                        options.get(
+                            "command_timestamp_window_s",
+                            security.get("timestamp_window_s", 30.0),
+                        )
+                    ),
+                    clock_skew_s=float(
+                        options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
+                    ),
+                    rate_limit=int(
+                        options.get("command_rate_limit", security.get("rate_limit", 20))
+                    ),
+                    rate_window_s=float(
+                        options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
+                    ),
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):

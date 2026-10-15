@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .mission_plan import MissionPlan, validate_mission_plan
+from .mission_security import load_key, verify_document
 from .serialization import strict_json_loads
 
 POLICIES = ("continue", "continue_then_return", "hold_then_return", "return_now", "land_now")
@@ -96,10 +97,32 @@ class MissionPackage:
                 raise ValueError(f"{step.id}: altitude outside operating limits")
 
 
-def load_mission_package(raw: Mapping[str, Any] | Path) -> MissionPackage:
+def load_mission_package(
+    raw: Mapping[str, Any] | Path,
+    *,
+    key_path: str | Path | None = None,
+    key: bytes | None = None,
+    require_signature: bool = False,
+    operator_key_path: str | Path | None = None,
+) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
     raw = deepcopy(raw)
+    if not isinstance(raw, Mapping):
+        raise ValueError("mission package must be an object")
+    # Verify the exact uploaded document before normalisation or compilation.
+    # Key material is never retained in the package or emitted to the log.
+    key_path = key_path or operator_key_path
+    if key is None and key_path is not None:
+        key = load_key(key_path)
+    has_signature = "signature" in raw or "signature_alg" in raw
+    if require_signature and key is None:
+        raise ValueError("signed mission package requires an operator key path")
+    if key is not None:
+        if not has_signature or not verify_document(raw, key):
+            raise ValueError("mission package signature verification failed")
+    elif has_signature:
+        raise ValueError("signed mission package requires an operator key path")
     obj = _object(
         raw,
         "mission package",
@@ -115,7 +138,10 @@ def load_mission_package(raw: Mapping[str, Any] | Path) -> MissionPackage:
             "link_loss_policy",
             "oversight_steps",
         },
-        {"task_text", "plan", "ref_labels", "heartbeat_timeout_s"},
+        {
+            "task_text", "plan", "ref_labels", "heartbeat_timeout_s",
+            "signature", "signature_alg",
+        },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
         raise ValueError("mission_id is required")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
@@ -13,6 +14,7 @@ from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 from .mission_executor import MissionExecutor
 from .mission_package import POLICIES, MissionPackage, number, parse_policy
 from .mission_plan import validate_mission_plan
+from .mission_security import load_key, verify_document
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 
 
@@ -32,10 +34,30 @@ class MissionSupervisor:
         log: OnboardMissionLog,
         downlink: DownlinkQueue | None = None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
+        security_key: bytes | None = None,
+        security_key_path: str | None = None,
+        timestamp_window_s: float = 30.0,
+        clock_skew_s: float = 5.0,
+        rate_limit: int = 20,
+        rate_window_s: float = 10.0,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
         self.clock = clock
+        self.wall_clock = wall_clock
+        if security_key is None and security_key_path is not None:
+            security_key = load_key(security_key_path)
+        self._security_key = security_key
+        self.timestamp_window_s = number(timestamp_window_s, "timestamp_window_s", minimum=0.001)
+        self.clock_skew_s = number(clock_skew_s, "clock_skew_s")
+        if isinstance(rate_limit, bool) or not isinstance(rate_limit, int) or rate_limit < 1:
+            raise ValueError("rate_limit must be a positive integer")
+        self.rate_limit, self.rate_window_s = rate_limit, number(
+            rate_window_s, "rate_window_s", minimum=0.001
+        )
+        self._event_times: deque[float] = deque()
+        self._last_sequence = 0
         self.started = self._now = clock()
         if not math.isfinite(self.started):
             raise ValueError("invalid supervisor clock")
@@ -86,6 +108,39 @@ class MissionSupervisor:
 
     def ground_event(self, event: dict[str, Any]) -> bool:
         self._time()
+        if not isinstance(event, dict):
+            self._record("ground_event_rejected", reason="event must be an object")
+            return False
+        secured = self._security_key is not None
+        sequence: int | None = None
+        wall_clock_timestamp = False
+        if secured:
+            sequence = event.get("sequence")
+            if (
+                isinstance(sequence, bool)
+                or not isinstance(sequence, int)
+                or sequence <= self._last_sequence
+            ):
+                self._record("ground_event_rejected", reason="sequence replay or invalid")
+                return False
+            stamp_value = event.get("timestamp")
+            try:
+                stamp_number = number(stamp_value, "event timestamp")
+            except (ValueError, TypeError) as exc:
+                self._record("ground_event_rejected", reason=str(exc))
+                return False
+            wall_clock_timestamp = stamp_number > 100_000_000
+            reference = self.wall_clock() if wall_clock_timestamp else self._now
+            if not math.isfinite(reference):
+                self._record("ground_event_rejected", reason="invalid local clock")
+                return False
+            if abs(stamp_number - reference) > self.timestamp_window_s + self.clock_skew_s:
+                self._record("ground_event_rejected", reason="stale event timestamp")
+                return False
+            signature = event.get("signature", event.get("mac"))
+            if not isinstance(signature, str) or not verify_document(event, self._security_key):
+                self._record("ground_event_rejected", reason="event authentication failed")
+                return False
         if event.get("mission_id") != self.package.mission_id:
             self._record("ground_event_rejected", reason="mission id mismatch")
             return False
@@ -95,7 +150,7 @@ class MissionSupervisor:
             return False
         try:
             stamp = number(event.get("timestamp", self._now), "event timestamp")
-            if not self.started <= stamp <= self._now:
+            if not wall_clock_timestamp and not self.started <= stamp <= self._now:
                 raise ValueError("event timestamp outside this flight")
             if kind == "policy_update":
                 policy, timeout = parse_policy(event.get("policy"))
@@ -135,6 +190,15 @@ class MissionSupervisor:
         except (ValueError, TypeError, KeyError) as exc:
             self._record("ground_event_rejected", reason=str(exc), event_type=kind)
             return False
+        if secured:
+            while self._event_times and self._now - self._event_times[0] >= self.rate_window_s:
+                self._event_times.popleft()
+            if len(self._event_times) >= self.rate_limit:
+                self._record("ground_event_rejected", reason="event rate limit exceeded")
+                return False
+            self._event_times.append(self._now)
+            assert sequence is not None
+            self._last_sequence = sequence
         self._record(
             "ground_event",
             event_type=kind,
