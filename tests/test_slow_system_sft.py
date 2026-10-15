@@ -25,6 +25,14 @@ def test_decision_labels_and_task_templates_are_schema_valid_and_unprivileged():
     assert any("\u7ea2\u8272" in builder._task_text(("red", "vehicle"), i) for i in (3, 4))
 
 
+def test_seeded_image_augmentation_is_opt_in_and_repeatable():
+    image = Image.new("RGB", (8, 8), (120, 130, 140))
+    first = builder._augment_image(image, "weather", 123).tobytes()
+    second = builder._augment_image(image, "weather", 123).tobytes()
+    assert first == second
+    assert first != image.tobytes()
+
+
 def test_build_dataset_keeps_world_splits_and_labels_true_vs_distractor(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     root.mkdir()

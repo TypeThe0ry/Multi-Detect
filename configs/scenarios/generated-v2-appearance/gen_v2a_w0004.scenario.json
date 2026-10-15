@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_v2a_w0004.expectations.json",
+      "sha256": "01fc87a99be997767156e754b3ec7dcf7fb795e6ad1fe360de79ddac2b6808e0"
+    },
+    "runtime_input": {
+      "path": "gen_v2a_w0004.runtime_input.json",
+      "sha256": "995b2ca6abb73b88877faac6a592dbbfeb8bc8ce08f5c62a1939ed1c0314a65f"
+    },
+    "truth": {
+      "path": "gen_v2a_w0004.truth.json",
+      "sha256": "0cc82d820d90027d3b22c3277076fe208053fc4e8643e337fac1e8960ff96476"
+    }
+  },
+  "scenario_id": "gen_v2a_w0004",
+  "scenario_version": 1,
+  "schema_version": 1
+}
