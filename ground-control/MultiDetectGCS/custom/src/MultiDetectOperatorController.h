@@ -82,6 +82,7 @@ public:
     ~MultiDetectOperatorController() override;
 
     void shutdown();
+    bool sendMissionMessage(int type, const QByteArray& body);
 
     bool configured() const;
 
@@ -197,6 +198,7 @@ public:
     Q_INVOKABLE QString stopTargetObservationDiagnosticsRecording();
 
 signals:
+    void missionPacketReceived(int type, const QByteArray& body);
     void linkStateChanged();
     void lastErrorChanged();
     void lastSelectionChanged();
@@ -357,6 +359,7 @@ private:
     quint32 _approachSequence = 0;
     quint32 _payloadTargetSequence = 0;
     quint32 _runtimeStatusAckSequence = 0;
+    quint32 _missionSequence = 0;
     QString _lastSelectionCommandId;
     QString _linkState;
     QString _lastError;

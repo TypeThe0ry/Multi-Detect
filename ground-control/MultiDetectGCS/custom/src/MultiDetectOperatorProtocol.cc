@@ -1,4 +1,5 @@
 #include "MultiDetectOperatorProtocol.h"
+#include "MultiDetectMissionWire.h"
 
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QMessageAuthenticationCode>
@@ -419,7 +420,8 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
     if (magic != QByteArray(kMagic, 2)) {
         return fail(error, QStringLiteral("operator-link magic does not match"));
     }
-    if (version != kProtocolVersion) {
+    const bool missionType = typeValue >= 28 && typeValue <= 36;
+    if (version != (missionType ? 2 : kProtocolVersion)) {
         return fail(error, QStringLiteral("operator-link version is unsupported"));
     }
     if (flags != 0 || reserved != 0) {
@@ -439,11 +441,18 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::PolicyRuntimeStatus)) {
+        typeValue > static_cast<quint8>(MessageType::MissionTelemetryAck)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
     const QByteArray body = payload.mid(kHeaderBytes, bodyLength);
+    if (missionType) {
+        if (!MultiDetectMissionWire::decode(typeValue, body, &packet->fields, error)) return false;
+        packet->type = type;
+        packet->sequence = sequence;
+        packet->sentAtMs = sentAtMs;
+        return true;
+    }
     Reader reader(body);
     QVariantMap fields;
 
@@ -2204,6 +2213,15 @@ QString MultiDetectOperatorProtocol::hashedIdentifier(quint64 value)
     return QStringLiteral("hash64:%1").arg(value, 16, 16, QLatin1Char('0'));
 }
 
+QByteArray MultiDetectOperatorProtocol::encodeMission(MessageType type, const QByteArray& body, quint32 sequence,
+                                                     quint64 sentAtMs, QString* error) const
+{
+    QVariantMap fields;
+    if (static_cast<int>(type) < 28 || static_cast<int>(type) > 36 ||
+        !MultiDetectMissionWire::decode(static_cast<int>(type), body, &fields, error)) return {};
+    return _encodeFrame(type, sequence, sentAtMs, body, error);
+}
+
 QByteArray MultiDetectOperatorProtocol::_encodeFrame(MessageType type, quint32 sequence, quint64 sentAtMs,
                                                      const QByteArray& body, QString* error) const
 {
@@ -2214,7 +2232,7 @@ QByteArray MultiDetectOperatorProtocol::_encodeFrame(MessageType type, quint32 s
     QByteArray frame;
     frame.reserve(kHeaderBytes + body.size() + kAuthenticationTagBytes);
     frame.append(kMagic, 2);
-    appendU8(frame, kProtocolVersion);
+    appendU8(frame, static_cast<int>(type) >= 28 ? 2 : kProtocolVersion);
     appendU8(frame, static_cast<quint8>(type));
     appendU8(frame, 0);
     appendU8(frame, 0);

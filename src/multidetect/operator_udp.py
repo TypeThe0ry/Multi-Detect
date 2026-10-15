@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, SimpleQueue
 from threading import Condition, Event, Lock, Thread
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autonomy.mission_operator import MissionOperatorAdapter
 
 from .operator_link import (
     ApproachChallengeStatusMessage,
@@ -162,6 +166,7 @@ class UdpOperatorSelectionServer:
         receive_timeout_s: float | None = None,
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
+        mission_adapter: MissionOperatorAdapter | None = None,
     ) -> None:
         if not bind_host.strip():
             raise ValueError("UDP bind host cannot be empty")
@@ -174,6 +179,11 @@ class UdpOperatorSelectionServer:
         if not callable(command_clock):
             raise TypeError("command_clock must be callable")
         self.mavlink = mavlink
+        if mission_adapter is None:
+            from .autonomy.mission_operator import MissionOperatorAdapter
+
+            mission_adapter = MissionOperatorAdapter(mavlink.codec)
+        self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self._command_clock = command_clock
         self.selection_server = SelectionCommandServer(mavlink.codec, guard)
@@ -259,6 +269,14 @@ class UdpOperatorSelectionServer:
                 self._register_metadata_peer(peer, from_heartbeat=True)
             return None
         packet = self.mavlink.codec.decode(inner)
+        if int(packet.message_type) >= 28:
+            self._register_metadata_peer(peer, from_heartbeat=False)
+            for response in self.mission_adapter.handle(packet, peer=peer):
+                self._channel.sendto(
+                    self.mavlink.wrap_authenticated_operator_payload(response), peer
+                )
+            self.poll_mission_telemetry()
+            return None
         if packet.message_type is WireMessageType.RUNTIME_STATUS_ACK:
             if not isinstance(packet.message, RuntimeStatusAck):
                 raise OperatorProtocolError("decoded runtime-status ACK has the wrong type")
@@ -955,6 +973,7 @@ class UdpOperatorSelectionServer:
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                self.poll_mission_telemetry()
                 self.serve_once()
             except TimeoutError:
                 continue
@@ -969,8 +988,17 @@ class UdpOperatorSelectionServer:
                 with self._runtime_status_ack_condition:
                     self._runtime_status_ack_condition.notify_all()
 
+    def poll_mission_telemetry(self) -> None:
+        """Also callable by a foreground runtime using ``serve_once`` directly."""
+        peer = self.active_metadata_peer()
+        sender = None if peer is None else lambda payload: self._channel.sendto(
+            self.mavlink.wrap_authenticated_operator_payload(payload), peer
+        )
+        self.mission_adapter.tick(sender)
+
     def close(self) -> None:
         self._stop_event.set()
+        self.mission_adapter.close()
         self._channel.close()
         if self._thread is not None:
             self._thread.join(timeout=1.0)

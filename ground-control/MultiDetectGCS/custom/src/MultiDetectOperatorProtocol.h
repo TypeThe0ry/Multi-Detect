@@ -58,6 +58,15 @@ public:
         GnssStatus = 25,
         TargetObservationStatus = 26,
         PolicyRuntimeStatus = 27,
+        MissionPackageChunk = 28,
+        MissionAck = 29,
+        MissionAbort = 30,
+        MissionPause = 31,
+        MissionResume = 32,
+        MissionPolicyTighten = 33,
+        MissionHeartbeat = 34,
+        MissionTelemetryChunk = 35,
+        MissionTelemetryAck = 36,
     };
 
     struct DecodedPacket
@@ -75,6 +84,8 @@ public:
     QString streamId() const { return _streamId; }
 
     bool decode(const QByteArray& payload, DecodedPacket* packet, QString* error) const;
+    QByteArray encodeMission(MessageType type, const QByteArray& body, quint32 sequence,
+                             quint64 sentAtMs, QString* error) const;
 
     QByteArray encodeSelection(const QString& commandId, const QString& sessionId, quint32 sequence,
                                const QString& action, int width, int height, int rotationDegrees, double x1, double y1,

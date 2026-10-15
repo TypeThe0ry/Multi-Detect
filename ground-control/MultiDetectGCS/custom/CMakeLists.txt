@@ -39,12 +39,21 @@ add_library(
     src/MultiDetectDepthGridReceiver.h
     src/MultiDetectOperatorProtocol.cc
     src/MultiDetectOperatorProtocol.h
+    src/MultiDetectMissionWire.cc
+    src/MultiDetectMissionWire.h
+    src/MultiDetectMissionPackage.cc
+    src/MultiDetectMissionPackage.h
+    src/MultiDetectMissionController.cc
+    src/MultiDetectMissionController.h
 )
 target_link_libraries(MultiDetectOperatorProtocol PUBLIC Qt6::Core Qt6::Network)
 target_include_directories(MultiDetectOperatorProtocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_executable(MultiDetectOperatorProtocolSelfTest EXCLUDE_FROM_ALL tests/MultiDetectOperatorProtocolSelfTest.cc)
 target_link_libraries(MultiDetectOperatorProtocolSelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
+
+add_executable(MultiDetectMissionSelfTest EXCLUDE_FROM_ALL tests/MultiDetectMissionSelfTest.cc)
+target_link_libraries(MultiDetectMissionSelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
 
 add_executable(
     MultiDetectTargetEvidenceStoreSelfTest EXCLUDE_FROM_ALL
