@@ -315,9 +315,35 @@ class MavlinkState:
     count: int = 0
     last_preflight_failure_ns: int = 0
     pose_alignment: dict[str, Any] | None = None
+    energy_telemetry: list[dict[str, Any]] | None = None
 
     def get(self, name: str) -> Any | None:
         return self.messages.get(name)
+
+
+def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
+    """Copy wire samples with their real receive clocks, never a frame clock."""
+    samples = []
+    for name in ("BATTERY_STATUS", "SYS_STATUS", "WIND_COV", "HEARTBEAT", "LOCAL_POSITION_NED"):
+        message = state.get(name)
+        stamp = state.received_monotonic_ns.get(name)
+        if message is None or stamp is None:
+            continue
+        row = MavlinkReader._mapping(message)
+        for source_field, getter in (
+            ("source_system", "get_srcSystem"),
+            ("source_component", "get_srcComponent"),
+        ):
+            read_source = getattr(message, getter, None)
+            if callable(read_source):
+                row[source_field] = read_source()
+        samples.append(
+            {
+                "message": {**row, "mavpackettype": name},
+                "received_monotonic_s": stamp / 1e9,
+            }
+        )
+    return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
 class MavlinkReader:
@@ -337,6 +363,8 @@ class MavlinkReader:
             "COMMAND_ACK",
             "HOME_POSITION",
             "SYS_STATUS",
+            "BATTERY_STATUS",
+            "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
         }
@@ -423,6 +451,7 @@ class MavlinkReader:
                 received_wall_time=dict(self.state.received_wall_time),
                 count=self.state.count,
                 last_preflight_failure_ns=self.state.last_preflight_failure_ns,
+                energy_telemetry=_energy_telemetry(self.state),
             )
         for name, result in selected.items():
             if result is None:
@@ -803,6 +832,11 @@ def build_observation(
             "yaw_deg": math.degrees(float(_field(attitude, "yaw", 0.0))),
         },
         "velocity": velocity,
+        # Pose alignment may interpolate or select historical position. Energy
+        # learning needs the latest wire state and its unmodified receive time.
+        "energy_telemetry": mavlink.energy_telemetry
+        if mavlink.energy_telemetry is not None
+        else _energy_telemetry(mavlink),
         "gps_fix": gps_fix,
         "sensor_status": "live",
         "frame_sensor_stamp_ns": sensor.sensor_stamp_ns,

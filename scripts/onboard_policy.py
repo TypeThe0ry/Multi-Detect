@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.energy_estimator import EnergyConfig  # noqa: E402
 from multidetect.autonomy.ground_model import ground_projection_from_config  # noqa: E402
 from multidetect.autonomy.mission_executor import (  # noqa: E402
     ExecutorConfig,
@@ -661,6 +662,9 @@ class OnboardPolicy:
                     rate_window_s=float(
                         options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
                     ),
+                    energy_config=EnergyConfig.from_budget(
+                        self.mission_package.document["budget"], options.get("energy_model")
+                    ),
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
@@ -780,6 +784,10 @@ class OnboardPolicy:
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
+            for sample in observation.get("energy_telemetry", []):
+                self.supervisor.ingest_energy_telemetry(
+                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                )
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)
             self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
