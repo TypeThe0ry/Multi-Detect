@@ -254,11 +254,15 @@ def run(args, *, backend_factory=make_backend) -> dict:
         # (An earlier version trained a second "resume" adapter, saved under resume/,
         # while the default adapter stayed at its zero init; prefer those weights.)
         from peft import set_peft_model_state_dict
-        from safetensors.torch import load_file
+        from safetensors.torch import load as load_safetensors
 
         legacy = output / "checkpoint/resume/adapter_model.safetensors"
-        weights = load_file(str(legacy if legacy.is_file() else output / "checkpoint/adapter_model.safetensors"))
+        source = legacy if legacy.is_file() else output / "checkpoint/adapter_model.safetensors"
+        # Read into memory: a memory-mapped load keeps the file mapped on Windows and the
+        # next checkpoint save over the same path then fails (OS error 1224).
+        weights = load_safetensors(source.read_bytes())
         result = set_peft_model_state_dict(model, weights)
+        del weights
         if getattr(result, "unexpected_keys", None):
             raise ValueError(f"checkpoint keys do not match the adapter: {result.unexpected_keys[:3]}")
         optimizer.load_state_dict(torch.load(output / "checkpoint/optimizer.pt", map_location="cpu", weights_only=True))
