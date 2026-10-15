@@ -414,6 +414,8 @@ class MissionSupervisor:
                 loop_factory=self.executor.loop_factory,
                 refs=self.package.refs,
                 config=self.executor.config,
+                mission_package=self.package,
+                no_fly_zones=getattr(self.executor, "no_fly_zones", ()),
             )
             self._recovery.home = tuple(self.package.document["home"])
             self._recovery.cruise_altitude_m = self.executor.cruise_altitude_m or max(

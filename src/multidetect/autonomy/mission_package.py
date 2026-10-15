@@ -15,6 +15,17 @@ from .serialization import strict_json_loads
 
 POLICIES = ("continue", "continue_then_return", "hold_then_return", "return_now", "land_now")
 RISK_DEFAULTS = {"low": "continue", "medium": "continue_then_return", "high": "return_now"}
+# Nominal horizontal speed calibrated against recorded mission-suite-v1-r12
+# translate outcomes. This is a planning estimate, not an upper bound.
+CALIBRATED_TRAVEL_SPEED_MPS = 1.03
+OPEN_ENDED_SKILLS = frozenset({"area_search", "count", "monitor", "patrol", "survey", "follow"})
+
+
+def _is_terminal_step(step: MissionStep) -> bool:
+    """Match the mission-plan validator's safe terminal semantics."""
+    return step.skill in {"return_home", "land"} or (
+        step.skill == "hover" and step.on_success is None
+    )
 
 
 def number(value: Any, name: str, *, minimum: float = 0.0) -> float:
@@ -55,6 +66,15 @@ class MissionPackage:
     @property
     def mission_id(self) -> str:
         return self.document["mission_id"]
+
+    @property
+    def no_fly_zones(self) -> tuple[tuple[tuple[float, float], float], ...]:
+        """Return no-fly circles for the executor's runtime leg guard."""
+        zones = []
+        for zone in self.document.get("zones", {}).values():
+            if _zone_tag_is_no_fly(zone.get("risk_tag")):
+                zones.append((tuple(zone["centre_ne"]), float(zone["radius_m"])))
+        return tuple(zones)
 
     def validate_plan(self, plan: MissionPlan) -> None:
         """Admit both uploaded plans and plans compiled on board before flight."""
@@ -160,19 +180,17 @@ def estimate_plan_duration(
     *,
     executor_config: Any | None = None,
 ) -> float:
-    """Return a conservative CPU-only duration estimate in seconds.
+    """Return a nominal duration estimate calibrated from recorded flight data.
 
-    The executor advances one primitive per control cycle.  Its translate cap
-    and hold interval therefore provide a useful speed estimate without
-    pretending that this preflight knows the aircraft's exact wind or route.
-    Explicit timed skills retain their requested duration.
+    The calibrated horizontal speed is a planning estimate, not a guaranteed
+    upper bound; the supervisor remains responsible for reserve-return.
     """
     if executor_config is None:
         from .mission_executor import ExecutorConfig
 
         executor_config = ExecutorConfig()
     hold_s = max(0.1, float(executor_config.hold_s))
-    speed_mps = max(0.1, float(executor_config.max_translate_m)) / hold_s
+    speed_mps = CALIBRATED_TRAVEL_SPEED_MPS
     step_budget = max(1, int(executor_config.step_budget)) * hold_s
     travel_budget = max(1, int(executor_config.travel_budget)) * hold_s
     refs = package.refs
@@ -194,16 +212,21 @@ def estimate_plan_duration(
         )
         distance = 0.0
         if skill in {"goto", "deliver"} and target is not None:
-            distance = math.dist(previous, target)
+            distance = math.dist(previous, target) if previous is not None else 0.0
             previous = target
         elif skill == "return_home":
-            distance = math.dist(previous, home)
+            distance = math.dist(previous, home) if previous is not None else 0.0
             previous = home
         elif skill == "patrol" and len(route_points) > 1:
-            distance = sum(
+            loops = int(params.get("loops", 1))
+            entry = math.dist(previous, route_points[0]) if previous is not None else 0.0
+            internal = sum(
                 math.dist(a, b) for a, b in zip(route_points, route_points[1:], strict=False)
             )
-            distance *= int(params.get("loops", 1))
+            distance = entry + internal * loops
+            if loops > 1:
+                distance += (loops - 1) * math.dist(route_points[-1], route_points[0])
+            previous = route_points[-1]
         elif skill == "survey":
             region = refs.get(params.get("region"))
             radius = float(region[2]) if isinstance(region, Sequence) and len(region) >= 3 else 0.0
@@ -226,6 +249,149 @@ def estimate_plan_duration(
         else:
             duration = step_budget
         total += max(0.0, duration)
+        if skill in OPEN_ENDED_SKILLS:
+            previous = None
+        elif skill == "inspect":
+            previous = target
+    return total
+
+
+def _static_step_anchor(
+    step: MissionStep, refs: Mapping[str, Any], home: tuple[float, float]
+) -> tuple[float, float] | None:
+    """Return the first static ground point the executor must reach for a step."""
+    skill = step.skill
+    params = step.params
+    if skill in {"goto", "deliver", "inspect"}:
+        return _point_from_ref(params.get("target_ref"), refs, home)
+    if skill == "return_home":
+        return home
+    if skill == "patrol":
+        route = refs.get(params.get("route_ref"))
+        if isinstance(route, Sequence) and route and isinstance(route[0], Sequence):
+            try:
+                point = (float(route[0][0]), float(route[0][1]))
+            except (TypeError, ValueError, IndexError):
+                return None
+            return point if all(math.isfinite(v) for v in point) else None
+        return None
+    if skill in {"monitor", "survey", "area_search", "count"}:
+        region = params.get("region")
+        value = refs.get(region)
+        if isinstance(value, Sequence) and len(value) >= 2:
+            try:
+                point = (float(value[0]), float(value[1]))
+            except (TypeError, ValueError):
+                return None
+            return point if all(math.isfinite(v) for v in point) else None
+    return None
+
+
+def _route_points(value: Any) -> list[tuple[float, float]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    points: list[tuple[float, float]] = []
+    for point in value:
+        if not isinstance(point, Sequence) or isinstance(point, (str, bytes)) or len(point) < 2:
+            return []
+        try:
+            parsed = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError):
+            return []
+        if not all(math.isfinite(v) for v in parsed):
+            return []
+        points.append(parsed)
+    return points
+
+
+def _minimum_mandatory_duration(
+    plan: MissionPlan,
+    package: MissionPackage,
+    *,
+    executor_config: Any | None = None,
+) -> float:
+    """Estimate work that must fit before reserve-return can take over.
+
+    Open-ended observation and patrol work is omitted when both graph branches
+    lead to a terminal. Their initial transit is mandatory; reserve-return
+    handles the eventual leg from the runtime pose. A malformed graph is
+    charged normally and is also reported by the terminal check, so it cannot
+    gain budget admission by leaving an edge null.
+    """
+    if executor_config is None:
+        from .mission_executor import ExecutorConfig
+
+        executor_config = ExecutorConfig()
+    hold_s = max(0.1, float(executor_config.hold_s))
+    # Admission uses a lower bound: the executor can command at most one
+    # max_translate_m leg per control cycle, and open-ended work may be cut
+    # short when the supervisor starts reserve-return. The calibrated speed is
+    # reserved for the nominal estimate above, which is intentionally not an
+    # upper bound.
+    max_translate_m = max(0.1, float(executor_config.max_translate_m))
+
+    def transit_seconds(distance: float) -> float:
+        return math.ceil(distance / max_translate_m) * hold_s if distance > 0 else 0.0
+
+    step_budget = max(1, int(executor_config.step_budget)) * hold_s
+    travel_budget = max(1, int(executor_config.travel_budget)) * hold_s
+    home = tuple(float(v) for v in package.document["home"])
+    refs = package.refs
+    by_id = {step.id: step for step in plan.steps}
+    terminals = {step.id for step in plan.steps if _is_terminal_step(step)}
+
+    def reaches_terminal(step_id: str, seen: set[str]) -> bool:
+        if step_id in terminals:
+            return True
+        if step_id in seen or step_id not in by_id:
+            return False
+        step = by_id[step_id]
+        return all(
+            ref is not None and reaches_terminal(ref, seen | {step_id})
+            for ref in (step.on_success, step.on_fail)
+        )
+
+    total = 0.0
+    previous = home
+    for step in plan.steps:
+        anchor = _static_step_anchor(step, refs, home)
+        if step.skill == "patrol":
+            route_points = _route_points(refs.get(step.params.get("route_ref")))
+            if route_points:
+                anchor = route_points[0]
+        distance = (
+            math.dist(previous, anchor)
+            if previous is not None and anchor is not None
+            else 0.0
+        )
+        open_ended = step.skill in OPEN_ENDED_SKILLS and reaches_terminal(step.id, set())
+        if not open_ended:
+            total += transit_seconds(distance) + (hold_s if anchor is not None else 0.0)
+            if step.skill in OPEN_ENDED_SKILLS:
+                total += float(
+                    step.params.get(
+                        "duration_s",
+                        (
+                            travel_budget
+                            if step.skill in {"monitor", "follow", "patrol"}
+                            else step_budget
+                        ),
+                    )
+                )
+            elif step.skill == "inspect":
+                total += max(1, int(step.params.get("views", 1))) * hold_s
+        elif anchor is not None:
+            total += transit_seconds(distance) + hold_s
+        if step.skill in OPEN_ENDED_SKILLS or step.skill == "inspect":
+            # Observation can end at an executor-selected pose; reserve-return
+            # handles the eventual leg once that pose is known.
+            previous = None
+        elif anchor is not None:
+            previous = anchor
+        elif step.skill in {"area_search", "count", "monitor", "survey", "follow", "inspect"}:
+            # The eventual pose is observation-dependent; reserve-return will
+            # handle that runtime leg instead of rejecting the package here.
+            previous = None
     return total
 
 
@@ -254,6 +420,7 @@ def check_plan_against_package(
     def add(code: str, step: MissionStep, zh: str, en: str) -> None:
         violations.append(_package_violation(code, step.id, zh, en))
 
+    previous: tuple[float, float] | None = tuple(float(v) for v in document["home"])
     for step in plan.steps:
         params = step.params
         paths: list[list[tuple[float, float]]] = []
@@ -265,7 +432,8 @@ def check_plan_against_package(
                 centre = (float(value[0]), float(value[1]))
                 radius = float(value[2])
                 regions.append((centre, radius, str(region_ref)))
-                paths.append([centre])
+                if previous is not None:
+                    paths.append([previous, centre])
         target_ref = params.get("target_ref")
         if target_ref in document.get("zones", {}) and target_ref in refs:
             value = refs[target_ref]
@@ -273,15 +441,36 @@ def check_plan_against_package(
                 centre = (float(value[0]), float(value[1]))
                 radius = float(value[2])
                 regions.append((centre, radius, str(target_ref)))
-                paths.append([centre])
+                if previous is not None:
+                    paths.append([previous, centre])
         else:
             target = _point_from_ref(target_ref, refs, document["home"])
             if target is not None:
-                paths.append([target])
+                if previous is not None:
+                    paths.append([previous, target])
         route = refs.get(params.get("route_ref"))
-        if isinstance(route, Sequence) and route and isinstance(route[0], Sequence):
-            points = [tuple(float(v) for v in point[:2]) for point in route]
-            paths.append(points)
+        route_points = _route_points(route)
+        if route_points:
+            paths.append([previous, *route_points] if previous is not None else route_points)
+            loops = max(1, int(params.get("loops", 1)))
+            if loops > 1 and len(route_points) > 1:
+                paths.append([route_points[-1], route_points[0]])
+        elif step.skill == "return_home" and previous is not None:
+            paths.append([previous, tuple(float(v) for v in document["home"])])
+
+        # The executor flies a straight leg between every static target and
+        # route waypoint. Keep the final static position for the next step.
+        anchor = _static_step_anchor(step, refs, tuple(document["home"]))
+        if step.skill == "patrol":
+            if route_points:
+                anchor = route_points[-1]
+        if step.skill in {"area_search", "count", "monitor", "survey", "follow", "inspect"}:
+            # These skills may finish at a pose known only after execution.
+            previous = None
+        elif step.skill == "patrol" and "duration_s" in params:
+            previous = None
+        elif anchor is not None:
+            previous = anchor
 
         outside = False
         for path in paths:
@@ -303,7 +492,9 @@ def check_plan_against_package(
                 f"Step {step.id} has a region, target, or route outside the operating area",
             )
 
-        entered_no_fly = bool(region_ref == "zone:all" and no_fly)
+        # zone:all and dynamic findings have no static preflight path. Their
+        # actual legs are checked by the executor once the pose is known.
+        entered_no_fly = False
         for path in paths:
             for point in path:
                 if any(math.dist(point, centre) <= radius for _, centre, radius in no_fly):
@@ -361,12 +552,7 @@ def check_plan_against_package(
             if ref is not None and ref in by_id and ref not in reachable:
                 reachable.add(ref)
                 frontier.append(ref)
-    terminals = [
-        step
-        for step in plan.steps
-        if step.skill in {"return_home", "land"}
-        or (step.skill == "hover" and step.on_success is None)
-    ]
+    terminals = [step for step in plan.steps if _is_terminal_step(step)]
     if not terminals or not any(step.id in reachable for step in terminals):
         terminal = terminals[0] if terminals else (plan.steps[-1] if plan.steps else None)
         violations.append(
@@ -386,9 +572,59 @@ def check_plan_against_package(
             )
         )
 
+    def reaches_terminal(step_id: str, seen: set[str]) -> bool:
+        if step_id in {step.id for step in terminals}:
+            return True
+        if step_id in seen or step_id not in by_id:
+            return False
+        current = by_id[step_id]
+        return all(
+            ref is not None and reaches_terminal(ref, seen | {step_id})
+            for ref in (current.on_success, current.on_fail)
+        )
+
+    for step_id in sorted(reachable):
+        step = by_id[step_id]
+        if step in terminals:
+            # return_home/land are terminal actions. A final hover is terminal
+            # on success by contract; any failure edge must still be safe.
+            if step.skill in {"return_home", "land"} and (
+                step.on_success is not None or step.on_fail is not None
+            ):
+                violations.append(
+                    _package_violation(
+                        "TERMINAL_OUTGOING_EDGE",
+                        step.id,
+                        f"终端步骤 {step.id} 不得有后续分支",
+                        f"Terminal step {step.id} must not have outgoing branches",
+                    )
+                )
+            if step.skill == "hover" and step.on_fail is not None and not reaches_terminal(
+                step.on_fail, {step.id}
+            ):
+                violations.append(
+                    _package_violation(
+                        "TERMINAL_UNREACHABLE",
+                        step.id,
+                        f"步骤 {step.id} 的failure分支无法到达安全终端",
+                        f"Step {step.id} failure branch does not reach a safe terminal",
+                    )
+                )
+            continue
+        for branch, ref in (("success", step.on_success), ("failure", step.on_fail)):
+            if ref is None or not reaches_terminal(ref, {step.id}):
+                violations.append(
+                    _package_violation(
+                        "TERMINAL_UNREACHABLE",
+                        step.id,
+                        f"步骤 {step.id} 的{branch}分支无法到达安全终端",
+                        f"Step {step.id} {branch} branch does not reach a safe terminal",
+                    )
+                )
+
     budget = document["budget"]
     available_time = float(budget["time_s"]) - float(budget["reserve_time_s"])
-    estimate = estimate_plan_duration(plan, package, executor_config=executor_config)
+    estimate = _minimum_mandatory_duration(plan, package, executor_config=executor_config)
     if estimate > available_time:
         step_id = next(
             (
@@ -403,8 +639,9 @@ def check_plan_against_package(
             _package_violation(
                 "TIME_BUDGET_EXCEEDED",
                 step_id,
-                f"计划预计耗时 {estimate:.1f} 秒，超过扣除余量后的时间预算 {available_time:.1f} 秒",
-                "Estimated plan duration "
+                f"计划最低必需耗时 {estimate:.1f} 秒，"
+                f"超过扣除余量后的时间预算 {available_time:.1f} 秒",
+                "Minimum mandatory plan duration "
                 f"{estimate:.1f}s exceeds the time budget after reserve "
                 f"({available_time:.1f}s)",
             )

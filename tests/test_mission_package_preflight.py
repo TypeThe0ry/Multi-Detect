@@ -220,3 +220,28 @@ def test_time_budget_capability_and_terminal_reachability() -> None:
         v["code"] == "MISSING_CAPABILITY"
         for v in check_plan_against_package(deliver, package)
     )
+
+
+def test_every_reachable_branch_must_reach_return_or_land() -> None:
+    raw = _document()
+    raw["task_text"] = "test"
+    package = _package(raw=raw)
+    plan = validate_mission_plan(
+        _plan(
+            [
+                {
+                    "id": "go",
+                    "skill": "goto",
+                    "params": {"target_ref": "poi:gate"},
+                    "on_success": "home",
+                    "on_fail": None,
+                },
+                _goto_home()[1],
+            ]
+        )
+    )
+    violations = check_plan_against_package(plan, package)
+    assert any(
+        v["code"] == "TERMINAL_UNREACHABLE" and v["step_id"] == "go"
+        for v in violations
+    )

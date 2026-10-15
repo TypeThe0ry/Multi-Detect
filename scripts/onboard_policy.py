@@ -210,6 +210,12 @@ def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _enabled(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value is True
+
+
 def perception_task_text(step: MissionStep, original: str) -> str:
     """Use a plan query for slow perception unless the query is non-ASCII."""
     query = step.params.get("query") if step is not None else None
@@ -242,6 +248,7 @@ def build_mission_from_text(
         schema=schema,
         attempts=attempts,
         plan_checker=plan_checker,
+        capabilities=capabilities,
     )
     if plan is None:
         plan = validate_mission_plan(
@@ -578,6 +585,15 @@ class OnboardPolicy:
                 in {"1", "true", "yes", "on"}
             ),
             alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+            deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
+            deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
+            deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
+            deliver_position_tolerance_m=float(options.get("deliver_position_tolerance_m", 1.0)),
+            deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
+            deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
+        )
+        capabilities = frozenset(package_capabilities) | (
+            frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
         )
         if mission:
             if mission == "package":
@@ -638,7 +654,7 @@ class OnboardPolicy:
                         lambda candidate: check_plan_against_package(
                             candidate,
                             self.mission_package,
-                            capabilities=package_capabilities,
+                            capabilities=capabilities,
                             executor_config=executor_config,
                         )
                     )
@@ -651,7 +667,7 @@ class OnboardPolicy:
                     post,
                     sorted_keys=bool(options.get("plan_sorted_keys", True)),
                     plan_checker=plan_checker,
-                    capabilities=package_capabilities,
+                    capabilities=capabilities,
                 )
                 self.mission_plan, self.mission_plan_report = plan, report
                 if self.mission_package is not None and report.get("error"):
@@ -666,7 +682,7 @@ class OnboardPolicy:
                 violations = check_plan_against_package(
                     plan,
                     self.mission_package,
-                    capabilities=package_capabilities,
+                    capabilities=capabilities,
                     executor_config=executor_config,
                 )
                 if violations:
@@ -680,6 +696,14 @@ class OnboardPolicy:
                 plan,
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
+                capabilities=capabilities,
+                mission_package=self.mission_package,
+                no_fly_zones=(
+                    self.mission_package.no_fly_zones
+                    if self.mission_package is not None
+                    else ()
+                ),
+                release_authorized=_enabled(options.get("release_authorized")),
                 task_text=(
                     (lambda step: perception_task_text(step, self.task_text))
                     if mission in {"from_text", "package"}
@@ -732,30 +756,39 @@ class OnboardPolicy:
         """Persist a fail-closed admission decision before raising to the caller."""
         if self.mission_package is None:
             raise ValueError("mission plan violates package policy")
-        log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
-        now = time.monotonic()
-        log.append(
-            "mission_refused",
-            now,
-            reason="package_policy_violation",
-            violations=list(violations),
-        )
-        log.finish(
-            now,
-            {
-                "status": "refused",
-                "reason": "package_policy_violation",
-                "violations": list(violations),
-            },
-        )
-        close = getattr(self.slow, "close", None)
-        if close is not None:
-            close()
+        log = None
+        try:
+            log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
+            log.append(
+                "mission_refused",
+                now,
+                reason="package_policy_violation",
+                violations=list(violations),
+            )
+            log.finish(
+                now,
+                {
+                    "status": "refused",
+                    "reason": "package_policy_violation",
+                    "violations": list(violations),
+                },
+            )
+        finally:
+            close = getattr(self.slow, "close", None)
+            if close is not None:
+                close()
         details = "; ".join(
             f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
             for item in violations
         )
         raise ValueError(f"mission plan refused by package policy: {details}")
+
+    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
+        """Forward a host receipt; this policy has no payload hardware driver."""
+        return self.executor is not None and self.executor.acknowledge_payload_release(
+            request_id, released=released
+        )
 
     def close(self) -> None:
         try:
