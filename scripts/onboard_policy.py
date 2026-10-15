@@ -231,6 +231,20 @@ class OnboardPolicy:
             loop_defaults["second_look_max_confidence"] = float(
                 options["second_look_max_confidence"]
             )
+        if "memory_enabled" in options:
+            value = options["memory_enabled"]
+            loop_defaults["memory_enabled"] = (
+                value.strip().lower() in {"1", "true", "yes", "on"}
+                if isinstance(value, str)
+                else bool(value)
+            )
+        for key, convert in (
+            ("memory_radius_m", float),
+            ("memory_min_verdicts", int),
+            ("memory_max_range_ratio", float),
+        ):
+            if key in options:
+                loop_defaults[key] = convert(options[key])
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
@@ -439,9 +453,14 @@ class OnboardPolicy:
         slow = []
         if self.loop.state in {"searching", "approaching"}:
             for track in self.loop.tracks_needing_verdict(current):
-                verdict = self._slow_identity(frame_path, current, track)
+                verdict = self.loop.remembered_verdict(track.track_id)
+                if verdict is None:
+                    verdict = self._slow_identity(frame_path, current, track)
                 self.loop.apply_verdict(
-                    track.track_id, verdict["decision"], verdict.get("confidence")
+                    track.track_id,
+                    verdict.get("decision"),
+                    verdict.get("confidence"),
+                    remembered=verdict.get("remembered", False),
                 )
                 slow.append(verdict)
         action, info = self.loop.next_action(
@@ -457,6 +476,8 @@ class OnboardPolicy:
                         "id": t.track_id,
                         "bbox": [round(v, 1) for v in t.bbox],
                         "verdict": t.verdict,
+                        "verdict_remembered": getattr(t, "verdict_remembered", False),
+                        "ground_ne": list(t.ground) if t.ground is not None else None,
                         "identity_positive_matches": getattr(t, "identity_positive_matches", 0),
                         "identity_reject_matches": getattr(t, "identity_reject_matches", 0),
                         "identity_verdict_history": list(
@@ -486,8 +507,24 @@ class OnboardPolicy:
         current = list(executor.current_tracks)
         slow = []
         for track in needing[:3]:
-            verdict = self._slow_identity(frame_path, current, track, perception_text)
-            executor.apply_verdict(track.track_id, verdict["decision"], verdict.get("confidence"))
+            loop = getattr(executor, "active_loop", None)
+            # Inspection capture asks a distinct question from each deliberate
+            # view, so those answers always come from the VLM.
+            verdict = (
+                loop.remembered_verdict(track.track_id)
+                if loop is not None and step is not None and step.skill != "inspect"
+                else None
+            )
+            if verdict is None:
+                verdict = self._slow_identity(frame_path, current, track, perception_text)
+            if verdict.get("remembered", False):
+                executor.apply_verdict(
+                    track.track_id, verdict["decision"], remembered=True
+                )
+            else:
+                executor.apply_verdict(
+                    track.track_id, verdict.get("decision"), verdict.get("confidence")
+                )
             slow.append(verdict)
         alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
@@ -517,6 +554,10 @@ class OnboardPolicy:
                         "id": t.track_id,
                         "bbox": [round(v, 1) for v in t.bbox],
                         "verdict": t.verdict,
+                        "verdict_remembered": getattr(t, "verdict_remembered", False),
+                        "ground_ne": (
+                            list(t.ground) if getattr(t, "ground", None) is not None else None
+                        ),
                         "identity_positive_matches": getattr(t, "identity_positive_matches", 0),
                         "identity_reject_matches": getattr(t, "identity_reject_matches", 0),
                         "identity_verdict_history": list(

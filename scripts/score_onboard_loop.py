@@ -402,13 +402,16 @@ def score_episode(
     target = _true_target(truth)
     true_ne = (float(target["pose"]["y_north_m"]), float(target["pose"]["x_east_m"]))
     confirmed_row = None
-    slow_calls, slow_latency, fast_latency, flown = 0, [], [], 0.0
+    slow_calls, remembered_verdicts, slow_latency, fast_latency, flown = 0, 0, [], [], 0.0
     previous = None
     for row in rows:
         onboard = (row.get("labels") or {}).get("onboard") or {}
-        slow_calls += len(onboard.get("slow_calls", []))
+        calls = onboard.get("slow_calls", [])
+        real_calls = [c for c in calls if not c.get("remembered", False)]
+        slow_calls += len(real_calls)
+        remembered_verdicts += len(calls) - len(real_calls)
         slow_latency += [
-            c["latency_s"] for c in onboard.get("slow_calls", []) if c.get("latency_s") is not None
+            c["latency_s"] for c in real_calls if c.get("latency_s") is not None
         ]
         if onboard.get("fast_latency_s") is not None:
             fast_latency.append(onboard["fast_latency_s"])
@@ -427,6 +430,7 @@ def score_episode(
         "status": meta.get("status"),
         "steps": len(rows),
         "slow_calls": slow_calls,
+        "remembered_verdicts": remembered_verdicts,
         "slow_latency_p50_s": sorted(slow_latency)[len(slow_latency) // 2]
         if slow_latency
         else None,

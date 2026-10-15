@@ -121,6 +121,7 @@ class Track:
     exhausted: bool = False
     # Ground (north, east) of the box bottom centre from the latest view, if known.
     ground: tuple[float, float] | None = None
+    verdict_remembered: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +173,93 @@ class LoopConfig:
     # A confirm verdict for a candidate farther than this counts only as a match
     # ("it is the object, keep closing in"): the host decides proximity.
     confirm_max_range_m: float | None = None
+    # Task-local identity memory. Only actual VLM looks train it; final looks
+    # remain fresh even when a place has a stable identity history.
+    memory_enabled: bool = False
+    memory_radius_m: float = 4.0
+    memory_min_verdicts: int = 3
+    memory_max_range_ratio: float = 0.7
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
+            raise ValueError("memory_radius_m must be finite and positive")
+        if self.memory_min_verdicts < 1:
+            raise ValueError("memory_min_verdicts must be positive")
+        if not math.isfinite(self.memory_max_range_ratio) or not (
+            0 < self.memory_max_range_ratio <= 1
+        ):
+            raise ValueError("memory_max_range_ratio must be in (0, 1]")
+
+
+@dataclass(slots=True)
+class _PlaceVerdicts:
+    center: tuple[float, float]
+    verdicts: list[str] = field(default_factory=list)
+    closest_range_m: float = math.inf
+
+
+@dataclass(slots=True)
+class PlaceVerdictMemory:
+    """Online nearest-centroid clusters of real judgments, scoped to one loop.
+
+    A disagreement (including an unknown result) keeps that place ineligible
+    for the rest of the task. Reused verdicts never reinforce their own history
+    or move the closest judged range.
+    """
+
+    places: list[_PlaceVerdicts] = field(default_factory=list)
+
+    @staticmethod
+    def _valid(point: tuple[float, float] | None, range_m: float | None) -> bool:
+        return (
+            point is not None
+            and len(point) == 2
+            and all(math.isfinite(v) for v in point)
+            and range_m is not None
+            and math.isfinite(range_m)
+            and range_m >= 0
+        )
+
+    def _nearest(self, point: tuple[float, float], radius: float) -> _PlaceVerdicts | None:
+        place = min(self.places, key=lambda p: math.dist(point, p.center), default=None)
+        return place if place is not None and math.dist(point, place.center) <= radius else None
+
+    def lookup(
+        self, point: tuple[float, float] | None, range_m: float | None, config: LoopConfig
+    ) -> str | None:
+        if not config.memory_enabled or not self._valid(point, range_m):
+            return None
+        place = self._nearest(point, config.memory_radius_m)
+        if place is None or len(place.verdicts) < config.memory_min_verdicts:
+            return None
+        decision = place.verdicts[0]
+        if decision not in {"reject_track", "approach_track"} or any(
+            verdict != decision for verdict in place.verdicts
+        ):
+            return None
+        if range_m < config.memory_max_range_ratio * place.closest_range_m:
+            return None
+        return decision
+
+    def record(
+        self,
+        point: tuple[float, float] | None,
+        range_m: float | None,
+        decision: str | None,
+        config: LoopConfig,
+    ) -> None:
+        if not config.memory_enabled or not self._valid(point, range_m):
+            return
+        place = self._nearest(point, config.memory_radius_m)
+        if place is None:
+            place = _PlaceVerdicts(point)
+            self.places.append(place)
+        count = len(place.verdicts)
+        place.center = tuple(
+            (old * count + new) / (count + 1) for old, new in zip(place.center, point, strict=True)
+        )
+        place.verdicts.append(str(decision))
+        place.closest_range_m = min(place.closest_range_m, range_m)
 
 
 @dataclass(slots=True)
@@ -206,6 +294,7 @@ class OnboardLoop:
     _rejections: list[dict[str, Any]] = field(default_factory=list)
     _revisit: dict[str, Any] | None = None
     _revisits_done: int = 0
+    _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -322,16 +411,27 @@ class OnboardLoop:
         return stale[: self.config.max_slow_per_step]
 
     def apply_verdict(
-        self, track_id: str, decision: str | None, confidence: float | None = None
+        self,
+        track_id: str,
+        decision: str | None,
+        confidence: float | None = None,
+        *,
+        remembered: bool = False,
     ) -> None:
-        """Record a slow decision; only confirm_target counts toward confirmation.
+        """Apply a real or remembered identity decision.
 
         approach_track means "worth a closer look" (the model uses it for distant
         or uncertain candidates), reject_track resets the confirmation votes.
+        Remembered approaches steer and preserve identity/alert events, but add
+        no fresh match or confirm evidence and cannot finish find/count.
         """
         track = self._tracks.get(track_id)
         if track is None:
             return
+        if remembered and decision not in {"reject_track", "approach_track"}:
+            raise ValueError("only reject_track and approach_track may be remembered")
+        if not remembered:
+            self._place_memory.record(track.ground, self._track_range(track), decision, self.config)
         verdict = {
             "confirm_target": "confirm",
             "approach_track": "approach",
@@ -347,20 +447,56 @@ class OnboardLoop:
         ):
             verdict = "approach"
         track.verdict, track.verdict_step = verdict, self.step_index
+        track.verdict_remembered = remembered
         if verdict in {"confirm", "approach"}:
             track.identity_positive_matches += 1
             track.identity_verdict_history.append(verdict)
         elif verdict == "no_match":
             track.identity_reject_matches += 1
             track.identity_verdict_history.append(verdict)
-        if verdict in {"confirm", "approach"} and self.step_index not in track.match_steps:
+        if (
+            not remembered
+            and verdict in {"confirm", "approach"}
+            and self.step_index not in track.match_steps
+        ):
             track.match_steps.append(self.step_index)
         if verdict == "confirm" and self.step_index not in track.confirm_steps:
             track.confirm_steps.append(self.step_index)
         elif verdict == "no_match":
             track.confirm_steps.clear()
             track.match_steps.clear()
-            self._remember_rejection(track, confidence)
+            if not remembered:
+                self._remember_rejection(track, confidence)
+
+    def _track_range(self, track: Track) -> float | None:
+        if track.ground is None or self._last_pose is None:
+            return None
+        return math.dist(track.ground, self._last_pose[:2])
+
+    def remembered_verdict(self, track_id: str) -> dict[str, Any] | None:
+        """Return a labeled substitute for a pending slow call, without applying it.
+
+        Focus tracks still get fresh approach verification, so caching cannot
+        starve find/count of terminal looks. A planned second look also bypasses
+        memory, since it deliberately seeks evidence from another side.
+        """
+        track = self._tracks.get(track_id)
+        if track is None or self._revisit is not None:
+            return None
+        decision = self._place_memory.lookup(track.ground, self._track_range(track), self.config)
+        if decision is None or (decision == "approach_track" and track_id == self._focus):
+            return None
+        return {
+            "track_id": track_id,
+            "identity": "match" if decision == "approach_track" else "no_match",
+            "decision": decision,
+            "remembered": True,
+            "source": "place_verdict_memory",
+            "reason": "unanimous prior real judgments at this ground place",
+            "confidence": None,
+            "error": None,
+            "latency_s": 0.0,
+        }
 
     def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
         if track.ground is None or self._last_pose is None:
@@ -716,7 +852,7 @@ class OnboardLoop:
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
             info["match_views"] = matches
-            if unclipped and (
+            if unclipped and not best.verdict_remembered and (
                 votes >= self.config.confirm_matches
                 or (votes >= 1 and (stalled or near))
                 or (
@@ -768,4 +904,4 @@ class OnboardLoop:
         return ActionPrimitive.stop(), info
 
 
-__all__ = ["CameraModel", "Detection", "LoopConfig", "OnboardLoop", "Track"]
+__all__ = ["CameraModel", "Detection", "LoopConfig", "OnboardLoop", "PlaceVerdictMemory", "Track"]

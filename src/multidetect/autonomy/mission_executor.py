@@ -25,7 +25,7 @@ from multidetect.autonomy.mission_plan import (
     MissionStep,
     validate_mission_plan,
 )
-from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, Track
+from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, PlaceVerdictMemory, Track
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
@@ -211,6 +211,9 @@ class MissionExecutor:
             source_loop = self._finding_loops.get(id(finding)) if finding is not None else None
             if source_loop is self._last_loop and source_loop is not None:
                 run.loop = source_loop
+                # Following inherits association state, but starts a new task's
+                # identity memory just like steps that allocate a new loop.
+                run.loop._place_memory = PlaceVerdictMemory()
                 run.follow_track_id = finding.get("track_id")
             else:
                 run.acquire_track = True
@@ -326,12 +329,17 @@ class MissionExecutor:
         return run.loop.tracks_needing_verdict(self._current)
 
     def apply_verdict(
-        self, track_id: str, decision: str | None, confidence: float | None = None
+        self,
+        track_id: str,
+        decision: str | None,
+        confidence: float | None = None,
+        *,
+        remembered: bool = False,
     ) -> None:
         run = self._run
         if run is None or run.loop is None:
             return
-        run.loop.apply_verdict(track_id, decision, confidence)
+        run.loop.apply_verdict(track_id, decision, confidence, remembered=remembered)
         if run.step.skill == "inspect" and track_id == run.pending_track:
             self.answers.append(f"{run.step.id}:view{run.view_index + 1}:{decision}")
         if run.step.skill in {"patrol", "monitor"}:
