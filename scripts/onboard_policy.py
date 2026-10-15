@@ -49,6 +49,10 @@ from multidetect.autonomy.onboard_loop import (  # noqa: E402
     LoopConfig,
     OnboardLoop,
 )
+from multidetect.autonomy.safety_envelope import (  # noqa: E402
+    SafetyEnvelope,
+    SafetyEnvelopeConfig,
+)
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
     load_sdf_obstacles,
@@ -186,6 +190,16 @@ class OnboardPolicy:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
+        self.safety_envelope = SafetyEnvelope(
+            SafetyEnvelopeConfig.from_mapping(options, default_max_translation_m=15.0),
+            obstacle_check=(
+                lambda pose, north, east: segment_clear_of_obstacles(
+                    pose, (north, east, pose[2]), max(0.0, -float(pose[2])), obstacles
+                )
+                if obstacles
+                else None
+            ),
+        )
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
         self.search_altitude_m = None
@@ -492,9 +506,38 @@ class OnboardPolicy:
                 "confirmed": self.loop.confirmed,
             }
         }
+        if hasattr(self, "_apply_safety"):
+            action, safety_info = self._apply_safety(
+                action, pose_ned=pose_ned, yaw_deg=yaw_deg
+            )
+        else:
+            # Lightweight test doubles that exercise mission-label formatting
+            # predate the final host gate and do not carry policy state.
+            safety_info = {}
+        labels["onboard"].update(safety_info)
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         return action, labels
+
+    def _apply_safety(self, action, *, pose_ned, yaw_deg):
+        """Apply the final host gate shared by direct-loop and mission modes."""
+        decision = self.safety_envelope.apply(
+            action, pose_ned=tuple(float(value) for value in pose_ned), yaw_deg=float(yaw_deg)
+        )
+        info = decision.info()
+        if decision.return_home and self.executor is not None:
+            self.executor.force_return_home()
+            action, _ = self.executor.next_action(
+                pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+            )
+            retry = self.safety_envelope.apply(
+                action, pose_ned=tuple(float(value) for value in pose_ned), yaw_deg=float(yaw_deg)
+            )
+            info["safety"]["return_home_action"] = retry.action.to_dict()
+            info["safety"]["return_home_action_status"] = retry.status
+            info["safety"]["return_home_action_reasons"] = list(retry.reasons)
+            action = retry.action
+        return action, info
 
     def _act_mission(self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point):
         executor = self.executor
@@ -533,6 +576,12 @@ class OnboardPolicy:
             ground_point=ground_point,
             frame_id=frame_path.name,
         )
+        if hasattr(self, "_apply_safety"):
+            action, safety_info = self._apply_safety(
+                action, pose_ned=pose_ned, yaw_deg=yaw_deg
+            )
+        else:
+            safety_info = {}
         confirmed = None
         if len(executor.findings) > findings_before:
             finding = executor.findings[-1]
@@ -579,6 +628,7 @@ class OnboardPolicy:
                     "counts": dict(executor.counts),
                     "alert_vote_clusters": alert_vote_clusters,
                 },
+                **safety_info,
             }
         }
         if self.mission_plan_report is not None and not self._mission_plan_labeled:

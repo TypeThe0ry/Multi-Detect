@@ -239,6 +239,16 @@ class MissionExecutor:
         else:
             self._run = self._start(self._steps[following])
 
+    def force_return_home(self) -> None:
+        """Replace the active skill with a host-controlled return-home step."""
+        if self.home is None:
+            return
+        step = next((item for item in self.plan.steps if item.skill == "return_home"), None)
+        if step is None:
+            step = MissionStep("safety_return_home", "return_home", {}, None, None)
+        self.done = False
+        self._run = self._start(step)
+
     @property
     def current_step(self) -> MissionStep | None:
         return self._run.step if self._run is not None else None
