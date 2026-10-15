@@ -59,11 +59,17 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
+from multidetect.onboard_runtime.health import (  # noqa: E402
+    HealthConfig,
+    HealthDecision,
+    HealthMonitor,
+)
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
     load_sdf_obstacles,
     segment_clear_of_obstacles,
 )
+from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
 from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
@@ -126,7 +132,11 @@ def validate_sim_ground_events(config: Mapping[str, Any]) -> list[dict[str, Any]
         ):
             raise ValueError("SIM timeline t_s must be finite, nonnegative and ordered")
         if not isinstance(entry["event"], str) or entry["event"] not in {
-            "link_lost", "link_restored", "abort", "pause", "resume"
+            "link_lost",
+            "link_restored",
+            "abort",
+            "pause",
+            "resume",
         }:
             raise ValueError("unknown SIM timeline event")
         previous = stamp
@@ -180,9 +190,7 @@ class SimGroundTimeline:
                 self.link_up = True
                 heartbeat()
             else:
-                supervisor.ground_event(
-                    {"mission_id": supervisor.package.mission_id, "type": kind}
-                )
+                supervisor.ground_event({"mission_id": supervisor.package.mission_id, "type": kind})
             self.index += 1
         self.now = target
         if self.link_up:
@@ -269,9 +277,15 @@ class YoloeProposer:
     """
 
     def __init__(
-        self, weights: Path, *, confidence: float, imgsz: int,
-        device: str | int = 0, tiled: bool = False,
-        tile_overlap: float = 0.2, merge_iou: float = 0.5,
+        self,
+        weights: Path,
+        *,
+        confidence: float,
+        imgsz: int,
+        device: str | int = 0,
+        tiled: bool = False,
+        tile_overlap: float = 0.2,
+        merge_iou: float = 0.5,
     ) -> None:
         if not isinstance(tiled, bool):
             raise ValueError("proposer_tiled must be a boolean")
@@ -310,7 +324,7 @@ class YoloeProposer:
         detections = []
         for y in dict.fromkeys((0, height - tile_h)):
             for x in dict.fromkeys((0, width - tile_w)):
-                crop = bgr[y:y + tile_h, x:x + tile_w].copy()
+                crop = bgr[y : y + tile_h, x : x + tile_w].copy()
                 for detection in self._predict(crop):
                     x1, y1, x2, y2 = detection.bbox
                     box = (
@@ -333,8 +347,7 @@ class YoloeProposer:
                 intersection = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
                     0.0, min(a[3], b[3]) - max(a[1], b[1])
                 )
-                union = ((a[2] - a[0]) * (a[3] - a[1])
-                         + (b[2] - b[0]) * (b[3] - b[1]) - intersection)
+                union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - intersection
                 if union > 0 and intersection / union > self.merge_iou:
                     break
             else:
@@ -524,13 +537,17 @@ class OnboardPolicy:
         if mission not in {None, "find", "count", "find_and_inspect", "from_text", "package"}:
             raise ValueError(f"unknown mission template {mission!r}")
         self._step = 0
-        self.proposer = proposer if proposer is not None else YoloeProposer(
-            Path(options["yoloe_weights"]),
-            confidence=float(options.get("confidence", 0.05)),
-            imgsz=int(options.get("imgsz", 1280)),
-            tiled=options.get("proposer_tiled", False),
-            tile_overlap=float(options.get("proposer_tile_overlap", 0.2)),
-            merge_iou=float(options.get("proposer_merge_iou", 0.5)),
+        self.proposer = (
+            proposer
+            if proposer is not None
+            else YoloeProposer(
+                Path(options["yoloe_weights"]),
+                confidence=float(options.get("confidence", 0.05)),
+                imgsz=int(options.get("imgsz", 1280)),
+                tiled=options.get("proposer_tiled", False),
+                tile_overlap=float(options.get("proposer_tile_overlap", 0.2)),
+                merge_iou=float(options.get("proposer_merge_iou", 0.5)),
+            )
         )
         if slow_runner is None:
             from scripts.eval_slow_system import LlamaServerRunner
@@ -552,6 +569,20 @@ class OnboardPolicy:
             )
         else:
             self.slow = slow_runner
+        health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
+        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 180.0))
+        self.health = HealthMonitor(
+            config=HealthConfig(
+                **{
+                    k: v
+                    for k, v in health_options.items()
+                    if k in HealthConfig.__dataclass_fields__
+                }
+            ),
+            runner=self.slow,
+            disk_path=self.work_dir,
+        )
+        self._slow_failed_current = False
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -599,7 +630,9 @@ class OnboardPolicy:
                         },
                     }
                     response = _http_json(
-                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions", body
+                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
+                        body,
+                        timeout=self.slow_call_timeout_s,
                     )
                     return response["choices"][0]["message"].get("content", "")
 
@@ -791,6 +824,10 @@ class OnboardPolicy:
         try:
             raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
+            self._slow_failed_current = True
+            health = getattr(self, "health", None)
+            if health is not None:
+                health.record_slow_call(time.perf_counter() - started, ok=False)
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -799,6 +836,11 @@ class OnboardPolicy:
             }
         self.slow_calls += 1
         decision, error = parse_model_decision(raw)
+        health = getattr(self, "health", None)
+        if health is not None:
+            health.record_slow_call(float(latency), ok=decision is not None)
+        if decision is None:
+            self._slow_failed_current = True
         identity = identity_of(decision["decision"]) if decision else None
         return {
             "track_id": focus.track_id,
@@ -811,6 +853,41 @@ class OnboardPolicy:
         }
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        self._slow_failed_current = False
+        health_monitor = getattr(self, "health", None)
+        health_decision = (
+            health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
+            if health_monitor is not None
+            else HealthDecision()
+        )
+        if health_decision.decision in {"return_home", "land"}:
+            if self.supervisor is not None:
+                self.supervisor._escalate(
+                    "land_now" if health_decision.decision == "land" else "return_now",
+                    health_decision.reason or "health degradation",
+                )
+                action, info = self.supervisor.next_action(
+                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            if self.executor is not None:
+                action, info = self._health_recovery_action(
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    land=health_decision.decision == "land",
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": health_decision.decision, "health": health_decision.__dict__}
+            }
+        if health_decision.decision == "hold":
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
+        if health_decision.detector_skip:
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
@@ -845,7 +922,8 @@ class OnboardPolicy:
         self._step += 1
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
         frame_path = self.work_dir / f"frame_{step:04d}.png"
-        frame_path.write_bytes(observation["rgb"])
+        if not health_decision.stop_frame_writes:
+            frame_path.write_bytes(observation["rgb"])
         started = time.perf_counter()
         detections = self.proposer(rgb[:, :, ::-1].copy())
         fast_s = time.perf_counter() - started
@@ -858,12 +936,16 @@ class OnboardPolicy:
                 return projector(u, v, observation)
             # Full attitude + camera mount inverse of the projection model.
             return pixel_ground_point(
-                u, v, pose=observation, camera_info=camera_info, image_size=self.image_size,
+                u,
+                v,
+                pose=observation,
+                camera_info=camera_info,
+                image_size=self.image_size,
                 ground_model=ground_model,
             )
 
         if self.executor is not None:
-            return self._act_mission(
+            result = self._act_mission(
                 frame_path,
                 detections,
                 fast_s,
@@ -872,6 +954,14 @@ class OnboardPolicy:
                 ground_point=ground_point,
                 timestamp_s=_observation_timestamp_s(observation),
             )
+            if self._slow_failed_current:
+                return ActionPrimitive.hold(1.0), {
+                    "onboard": {
+                        "state": "health_hold",
+                        "health": {"decision": "hold", "reason": "slow_call_failed"},
+                    }
+                }
+            return result
         current = self.loop.update_tracks(
             detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -919,7 +1009,36 @@ class OnboardPolicy:
         }
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
+        if self._slow_failed_current:
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {
+                    "state": "health_hold",
+                    "health": {"decision": "hold", "reason": "slow_call_failed"},
+                }
+            }
         return action, labels
+
+    def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool):
+        plan = validate_mission_plan(
+            {
+                "plan_version": 1,
+                "goal": "health recovery",
+                "report": ["status"],
+                "steps": [
+                    {
+                        "id": "recovery",
+                        "skill": "land" if land else "return_home",
+                        "params": {},
+                        "on_success": None,
+                        "on_fail": None,
+                    }
+                ],
+            }
+        )
+        recovery = MissionExecutor(plan, loop_factory=self.executor.loop_factory)
+        recovery.home = getattr(self.executor, "home", None)
+        recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
+        return recovery.next_action(pose_ned=tuple(pose_ned), yaw_deg=yaw_deg)
 
     def _act_mission(
         self, frame_path, detections, fast_s, *, pose_ned, yaw_deg, ground_point, timestamp_s=None

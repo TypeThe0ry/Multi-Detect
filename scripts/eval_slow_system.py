@@ -354,6 +354,20 @@ class LlamaServerRunner:
         self.last_usage = response.get("usage")
         return response["choices"][0]["message"].get("content", ""), elapsed
 
+    def probe_health(self, timeout_s: float = 0.5) -> bool:
+        """Cheap synchronous health probe used by the onboard state machine.
+
+        Lifecycle is owned by systemd in flight; this method deliberately only
+        performs a bounded GET and never starts or restarts the server.
+        """
+        try:
+            response = _http_json(
+                f"http://127.0.0.1:{self.port}/health", timeout=float(timeout_s)
+            )
+            return response.get("status") == "ok"
+        except (OSError, ValueError, urllib.error.URLError, TimeoutError):
+            return False
+
     def close(self) -> None:
         if self.process.poll() is None:
             self.process.terminate()
