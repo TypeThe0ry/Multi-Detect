@@ -308,14 +308,17 @@ def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list
     return {**document, "steps": steps}, notes
 
 
-def plan_prompt(task_text: str, *, refs: tuple[str, ...] = (), error: str | None = None) -> str:
+def plan_prompt(
+    task_text: str, *, refs: tuple[str, ...] = (), error: str | None = None,
+    capabilities: frozenset[str] = frozenset(),
+) -> str:
     """Instruction for the slow model: skills, reference rules, examples, task."""
     lines = [
         "You plan drone missions. Turn the task into a JSON mission plan of bounded skills.",
         "Skills (params in brackets, * = required):",
     ]
     for name, spec in SKILLS.items():
-        if spec.gated:
+        if spec.gated and "payload" not in capabilities:
             continue
         params = ", ".join(
             ("*" if p in spec.required_params else "") + p for p in sorted(spec.allowed_params)
@@ -386,17 +389,20 @@ def compile_mission_plan(
     refs: tuple[str, ...] = (),
     schema: dict[str, Any] | None = None,
     attempts: int = 2,
+    capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason."""
     if attempts < 1:
         raise ValueError("attempts must be positive")
-    schema = schema if schema is not None else plan_json_schema()
+    schema = schema if schema is not None else plan_json_schema(capabilities=capabilities)
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
     for attempt in range(attempts):
         started = time.perf_counter()
         try:
-            raw = post(plan_prompt(task_text, refs=refs, error=error), schema)
+            raw = post(
+                plan_prompt(task_text, refs=refs, error=error, capabilities=capabilities), schema
+            )
         except Exception as exc:  # A model/transport failure must leave the caller a safe fallback.
             error = str(exc)[:200]
         else:
@@ -419,7 +425,7 @@ def compile_mission_plan(
                             + ", zone:all, home"
                         )
                     notes = notes + ref_notes
-                plan = validate_mission_plan(document)
+                plan = validate_mission_plan(document, capabilities=capabilities)
             except (AutonomyContractError, ValueError, TypeError, KeyError, AttributeError) as exc:
                 error = str(exc)[:200]
             else:

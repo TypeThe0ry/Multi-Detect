@@ -17,7 +17,7 @@
 | `follow` | 跟随运动目标 | `track_ref`, `query`, `duration_s` | `target_lost_timeout` | YOLOE + tracking | 丢失超时、速度边界 |
 | `monitor` | 定点监视和告警 | `region`, `query`, `duration_s` | `duration_elapsed` | YOLOE 或 prompt-free，属性由 VLM 判断 | 悬停、续航 |
 | `record` | 保存证据 | `query`, `max_count` | `views_captured` | 当前 FAST 观测 | 存储回执 |
-| `deliver` | 投递或释放 payload | `target_ref`, `payload_ref` | `arrived` | 目标确认 | `payload` capability 默认关闭 |
+| `deliver` | 投递或释放 payload | `target_ref`, `payload_ref`, 可选 `altitude_m` | `arrived` | 目标位置确认、释放握手完成并爬升 | 需要 `payload` capability，且 release authorization 默认关闭 |
 | `hover` | 悬停等待 | `duration_s` | `duration_elapsed` | 无 | 位置和电量 |
 | `return_home` | 返回 home | 无 | `arrived` | 无 | PX4 failsafe、定位 |
 | `land` | 降落 | 可选 `target_ref` | `landed` | 无 | 降落区和 safety layer |
@@ -54,7 +54,7 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 | `goto` | `home` / `finding:N` / 主机提供的 `poi:`、`zone:` 引用，先调高度再分段飞，带障碍检查 |
 | `hover` / `return_home` / `land` / `record` | 悬停计时；先爬回巡航高度再回家；停止；记录当前帧为证据 |
 
-`survey`（在区域内按“之”字航线覆盖并统计覆盖率）、`patrol`（沿主机给出的航线飞若干圈，边飞边判断并告警）、`monitor`（到区域中心悬停并定时转向扫视，判断并告警）、`follow`（跟住上一步找到的目标并保持距离，丢失超时或到时结束）已实现（与 Codex 协作，`771b262`）；只有需要 payload 授权的 `deliver` 仍未实现。
+`survey`（在区域内按“之”字航线覆盖并统计覆盖率）、`patrol`（沿主机给出的航线飞若干圈，边飞边判断并告警）、`monitor`（到区域中心悬停并定时转向扫视，判断并告警）、`follow`（跟住上一步找到的目标并保持距离，丢失超时或到时结束）已实现（与 Codex 协作，`771b262`）。`deliver` 已实现为 gated skill：只有 executor 同时拿到显式 `payload` capability 和独立的 release authorization 才会执行。它解析已知位置或前一步 finding，飞到目标后下降到配置边界内的释放高度，保持并复核三维位置误差；随后只发出带 request id 的 payload release event/action，由 host 驱动硬件并通过 ack 接口确认。收到成功 ack 后才爬回巡航高度；位置漂移、障碍、拒绝或 ack 超时都会让步骤失败并沿 `on_fail` 分支。executor 本身不直接操作 payload 硬件。
 
 机上从任务文字生成计划（`mission: "from_text"`，`8f4bf68`）：起飞时用同一个慢系统服务把任务句子编译成计划，失败就退回只有“返航”的安全计划；计划里不认识的地点会被拒绝并带着已知地点列表重试（`13d2202`），已知地点可带标签（如 `zone:site (场地 / the site)`）。感知步骤按该步骤的查询词判断候选。
 
@@ -62,4 +62,4 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 
 **从任务文字生成计划（2026-10-14）**：`src/multidetect/autonomy/mission_planner.py` 按技能注册表生成逐技能的严格 JSON schema（参数名、类型、范围都固定），提示里给出技能清单、引用规则和 6 个短示例；`repair_plan_document` 确定性修复常见错误（“失败就重试”的回边、缺少或悬空的终止步骤），然后再走 `validate_mission_plan`。在 30 条手写中英文任务（`configs/onboard/plan-eval-tasks.json`，含找、计数、检查、巡逻、测绘、监视、跟随、悬停、降落及组合）上，未微调的 Qwen3-VL-2B Q4_K_M：计划 100% 有效，技能序列 70% 正确（严格 20/30），开发机中位 1.5 s。最初只有 2 个示例时只有 53% 有效、23% 正确。剩余错误主要是多加“记录 / 检查”步骤（例如把“记录位置”理解成拍照记录）。
 
-尚未实现：生成计划的模型微调与机上接线、上表之外的技能、计数任务的测试世界（需要同类多实例场景）、payload 硬件驱动、真实 Orin 峰值测量、各 mission family 的教师数据和闭环训练。这些部分不能由本 contract 的模型输出直接宣称完成。
+尚未实现：生成计划的模型微调与机上接线、上表之外的技能、计数任务的测试世界（需要同类多实例场景）、payload 硬件驱动、真实 Orin 峰值测量、各 mission family 的教师数据和闭环训练。deliver 的硬件驱动仍由 host 负责；当前实现只提供 gated 的导航、事件和 ack contract，不宣称已经具备实际释放能力。这些部分不能由本 contract 的模型输出直接宣称完成。
