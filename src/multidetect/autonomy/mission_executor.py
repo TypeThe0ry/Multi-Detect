@@ -27,6 +27,7 @@ from multidetect.autonomy.mission_plan import (
     MissionStep,
     validate_mission_plan,
 )
+from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, PlaceVerdictMemory, Track
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
@@ -191,6 +192,7 @@ class MissionExecutor:
         capabilities: frozenset[str] = frozenset(),
         release_authorized: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        obstacle_source: ObstacleSource | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
@@ -203,9 +205,10 @@ class MissionExecutor:
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
         self.task_text = task_text
+        self.obstacle_source = obstacle_source
         self._steps = {step.id: step for step in self.plan.steps}
-        # A probe loop gives the camera model and the static-map clearance check.
-        self._probe = loop_factory("Find the object and record its position.")
+        # A probe loop gives the camera model and the configured clearance source.
+        self._probe = self._make_loop("Find the object and record its position.")
         self.home: tuple[float, float] | None = None
         self.cruise_altitude_m: float | None = None
         self.findings: list[dict[str, Any]] = []
@@ -227,6 +230,18 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+
+    def _make_loop(self, task_text: str, **overrides: Any) -> OnboardLoop:
+        """Create a loop while threading the optional typed obstacle source."""
+        if self.obstacle_source is not None:
+            overrides.setdefault("obstacle_source", self.obstacle_source)
+        return self.loop_factory(task_text, **overrides)
+
+    def _segment_clear(self, start: Pose, north: float, east: float) -> bool:
+        """Apply the configured source to an executor geometry leg."""
+        if self.obstacle_source is not None:
+            return self.obstacle_source.segment_clear(start, (north, east, start[2]))
+        return self._probe.segment_clear(start, north, east)
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
@@ -280,7 +295,7 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
-        return self.loop_factory(self.task_text(step), **overrides)
+        return self._make_loop(self.task_text(step), **overrides)
 
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
@@ -290,7 +305,7 @@ class MissionExecutor:
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "inspect":
-            run.loop = self.loop_factory(self.task_text(step))
+            run.loop = self._make_loop(self.task_text(step))
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "follow":
@@ -1156,9 +1171,7 @@ class MissionExecutor:
             target = (pose[0], pose[1], -altitude_m)
             # A pure climb leaves the obstacle footprint vertically; obstacle
             # clearance at the current position must not hold a legal escape.
-            if altitude_m < altitude and not self._probe.segment_clear(
-                target, pose[0], pose[1]
-            ):
+            if altitude_m < altitude and not self._segment_clear(target, pose[0], pose[1]):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"
@@ -1175,7 +1188,7 @@ class MissionExecutor:
         step = min(self.config.max_translate_m, distance)
         heading = math.radians(yaw)
         end = (pose[0] + step * math.cos(heading), pose[1] + step * math.sin(heading))
-        if not self._probe.segment_clear(pose, end[0], end[1]):
+        if not self._segment_clear(pose, end[0], end[1]):
             run.blocked += 1
             if run.blocked > self.config.max_blocked_legs:
                 return "blocked"
@@ -1227,7 +1240,7 @@ class MissionExecutor:
         release_pose = (*run.goal_ne, -run.release_altitude_m)
         # Check the low endpoint before descent, release, and each wait cycle.
         # The map API checks horizontal clearance at the supplied altitude.
-        if run.phase != "climb" and not self._probe.segment_clear(
+        if run.phase != "climb" and not self._segment_clear(
             release_pose, run.goal_ne[0], run.goal_ne[1]
         ):
             self._finish("failed", "release_obstacle")
