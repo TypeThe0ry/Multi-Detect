@@ -1,4 +1,5 @@
 """Model-visible input rendering for slow-system SFT and test evaluation."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -15,6 +16,35 @@ ROOT = Path(__file__).resolve().parents[1]
 # candidate_zoom_v2 crops every candidate in listed order and never reads labels.
 CROP_POLICIES = frozenset({"none", "candidate_zoom_v1", "candidate_zoom_v2"})
 MAX_CANDIDATE_CROPS = 4
+IDENTITY_VARIANTS = ("default", "focus_only", "frame_336", "crop_160", "compact")
+
+
+def identity_variant_for_row(row: dict[str, Any], override: str | None = None) -> str:
+    """Resolve an opt-in budget experiment, including persisted SFT row metadata."""
+    variant = override if override is not None else row.get("identity_variant", "default")
+    if variant not in IDENTITY_VARIANTS:
+        raise ValueError(f"unsupported identity variant: {variant}")
+    return variant
+
+
+def identity_image_sizes(row: dict[str, Any], max_side: int = 448, identity_variant: str | None = None) -> tuple[int, int]:
+    variant = identity_variant_for_row(row, identity_variant)
+    frame_side = min(max_side, 336) if variant in {"frame_336", "compact"} else max_side
+    crop_side = 160 if variant in {"crop_160", "compact"} else 224
+    return frame_side, crop_side
+
+
+def zoom_candidates_for_row(row: dict[str, Any], identity_variant: str | None = None) -> list[dict[str, Any]]:
+    """Select crops using observable focus metadata, never the training label."""
+    candidates = row.get("candidates") or []
+    if not candidates:
+        return []
+    variant = identity_variant_for_row(row, identity_variant)
+    if variant in {"focus_only", "compact"}:
+        focus = row.get("focus_track_id")
+        selected = next((c for c in candidates if c.get("track_id") == focus), candidates[0])
+        return [selected]
+    return candidates[:MAX_CANDIDATE_CROPS]
 
 
 def image_path_for_row(row: dict[str, Any]) -> Path:
@@ -22,8 +52,9 @@ def image_path_for_row(row: dict[str, Any]) -> Path:
     return (path if path.is_absolute() else ROOT / path).resolve(strict=True)
 
 
-def prompt_for_row(row: dict[str, Any]) -> str:
+def prompt_for_row(row: dict[str, Any], *, identity_variant: str | None = None) -> str:
     """Match the benchmark's slow planner contract without exposing truth."""
+    variant = identity_variant_for_row(row, identity_variant)
     candidates = row["candidates"]
     lines = [
         "You are the onboard slow planner. Choose one sub-goal, never motor commands. "
@@ -50,10 +81,10 @@ def prompt_for_row(row: dict[str, Any]) -> str:
     else:
         lines.append("No candidate tracks. Search a region if the task is clear; ask_clarify if ambiguous.")
     policy = crop_policy_for_row(row)
-    if policy == "candidate_zoom_v1" and candidates:
+    if policy == "candidate_zoom_v1" and candidates and variant not in {"focus_only", "compact"}:
         lines.append("Image 2 is a zoomed crop around the candidate box; use it with image 1.")
-    elif policy == "candidate_zoom_v2" and candidates:
-        shown = [c["track_id"] for c in candidates[:MAX_CANDIDATE_CROPS]]
+    elif policy != "none" and candidates:
+        shown = [c["track_id"] for c in zoom_candidates_for_row(row, identity_variant)]
         if len(shown) == 1:
             lines.append(f"Image 2 is a zoomed crop around {shown[0]}; use it with image 1.")
         else:
@@ -73,7 +104,8 @@ def crop_policy_for_row(row: dict[str, Any], override: str | None = None) -> str
     return policy
 
 
-def image_for_row(row: dict[str, Any], max_side: int = 448) -> Image.Image:
+def image_for_row(row: dict[str, Any], max_side: int = 448, *, identity_variant: str | None = None) -> Image.Image:
+    max_side, _ = identity_image_sizes(row, max_side, identity_variant)
     if max_side <= 0:
         raise ValueError("max_side must be positive")
     with Image.open(image_path_for_row(row)) as source:
@@ -100,22 +132,24 @@ def image_for_row(row: dict[str, Any], max_side: int = 448) -> Image.Image:
     return image
 
 
-def candidate_crop(image: Image.Image, row: dict[str, Any]) -> Image.Image | None:
+def candidate_crop(image: Image.Image, row: dict[str, Any], crop_side: int = 224) -> Image.Image | None:
     """Return a deterministic padded square crop from original pixel coordinates."""
     candidates = row.get("candidates") or []
     if not candidates:
         return None
     track_id = ((row.get("assistant_target") or {}).get("args") or {}).get("track_id")
     selected = next((candidate for candidate in candidates if candidate.get("track_id") == track_id), candidates[0])
-    return _zoom_crop(image, selected)
+    return _zoom_crop(image, selected, crop_side)
 
 
-def candidate_crops(image: Image.Image, row: dict[str, Any]) -> list[Image.Image]:
+def candidate_crops(image: Image.Image, row: dict[str, Any], crop_side: int = 224, *, identity_variant: str | None = None) -> list[Image.Image]:
     """Label-free crops of every candidate (listed order, capped) for candidate_zoom_v2."""
-    return [_zoom_crop(image, candidate) for candidate in (row.get("candidates") or [])[:MAX_CANDIDATE_CROPS]]
+    return [_zoom_crop(image, candidate, crop_side) for candidate in zoom_candidates_for_row(row, identity_variant)]
 
 
-def _zoom_crop(image: Image.Image, selected: dict[str, Any]) -> Image.Image:
+def _zoom_crop(image: Image.Image, selected: dict[str, Any], crop_side: int = 224) -> Image.Image:
+    if crop_side <= 0:
+        raise ValueError("crop_side must be positive")
     width, height = image.size
     box = selected["box_xyxy_normalized"]
     if len(box) != 4 or any(not 0 <= float(value) <= 1 for value in box):
@@ -135,48 +169,50 @@ def _zoom_crop(image: Image.Image, selected: dict[str, Any]) -> Image.Image:
     if src_right > src_left and src_bottom > src_top:
         patch = image.crop((src_left, src_top, src_right, src_bottom))
         out.paste(patch, (src_left - round(left), src_top - round(top)))
-    return out.resize((224, 224), Image.Resampling.LANCZOS)
+    return out.resize((crop_side, crop_side), Image.Resampling.LANCZOS)
 
 
-def image_list_for_row(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[Image.Image]:
-    full = image_for_row(row, max_side)
+def image_list_for_row(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None, *, identity_variant: str | None = None) -> list[Image.Image]:
+    variant = identity_variant_for_row(row, identity_variant)
+    _, crop_side = identity_image_sizes(row, max_side, variant)
+    full = image_for_row(row, max_side, identity_variant=variant)
     policy = crop_policy_for_row(row, crop_policy)
     if policy == "none" or not row.get("candidates"):
         return [full]
     with Image.open(image_path_for_row(row)) as source:
         original = source.convert("RGB")
-    if policy == "candidate_zoom_v2":
-        return [full, *candidate_crops(original, row)]
-    crop = candidate_crop(original, row)
+    if policy == "candidate_zoom_v2" or variant in {"focus_only", "compact"}:
+        return [full, *candidate_crops(original, row, crop_side, identity_variant=variant)]
+    crop = candidate_crop(original, row, crop_side)
     return [full] if crop is None else [full, crop]
 
 
-def image_jpeg_bytes(row: dict[str, Any], max_side: int = 448) -> bytes:
+def image_jpeg_bytes(row: dict[str, Any], max_side: int = 448, *, identity_variant: str | None = None) -> bytes:
     stream = io.BytesIO()
-    image_for_row(row, max_side).save(stream, format="JPEG", quality=85)
+    image_for_row(row, max_side, identity_variant=identity_variant).save(stream, format="JPEG", quality=85)
     return stream.getvalue()
 
 
-def image_jpeg_bytes_list(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[bytes]:
+def image_jpeg_bytes_list(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None, *, identity_variant: str | None = None) -> list[bytes]:
     result = []
-    for image in image_list_for_row(row, max_side, crop_policy):
+    for image in image_list_for_row(row, max_side, crop_policy, identity_variant=identity_variant):
         stream = io.BytesIO()
         image.save(stream, format="JPEG", quality=85)
         result.append(stream.getvalue())
     return result
 
 
-def chat_messages(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None) -> list[dict[str, Any]]:
+def chat_messages(row: dict[str, Any], max_side: int = 448, crop_policy: str | None = None, *, identity_variant: str | None = None) -> list[dict[str, Any]]:
     if row.get("kind") == "mission_plan":
         # Text-only planning rows carry the exact onboard planner prompt.
         return [{"role": "user", "content": [{"type": "text", "text": row["prompt"]}]}]
-    images = image_list_for_row(row, max_side, crop_policy)
+    images = image_list_for_row(row, max_side, crop_policy, identity_variant=identity_variant)
     prompt_row = {**row, "_crop_policy": crop_policy_for_row(row, crop_policy)}
     return [
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt_for_row(prompt_row)},
+                {"type": "text", "text": prompt_for_row(prompt_row, identity_variant=identity_variant)},
                 *({"type": "image", "image": image} for image in images),
             ],
         }

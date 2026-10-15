@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
+
+import pytest
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan
 from multidetect.autonomy.mission_planner import (
     EXAMPLES,
+    PLAN_PROMPT_VARIANTS,
     compile_mission_plan,
     plan_json_schema,
     plan_prompt,
+    plan_prompt_parts,
     repair_plan_document,
 )
 
@@ -45,6 +50,74 @@ def test_examples_are_valid_plans_and_schema_covers_ungated_skills():
     count = next(v for v in variants if v["properties"]["skill"]["enum"] == ["count"])
     assert set(count["properties"]["params"]["required"]) == {"region", "query"}
     assert plan_prompt("找人").endswith("Task: 找人" + chr(10) + "Plan:")
+
+
+def test_default_prompt_bytes_match_original_training_prompt():
+    # Snapshot recorded from the unchanged implementation before adding ablations.
+    prompt = plan_prompt(
+        "Find the red car", refs=("zone:site (the site)", "poi:pad (launch pad)"),
+        error="unknown reference",
+    )
+    assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == (
+        "24681904d570110416b1482a14f6db3d235b8973e89af0533c5c6c846cb6f4ca"
+    )
+    assert prompt == plan_prompt(
+        "Find the red car", refs=("zone:site (the site)", "poi:pad (launch pad)"),
+        error="unknown reference", prompt_variant="default",
+    )
+
+
+@pytest.mark.parametrize("variant", PLAN_PROMPT_VARIANTS)
+def test_prompt_parts_render_exact_prompt_in_order(variant):
+    parts = plan_prompt_parts("找人", refs=("zone:yard",), prompt_variant=variant)
+    assert list(parts) == ["system", "rules", "refs", "examples", "repair", "task"]
+    assert "".join(parts.values()) == plan_prompt(
+        "找人", refs=("zone:yard",), prompt_variant=variant
+    )
+    assert parts["repair"] == ""
+    assert parts["refs"] == "Known places: zone:yard.\n"
+
+
+@pytest.mark.parametrize(
+    ("variant", "example_count", "compact_rules"),
+    [("default", 6, False), ("no_examples", 0, False), ("two_examples", 2, False),
+     ("compact_rules", 6, True), ("compact", 0, True)],
+)
+def test_prompt_ablations_isolate_rules_and_example_count(variant, example_count, compact_rules):
+    original = plan_prompt_parts("Inspect the truck")
+    parts = plan_prompt_parts("Inspect the truck", prompt_variant=variant)
+    assert parts["examples"].count("Task:") == example_count
+    assert (parts["rules"] != original["rules"]) == compact_rules
+    assert parts["system"] == original["system"]
+    for name, spec in SKILLS.items():
+        if not spec.gated:
+            assert name in parts["rules"]
+            assert all(param in parts["rules"] for param in spec.allowed_params)
+    assert "return_home" in parts["rules"] and "land" in parts["rules"]
+
+
+def test_unknown_prompt_variant_is_rejected_before_model_call():
+    with pytest.raises(ValueError, match="unknown planning prompt variant"):
+        plan_prompt("Find the car", prompt_variant="typo")
+    with pytest.raises(ValueError, match="unknown planning prompt variant"):
+        compile_mission_plan(lambda *args: pytest.fail("called model"), "Find the car",
+                             prompt_variant="typo")
+
+
+def test_short_prompt_variant_is_preserved_when_retrying():
+    responses = iter(("invalid json", json.dumps(_find_plan())))
+    prompts = []
+
+    def post(prompt, schema):
+        prompts.append(prompt)
+        return next(responses)
+
+    plan, report = compile_mission_plan(post, "Find the car", prompt_variant="compact")
+    assert plan is not None and len(report["attempts"]) == 2
+    assert prompts[0] == plan_prompt("Find the car", prompt_variant="compact")
+    assert "The previous plan was rejected:" in prompts[1]
+    assert all(prompt.count("Task:") == 1 for prompt in prompts)
+    assert all("Skills (* required):" in prompt for prompt in prompts)
 
 
 def test_repair_breaks_retry_loops_and_ends_on_a_terminal_step():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 
 from scripts import convert_slow_system_lora as conversion
 from scripts import eval_slow_system as evaluator
@@ -99,6 +101,11 @@ def test_trainer_run_passes_cli_options_to_mock_backend(tmp_path, monkeypatch):
 
     monkeypatch.setattr(trainer, "admit_train_rows", lambda dataset: ([], "dataset-hash"))
     monkeypatch.setattr(trainer, "local_snapshot", lambda model: tmp_path / "snapshot")
+    # The backend and save are mocked; the adapter validation read must be too.
+    # With zero optimizer steps, an empty weight mapping is valid for this fixture.
+    monkeypatch.setitem(
+        sys.modules, "safetensors.torch", SimpleNamespace(load_file=lambda path: {}),
+    )
     args = type("Args", (), {
         "epochs": 1, "max_steps": 0, "accumulation": 2, "rank": 3, "alpha": 6,
         "learning_rate": 2e-4, "seed": 7, "max_input_tokens": 512,
@@ -116,9 +123,12 @@ def test_trainer_run_passes_cli_options_to_mock_backend(tmp_path, monkeypatch):
 
 def test_evaluator_metrics_cover_json_validity_and_distractor_rejection():
     rows = [
-        {"sample_id": "a", "world": "w", "expected": "confirm_target", "valid": True, "decision": "confirm_target", "latency_s": 0.1},
-        {"sample_id": "b", "world": "w", "expected": "reject_track", "valid": True, "decision": "reject_track", "latency_s": 0.2},
-        {"sample_id": "c", "world": "w", "expected": "reject_track", "valid": False, "decision": None, "latency_s": 0.3},
+        {"sample_id": "a", "world": "w", "expected": "confirm_target", "valid": True,
+         "decision": "confirm_target", "latency_s": 0.1},
+        {"sample_id": "b", "world": "w", "expected": "reject_track", "valid": True,
+         "decision": "reject_track", "latency_s": 0.2},
+        {"sample_id": "c", "world": "w", "expected": "reject_track", "valid": False,
+         "decision": None, "latency_s": 0.3},
     ]
     metrics = evaluator.decision_metrics(rows)
     assert metrics["json_validity"] == 2 / 3

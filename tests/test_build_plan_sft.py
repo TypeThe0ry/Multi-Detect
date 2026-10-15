@@ -23,6 +23,31 @@ def _texts(path: Path) -> set[str]:
     return {item["text"] for item in json.loads(path.read_text(encoding="utf-8"))["tasks"]}
 
 
+@pytest.mark.parametrize("variant", ["no_examples", "two_examples", "compact_rules", "compact"])
+def test_cli_short_prompt_variant_is_used_for_retraining(variant):
+    output = ROOT / "tmp" / f"plan-sft-short-{uuid.uuid4().hex}"
+    try:
+        assert build_plan_sft.main([
+            "--output", str(output), "--rows", "4", "--val-rows", "2",
+            "--prompt-variant", variant, "--require-skills",
+        ]) == 0
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["prompt_variant"] == variant
+        expected_examples = {"no_examples": 0, "two_examples": 2,
+                             "compact_rules": 6, "compact": 0}[variant]
+        for split in ("train", "val"):
+            rows = [json.loads(line) for line in
+                    (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()]
+            for row in rows:
+                assert row["prompt"].count("Task:") == expected_examples + 1
+                assert row["prompt"].endswith(f"Task: {row['task_text']}\nPlan:")
+                assert ("Skills (* required):" in row["prompt"]) == (
+                    variant in {"compact_rules", "compact"}
+                )
+    finally:
+        shutil.rmtree(output, ignore_errors=True)
+
+
 def test_v3_samples_validate_and_cover_disambiguating_phrases():
     rng = random.Random(20261015)
     rows = [mission_v3(rng) for _ in range(300)]
