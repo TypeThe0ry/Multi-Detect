@@ -495,10 +495,18 @@ class ExpertSearchPolicy:
             return action
         self._safety_replanned = True
         # A short perpendicular sidestep clears the blocking footprint when possible.
+        # If the first pair is clipped/blocked, escalate to a larger lateral
+        # offset and then a short leg in the opposite heading.  The original
+        # pair remains first, preserving the historical clear-path behaviour.
         length = max(3.5, min(self.max_translate_m, math.hypot(action.forward_m, action.right_m)))
-        for right in (length, -length):
-            cn = pose_ned[0] - right * math.sin(yaw)
-            ce = pose_ned[1] + right * math.cos(yaw)
+        lateral = min(self.max_translate_m, 2.0 * length)
+        candidates = [(yaw, right) for right in (length, -length)]
+        candidates.extend((yaw, right) for right in (lateral, -lateral) if lateral > length + 1e-6)
+        opposite = yaw + math.pi
+        candidates.extend((opposite, right) for right in (length, -length))
+        for candidate_yaw, right in candidates:
+            cn = pose_ned[0] - right * math.sin(candidate_yaw)
+            ce = pose_ned[1] + right * math.cos(candidate_yaw)
             # Obstacle recovery must retain the same zone bound as an ordinary
             # route leg; a perpendicular escape near the rim is otherwise able
             # to leave the circular search area.

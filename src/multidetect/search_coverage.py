@@ -119,7 +119,12 @@ class CoverageConfig:
     object_count: int = 200
     seed: int = 7
 
-    def __init__(self, radius_m: float, **kwargs):
+    def __init__(self, radius_m: float | None = None, **kwargs):
+        if radius_m is None:
+            try:
+                radius_m = kwargs.pop("radius_m")
+            except KeyError as exc:
+                raise TypeError("radius_m is required") from exc
         aliases = {
             "min_box_side_px": "proposal_floor_px",
             "min_verdict_side_px": "slow_verdict_min_px",
@@ -413,7 +418,8 @@ def simulate_pattern(
         for (_n1, _e1, z1), (_n2, _e2, z2) in zip(route, route[1:], strict=False):
             if z1 != z2:
                 elapsed += abs(z1 - z2) / config.flight_speed_mps
-        low_path = [(route[-1][0], route[-1][1]), *[(n, e) for n, e, z in route if z == low]]
+        high_end = next((point for point in reversed(route) if point[2] == high), route[0])
+        low_path = [(high_end[0], high_end[1]), *[(n, e) for n, e, z in route if z == low]]
         run_pass(low_path, low)
     candidate_times.sort()
     slow_times.sort()

@@ -59,3 +59,17 @@ def test_two_altitude_can_recover_small_objects() -> None:
     assert result.candidates_seen > 0
     assert result.slow_verdict_eligible > 0
     assert result.expected_slow_calls == result.slow_verdict_eligible
+
+
+def test_runtime_threshold_names_are_accepted_as_aliases() -> None:
+    config = CoverageConfig(
+        radius_m=25.0,
+        min_box_side_px=5.0,
+        min_verdict_side_px=11.0,
+        confirm_min_side_px=21.0,
+    )
+    assert (config.proposal_floor_px, config.slow_verdict_min_px, config.confirmation_min_px) == (
+        5.0,
+        11.0,
+        21.0,
+    )

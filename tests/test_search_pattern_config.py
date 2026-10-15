@@ -88,3 +88,17 @@ def test_two_altitude_rejects_low_height_above_cruise() -> None:
             search_pattern="two_altitude",
             low_altitude_m=21.0,
         )
+
+
+def test_two_altitude_route_is_shared_with_offline_generator() -> None:
+    from multidetect.search_coverage import CoverageCamera, two_altitude_route
+
+    policy = _policy("two_altitude")
+    camera = CoverageCamera(
+        fx=540.0, fy=540.0, cx=640.0, cy=480.0,
+        width_px=1280, height_px=960, pitch_down_deg=math.degrees(0.18),
+    )
+    expected = two_altitude_route(55.0, camera, 30.0, 12.0)
+    policy.low_altitude_m = 12.0
+    actual = policy._build_two_altitude_route()
+    assert actual == [(10.0 + n, -4.0 + e, z) for n, e, z in expected]

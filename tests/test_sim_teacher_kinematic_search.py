@@ -265,6 +265,18 @@ def test_expert_replans_translate_that_intersects_tall_obstacle() -> None:
     assert policy._segment_safe((0.0, 0.0, -5.0), end_n, end_e)
 
 
+def test_blocked_boundary_sidesteps_terminate_instead_of_holding_forever() -> None:
+    policy = _policy((80.0, 0.0, -5.0))
+    policy.search_radius_m = 10.0
+    policy._segment_safe = lambda *_args: False
+    pose = (9.9, 0.0, -5.0)
+    actions = [
+        policy._safe_translation(pose, ActionPrimitive.translate(5.0, 0.0, 0.0), 0.0)
+        for _ in range(12)
+    ]
+    assert any(action.kind == "stop" for action in actions)
+
+
 def test_expert_generated_world_segments_remain_clear() -> None:
     world_dir = Path("simulation/gazebo/worlds")
     for index in range(10):
