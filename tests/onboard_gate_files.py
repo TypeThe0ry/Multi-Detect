@@ -8,6 +8,7 @@ _EXACT = {
     "test_fast_identity.py", "test_build_flight_identity_eval.py", "test_autonomy_planner.py",
     "test_energy_estimator.py", "test_ground_model.py", "test_onboard_ground_policy.py",
     "test_mission_executor.py", "test_mission_executor_remaining_gaps.py",
+    "test_mission_executor_no_fly.py", "test_mission_package_preflight.py",
     "test_mission_security.py",
     "test_onboard_preflight.py", "test_onboard_main.py", "test_onboard_health.py",
     "test_mission_planner.py", "test_mission_plan.py", "test_mission_planning.py",
