@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import random
 import re
 import sys
@@ -20,6 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# Must be set before torch initialises CUDA: limits allocator fragmentation on the shared
+# 8 GB GPU, where long runs otherwise fail with "CUDA error: out of memory".
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision
 from scripts.slow_system_runtime import ROOT, chat_messages, dataset_crop_policy, load_jsonl
