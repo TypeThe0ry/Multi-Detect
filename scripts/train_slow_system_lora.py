@@ -208,6 +208,31 @@ def make_backend(snapshot: Path, options: TrainOptions):
     return torch, model, processor, targets, quantization
 
 
+OOM_RETRIES = 5
+OOM_RETRY_WAIT_S = 30.0
+
+
+def _accumulate_batch(torch, model, processor, samples: list[dict], *, options, crop_policy) -> list[float]:
+    """Forward/backward one accumulation batch; returns per-sample losses."""
+    batch_losses: list[float] = []
+    for sample in samples:
+        full, labels, response_tokens = encode_response(
+            processor, sample, max_side=options.max_side,
+            max_input_tokens=options.max_input_tokens, crop_policy=crop_policy,
+        )
+        inputs = {name: tensor.to("cuda:0") for name, tensor in full.items()}
+        labels = labels.to("cuda:0")
+        model.train()
+        model.base_model.model.visual.eval()
+        output_logits = model(**inputs, use_cache=False, logits_to_keep=response_tokens + 1)
+        loss = causal_response_loss(output_logits.logits, labels) / len(samples)
+        if not torch.isfinite(loss).item():
+            raise ValueError(f"Non-finite loss at {sample['sample_id']}")
+        loss.backward()
+        batch_losses.append(float(loss.detach()) * len(samples))
+    return batch_losses
+
+
 def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
     import torch
 
@@ -276,27 +301,27 @@ def run(args, *, backend_factory=make_backend) -> dict:
             random.Random(options.seed + epoch).shuffle(order)
             cursor = state["cursor"] if epoch == state["epoch"] else 0
             while cursor < len(order):
-                optimizer.zero_grad(set_to_none=True)
                 end = min(cursor + options.accumulation, len(order))
-                batch_losses: list[float] = []
-                for index in order[cursor:end]:
-                    sample = rows[index]
-                    full, labels, response_tokens = encode_response(
-                        processor, sample, max_side=options.max_side,
-                        max_input_tokens=options.max_input_tokens, crop_policy=crop_policy,
-                    )
-                    inputs = {name: tensor.to("cuda:0") for name, tensor in full.items()}
-                    labels = labels.to("cuda:0")
-                    model.train()
-                    model.base_model.model.visual.eval()
-                    output_logits = model(**inputs, use_cache=False, logits_to_keep=response_tokens + 1)
-                    loss = causal_response_loss(output_logits.logits, labels) / (end - cursor)
-                    if not torch.isfinite(loss).item():
-                        raise ValueError(f"Non-finite loss at {sample['sample_id']}")
-                    loss.backward()
-                    value = float(loss.detach()) * (end - cursor)
-                    losses.append(value)
-                    batch_losses.append(value)
+                for attempt in range(OOM_RETRIES + 1):
+                    optimizer.zero_grad(set_to_none=True)
+                    try:
+                        batch_losses = _accumulate_batch(
+                            torch, model, processor, [rows[i] for i in order[cursor:end]],
+                            options=options, crop_policy=crop_policy,
+                        )
+                        break
+                    except RuntimeError as error:
+                        # The GPU is shared with other jobs; a transient out-of-memory must not
+                        # end a multi-hour run. The batch is recomputed from zeroed gradients,
+                        # so a retried step is identical to an uninterrupted one.
+                        if "out of memory" not in str(error) or attempt == OOM_RETRIES:
+                            raise
+                        optimizer.zero_grad(set_to_none=True)
+                        torch.cuda.empty_cache()
+                        print(f"CUDA out of memory at step {state['optimizer_steps'] + 1}; "
+                              f"retry {attempt + 1}/{OOM_RETRIES}", file=sys.stderr, flush=True)
+                        time.sleep(OOM_RETRY_WAIT_S)
+                losses.extend(batch_losses)
                 torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True)
                 optimizer.step()
                 state["optimizer_steps"] += 1
