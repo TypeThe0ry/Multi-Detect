@@ -459,6 +459,28 @@ def test_operator_endpoint_rejects_a_frame_signed_for_another_link_id() -> None:
         _adapter(JETSON_ENDPOINT).decode_frame(sender.encode_selection(_selection()))
 
 
+def test_operator_endpoint_accepts_gcs_default_link_id_one() -> None:
+    sender = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        G20_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=1,
+        initial_signing_timestamp=1_000_008,
+    )
+    receiver = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        JETSON_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=JETSON_ENDPOINT.local_component_id,
+        receive_signing_link_id=1,
+        initial_signing_timestamp=1_000_009,
+    )
+    assert (
+        receiver.decode_frame(sender.encode_selection(_selection())).message_type
+        is WireMessageType.TARGET_SELECTION
+    )
+
+
 def test_operator_adapter_requires_a_full_mavlink_signing_key() -> None:
     with pytest.raises(ValueError, match="exactly 32 bytes"):
         OperatorMavlinkTunnelAdapter(

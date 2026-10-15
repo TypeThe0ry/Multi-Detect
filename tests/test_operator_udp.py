@@ -59,6 +59,7 @@ from multidetect.operator_protocol import (
     OperatorTunnelCodec,
     PayloadTargetConfirmationAck,
     RuntimeStatusAck,
+    WireMessageType,
 )
 from multidetect.operator_udp import (
     UdpOperatorSelectionClient,
@@ -82,6 +83,43 @@ def _adapter(endpoint: OperatorMavlinkEndpoint) -> OperatorMavlinkTunnelAdapter:
         signing_link_id=endpoint.local_component_id,
         initial_signing_timestamp=3_000_000 + endpoint.local_system_id,
     )
+
+
+def test_real_deployment_requires_configured_peer() -> None:
+    with pytest.raises(ValueError, match="configured_peer is required"):
+        UdpOperatorSelectionServer(
+            bind_host="127.0.0.1",
+            port=0,
+            mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+            guard=SelectionCommandGuard(GEOMETRY),
+            require_configured_peer=True,
+        )
+
+
+def test_peer_state_maps_are_bounded_without_evicting_bound_peer() -> None:
+    server = UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+        configured_peer=("127.0.0.1", 41000),
+    )
+    try:
+        bound = ("127.0.0.1", 41000)
+        server._allow_command(bound, WireMessageType.TARGET_SELECTION, now_s=1.0)
+        for port in range(42000, 42150):
+            server._allow_command(("127.0.0.1", port), WireMessageType.TARGET_SELECTION, now_s=1.0)
+            server._allow_duplicate_ack(
+                ("127.0.0.1", port), WireMessageType.TARGET_SELECTION, now_s=1.0
+            )
+            server._record_background_error(ValueError("bad"), peer=("127.0.0.1", port))
+        assert len(server._command_buckets) <= 64
+        assert len(server._duplicate_ack_sent_at) <= 64
+        assert len(server._background_error_buckets) <= 64
+        assert len(server._background_error_counts) <= 64
+        assert any(key[0] == bound for key in server._command_buckets)
+    finally:
+        server.close()
 
 
 def _signed_qgc_heartbeat() -> bytes:

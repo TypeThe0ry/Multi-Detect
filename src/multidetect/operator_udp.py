@@ -4,7 +4,7 @@ import ipaddress
 import secrets
 import socket
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
@@ -78,6 +78,7 @@ DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE = 20.0
 DEFAULT_COMMAND_RATE_PER_SECOND = 20.0
 DEFAULT_COMMAND_BURST = 20.0
 DEFAULT_DUPLICATE_ACK_INTERVAL_S = 0.25
+MAX_TRACKED_PEER_STATE_ENTRIES = 64
 
 
 @dataclass(slots=True)
@@ -221,6 +222,8 @@ class UdpOperatorSelectionServer:
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
         configured_peer: tuple[str, int] | None = None,
+        require_configured_peer: bool = False,
+        allow_first_packet_peer: bool = True,
         background_error_queue_size: int = DEFAULT_BACKGROUND_ERROR_QUEUE_SIZE,
         background_error_rate_per_source: float = DEFAULT_BACKGROUND_ERROR_RATE_PER_SOURCE,
         background_error_burst_per_source: float = DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE,
@@ -250,6 +253,11 @@ class UdpOperatorSelectionServer:
             configured_peer = (
                 str(ipaddress.ip_address(configured_peer[0])),
                 int(configured_peer[1]),
+            )
+        if require_configured_peer and configured_peer is None:
+            raise ValueError(
+                "configured_peer is required for real/flight deployments; "
+                "first-packet peer binding is only valid with an explicit sim/dev flag"
             )
         for value, name in (
             (background_error_rate_per_source, "background_error_rate_per_source"),
@@ -284,12 +292,19 @@ class UdpOperatorSelectionServer:
         self._command_rate_per_second = command_rate_per_second
         self._command_burst = command_burst
         self._duplicate_ack_interval_s = duplicate_ack_interval_s
-        self._command_buckets: dict[tuple[tuple[str, int], WireMessageType], _TokenBucket] = {}
-        self._duplicate_ack_sent_at: dict[tuple[tuple[str, int], WireMessageType], float] = {}
+        self._command_buckets: OrderedDict[
+            tuple[tuple[str, int], WireMessageType], _TokenBucket
+        ] = OrderedDict()
+        self._duplicate_ack_sent_at: OrderedDict[
+            tuple[tuple[str, int], WireMessageType], float
+        ] = OrderedDict()
         self._background_error_rate_per_source = background_error_rate_per_source
         self._background_error_burst_per_source = background_error_burst_per_source
-        self._background_error_buckets: dict[tuple[str, int], _TokenBucket] = {}
-        self._background_error_counts: dict[tuple[tuple[str, int] | None, str], int] = {}
+        self._background_error_buckets: OrderedDict[tuple[str, int], _TokenBucket] = OrderedDict()
+        self._background_error_counts: OrderedDict[
+            tuple[tuple[str, int] | None, str], int
+        ] = OrderedDict()
+        self._unknown_peer_bucket = _TokenBucket(8.0, time.monotonic())
         self._background_error_drop_count = 0
         self._last_received_peer: tuple[str, int] | None = None
         self.selection_server = SelectionCommandServer(mavlink.codec, guard)
@@ -726,8 +741,18 @@ class UdpOperatorSelectionServer:
         key = (peer, message_type)
         bucket = self._command_buckets.get(key)
         if bucket is None:
+            if self._command_peer is not None and peer != self._command_peer:
+                if not self._unknown_peer_bucket.consume(
+                    now_s=now_s,
+                    refill_per_s=self._command_rate_per_second,
+                    capacity=self._command_burst,
+                ):
+                    return False
+            self._evict_bounded(self._command_buckets, self._command_peer)
             bucket = _TokenBucket(self._command_burst, now_s)
             self._command_buckets[key] = bucket
+        else:
+            self._command_buckets.move_to_end(key)
         return bucket.consume(
             now_s=now_s,
             refill_per_s=self._command_rate_per_second,
@@ -745,8 +770,26 @@ class UdpOperatorSelectionServer:
         previous = self._duplicate_ack_sent_at.get(key)
         if previous is not None and now_s - previous < self._duplicate_ack_interval_s:
             return False
+        self._evict_bounded(self._duplicate_ack_sent_at, self._command_peer)
         self._duplicate_ack_sent_at[key] = now_s
         return True
+
+    @staticmethod
+    def _evict_bounded(mapping: OrderedDict, protected_peer: tuple[str, int] | None) -> None:
+        while len(mapping) >= MAX_TRACKED_PEER_STATE_ENTRIES:
+            victim = next(iter(mapping))
+            key_peer = (
+                victim[0]
+                if isinstance(victim, tuple) and isinstance(victim[0], tuple)
+                else victim
+            )
+            if protected_peer is not None and key_peer == protected_peer:
+                mapping.move_to_end(victim)
+                if len(mapping) == 1:
+                    return
+                continue
+            del mapping[victim]
+            return
 
     @staticmethod
     def _put_bounded(queue: Queue[object], item: object) -> None:
@@ -765,13 +808,17 @@ class UdpOperatorSelectionServer:
     ) -> None:
         source = peer
         key = (source, type(exc).__name__)
+        self._evict_bounded(self._background_error_counts, self._command_peer)
         self._background_error_counts[key] = self._background_error_counts.get(key, 0) + 1
         if source is not None:
             bucket = self._background_error_buckets.get(source)
             now_s = time.monotonic()
             if bucket is None:
+                self._evict_bounded(self._background_error_buckets, self._command_peer)
                 bucket = _TokenBucket(self._background_error_burst_per_source, now_s)
                 self._background_error_buckets[source] = bucket
+            else:
+                self._background_error_buckets.move_to_end(source)
             if not bucket.consume(
                 now_s=now_s,
                 refill_per_s=self._background_error_rate_per_source,
