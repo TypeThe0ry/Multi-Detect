@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+import math
+import queue
+import threading
+import time
+from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
+
+import pytest
+
+from multidetect.onboard_runtime.vehicle import (
+    PositionSetpoint,
+    PymavlinkVehicle,
+    VehicleInterface,
+)
+from multidetect.sim_teacher.executor import SetpointStreamer
+
+
+class FakeMav:
+    def __init__(self) -> None:
+        self.setpoints: list[tuple] = []
+        self.commands: list[tuple] = []
+        self.heartbeats: list[tuple] = []
+        self._lock = threading.Lock()
+
+    def set_position_target_local_ned_send(self, *args: object) -> None:
+        assert self._lock.acquire(blocking=False), "concurrent MAVLink sender access"
+        try:
+            time.sleep(0.001)
+            self.setpoints.append(args)
+        finally:
+            self._lock.release()
+
+    def command_long_send(self, *args: object) -> None:
+        assert self._lock.acquire(blocking=False), "concurrent MAVLink sender access"
+        try:
+            time.sleep(0.001)
+            self.commands.append(args)
+        finally:
+            self._lock.release()
+
+    def heartbeat_send(self, *args: object) -> None:
+        self.heartbeats.append(args)
+
+
+class FakeConnection:
+    target_system = 1
+    target_component = 1
+
+    def __init__(self) -> None:
+        self.mav = FakeMav()
+        self.messages: queue.Queue[dict] = queue.Queue()
+        self.closed = False
+
+    def recv_match(self, *, blocking: bool, timeout: float) -> dict | None:
+        try:
+            return self.messages.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_telemetry_snapshot_units_freshness_and_immutability() -> None:
+    vehicle = PymavlinkVehicle("replay")
+    vehicle.ingest({"mavpackettype": "LOCAL_POSITION_NED", "x": 1, "y": 2, "z": -3,
+                    "vx": 4, "vy": 5, "vz": -6}, 10)
+    vehicle.ingest({"type": "ATTITUDE", "roll": 0, "pitch": math.pi / 2,
+                    "yaw": -math.pi}, 10.1)
+    vehicle.ingest({"message_type": "HEARTBEAT", "base_mode": 128,
+                    "custom_mode": 6 << 16}, 10.2)
+    vehicle.ingest({"type": "HOME_POSITION", "x": 7, "y": 8, "z": -9,
+                    "latitude": 310000000, "longitude": 1210000000,
+                    "altitude": 12345}, 10.3)
+    vehicle.ingest({"type": "EXTENDED_SYS_STATE", "landed_state": 2}, 10.4)
+    vehicle.ingest({"type": "BATTERY_STATUS", "battery_remaining": 78}, 10.5)
+    state = vehicle.snapshot()
+    assert isinstance(vehicle, VehicleInterface)
+    assert state.position_ned == (1, 2, -3)
+    assert state.velocity_ned == (4, 5, -6)
+    assert state.attitude_deg == pytest.approx((0, 90, -180))
+    assert state.home_ned == (7, 8, -9)
+    assert state.home_geodetic == pytest.approx((31, 121, 12.345))
+    assert state.landed is False
+    assert state.armed is True
+    assert state.mode == "OFFBOARD"
+    assert state.battery_remaining == 78
+    assert state.pose_monotonic == 10
+    assert state.attitude_monotonic == 10.1
+    assert state.heartbeat_monotonic == 10.2
+    assert state.battery_monotonic == 10.5
+    with pytest.raises(FrozenInstanceError):
+        state.mode = "LAND"
+
+
+def test_missing_invalid_and_old_telemetry_never_refreshes_pose() -> None:
+    vehicle = PymavlinkVehicle("replay")
+    assert vehicle.snapshot().position_ned is None
+    vehicle.ingest({"type": "LOCAL_POSITION_NED", "x": 1, "y": 2, "z": -3}, 10)
+    vehicle.ingest({"type": "LOCAL_POSITION_NED", "x": math.nan, "y": 2, "z": -3}, 11)
+    vehicle.ingest({"type": "LOCAL_POSITION_NED", "x": 5, "y": 2, "z": -3}, 9)
+    state = vehicle.snapshot()
+    assert state.position_ned == (1, 2, -3)
+    assert state.pose_monotonic == 10
+    assert state.velocity_ned is None
+
+
+def test_unknown_battery_and_landed_state_remain_unknown() -> None:
+    vehicle = PymavlinkVehicle("replay")
+    vehicle.ingest({"type": "SYS_STATUS", "battery_remaining": -1}, 10)
+    vehicle.ingest({"type": "EXTENDED_SYS_STATE", "landed_state": 0}, 10)
+    assert vehicle.snapshot().battery_remaining is None
+    assert vehicle.snapshot().landed is None
+
+
+def test_adapter_reuses_collector_wire_encoding_and_serializes_sends() -> None:
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("/dev/ttyTHS1", connection=connection, clock=lambda: 12.5)
+    setpoint = PositionSetpoint(1, 2, -3, 90)
+    threads = [threading.Thread(target=vehicle.send_setpoint, args=(setpoint,))
+               for _ in range(8)]
+    threads += [threading.Thread(target=vehicle.arm) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(connection.mav.setpoints) == 8
+    assert len(connection.mav.commands) == 4
+    args = connection.mav.setpoints[0]
+    assert args[:8] == (12500, 1, 1, SetpointStreamer.FRAME_LOCAL_NED,
+                        SetpointStreamer.TYPE_MASK, 1, 2, -3)
+    assert args[14] == pytest.approx(math.pi / 2)
+    assert len(connection.mav.heartbeats) == 1
+
+
+def test_commands_encode_px4_modes_and_actions() -> None:
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("udpin:0.0.0.0:14540", connection=connection)
+    vehicle.arm()
+    vehicle.set_mode("OFFBOARD")
+    vehicle.land()
+    vehicle.rtl()
+    assert connection.mav.commands[0] == (1, 1, 400, 0, 1, 0, 0, 0, 0, 0, 0)
+    assert connection.mav.commands[1] == (1, 1, 176, 0, 1, 6, 0, 0, 0, 0, 0)
+    assert [args[2] for args in connection.mav.commands[2:]] == [21, 20]
+    with pytest.raises(ValueError, match="unsupported"):
+        vehicle.set_mode("ACRO")
+
+
+def test_heartbeat_selects_autopilot_and_rejects_other_peers() -> None:
+    vehicle = PymavlinkVehicle("replay")
+    vehicle.ingest({"type": "LOCAL_POSITION_NED", "_source_system": 43,
+                    "_source_component": 1, "x": 9, "y": 9, "z": -9}, 0)
+    assert vehicle.snapshot().position_ned is None
+    vehicle.ingest({"type": "HEARTBEAT", "autopilot": 8, "_source_system": 255}, 1)
+    assert vehicle.target_system is None
+    vehicle.ingest({"type": "HEARTBEAT", "autopilot": 12,
+                    "_source_system": 42, "_source_component": 1,
+                    "base_mode": 128, "custom_mode": 6 << 16}, 2)
+    vehicle.ingest({"type": "LOCAL_POSITION_NED", "_source_system": 43,
+                    "_source_component": 1, "x": 9, "y": 9, "z": -9}, 3)
+    vehicle.ingest({"type": "HEARTBEAT", "_source_system": 42,
+                    "_source_component": 191, "base_mode": 0}, 3)
+    assert vehicle.target_system == 42
+    assert vehicle.snapshot().armed is True
+    assert vehicle.snapshot().position_ned is None
+
+
+def test_receiver_lifecycle_and_requests_without_hardware() -> None:
+    connection = FakeConnection()
+    connection.port = SimpleNamespace(write_timeout=None)
+    connection.messages.put({"type": "HEARTBEAT", "autopilot": 12,
+                             "base_mode": 0, "custom_mode": 4 << 16 | 3 << 24})
+    connection.messages.put({"type": "LOCAL_POSITION_NED", "x": 1, "y": 2, "z": -3})
+    vehicle = PymavlinkVehicle("COM4", connection=connection)
+    assert vehicle.start() is vehicle
+    assert connection.port.write_timeout == 0.05
+    assert vehicle.start() is vehicle
+    deadline = time.monotonic() + 1
+    while vehicle.snapshot().position_ned is None and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert vehicle.snapshot().mode == "HOLD"
+    assert vehicle.snapshot().position_ned == (1, 2, -3)
+    assert all(args[2] == 511 for args in connection.mav.commands)
+    assert len(connection.mav.commands) == 7
+    vehicle.close()
+    vehicle.close()
+    assert connection.closed
+    with pytest.raises(RuntimeError, match="closed"):
+        vehicle.arm()
+    with pytest.raises(RuntimeError, match="closed"):
+        vehicle.start()
+
+
+def test_udp_alias_and_serial_baud_passed_to_lazy_pymavlink(monkeypatch) -> None:
+    import sys
+
+    opened: list[tuple] = []
+
+    def connect(endpoint: str, **kwargs: object) -> FakeConnection:
+        opened.append((endpoint, kwargs))
+        return FakeConnection()
+
+    monkeypatch.setitem(sys.modules, "pymavlink",
+                        SimpleNamespace(mavutil=SimpleNamespace(mavlink_connection=connect)))
+    with PymavlinkVehicle("udp://127.0.0.1:14540", baud=57600):
+        pass
+    with PymavlinkVehicle("/dev/ttyUSB0", baud=921600):
+        pass
+    assert opened == [("udpin:127.0.0.1:14540", {
+        "baud": 57600, "source_system": 245, "source_component": 191}),
+        ("/dev/ttyUSB0", {"baud": 921600, "source_system": 245, "source_component": 191})]
+
+
+def test_unknown_peer_blocks_commands_and_nonfinite_setpoint() -> None:
+    connection = FakeConnection()
+    connection.target_system = connection.target_component = 0
+    vehicle = PymavlinkVehicle("COM4", connection=connection)
+    with pytest.raises(RuntimeError, match="heartbeat"):
+        vehicle.arm()
+    with pytest.raises(ValueError, match="finite"):
+        PositionSetpoint(1, 2, math.inf, 4)
+
+
+def test_sender_lock_deadline_does_not_block_the_caller_forever() -> None:
+    vehicle = PymavlinkVehicle("COM4", connection=FakeConnection(), write_timeout_s=0.01)
+    assert vehicle._send_lock.acquire(blocking=False)
+    try:
+        started = time.monotonic()
+        with pytest.raises(TimeoutError, match="write deadline"):
+            vehicle.arm()
+        assert time.monotonic() - started < 0.5
+    finally:
+        vehicle._send_lock.release()
+
+
+def test_receiver_error_is_reported_to_runtime() -> None:
+    connection = FakeConnection()
+
+    def fail(**_: object) -> None:
+        raise OSError("serial disconnected")
+
+    connection.recv_match = fail
+    vehicle = PymavlinkVehicle("COM4", connection=connection).start()
+    try:
+        assert vehicle._reader.done.wait(1)
+        with pytest.raises(RuntimeError, match="serial disconnected"):
+            vehicle.snapshot()
+    finally:
+        vehicle.close()

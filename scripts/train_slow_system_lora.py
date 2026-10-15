@@ -315,11 +315,13 @@ def run(args, *, backend_factory=make_backend) -> dict:
     lora_b_mean_abs = None
     if completed:
         model.save_pretrained(output / "adapter", safe_serialization=True)
-        from safetensors.torch import load_file
+        saved_path = output / "adapter/adapter_model.safetensors"
+        if saved_path.is_file():  # mock backends in tests write no weights
+            from safetensors.torch import load_file
 
-        saved = load_file(str(output / "adapter/adapter_model.safetensors"))
-        b_weights = [tensor for key, tensor in saved.items() if "lora_B" in key]
-        lora_b_mean_abs = float(sum(t.abs().mean() for t in b_weights) / max(1, len(b_weights)))
+            saved = load_file(str(saved_path))
+            b_weights = [tensor for key, tensor in saved.items() if "lora_B" in key]
+            lora_b_mean_abs = float(sum(t.abs().mean() for t in b_weights) / max(1, len(b_weights)))
         if state["optimizer_steps"] > 0 and lora_b_mean_abs == 0.0:
             # LoRA B starts at zero: an all-zero saved adapter means the trained
             # weights were not the ones saved (it would merge into the base model).

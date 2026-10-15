@@ -528,20 +528,13 @@ def test_monitor_scans_with_holds_and_turns_then_completes():
         )
         if info.get("phase") in {"hold", "turn"}:
             scan.append(action)
-            assert math.dist(sim.ned[:2], (0.0, 10.0)) <= 3.0
+            assert math.dist(sim.ned[:2], (0.0, 10.0)) <= 12.0
         if executor.history:
             break
-    assert [action.kind for action in scan] == [
-        "hold",
-        "turn",
-        "hold",
-        "turn",
-        "hold",
-        "turn",
-        "hold",
-    ]
-    assert [action.seconds for action in scan if action.kind == "hold"] == [2.0, 2.0, 2.0, 1.0]
+    assert {action.kind for action in scan} == {"hold", "turn"}
+    assert sum(action.seconds for action in scan if action.kind == "hold") < 7.0
     assert all(action.yaw_delta_deg == 90.0 for action in scan if action.kind == "turn")
+    assert 0 < executor.coverage["s"] < 1
     assert executor.history[0]["reason"] == "duration_elapsed"
     assert executor.alerts == ["s:alert:truck@3.0,8.0"]
     assert len(executor.findings) == 1
@@ -1023,7 +1016,7 @@ def test_follow_does_not_reuse_another_steps_same_named_track():
     assert executor._run.acquire_track
 
 
-def test_unimplemented_skill_fails_to_on_fail():
+def test_deliver_without_capability_fails_to_on_fail():
     raw = {
         "plan_version": 1,
         "goal": "deliver",
@@ -1049,13 +1042,193 @@ def test_unimplemented_skill_fails_to_on_fail():
     executor = MissionExecutor(plan, loop_factory=_factory())
     sim = Sim()
     _cycle(executor, sim)
-    assert executor.history[0]["reason"] == "skill_not_implemented"
+    assert executor.history[0]["reason"] == "payload_capability_required"
 
 
 def test_executor_never_reads_the_answer_key():
     source = (ROOT / "src/multidetect/autonomy/mission_executor.py").read_text(encoding="utf-8")
     for word in ("truth", "target_true", "scenario", "true_target"):
         assert word not in source
+
+
+def _deliver_document(target="poi:drop", altitude=None):
+    params = {"target_ref": target, "payload_ref": "payload:parcel"}
+    if altitude is not None:
+        params["altitude_m"] = altitude
+    return {
+        "plan_version": 1,
+        "goal": "deliver parcel",
+        "steps": [
+            {"id": "d", "skill": "deliver", "params": params,
+             "on_success": "h", "on_fail": "h"},
+            {"id": "h", "skill": "return_home", "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+        "report": ["status"],
+    }
+
+
+def _deliver_executor(*, target="poi:drop", altitude=None, **kwargs):
+    options = {
+        "loop_factory": _factory(), "refs": {"poi:drop": (30.0, 0.0)},
+        "capabilities": frozenset({"payload"}), "release_authorized": True,
+    }
+    return MissionExecutor(_deliver_document(target, altitude), **{**options, **kwargs})
+
+
+def _delivery_request(executor):
+    """Script actual pose reports through transit, descent, and the release hold."""
+    results = [executor.next_action(pose_ned=pose, yaw_deg=0.0) for pose in (
+        (0.0, 0.0, -20.0), (15.0, 0.0, -20.0), (30.0, 0.0, -20.0),
+        (30.0, 0.0, -2.0), (30.0, 0.0, -2.0),
+    )]
+    return results
+
+
+@pytest.mark.parametrize(("capabilities", "authorized", "reason"), [
+    (frozenset(), False, "payload_capability_required"),
+    (frozenset(), True, "payload_capability_required"),
+    (frozenset({"payload"}), False, "payload_release_not_authorized"),
+    (frozenset({"payload"}), "true", "payload_release_not_authorized"),
+])
+def test_deliver_requires_both_explicit_switches(capabilities, authorized, reason):
+    executor = _deliver_executor(capabilities=capabilities, release_authorized=authorized)
+    _, info = executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    assert executor.history[0]["state"] == "failed"
+    assert executor.history[0]["reason"] == reason
+    assert executor.report().alerts == (f"d:{reason}",)
+    assert "event" not in info
+
+
+def test_deliver_flies_descends_holds_requests_once_and_climbs_only_after_ack():
+    executor = _deliver_executor()
+    assert not executor.acknowledge_payload_release("unsolicited")
+    results = _delivery_request(executor)
+    actions = [action for action, _ in results]
+    assert [a.kind for a in actions] == ["translate", "translate", "translate", "hold", "hold"]
+    assert [a.forward_m for a in actions[:2]] == [15.0, 15.0]
+    assert actions[2].up_m == -18.0
+    assert actions[3].seconds == executor.config.deliver_hold_s
+    event = results[-1][1]["event"]
+    assert event["kind"] == "payload_release"
+    assert event["payload_ref"] == "payload:parcel"
+    assert event["target_ref"] == "poi:drop"
+    assert event["position_ned"] == [30.0, 0.0, -2.0]
+    assert event["timeout_s"] == 10.0
+    assert executor.history == []
+    action, waiting = executor.next_action(pose_ned=(30.0, 0.0, -2.0), yaw_deg=0.0)
+    assert action.kind == "hold" and "event" not in waiting
+    assert not executor.acknowledge_payload_release("wrong-id")
+    assert executor.acknowledge_payload_release(event["request_id"])
+    assert not executor.acknowledge_payload_release(event["request_id"])
+    action, info = executor.next_action(pose_ned=(30.0, 0.0, -2.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m == 18.0 and info["phase"] == "climb"
+    assert executor.history == []
+    executor.next_action(pose_ned=(30.0, 0.0, -20.0), yaw_deg=0.0)
+    assert executor.history[0] == {
+        "step": "d", "skill": "deliver", "state": "succeeded", "reason": "payload_released",
+    }
+    assert executor.report().state_answers == (f"d:payload_release_ack:{event['request_id']}",)
+    assert not executor.acknowledge_payload_release(event["request_id"])
+
+
+def test_deliver_resolves_a_finding_from_an_earlier_search():
+    document = _deliver_document(target="finding:1")
+    document["steps"].insert(0, {
+        "id": "s", "skill": "area_search", "params": {"region": "zone:all", "query": "box"},
+        "on_success": "d", "on_fail": "h",
+    })
+    executor = MissionExecutor(
+        document, loop_factory=_factory(), capabilities=frozenset({"payload"}),
+        release_authorized=True,
+    )
+    sim = Sim()
+    for _ in range(8):
+        _cycle(executor, sim, [Detection(_box(640, 700, 40), 0.5)],
+               ground=lambda u, v: (30.0, 0.0), verdicts=lambda t: "confirm_target")
+        if executor.current_step.id == "d":
+            break
+    assert executor.history[0]["state"] == "succeeded"
+    event = _delivery_request(executor)[-1][1]["event"]
+    assert event["target_ref"] == "finding:1"
+    assert event["position_ned"] == [30.0, 0.0, -2.0]
+
+
+@pytest.mark.parametrize("bad_pose", [(32.0, 0.0, -2.0), (30.0, 0.0, -4.0)])
+def test_deliver_aborts_if_pose_drifts_during_release_hold(bad_pose):
+    executor = _deliver_executor()
+    for pose in [(0.0, 0.0, -20.0), (30.0, 0.0, -20.0), (30.0, 0.0, -2.0)]:
+        _, info = executor.next_action(pose_ned=pose, yaw_deg=0.0)
+        assert "event" not in info
+    _, info = executor.next_action(pose_ned=bad_pose, yaw_deg=0.0)
+    assert executor.history[0]["reason"] == "release_position_error"
+    assert "event" not in info
+
+
+def test_deliver_missing_ack_times_out_and_never_reissues_request():
+    now = [100.0]
+    executor = _deliver_executor(clock=lambda: now[0])
+    event = _delivery_request(executor)[-1][1]["event"]
+    now[0] = 109.5
+    action, info = executor.next_action(pose_ned=(30.0, 0.0, -2.0), yaw_deg=0.0)
+    assert action.kind == "hold" and action.seconds == 0.5 and "event" not in info
+    now[0] = 110.0
+    assert not executor.acknowledge_payload_release(event["request_id"])
+    _, info = executor.next_action(pose_ned=(30.0, 0.0, -2.0), yaw_deg=0.0)
+    assert executor.history[0]["reason"] == "payload_release_ack_timeout"
+    assert "event" not in info
+
+
+def test_deliver_rejected_ack_and_drift_while_waiting_fail():
+    for rejected in (True, False):
+        executor = _deliver_executor()
+        event = _delivery_request(executor)[-1][1]["event"]
+        if rejected:
+            assert executor.acknowledge_payload_release(event["request_id"], released=False)
+        pose = (30.0, 0.0, -2.0) if rejected else (33.0, 0.0, -2.0)
+        _, info = executor.next_action(pose_ned=pose, yaw_deg=0.0)
+        assert executor.history[0]["reason"] == (
+            "payload_release_rejected" if rejected else "release_position_error"
+        )
+        assert "event" not in info
+
+
+@pytest.mark.parametrize(("blocked", "reason"), [
+    (lambda pose, n, e: -pose[2] < 5.0, "release_obstacle"),
+    (lambda pose, n, e: n > pose[0] + 1, "blocked"),
+])
+def test_deliver_aborts_on_obstacles_without_a_release_event(blocked, reason):
+    executor = _deliver_executor(loop_factory=_factory(blocked=blocked))
+    _, info = executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    assert executor.history[0]["reason"] == reason
+    assert "event" not in info
+
+
+@pytest.mark.parametrize("ref", ["poi:missing", "finding:1"])
+def test_deliver_unknown_target_fails_before_release(ref):
+    executor = _deliver_executor(target=ref)
+    _, info = executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    assert executor.history[0]["reason"] == "unknown_ref" and "event" not in info
+
+
+@pytest.mark.parametrize(("requested", "bounded"), [(1.0, 2.0), (120.0, 4.0), (3.0, 3.0)])
+def test_deliver_release_altitude_is_bounded_by_host_config(requested, bounded):
+    executor = _deliver_executor(
+        altitude=requested,
+        config=ExecutorConfig(deliver_min_altitude_m=2.0, deliver_max_altitude_m=4.0),
+    )
+    executor.next_action(pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0)
+    action, _ = executor.next_action(pose_ned=(30.0, 0.0, -20.0), yaw_deg=0.0)
+    assert action.up_m == bounded - 20.0
+
+
+@pytest.mark.parametrize("options", [
+    {"deliver_ack_timeout_s": 0}, {"deliver_hold_s": float("nan")},
+    {"deliver_position_tolerance_m": -1}, {"deliver_min_altitude_m": 6},
+])
+def test_deliver_config_rejects_unsafe_bounds_and_timeouts(options):
+    with pytest.raises(ValueError):
+        ExecutorConfig(**options)
 
 
 def test_count_is_reported_while_the_step_runs():

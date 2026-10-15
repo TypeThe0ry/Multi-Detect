@@ -515,7 +515,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
     if not path.is_file() or not path.stem.startswith(
-        ("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w", "gen_cfs_w")
+        ("gen_w", "gen_v2_w", "gen_cnt_w", "gen_cnt2_w", "gen_cfs_w", "gen_cfs2_w")
     ):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
@@ -1004,6 +1004,11 @@ def _landing_altitude(state: Any) -> tuple[float, str]:
     return MAX_TAKEOFF_ALTITUDE_M, "fallback_max_takeoff_altitude"
 
 
+def _takeoff_timeout_s(altitude_m: float) -> float:
+    """Same budget shape as landing: the SIM can run at ~0.15x real time under load."""
+    return _land_timeout_s(altitude_m)
+
+
 def _land_timeout_s(altitude_m: float) -> float:
     """Allow a fixed landing overhead plus a conservative altitude-based descent."""
     return max(
@@ -1435,6 +1440,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(plan.out, episode_id, task_text=task_text, sensor_status="live")
+    # Persist the effective per-episode seed/index so a campaign can retry an
+    # individual failed recording exactly, even when its next invocation uses a
+    # different --episodes value.
+    recorder.meta["episode_index"] = episode_index
+    recorder.meta["seed"] = plan.seed + episode_index
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
@@ -1708,7 +1718,7 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
 
             _wait_for(
                 _takeoff_ready,
-                _episode_budget(started, plan.max_episode_s, 60.0),
+                _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
                 phase="takeoff_reached",
                 health_check=mav_reader.raise_if_failed,
             )
@@ -1728,6 +1738,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 before = build_observation(
                     before_sample,
                     before_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -1778,6 +1793,11 @@ def run_episode(plan: CollectionPlan, truth_path: Path, episode_index: int) -> P
                 after = build_observation(
                     after_sample,
                     after_state,
+                    ground_agl_max_age_s=(
+                        policy.ground_projection.agl_max_age_s
+                        if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
+                        else None
+                    ),
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],

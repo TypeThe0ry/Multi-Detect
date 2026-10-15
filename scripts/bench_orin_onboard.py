@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the onboard YOLOE + llama.cpp path on an Orin or CUDA workstation."""
+"""Measure the onboard YOLOE + llama.cpp path on a Jetson Orin Nano 8GB or CUDA workstation."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ sys.path.insert(0, str(ROOT / "src"))
 DEFAULT_WEIGHTS = ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt"
 DEFAULT_GGUF = (
     ROOT
-    / "artifacts/models/slow-system-lora-v2-r2-seg-merged-gguf"
-    / "slow-system-v2r2seg-merged-Q5_K_M.gguf"
+    / "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf"
+    / "slow-system-v2r12multi-merged-Q5_K_M.gguf"
 )
 DEFAULT_MMPROJ = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -48,6 +48,32 @@ DEFAULT_PLANNING_TEXTS = (
     "Count traffic cones in the yard, then return home.",
     "Inspect the parked truck and return home.",
 )
+
+
+def _prepare_tensorrt_engine(engine: Path) -> Path:
+    """Add Ultralytics metadata to a raw trtexec engine without changing the source."""
+    raw = engine.read_bytes()
+    if len(raw) >= 4:
+        metadata_length = int.from_bytes(raw[:4], "little")
+        if 0 < metadata_length <= len(raw) - 4:
+            try:
+                metadata = json.loads(raw[4 : 4 + metadata_length].decode("utf-8"))
+                if isinstance(metadata, dict):
+                    return engine
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+    from scripts.onboard_policy import VOCABULARY
+
+    metadata = {
+        "names": repr(dict(enumerate(VOCABULARY))),
+        "args": repr({"dynamic": False, "nms": False}),
+        "stride": 32,
+        "task": "detect",
+    }
+    wrapped = engine.with_name(f"{engine.stem}.ultralytics.engine")
+    metadata_bytes = json.dumps(metadata, separators=(",", ":")).encode("utf-8")
+    wrapped.write_bytes(len(metadata_bytes).to_bytes(4, "little") + metadata_bytes + raw)
+    return wrapped
 
 
 def _number(value: str) -> int | float:
@@ -456,6 +482,7 @@ def _run_yolo_samples(
             conf=0.05,
             device=device,
             half=True,
+            agnostic_nms=True,
             verbose=False,
         )
         _consume_yolo_result(result)
@@ -504,9 +531,9 @@ def _make_pytorch_yoloe(weights: Path) -> Any:
 def _release_cuda_cache() -> None:
     gc.collect()
     try:
-        import torch
-
-        torch.cuda.empty_cache()
+        torch = sys.modules.get("torch")
+        if torch is not None:
+            torch.cuda.empty_cache()
     except (ImportError, RuntimeError):
         pass
 
@@ -598,6 +625,8 @@ class LlamaServer:
         self.port = args.port
         self.timeout = args.timeout
         self.max_side = args.max_side
+        self._verdict_tokens: dict[str, dict[str, int]] = {}
+        self._verdict_pieces: dict[str, dict[str, str]] = {}
         self.process: subprocess.Popen[bytes] | None = None
         self._log = tempfile.TemporaryFile()
         self._closed = False
@@ -669,7 +698,37 @@ class LlamaServer:
     def pid(self) -> int | None:
         return self.process.pid if self.process else None
 
-    def identity_call(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _verdict_first_tokens(self, prefix: str) -> dict[str, int]:
+        if prefix not in self._verdict_tokens:
+
+            def tokens(value: str) -> list[int]:
+                response = _http_json(
+                    f"http://127.0.0.1:{self.port}/tokenize", {"content": value}, self.timeout
+                )
+                return [
+                    item["id"] if isinstance(item, dict) else item for item in response["tokens"]
+                ]
+
+            base = tokens(prefix)
+            firsts = {}
+            for verdict in ("approach_track", "confirm_target", "reject_track"):
+                full = tokens(prefix + verdict + '"')
+                if full[: len(base)] != base or len(full) <= len(base):
+                    raise RuntimeError(f"verdict {verdict} does not extend prefix tokenization")
+                firsts[verdict] = full[len(base)]
+            if len(set(firsts.values())) != len(firsts):
+                raise RuntimeError("identity verdicts share a first token")
+            pieces = {
+                verdict: _http_json(
+                    f"http://127.0.0.1:{self.port}/detokenize", {"tokens": [token]}, self.timeout
+                )["content"]
+                for verdict, token in firsts.items()
+            }
+            self._verdict_tokens[prefix] = firsts
+            self._verdict_pieces[prefix] = pieces
+        return self._verdict_tokens[prefix]
+
+    def identity_call(self, row: dict[str, Any], *, fast_identity: bool = False) -> dict[str, Any]:
         from multidetect.autonomy.onboard_decision import identity_decision_schema
         from scripts.slow_system_runtime import (
             image_jpeg_bytes_list,
@@ -685,27 +744,69 @@ class LlamaServer:
         content = [{"type": "text", "text": prompt_for_row(model_row)}]
         content.extend({"type": "image_url", "image_url": {"url": image}} for image in images)
         schema = trained_key_order_schema(identity_decision_schema(row["focus_track_id"]))
-        body = {
-            "model": "local",
-            "temperature": 0,
-            "max_tokens": row.get("_max_tokens", 128),
-            "stream": False,
-            "logprobs": True,
-            "top_logprobs": 5,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {"name": "onboard_decision", "strict": True, "schema": schema},
-            },
-        }
+        if fast_identity:
+            args = {"duration_s": None, "region": None, "track_id": row["focus_track_id"]}
+            prefix = json.dumps({"args": args}, separators=(",", ":"))[:-1] + ',"decision":"'
+            firsts = self._verdict_first_tokens(prefix)
+            body = {
+                "model": "local",
+                "temperature": 0,
+                "max_tokens": 1,
+                "stream": False,
+                "logprobs": True,
+                "top_logprobs": 20,
+                "messages": [
+                    {"role": "user", "content": content},
+                    {"role": "assistant", "content": prefix},
+                ],
+            }
+        else:
+            body = {
+                "model": "local",
+                "temperature": 0,
+                "max_tokens": row.get("_max_tokens", 128),
+                "stream": False,
+                "logprobs": True,
+                "top_logprobs": 5,
+                "messages": [{"role": "user", "content": content}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "onboard_decision", "strict": True, "schema": schema},
+                },
+            }
         started = time.perf_counter()
         response = _http_json(
             f"http://127.0.0.1:{self.port}/v1/chat/completions", body, self.timeout
         )
-        return {
+        result = {
             "latency_s": time.perf_counter() - started,
             "decision": response.get("choices", [{}])[0].get("message", {}).get("content"),
         }
+        if fast_identity:
+            try:
+                entries = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise RuntimeError(
+                    "one-token identity needs top_logprobs; no full-decode fallback"
+                ) from exc
+            pieces = self._verdict_pieces[prefix]
+            scores = {}
+            for verdict, token in firsts.items():
+                for entry in entries:
+                    if entry.get("id") == token or (
+                        entry.get("id") is None and entry.get("token") == pieces[verdict]
+                    ):
+                        scores[verdict] = float(entry["logprob"])
+                        break
+            if not scores:
+                raise RuntimeError("no identity verdict in top_logprobs; no full-decode fallback")
+            result["decision"] = max(scores, key=scores.get)
+            result["verdict_logprobs"] = scores
+        timings = response.get("timings") or {}
+        for key in ("prompt_n", "prompt_ms", "predicted_n", "predicted_ms"):
+            result[key] = timings.get(key)
+        result["mode"] = "fast_identity" if fast_identity else "full_constrained"
+        return result
 
     def planning_call(self, prompt: str, schema: dict[str, Any], max_tokens: int) -> dict[str, Any]:
         body = {
@@ -748,24 +849,32 @@ def _repeat_identity(
     repetitions: int,
     warmup: int,
     max_tokens: int,
+    fast_identity: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     samples: list[dict[str, Any]] = []
     errors: list[str] = []
     for index in range(warmup):
         try:
             warm_row = {**rows[index % len(rows)], "_max_tokens": max_tokens}
-            server.identity_call(warm_row)
+            server.identity_call(warm_row, fast_identity=fast_identity)
         except Exception as exc:
             errors.append(f"warmup row {index + 1}: {type(exc).__name__}: {exc}")
     for repetition in range(repetitions):
         for index, row in enumerate(rows):
             try:
-                result = server.identity_call({**row, "_max_tokens": max_tokens})
+                result = server.identity_call(
+                    {**row, "_max_tokens": max_tokens}, fast_identity=fast_identity
+                )
                 samples.append(
                     {
                         "repetition": repetition + 1,
                         "row": index + 1,
                         "latency_s": result["latency_s"],
+                        **{
+                            key: result[key]
+                            for key in ("prompt_n", "prompt_ms", "predicted_n", "predicted_ms")
+                            if key in result
+                        },
                     }
                 )
             except Exception as exc:
@@ -885,6 +994,7 @@ def _run_concurrent(
                     conf=0.05,
                     device=device,
                     half=True,
+                    agnostic_nms=True,
                     verbose=False,
                 )
                 _consume_yolo_result(result)
@@ -965,7 +1075,7 @@ def _run_concurrent(
 def _write_markdown(report: dict[str, Any], path: Path) -> None:
     phases = report["phases"]
     lines = [
-        "# Orin onboard benchmark",
+        "# Jetson Orin Nano 8GB onboard benchmark",
         "",
         f"- Generated: {report['generated_at_utc']}",
         f"- Device: {report['system']['platform']} ({report['system']['machine']})",
@@ -1000,7 +1110,8 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
         if engine_key in phases:
             row(f"YOLOE TensorRT {size}", phases[engine_key])
     for key, label in (
-        ("identity", "llama-server identity"),
+        ("identity", "llama-server identity / full constrained"),
+        ("identity_one_token", "llama-server identity / one token"),
         ("planning", "llama-server planning"),
         ("concurrent", "concurrent load"),
     ):
@@ -1038,6 +1149,11 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames-dir", type=Path, help="Folder containing recorded PNG frames")
+    parser.add_argument(
+        "--pytorch-comparison",
+        action="store_true",
+        help="Optional PyTorch comparison; never needed on the flight image",
+    )
     parser.add_argument("--yoloe-weights", type=Path, default=DEFAULT_WEIGHTS)
     parser.add_argument(
         "--tensorrt-engine", type=Path, help="YOLOE TensorRT engine with prompts baked in"
@@ -1055,7 +1171,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--llama-server", type=Path, help="Path to llama-server; otherwise search PATH"
     )
     parser.add_argument("--ngl", default="99", help="llama.cpp GPU layers (-ngl), e.g. 99 or all")
-    parser.add_argument("--context", type=int, default=4096, help="llama.cpp context size")
+    parser.add_argument(
+        "--context", type=int, default=2048, help="llama.cpp context size (flight default: 2048)"
+    )
     parser.add_argument("--port", type=int, default=9941)
     parser.add_argument("--identity-max-tokens", type=int, default=128)
     parser.add_argument("--planning-max-tokens", type=int, default=768)
@@ -1068,7 +1186,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-side", type=int, default=448, help="Long side for VLM identity images"
     )
-    parser.add_argument("--device", default="0", help="Ultralytics CUDA device index")
+    parser.add_argument("--device", default="0", help="CUDA device index")
     parser.add_argument("--concurrent-yolo-hz", type=float, default=1.0)
     parser.add_argument("--concurrent-imgsz", type=int, choices=DEFAULT_IMG_SIZES, default=1280)
     parser.add_argument(
@@ -1133,7 +1251,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "max_side": args.max_side,
             "identity_max_tokens": args.identity_max_tokens,
             "planning_max_tokens": args.planning_max_tokens,
-            "concurrent_backend": "pytorch_fp16",
+            "target": "Jetson Orin Nano 8GB",
+            "pytorch_comparison": args.pytorch_comparison,
+            "concurrent_backend": None,
             "concurrent_imgsz": args.concurrent_imgsz,
             "concurrent_yolo_hz": args.concurrent_yolo_hz,
             "telemetry_interval_ms": args.tegrastats_interval_ms,
@@ -1146,41 +1266,26 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "phases": {},
     }
     pytorch_model = None
-    yolo_error: str | None = None
-    try:
-        import torch
-
-        if frames:
+    engine_model = None
+    yolo_error = None
+    if args.pytorch_comparison and frames:
+        try:
             pytorch_model = _make_pytorch_yoloe(args.yoloe_weights)
-        report["configuration"]["pytorch_cuda_version"] = torch.version.cuda
-        report["configuration"]["yoloe_weights"] = str(args.yoloe_weights)
-    except Exception as exc:
-        yolo_error = f"{type(exc).__name__}: {exc}"
-
-    if not frames:
-        reason = (
-            "no readable PNG frames were found"
-            if args.frames_dir
-            else "--frames-dir was not provided"
-        )
-        if yolo_error:
-            reason += f"; YOLOE setup: {yolo_error}"
-        for size in DEFAULT_IMG_SIZES:
-            report["phases"][f"yoloe_pytorch_imgsz_{size}"] = {
+        except Exception as exc:
+            yolo_error = f"{type(exc).__name__}: {exc}"
+    for size in DEFAULT_IMG_SIZES:
+        key = f"yoloe_pytorch_imgsz_{size}"
+        if pytorch_model is None:
+            report["phases"][key] = {
                 "status": "not measured",
-                "reason": reason,
+                "reason": (
+                    "optional comparison disabled; enable --pytorch-comparison"
+                    if not args.pytorch_comparison
+                    else yolo_error or "no readable PNG frames"
+                ),
                 "latency": aggregate_latencies([]),
             }
-    else:
-        for size in DEFAULT_IMG_SIZES:
-            key = f"yoloe_pytorch_imgsz_{size}"
-            if pytorch_model is None:
-                report["phases"][key] = {
-                    "status": "not measured",
-                    "reason": yolo_error or "YOLOE setup failed",
-                    "latency": aggregate_latencies([]),
-                }
-                continue
+        else:
             report["phases"][key] = _measure_phase(
                 key,
                 lambda size=size: _run_yolo_samples(
@@ -1195,78 +1300,50 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 args.tegrastats_interval_ms,
                 gpu_index,
             )
-
-    if args.tensorrt_engine:
-        if pytorch_model is not None:
-            pytorch_model = None
-            _release_cuda_cache()
-        engine_model = None
-        engine_error = None
+    # Free the optional comparison model before measuring the flight stack.
+    pytorch_model = None
+    _release_cuda_cache()
+    engine_error = "--tensorrt-engine was not provided"
+    if args.tensorrt_engine and frames:
         try:
-            import torch
-            from ultralytics import YOLO
+            from scripts.orin_tensorrt_proposer import TensorRTProposer
 
-            if not torch.cuda.is_available():
-                raise RuntimeError("PyTorch CUDA is unavailable")
-            if not args.tensorrt_engine.is_file():
-                raise FileNotFoundError(f"TensorRT engine not found: {args.tensorrt_engine}")
-            engine_model = YOLO(str(args.tensorrt_engine))
+            engine_model = TensorRTProposer(args.tensorrt_engine, device=gpu_index)
+            report["configuration"]["fast_backend"] = engine_model.backend
         except Exception as exc:
             engine_error = f"{type(exc).__name__}: {exc}"
-        for size in DEFAULT_IMG_SIZES:
-            key = f"yoloe_tensorrt_imgsz_{size}"
-            if not frames or engine_model is None:
-                report["phases"][key] = {
-                    "status": "not measured",
-                    "reason": "no readable PNG frames" if not frames else engine_error,
-                    "latency": aggregate_latencies([]),
-                }
-            else:
-                report["phases"][key] = _measure_phase(
-                    key,
-                    lambda size=size: _run_yolo_samples(
-                        engine_model,
-                        frames,
-                        image_size=size,
-                        repetitions=args.repetitions,
-                        warmup=args.warmup,
-                        device=args.device,
-                    ),
-                    base_process_ids,
-                    args.tegrastats_interval_ms,
-                    gpu_index,
-                )
-                engine_dynamic, engine_shape = _engine_input_shape(engine_model)
-                report["phases"][key]["engine_input_shape"] = (
-                    "dynamic" if engine_dynamic else engine_shape
-                )
-                if not engine_dynamic and engine_shape != (size, size):
-                    report["phases"][key].update(
-                        {
-                            "status": "not measured",
-                            "reason": (
-                                "could not verify effective TensorRT input size"
-                                if engine_shape is None
-                                else (
-                                    f"effective TensorRT input is {engine_shape}, "
-                                    f"not {(size, size)}"
-                                )
-                            ),
-                            "latency": aggregate_latencies([]),
-                            "samples": [],
-                        }
-                    )
-        if engine_model is not None:
-            engine_model = None
-            _release_cuda_cache()
-
-    else:
-        for size in DEFAULT_IMG_SIZES:
-            report["phases"][f"yoloe_tensorrt_imgsz_{size}"] = {
+    report["configuration"].setdefault("fast_backend", "unavailable")
+    for size in DEFAULT_IMG_SIZES:
+        key = f"yoloe_tensorrt_imgsz_{size}"
+        if engine_model is None or tuple(engine_model.input_shape[-2:]) != (size, size):
+            report["phases"][key] = {
                 "status": "not measured",
-                "reason": "--tensorrt-engine was not provided",
+                "reason": (
+                    "no readable PNG frames"
+                    if not frames
+                    else engine_error
+                    if engine_model is None
+                    else f"fixed engine input is {engine_model.input_shape}"
+                ),
                 "latency": aggregate_latencies([]),
             }
+        else:
+            report["phases"][key] = _measure_phase(
+                key,
+                lambda size=size: _run_yolo_samples(
+                    engine_model,
+                    frames,
+                    image_size=size,
+                    repetitions=args.repetitions,
+                    warmup=args.warmup,
+                    device=args.device,
+                ),
+                base_process_ids,
+                args.tegrastats_interval_ms,
+                gpu_index,
+            )
+            report["phases"][key]["backend"] = engine_model.backend
+            report["phases"][key]["engine_input_shape"] = engine_model.input_shape
 
     rows = identity_rows
     server: LlamaServer | None = None
@@ -1307,13 +1384,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         }
     else:
         try:
-            # Keep the actual proposer resident alongside llama-server for shared
-            # memory measurements, without retaining the optional TensorRT engine.
-            if frames and pytorch_model is None:
+            concurrent_model = engine_model
+            if concurrent_model is None and args.pytorch_comparison and frames:
                 try:
                     pytorch_model = _make_pytorch_yoloe(args.yoloe_weights)
+                    concurrent_model = pytorch_model
                 except Exception as exc:
                     yolo_error = f"{type(exc).__name__}: {exc}"
+            report["configuration"]["concurrent_backend"] = (
+                engine_model.backend
+                if engine_model is not None
+                else "pytorch_fp16"
+                if concurrent_model is not None
+                else None
+            )
             process_ids = dict(base_process_ids)
             if server.pid is not None:
                 process_ids["llama_server"] = server.pid
@@ -1337,6 +1421,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "reason": identity_issue or "identity rows were not provided",
                     "latency": aggregate_latencies([]),
                 }
+            if rows:
+                report["phases"]["identity_one_token"] = _measure_phase(
+                    "identity_one_token",
+                    lambda: _repeat_identity(server, rows, args.repetitions, args.warmup, 1, True),
+                    process_ids,
+                    args.tegrastats_interval_ms,
+                    gpu_index,
+                )
             if planning_prompts:
                 report["phases"]["planning"] = _measure_phase(
                     "planning",
@@ -1357,7 +1449,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "reason": planning_issue or "no planning prompts available",
                     "latency": aggregate_latencies([]),
                 }
-            if pytorch_model is None or not frames or not rows:
+            if engine_model is not None and tuple(engine_model.input_shape[-2:]) != (
+                args.concurrent_imgsz,
+                args.concurrent_imgsz,
+            ):
+                report["phases"]["concurrent"] = {
+                    "status": "not measured",
+                    "reason": "--concurrent-imgsz must match the fixed TensorRT input",
+                }
+            elif concurrent_model is None or not frames or not rows:
                 report["phases"]["concurrent"] = {
                     "status": "not measured",
                     "reason": "concurrent phase requires YOLOE CUDA, PNG frames and identity rows",
@@ -1369,7 +1469,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 }
             else:
                 report["phases"]["concurrent"] = _run_concurrent(
-                    pytorch_model,
+                    concurrent_model,
                     frames,
                     server,
                     rows,
@@ -1387,6 +1487,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             server.close()
             atexit.unregister(server.close)
 
+    if engine_model is not None:
+        engine_model.close()
+    if "identity_one_token" not in report["phases"]:
+        report["phases"]["identity_one_token"] = {
+            "status": "not measured",
+            "reason": server_issue or identity_issue or "no identity rows",
+            "latency": aggregate_latencies([]),
+        }
     measured = [phase.get("status") == "measured" for phase in report["phases"].values()]
     report["status"] = "measured" if any(measured) else "not measured"
     return report

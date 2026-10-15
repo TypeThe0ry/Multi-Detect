@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_cfs2_w0007.expectations.json",
+      "sha256": "66cd1f76831cc5f1e2354096a0536cd1666de02e705e35b87cb1582ae8fd768c"
+    },
+    "runtime_input": {
+      "path": "gen_cfs2_w0007.runtime_input.json",
+      "sha256": "df23284543f35c0786054c6998e877709499c57c954580f2036256b1599001e5"
+    },
+    "truth": {
+      "path": "gen_cfs2_w0007.truth.json",
+      "sha256": "0119d6964de36485dba1b8db81812f39ed69207fcd7a57dad03b1b547d13e27f"
+    }
+  },
+  "scenario_id": "gen_cfs2_w0007",
+  "scenario_version": 1,
+  "schema_version": 1
+}

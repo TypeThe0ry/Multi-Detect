@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+import build_plan_sft  # noqa: E402
 from build_plan_sft import mission_v3  # noqa: E402
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
@@ -20,6 +21,35 @@ from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # n
 
 def _texts(path: Path) -> set[str]:
     return {item["text"] for item in json.loads(path.read_text(encoding="utf-8"))["tasks"]}
+
+
+@pytest.mark.parametrize("variant", ["no_examples", "two_examples", "compact_rules", "compact"])
+@pytest.mark.parametrize("version", ["v4", "v5"])
+def test_cli_short_prompt_variant_is_used_for_retraining(variant, version):
+    output = ROOT / "tmp" / f"plan-sft-short-{uuid.uuid4().hex}"
+    try:
+        assert build_plan_sft.main([
+            "--output", str(output), "--rows", "4", "--val-rows", "2",
+            "--version", version,
+            "--prompt-variant", variant, "--require-skills",
+        ]) == 0
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["prompt_variant"] == variant
+        expected_examples = {"no_examples": 0, "two_examples": 2,
+                             "compact_rules": 6, "compact": 0}[variant]
+        if version == "v5":
+            expected_examples -= manifest["excluded_prompt_examples"]
+        for split in ("train", "val"):
+            rows = [json.loads(line) for line in
+                    (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()]
+            for row in rows:
+                assert row["prompt"].count("Task:") == expected_examples + 1
+                assert row["prompt"].endswith(f"Task: {row['task_text']}\nPlan:")
+                assert ("Skills (* required):" in row["prompt"]) == (
+                    variant in {"compact_rules", "compact"}
+                )
+    finally:
+        shutil.rmtree(output, ignore_errors=True)
 
 
 def test_v3_samples_validate_and_cover_disambiguating_phrases():
@@ -65,7 +95,7 @@ def test_eval_v2_is_disjoint_from_v1_and_generated_samples():
     assert not (generated & (v1 | v2))
 
 
-@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"
     try:
@@ -112,7 +142,7 @@ def test_cli_writes_requested_rows(version):
         shutil.rmtree(output, ignore_errors=True)
 
 
-@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_default_skill_coverage(version):
     output = ROOT / "tmp" / f"plan-sft-coverage-{version}-{uuid.uuid4().hex}"
     try:
@@ -178,3 +208,64 @@ def test_cli_rejects_missing_training_skills(version, options, missing):
         assert not output.exists()
     finally:
         shutil.rmtree(output, ignore_errors=True)
+
+
+@pytest.mark.parametrize("selection", ["default", "grouped", "repeated"])
+@pytest.mark.parametrize("version", ["v2", "v4", "v5"])
+def test_cli_excludes_all_selected_eval_files(monkeypatch, selection, version):
+    workspace = ROOT / "tmp" / f"plan-sft-held-out-{uuid.uuid4().hex}"
+    try:
+        eval_dir = workspace / "configs/onboard"
+        eval_dir.mkdir(parents=True)
+        empty = workspace / "empty.json"
+        empty.write_text('{"tasks": []}', encoding="utf-8")
+        common = ["--rows", "20", "--val-rows", "2", "--version", version, "--require-skills"]
+        baseline = workspace / "baseline"
+        assert build_plan_sft.main(
+            ["--output", str(baseline), *common, "--eval-tasks", str(empty)]
+        ) == 0
+        baseline_rows = [
+            json.loads(line)
+            for line in (baseline / "train.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        held_out = {row["task_text"] for row in baseline_rows[:2]}
+        paths = [eval_dir / "plan-eval-tasks.json", eval_dir / "plan-eval-tasks-v2.json"]
+        if version == "v5":
+            # V5 always retains default exclusions, including few-shot examples.
+            for path in (ROOT / "configs/onboard").glob("plan-eval-tasks*.json"):
+                shutil.copyfile(path, eval_dir / path.name)
+            paths = [eval_dir / f"plan-eval-tasks-extra-{i}.json" for i in range(2)]
+        for path, row in zip(paths, baseline_rows, strict=False):
+            # Match the generator's whitespace normalization, including newlines.
+            path.write_text(
+                json.dumps({"tasks": [{"text": "  " + row["task_text"] + "\n"}]}),
+                encoding="utf-8",
+            )
+        monkeypatch.setattr(build_plan_sft, "ROOT", workspace)
+        options = {
+            "default": [],
+            "grouped": ["--eval-tasks", *(str(path) for path in paths)],
+            "repeated": ["--eval-tasks", str(paths[0]), "--eval-tasks", str(paths[1])],
+        }[selection]
+        output = workspace / "filtered"
+        assert build_plan_sft.main(["--output", str(output), *common, *options]) == 0
+        generated = {
+            json.loads(line)["task_text"]
+            for split in ("train", "val")
+            for line in (output / f"{split}.jsonl").read_text(encoding="utf-8").splitlines()
+        }
+        assert len(generated) == 22
+        assert not generated & held_out
+
+        # Loading extra files must not consume RNG state when no text collides.
+        for path in paths:
+            path.write_text(
+                '{"tasks": [{"text": "An unrelated held-out instruction"}]}',
+                encoding="utf-8",
+            )
+        unchanged = workspace / "unchanged"
+        assert build_plan_sft.main(["--output", str(unchanged), *common, *options]) == 0
+        for name in ("train.jsonl", "val.jsonl", "manifest.json"):
+            assert (unchanged / name).read_bytes() == (baseline / name).read_bytes()
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)

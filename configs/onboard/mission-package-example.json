@@ -1,0 +1,59 @@
+{
+  "mission_id": "gate-patrol-example-001",
+  "task_text": "到大门检查位置，然后返回起飞前指定的 home。",
+  "risk_level": "medium",
+  "link_loss_policy": {"action": "continue_then_return", "timeout_s": 60},
+  "heartbeat_timeout_s": 5,
+  "home": [0, 0],
+  "places": {"poi:gate": [40, 0]},
+  "zones": {
+    "zone:people": {
+      "centre_ne": [20, 20],
+      "radius_m": 5,
+      "risk_tag": "people",
+      "oversight_required": true
+    }
+  },
+  "routes": {"route:patrol": [[0, 0], [40, 0], [40, 20], [0, 0]]},
+  "ref_labels": {
+    "poi:gate": "大门 / gate",
+    "zone:people": "人员区域 / people area",
+    "route:patrol": "巡逻路线 / patrol route"
+  },
+  "operating_area": {
+    "north_min_m": -50,
+    "north_max_m": 100,
+    "east_min_m": -50,
+    "east_max_m": 100,
+    "min_altitude_m": 5,
+    "max_altitude_m": 40
+  },
+  "budget": {
+    "time_s": 900,
+    "reserve_time_s": 180,
+    "energy_wh": 200,
+    "reserve_energy_wh": 40
+  },
+  "oversight_steps": [],
+  "plan": {
+    "plan_version": 1,
+    "goal": "visit gate then return home",
+    "report": ["positions"],
+    "steps": [
+      {
+        "id": "visit_gate",
+        "skill": "goto",
+        "params": {"target_ref": "poi:gate", "altitude_m": 20},
+        "on_success": "home",
+        "on_fail": "home"
+      },
+      {
+        "id": "home",
+        "skill": "return_home",
+        "params": {},
+        "on_success": null,
+        "on_fail": null
+      }
+    ]
+  }
+}
