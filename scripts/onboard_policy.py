@@ -229,22 +229,39 @@ def build_mission_from_text(
 
 
 class YoloeProposer:
-    """Class-agnostic proposals from YOLOE with a fixed generic vocabulary."""
+    """Class-agnostic proposals with optional full-frame plus 2x2 tiled inference.
 
-    def __init__(self, weights: Path, *, confidence: float, imgsz: int) -> None:
+    ``proposer_tiled`` defaults off in OnboardPolicy. Tiles overlap by 20% of
+    their width/height; all five passes use the same imgsz and confidence.
+    ``proposer_tile_overlap`` and ``proposer_merge_iou`` control crop overlap
+    and the class-agnostic merge. The loop's box filter runs after merging.
+    """
+
+    def __init__(
+        self, weights: Path, *, confidence: float, imgsz: int,
+        device: str | int = 0, tiled: bool = False,
+        tile_overlap: float = 0.2, merge_iou: float = 0.5,
+    ) -> None:
+        if not isinstance(tiled, bool):
+            raise ValueError("proposer_tiled must be a boolean")
+        if not 0 <= tile_overlap < 1 or not 0 < merge_iou <= 1:
+            raise ValueError("tile overlap must be in [0, 1); merge IoU must be in (0, 1]")
         os.environ.setdefault("YOLO_OFFLINE", "true")
         os.environ.setdefault("YOLO_AUTOINSTALL", "false")
         from ultralytics import YOLOE
 
         self.model = YOLOE(str(weights))
+        self.model.to(device)
         prompts = list(VOCABULARY)
         # Encode prompts before the first fp16 predict fuses the model.
         self.model.set_classes(prompts, self.model.get_text_pe(prompts))
         self.confidence, self.imgsz = confidence, imgsz
+        self.device, self.tiled = device, tiled
+        self.tile_overlap, self.merge_iou = tile_overlap, merge_iou
 
-    def __call__(self, bgr) -> list[Detection]:
+    def _predict(self, bgr) -> list[Detection]:
         result = self.model.predict(
-            bgr, imgsz=self.imgsz, conf=self.confidence, device=0, verbose=False
+            bgr, imgsz=self.imgsz, conf=self.confidence, device=self.device, verbose=False
         )[0]
         boxes = result.boxes
         return [
@@ -253,6 +270,52 @@ class YoloeProposer:
                 boxes.xyxy.tolist(), boxes.conf.tolist(), boxes.cls.tolist(), strict=True
             )
         ]
+
+    def tile_proposals(self, bgr) -> list[Detection]:
+        """Four overlapping crops, resized by YOLOE to imgsz, in full-frame pixels."""
+        height, width = bgr.shape[:2]
+        tile_w = min(width, math.ceil(width / (2 - self.tile_overlap)))
+        tile_h = min(height, math.ceil(height / (2 - self.tile_overlap)))
+        detections = []
+        for y in dict.fromkeys((0, height - tile_h)):
+            for x in dict.fromkeys((0, width - tile_w)):
+                crop = bgr[y:y + tile_h, x:x + tile_w].copy()
+                for detection in self._predict(crop):
+                    x1, y1, x2, y2 = detection.bbox
+                    box = (
+                        max(0.0, min(float(width), x1 + x)),
+                        max(0.0, min(float(height), y1 + y)),
+                        max(0.0, min(float(width), x2 + x)),
+                        max(0.0, min(float(height), y2 + y)),
+                    )
+                    if box[2] > box[0] and box[3] > box[1]:
+                        detections.append(Detection(box, detection.score, detection.label))
+        return detections
+
+    def merge(self, detections: Sequence[Detection]) -> list[Detection]:
+        """Class-agnostic greedy NMS; downstream loop retains its normal limits."""
+        kept: list[Detection] = []
+        for detection in sorted(detections, key=lambda d: d.score, reverse=True):
+            a = detection.bbox
+            for prior in kept:
+                b = prior.bbox
+                intersection = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+                    0.0, min(a[3], b[3]) - max(a[1], b[1])
+                )
+                union = ((a[2] - a[0]) * (a[3] - a[1])
+                         + (b[2] - b[0]) * (b[3] - b[1]) - intersection)
+                if union > 0 and intersection / union > self.merge_iou:
+                    break
+            else:
+                kept.append(detection)
+        return kept
+
+    def __call__(self, bgr) -> list[Detection]:
+        detections = self._predict(bgr)
+        if self.tiled:
+            # Keep full-frame context and objects that cross tile boundaries.
+            return self.merge([*detections, *self.tile_proposals(bgr)])
+        return detections
 
 
 class OnboardPolicy:
@@ -305,7 +368,7 @@ class OnboardPolicy:
         # size spans about min_search_px pixels at a mid-image depression angle.
         self.search_altitude_m = None
         if options.get("size_aware_search"):
-            size = typical_object_size(task_text)
+            size = typical_object_size(self.task_text)
             depression = 0.18 + math.radians(20.0)
             needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
             self.search_altitude_m = max(
@@ -335,6 +398,11 @@ class OnboardPolicy:
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
         }
+        if "proposal_min_side_px" in options:
+            min_side = float(options["proposal_min_side_px"])
+            if not math.isfinite(min_side) or min_side <= 0:
+                raise ValueError("proposal_min_side_px must be finite and positive")
+            loop_defaults["min_box_side_px"] = min_side
         if second_look is not None:
             loop_defaults["second_look_after_steps"] = int(second_look)
         if options.get("confirm_max_range_m") is not None:
@@ -392,6 +460,9 @@ class OnboardPolicy:
             Path(options["yoloe_weights"]),
             confidence=float(options.get("confidence", 0.05)),
             imgsz=int(options.get("imgsz", 1280)),
+            tiled=options.get("proposer_tiled", False),
+            tile_overlap=float(options.get("proposer_tile_overlap", 0.2)),
+            merge_iou=float(options.get("proposer_merge_iou", 0.5)),
         )
         from scripts.eval_slow_system import LlamaServerRunner, _http_json
 
