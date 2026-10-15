@@ -405,3 +405,19 @@ expansion keeps the required keys. The fixed-schema runs shared the GPU with
 LoRA training, so their latency (2.8–3.3 s p50) is not comparable; it will be
 re-measured on an idle GPU. The identity schema has no such object and is
 unchanged.
+
+### v2-r11-multi and the identity/planning trade-off (2026-10-15)
+
+v2-r11-multi = the r4-prop identity rows + plan-sft-v4 (1,500 rows, every
+skill covered). All planning numbers below use the fixed schema:
+
+| Model | Identity rows / plan rows | Identity acc | Distractor rejection | 30 tasks exact | 60 tasks exact |
+|---|---|---:|---:|---:|---:|
+| **v2-r8-multi** | 1,412 / 1,200 (v2) | **94.1%** | 89.9% | **90%** | **77%** |
+| v2-r9-multi | 1,857 (+DAgger) / 1,200 (v2) | 95.0% | 90.8% | 80% | 68% |
+| v2-r11-multi | 1,412 / 1,500 (v4) | 86.9% | 95.0% | 87% | 77% |
+
+Whichever task has more rows gets better and the other gets worse: r9's extra
+identity rows cost planning, r11's extra plan rows cost identity (it now
+rejects too often). The adapter is rank 4 (alpha 8), small for two tasks in
+one LoRA. v2-r8-multi stays onboard; the next round raises the rank.
