@@ -176,6 +176,7 @@ class OnboardRuntime:
         config: RuntimeConfig | None = None,
         home_ned: tuple[float, float, float] | None = None,
         arbiter: Any | None = None,
+        supervisor: Any | None = None,
     ) -> None:
         self.vehicle, self.camera, self.policy = vehicle, camera, policy
         self.config = config or RuntimeConfig()
@@ -185,6 +186,7 @@ class OnboardRuntime:
         # immediately before the pump target is changed.  Existing callers keep
         # byte-for-byte behaviour when omitted.
         self.arbiter = arbiter
+        self.supervisor = supervisor
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
@@ -199,7 +201,6 @@ class OnboardRuntime:
         self._command_thread: threading.Thread | None = None
         self._command_error: str | None = None
         self._motion: tuple[ActionPrimitive, float] | None = None
-        self._envelope_segments: deque[ActionPrimitive] = deque()
         self._last_frame_timestamp: float | None = None
         self._last_good_state: VehicleState | None = None
         self._hazard_target: PositionSetpoint | None = None
@@ -257,19 +258,80 @@ class OnboardRuntime:
             metadata = result.info() if callable(getattr(result, "info", None)) else None
             if isinstance(metadata, dict):
                 info = metadata
-            # A vertical split is represented by a tuple of segments.  The
-            # coordinator consumes the first segment now; the remaining steps
-            # are intentionally left to the next policy/coordinator cycle so
-            # completion and timeout accounting remain single-source.
-            segments = getattr(result, "segments", ())
-            if segments:
-                info.setdefault("segments", [segment.to_dict() for segment in segments])
         else:
             raise TypeError("arbiter must return ActionPrimitive or (ActionPrimitive, info)")
         return action, info
 
     def _event(self, name: str, **details: Any) -> None:
         self.events.append({"event": name, "monotonic_s": time.monotonic(), **details})
+
+    def _set_target_checked(self, target: PositionSetpoint, purpose: str, *, state: VehicleState | None = None, already_enveloped: bool = False) -> PositionSetpoint:
+        """Publish every target through one boundary check.
+
+        Policy labels containing ``safety`` mean the primitive was already
+        arbitrated; this helper only checks the resulting absolute setpoint and
+        never clips it a second time. Holds are always accepted so a violated
+        current position can still be held safely.
+        """
+        if self.pump is None:
+            raise RuntimeError("runtime has not started")
+        if purpose not in {"policy_action", "takeoff", "hazard_hold", "policy_hold", "close_hold", "terminal_hold"}:
+            raise ValueError(f"unknown setpoint purpose: {purpose}")
+        check_state = state
+        if check_state is None:
+            try:
+                check_state = self.vehicle.snapshot()
+            except Exception:
+                check_state = None
+        envelope = self.arbiter
+
+        def report(reason: str) -> None:
+            supervisor = self.supervisor or getattr(envelope, "supervisor", None)
+            if supervisor is not None and hasattr(supervisor, "report_envelope_violation"):
+                supervisor.report_envelope_violation(reason)
+            self._event("envelope_setpoint_violation", purpose=purpose, reason=reason)
+
+        def current_violation() -> None:
+            if envelope is None or check_state is None or check_state.position_ned is None:
+                return
+            config = getattr(envelope, "config", None)
+            home = getattr(envelope, "home_ned", None) or self.home_ned
+            if config is None or home is None:
+                return
+            altitude = float(home[2]) - float(check_state.position_ned[2])
+            if getattr(config, "max_altitude_m", None) is not None and altitude > float(config.max_altitude_m) + 1e-9:
+                report("max_altitude")
+            if altitude < float(getattr(config, "min_altitude_m", 0.0)) - 1e-9:
+                report("min_altitude")
+
+        if purpose in {"policy_hold", "hazard_hold", "close_hold", "terminal_hold"}:
+            # Holds are never refused, including while already outside the
+            # envelope.  The violation is reported for supervisor escalation.
+            current_violation()
+        elif envelope is not None and purpose == "takeoff":
+            config = getattr(envelope, "config", None)
+            home = self.home_ned or getattr(envelope, "home_ned", None)
+            if home is None:
+                raise RuntimeError("takeoff envelope requires known home")
+            max_alt = getattr(config, "max_altitude_m", None)
+            if max_alt is not None:
+                target = PositionSetpoint(target.north_m, target.east_m, home[2] - max_alt, target.yaw_deg)
+        if envelope is not None and purpose == "policy_action" and not already_enveloped:
+            config = getattr(envelope, "config", None)
+            home = getattr(envelope, "home_ned", None) or self.home_ned
+            if config is not None:
+                if getattr(config, "max_altitude_m", None) is not None and home is not None:
+                    max_down = float(home[2]) - float(config.max_altitude_m)
+                    if target.down_m < max_down - 1e-9:
+                        report("max_altitude")
+                        target = hold_setpoint(state or self.vehicle.snapshot())
+                if getattr(config, "min_altitude_m", 0.0) > 0 and home is not None:
+                    min_down = float(home[2]) - float(config.min_altitude_m)
+                    if target.down_m > min_down + 1e-9:
+                        report("min_altitude")
+                        target = hold_setpoint(state or self.vehicle.snapshot())
+        self.pump.set_target(target)
+        return target
 
     def _freshness_fault(
         self, state: VehicleState, frame: CameraFrame | None, now: float,
@@ -298,7 +360,7 @@ class OnboardRuntime:
             self._motion = None
             if self.pump and self._last_good_state:
                 self._hazard_target = hold_setpoint(self._last_good_state)
-                self.pump.set_target(self._hazard_target)
+                self._set_target_checked(self._hazard_target, "hazard_hold", state=self._last_good_state)
             self._event("watchdog_hold", reason=reason)
 
     def _guard(self) -> None:
@@ -333,7 +395,7 @@ class OnboardRuntime:
                     ):
                         self._latch("home_changed", now)
                 if self.hazard and self._hazard_target and self.pump:
-                    self.pump.set_target(self._hazard_target)
+                    self._set_target_checked(self._hazard_target, "hazard_hold", state=state)
         except Exception as exc:
             self._latch(f"sensor_error: {exc}", now)
 
@@ -402,7 +464,7 @@ class OnboardRuntime:
             target = PositionSetpoint(
                 *state.position_ned[:2], bound_home[2] - altitude_m, state.attitude_deg[2]
             )
-            self.pump.set_target(target)
+            self._set_target_checked(target, "takeoff", state=state)
         while not self._arrived(self.vehicle.snapshot(), target):
             self.poll(allow_policy=False)
             if self.hazard or self._stopping.is_set() or time.monotonic() >= deadline:
@@ -421,7 +483,7 @@ class OnboardRuntime:
                 and speed <= self.config.speed_tolerance_mps)
 
     def _launch_policy(self, frame: CameraFrame, state: VehicleState) -> None:
-        self.pump.set_target(hold_setpoint(state))
+        self._set_target_checked(hold_setpoint(state), "policy_hold", state=state)
         observation = observation_for(frame, state)
         self._job_started = time.monotonic()
         started = self._job_started
@@ -455,6 +517,13 @@ class OnboardRuntime:
         self.failsafe_sent = action
         self._command_last_sent = time.monotonic()
         self._event("flight_handoff", action=action)
+        if action in {"land", "rtl"} and self.pump is not None:
+            try:
+                state = self.vehicle.snapshot()
+                if state.position_ned is not None and state.attitude_deg is not None:
+                    self._set_target_checked(hold_setpoint(state), "terminal_hold", state=state)
+            except Exception:
+                pass
         if action == "hold":
             return
 
@@ -541,18 +610,6 @@ class OnboardRuntime:
                     )
                 self.steps += 1
                 self._event("autonomy_action", action=action.to_dict(), envelope=envelope_info)
-                segments = ()
-                if isinstance(envelope_info, dict):
-                    segments = envelope_info.get("segments", ())
-                    if not segments and isinstance(envelope_info.get("safety"), dict):
-                        segments = envelope_info["safety"].get("segments", ())
-                if segments:
-                    for raw_segment in segments[1:]:
-                        try:
-                            self._envelope_segments.append(ActionPrimitive.from_dict(raw_segment))
-                        except (TypeError, KeyError, ValueError):
-                            self._latch("invalid_envelope_segments", now)
-                            return
                 if action.kind == "stop":
                     self.mission_complete = True
                     self._command(self.config.completion_action)
@@ -566,7 +623,10 @@ class OnboardRuntime:
                         origin[0] + n, origin[1] + e, origin[2] + d,
                         source_state.attitude_deg[2] + yaw,
                     )
-                self.pump.set_target(target)
+                self._set_target_checked(
+                    target, "policy_action", state=state,
+                    already_enveloped=isinstance(_labels, dict) and "safety" in _labels,
+                )
                 self._motion = action, now
             if self._motion:
                 action, started = self._motion
@@ -577,21 +637,6 @@ class OnboardRuntime:
                         self._latch("action_timeout", now)
                     return
                 self._motion = None
-            if self._motion is None and self._envelope_segments:
-                # A long vertical command is emitted as bounded segments by
-                # the envelope.  Consume the queue before launching another
-                # policy frame so no segment is dropped or recomputed.
-                action = self._envelope_segments.popleft()
-                origin = state.position_ned
-                n, e, d, yaw = primitive_to_ned(action, state.attitude_deg[2])
-                target = PositionSetpoint(
-                    origin[0] + n, origin[1] + e, origin[2] + d,
-                    state.attitude_deg[2] + yaw,
-                )
-                self.pump.set_target(target)
-                self._motion = action, now
-                self._event("autonomy_action_segment", action=action.to_dict())
-                return
             if frame is not None and frame.timestamp_monotonic != self._last_frame_timestamp:
                 self._launch_policy(frame, state)
 
@@ -636,7 +681,7 @@ class OnboardRuntime:
             self._closed = True
             self._result = None
             if self.pump and self._last_good_state:
-                self.pump.set_target(hold_setpoint(self._last_good_state))
+                self._set_target_checked(hold_setpoint(self._last_good_state), "close_hold", state=self._last_good_state)
         errors = []
         try:
             if self.pump and self._flight_owned:

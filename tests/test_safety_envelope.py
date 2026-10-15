@@ -17,12 +17,20 @@ def test_mixed_forward_down_uses_horizontal_limit_only():
     assert decision.status == "accepted"
 
 
-def test_long_climb_is_split_and_segments_complete():
+def test_long_climb_is_clipped_and_completes_when_reissued_each_frame():
     envelope = SafetyEnvelope(SafetyEnvelopeConfig(max_vertical_step_m=10), home_ned=(0, 0, 0))
-    decision = envelope.apply(ActionPrimitive.translate(0, 0, 25), pose_ned=(0, 0, -5))
-    assert round(sum(s.up_m for s in decision.segments), 6) == 25
-    assert len(decision.segments) == 3
-    assert max(abs(s.up_m) for s in decision.segments) <= 10
+    pose = (0.0, 0.0, -5.0)
+    remaining = 25.0
+    for _ in range(4):
+        decision = envelope.apply(ActionPrimitive.translate(0, 0, remaining), pose_ned=pose)
+        step = decision.action.up_m
+        assert abs(step) <= 10
+        pose = (pose[0], pose[1], pose[2] - step)
+        remaining -= step
+        if remaining <= 0:
+            break
+    assert remaining == 0
+    assert pose[2] == -30
 
 
 def test_home_relative_altitude_and_agl_are_distinct():
@@ -38,7 +46,7 @@ def test_home_relative_altitude_and_agl_are_distinct():
 
 
 def test_deliver_descent_allows_two_meter_release():
-    envelope = SafetyEnvelope(SafetyEnvelopeConfig(min_altitude_m=8), home_ned=(0, 0, 0))
+    envelope = SafetyEnvelope(SafetyEnvelopeConfig(min_altitude_m=8, low_altitude_exception_m=2), home_ned=(0, 0, 0))
     decision = envelope.apply(
         ActionPrimitive.translate(0, 0, -6),
         pose_ned=(0, 0, -8),
@@ -46,6 +54,16 @@ def test_deliver_descent_allows_two_meter_release():
         phase="descent",
     )
     assert not decision.rejected
+    assert decision.action.up_m == -6
+
+
+def test_low_altitude_exception_is_the_controlled_minimum():
+    envelope = SafetyEnvelope(
+        SafetyEnvelopeConfig(min_altitude_m=8, low_altitude_exception_m=2), home_ned=(0, 0, 0)
+    )
+    decision = envelope.apply(
+        ActionPrimitive.translate(0, 0, -10), pose_ned=(0, 0, -8), skill="deliver", phase="descent"
+    )
     assert decision.action.up_m == -6
 
 
@@ -76,12 +94,17 @@ def test_home_is_explicit_and_never_taken_from_first_pose():
 def test_vertical_segments_reach_target_and_report_metadata():
     envelope = SafetyEnvelope(SafetyEnvelopeConfig(max_vertical_step_m=10), home_ned=(0, 0, 0))
     pose = (0.0, 0.0, -5.0)
-    decision = envelope.apply(ActionPrimitive.translate(0, 0, 25), pose_ned=pose)
-    for segment in decision.segments:
+    remaining = 25.0
+    for _ in range(4):
+        decision = envelope.apply(ActionPrimitive.translate(0, 0, remaining), pose_ned=pose)
+        segment = decision.action
         pose = (pose[0], pose[1], pose[2] - segment.up_m)
+        remaining -= segment.up_m
         assert abs(segment.up_m) <= 10
+        if remaining <= 0:
+            break
     assert pose[2] == -30.0
-    assert len(decision.info()["safety"]["segments"]) == 3
+    assert remaining == 0
 
 
 def test_default_enabled_policy_is_byte_identical_for_valid_actions():

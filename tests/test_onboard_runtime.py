@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import inspect
 from dataclasses import replace
 
 import pytest
@@ -163,6 +164,15 @@ def test_runtime_calls_final_arbiter_before_pump_target() -> None:
         assert event["envelope"]["status"] == "accepted"
     finally:
         runtime.close()
+
+
+def test_runtime_has_one_checked_setpoint_boundary():
+    source = inspect.getsource(OnboardRuntime)
+    assert source.count("self.pump.set_target(") == 1
+    assert "def _set_target_checked" in source
+    assert all(purpose in source for purpose in (
+        "policy_action", "takeoff", "hazard_hold", "policy_hold", "close_hold", "terminal_hold"
+    ))
 
 
 def wait_for(predicate, timeout=1):

@@ -115,6 +115,8 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self._last_envelope_violation: tuple[str, str] | None = None
+        self._last_envelope_violation_event_s: float | None = None
         # An existing mission log means this is a restart.  A missing replay
         # file in that case is evidence loss and must fail closed.
         self._had_prior_log = self.log.path.exists()
@@ -586,6 +588,7 @@ class MissionSupervisor:
         returns the currently latched supervisor action, which is useful to
         callers that need to annotate the outgoing hold primitive.
         """
+        self._time()
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("envelope violation reason must be a non-empty string")
         if action not in {"return_now", "land_now"}:
@@ -595,12 +598,20 @@ class MissionSupervisor:
         # the supervisor's established precedence when a stronger action was
         # already latched (in particular, land_now cannot be downgraded).
         self._escalate(action, message)
-        self._record(
-            "envelope_violation",
-            requested_action=action,
-            effective_action=self._terminal or self.action,
-            reason=reason.strip(),
-        )
+        key = (reason.strip(), action)
+        if (
+            key != self._last_envelope_violation
+            or self._last_envelope_violation_event_s is None
+            or self._now - self._last_envelope_violation_event_s >= 5.0
+        ):
+            self._record(
+                "envelope_violation",
+                requested_action=action,
+                effective_action=self._terminal or self.action,
+                reason=reason.strip(),
+            )
+            self._last_envelope_violation = key
+            self._last_envelope_violation_event_s = self._now
         return self._terminal or self.action
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:

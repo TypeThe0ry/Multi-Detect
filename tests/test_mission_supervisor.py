@@ -137,6 +137,18 @@ def test_envelope_violation_preserves_latched_land_precedence(tmp_path):
     assert any(record["kind"] == "envelope_violation" for record in records)
 
 
+def test_envelope_violation_events_are_rate_limited(tmp_path):
+    s, now, _ = build(tmp_path, "continue")
+    s.report_envelope_violation("no_fly")
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 1
+    now[0] += 5.0
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 2
+
+
 def test_continue_survives_hours_of_silence(tmp_path):
     s, now, _ = build(tmp_path)
     for hours in range(1, 13):

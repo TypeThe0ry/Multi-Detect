@@ -109,6 +109,8 @@ class SafetyEnvelopeConfig:
             raise ValueError("max_vertical_step_m must be positive")
         if self.max_radius_from_home_m is not None and (not math.isfinite(self.max_radius_from_home_m) or self.max_radius_from_home_m <= 0):
             raise ValueError("max_radius_from_home_m must be positive")
+        if not math.isfinite(self.low_altitude_exception_m) or self.low_altitude_exception_m < 0:
+            raise ValueError("low_altitude_exception_m must be finite and non-negative")
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None = None, *, default_max_translation_m: float = 15.0) -> "SafetyEnvelopeConfig":
@@ -157,7 +159,8 @@ class SafetyDecision:
     rejected: bool = False
     return_home: bool = False
     consecutive_rejections: int = 0
-    # For long climbs/descents callers may dispatch these segments in order.
+    # Kept for API compatibility; vertical motion is clipped per frame and
+    # callers re-issue the remainder on the next frame.
     segments: tuple[ActionPrimitive, ...] = ()
 
     def info(self) -> dict[str, Any]:
@@ -168,11 +171,6 @@ class SafetyDecision:
             "return_home": self.return_home,
             "consecutive_rejections": self.consecutive_rejections,
         }
-        if self.segments:
-            # Keep the complete bounded sequence in the event/label metadata so
-            # the 20 Hz coordinator can consume the remaining vertical steps
-            # without asking the policy to recompute the original primitive.
-            safety["segments"] = [segment.to_dict() for segment in self.segments]
         return {"safety": safety}
 
 
@@ -265,14 +263,13 @@ class SafetyEnvelope:
         return bool(self.obstacle_source.segment_clear(start, end))
 
     def split_vertical(self, action: ActionPrimitive) -> tuple[ActionPrimitive, ...]:
+        """Compatibility helper: return the single bounded action for this frame."""
         if action.kind != "translate" or abs(action.up_m) <= self.config.max_vertical_step_m + 1e-9:
             return (action,)
-        count = int(math.ceil(abs(action.up_m) / self.config.max_vertical_step_m))
-        up = action.up_m / count
-        return tuple(ActionPrimitive.translate(action.forward_m if i == 0 else 0.0, action.right_m if i == 0 else 0.0, up) for i in range(count))
+        return (ActionPrimitive.translate(action.forward_m, action.right_m, math.copysign(self.config.max_vertical_step_m, action.up_m)),)
 
     def apply(self, action: ActionPrimitive, *, pose_ned: Pose, yaw_deg: float = 0.0, current_agl_m: float | None = None, agl_m: float | None = None, phase: str | None = None, skill: str | None = None) -> SafetyDecision:
-        """Filter one primitive.  ``segments`` contains additional vertical steps."""
+        """Filter one primitive; long vertical moves are clipped for this frame."""
         pose = tuple(float(v) for v in pose_ned)
         if len(pose) != 3 or not all(math.isfinite(v) for v in pose):
             return self._reject(["non_finite_pose"], stop=True)
@@ -285,7 +282,7 @@ class SafetyEnvelope:
             "descent", "release", "land", "landing", "landing_commanded",
             "landing_pending", "low_altitude",
         }
-        min_alt = 0.0 if low_exception else self.config.min_altitude_m
+        min_alt = max(self.config.low_altitude_exception_m, 0.0) if low_exception else self.config.min_altitude_m
         if action.kind in {"turn", "hold"}:
             if altitude < min_alt - 1e-9 or (self.config.max_altitude_m is not None and altitude > self.config.max_altitude_m + 1e-9) or (self.config.min_agl_m is not None and agl is not None and agl < self.config.min_agl_m - 1e-9):
                 return self._reject(["altitude"])
@@ -296,7 +293,7 @@ class SafetyEnvelope:
         reasons: list[str] = []
         target_alt = altitude + up
         # Clamp altitude while preserving the horizontal component.
-        if target_alt < min_alt and not (low_exception and up < 0):
+        if target_alt < min_alt:
             up = min_alt - altitude; target_alt = min_alt; reasons.append("min_altitude")
         if self.config.max_altitude_m is not None and target_alt > self.config.max_altitude_m:
             up = self.config.max_altitude_m - altitude; target_alt = self.config.max_altitude_m; reasons.append("max_altitude")
@@ -306,6 +303,9 @@ class SafetyEnvelope:
         hlimit = self.config.max_horizontal_step_m or self.config.max_translation_m
         if horizontal > hlimit + 1e-9:
             scale = hlimit / horizontal; forward *= scale; right *= scale; reasons.append("max_horizontal_step")
+        if abs(up) > self.config.max_vertical_step_m + 1e-9:
+            up = math.copysign(self.config.max_vertical_step_m, up)
+            reasons.append("max_vertical_step")
         north, east, _ = body_to_ned(forward, right, up, yaw_deg)
         end = (pose[0] + north, pose[1] + east)
         reasons.extend(self._spatial_reasons((pose[0], pose[1]), end))
@@ -320,8 +320,7 @@ class SafetyEnvelope:
             filtered = action
         else:
             filtered = ActionPrimitive.translate(forward, right, up)
-        segments = self.split_vertical(filtered)
-        return self._accept(segments[0], reasons, segments)
+        return self._accept(filtered, reasons)
 
     # Runtime/policy integrations use ``arbitrate`` to make the single return
     # point explicit.  Keep ``apply`` as the implementation and compatibility
