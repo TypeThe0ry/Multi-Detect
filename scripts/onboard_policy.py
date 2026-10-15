@@ -339,6 +339,13 @@ class YoloeProposer:
 
 
 class OnboardPolicy:
+    # Optional subsystems default to "absent" (tests build bare instances).
+    supervisor: MissionSupervisor | None = None
+    downlink: DownlinkQueue | None = None
+    sim_timeline: SimGroundTimeline | None = None
+    mission_plan: MissionPlan | None = None
+    ground_projection = ground_projection_from_config(None, base_dir=ROOT)
+
     def __init__(
         self,
         *,
@@ -356,11 +363,27 @@ class OnboardPolicy:
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        security = options.get("security") if isinstance(options.get("security"), dict) else {}
+        key_setting = (
+            options.get("operator_key_path")
+            or options.get("mission_key_path")
+            or options.get("mission_signing_key_path")
+            or security.get("key_path")
+        )
+        if isinstance(key_setting, str):
+            key_path = Path(key_setting)
+            key_setting = key_path if key_path.is_absolute() else ROOT / key_path
         if isinstance(package_raw, str):
             package_path = Path(package_raw)
             package_raw = package_path if package_path.is_absolute() else ROOT / package_path
         self.mission_package = (
-            load_mission_package(package_raw) if package_raw is not None else None
+            load_mission_package(
+                package_raw,
+                key_path=key_setting,
+                require_signature=key_setting is not None,
+            )
+            if package_raw is not None
+            else None
         )
         if self.mission_package is not None:
             package = self.mission_package
@@ -598,6 +621,22 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
+                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    timestamp_window_s=float(
+                        options.get(
+                            "command_timestamp_window_s",
+                            security.get("timestamp_window_s", 30.0),
+                        )
+                    ),
+                    clock_skew_s=float(
+                        options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
+                    ),
+                    rate_limit=int(
+                        options.get("command_rate_limit", security.get("rate_limit", 20))
+                    ),
+                    rate_window_s=float(
+                        options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
+                    ),
                 )
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
@@ -606,9 +645,9 @@ class OnboardPolicy:
 
     def close(self) -> None:
         try:
-            if getattr(self, "supervisor", None) is not None:
+            if self.supervisor is not None:
                 self.supervisor.finish()
-            if getattr(self, "downlink", None) is not None:
+            if self.downlink is not None:
                 self.downlink.close()
         finally:
             try:
@@ -901,7 +940,7 @@ class OnboardPolicy:
                 },
             }
         }
-        if getattr(self, "mission_plan", None) is not None and not self._mission_plan_labeled:
+        if self.mission_plan is not None and not self._mission_plan_labeled:
             labels["onboard"]["mission"]["plan"] = self._mission_plan_label()
             self._mission_plan_labeled = True
         if not math.isfinite(sum(pose_ned)):
