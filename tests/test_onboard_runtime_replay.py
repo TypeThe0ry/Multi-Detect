@@ -14,6 +14,7 @@ from multidetect.onboard_runtime.replay import (
     ReplayVehicle,
     load_episode,
 )
+from multidetect.onboard_runtime.runtime import observation_for
 from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleInterface
 
 
@@ -36,6 +37,8 @@ def write_episode(path: Path) -> Path:
         {"message_type": "LOCAL_POSITION_NED", "x": 1, "y": 2, "z": -3,
          "vx": 0, "vy": 0, "vz": 0, "receive_monotonic_ns": 9_900_000_000},
         {"mavpackettype": "ATTITUDE", "roll": 0, "pitch": 0, "yaw": 0,
+         "receive_monotonic_ns": 10_000_000_000},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1,
          "receive_monotonic_ns": 10_000_000_000},
         {"message_type": "LOCAL_POSITION_NED", "x": 4, "y": 5, "z": -6,
          "vx": 1, "vy": 0, "vz": 0, "receive_monotonic_ns": 11_000_000_000},
@@ -61,6 +64,7 @@ def test_replay_camera_and_vehicle_share_recorded_intervals(tmp_path: Path) -> N
     camera.start()
     assert camera.latest().rgb == b"first"
     assert vehicle.snapshot().position_ned == (1, 2, -3)
+    assert observation_for(camera.latest(), vehicle.snapshot())["landed"] is True
     assert vehicle.snapshot().pose_monotonic == pytest.approx(49.9)
     now[0] = 50.5
     assert camera.latest().rgb == b"first"

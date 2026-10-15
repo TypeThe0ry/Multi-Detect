@@ -12,9 +12,15 @@ from multidetect.onboard_runtime.runtime import (
     RuntimeConfig,
     SetpointPump,
     hold_setpoint,
+    observation_for,
 )
 from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleState
 from multidetect.sim_teacher.primitives import ActionPrimitive
+
+# Real threads and wall-clock deadlines: these results depend on host load, so the
+# deterministic onboard gate skips them; run them with `run_onboard_gate --with-timing`
+# on a quiet machine.
+pytestmark = pytest.mark.timing
 
 
 class FakeVehicle:
@@ -92,6 +98,16 @@ class FakeCamera:
         self.closed = True
 
 
+def test_observation_for_preserves_landed_state() -> None:
+    frame = CameraFrame(b"rgb", 12.5, FakeCamera.calibration)
+    state = VehicleState(
+        position_ned=(1.0, 2.0, -3.0), attitude_deg=(0.0, 0.0, 4.0),
+        velocity_ned=(0.0, 0.0, 0.0), home_ned=(1.0, 2.0, 0.0),
+        landed=True, armed=False, mode="LAND",
+    )
+    assert observation_for(frame, state)["landed"] is True
+
+
 class SlowPolicy:
     def __init__(self, latency=1.5, action=None, release_event=None):
         self.latency = latency
@@ -131,7 +147,9 @@ def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
     vehicle, camera = FakeVehicle(), FakeCamera()
     release = threading.Event()
     policy = SlowPolicy(release_event=release)
-    runtime = OnboardRuntime(vehicle, camera, policy)
+    runtime = OnboardRuntime(
+        vehicle, camera, policy, config=RuntimeConfig(camera_timeout_s=3.0)
+    )
     runtime.start()
     initial = runtime.pump.target
     try:
@@ -323,7 +341,10 @@ def test_takeoff_primes_stream_and_confirms_mode_arm_before_home_relative_climb(
         set_mode(mode)
 
     vehicle.set_mode = record_priming
-    runtime = OnboardRuntime(vehicle, camera, policy, home_ned=(10, 20, 7))
+    runtime = OnboardRuntime(
+        vehicle, camera, policy, home_ned=(10, 20, 7),
+        config=RuntimeConfig(camera_timeout_s=2.0),
+    )
     runtime.start(active=False)
     started = time.monotonic()
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import math
 import threading
@@ -49,7 +50,10 @@ class ReplayTimeline:
     """Shared monotonic origin prevents camera/vehicle replay drift."""
 
     def __init__(
-        self, *, speed: float = 1.0, clock: Callable[[], float] = time.monotonic,
+        self,
+        *,
+        speed: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not math.isfinite(speed) or speed <= 0:
             raise ValueError("replay speed must be positive")
@@ -75,7 +79,8 @@ class ReplayTimeline:
 
 
 def _rows(path: Path) -> Iterator[dict[str, Any]]:
-    with path.open(encoding="utf-8") as stream:
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
+    with opener(path, mode="rt", encoding="utf-8") as stream:
         for index, line in enumerate(stream, 1):
             if line.strip():
                 value = json.loads(line)
@@ -85,9 +90,11 @@ def _rows(path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _stamp(row: Mapping[str, Any], *, camera: bool = False) -> float:
-    field = "frame_received_monotonic_ns" if camera and (
-        "frame_received_monotonic_ns" in row
-    ) else "receive_monotonic_ns"
+    field = (
+        "frame_received_monotonic_ns"
+        if camera and ("frame_received_monotonic_ns" in row)
+        else "receive_monotonic_ns"
+    )
     stamp = float(row[field]) / 1e9
     if not math.isfinite(stamp):
         raise ValueError("replay receive_monotonic_ns must be finite")
@@ -95,7 +102,8 @@ def _stamp(row: Mapping[str, Any], *, camera: bool = False) -> float:
 
 
 def load_episode(
-    path: str | Path, calibration: CameraCalibration | None = None,
+    path: str | Path,
+    calibration: CameraCalibration | None = None,
 ) -> EpisodeRecording:
     """Load ``steps.jsonl`` observations and ``mavlink.jsonl`` from one episode.
 
@@ -106,8 +114,9 @@ def load_episode(
     """
     path = Path(path).resolve()
     metadata_path = path / "episode.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) \
-        if metadata_path.is_file() else {}
+    metadata = (
+        json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
+    )
     frames: list[tuple[float, Path, CameraCalibration]] = []
     seen: set[tuple[float, Path]] = set()
     for step in _rows(path / "steps.jsonl"):
@@ -123,9 +132,13 @@ def load_episode(
             frame_calibration = calibration or CameraCalibration.from_mapping(
                 observation["camera_info"]
             )
-            has_stamp = any(key in observation for key in (
-                "frame_received_monotonic_ns", "receive_monotonic_ns",
-            ))
+            has_stamp = any(
+                key in observation
+                for key in (
+                    "frame_received_monotonic_ns",
+                    "receive_monotonic_ns",
+                )
+            )
             stamp = _stamp(observation if has_stamp else step, camera=True)
             if (stamp, image_path) not in seen:
                 frames.append((stamp, image_path, frame_calibration))
@@ -134,20 +147,30 @@ def load_episode(
         raise ValueError("episode contains no recorded RGB observations")
     frames.sort(key=lambda item: item[0])
     origin = frames[0][0]
+    mavlink_path = path / "mavlink.jsonl"
+    if not mavlink_path.is_file():
+        mavlink_path = path / "mavlink.jsonl.gz"
     telemetry = sorted(
-        ((_stamp(row), row) for row in _rows(path / "mavlink.jsonl")),
+        ((_stamp(row), row) for row in _rows(mavlink_path)),
         key=lambda item: item[0],
     )
     if not telemetry:
         raise ValueError("episode contains no MAVLink telemetry")
     return EpisodeRecording(
-        frames=tuple(RecordedFrame(stamp - origin, frame_path, frame_calibration)
-                     for stamp, frame_path, frame_calibration in frames),
-        telemetry=tuple(RecordedTelemetry(stamp - origin, row)
-                        for stamp, row in telemetry),
-        task_text=str(metadata.get("task_text", "")), path=path,
-        synthetic=(metadata["synthetic"] if isinstance(metadata.get("synthetic"), bool)
-                   else True if metadata.get("sensor_status") == "synthetic_bench" else None),
+        frames=tuple(
+            RecordedFrame(stamp - origin, frame_path, frame_calibration)
+            for stamp, frame_path, frame_calibration in frames
+        ),
+        telemetry=tuple(RecordedTelemetry(stamp - origin, row) for stamp, row in telemetry),
+        task_text=str(metadata.get("task_text", "")),
+        path=path,
+        synthetic=(
+            metadata["synthetic"]
+            if isinstance(metadata.get("synthetic"), bool)
+            else True
+            if metadata.get("sensor_status") == "synthetic_bench"
+            else None
+        ),
     )
 
 
@@ -182,8 +205,10 @@ class ReplayCameraSource:
             self._index = index
             record = self.recording.frames[index]
             frame = CameraFrame(
-                record.path.read_bytes(), self.timeline.timestamp(record.offset_s),
-                record.calibration, record.offset_s,
+                record.path.read_bytes(),
+                self.timeline.timestamp(record.offset_s),
+                record.calibration,
+                record.offset_s,
             )
             with self._lock:
                 self._latest = frame
@@ -234,7 +259,8 @@ class ReplayVehicle:
                     if sample.offset_s > elapsed:
                         break
                     self._decoder.ingest(
-                        sample.message, self.timeline.timestamp(sample.offset_s),
+                        sample.message,
+                        self.timeline.timestamp(sample.offset_s),
                     )
                     self._index += 1
             return self._decoder.snapshot()
