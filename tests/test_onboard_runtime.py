@@ -93,9 +93,13 @@ class FakeCamera:
 
 
 class SlowPolicy:
-    def __init__(self, latency=1.5, action=None):
+    def __init__(self, latency=1.5, action=None, release_event=None):
         self.latency = latency
         self.action = action or ActionPrimitive.hold(0.05)
+        # Tests that need a deterministic long-running policy can provide an
+        # event and release it after observing enough stream ticks.  Existing
+        # latency-based callers retain the original behaviour.
+        self.release_event = release_event
         self.entered = threading.Event()
         self.stopped = threading.Event()
         self.calls = 0
@@ -103,11 +107,16 @@ class SlowPolicy:
     def act(self, observation, *, pose_ned, yaw_deg):
         self.calls += 1
         self.entered.set()
-        self.stopped.wait(self.latency)
+        if self.release_event is not None:
+            self.release_event.wait()
+        else:
+            self.stopped.wait(self.latency)
         return self.action, {}
 
     def close(self):
         self.stopped.set()
+        if self.release_event is not None:
+            self.release_event.set()
 
 
 def wait_for(predicate, timeout=1):
@@ -119,20 +128,30 @@ def wait_for(predicate, timeout=1):
 
 
 def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
-    vehicle, camera, policy = FakeVehicle(), FakeCamera(), SlowPolicy()
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    release = threading.Event()
+    policy = SlowPolicy(release_event=release)
     runtime = OnboardRuntime(vehicle, camera, policy)
     runtime.start()
     initial = runtime.pump.target
     try:
         runtime.poll()
         assert policy.entered.wait(0.5)
-        runtime.run(2.5)  # the fake slow call takes 1.5 s; leave room on a loaded host
-        during_call = [target for stamp, target in vehicle.setpoints
-                       if stamp < vehicle.setpoints[0][0] + 1.4]
+        # Wait for an observable number of independent pump ticks rather than
+        # sleeping for a fixed interval.  This keeps the check deterministic
+        # when the host is under load while still proving the stream runs while
+        # policy inference is blocked.
+        wait_for(lambda: len(vehicle.setpoints) >= 12, timeout=2.0)
+        during_call = [target for _stamp, target in vehicle.setpoints]
         assert len(during_call) >= 12
         assert all(target == initial for target in during_call)
+        release.set()
+        # The coordinator is deliberately caller-driven, so poll it after the
+        # policy worker is released to consume the completed action.
+        runtime.run(0.3)
+        assert runtime.steps >= 1
         metrics = runtime.report()["setpoints"]
-        # PX4 leaves OFFBOARD below ~2 Hz (0.5 s); margins allow a loaded test host.
+        # PX4 leaves OFFBOARD below ~2 Hz (0.5 s).
         assert metrics["rate_hz"] >= 12
         assert metrics["max_gap_s"] < 0.4
         assert runtime.steps >= 1
