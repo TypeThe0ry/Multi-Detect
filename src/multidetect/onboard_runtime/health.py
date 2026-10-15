@@ -179,10 +179,11 @@ class HealthMonitor:
         if self.state.clock_raw is None:
             self.state.clock_raw = raw
             return self.state.elapsed_s
-        self.state.elapsed_s += min(
-            self.config.max_frame_delta_s, max(0.0, raw - self.state.clock_raw)
-        )
-        self.state.clock_raw = raw
+        if raw >= self.state.clock_raw:
+            self.state.elapsed_s += min(
+                self.config.max_frame_delta_s, raw - self.state.clock_raw
+            )
+            self.state.clock_raw = raw
         return self.state.elapsed_s
 
     def on_frame(self, *, now=None, mission_requires_images=False):
@@ -190,15 +191,18 @@ class HealthMonitor:
         if not self.config.enabled:
             return HealthDecision()
         self._probe(n)
+        sample_ok = True
         try:
             rd = dict(self.resources() or {})
         except Exception as e:
+            sample_ok = False
             self._trans("health_source_error", True, n, error=str(e))
             rd = {}
             self.state.sample_failures += 1
         else:
             self._trans("health_source_error", False, n)
-            self.state.sample_failures = 0
+            if sample_ok:
+                self.state.sample_failures = 0
         self.state.last_resources = rd
         t = self._num(rd.get("temperature_c"))
         if t is None and isinstance(rd.get("temperatures_c"), Mapping):
@@ -213,10 +217,11 @@ class HealthMonitor:
             or thr
             or (m is not None and m >= self.config.memory_pressure_threshold)
         )
-        if t is None and m is None and not thr and rd:
+        pressure = measured_pressure if sample_ok else self.state.pressure_active
+        if sample_ok and t is None and m is None and not thr and rd:
             self.state.sample_failures += 1
             pressure = self.state.pressure_active
-        else:
+        elif sample_ok:
             self.state.sample_failures = 0
             pressure = measured_pressure
         if self.state.pressure_active:

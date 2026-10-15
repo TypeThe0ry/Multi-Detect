@@ -652,17 +652,23 @@ class OnboardPolicy:
                     return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
-                plan, report = build_mission_from_text(
-                    self.task_text,
-                    tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
-                    post,
-                    sorted_keys=bool(options.get("plan_sorted_keys", True)),
-                    capabilities=capabilities,
-                )
+                try:
+                    plan, report = build_mission_from_text(
+                        self.task_text,
+                        tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
+                        post,
+                        sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                        capabilities=capabilities,
+                    )
+                except Exception:
+                    self.health.record_slow_call(0.0, ok=False)
+                    raise
                 self.mission_plan, self.mission_plan_report = plan, report
-                if self.mission_package is not None and report.get("error"):
-                    self.slow.close()
-                    raise ValueError(f"mission package plan compilation failed: {report['error']}")
+                if report.get("error"):
+                    self.health.record_slow_call(0.0, ok=False)
+                    if self.mission_package is not None:
+                        self.slow.close()
+                    raise ValueError(f"mission plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
