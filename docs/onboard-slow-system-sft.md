@@ -421,3 +421,24 @@ Whichever task has more rows gets better and the other gets worse: r9's extra
 identity rows cost planning, r11's extra plan rows cost identity (it now
 rejects too often). The adapter is rank 4 (alpha 8), small for two tasks in
 one LoRA. v2-r8-multi stays onboard; the next round raises the rank.
+
+### v2-r12-multi: rank 16 and look-alike training worlds (2026-10-15)
+
+Two changes against r9: the LoRA rank goes from 4 to 16 (alpha 32), and the
+identity rows gain 719 rows from 24 onboard flights of v2-r8-multi in the 12
+new look-alike training worlds gen_cfs_w0000-0011 (each target placed beside
+its confusers, e.g. backpack with electrical box and cardboard box; v2-r8-multi
+confirmed the wrong object in 7 of those 24 flights). Live proposals were
+labelled by segmentation truth as before, giving rows such as "electrical box,
+task asks for backpack -> reject" (18) that no earlier set contained. Plan rows
+are plan-sft-v4. Identity train rows 2,252, plan rows 1,500; the test split is
+the same 243 rows.
+
+| Model | Rank | Identity acc | Distractor rejection | Match recall | 30 tasks exact | 60 tasks exact | Plan p50 (idle 4060) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| v2-r8-multi | 4 | 94.1% | 89.9% | 99.0% | 90% | 77% | 0.75 s |
+| **v2-r12-multi** | 16 | **96.4%** | **95.0%** | 98.0% | **97%** | 77% | 0.74 s |
+
+Both tasks improve together, so the rank-4 adapter was the bottleneck. The
+GGUF is the same size (merged Q5_K_M, 1.26 GB). Closed-loop flights with
+v2-r12-multi (mission suite and the six find-task test worlds) are running.
