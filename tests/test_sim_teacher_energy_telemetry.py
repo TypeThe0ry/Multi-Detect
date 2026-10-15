@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+from multidetect.sim_teacher.streams import (
+    MavlinkReader,
+    MavlinkState,
+    SensorSample,
+    build_observation,
+)
+
+
+def _sensor(stamp: int = 10_000_000_000) -> SensorSample:
+    return SensorSample(
+        rgb=None,
+        width=1,
+        height=1,
+        depth=None,
+        camera_info={},
+        pose={},
+        velocity=[0, 0, 0],
+        sensor_stamp_ns=1_000_000_000,
+        received_monotonic_ns=stamp,
+        received_wall_time=1.0,
+    )
+
+
+def _state() -> MavlinkState:
+    return MavlinkState(
+        messages={
+            "LOCAL_POSITION_NED": {"time_boot_ms": 1000, "x": 1, "y": 2, "z": -20},
+            "ATTITUDE": {},
+            "GLOBAL_POSITION_INT": {},
+            "GPS_RAW_INT": {"fix_type": 3},
+            "BATTERY_STATUS": {"current_battery": 1000, "battery_remaining": 80},
+            "SYS_STATUS": {"battery_remaining": 81},
+            "WIND_COV": {"wind_x": 2, "wind_y": 1},
+            "HEARTBEAT": {"base_mode": 128},
+        },
+        received_monotonic_ns={
+            "BATTERY_STATUS": 1_000_000_000,
+            "SYS_STATUS": 2_000_000_000,
+            "WIND_COV": 3_000_000_000,
+            "HEARTBEAT": 4_000_000_000,
+            "LOCAL_POSITION_NED": 5_000_000_000,
+        },
+    )
+
+
+def test_observations_keep_wire_receive_times_and_skip_unstamped_samples() -> None:
+    state = _state()
+    first = build_observation(_sensor(), state)["energy_telemetry"]
+    second = build_observation(_sensor(20_000_000_000), state)["energy_telemetry"]
+    assert first == second
+    assert [row["received_monotonic_s"] for row in first] == [1, 2, 3, 4, 5]
+    assert first[0]["message"]["mavpackettype"] == "BATTERY_STATUS"
+    assert "mavpackettype" not in state.messages["BATTERY_STATUS"]
+    del state.received_monotonic_ns["BATTERY_STATUS"]
+    rows = build_observation(_sensor(), state)["energy_telemetry"]
+    assert all(row["message"]["mavpackettype"] != "BATTERY_STATUS" for row in rows)
+
+
+def test_pose_alignment_preserves_latest_wire_state_for_energy() -> None:
+    reader = MavlinkReader(object())
+    reader.state = _state()
+    reader.state.messages["LOCAL_POSITION_NED"] = {
+        "time_boot_ms": 2000,
+        "x": 30,
+        "y": 0,
+        "z": -20,
+        "vx": 6,
+    }
+    reader._record_pose_message(
+        "LOCAL_POSITION_NED",
+        {"time_boot_ms": 1000, "x": 1, "y": 0, "z": -20, "vx": 0},
+        900_000_000,
+        1.0,
+    )
+    state = reader.aligned_state(1_000_000_000, timeout_s=0)
+    observation = build_observation(_sensor(), state)
+    assert observation["pose"]["local_ned_m"][0] == 1
+    local = next(
+        row
+        for row in observation["energy_telemetry"]
+        if row["message"]["mavpackettype"] == "LOCAL_POSITION_NED"
+    )
+    assert local["message"]["x"] == 30
+    assert local["message"]["vx"] == 6
+    assert local["received_monotonic_s"] == 5
+
+
+def test_reader_captures_battery_and_wind_samples_with_receive_clocks() -> None:
+    class Connection:
+        def __init__(self) -> None:
+            self.messages = iter(
+                [
+                    {"type": "BATTERY_STATUS", "current_battery": 1000},
+                    {"type": "WIND_COV", "wind_x": 2, "wind_y": 1},
+                ]
+            )
+
+        def recv_msg(self):
+            message = next(self.messages, None)
+            if message is None:
+                reader._stop.set()
+            return message
+
+    clocks = iter([1_000_000_000, 2_000_000_000])
+    reader = MavlinkReader(Connection(), clock=lambda: next(clocks))
+    reader._run()
+    reader.raise_if_failed()
+    assert reader.state.get("BATTERY_STATUS")["current_battery"] == 1000
+    assert reader.state.get("WIND_COV")["wind_x"] == 2
+    assert reader.state.received_monotonic_ns == {
+        "BATTERY_STATUS": 1_000_000_000,
+        "WIND_COV": 2_000_000_000,
+    }
+
+
+def test_energy_snapshot_preserves_pymavlink_source_identity() -> None:
+    class Message:
+        def to_dict(self):
+            return {"battery_remaining": 1}
+
+        def get_srcSystem(self):
+            return 2
+
+        def get_srcComponent(self):
+            return 7
+
+    state = _state()
+    state.messages["BATTERY_STATUS"] = Message()
+    rows = build_observation(_sensor(), state)["energy_telemetry"]
+    assert rows[0]["message"]["source_system"] == 2
+    assert rows[0]["message"]["source_component"] == 7

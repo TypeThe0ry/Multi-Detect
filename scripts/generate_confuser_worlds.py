@@ -45,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         "--out-scenarios", type=Path, default=ROOT / "configs/scenarios/generated-confusers"
     )
     parser.add_argument("--confuser-copies", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--world-prefix", default="gen_cfs_w")
+    parser.add_argument("--targets", nargs="+", choices=TARGETS, default=list(TARGETS))
+    # Counting worlds hold three copies of the target: more identity positives.
+    parser.add_argument("--all-count", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.confusers.is_file():
@@ -60,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "count": args.count,
                     "seed": args.seed,
-                    "world_prefix": "gen_cfs_w",
-                    "targets": list(TARGETS),
+                    "world_prefix": args.world_prefix,
+                    "targets": list(args.targets),
                     "confuser_copies": args.confuser_copies,
                     "out_scenarios": str(args.out_scenarios),
                 },
@@ -69,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
-    copy_counts = tuple(1 if i < args.count // 2 else 3 for i in range(args.count))
+    copy_counts = tuple(
+        3 if args.all_count or i >= args.count // 2 else 1 for i in range(args.count)
+    )
     document = generate_fuel_worlds(
         count=args.count,
         seed=args.seed,
@@ -80,9 +86,9 @@ def main(argv: list[str] | None = None) -> int:
         resolved_root=ROOT / "artifacts/cache/gz-fuel/resolved",
         segmentation_labels=True,
         unambiguous_tasks=True,
-        world_prefix="gen_cfs_w",
+        world_prefix=args.world_prefix,
         count_copies=copy_counts,
-        count_slugs=TARGETS,
+        count_slugs=tuple(args.targets),
         spread_m=(10.0, 50.0),
         confusers=table,
         confuser_copies=args.confuser_copies,

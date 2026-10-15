@@ -315,9 +315,35 @@ class MavlinkState:
     count: int = 0
     last_preflight_failure_ns: int = 0
     pose_alignment: dict[str, Any] | None = None
+    energy_telemetry: list[dict[str, Any]] | None = None
 
     def get(self, name: str) -> Any | None:
         return self.messages.get(name)
+
+
+def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
+    """Copy wire samples with their real receive clocks, never a frame clock."""
+    samples = []
+    for name in ("BATTERY_STATUS", "SYS_STATUS", "WIND_COV", "HEARTBEAT", "LOCAL_POSITION_NED"):
+        message = state.get(name)
+        stamp = state.received_monotonic_ns.get(name)
+        if message is None or stamp is None:
+            continue
+        row = MavlinkReader._mapping(message)
+        for source_field, getter in (
+            ("source_system", "get_srcSystem"),
+            ("source_component", "get_srcComponent"),
+        ):
+            read_source = getattr(message, getter, None)
+            if callable(read_source):
+                row[source_field] = read_source()
+        samples.append(
+            {
+                "message": {**row, "mavpackettype": name},
+                "received_monotonic_s": stamp / 1e9,
+            }
+        )
+    return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
 class MavlinkReader:
@@ -330,11 +356,15 @@ class MavlinkReader:
             "ATTITUDE",
             "GLOBAL_POSITION_INT",
             "GPS_RAW_INT",
+            "DISTANCE_SENSOR",
+            "ALTITUDE",
             "HEARTBEAT",
             "EXTENDED_SYS_STATE",
             "COMMAND_ACK",
             "HOME_POSITION",
             "SYS_STATUS",
+            "BATTERY_STATUS",
+            "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
         }
@@ -421,6 +451,7 @@ class MavlinkReader:
                 received_wall_time=dict(self.state.received_wall_time),
                 count=self.state.count,
                 last_preflight_failure_ns=self.state.last_preflight_failure_ns,
+                energy_telemetry=_energy_telemetry(self.state),
             )
         for name, result in selected.items():
             if result is None:
@@ -640,8 +671,69 @@ def simulation_stamp_skew_ms(
     return frame_sensor_stamp_ns / 1_000_000.0 - float(pose_time_boot_ms)
 
 
+def _ground_agl(
+    sensor: SensorSample, mavlink: MavlinkState, *, max_age_s: float
+) -> dict[str, Any] | None:
+    """Normalize optional MAVLink AGL, never relative_alt or barometric AMSL.
+
+    DISTANCE_SENSOR must face body down (rotation 25); compensate vehicle tilt.
+    ALTITUDE.altitude_terrain and bottom_clearance are already distances above
+    terrain, not MSL ground elevations. Negative/NaN values mean unavailable.
+    """
+    def finite(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+        )
+
+    for name in ("DISTANCE_SENSOR", "ALTITUDE"):
+        message = mavlink.get(name)
+        stamp = mavlink.received_monotonic_ns.get(name)
+        if message is None or stamp is None:
+            continue
+        age = (sensor.received_monotonic_ns - stamp) / 1e9
+        if not 0 <= age <= max_age_s:
+            continue
+        if name == "DISTANCE_SENSOR":
+            if _field(message, "orientation") != 25 or _field(message, "signal_quality") == 1:
+                continue
+            distance = _field(message, "current_distance")
+            minimum, maximum = _field(message, "min_distance"), _field(message, "max_distance")
+            if not all(finite(value) for value in (distance, minimum, maximum)):
+                continue
+            if not (0 <= minimum <= distance <= maximum and distance > 0):
+                continue
+            attitude = mavlink.get("ATTITUDE")
+            attitude_stamp = mavlink.received_monotonic_ns.get("ATTITUDE")
+            if attitude_stamp is None:
+                continue
+            attitude_age = (sensor.received_monotonic_ns - attitude_stamp) / 1e9
+            if not 0 <= attitude_age <= max_age_s:
+                continue
+            if abs(stamp - attitude_stamp) / 1e9 > min(max_age_s, 0.25):
+                continue
+            roll, pitch = _field(attitude, "roll"), _field(attitude, "pitch")
+            if not all(finite(value) for value in (roll, pitch)):
+                continue
+            component = math.cos(roll) * math.cos(pitch)
+            if component <= 1e-6:
+                continue
+            height = distance / 100.0 * component
+        else:
+            height = _field(message, "altitude_terrain")
+            if not finite(height) or height <= 0:
+                height = _field(message, "bottom_clearance")
+            if not finite(height) or height <= 0:
+                continue
+        return {"height_m": height, "age_s": age, "source": name}
+    return None
+
+
 def build_observation(
-    sensor: SensorSample, mavlink: MavlinkState, *, camera_info: Mapping[str, object] | None = None
+    sensor: SensorSample, mavlink: MavlinkState, *,
+    camera_info: Mapping[str, object] | None = None,
+    ground_agl_max_age_s: float | None = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -749,6 +841,11 @@ def build_observation(
             "yaw_deg": math.degrees(float(_field(attitude, "yaw", 0.0))),
         },
         "velocity": velocity,
+        # Pose alignment may interpolate or select historical position. Energy
+        # learning needs the latest wire state and its unmodified receive time.
+        "energy_telemetry": mavlink.energy_telemetry
+        if mavlink.energy_telemetry is not None
+        else _energy_telemetry(mavlink),
         "gps_fix": gps_fix,
         "landed": landed,
         "sensor_status": "live",
@@ -771,6 +868,10 @@ def build_observation(
     if sensor.segmentation is not None:
         result["segmentation"] = sensor.segmentation
         result["segmentation_info"] = sensor.segmentation_info
+    if ground_agl_max_age_s is not None:
+        ground_agl = _ground_agl(sensor, mavlink, max_age_s=ground_agl_max_age_s)
+        if ground_agl is not None:
+            result["ground_agl"] = ground_agl
     return result
 
 

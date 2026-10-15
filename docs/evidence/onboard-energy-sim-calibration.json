@@ -1,0 +1,430 @@
+{
+  "schema_version": 1,
+  "log_count": 16,
+  "sources": [
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\count-cones\\campaign\\gen_cnt2_w0000\\episodes\\episode-0000-2975d3be\\mavlink.jsonl",
+      "sha256": "486cc3f60fd0db2286c8d87c3ed1ab61d30cd5fc5edabd7246f76b27a9eff73f",
+      "bytes": 75400771,
+      "battery_status_samples": 228,
+      "sys_status_samples": 457,
+      "battery_span_s": 1490.14,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\count-cones\\campaign\\gen_cnt2_w0000\\episodes\\episode-0001-b06b15ed\\mavlink.jsonl",
+      "sha256": "0694655d2561529e1764b1ba90a33628196b65745af2584c397bc6071d243558",
+      "bytes": 21933279,
+      "battery_status_samples": 66,
+      "sys_status_samples": 133,
+      "battery_span_s": 411.688,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\count-fire-hydrants\\campaign\\gen_cnt2_w0001\\episodes\\episode-0000-3d5449b2\\mavlink.jsonl",
+      "sha256": "8e21b218ccbfaf86c438c9aa2231d5e2684dd2ec242271bc42f3f86e85c0a1d5",
+      "bytes": 31539524,
+      "battery_status_samples": 95,
+      "sys_status_samples": 191,
+      "battery_span_s": 1103.891,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\count-fire-hydrants\\campaign\\gen_cnt2_w0001\\episodes\\episode-0000-ea72ce3c\\mavlink.jsonl",
+      "sha256": "b86e12e69a1387a655bcf2c541fc82026e6209420ff4f72f8cf33d8a3ccde1f3",
+      "bytes": 3394891,
+      "battery_status_samples": 10,
+      "sys_status_samples": 21,
+      "battery_span_s": 57.641,
+      "first_soc_percent": 99,
+      "last_soc_percent": 77
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\english-find-person\\campaign\\gen_v2_w0039\\episodes\\episode-0000-ae08402d\\mavlink.jsonl",
+      "sha256": "98e84c0e1aad4292e654b127482b90b4d23d51ee8f3de87f0c8e5d4a1072b87a",
+      "bytes": 9701765,
+      "battery_status_samples": 29,
+      "sys_status_samples": 59,
+      "battery_span_s": 210.203,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\english-find-person\\campaign\\gen_v2_w0039\\episodes\\episode-0001-766e6d0e\\mavlink.jsonl",
+      "sha256": "3e674d792ab43978813ece7c5832dcee7c2a00ab8e033e671da3527239908df2",
+      "bytes": 9868717,
+      "battery_status_samples": 30,
+      "sys_status_samples": 60,
+      "battery_span_s": 240.797,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\find-suv-land\\campaign\\gen_v2_w0035\\episodes\\episode-0000-5c7f556a\\mavlink.jsonl",
+      "sha256": "cbe237777c86acbe11d38d7f966795b6edc87bd244f7432d986a89bd57832ab4",
+      "bytes": 8698232,
+      "battery_status_samples": 26,
+      "sys_status_samples": 53,
+      "battery_span_s": 158.219,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\find-suv-land\\campaign\\gen_v2_w0035\\episodes\\episode-0001-19978df9\\mavlink.jsonl",
+      "sha256": "42c2222426e326783240e8f2b192b5201f217c0573cf060ed2a95a210040e6d5",
+      "bytes": 8032526,
+      "battery_status_samples": 24,
+      "sys_status_samples": 49,
+      "battery_span_s": 144.859,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\inspect-postbox\\campaign\\gen_v2_w0038\\episodes\\episode-0000-9d091601\\mavlink.jsonl",
+      "sha256": "eefafede3adc3fe9344cb67b0c0c574ce8aaad8096a4e9021fd7dea0fa7f1417",
+      "bytes": 16802402,
+      "battery_status_samples": 51,
+      "sys_status_samples": 102,
+      "battery_span_s": 331.406,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\inspect-postbox\\campaign\\gen_v2_w0038\\episodes\\episode-0001-05e1484b\\mavlink.jsonl",
+      "sha256": "6267acfddff3fb9e1f65fa3d0d04d3f15d3448f650935419d70c061eba6a1782",
+      "bytes": 15658764,
+      "battery_status_samples": 47,
+      "sys_status_samples": 95,
+      "battery_span_s": 306.453,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\monitor-backpacks\\campaign\\gen_cnt2_w0003\\episodes\\episode-0000-731531e2\\mavlink.jsonl",
+      "sha256": "58ff3cfb49d456b598c20d0addb883ca332a3b16f224c9833fe55b64198d3916",
+      "bytes": 40783037,
+      "battery_status_samples": 102,
+      "sys_status_samples": 205,
+      "battery_span_s": 948.157,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\monitor-backpacks\\campaign\\gen_cnt2_w0003\\episodes\\episode-0000-e16ebd8d\\mavlink.jsonl",
+      "sha256": "7d63ea7ef92df16689e7456b7ca51460df2431ac932614005419c3db269f71d4",
+      "bytes": 290,
+      "battery_status_samples": 0,
+      "sys_status_samples": 0,
+      "battery_span_s": null,
+      "first_soc_percent": null,
+      "last_soc_percent": null
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\patrol-fence-backpacks\\campaign\\gen_cnt2_w0003\\episodes\\episode-0000-190d439c\\mavlink.jsonl",
+      "sha256": "3f6ce662c5327c312cd7dc9886e36fa7c8040ee85d570bd0645e580c5b6691e4",
+      "bytes": 290,
+      "battery_status_samples": 0,
+      "sys_status_samples": 0,
+      "battery_span_s": null,
+      "first_soc_percent": null,
+      "last_soc_percent": null
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\patrol-fence-backpacks\\campaign\\gen_cnt2_w0003\\episodes\\episode-0000-a766a1f9\\mavlink.jsonl",
+      "sha256": "369025b85abbc7c2b9f1ebfbcde7360ce7ea20d7d44a28b7dceeb46f288b2e62",
+      "bytes": 50529926,
+      "battery_status_samples": 145,
+      "sys_status_samples": 291,
+      "battery_span_s": 1575.625,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\survey-site-overlap\\campaign\\gen_cnt2_w0002\\episodes\\episode-0000-378d2cbe\\mavlink.jsonl",
+      "sha256": "47017a3389c1e577e86e702b7cda3518b08c26d4a35849f6b4bffa7d69f8fab3",
+      "bytes": 36684141,
+      "battery_status_samples": 111,
+      "sys_status_samples": 222,
+      "battery_span_s": 790.937,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    },
+    {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12\\survey-site-overlap\\campaign\\gen_cnt2_w0002\\episodes\\episode-0001-6e631022\\mavlink.jsonl",
+      "sha256": "2b613bac0725dcb6d795a43ca17cc4b7a18abf2b482e2ba63307cc911b4c153d",
+      "bytes": 35530046,
+      "battery_status_samples": 107,
+      "sys_status_samples": 215,
+      "battery_span_s": 912.313,
+      "first_soc_percent": 99,
+      "last_soc_percent": 50
+    }
+  ],
+  "message_counts": {
+    "ALTITUDE": 2150,
+    "ATTITUDE": 107108,
+    "ATTITUDE_QUATERNION": 107108,
+    "ATTITUDE_TARGET": 107533,
+    "BATTERY_STATUS": 1071,
+    "COMMAND_ACK": 134,
+    "COMMAND_LONG": 125,
+    "ESTIMATOR_STATUS": 1071,
+    "EXTENDED_SYS_STATE": 10373,
+    "GLOBAL_POSITION_INT": 106344,
+    "GPS_GLOBAL_ORIGIN": 14,
+    "GPS_RAW_INT": 10757,
+    "HEARTBEAT": 10373,
+    "HOME_POSITION": 1071,
+    "LOCAL_POSITION_NED": 107567,
+    "MISSION_CURRENT": 2162,
+    "OPEN_DRONE_ID_LOCATION": 2151,
+    "OPEN_DRONE_ID_SYSTEM": 2151,
+    "PARAM_VALUE": 99,
+    "PING": 18672,
+    "POSITION_TARGET_GLOBAL_INT": 224,
+    "POSITION_TARGET_LOCAL_NED": 107566,
+    "SCALED_PRESSURE": 2151,
+    "SERVO_OUTPUT_RAW": 107578,
+    "STATUSTEXT": 42798,
+    "SYS_STATUS": 2153,
+    "TIMESYNC": 29595,
+    "UNKNOWN_290": 2151,
+    "UNKNOWN_291": 2151,
+    "UNKNOWN_380": 1074,
+    "UNKNOWN_410": 64822,
+    "UNKNOWN_411": 726,
+    "UNKNOWN_436": 1073,
+    "UNKNOWN_441": 2151,
+    "UNKNOWN_514": 1071,
+    "UNKNOWN_8": 10373,
+    "VFR_HUD": 8600,
+    "VIBRATION": 211,
+    "collector_container_started": 16,
+    "collector_episode_complete": 11,
+    "collector_landing_complete": 11
+  },
+  "malformed_records": 0,
+  "battery_fields": {
+    "BATTERY_STATUS.battery_remaining": {
+      "samples": 1071,
+      "min": 50,
+      "max": 100,
+      "unique_values": 51,
+      "most_common": [
+        {
+          "value": 50,
+          "count": 824
+        },
+        {
+          "value": 100,
+          "count": 27
+        },
+        {
+          "value": 99,
+          "count": 19
+        },
+        {
+          "value": 98,
+          "count": 8
+        },
+        {
+          "value": 95,
+          "count": 8
+        }
+      ]
+    },
+    "BATTERY_STATUS.current_battery": {
+      "samples": 1071,
+      "min": -1,
+      "max": -1,
+      "unique_values": 1,
+      "most_common": [
+        {
+          "value": -1,
+          "count": 1071
+        }
+      ]
+    },
+    "BATTERY_STATUS.current_consumed": {
+      "samples": 1071,
+      "min": 0,
+      "max": 0,
+      "unique_values": 1,
+      "most_common": [
+        {
+          "value": 0,
+          "count": 1071
+        }
+      ]
+    },
+    "BATTERY_STATUS.energy_consumed": {
+      "samples": 1071,
+      "min": -1,
+      "max": -1,
+      "unique_values": 1,
+      "most_common": [
+        {
+          "value": -1,
+          "count": 1071
+        }
+      ]
+    },
+    "BATTERY_STATUS.pack_voltage_v": {
+      "samples": 1071,
+      "min": 15.3,
+      "max": 16.2,
+      "unique_values": 189,
+      "most_common": [
+        {
+          "value": 15.3,
+          "count": 831
+        },
+        {
+          "value": 16.2,
+          "count": 38
+        },
+        {
+          "value": 16.143,
+          "count": 2
+        },
+        {
+          "value": 16.083,
+          "count": 2
+        },
+        {
+          "value": 16.023,
+          "count": 2
+        }
+      ]
+    },
+    "BATTERY_STATUS.time_remaining": {
+      "samples": 1071,
+      "min": 0,
+      "max": 0,
+      "unique_values": 1,
+      "most_common": [
+        {
+          "value": 0,
+          "count": 1071
+        }
+      ]
+    },
+    "SYS_STATUS.battery_remaining": {
+      "samples": 2153,
+      "min": -1,
+      "max": 100,
+      "unique_values": 51,
+      "most_common": [
+        {
+          "value": 51,
+          "count": 1661
+        },
+        {
+          "value": 100,
+          "count": 76
+        },
+        {
+          "value": 99,
+          "count": 34
+        },
+        {
+          "value": 97,
+          "count": 11
+        },
+        {
+          "value": 94,
+          "count": 11
+        }
+      ]
+    },
+    "SYS_STATUS.current_battery": {
+      "samples": 2153,
+      "min": -1,
+      "max": -1,
+      "unique_values": 1,
+      "most_common": [
+        {
+          "value": -1,
+          "count": 2153
+        }
+      ]
+    },
+    "SYS_STATUS.voltage_battery": {
+      "samples": 2153,
+      "min": 15300,
+      "max": 65535,
+      "unique_values": 318,
+      "most_common": [
+        {
+          "value": 15300,
+          "count": 1667
+        },
+        {
+          "value": 16200,
+          "count": 81
+        },
+        {
+          "value": 16170,
+          "count": 3
+        },
+        {
+          "value": 16140,
+          "count": 3
+        },
+        {
+          "value": 16110,
+          "count": 3
+        }
+      ]
+    }
+  },
+  "phase_classification": {
+    "source": "LOCAL_POSITION_NED velocities; all states, not restricted to armed",
+    "thresholds": "climb vz<-0.3; descent vz>0.3; translate hypot(vx,vy)>0.5; else hover",
+    "sample_counts": {
+      "hover": 44322,
+      "climb": 11594,
+      "descent": 18182,
+      "translate": 33469
+    }
+  },
+  "phase_power_w": {
+    "hover": {
+      "samples": 0,
+      "mean": null
+    },
+    "translate": {
+      "samples": 0,
+      "mean": null
+    },
+    "climb": {
+      "samples": 0,
+      "mean": null
+    },
+    "descent": {
+      "samples": 0,
+      "mean": null
+    },
+    "unknown": {
+      "samples": 0,
+      "mean": null
+    }
+  },
+  "calibration_status": "unavailable_no_valid_current_or_consumed_energy",
+  "caveats": [
+    "PX4 SITL battery is simulated: SOC/voltage are not aircraft power calibration.",
+    "current_battery=-1 and energy_consumed=-1 are unknown, not zero.",
+    "current_consumed=0 with unknown current cannot calibrate power or capacity.",
+    "time_remaining=0 means unavailable. WIND_COV may not be published.",
+    "SYS_STATUS and BATTERY_STATUS SOC may differ due to rounding/publication timing.",
+    "Never infer cell count solely from voltages array: PX4 may place pack voltage in slot 0."
+  ],
+  "selection": {
+    "input_root": "D:\\Projects\\Multi-Detect\\artifacts\\benchmarks\\mission-suite-v1-r12",
+    "max_logs": 16,
+    "order": "lexicographic relative paths; bounded prefix"
+  }
+}

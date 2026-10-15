@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "task": "Find the postbox, inspect it from four sides, and return home.",
+    "skills": [
+      "area_search",
+      "inspect",
+      "return_home"
+    ],
+    "steps": [
+      {
+        "id": "s1",
+        "skill": "area_search",
+        "state": "succeeded",
+        "reason": "confirmed"
+      },
+      {
+        "id": "s2",
+        "skill": "inspect",
+        "state": "succeeded",
+        "reason": "views_captured"
+      },
+      {
+        "id": "s3",
+        "skill": "return_home",
+        "state": "succeeded",
+        "reason": "arrived"
+      }
+    ],
+    "counts": [],
+    "findings": [
+      {
+        "step": null,
+        "query": null,
+        "position_ne": [
+          -35.2,
+          -13.1
+        ],
+        "frame_id": null
+      }
+    ],
+    "alerts": [
+      "s2:view2_blocked"
+    ],
+    "answers": [
+      "s2:view1:confirm_target",
+      "s2:view3:confirm_target",
+      "s2:view4:confirm_target"
+    ],
+    "coverage": {},
+    "evidence": [
+      "frame_0003.png",
+      "frame_0008.png",
+      "frame_0016.png",
+      "frame_0023.png"
+    ],
+    "not_done": [
+      {
+        "step": "s2",
+        "reason": "s2:view2_blocked"
+      }
+    ],
+    "omitted": {}
+  },
+  "zh": "任务：Find the postbox, inspect it from four sides, and return home.\n结果：目标名称未记录 (N -35.2 m, E -13.1 m；证据帧=对应关系未记录)；已返航（报告记录）\n步骤：s1 area_search：成功（已确认目标）；s2 inspect：成功（已采集视角（不代表所有视角均完成））；s3 return_home：成功（已到达）\n告警：[\"s2:view2_blocked\"]\n检查回答：[\"s2:view1:confirm_target\", \"s2:view3:confirm_target\", \"s2:view4:confirm_target\"]\n证据帧（未关联的不推断对应目标）：[\"frame_0003.png\", \"frame_0008.png\", \"frame_0016.png\", \"frame_0023.png\"]\n未完成/未证实：s2: 视角或航点受阻（s2:view2_blocked）",
+  "en": "Task: Find the postbox, inspect it from four sides, and return home.\nResult: identity not recorded (N -35.2 m, E -13.1 m; frame=association not recorded); returned home (reported)\nSteps: s1 area_search: succeeded (confirmed); s2 inspect: succeeded (views_captured); s3 return_home: succeeded (arrived)\nAlerts: [\"s2:view2_blocked\"]\nInspect answers: [\"s2:view1:confirm_target\", \"s2:view3:confirm_target\", \"s2:view4:confirm_target\"]\nEvidence frames (unlinked unless recorded): [\"frame_0003.png\", \"frame_0008.png\", \"frame_0016.png\", \"frame_0023.png\"]\nNot done / not established: s2: s2:view2_blocked"
+}

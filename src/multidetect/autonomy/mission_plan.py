@@ -165,7 +165,7 @@ def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities:
         for label, ref in (("on_success", step.on_success), ("on_fail", step.on_fail)):
             if ref is not None and ref not in known: raise AutonomyContractError(f"{step.id}.{label} references unknown step {ref!r}")
     terminals = {s.id for s in steps if s.skill in {"return_home", "land"}}
-    if not terminals: raise AutonomyContractError("mission plan must have a terminal return_home, land, or final hover step")
+    if not terminals: raise AutonomyContractError("mission plan must have a terminal return_home or land step")
     _check_graph_termination(steps, terminals)
     return MissionPlan(version, goal, tuple(steps), report)
 

@@ -50,6 +50,7 @@ def truth_for_episode(
     default_roots = (
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
+        ROOT / "configs/scenarios/generated-confusers-2",
         ROOT / "configs/scenarios/generated-v2",
     )
     for root in default_roots:
@@ -362,6 +363,121 @@ def _mission_metrics(
     }
 
 
+def _supervisor_evidence(episode: Path) -> dict[str, Any]:
+    """Extract durable supervisor evidence written beside an onboard episode.
+
+    The collector's labels are intentionally not used for these fields: the
+    mission log is the authoritative record and survives a communications
+    outage. The caller only adds these fields to package episodes, preserving
+    the report shape of older suites.
+    """
+    path = episode.parent.parent / f"{episode.name}-onboard-frames" / "mission_log/mission.jsonl"
+    evidence: dict[str, Any] = {
+        "final_decision": None,
+        "reason": None,
+        "return_home_started": False,
+        "onboard_log_exists": path.is_file(),
+        "logged_decisions": [],
+        "logged_reasons": [],
+        "logged_ground_events": [],
+        "ground_event_count": None,
+        "original_mission_completed": None,
+        "abort_hover_before_return": False,
+        "mission_plan_skills": None,
+    }
+    if not path.is_file():
+        return evidence
+    try:
+        content = path.read_text(encoding="utf-8")
+        records = [
+            json.loads(line)
+            for line in content.splitlines()
+            if line.strip()
+        ]
+        if not content.endswith("\n") or not records:
+            return evidence
+        mission_id = records[0].get("mission_id")
+        if any(
+            not isinstance(record, dict)
+            or record.get("sequence") != index
+            or record.get("mission_id") != mission_id
+            for index, record in enumerate(records, 1)
+        ):
+            return evidence
+        for record in records:
+            if record.get("kind") == "execution" and any(
+                not isinstance(record.get(key, {}), dict) for key in ("state", "action")
+            ):
+                return evidence
+            if record.get("kind") == "mission_started":
+                plan = record.get("plan")
+                if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
+                    return evidence
+                if not all(isinstance(step, dict) for step in plan["steps"]):
+                    return evidence
+            if record.get("kind") == "final_summary":
+                summary = record.get("summary")
+                if not isinstance(summary, dict):
+                    return evidence
+                for key in ("history", "recovery_history"):
+                    history = summary.get(key, [])
+                    if not isinstance(history, list) or not all(
+                        isinstance(step, dict) for step in history
+                    ):
+                        return evidence
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        return evidence
+    decisions = [r for r in records if r.get("kind") == "decision"]
+    started = next((r for r in records if r.get("kind") == "mission_started"), {})
+    evidence["mission_plan_skills"] = [
+        step.get("skill") for step in (started.get("plan") or {}).get("steps", [])
+    ]
+    evidence["logged_decisions"] = [r.get("action") for r in decisions if r.get("action")]
+    evidence["logged_reasons"] = [r.get("reason") for r in decisions if r.get("reason")]
+    evidence["logged_ground_events"] = [
+        r.get("event_type") for r in records
+        if r.get("kind") == "ground_event" and r.get("event_type")
+    ]
+    evidence["ground_event_count"] = len(evidence["logged_ground_events"])
+    summary = next(
+        (r.get("summary") for r in reversed(records) if r.get("kind") == "final_summary"), {}
+    )
+    if not isinstance(summary, dict):
+        summary = {}
+    if isinstance(summary, dict):
+        evidence["final_decision"] = summary.get("action")
+        evidence["reason"] = summary.get("reason")
+        history = summary.get("history") or []
+        recovery = summary.get("recovery_history") or []
+        if isinstance(history, list) and isinstance(recovery, list):
+            evidence["original_mission_completed"] = bool(
+                summary.get("action") == "continue" and history
+                and history[-1].get("state") == "succeeded"
+                and history[-1].get("skill") in {"return_home", "land"}
+            )
+    evidence["return_home_started"] = any(
+        r.get("kind") == "execution"
+        and (r.get("state") or {}).get("skill") == "return_home"
+        for r in records
+    ) or any(r.get("skill") == "return_home" for r in summary.get("recovery_history", []))
+    first_recovery = next(
+        (i for i, r in enumerate(records) if r.get("kind") == "execution"
+         and (r.get("state") or {}).get("skill") == "return_home"),
+        None,
+    )
+    abort = next(
+        (i for i, r in enumerate(records) if r.get("kind") == "escalation"
+         and r.get("reason") == "explicit operator abort"), None,
+    )
+    if first_recovery is not None and abort is not None and abort < first_recovery:
+        evidence["abort_hover_before_return"] = any(
+            r.get("kind") == "execution"
+            and (r.get("action") or {}).get("kind") == "hold"
+            for r in records[abort + 1:first_recovery]
+        )
+    return evidence
+
+
 def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any]):
     target = _true_target(truth)
     seg_name = observation.get("segmentation_path")
@@ -447,6 +563,13 @@ def score_episode(
     if members:
         result.update(_count_metrics(rows, members, radius_m))
     result.update(_mission_metrics(rows, truth, radius_m, mission_config))
+    if mission_config and mission_config.get("mission_package") is not None:
+        evidence = _supervisor_evidence(episode)
+        result["mission_supervisor"] = evidence
+        if evidence["mission_plan_skills"] is not None:
+            result["mission_plan_skills"] = evidence["mission_plan_skills"]
+        if evidence["original_mission_completed"] is not None:
+            result["mission_completed"] = evidence["original_mission_completed"]
     if confirmed_row is None:
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]
