@@ -267,7 +267,7 @@ def write_json(path: Path, value: Any) -> None:
 def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v2.json"
+        "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v2-r12id-r14plan.json"
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", nargs="+", help="mission ids, space or comma separated")

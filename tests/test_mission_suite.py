@@ -291,6 +291,25 @@ def test_v2_retains_the_eight_v1_missions_and_adds_six_packages(work_tmp, capsys
     capsys.readouterr()
 
 
+def test_default_suite_uses_r12_identity_and_r14_planner(work_tmp, capsys):
+    config = json.loads(
+        (suite.ROOT / "configs/onboard/mission-suite-v2-r12id-r14plan.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert config["defaults"]["gguf"].endswith(
+        "slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf"
+    )
+    assert config["defaults"]["planning_model"].endswith(
+        "slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf"
+    )
+    assert suite.main(["--out", str(work_tmp / "default-r12-r14"), "--dry-run"]) == 0
+    assert len(list((work_tmp / "default-r12-r14").glob("*/onboard.json"))) == len(
+        config["missions"]
+    )
+    capsys.readouterr()
+
+
 @pytest.mark.parametrize("supervised", [False, True])
 def test_expectation_failure_exit_preserves_legacy_behavior(work_tmp, supervised):
     mission = _supervised_mission() if supervised else _mission()
