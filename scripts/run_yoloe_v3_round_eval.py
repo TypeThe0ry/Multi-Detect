@@ -189,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
         "the per-frame timing step always runs on CPU like the onboard comparison",
     )
     args = parser.parse_args(argv)
+    if args.device.isdigit():
+        # torch.nn.Module.to() rejects a bare index; YoloeProposer moves the model with it.
+        args.device = f"cuda:{args.device}"
     if args.threads < 1 or args.threads > 2:
         parser.error("--threads 必须在 1..2（本机内存约束）")
     max_frames = args.max_frames or (4 if args.smoke else None)
