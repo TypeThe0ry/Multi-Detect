@@ -519,6 +519,11 @@ class OnboardPolicy:
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
         }
+        if "small_reject_recheck_px" in options:
+            value = options["small_reject_recheck_px"]
+            loop_defaults["small_reject_recheck_px"] = None if value is None else float(value)
+        if "small_reject_recheck_max" in options:
+            loop_defaults["small_reject_recheck_max"] = int(options["small_reject_recheck_max"])
         if "proposal_min_side_px" in options:
             min_side = float(options["proposal_min_side_px"])
             if not math.isfinite(min_side) or min_side <= 0:
