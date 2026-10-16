@@ -21,7 +21,7 @@
   "mode": "full",
   "epochs": 25,
   "batch": {"1280": 2, "1280_preflight_fallback": 1, "960": 4},
-  "preflight": "python scripts/preflight_yoloe_proposer_round.py --weights D:/Projects/Multi-Detect/artifacts/cache/yoloe/yoloe-11s-seg.pt --imgsz 1280 --batch 2 --out tmp/yoloe-v3-preflight.json; use batch 1 at 1280 if it fails",
+  "preflight": "python scripts/preflight_yoloe_proposer_round.py --weights D:/Projects/Multi-Detect/artifacts/cache/yoloe/yoloe-11s-seg.pt --imgsz 1280 --batch 2 --holdout-classes stop_sign,postbox,pickup --out tmp/yoloe-v3-preflight.json; runs scripts/train_open_vocab_detector.py on an isolated 8-image synthetic data.yaml, retries batch 1 only on CUDA OOM, and writes real CUDA peak metrics",
   "training_command_source": "build_yoloe_proposer_round.py report.training_commands; this keeps trainer holdout flags synchronized with --holdout-mode",
   "commands": {
     "build": "python scripts/build_yoloe_proposer_round.py --old-campaign D:/Projects/Multi-Detect/artifacts/datasets/sim-teacher/campaign-20261012-v2-r3-seg --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-cfs-r8-low --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-cfs2-r12-fast --campaign-root D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-train-r8-low --old-manifest D:/Projects/Multi-Detect/artifacts/datasets/sim-detector-v2-r3-seg/manifest.json --index configs/scenarios/generated-v2/index.json --index configs/scenarios/generated-confusers/index.json --index configs/scenarios/generated-confusers-2/index.json --truth-root configs/scenarios/generated-confusers --truth-root configs/scenarios/generated-confusers-2 --holdout-mode historical-three --output tmp/yoloe-v3-onboard-dataset",

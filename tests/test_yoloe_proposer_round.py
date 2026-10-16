@@ -13,7 +13,7 @@ from scripts.build_yoloe_proposer_round import (
     size_bucket,
 )
 from scripts.evaluate_yoloe_proposer_round import collect_frames, score
-from scripts.preflight_yoloe_proposer_round import run_preflight
+from scripts.preflight_yoloe_proposer_round import run_training_preflight
 
 
 def test_cache_onboard_proposals_uses_detection_score_and_custom_weights(tmp_path, monkeypatch):
@@ -142,49 +142,31 @@ def test_score_reports_one_to_one_extra_metric_only():
     assert report["one_to_one_recall"]["tables"]["overall"][0]["hit03"] == 1
 
 
-def test_preflight_retries_batch_one_after_oom():
-    class Tensor:
-        def float(self): return self
-        def mean(self): return self
-        def __radd__(self, other): return self
-        def backward(self): self.backward_count += 1
-        backward_count = 0
+def test_preflight_runs_real_trainer_and_retries_oom(tmp_path):
+    calls = []
 
-    class Cuda:
-        def is_available(self): return True
-        def reset_peak_memory_stats(self, device): pass
-        def empty_cache(self): pass
-        def max_memory_allocated(self, device): return 11
-        def max_memory_reserved(self, device): return 22
-        def get_device_properties(self, device): return type("P", (), {"total_memory": 33})()
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        batch = command[command.index("--batch") + 1]
+        if batch == "2":
+            from subprocess import CalledProcessError
+            raise CalledProcessError(1, command, stderr="CUDA out of memory")
+        memory = tmp_path / "work" / "train-batch-1" / "cuda-memory.json"
+        memory.parent.mkdir(parents=True)
+        memory.write_text(json.dumps({
+            "peak_gpu_memory_bytes": 11, "peak_gpu_reserved_bytes": 22,
+            "device_total_memory_bytes": 33,
+        }))
+        return type("Completed", (), {"stdout": "ok"})()
 
-    class Optim:
-        def __init__(self, params, lr): self.steps = 0
-        def zero_grad(self, set_to_none=True): pass
-        def step(self): self.steps += 1
-
-    class Torch:
-        cuda = Cuda()
-        optim = type("O", (), {"SGD": Optim})
-        def device(self, name): return name
-        def zeros(self, shape, device):
-            if shape[0] == 2:
-                raise RuntimeError("CUDA out of memory")
-            return Tensor()
-        def is_tensor(self, value): return isinstance(value, Tensor)
-
-    class Model:
-        def to(self, device): return self
-        def train(self): return self
-        def parameters(self): return []
-        def __call__(self, dummy): return Tensor()
-
-    result = run_preflight(
-        torch_module=Torch(), model_factory=lambda _: type("Y", (), {"model": Model()})(),
-        weights=__import__("pathlib").Path("weights.pt"), imgsz=1280, requested_batch=2,
+    result = run_training_preflight(
+        weights=tmp_path / "weights.pt", imgsz=1280, requested_batch=2,
+        output_root=tmp_path / "work", run=fake_run,
     )
     assert result["batch"] == 1
     assert result["peak_gpu_memory_bytes"] == 11
+    batches = [calls[i][calls[i].index("--batch") + 1] for i in range(2)]
+    assert batches == ["2", "1"]
 
 
 def test_split_map_merges_indexes_and_rejects_conflict(tmp_path):
