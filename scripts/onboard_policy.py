@@ -80,7 +80,7 @@ from multidetect.sim_teacher.policies import (  # noqa: E402
     segment_clear_of_obstacles,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
-from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
+from multidetect.simulator.camera_projection import pixel_camera_ray, pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
 
@@ -519,6 +519,14 @@ class OnboardPolicy:
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
         }
+        # Keep the original types: LoopConfig strictly rejects strings, bools
+        # masquerading as integers, fractional view counts and non-finite sigma.
+        for key in (
+            "step_triangulation", "step_triangulation_max_views",
+            "ground_height_sigma_m", "step_triangulation_sigma_scale",
+        ):
+            if key in options:
+                loop_defaults[key] = options[key]
         if "small_reject_recheck_px" in options:
             value = options["small_reject_recheck_px"]
             loop_defaults["small_reject_recheck_px"] = None if value is None else float(value)
@@ -1285,6 +1293,26 @@ class OnboardPolicy:
                 ground_model=ground_model,
             )
 
+        def camera_ray(u: float, v: float):
+            projector = getattr(self, "ground_projector", None)
+            if projector is not None:
+                # An injected custom projector must expose its own camera
+                # model; silently assuming the simulator model would mix rays.
+                ray = getattr(projector, "ray", None)
+                return ray(u, v, observation) if callable(ray) else None
+            return pixel_camera_ray(
+                u, v, pose=observation, camera_info=camera_info,
+                image_size=self.image_size,
+            )
+
+        ranging_enabled = getattr(
+            getattr(getattr(self, "loop", None), "config", None), "step_triangulation", False,
+        )
+        ranging_kwargs = (
+            {"camera_ray": camera_ray, "timestamp_s": _observation_timestamp_s(observation)}
+            if ranging_enabled else {}
+        )
+
         if self.executor is not None:
             result = self._act_mission(
                 frame_path,
@@ -1296,6 +1324,7 @@ class OnboardPolicy:
                 ground_point=ground_point,
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
+                **({"camera_ray": camera_ray} if ranging_enabled else {}),
             )
             if self._slow_failed_current:
                 labels = {"state": "health_hold"}
@@ -1314,6 +1343,7 @@ class OnboardPolicy:
             yaw_deg=yaw_deg,
             ground_point=ground_point,
             frame_rgb=rgb,
+            **ranging_kwargs,
         )
         slow = []
         if self.loop.state in {"searching", "approaching"}:
@@ -1457,6 +1487,7 @@ class OnboardPolicy:
         frame_rgb=None,
         landed=None,
         timestamp_s=None,
+        camera_ray=None,
     ):
         executor = self.executor
         step = executor.current_step
@@ -1469,6 +1500,8 @@ class OnboardPolicy:
             ground_point=ground_point,
             frame_rgb=frame_rgb,
             landed=landed,
+            **({"camera_ray": camera_ray, "timestamp_s": timestamp_s}
+               if camera_ray is not None else {}),
         )
         current = list(executor.current_tracks)
         slow = []
@@ -1508,6 +1541,10 @@ class OnboardPolicy:
                 "position_estimate_ne": list(finding["position_ne"]),
                 "rule": finding["rule"],
             }
+            confirmed.update({
+                key: value for key, value in finding.items()
+                if key.startswith("position_") and key != "position_ne"
+            })
         report = executor.report()
         labels = {
             "onboard": {

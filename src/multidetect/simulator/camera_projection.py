@@ -143,22 +143,16 @@ def camera_center_ned_up(pose: Mapping[str, Any]) -> tuple[float, float, float] 
     return north + mount_world[0], east + mount_world[1], -(down + mount_world[2])
 
 
-def pixel_ground_point(
+def _pixel_camera_ray_raw(
     u: float,
     v: float,
     *,
     pose: Mapping[str, Any],
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
-    ground_up_m: float = 0.0,
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
-    ground_model: GroundModel | None = None,
-) -> tuple[float, float] | None:
-    """Invert ``project_target_bbox`` on a supplied surface (default z_up=0).
-
-    Uses the same mount offset, mount pitch, vehicle attitude and intrinsics,
-    and returns ``(north_m, east_m)`` on the supplied ground model or flat plane.
-    """
+) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    """Shared inverse projection; retain the legacy unnormalized ground ray."""
     values = _pose_values(pose)
     centre = camera_center_ned_up(pose)
     if values is None or centre is None:
@@ -175,6 +169,55 @@ def pixel_ground_point(
         pitch_rad=math.radians(pitch_deg),
         yaw_rad=math.radians(yaw_deg),
     )
+    return centre, (north, east, down)
+
+
+def pixel_camera_ray(
+    u: float,
+    v: float,
+    *,
+    pose: Mapping[str, Any],
+    camera_info: Mapping[str, Any] | None,
+    image_size: tuple[int, int],
+    camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    """Return the camera centre and unit pixel ray, both in true N/E/down.
+
+    Shares every camera operation with ``pixel_ground_point``. No simulator
+    truth is used; the inputs are only the measured pose and camera calibration.
+    """
+    result = _pixel_camera_ray_raw(
+        u, v, pose=pose, camera_info=camera_info, image_size=image_size,
+        camera_pitch_rad=camera_pitch_rad,
+    )
+    if result is None:
+        return None
+    centre, ray = result
+    norm = math.sqrt(sum(value * value for value in ray))
+    if not math.isfinite(norm) or norm <= 0 or not all(math.isfinite(x) for x in centre):
+        return None
+    return (centre[0], centre[1], -centre[2]), tuple(value / norm for value in ray)
+
+
+def pixel_ground_point(
+    u: float,
+    v: float,
+    *,
+    pose: Mapping[str, Any],
+    camera_info: Mapping[str, Any] | None,
+    image_size: tuple[int, int],
+    ground_up_m: float = 0.0,
+    camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    ground_model: GroundModel | None = None,
+) -> tuple[float, float] | None:
+    """Invert ``project_target_bbox`` on a surface, preserving legacy arithmetic."""
+    result = _pixel_camera_ray_raw(
+        u, v, pose=pose, camera_info=camera_info, image_size=image_size,
+        camera_pitch_rad=camera_pitch_rad,
+    )
+    if result is None:
+        return None
+    centre, (north, east, down) = result
     if ground_model is not None:
         return ground_model.intersect_ray(centre, (north, east, down))
     height = centre[2] - ground_up_m
@@ -355,4 +398,7 @@ def project_target_bbox(
     return None if x2 <= x1 or y2 <= y1 else (x1, y1, x2, y2)
 
 
-__all__ = ["camera_center_ned_up", "project_target_bbox", "visible_fraction"]
+__all__ = [
+    "camera_center_ned_up", "pixel_camera_ray", "pixel_ground_point",
+    "project_target_bbox", "visible_fraction",
+]
