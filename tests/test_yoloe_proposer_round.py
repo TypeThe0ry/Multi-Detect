@@ -47,9 +47,10 @@ def test_cache_onboard_proposals_uses_detection_score_and_custom_weights(tmp_pat
     out = tmp_path / "cache.jsonl"
     assert cache.main([
         "--campaign", str(campaign), "--output", str(out), "--weights", str(tmp_path / "new.pt"),
-        "--imgsz", "960", "--confidence", "0.2",
+        "--imgsz", "960", "--confidence", "0.2", "--source-root", str(tmp_path),
     ]) == 0
     row = json.loads(out.read_text())
+    assert row["image"] == "campaign/gen_w0000/episode/rgb/f.png"
     assert row["boxes"] == [[1.0, 2.1, 3.1, 4.1, 0.8765]]
 
 
