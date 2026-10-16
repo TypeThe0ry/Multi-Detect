@@ -69,12 +69,48 @@ def _create_directory_junction(link: Path, target: Path) -> bool:
 def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     assert tuple(DEFAULT_FILE_LIST) == CONTRACT_GROUPS
     assert all(DEFAULT_FILE_LIST[group] for group in CONTRACT_GROUPS)
+    for paths in DEFAULT_FILE_LIST.values():
+        assert len(paths) == len(set(paths))
     document = build_release_parity_document(REPO_ROOT, version_manifest_path=VERSION_MANIFEST)
     assert document["schema_version"] == 1
     assert document["product"] == "Multi-Detect"
     assert document["release_label"] == "0.3.0-pre.8"
     assert set(document["source_files"]) == set(CONTRACT_GROUPS)
     assert set(document["parity"]) == set(PARITY_FIELDS)
+    assert {
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionController.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPackage.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPanel.qml",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionWire.cc",
+    } <= set(document["source_files"]["ui_contract"])
+    assert {
+        "src/multidetect/autonomy/policy_v2/rollout.py",
+        "src/multidetect/camera_defaults.py",
+        "src/multidetect/search_coverage.py",
+        "src/multidetect/sim_teacher/policies.py",
+        "src/multidetect/simulator/task_semantics.py",
+        "scripts/onboard_policy.py",
+    } <= set(document["source_files"]["core_algorithm"])
+    assert {
+        "src/multidetect/autonomy/mission_operator.py",
+        "src/multidetect/autonomy/mission_package.py",
+        "src/multidetect/autonomy/mission_planner.py",
+        "configs/onboard/mission-package-example.json",
+    } <= set(document["source_files"]["task_contract"])
+    assert {
+        "src/multidetect/autonomy/mission_supervisor.py",
+        "src/multidetect/onboard_runtime/runtime.py",
+        "src/multidetect/acceptance.py",
+        "src/multidetect/approach_acceptance.py",
+        "src/multidetect/payload_target_acceptance.py",
+        "scripts/onboard_main.py",
+    } <= set(document["source_files"]["safety_policy"])
+    assert {
+        "src/multidetect/autonomy/mission_executor.py",
+        "src/multidetect/autonomy/onboard_loop.py",
+        "src/multidetect/sim_teacher/executor.py",
+        "src/multidetect/sim_teacher/isolation.py",
+    } <= set(document["source_files"]["px4_mission_path"])
     assert "src/multidetect/approach_live.py" in document["source_files"]["px4_mission_path"]
     assert (
         "src/multidetect/fixed_wing_aim_control.py" in document["source_files"]["px4_mission_path"]
