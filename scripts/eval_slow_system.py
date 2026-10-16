@@ -113,6 +113,79 @@ def _usage_count(usage: Any, key: str) -> int | None:
     return None
 
 
+SIZE_BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
+
+
+def _size_bucket(short_side_px: float) -> str:
+    if short_side_px < 12:
+        return "<12"
+    if short_side_px < 16:
+        return "12-16"
+    if short_side_px < 20:
+        return "16-20"
+    if short_side_px < 32:
+        return "20-32"
+    return ">=32"
+
+
+def _candidate_short_side_px(dataset_row: dict[str, Any]) -> float | None:
+    """Short edge of the focus candidate in pixels, or None when the row has no box.
+
+    Datasets without candidate boxes (e.g. text-only planning sets) are simply not
+    bucketed; this must never fail an evaluation run.
+    """
+    candidates = [item for item in dataset_row.get("candidates") or [] if isinstance(item, dict)]
+    if not candidates:
+        return None
+    focus = dataset_row.get("focus_track_id")
+    candidate = next((item for item in candidates if item.get("track_id") == focus), candidates[0])
+    box = candidate.get("box_xyxy_normalized")
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    width, height = 1280.0, 960.0
+    image_size = dataset_row.get("image_size") or dataset_row.get("camera_info") or {}
+    if isinstance(image_size, dict):
+        width, height = float(image_size.get("width", width)), float(image_size.get("height", height))
+    try:
+        from PIL import Image
+        image_path = dataset_row.get("image_path")
+        if image_path:
+            path = Path(str(image_path))
+            if path.is_file():
+                with Image.open(path) as image:
+                    width, height = map(float, image.size)
+    except (ImportError, OSError, ValueError):
+        pass
+    x1, y1, x2, y2 = (float(value) for value in box)
+    return min(abs(x2 - x1) * width, abs(y2 - y1) * height)
+
+
+def size_bucket_metrics(results: list[dict[str, Any]], dataset_rows: list[dict[str, Any]] | dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Compute identity metrics by candidate short edge without model inference."""
+    by_id = dataset_rows if isinstance(dataset_rows, dict) else {str(row.get("sample_id")): row for row in dataset_rows}
+    grouped: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in SIZE_BUCKETS}
+    for result in results:
+        record = by_id.get(str(result.get("sample_id")))
+        short_side = None if record is None else _candidate_short_side_px(record)
+        if short_side is not None:
+            grouped[_size_bucket(short_side)].append(result)
+    report: dict[str, dict[str, Any]] = {}
+    for bucket in SIZE_BUCKETS:
+        rows = grouped[bucket]
+        matches = [row for row in rows if identity_of(str(row.get("expected"))) == "match"]
+        distractors = [row for row in rows if identity_of(str(row.get("expected"))) == "no_match"]
+        identity_ok = sum(identity_of(str(row.get("decision"))) == identity_of(str(row.get("expected"))) for row in rows)
+        true_recalled = sum(identity_of(str(row.get("decision"))) == "match" for row in matches)
+        rejected = sum(identity_of(str(row.get("decision"))) == "no_match" for row in distractors)
+        report[bucket] = {
+            "sample_count": len(rows),
+            "identity_accuracy": identity_ok / len(rows) if rows else None,
+            "true_target_recall": true_recalled / len(matches) if matches else None,
+            "distractor_rejection_rate": rejected / len(distractors) if distractors else None,
+        }
+    return report
+
+
 def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     valid = [row for row in results if row["valid"]]
     expected = [str(row["expected"]) for row in results]
@@ -179,7 +252,9 @@ def evaluate_predictor(rows: list[dict[str, Any]], predictor: Callable[[dict[str
                 "prompt_tokens": None, "completion_tokens": None,
             }
         results.append(result)
-    return {"metrics": decision_metrics(results), "rows": results}
+    metrics = decision_metrics(results)
+    metrics["size_buckets"] = size_bucket_metrics(results, rows)
+    return {"metrics": metrics, "rows": results}
 
 
 class HFRunner:
