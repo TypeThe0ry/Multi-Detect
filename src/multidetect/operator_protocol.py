@@ -10,6 +10,12 @@ from typing import TypeAlias
 from uuid import UUID
 
 from .approach_hil import ApproachHilPhase
+from .autonomy.mission_operator_protocol import (
+    MISSION_PROTOCOL_VERSION,
+    MISSION_TYPES,
+    MissionWireMessage,
+    validate_mission_body,
+)
 from .domain import (
     BoundingBox,
     DeploymentWindowStatus,
@@ -143,6 +149,16 @@ class WireMessageType(IntEnum):
     GNSS_STATUS = 25
     TARGET_OBSERVATION_STATUS = 26
     POLICY_RUNTIME_STATUS = 27
+    MISSION_PACKAGE_CHUNK = 28
+    MISSION_ACK = 29
+    MISSION_ABORT = 30
+    MISSION_PAUSE = 31
+    MISSION_RESUME = 32
+    MISSION_POLICY_TIGHTEN = 33
+    MISSION_HEARTBEAT = 34
+    MISSION_TELEMETRY_CHUNK = 35
+    MISSION_TELEMETRY_ACK = 36
+    MISSION_GROUND_COMMAND_CHUNK = 37
 
 
 class SelectionAckReason(IntEnum):
@@ -287,7 +303,8 @@ class RuntimeStatusAck:
 
 
 OperatorMessage: TypeAlias = (
-    TargetSelectionCommand
+    MissionWireMessage
+    | TargetSelectionCommand
     | SelectionAck
     | TrackStatusMessage
     | MissionStatusMessage
@@ -1310,7 +1327,12 @@ class OperatorTunnelCodec:
             raise OperatorProtocolError("operator-link header is malformed") from exc
         if magic != _MAGIC:
             raise OperatorProtocolError("operator-link magic does not match")
-        if version != OPERATOR_LINK_PROTOCOL_VERSION:
+        expected_version = (
+            MISSION_PROTOCOL_VERSION
+            if type_value in MISSION_TYPES
+            else OPERATOR_LINK_PROTOCOL_VERSION
+        )
+        if version != expected_version:
             raise OperatorProtocolError("unsupported operator-link wire version")
         if flags != 0 or reserved != 0:
             raise OperatorProtocolError("unsupported operator-link flags")
@@ -1328,7 +1350,12 @@ class OperatorTunnelCodec:
             raise OperatorProtocolError("unknown operator-link message type") from exc
         body = payload[_HEADER.size : -AUTHENTICATION_TAG_BYTES]
         sent_at_s = sent_ms / 1000.0
-        if message_type is WireMessageType.TARGET_SELECTION:
+        if type_value in MISSION_TYPES:
+            try:
+                message = MissionWireMessage(message_type, body)
+            except (ValueError, UnicodeError) as exc:
+                raise OperatorProtocolError(str(exc)) from exc
+        elif message_type is WireMessageType.TARGET_SELECTION:
             message = self._decode_selection(body, sequence=sequence, sent_at_s=sent_at_s)
         elif message_type is WireMessageType.SELECTION_ACK:
             message = self._decode_ack(body)
@@ -1452,6 +1479,15 @@ class OperatorTunnelCodec:
             raise OperatorProtocolError("unsupported operator-link message type")
         return DecodedOperatorPacket(message_type, sequence, sent_at_s, message)
 
+    def encode_mission(
+        self, message_type: WireMessageType | int, body: bytes,
+        *, sequence: int, sent_at_s: float,
+    ) -> bytes:
+        validate_mission_body(message_type, body)
+        return self._encode_frame(
+            WireMessageType(message_type), sequence=sequence, sent_at_s=sent_at_s, body=body
+        )
+
     def _encode_frame(
         self,
         message_type: WireMessageType,
@@ -1464,7 +1500,9 @@ class OperatorTunnelCodec:
         sent_ms = _timestamp_ms(sent_at_s)
         header = _HEADER.pack(
             _MAGIC,
-            OPERATOR_LINK_PROTOCOL_VERSION,
+            MISSION_PROTOCOL_VERSION
+            if int(message_type) in MISSION_TYPES
+            else OPERATOR_LINK_PROTOCOL_VERSION,
             int(message_type),
             0,
             0,

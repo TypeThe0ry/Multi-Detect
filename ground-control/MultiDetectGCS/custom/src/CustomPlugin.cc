@@ -10,6 +10,9 @@
 #include <QtQml/QQmlContext>
 
 #include "MultiDetectOperatorController.h"
+#include "MultiDetectMissionController.h"
+#include "MultiVehicleManager.h"
+#include "Vehicle.h"
 #include "MultiDetectTargetEvidenceStore.h"
 #include "MultiDetectTargetEventReplayStore.h"
 #include "LinkConfiguration.h"
@@ -184,6 +187,11 @@ void CustomPlugin::init()
 
 void CustomPlugin::cleanup()
 {
+    if (_missionController) {
+        _missionController->shutdown();
+        delete _missionController;
+        _missionController = nullptr;
+    }
     if (_operatorController) {
         _operatorController->shutdown();
         delete _operatorController;
@@ -239,6 +247,18 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     if (!_operatorController) {
         _operatorController = new MultiDetectOperatorController(this);
     }
+    if (!_missionController) {
+        _missionController = new MultiDetectMissionController(this);
+        _missionController->setSender([this](int type, const QByteArray& body) {
+            return _operatorController && _operatorController->sendMissionMessage(type, body);
+        });
+        _missionController->setUploadGuard([] {
+            Vehicle* vehicle = MultiVehicleManager::instance()->activeVehicle();
+            return !vehicle || !vehicle->armed();
+        });
+        connect(_operatorController, &MultiDetectOperatorController::missionPacketReceived,
+                _missionController, &MultiDetectMissionController::receive);
+    }
     if (!_targetEvidenceStore) {
         _targetEvidenceStore = new MultiDetectTargetEvidenceStore(this);
     }
@@ -246,6 +266,7 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
         _targetEventReplayStore = new MultiDetectTargetEventReplayStore(this);
     }
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectOperator"), _operatorController);
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectMission"), _missionController);
     _qmlEngine->rootContext()->setContextProperty(
         QStringLiteral("multiDetectTargetEvidenceStore"), _targetEvidenceStore);
     _qmlEngine->rootContext()->setContextProperty(

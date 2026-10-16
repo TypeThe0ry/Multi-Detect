@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/Custom/qml">
+        <file alias="MultiDetectMissionPanel.qml">src/MultiDetectMissionPanel.qml</file>
         <file alias="QGroundControl/FlyView/FlyViewCustomLayer.qml">src/FlyViewCustomLayer.qml</file>
         <file alias="QGroundControl/FlyView/FlyViewVideo.qml">src/FlyViewVideo.qml</file>
         <file alias="QGroundControl/PlanView/PlanViewRightPanel.qml">src/PlanViewRightPanel.qml</file>

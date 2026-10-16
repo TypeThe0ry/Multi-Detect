@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, Full, Queue
 from threading import Condition, Event, Lock, Thread
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autonomy.mission_operator import MissionOperatorAdapter
 
 from .operator_link import (
     DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
@@ -221,6 +225,7 @@ class UdpOperatorSelectionServer:
         receive_timeout_s: float | None = None,
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
+        mission_adapter: MissionOperatorAdapter | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -274,6 +279,11 @@ class UdpOperatorSelectionServer:
         if background_error_queue_size <= 0 or max_commands_per_cycle <= 0:
             raise ValueError("queue sizes and max_commands_per_cycle must be positive")
         self.mavlink = mavlink
+        if mission_adapter is None:
+            from .autonomy.mission_operator import MissionOperatorAdapter
+
+            mission_adapter = MissionOperatorAdapter(mavlink.codec)
+        self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self._command_clock = command_clock
         self.configured_peer = configured_peer
@@ -413,6 +423,40 @@ class UdpOperatorSelectionServer:
                     self._bind_initial_command_peer(peer)
             return None
         packet = self.mavlink.codec.decode(inner)
+        if int(packet.message_type) >= 28:
+            # Mission v2 shares the authenticated peer/session gate, token
+            # bucket, persistent sequence high-water mark and datagram bound
+            # with the legacy operator commands.  Do this before handing the
+            # packet to the mission state machine so uploads and telemetry ACKs
+            # cannot bypass link hardening.
+            if self._command_peer is None:
+                if not self.allow_first_packet_peer:
+                    self._record_background_error(
+                        OperatorProtocolError(
+                            "authenticated mission packet rejected: configured_peer is required"
+                        ),
+                        peer=peer,
+                    )
+                    return None
+                self._bind_initial_command_peer(peer)
+            elif self._command_peer != peer:
+                return None
+            if not self._allow_command(peer, packet.message_type, now_s=time.monotonic()):
+                return None
+            replay_key = f"mission:{peer[0]}:{peer[1]}"
+            if not self._replay_state.accept_sequence(
+                replay_key,
+                packet.sequence,
+                max_forward_jump=self._max_sequence_forward_jump,
+            ):
+                return None
+            self._register_metadata_peer(peer, from_heartbeat=False)
+            for response in self.mission_adapter.handle(packet, peer=peer):
+                self._channel.sendto(
+                    self.mavlink.wrap_authenticated_operator_payload(response), peer
+                )
+            self.poll_mission_telemetry()
+            return None
         if packet.message_type is WireMessageType.RUNTIME_STATUS_ACK:
             if not isinstance(packet.message, RuntimeStatusAck):
                 raise OperatorProtocolError("decoded runtime-status ACK has the wrong type")
@@ -1343,6 +1387,7 @@ class UdpOperatorSelectionServer:
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                self.poll_mission_telemetry()
                 self.serve_once()
             except TimeoutError:
                 continue
@@ -1357,8 +1402,17 @@ class UdpOperatorSelectionServer:
                 with self._runtime_status_ack_condition:
                     self._runtime_status_ack_condition.notify_all()
 
+    def poll_mission_telemetry(self) -> None:
+        """Also callable by a foreground runtime using ``serve_once`` directly."""
+        peer = self.active_metadata_peer()
+        sender = None if peer is None else lambda payload: self._channel.sendto(
+            self.mavlink.wrap_authenticated_operator_payload(payload), peer
+        )
+        self.mission_adapter.tick(sender)
+
     def close(self) -> None:
         self._stop_event.set()
+        self.mission_adapter.close()
         self._channel.close()
         if self._thread is not None:
             self._thread.join(timeout=1.0)

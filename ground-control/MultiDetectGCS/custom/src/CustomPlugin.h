@@ -6,6 +6,7 @@
 
 class QQmlApplicationEngine;
 class MultiDetectOperatorController;
+class MultiDetectMissionController;
 class MultiDetectTargetEvidenceStore;
 class MultiDetectTargetEventReplayStore;
 
@@ -33,6 +34,7 @@ private:
     QQmlApplicationEngine* _qmlEngine = nullptr;
     CustomOverrideInterceptor* _selector = nullptr;
     MultiDetectOperatorController* _operatorController = nullptr;
+    MultiDetectMissionController* _missionController = nullptr;
     MultiDetectTargetEvidenceStore* _targetEvidenceStore = nullptr;
     MultiDetectTargetEventReplayStore* _targetEventReplayStore = nullptr;
     QVariantList _toolBarIndicatorList;

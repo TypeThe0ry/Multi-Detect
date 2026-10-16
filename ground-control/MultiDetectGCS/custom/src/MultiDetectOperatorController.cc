@@ -99,6 +99,9 @@ MultiDetectOperatorController::MultiDetectOperatorController(QObject* parent)
       _protocol(_hmacKey, _streamId),
       _sessionId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
+    // A restarted GCS must continue ahead of the aircraft's serial high-water
+    // mark. The aircraft never resets replay protection merely on link loss.
+    _missionSequence = static_cast<quint32>(QDateTime::currentMSecsSinceEpoch());
     _directOperatorRequested = !_operatorUdpHost.isEmpty();
     const QByteArray signingKeyHex = environmentValue("MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX").toUtf8().trimmed();
     const QByteArray decodedSigningKey = QByteArray::fromHex(signingKeyHex);
@@ -722,7 +725,9 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         packet.type == MultiDetectOperatorProtocol::MessageType::AuthorizationDecision ||
         packet.type == MultiDetectOperatorProtocol::MessageType::ApproachConfirmation ||
         packet.type == MultiDetectOperatorProtocol::MessageType::PayloadTargetConfirmation ||
-        packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatusAck) {
+        packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatusAck ||
+        (static_cast<int>(packet.type) >= 28 && packet.type != MultiDetectOperatorProtocol::MessageType::MissionAck &&
+         packet.type != MultiDetectOperatorProtocol::MessageType::MissionTelemetryChunk)) {
         _reject(QStringLiteral("operator-link message direction is invalid for GCS"));
         return;
     }
@@ -738,6 +743,12 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
     QVariantMap fields = packet.fields;
     fields.insert(QStringLiteral("sequence"), packet.sequence);
     fields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue(packet.sentAtMs));
+
+    if (packet.type == MultiDetectOperatorProtocol::MessageType::MissionAck ||
+        packet.type == MultiDetectOperatorProtocol::MessageType::MissionTelemetryChunk) {
+        emit missionPacketReceived(static_cast<int>(packet.type), fields.value(QStringLiteral("body")).toByteArray());
+        return;
+    }
 
     if (packet.type == MultiDetectOperatorProtocol::MessageType::SelectionAck) {
         const QString commandId = fields.value(QStringLiteral("commandId")).toString();
@@ -1572,6 +1583,23 @@ void MultiDetectOperatorController::_startDirectOperatorLink()
     _setLinkState(QStringLiteral("DIRECT_SIGNED_METADATA_READY"));
     qCInfo(MultiDetectOperatorLog).nospace() << "direct signed operator metadata ready host=" << _operatorUdpHost
                                              << " port=" << _operatorUdpPort << " local_port=" << _operatorUdpLocalPort;
+}
+
+bool MultiDetectOperatorController::sendMissionMessage(int type, const QByteArray& body)
+{
+    if (type < 28 || type > 37 || type == 29 || type == 35) {
+        _setLastError(QStringLiteral("任务协议方向或序号无效"));
+        return false;
+    }
+    ++_missionSequence;
+    const auto clockSequence = static_cast<quint32>(QDateTime::currentMSecsSinceEpoch());
+    const quint32 delta = clockSequence - _missionSequence;
+    if (delta > 0 && delta < 0x80000000U) _missionSequence = clockSequence;
+    QString error;
+    const auto payload = _protocol.encodeMission(static_cast<MultiDetectOperatorProtocol::MessageType>(type), body,
+        _missionSequence, _operatorWireNowMs(static_cast<quint64>(QDateTime::currentMSecsSinceEpoch())), &error);
+    if (payload.isEmpty()) { _setLastError(error); return false; }
+    return _sendPayload(payload);
 }
 
 bool MultiDetectOperatorController::_sendPayload(const QByteArray& payload)

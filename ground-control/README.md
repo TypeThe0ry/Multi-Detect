@@ -2,6 +2,9 @@
 
 `MultiDetectGCS/` 是统一仓库中的定制 QGroundControl 源码。它包含上游 QGroundControl 基线、Multi-Detect 的 `custom/` 应用层、协议自检和桌面/Android 构建配置。
 
+任务包编辑、地图中心取点、飞前风险／失联策略、机载监督器监控及 TUNNEL v2 接入说明见
+[`任务包操作流程`](../docs/gcs-mission-package-workflow.md)。
+
 ## 版本与发布
 
 - 产品名：`MultiDetectGCS`
