@@ -11,8 +11,8 @@ map used for search legs and obstacle clearance; it never reads scenario truth.
 
 from __future__ import annotations
 
-import io
 import hashlib
+import io
 import json
 import math
 import os
@@ -54,11 +54,10 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
 from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
-from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
-    Detection,
+    Detection,  # noqa: F401 - retained as a compatibility export
     LoopConfig,
     OnboardLoop,
 )
@@ -66,6 +65,10 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
+from multidetect.autonomy.onboard_policy_parts.config import DEFAULTS  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.vocabulary import VOCABULARY  # noqa: E402
+from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
 from multidetect.onboard_runtime.health import (  # noqa: E402
     HealthConfig,
     HealthDecision,
@@ -79,17 +82,6 @@ from multidetect.sim_teacher.policies import (  # noqa: E402
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
 from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
-
-DEFAULTS = {
-    "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt",
-    "gguf": ROOT
-    / "artifacts/models/slow-system-lora-v2-r2-seg-merged-gguf"
-    / "slow-system-v2r2seg-merged-Q5_K_M.gguf",
-    "mmproj": ROOT
-    / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
-    "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
-    "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
-}
 
 
 def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
@@ -157,29 +149,6 @@ def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str 
         mmproj_path = Path(str(mmproj))
         mmproj = str(mmproj_path if mmproj_path.is_absolute() else ROOT / mmproj_path)
     return str(model_path), mmproj
-# Generic proposal vocabulary: broad object words, not the task's answer.
-VOCABULARY = (
-    "car",
-    "SUV",
-    "pickup truck",
-    "truck",
-    "bus",
-    "ambulance",
-    "fire truck",
-    "person",
-    "traffic cone",
-    "barrel",
-    "concrete barrier",
-    "fire hydrant",
-    "dumpster",
-    "electrical box",
-    "mailbox",
-    "post box",
-    "stop sign",
-    "cardboard box",
-    "backpack",
-    "sign",
-)
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
@@ -349,99 +318,6 @@ def build_mission_from_text(
     return plan, report
 
 
-class YoloeProposer:
-    """Class-agnostic proposals with optional full-frame plus 2x2 tiled inference.
-
-    ``proposer_tiled`` defaults off in OnboardPolicy. Tiles overlap by 20% of
-    their width/height; all five passes use the same imgsz and confidence.
-    ``proposer_tile_overlap`` and ``proposer_merge_iou`` control crop overlap
-    and the class-agnostic merge. The loop's box filter runs after merging.
-    """
-
-    def __init__(
-        self,
-        weights: Path,
-        *,
-        confidence: float,
-        imgsz: int,
-        device: str | int = 0,
-        tiled: bool = False,
-        tile_overlap: float = 0.2,
-        merge_iou: float = 0.5,
-    ) -> None:
-        if not isinstance(tiled, bool):
-            raise ValueError("proposer_tiled must be a boolean")
-        if not 0 <= tile_overlap < 1 or not 0 < merge_iou <= 1:
-            raise ValueError("tile overlap must be in [0, 1); merge IoU must be in (0, 1]")
-        os.environ.setdefault("YOLO_OFFLINE", "true")
-        os.environ.setdefault("YOLO_AUTOINSTALL", "false")
-        from ultralytics import YOLOE
-
-        self.model = YOLOE(str(weights))
-        self.model.to(device)
-        prompts = list(VOCABULARY)
-        # Encode prompts before the first fp16 predict fuses the model.
-        self.model.set_classes(prompts, self.model.get_text_pe(prompts))
-        self.confidence, self.imgsz = confidence, imgsz
-        self.device, self.tiled = device, tiled
-        self.tile_overlap, self.merge_iou = tile_overlap, merge_iou
-
-    def _predict(self, bgr) -> list[Detection]:
-        result = self.model.predict(
-            bgr, imgsz=self.imgsz, conf=self.confidence, device=self.device, verbose=False
-        )[0]
-        boxes = result.boxes
-        return [
-            Detection(tuple(float(v) for v in box), float(score), self.model.names[int(cls)])
-            for box, score, cls in zip(
-                boxes.xyxy.tolist(), boxes.conf.tolist(), boxes.cls.tolist(), strict=True
-            )
-        ]
-
-    def tile_proposals(self, bgr) -> list[Detection]:
-        """Four overlapping crops, resized by YOLOE to imgsz, in full-frame pixels."""
-        height, width = bgr.shape[:2]
-        tile_w = min(width, math.ceil(width / (2 - self.tile_overlap)))
-        tile_h = min(height, math.ceil(height / (2 - self.tile_overlap)))
-        detections = []
-        for y in dict.fromkeys((0, height - tile_h)):
-            for x in dict.fromkeys((0, width - tile_w)):
-                crop = bgr[y : y + tile_h, x : x + tile_w].copy()
-                for detection in self._predict(crop):
-                    x1, y1, x2, y2 = detection.bbox
-                    box = (
-                        max(0.0, min(float(width), x1 + x)),
-                        max(0.0, min(float(height), y1 + y)),
-                        max(0.0, min(float(width), x2 + x)),
-                        max(0.0, min(float(height), y2 + y)),
-                    )
-                    if box[2] > box[0] and box[3] > box[1]:
-                        detections.append(Detection(box, detection.score, detection.label))
-        return detections
-
-    def merge(self, detections: Sequence[Detection]) -> list[Detection]:
-        """Class-agnostic greedy NMS; downstream loop retains its normal limits."""
-        kept: list[Detection] = []
-        for detection in sorted(detections, key=lambda d: d.score, reverse=True):
-            a = detection.bbox
-            for prior in kept:
-                b = prior.bbox
-                intersection = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
-                    0.0, min(a[3], b[3]) - max(a[1], b[1])
-                )
-                union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - intersection
-                if union > 0 and intersection / union > self.merge_iou:
-                    break
-            else:
-                kept.append(detection)
-        return kept
-
-    def __call__(self, bgr) -> list[Detection]:
-        detections = self._predict(bgr)
-        if self.tiled:
-            # Keep full-frame context and objects that cross tile boundaries.
-            return self.merge([*detections, *self.tile_proposals(bgr)])
-        return detections
 
 
 class OnboardPolicy:
