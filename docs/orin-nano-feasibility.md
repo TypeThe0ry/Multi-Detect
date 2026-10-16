@@ -62,3 +62,13 @@ YOLOE-11s-seg，输入 1280。公开测试：YOLO11n / YOLOv8n 在 Orin Nano 上
 3. 把上表的“估算”换成实测，再决定快系统输入尺寸和判断频率。
 
 公开参考：[Turing Pi：Orin Nano 8GB llama.cpp 测试](https://turingpi.com/jetson-orin-nano-8gb-llm-benchmark/)、[Hokwang Choi：Orin Nano 上的 VLM 三种运行时](https://hokwangchoi.com/blog/vlm-benchmarks/)、[Ultralytics：YOLO11 在 Orin Nano Super 上](https://www.ultralytics.com/blog/ultralytics-yolo11-on-nvidia-jetson-orin-nano-super-fast-and-efficient)。
+
+## Planner/identity split (2026-10-16)
+
+配置 `planning_model` 后，策略先加载纯文本 planner，单次任务规划预计耗时约 4–6 秒；随后关闭
+server 并等待端口释放，再加载 identity 模型。额外启动/卸载时间应按约 4–6 秒加两次模型加载时间
+预算，最终数值必须在目标 JetPack 镜像上实测，不能拿开发机时延冒充 Nano 结论。任意时刻只有一个
+模型进程常驻，因此稳态内存仍按上文约 4.7–6.7 GB 预算；planner 因为请求不含图片可以省略
+`mmproj`，identity 继续使用现有视觉 projector。planner 启动或校验失败会计入初始化规划失败并
+回退到 identity；只有通过 schema 和 mission-package 检查的计划才允许起飞。split eval 配置使用
+v2-r14-multi 规划、v2-r12-multi 身份判断。
