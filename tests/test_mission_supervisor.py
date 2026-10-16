@@ -441,12 +441,8 @@ def test_sequence_wrap_and_bounded_forward_jump(tmp_path):
         encoding="utf-8",
     )
     s._replay_state_loaded = False
-    assert s.ground_event(
-        signed_event(key, 0, now[0])
-    )
-    assert not s.ground_event(
-        signed_event(key, 10, now[0], session_nonce=s.session_nonce)
-    )
+    assert s.ground_event(signed_event(key, 0, now[0]))
+    assert not s.ground_event(signed_event(key, 10, now[0], session_nonce=s.session_nonce))
 
 
 def test_unix_heartbeat_uses_local_receipt_time_for_liveness(tmp_path):

@@ -11,7 +11,9 @@ class _Blocked:
 
 
 def test_mixed_forward_down_uses_horizontal_limit_only():
-    envelope = SafetyEnvelope(SafetyEnvelopeConfig(max_horizontal_step_m=15, max_vertical_step_m=10), home_ned=(0, 0, 0))
+    envelope = SafetyEnvelope(
+        SafetyEnvelopeConfig(max_horizontal_step_m=15, max_vertical_step_m=10), home_ned=(0, 0, 0)
+    )
     decision = envelope.apply(ActionPrimitive.translate(12, 0, -8), pose_ned=(0, 0, -20), yaw_deg=0)
     assert decision.action == ActionPrimitive.translate(12, 0, -8)
     assert decision.status == "accepted"
@@ -46,7 +48,9 @@ def test_home_relative_altitude_and_agl_are_distinct():
 
 
 def test_deliver_descent_allows_two_meter_release():
-    envelope = SafetyEnvelope(SafetyEnvelopeConfig(min_altitude_m=8, low_altitude_exception_m=2), home_ned=(0, 0, 0))
+    envelope = SafetyEnvelope(
+        SafetyEnvelopeConfig(min_altitude_m=8, low_altitude_exception_m=2), home_ned=(0, 0, 0)
+    )
     decision = envelope.apply(
         ActionPrimitive.translate(0, 0, -6),
         pose_ned=(0, 0, -8),
@@ -84,9 +88,7 @@ def test_home_is_explicit_and_never_taken_from_first_pose():
     assert not decision.rejected
     assert envelope.home_ned is None
 
-    anchored = SafetyEnvelope(
-        SafetyEnvelopeConfig(max_radius_from_home_m=10.0), home_ned=(0, 0, 0)
-    )
+    anchored = SafetyEnvelope(SafetyEnvelopeConfig(max_radius_from_home_m=10.0), home_ned=(0, 0, 0))
     assert anchored.apply(ActionPrimitive.translate(1, 0), pose_ned=(100, 100, -5)).rejected
     assert anchored.effective_radius_from_home() == 10.0
 
@@ -146,7 +148,10 @@ def test_act_single_exit_arbiter_covers_supervisor_health_and_detector_holds():
     envelope = CountingEnvelope()
     policy.safety_envelope = envelope
     actions = [ActionPrimitive.hold(1), ActionPrimitive.hold(1), ActionPrimitive.translate(1, 0)]
-    policy._act_impl = lambda observation, *, pose_ned, yaw_deg: (actions[observation["i"]], {"onboard": observation["labels"]})
+    policy._act_impl = lambda observation, *, pose_ned, yaw_deg: (
+        actions[observation["i"]],
+        {"onboard": observation["labels"]},
+    )
     for i, label in enumerate(("supervised", "health_hold", "detector_skip")):
         action, _ = policy.act({"i": i, "labels": {"state": label}}, pose_ned=(0, 0, -5), yaw_deg=0)
         assert action == actions[i]
