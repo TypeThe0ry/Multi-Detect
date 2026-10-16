@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 
 DEFAULTS = {
-    "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt",
+    "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
     "gguf": ROOT
     / "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf"
     / "slow-system-v2r12multi-merged-Q5_K_M.gguf",

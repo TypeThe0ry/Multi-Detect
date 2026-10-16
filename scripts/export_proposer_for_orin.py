@@ -237,7 +237,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--weights",
         type=Path,
-        default=ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt",
+        default=ROOT / "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
     )
     parser.add_argument(
         "--weights-dir",

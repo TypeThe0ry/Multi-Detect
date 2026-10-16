@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-DEFAULT_WEIGHTS = ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt"
+DEFAULT_WEIGHTS = ROOT / "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt"
 DEFAULT_GGUF = (
     ROOT
     / "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf"
