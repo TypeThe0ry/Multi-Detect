@@ -120,7 +120,7 @@ def test_mover_worlds_have_explicit_splits_and_native_actor_trajectory(tmp_path)
     assert {entry["split"] for entry in first["worlds"]} == {"train", "val", "test"}
     text = before.decode()
     assert "<actor name=\"target_true_gen_mov_w0000\"" in text
-    assert "<trajectory id=\"move\"" in text
+    assert "<trajectory id=\"0\" type=\"move\"" in text
     assert "gz-sim-trajectory-follower-system" not in text
 
 
@@ -304,3 +304,14 @@ def test_low_disk_score_checks_metadata_before_missing_or_truncated_steps(tmp_pa
     result = score_episode(episode, {"targets": []})
     assert result["status"] == "aborted_low_disk"
     assert result["excluded_from_model_failure_metrics"] is True
+
+
+def test_mover_trajectory_ids_are_integers_for_gazebo():
+    # SDF requires <trajectory id> to be an integer; `id="move"` made Gazebo reject
+    # the whole world (found by loading it in the real Gazebo Harmonic image).
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    for world in sorted(Path("simulation/gazebo/worlds").glob("gen_mov_w*.sdf")):
+        for trajectory in ET.parse(world).getroot().iter("trajectory"):
+            assert trajectory.get("id", "").isdigit(), world
