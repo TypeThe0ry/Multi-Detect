@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:  # the r3 key check imports from scripts/
+    sys.path.insert(0, str(ROOT))
 OLD_DEFAULT = Path(
     "D:/Projects/Multi-Detect/artifacts/experiments/"
     "yoloe-v2-r3-seg-drop-full/train/weights/best.pt"
