@@ -66,9 +66,11 @@ class MissionSupervisor:
         self._ground_lock = threading.RLock()
         self._auth_failures: deque[float] = deque()
         mode_text = runtime_mode.strip().lower() if isinstance(runtime_mode, str) else ""
-        self._flight_mode = bool(flight_mode) if flight_mode is not None else mode_text in {
-            "flight", "real", "hil", "live"
-        }
+        self._flight_mode = (
+            bool(flight_mode)
+            if flight_mode is not None
+            else mode_text in {"flight", "real", "hil", "live"}
+        )
         self._require_signature = (
             bool(require_signature)
             if require_signature is not None
@@ -80,8 +82,9 @@ class MissionSupervisor:
         self.clock_skew_s = number(clock_skew_s, "clock_skew_s")
         if isinstance(rate_limit, bool) or not isinstance(rate_limit, int) or rate_limit < 1:
             raise ValueError("rate_limit must be a positive integer")
-        self.rate_limit, self.rate_window_s = rate_limit, number(
-            rate_window_s, "rate_window_s", minimum=0.001
+        self.rate_limit, self.rate_window_s = (
+            rate_limit,
+            number(rate_window_s, "rate_window_s", minimum=0.001),
         )
         self._event_times: deque[float] = deque()
         self._last_sequence = 0
@@ -115,6 +118,8 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self._last_envelope_violation: tuple[str, str] | None = None
+        self._last_envelope_violation_event_s: float | None = None
         # An existing mission log means this is a restart.  A missing replay
         # file in that case is evidence loss and must fail closed.
         self._had_prior_log = self.log.path.exists()
@@ -272,6 +277,7 @@ class MissionSupervisor:
         self.log.append(kind, self._now, **payload)
         if self.downlink is not None:
             self.downlink.notify()
+
     def _time(self) -> None:
         now = self.clock()
         if not math.isfinite(now) or now < self._now:
@@ -569,6 +575,50 @@ class MissionSupervisor:
                     operator_policy=self.policy,
                     energy=self.energy_estimate,
                 )
+
+    def report_envelope_violation(self, reason: str, *, action: str = "return_now") -> str:
+        """Report a final-action envelope veto to the supervisor.
+
+        The safety envelope is deliberately a stateless arbiter with respect to
+        mission execution: it may hold or clip a primitive, but it must not
+        mutate an executor or recovery state itself.  Callers therefore route a
+        veto through this method.  The supervisor owns escalation and applies
+        its existing policy ordering (``land_now`` always dominates
+        ``return_now``).
+
+        ``action`` is restricted to terminal actions.  A successful report
+        returns the currently latched supervisor action, which is useful to
+        callers that need to annotate the outgoing hold primitive.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("envelope violation reason must be a non-empty string")
+        if action not in {"return_now", "land_now"}:
+            raise ValueError("envelope violation action must be return_now or land_now")
+        clean_reason = reason.strip()
+        with self._ground_lock:
+            self._time()
+            key = (clean_reason, action)
+            should_record = (
+                key != self._last_envelope_violation
+                or self._last_envelope_violation_event_s is None
+                or self._now - self._last_envelope_violation_event_s >= 5.0
+            )
+            if should_record:
+                self._last_envelope_violation = key
+                self._last_envelope_violation_event_s = self._now
+        message = f"safety envelope violation: {clean_reason}"
+        # _escalate is the sole owner of terminal/recovery state and preserves
+        # the supervisor's established precedence when a stronger action was
+        # already latched (in particular, land_now cannot be downgraded).
+        self._escalate(action, message)
+        if should_record:
+            self._record(
+                "envelope_violation",
+                requested_action=action,
+                effective_action=self._terminal or self.action,
+                reason=clean_reason,
+            )
+        return self._terminal or self.action
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()

@@ -52,7 +52,8 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
-from multidetect.autonomy.obstacle_source import StaticMapSource  # noqa: E402
+from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
+from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
@@ -474,6 +475,34 @@ class OnboardPolicy:
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
+        # One final arbiter is shared by SIM and onboard callers.  Package
+        # geometry is authoritative for the home and operating rectangle;
+        # explicit safety_envelope settings may tighten it further.
+        envelope_source = dict(options)
+        if self.mission_package is not None:
+            area = self.mission_package.document["operating_area"]
+            package_polygon = (
+                (float(area["north_min_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_max_m"])),
+                (float(area["north_min_m"]), float(area["east_max_m"])),
+            )
+            envelope_source.setdefault("operating_polygon", package_polygon)
+            envelope_source.setdefault("min_altitude_m", float(area["min_altitude_m"]))
+            envelope_source.setdefault("max_altitude_m", float(area["max_altitude_m"]))
+        package_home = None
+        if self.mission_package is not None:
+            raw_home = tuple(float(v) for v in self.mission_package.document["home"])
+            package_home = raw_home if len(raw_home) == 3 else (*raw_home, 0.0)
+        self.safety_envelope = SafetyEnvelope(
+            SafetyEnvelopeConfig.from_mapping(envelope_source),
+            home_ned=(
+                tuple(float(v) for v in home_ned)
+                if home_ned is not None
+                else package_home
+            ),
+            ground_model=getattr(self.ground_projection, "model", None),
+        )
         for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
             # Config paths are relative to the repository root.
             path = Path(options[key])
@@ -496,6 +525,10 @@ class OnboardPolicy:
             )
         low_search_altitude = None
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
+        # Keep the final arbiter on the same typed clearance source as the
+        # executor/loop.  Optional depth sources can be composed by callers
+        # before runtime construction; an empty map remains byte-compatible.
+        self.safety_envelope.obstacle_source = CompositeSource((StaticMapSource(obstacles),))
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
         self.search_altitude_m = None
@@ -836,6 +869,10 @@ class OnboardPolicy:
                 ),
                 config=executor_config,
             )
+            # When no package is loaded, use the executor's configured home if
+            # it provides one; never infer home from the first observed pose.
+            if self.safety_envelope.home_ned is None and self.executor.home is not None:
+                self.safety_envelope.set_home((*self.executor.home, 0.0))
             # Set home on the executor itself, before any supervisor wraps it.
             if home_ned is not None:
                 self.executor.home = home_ned[:2]
@@ -1049,7 +1086,7 @@ class OnboardPolicy:
             "latency_s": float(latency),
         }
 
-    def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+    def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._slow_failed_current = False
         self._slow_skipped_current = False
         # Process external safety inputs first. A latched supervisor decision and
@@ -1259,6 +1296,47 @@ class OnboardPolicy:
                 labels["health"] = {"reason": "low_disk"}
             return ActionPrimitive.hold(1.0), {"onboard": labels}
         return action, labels
+
+    def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        """Single return point: every policy primitive crosses the envelope."""
+        action, labels = self._act_impl(observation, pose_ned=pose_ned, yaw_deg=yaw_deg)
+        # Some lightweight test/integration adapters use ``None`` to indicate
+        # that no motion was requested this frame; there is no outgoing
+        # primitive to arbitrate in that case.
+        if action is None:
+            return action, labels
+        envelope = getattr(self, "safety_envelope", None)
+        if envelope is None:
+            return action, labels
+        executor = getattr(self, "executor", None)
+        step = getattr(executor, "current_step", None)
+        phase = None
+        if isinstance(labels, dict):
+            onboard = labels.get("onboard", {})
+            phase = onboard.get("phase") if isinstance(onboard, dict) else None
+            if isinstance(onboard, dict) and onboard.get("supervisor_action") == "land_now":
+                phase = "landing"
+                # A terminal supervisor landing is an explicit landing skill;
+                # never let the still-active mission step disable its bounded
+                # low-altitude exception.
+                step = type("_LandingStep", (), {"skill": "land"})()
+        agl = observation.get("ground_agl", observation.get("agl_m"))
+        if isinstance(agl, Mapping):
+            agl = agl.get("height_m", agl.get("agl_m"))
+        decision = envelope.apply(
+            action,
+            pose_ned=tuple(float(v) for v in pose_ned),
+            yaw_deg=float(yaw_deg),
+            current_agl_m=agl,
+            phase=phase,
+            skill=getattr(step, "skill", None),
+        )
+        if decision.rejected and self.supervisor is not None:
+            self.supervisor.report_envelope_violation(
+                ", ".join(decision.reasons) or "rejected primitive"
+            )
+        labels = {**labels, **decision.info()}
+        return decision.action, labels
 
     def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool, timestamp_s=None):
         skill = "land" if land else "return_home"

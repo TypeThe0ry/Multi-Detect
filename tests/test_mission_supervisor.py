@@ -128,6 +128,27 @@ def test_all_policies_without_any_ground_station(tmp_path, policy, early, late):
     assert s.evaluate() == late
 
 
+def test_envelope_violation_preserves_latched_land_precedence(tmp_path):
+    s, _now, _ = build(tmp_path, "continue")
+    s._escalate("land_now", "existing terminal land")
+    assert s.report_envelope_violation("no_fly") == "land_now"
+    assert s.evaluate() == "land_now"
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert any(record["kind"] == "envelope_violation" for record in records)
+
+
+def test_envelope_violation_events_are_rate_limited(tmp_path):
+    s, now, _ = build(tmp_path, "continue")
+    s.report_envelope_violation("no_fly")
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 1
+    now[0] += 5.0
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 2
+
+
 def test_continue_survives_hours_of_silence(tmp_path):
     s, now, _ = build(tmp_path)
     for hours in range(1, 13):
@@ -420,12 +441,8 @@ def test_sequence_wrap_and_bounded_forward_jump(tmp_path):
         encoding="utf-8",
     )
     s._replay_state_loaded = False
-    assert s.ground_event(
-        signed_event(key, 0, now[0])
-    )
-    assert not s.ground_event(
-        signed_event(key, 10, now[0], session_nonce=s.session_nonce)
-    )
+    assert s.ground_event(signed_event(key, 0, now[0]))
+    assert not s.ground_event(signed_event(key, 10, now[0], session_nonce=s.session_nonce))
 
 
 def test_unix_heartbeat_uses_local_receipt_time_for_liveness(tmp_path):
