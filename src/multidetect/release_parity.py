@@ -202,6 +202,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/autonomy/onboard_policy_parts/config.py",
         "src/multidetect/autonomy/onboard_policy_parts/proposer.py",
         "src/multidetect/autonomy/onboard_policy_parts/vocabulary.py",
+        "src/multidetect/autonomy/step_triangulation.py",
         # Budget episodes consume the same selection/compilation seam. Bind
         # their projection semantics without claiming physical validation.
         "src/multidetect/simulation/task_episode.py",
