@@ -13,4 +13,11 @@ DEFAULTS = {
     / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
     "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+    "near_depth": False,
+    "near_depth_model_path": ROOT / "artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx",
+    "near_depth_backend": "onnx-cpu",
+    "near_depth_max_range_m": 10.0,
+    "near_depth_min_interval_s": 0.2,
+    "near_depth_max_age_s": 1.0,
+    "near_depth_sigma_scale": 1.0,
 }

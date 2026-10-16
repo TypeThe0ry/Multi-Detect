@@ -61,6 +61,7 @@ from multidetect.autonomy.onboard_loop import (  # noqa: E402
     LoopConfig,
     OnboardLoop,
 )
+from multidetect.autonomy.near_depth import NearDepthConfig, NearDepthController  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
@@ -451,6 +452,30 @@ class OnboardPolicy:
             # Config paths are relative to the repository root.
             path = Path(options[key])
             options[key] = str(path if path.is_absolute() else ROOT / path)
+        raw_near_depth = options.get("near_depth", False)
+        if isinstance(raw_near_depth, str):
+            if raw_near_depth.strip().lower() not in {"true", "false"}:
+                raise ValueError("near_depth must be true or false")
+            near_depth_enabled = raw_near_depth.strip().lower() == "true"
+        elif type(raw_near_depth) is bool:
+            near_depth_enabled = raw_near_depth
+        else:
+            raise ValueError("near_depth must be a boolean")
+        near_model_path = Path(str(options.get("near_depth_model_path", DEFAULTS["near_depth_model_path"])))
+        if not near_model_path.is_absolute():
+            near_model_path = ROOT / near_model_path
+        near_depth_config = NearDepthConfig(
+            enabled=near_depth_enabled,
+            model_path=near_model_path,
+            backend=str(options.get("near_depth_backend", "onnx-cpu")),
+            max_range_m=float(options.get("near_depth_max_range_m", 10.0)),
+            min_interval_s=float(options.get("near_depth_min_interval_s", 0.2)),
+            max_age_s=float(options.get("near_depth_max_age_s", 1.0)),
+            sigma_scale=float(options.get("near_depth_sigma_scale", 1.0)),
+        )
+        # Construction is deliberately lazy: disabled mode does not import a
+        # backend or touch the model artifact.
+        self.near_depth = NearDepthController(near_depth_config)
         # An operator command from the config overrides the world's task sentence.
         self.task_text = str(options.get("task_text") or task_text)
         self.work_dir = work_dir
@@ -518,6 +543,7 @@ class OnboardPolicy:
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
+            "near_depth": near_depth_enabled,
         }
         # Keep the original types: LoopConfig strictly rejects strings, bools
         # masquerading as integers, fractional view counts and non-finite sigma.
@@ -1055,6 +1081,9 @@ class OnboardPolicy:
                         self._write_mission_summary()
                     except OSError as exc:
                         warnings.warn(f"Could not write mission summary: {exc}", stacklevel=2)
+                near_depth = getattr(self, "near_depth", None)
+                if near_depth is not None:
+                    near_depth.close()
 
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
@@ -1167,6 +1196,61 @@ class OnboardPolicy:
             "error": error,
             "latency_s": float(latency),
         }
+
+    def _run_near_depth(
+        self, *, loop: OnboardLoop | None, current: Sequence[Any], rgb: Any,
+        frame_id: str, pose_ned: tuple[float, float, float], camera_info: Mapping[str, Any],
+        camera_ray: Callable[[float, float], Any], timestamp_s: float | None,
+        stage_allowed: bool, step_token: int,
+    ) -> None:
+        """Run the optional depth source after all slow calls, synchronously."""
+        if (
+            not self.near_depth.enabled
+            or loop is None
+            or not current
+            or rgb is None
+            or camera_ray is None
+        ):
+            return
+        if not all(key in camera_info for key in ("fx", "fy", "cx", "cy")):
+            self.near_depth.stats.skip("calibration")
+            return
+        focus_id = getattr(loop, "_focus", None)
+        focus = next((track for track in current if track.track_id == focus_id), None)
+        if focus is None:
+            return
+        center = ((focus.bbox[0] + focus.bbox[2]) / 2.0, (focus.bbox[1] + focus.bbox[3]) / 2.0)
+        ray_data = camera_ray(*center)
+        if ray_data is None:
+            current_range = None
+        else:
+            origin, _ = ray_data
+            estimate = getattr(focus, "position_estimate", None)
+            if estimate is not None:
+                current_range = math.dist(tuple(origin), tuple(estimate.position_ned))
+            elif focus.ground is not None:
+                current_range = math.sqrt(
+                    (focus.ground[0] - pose_ned[0]) ** 2
+                    + (focus.ground[1] - pose_ned[1]) ** 2
+                    + pose_ned[2] ** 2
+                )
+            else:
+                current_range = None
+        from multidetect.multimodal_ranging import CameraCalibration
+        calibration = CameraCalibration(
+            calibration_id="onboard-policy",
+            width_px=self.image_size[0], height_px=self.image_size[1],
+            fx_px=float(camera_info["fx"]), fy_px=float(camera_info["fy"]),
+            cx_px=float(camera_info["cx"]), cy_px=float(camera_info["cy"]),
+        )
+        self.near_depth.run(
+            track=focus, image_bgr=rgb[:, :, ::-1].copy(), frame_id=frame_id,
+            captured_at_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
+            now_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
+            camera_ray=camera_ray, current_range_m=current_range, calibration=calibration,
+            image_size=self.image_size, stage_allowed=stage_allowed, focus=True,
+            step_token=step_token,
+        )
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._slow_failed_current = False
@@ -1308,6 +1392,9 @@ class OnboardPolicy:
         ranging_enabled = getattr(
             getattr(getattr(self, "loop", None), "config", None), "step_triangulation", False,
         )
+        ranging_enabled = ranging_enabled or getattr(
+            getattr(self, "near_depth", None), "enabled", False
+        )
         ranging_kwargs = (
             {"camera_ray": camera_ray, "timestamp_s": _observation_timestamp_s(observation)}
             if ranging_enabled else {}
@@ -1324,6 +1411,7 @@ class OnboardPolicy:
                 ground_point=ground_point,
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
+                camera_info=camera_info,
                 **({"camera_ray": camera_ray} if ranging_enabled else {}),
             )
             if self._slow_failed_current:
@@ -1358,6 +1446,14 @@ class OnboardPolicy:
                     remembered=verdict.get("remembered", False),
                 )
                 slow.append(verdict)
+        run_near_depth = getattr(self, "_run_near_depth", None)
+        if callable(run_near_depth):
+            run_near_depth(
+                loop=self.loop, current=current, rgb=rgb, frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned), camera_info=camera_info, camera_ray=camera_ray,
+                timestamp_s=_observation_timestamp_s(observation),
+                stage_allowed=(self.loop.state == "approaching" or getattr(self.loop, "_at_closest", False)), step_token=step,
+            )
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -1387,6 +1483,8 @@ class OnboardPolicy:
                 "confirmed": self.loop.confirmed,
             }
         }
+        if getattr(getattr(self, "near_depth", None), "enabled", False):
+            labels["onboard"]["near_depth"] = self.near_depth.stats.as_dict()
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         if self._slow_failed_current:
@@ -1488,6 +1586,7 @@ class OnboardPolicy:
         landed=None,
         timestamp_s=None,
         camera_ray=None,
+        camera_info=None,
     ):
         executor = self.executor
         step = executor.current_step
@@ -1523,6 +1622,25 @@ class OnboardPolicy:
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
             slow.append(verdict)
+        mission_loop = getattr(executor, "active_loop", None)
+        run_near_depth = getattr(self, "_run_near_depth", None)
+        if callable(run_near_depth):
+            mission_run = getattr(executor, "_run", None)
+            inspect_near_phase = (
+                step is not None
+                and step.skill == "inspect"
+                and getattr(mission_run, "phase", None) in {"face", "capture"}
+            )
+            run_near_depth(
+                loop=mission_loop, current=current, rgb=frame_rgb, frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned), camera_info=camera_info or {}, camera_ray=camera_ray,
+                timestamp_s=timestamp_s,
+                stage_allowed=(step is not None and (
+                    inspect_near_phase
+                    or getattr(mission_loop, "state", None) == "approaching"
+                    or getattr(mission_loop, "_at_closest", False)
+                )), step_token=self._step,
+            )
         alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
             pose_ned=tuple(pose_ned),
@@ -1587,6 +1705,8 @@ class OnboardPolicy:
         if self.mission_plan is not None and not self._mission_plan_labeled:
             labels["onboard"]["mission"]["plan"] = self._mission_plan_label()
             self._mission_plan_labeled = True
+        if getattr(getattr(self, "near_depth", None), "enabled", False):
+            labels["onboard"]["near_depth"] = self.near_depth.stats.as_dict()
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         return action, labels

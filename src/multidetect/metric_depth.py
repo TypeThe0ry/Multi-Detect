@@ -74,6 +74,8 @@ class MetricDepthConfig:
     association_minimum_iou: float = 0.35
     association_maximum_center_distance: float = 0.15
     providers: tuple[str, ...] = ()
+    intra_op_num_threads: int | None = None
+    inter_op_num_threads: int | None = None
 
     def __post_init__(self) -> None:
         if self.input_size <= 0 or self.input_size % 14 != 0:
@@ -139,6 +141,10 @@ class MetricDepthConfig:
             raise ValueError("metric-depth association IoU must not exceed 1")
         if self.association_maximum_center_distance > math.sqrt(2.0):
             raise ValueError("metric-depth association center distance is outside the frame")
+        for name in ("intra_op_num_threads", "inter_op_num_threads"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise ValueError(f"{name} must be a positive integer or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +489,8 @@ class MetricDepthEstimator:
                 ort,
                 path,
                 providers=self.config.providers,
+                intra_op_num_threads=self.config.intra_op_num_threads,
+                inter_op_num_threads=self.config.inter_op_num_threads,
             )
         except InferenceProviderError as exc:
             raise VisionDependencyError(str(exc)) from exc

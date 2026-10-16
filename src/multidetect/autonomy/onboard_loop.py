@@ -341,10 +341,14 @@ class LoopConfig:
     step_triangulation_max_views: int = 8
     ground_height_sigma_m: float = 1.0
     step_triangulation_sigma_scale: float = 2.5
+    # Near monocular depth is an opt-in supplement to the geometric estimate.
+    near_depth: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.step_triangulation, bool):
             raise ValueError("step_triangulation must be a boolean")
+        if not isinstance(self.near_depth, bool):
+            raise ValueError("near_depth must be a boolean")
         if (isinstance(self.step_triangulation_max_views, bool)
             or not isinstance(self.step_triangulation_max_views, int)
             or not 2 <= self.step_triangulation_max_views <= 64):
@@ -757,7 +761,7 @@ class OnboardLoop:
                     best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
-            if self.config.step_triangulation:
+            if self.config.step_triangulation or self.config.near_depth:
                 self._update_position(best, ground, pose_ned, yaw_deg, camera_ray, timestamp_s,
                                       allow_level_ray=ground_point is None)
             if appearance is not None:
@@ -839,9 +843,10 @@ class OnboardLoop:
             track.position_views.append(ViewObservation(tuple(camera), tuple(direction),
                                                         self.step_index, stamp))
             track.position_views[:] = track.position_views[-self.config.step_triangulation_max_views:]
-            tri = triangulate_views(track.position_views,
-                                    max_views=self.config.step_triangulation_max_views,
-                                    sigma_scale=self.config.step_triangulation_sigma_scale)
+            tri = (triangulate_views(track.position_views,
+                                     max_views=self.config.step_triangulation_max_views,
+                                     sigma_scale=self.config.step_triangulation_sigma_scale)
+                   if self.config.step_triangulation else None)
             ground_estimate = None
             bottom_ray = camera_ray(_center(track.bbox)[0], track.bbox[3])
             if ground is not None and bottom_ray is not None:
@@ -865,12 +870,12 @@ class OnboardLoop:
 
     def target_position(self, track: Track) -> tuple[float, float] | None:
         """Position for reporting/navigation, independent of association anchors."""
-        if self.config.step_triangulation and track.position_estimate is not None:
+        if (self.config.step_triangulation or self.config.near_depth) and track.position_estimate is not None:
             return tuple(track.position_estimate.position_ned[:2])
         return track.ground
 
     def position_metadata(self, track: Track) -> dict[str, Any]:
-        if not self.config.step_triangulation:
+        if not (self.config.step_triangulation or self.config.near_depth):
             return {}
         estimate = track.position_estimate
         return {
