@@ -12,6 +12,7 @@ _EXACT = {
     "test_mission_planner.py", "test_mission_plan.py", "test_mission_planning.py",
     "test_mission_loop_timing.py", "test_mission_energy_window_audit.py", "test_mission_suite.py",
     "test_mission_summary.py", "test_mission_supervisor.py", "test_plan_from_task.py",
+    "test_mover_verification_smoke.py",
     "test_place_memory_integration.py", "test_place_verdict_memory.py",
     "test_supervisor_evidence.py",
     "test_score_onboard_loop.py", "test_sim_world_gen.py",

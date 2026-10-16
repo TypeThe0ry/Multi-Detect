@@ -17,6 +17,41 @@ from scripts.score_onboard_loop import target_pose_at_time
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def build_collector_command(
+    world: str,
+    scenario: Path,
+    out: Path,
+    duration_s: float,
+    min_free_gb: float,
+) -> list[str]:
+    """Build the collector invocation without starting the simulator."""
+    return [
+        "python",
+        "scripts/collect_sim_teacher_episodes.py",
+        "--scenario",
+        str(scenario),
+        "--teacher",
+        "hover",
+        "--episodes",
+        "1",
+        "--steps-per-episode",
+        str(max(8, int(duration_s / 2))),
+        "--timeout-s",
+        "600",
+        "--max-episode-s",
+        "600",
+        "--segmentation",
+        "--takeoff-altitude-m",
+        "8",
+        "--container-prefix",
+        f"verify-mover-{world}",
+        "--out",
+        str(out),
+        "--min-free-gb",
+        str(min_free_gb),
+    ]
+
+
 def postprocess_episode(episode: Path, truth: dict, *, window_px: int = 12) -> dict:
     target = next(t for t in truth["targets"] if t.get("true_target"))
     label = next(
@@ -113,31 +148,9 @@ def main() -> int:
     scenario = ROOT / "configs/scenarios/generated-movers" / f"{a.world}.scenario.json"
     a.out.mkdir(parents=True, exist_ok=True)
     prefix = f"verify-mover-{a.world}"
-    cmd = [
-        "python",
-        "scripts/collect_sim_teacher_episodes.py",
-        "--scenario",
-        str(scenario),
-        "--teacher",
-        "hover",
-        "--episodes",
-        "1",
-        "--steps-per-episode",
-        str(max(8, int(a.duration_s / 2))),
-        "--timeout-s",
-        "600",
-        "--max-episode-s",
-        "600",
-        "--segmentation",
-        "--takeoff-altitude-m",
-        "8",
-        "--container-prefix",
-        prefix,
-        "--out",
-        str(a.out),
-        "--min-free-gb",
-        str(a.min_free_gb),
-    ]
+    cmd = build_collector_command(
+        a.world, scenario, a.out, a.duration_s, a.min_free_gb
+    )
     try:
         run = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
         (a.out / f"{a.world}.collector.stdout.log").write_text(run.stdout)
