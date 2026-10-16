@@ -12,6 +12,7 @@ map used for search legs and obstacle clearance; it never reads scenario truth.
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import math
 import os
@@ -89,6 +90,73 @@ DEFAULTS = {
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
     "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
 }
+
+
+def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+    """Hash a model with a size/mtime keyed cache; failures are non-fatal."""
+    candidate = Path(path)
+    try:
+        stat = candidate.stat()
+        if not candidate.is_file():
+            return "unknown"
+    except OSError:
+        return "unknown"
+    key = str(candidate.resolve())
+    cached: dict[str, Any] = {}
+    if cache_path is not None:
+        try:
+            document = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(document, dict):
+                cached = document
+            entry = cached.get(key)
+            if (
+                isinstance(entry, dict)
+                and entry.get("size") == stat.st_size
+                and entry.get("mtime_ns") == stat.st_mtime_ns
+                and isinstance(entry.get("sha256"), str)
+            ):
+                return entry["sha256"]
+        except (OSError, ValueError, TypeError):
+            cached = {}
+    try:
+        digest = hashlib.sha256()
+        with candidate.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result = digest.hexdigest()
+    except (OSError, ValueError):
+        return "unknown"
+    if cache_path is not None:
+        cached[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": result}
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            temporary.write_text(json.dumps(cached, sort_keys=True), encoding="utf-8")
+            os.replace(temporary, cache_path)
+        except (OSError, TypeError, ValueError):
+            pass
+    return result
+
+
+def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
+    """Normalize the optional planner model; planner prompts are text-only."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, Mapping):
+        model = value.get("gguf", value.get("model", value.get("path")))
+        if model is None:
+            raise ValueError("planning_model requires gguf/model/path")
+        # The current mission-planning prompt is text-only, so a projector is
+        # unnecessary.  A caller may still provide one for a future multimodal prompt.
+        mmproj = value.get("mmproj")
+    else:
+        model, mmproj = value, None
+    model_path = Path(str(model))
+    model_path = model_path if model_path.is_absolute() else ROOT / model_path
+    if mmproj is not None:
+        mmproj_path = Path(str(mmproj))
+        mmproj = str(mmproj_path if mmproj_path.is_absolute() else ROOT / mmproj_path)
+    return str(model_path), mmproj
 # Generic proposal vocabulary: broad object words, not the task's answer.
 VOCABULARY = (
     "car",
@@ -666,24 +734,84 @@ class OnboardPolicy:
                 merge_iou=float(options.get("proposer_merge_iou", 0.5)),
             )
         )
-        if slow_runner is None:
-            from scripts.eval_slow_system import LlamaServerRunner
+        from scripts.eval_slow_system import LlamaServerRunner
 
-            self.slow = LlamaServerRunner(
+        identity_port = int(options.get("port", 9941))
+        planning_spec = _planning_model_spec(
+            options.get("planning_model"), identity_mmproj=options["mmproj"]
+        )
+        split_planning = mission == "from_text" and planning_spec is not None
+        self._model_split = bool(split_planning)
+        model_hash_cache = self.work_dir / ".model-hash-cache.json"
+        self._model_runtime: dict[str, Any] = {
+            "enabled": bool(split_planning),
+            "planning_model_path": planning_spec[0] if planning_spec else None,
+            "planning_model_sha256": (
+                _model_sha256(planning_spec[0], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
+            "identity_model_path": options["gguf"],
+            "identity_model_sha256": (
+                _model_sha256(options["gguf"], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
+            "planning_fallback_to_identity": False,
+            "swap_duration_s": None,
+            "swap_completed_monotonic_s": None,
+        }
+
+        def make_identity_runner():
+            return LlamaServerRunner(
                 Path(options["gguf"]),
                 Path(options["mmproj"]),
                 executable=Path(options["llama_server"]),
-                port=int(options.get("port", 9941)),
-                max_new_tokens=768 if mission == "from_text" else 128,
+                port=identity_port,
+                max_new_tokens=128 if split_planning else (768 if mission == "from_text" else 128),
                 crop_policy="candidate_zoom_v2",
-                # Every onboard call names a focus track: only identity verdicts are allowed.
                 identity_only=True,
                 logprobs=True,
-                # One-token verdict after a prefilled answer prefix: same verdicts, a
-                # fraction of the decode time (matters on a Jetson Orin Nano).
                 fast_identity=str(options.get("fast_identity", False)).lower()
                 in {"1", "true", "yes"},
             )
+
+        def start_identity_runner():
+            if slow_runner is not None:
+                return slow_runner
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    return make_identity_runner()
+                except Exception as exc:
+                    address_busy = "address already in use" in str(exc).lower() or "address in use" in str(exc).lower()
+                    if not address_busy or time.monotonic() >= deadline:
+                        health = getattr(self, "health", None)
+                        if health is not None:
+                            health.record_planning_failure()
+                        raise
+                    time.sleep(0.1)
+
+        planner_start_error: Exception | None = None
+        if split_planning:
+            try:
+                self.slow = LlamaServerRunner(
+                    Path(planning_spec[0]),
+                    Path(planning_spec[1]) if planning_spec[1] is not None else None,
+                    executable=Path(options["llama_server"]),
+                    port=identity_port,
+                    max_new_tokens=768,
+                    crop_policy="none",
+                    identity_only=False,
+                    logprobs=False,
+                    wait_port_free=True,
+                )
+            except Exception as exc:
+                planner_start_error = exc
+                self._model_runtime["planning_fallback_to_identity"] = True
+                self.slow = start_identity_runner()
+        elif slow_runner is None:
+            self.slow = make_identity_runner()
         else:
             self.slow = slow_runner
         health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
@@ -749,37 +877,6 @@ class OnboardPolicy:
                 from scripts.eval_slow_system import _http_json
 
                 refs = options.get("refs") or {}
-                post_attempted = False
-
-                def post(prompt: str, schema: dict[str, Any]) -> str:
-                    nonlocal post_attempted
-                    post_attempted = True
-                    body = {
-                        "model": "local",
-                        "temperature": 0,
-                        "max_tokens": 768,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "response_format": {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": "mission_plan",
-                                "strict": True,
-                                "schema": schema,
-                            },
-                        },
-                    }
-                    started = time.perf_counter()
-                    try:
-                        response = _http_json(
-                            f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
-                            body,
-                            timeout=self.slow_call_timeout_s,
-                        )
-                    except Exception:
-                        self.health.record_slow_call(time.perf_counter() - started, ok=False)
-                        raise
-                    self.health.record_slow_call(time.perf_counter() - started, ok=True)
-                    return response["choices"][0]["message"].get("content", "")
 
                 labels = options.get("ref_labels") or {}
                 retry_setting = options.get(
@@ -806,25 +903,112 @@ class OnboardPolicy:
                     if package_retry and self.mission_package is not None
                     else None
                 )
-                try:
-                    plan, report = build_mission_from_text(
-                        self.task_text,
-                        tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
-                        post,
-                        sorted_keys=bool(options.get("plan_sorted_keys", True)),
-                        plan_checker=plan_checker,
-                        capabilities=capabilities,
-                    )
-                except Exception:
-                    # Planning/validation failures are not model-call results.
-                    # ``post`` records the HTTP outcome at the call site; do
-                    # not count this exception a second time as a slow fault.
-                    self.health.record_planning_failure()
-                    if not post_attempted:
+                def compile_once(runner):
+                    post_attempted = False
+
+                    def post(prompt: str, schema: dict[str, Any]) -> str:
+                        nonlocal post_attempted
+                        post_attempted = True
+                        body = {
+                            "model": "local",
+                            "temperature": 0,
+                            "max_tokens": 768,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "response_format": {
+                                "type": "json_schema",
+                                "json_schema": {
+                                    "name": "mission_plan",
+                                    "strict": True,
+                                    "schema": schema,
+                                },
+                            },
+                        }
+                        started = time.perf_counter()
+                        try:
+                            response = _http_json(
+                                f"http://127.0.0.1:{runner.port}/v1/chat/completions",
+                                body,
+                                timeout=self.slow_call_timeout_s,
+                            )
+                        except Exception:
+                            self.health.record_slow_call(time.perf_counter() - started, ok=False)
+                            raise
+                        self.health.record_slow_call(time.perf_counter() - started, ok=True)
+                        return response["choices"][0]["message"].get("content", "")
+
+                    try:
+                        candidate, candidate_report = build_mission_from_text(
+                            self.task_text,
+                            tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
+                            post,
+                            sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                            plan_checker=plan_checker,
+                            capabilities=capabilities,
+                        )
+                    except Exception:
+                        # ``post`` records HTTP outcomes; do not count an
+                        # exception a second time as a slow fault.
+                        self.health.record_planning_failure()
+                        if not post_attempted:
+                            self.health.record_slow_call(0.0, ok=False)
+                        raise
+                    return candidate, candidate_report
+
+                if split_planning:
+                    planner_error = planner_start_error
+                    swap_close_started = None
+                    if planner_error is not None:
+                        self._model_runtime["planning_fallback_to_identity"] = True
+                        self.health.record_planning_failure()
                         self.health.record_slow_call(0.0, ok=False)
-                    raise
+                        self.health.runner = self.slow
+                        plan, report = compile_once(self.slow)
+                    else:
+                        try:
+                            plan, report = compile_once(self.slow)
+                            if report.get("error"):
+                                self.health.record_planning_failure()
+                                raise ValueError(
+                                    f"mission plan compilation failed: {report['error']}"
+                                )
+                        except Exception:
+                            self._model_runtime["planning_fallback_to_identity"] = True
+                            swap_close_started = time.monotonic()
+                            close = getattr(self.slow, "close", None)
+                            if close is not None:
+                                close()
+                            self.slow = start_identity_runner()
+                            self.health.runner = self.slow
+                            try:
+                                plan, report = compile_once(self.slow)
+                            except Exception:
+                                close = getattr(self.slow, "close", None)
+                                if close is not None:
+                                    close()
+                                raise
+                        else:
+                            swap_close_started = time.monotonic()
+                            close = getattr(self.slow, "close", None)
+                            if close is not None:
+                                close()
+                            self.slow = start_identity_runner()
+                            self.health.runner = self.slow
+                    swap_completed = time.monotonic()
+                    self._model_runtime["swap_duration_s"] = (
+                        swap_completed - swap_close_started
+                        if swap_close_started is not None
+                        else None
+                    )
+                    self._model_runtime["swap_completed_monotonic_s"] = swap_completed
+                else:
+                    try:
+                        plan, report = compile_once(self.slow)
+                    except Exception:
+                        raise
                 self.mission_plan, self.mission_plan_report = plan, report
                 if report.get("error"):
+                    if split_planning:
+                        self.health.record_planning_failure()
                     if self.mission_package is not None:
                         package_violations = report.get("package_violations", [])
                         if package_violations:
@@ -912,6 +1096,12 @@ class OnboardPolicy:
                     ),
                     runtime_mode=effective_runtime_mode,
                 )
+                if self._model_split:
+                    self.downlink.log.append(
+                        "model_swap",
+                        self.sim_timeline.now if self.sim_timeline is not None else time.monotonic(),
+                        model_runtime=dict(self._model_runtime),
+                    )
                 # Telemetry readers stamp receipts with host monotonic time,
                 # while SIM supervisors run on the simulation clock. Keep a
                 # fixed affine offset so both values are compared in one domain.
@@ -990,8 +1180,7 @@ class OnboardPolicy:
         """Persist at teardown, beside the collector's steps.jsonl labels."""
         executor = self.executor
         report = executor.report()
-        summary, chinese, english = summarize_mission(
-            {
+        report_input = {
                 "history": list(executor.history),
                 "findings": list(executor.findings),
                 "counts": dict(executor.counts),
@@ -999,7 +1188,11 @@ class OnboardPolicy:
                 "evidence": list(report.evidence_frame_ids),
                 "answers": list(report.state_answers),
                 "alerts": list(report.alerts),
-            },
+            }
+        if self._model_split:
+            report_input["model_runtime"] = dict(self._model_runtime)
+        summary, chinese, english = summarize_mission(
+            report_input,
             executor.plan,
             self.task_text,
         )

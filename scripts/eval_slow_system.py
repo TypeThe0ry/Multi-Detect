@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import socket
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -228,7 +229,7 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 class LlamaServerRunner:
     fast_identity = False  # tests build bare instances
 
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True):
+    def __init__(self, model: Path, mmproj: Path | None = None, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True, wait_port_free: bool = False):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
         # Identity rows: prefill the pinned args, read one token's log-probabilities
         # for the three verdicts instead of decoding the whole JSON (~50 tokens).
@@ -236,6 +237,7 @@ class LlamaServerRunner:
         self._verdict_tokens: dict[str, dict[str, int]] = {}
         self._verdict_pieces: dict[str, dict[str, str | None]] = {}
         self.identity_variant, self.cache_prompt, self.last_usage = identity_variant, cache_prompt, None
+        self.wait_port_free = bool(wait_port_free)
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -247,9 +249,13 @@ class LlamaServerRunner:
         else:
             raise ValueError("GGUF device must be cpu or cuda[:index]")
         # llama-server runs with cwd=executable.parent, so relative paths must be resolved first.
-        executable, model, mmproj = Path(executable).resolve(), Path(model).resolve(), Path(mmproj).resolve()
+        executable, model = Path(executable).resolve(), Path(model).resolve()
+        mmproj = Path(mmproj).resolve() if mmproj is not None else None
         adapter = Path(adapter).resolve() if adapter else None
-        command = [str(executable), "-m", str(model), "-mm", str(mmproj), "-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"]
+        command = [str(executable), "-m", str(model)]
+        if mmproj is not None:
+            command.extend(["-mm", str(mmproj)])
+        command.extend(["-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"])
         if adapter:
             command.extend(["--lora", str(adapter)])
         self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
@@ -375,6 +381,22 @@ class LlamaServerRunner:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+                self.process.wait(timeout=10)
+        if not getattr(self, "wait_port_free", False):
+            return
+        # A planner and identity server may reuse one port.  A failed connect
+        # is not enough evidence: bind the port ourselves before returning.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                probe.bind(("127.0.0.1", int(self.port)))
+                probe.close()
+                return
+            except OSError:
+                probe.close()
+                time.sleep(0.05)
+        raise TimeoutError(f"llama-server port {self.port} did not become free")
 
 
 def run(args) -> dict[str, Any]:

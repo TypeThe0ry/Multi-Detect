@@ -10,7 +10,7 @@ _EXACT = {
     "test_mission_executor.py", "test_mission_executor_remaining_gaps.py",
     "test_mission_executor_no_fly.py", "test_mission_package_preflight.py",
     "test_mission_security.py",
-    "test_onboard_preflight.py", "test_onboard_main.py", "test_onboard_health.py", "test_safety_envelope.py",
+    "test_onboard_preflight.py", "test_onboard_main.py", "test_onboard_health.py", "test_onboard_model_split.py", "test_safety_envelope.py",
     "test_mission_planner.py", "test_mission_plan.py", "test_mission_planning.py",
     "test_mission_loop_timing.py", "test_mission_energy_window_audit.py", "test_mission_suite.py",
     "test_mission_summary.py", "test_mission_supervisor.py", "test_plan_from_task.py",

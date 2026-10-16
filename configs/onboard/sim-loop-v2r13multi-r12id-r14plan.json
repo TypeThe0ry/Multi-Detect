@@ -1,0 +1,6 @@
+{
+  "gguf": "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf",
+  "planning_model": "artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf",
+  "confirm_max_range_m": 40.0,
+  "fast_identity": true
+}

@@ -136,6 +136,8 @@ def summarize_mission(
         "not_done": undone,
         "omitted": {},
     }
+    if raw.get("model_runtime") is not None:
+        result["model_runtime"] = dict(raw["model_runtime"])
     if landing_unconfirmed:
         # A dispatched landing command is not confirmed mission completion.
         result["status"] = "landing_commanded_unconfirmed"
@@ -157,6 +159,7 @@ def _bound(result: dict[str, Any]) -> None:
         "steps",
         "counts",
         "skills",
+        "model_runtime",
     )
     while len(summary_json(result).encode("utf-8")) > 2048:
         for key in order:
