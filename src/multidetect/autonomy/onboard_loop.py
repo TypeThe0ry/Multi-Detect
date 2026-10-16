@@ -245,11 +245,18 @@ class Track:
     # remaining history is incomplete, so this track must not be ground-reid.
     covis_truncated: bool = False
     needs_fresh_verdict: bool = False
+    # Number of small-box rejection rechecks already scheduled for this track.
+    small_reject_rechecks: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class LoopConfig:
     confirm_min_side_px: float = 20.0
+    # Disabled by default.  When set, a reject below this pixel size is treated
+    # as provisional and the host keeps approaching until the normal confirmation
+    # size gate is reached before asking the slow model once more.
+    small_reject_recheck_px: float | None = None
+    small_reject_recheck_max: int = 1
     verdict_ttl_steps: int = 12
     max_slow_per_step: int = 3
     min_box_side_px: float = 6.0
@@ -314,6 +321,17 @@ class LoopConfig:
     max_blocked_legs: int = 2
 
     def __post_init__(self) -> None:
+        if self.small_reject_recheck_px is not None and (
+            not math.isfinite(self.small_reject_recheck_px)
+            or self.small_reject_recheck_px <= 0
+        ):
+            raise ValueError("small_reject_recheck_px must be finite and positive or None")
+        if (
+            isinstance(self.small_reject_recheck_max, bool)
+            or not isinstance(self.small_reject_recheck_max, int)
+            or self.small_reject_recheck_max < 0
+        ):
+            raise ValueError("small_reject_recheck_max must be a non-negative integer")
         if self.ground_reid_max_steps is not None and (
             isinstance(self.ground_reid_max_steps, bool)
             or not isinstance(self.ground_reid_max_steps, int)
@@ -761,7 +779,16 @@ class OnboardLoop:
                 t.needs_fresh_verdict
                 or
                 t.verdict is None
-                or self.step_index - t.verdict_step > self.config.verdict_ttl_steps
+                # A provisional small-box reject is re-asked only at the confirmation size,
+                # not on TTL expiry while still too small to judge.
+                or (
+                    t.verdict != "pending_near"
+                    and self.step_index - t.verdict_step > self.config.verdict_ttl_steps
+                )
+                or (
+                    t.verdict == "pending_near"
+                    and _min_side(t.bbox) >= self.config.confirm_min_side_px
+                )
                 # Re-verify the approach focus from each new view until confirmed.
                 or (
                     t.track_id == self._focus
@@ -795,7 +822,14 @@ class OnboardLoop:
             return
         if remembered and decision not in {"reject_track", "approach_track"}:
             raise ValueError("only reject_track and approach_track may be remembered")
-        if not remembered:
+        small_recheck = (
+            not remembered
+            and decision == "reject_track"
+            and self.config.small_reject_recheck_px is not None
+            and _min_side(track.bbox) < self.config.small_reject_recheck_px
+            and track.small_reject_rechecks < self.config.small_reject_recheck_max
+        )
+        if not remembered and not small_recheck:
             self._place_memory.record(
                 track.ground, self._track_range(track), decision, self.config, track.appearance,
                 track.track_id, track.co_visible_with,
@@ -822,6 +856,15 @@ class OnboardLoop:
         track.verdict, track.verdict_step = verdict, self.step_index
         track.needs_fresh_verdict = False
         track.verdict_remembered = remembered
+        if small_recheck:
+            # Do not train place memory or count this as a terminal negative.  The
+            # pending state remains an eligible focus so next_action keeps closing
+            # in; tracks_needing_verdict asks again once the normal size gate is met.
+            track.small_reject_rechecks += 1
+            track.verdict = "pending_near"
+            track.verdict_remembered = False
+            track.identity_verdict_history.append("pending_near")
+            return
         if verdict in {"confirm", "approach"}:
             track.identity_positive_matches += 1
             track.identity_verdict_history.append(verdict)
@@ -855,7 +898,12 @@ class OnboardLoop:
         memory, since it deliberately seeks evidence from another side.
         """
         track = self._tracks.get(track_id)
-        if track is None or self._revisit is not None or track.needs_fresh_verdict:
+        if (
+            track is None
+            or self._revisit is not None
+            or track.needs_fresh_verdict
+            or track.verdict == "pending_near"
+        ):
             return None
         if track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}:
             return None
@@ -1031,7 +1079,10 @@ class OnboardLoop:
         )
 
     def _best_match(self, current: Sequence[Track]) -> Track | None:
-        visible = [t for t in current if t.verdict in {"approach", "confirm"} and not t.exhausted]
+        visible = [
+            t for t in current
+            if t.verdict in {"approach", "confirm", "pending_near"} and not t.exhausted
+        ]
         if self._focus is not None:
             focus = next((t for t in visible if t.track_id == self._focus), None)
             if focus is not None:
@@ -1229,7 +1280,7 @@ class OnboardLoop:
                     # Only a focus that is still wanted and actually out of view; a focus
                     # rejected while visible is dropped. The approach budget still applies.
                     wanted = (
-                        focus.verdict in {"approach", "confirm"}
+                        focus.verdict in {"approach", "confirm", "pending_near"}
                         and not focus.exhausted
                         and all(t.track_id != focus.track_id for t in current)
                     )
@@ -1318,13 +1369,18 @@ class OnboardLoop:
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
             info["match_views"] = matches
-            if unclipped and not best.needs_fresh_verdict and not best.verdict_remembered and (
+            if (
+                unclipped
+                and not best.needs_fresh_verdict
+                and not best.verdict_remembered
+                and (
                 votes >= self.config.confirm_matches
                 or (votes >= 1 and (stalled or near))
                 or (
                     near
                     and self.config.closest_view_identity_matches is not None
                     and matches >= self.config.closest_view_identity_matches
+                )
                 )
             ):
                 record = {
