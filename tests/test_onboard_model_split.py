@@ -10,6 +10,11 @@ from multidetect.autonomy.mission_plan import validate_mission_plan
 from scripts import onboard_policy
 
 
+def test_default_identity_model_is_r12_without_planning_fallback():
+    assert onboard_policy.DEFAULTS["gguf"].name == "slow-system-v2r12multi-merged-Q5_K_M.gguf"
+    assert "planning_model" not in onboard_policy.DEFAULTS
+
+
 def _plan():
     return validate_mission_plan(
         {
