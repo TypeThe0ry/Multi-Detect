@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -186,4 +187,68 @@ def test_attitude_compensation_rejects_rotation_only_as_parallax() -> None:
             captured_at_s=t,
         )
 
+    assert measurement is None
+
+
+@pytest.mark.parametrize(
+    ("age_s", "accepted"),
+    [
+        (-0.1, False),
+        (-1e-9, False),
+        (0.0, True),
+        (0.25, True),
+        (0.60, True),
+        (0.60 + 1e-9, False),
+        (math.nan, False),
+        (math.inf, False),
+    ],
+)
+@pytest.mark.parametrize("source", ["local_position", "velocity"])
+def test_platform_samples_require_finite_past_timestamps(
+    age_s: float,
+    accepted: bool,
+    source: str,
+) -> None:
+    estimator = VisualInertialRangeEstimator()
+    # Use time zero for the exact age limit without subtraction rounding.
+    telemetry = _telemetry(t=0.0, north=0.0, east=0.0)
+    if source == "local_position":
+        telemetry = replace(telemetry, local_position_observed_at_s=-age_s)
+    else:
+        assert (
+            estimator._platform_position(
+                telemetry=_telemetry(t=-0.1, north=0.0, east=0.0),
+                captured_at_s=-0.1,
+            )
+            is not None
+        )
+        telemetry = replace(
+            telemetry,
+            local_position_observed_at_s=-10.0,
+            velocity_observed_at_s=-age_s,
+        )
+    platform = estimator._platform_position(telemetry=telemetry, captured_at_s=0.0)
+    if accepted:
+        assert platform is not None
+        position, position_source = platform
+        assert position_source == (
+            "local_ned" if source == "local_position" else "velocity_dead_reckoned"
+        )
+        assert position == pytest.approx((0.0 if source == "local_position" else 1.0, 0.0, 0.0))
+    else:
+        assert platform is None
+
+
+def test_future_local_position_does_not_produce_a_size_prior_measurement() -> None:
+    estimator = VisualInertialRangeEstimator()
+    measurement = estimator.observe(
+        track=_track(t=10.0, center_x=0.5, center_y=0.5, size=0.20, label="person"),
+        telemetry=replace(
+            _telemetry(t=10.0, north=0.0, east=0.0),
+            local_position_observed_at_s=10.1,
+        ),
+        calibration=CALIBRATION,
+        frame_id="future-position",
+        captured_at_s=10.0,
+    )
     assert measurement is None

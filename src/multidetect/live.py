@@ -2453,6 +2453,7 @@ class LiveMissionRunner:
                                 frame_id=captured.frame_id,
                                 captured_at_s=captured.captured_at_s,
                                 now_s=frame_event_at_s,
+                                calibration=self.ranging_config.calibration,
                             )
                             metric_result = self.metric_depth_runner.latest_result()
                             if (
@@ -2500,6 +2501,10 @@ class LiveMissionRunner:
                                         "target_id": metric_result.target_id,
                                         "slant_range_m": metric_result.slant_range_m,
                                         "raw_slant_range_m": metric_result.raw_slant_range_m,
+                                        "optical_axis_depth_m": metric_result.optical_axis_depth_m,
+                                        "raw_optical_axis_depth_m": (
+                                            metric_result.raw_optical_axis_depth_m
+                                        ),
                                         "sigma_m": metric_result.sigma_m,
                                         "valid_pixel_count": metric_result.valid_pixel_count,
                                         "processing_time_ms": metric_result.processing_time_ms,

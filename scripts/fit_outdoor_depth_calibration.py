@@ -2,10 +2,13 @@
 """Create a validated outdoor depth-calibration document from measured samples.
 
 Input CSV needs ``sample_id,raw_depth_m,actual_distance_m``. The raw value is
-the ``raw_slant_range_m`` field from a geometry-accepted
-``ranging.metric_depth_updated`` audit event; actual distance is a tape, laser,
-or surveyed slant range. Empty true-distance rows are ignored so the candidate
-CSV can retain unmeasured evidence for later field sessions.
+the optical-axis Z field ``raw_optical_axis_depth_m`` from a geometry-accepted
+``ranging.metric_depth_updated`` audit event. The actual value must also be Z:
+multiply an off-axis tape, laser, or surveyed slant range by cos(theta), where
+theta is the undistorted target-center ray's angle to the optical axis. Legacy
+``raw_slant_range_m`` inputs are accepted as the historical Z alias. Empty
+true-distance rows are ignored so the candidate CSV can retain unmeasured
+evidence for later field sessions.
 """
 
 from __future__ import annotations
@@ -71,7 +74,9 @@ def load_samples(path: Path) -> tuple[FieldDepthSample, ...]:
         raise ValueError("samples must be a .csv or .json file")
     values = []
     for index, row in enumerate(rows, start=1):
-        raw = row.get("raw_depth_m", row.get("raw_slant_range_m"))
+        raw = row.get("raw_optical_axis_depth_m")
+        if raw is None:
+            raw = row.get("raw_depth_m", row.get("raw_slant_range_m"))
         actual = row.get("actual_distance_m", row.get("ground_truth_distance_m"))
         if actual is None or not str(actual).strip():
             continue

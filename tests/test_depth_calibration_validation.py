@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,45 @@ import pytest
 from multidetect.depth_calibration import DepthCalibrationError, load_calibration_document
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("script", "loader"),
+    (
+        ("fit_outdoor_depth_calibration.py", "load_samples"),
+        ("validate_outdoor_depth_calibration.py", "load_measured_samples"),
+    ),
+)
+@pytest.mark.parametrize(
+    ("depth_fields", "expected_raw"),
+    (
+        (
+            {"raw_optical_axis_depth_m": 8.0, "raw_depth_m": 10.0, "raw_slant_range_m": 12.0},
+            8.0,
+        ),
+        ({"raw_optical_axis_depth_m": None, "raw_depth_m": 10.0}, 10.0),
+        ({"raw_depth_m": 10.0}, 10.0),
+        ({"raw_slant_range_m": 12.0}, 12.0),
+        ({"raw_optical_axis_depth_m": None, "raw_slant_range_m": 12.0}, 12.0),
+    ),
+)
+def test_calibration_sample_loaders_prefer_z_and_preserve_legacy_inputs(
+    tmp_path: Path,
+    script: str,
+    loader: str,
+    depth_fields: dict[str, float | None],
+    expected_raw: float,
+) -> None:
+    samples = tmp_path / "samples.json"
+    samples.write_text(
+        json.dumps([{"sample_id": "off-axis", "actual_distance_m": 4.0, **depth_fields}]),
+        encoding="utf-8",
+    )
+    load = runpy.run_path(str(ROOT / "scripts" / script))[loader]
+    loaded = load(samples)
+    assert len(loaded) == 1
+    assert loaded[0].raw_depth_m == expected_raw
+    assert loaded[0].actual_distance_m == 4.0
 
 
 def test_gazebo_depth_transport_identity_is_not_a_metric_model_calibration(

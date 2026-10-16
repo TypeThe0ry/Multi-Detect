@@ -14,6 +14,7 @@ from .multimodal_ranging import (
     TargetImageObservation,
     aircraft_pose_from_telemetry,
 )
+from .rgb_slam_range import _past_age
 from .unified_tracking import UnifiedTrackSnapshot, UnifiedTrackState
 
 
@@ -195,10 +196,10 @@ class VisualInertialRangeEstimator:
         captured_at_s: float,
     ) -> tuple[tuple[float, float, float], str] | None:
         local_values = (telemetry.local_north_m, telemetry.local_east_m, telemetry.local_down_m)
-        local_age_s = abs(captured_at_s - telemetry.local_position_observed_at_s)
+        local_age_s = _past_age(captured_at_s, telemetry.local_position_observed_at_s)
         if (
             all(math.isfinite(value) for value in local_values)
-            and math.isfinite(local_age_s)
+            and local_age_s is not None
             and local_age_s <= self.config.maximum_position_age_s
         ):
             position = tuple(float(value) for value in local_values)
@@ -220,12 +221,12 @@ class VisualInertialRangeEstimator:
 
         north_velocity = telemetry.velocity_north_mps
         east_velocity = telemetry.velocity_east_mps
-        velocity_age_s = abs(captured_at_s - telemetry.velocity_observed_at_s)
+        velocity_age_s = _past_age(captured_at_s, telemetry.velocity_observed_at_s)
         source = "velocity_dead_reckoned"
         if not (
             math.isfinite(north_velocity)
             and math.isfinite(east_velocity)
-            and math.isfinite(velocity_age_s)
+            and velocity_age_s is not None
             and velocity_age_s <= self.config.maximum_position_age_s
         ):
             if not (

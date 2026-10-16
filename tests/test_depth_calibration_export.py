@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from multidetect.depth_calibration import load_calibration_document
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,76 @@ def _audit_event(
             "details": details,
         }
     )
+
+
+@pytest.mark.parametrize(
+    ("depth_fields", "expected_raw", "expected_calibrated"),
+    (
+        ({"raw_optical_axis_depth_m": 8.0, "optical_axis_depth_m": 4.0}, 8.0, 4.0),
+        ({}, 10.0, 5.0),
+        ({"raw_optical_axis_depth_m": None, "optical_axis_depth_m": None}, 10.0, 5.0),
+    ),
+)
+def test_exporter_uses_optical_axis_depth_and_accepts_legacy_audit(
+    tmp_path: Path,
+    depth_fields: dict[str, float | None],
+    expected_raw: float,
+    expected_calibrated: float,
+) -> None:
+    audit = tmp_path / "depth.audit.jsonl"
+    audit.write_text(
+        "\n".join(
+            (
+                _audit_event(
+                    1,
+                    10.0,
+                    "ranging.metric_depth_updated",
+                    {
+                        "frame_id": "off-axis-frame",
+                        "target_id": "target-1",
+                        "raw_slant_range_m": 10.0,
+                        "slant_range_m": 5.0,
+                        "sigma_m": 0.5,
+                        "calibration_profile": "outdoor-temp",
+                        "calibration_scale": 0.5,
+                        **depth_fields,
+                    },
+                ),
+                _audit_event(
+                    2,
+                    10.1,
+                    "ranging.metric_depth_association",
+                    {
+                        "target_id": "target-1",
+                        "source_frame_id": "off-axis-frame",
+                        "status": "accepted",
+                    },
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    candidates = tmp_path / "candidates.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/export_outdoor_depth_calibration_candidates.py"),
+            str(audit),
+            "--output",
+            str(candidates),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    with candidates.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert float(rows[0]["raw_depth_m"]) == expected_raw
+    assert float(rows[0]["calibrated_depth_m"]) == expected_calibrated
+    assert float(rows[0]["sigma_m"]) == 0.5
 
 
 def test_exporter_keeps_only_geometry_accepted_target_depth_and_fitter_ignores_blanks(
