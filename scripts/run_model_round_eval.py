@@ -319,6 +319,20 @@ def comparison(current: dict, baseline: dict | None) -> list[dict]:
     rows = []
     old = baseline or {}
     for key, value in current.items():
+        if key == "size_buckets" and isinstance(value, dict):
+            old_buckets = old.get(key, {}) if isinstance(old.get(key, {}), dict) else {}
+            for bucket, bucket_metrics in value.items():
+                if not isinstance(bucket_metrics, dict):
+                    continue
+                previous_bucket = old_buckets.get(bucket, {}) if isinstance(old_buckets, dict) else {}
+                for metric, metric_value in bucket_metrics.items():
+                    if isinstance(metric_value, (int, float)) and not isinstance(metric_value, bool):
+                        previous = previous_bucket.get(metric) if isinstance(previous_bucket, dict) else None
+                        if not isinstance(previous, (int, float)) or isinstance(previous, bool):
+                            previous = None
+                        rows.append({"metric": f"size_buckets.{bucket}.{metric}", "current": metric_value,
+                                     "baseline": previous, "delta": metric_value - previous if previous is not None else None})
+            continue
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             previous = old.get(key)
             if not isinstance(previous, (int, float)) or isinstance(previous, bool):
