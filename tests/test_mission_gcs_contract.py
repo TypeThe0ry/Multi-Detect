@@ -145,3 +145,26 @@ def test_gcs_ground_command_golden_vector_matches_onboard_verifier():
     )
     public = AuthenticationKey("ed25519", Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key().public_bytes_raw(), "gcs-test")
     assert verify_document(signed, public)
+
+
+def test_gcs_canonical_numbers_and_unicode_golden_vector():
+    key = AuthenticationKey("ed25519", bytes(range(32)), "gcs-test")
+    command = {
+        "A": 1.0,
+        "a": 1700000000.0,
+        "arr": [0.1, 1e-7, 1e21, -2.5, 123456789.125, ["\u96ea", "\U0001f600"]],
+        "negative": -42.0,
+        "zero": -0.0,
+        "\u00e9": "\u96ea\U0001f600",
+        "\U0001f600": "\u00e9",
+    }
+    signed = sign_document(command, key)
+    assert canonical_auth_bytes({**command, "key_id": "gcs-test"}, "signature", "signature_alg").hex() == (
+        "7b2241223a312c2261223a313730303030303030302c22617272223a5b302e312c31652d30372c31652b32312c"
+        "2d322e352c3132333435363738392e3132352c5b22e99baa222c22f09f9880225d5d2c226b65795f6964223a"
+        "226763732d74657374222c226e65676174697665223a2d34322c227a65726f223a302c22c3a9223a22e99baa"
+        "f09f9880222c22f09f9880223a22c3a9227d"
+    )
+    assert signed["signature"] == (
+        "9SZ0kBIOWhWtHWv4odkBYfpKBpuDBZ/1yKauYtmcD72DG8DqYi9djX+TQM0Yrl05xCxvUAaLRDIEF/tzmAQCAA=="
+    )

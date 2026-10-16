@@ -16,7 +16,10 @@ public:
     static bool signDocument(QJsonObject* document, const QByteArray& privateSeed,
                              const QString& keyId, QString* error);
 
-    static quint64 nextGroundSequence(const QString& missionId);
+    // Sequence is persisted in the GCS user's QSettings under a hash of the
+    // mission_id. Returns 0 and reports an error when persistence fails or the
+    // uint64 sequence is exhausted; sequence 0 is never emitted.
+    static quint64 nextGroundSequence(const QString& missionId, QString* error = nullptr);
 
     static bool signGroundCommand(QJsonObject* command, const QByteArray& privateSeed,
                                   const QString& keyId, QString* error);

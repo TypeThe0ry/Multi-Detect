@@ -12,6 +12,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import os
 import stat
 from collections.abc import Mapping
@@ -46,7 +47,22 @@ def canonical_auth_bytes(value: Mapping[str, Any], *excluded: str) -> bytes:
     """Return deterministic UTF-8 JSON bytes for the signing contract."""
 
     excluded_set = set(excluded)
-    document = {k: v for k, v in value.items() if k not in excluded_set}
+    def normalize(node: Any) -> Any:
+        if isinstance(node, float):
+            if not math.isfinite(node):
+                raise ValueError("canonical JSON numbers must be finite")
+            if node == 0.0:
+                return 0
+            if node.is_integer() and abs(node) <= 2**53:
+                return int(node)
+            return node
+        if isinstance(node, dict):
+            return {key: normalize(item) for key, item in node.items()}
+        if isinstance(node, list):
+            return [normalize(item) for item in node]
+        return node
+
+    document = normalize({k: v for k, v in value.items() if k not in excluded_set})
     return json.dumps(
         document,
         ensure_ascii=False,

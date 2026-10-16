@@ -1,9 +1,11 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDataStream>
+#include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QSettings>
 #include <cstdio>
 
 #include "MultiDetectMissionController.h"
@@ -38,6 +40,11 @@ const QByteArray package =
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("MultiDetect"));
+    QCoreApplication::setApplicationName(QStringLiteral("MissionSelfTest"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       QDir::tempPath() + QStringLiteral("/multidetect-security-selftest"));
     if (argc == 3 && QByteArray(argv[1]) == "--validate") {
         QFile file(QString::fromLocal8Bit(argv[2]));
         if (!file.open(QIODevice::ReadOnly))

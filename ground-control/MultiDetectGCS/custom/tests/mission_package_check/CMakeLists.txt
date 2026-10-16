@@ -25,8 +25,11 @@ add_library(
 target_compile_features(MultiDetectMissionPackageCheck PUBLIC cxx_std_20)
 target_include_directories(MultiDetectMissionPackageCheck PUBLIC "${MULTIDETECT_CUSTOM_DIR}/src")
 target_link_libraries(MultiDetectMissionPackageCheck PUBLIC Qt6::Core)
-find_package(OpenSSL QUIET COMPONENTS Crypto)
+set(MULTIDETECT_OPENSSL_ROOT "" CACHE PATH "OpenSSL root containing lib/cmake/OpenSSL or include + lib")
+find_package(OpenSSL QUIET COMPONENTS Crypto
+    HINTS "${MULTIDETECT_OPENSSL_ROOT}" "$ENV{OPENSSL_ROOT_DIR}")
 if(TARGET OpenSSL::Crypto)
+    message(STATUS "Mission package check: using OpenSSL Crypto Ed25519 backend")
     target_compile_definitions(MultiDetectMissionPackageCheck PRIVATE MULTIDETECT_HAVE_OPENSSL=1)
     target_link_libraries(MultiDetectMissionPackageCheck PUBLIC OpenSSL::Crypto)
 endif()

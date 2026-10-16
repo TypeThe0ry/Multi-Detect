@@ -208,6 +208,10 @@ bool MultiDetectMissionController::_control(int type, const QString& policy, dou
             (newRank == oldRank && timed && timeout > _currentPolicyTimeout))
             return _fail(QStringLiteral("飞行中只允许收紧失联策略或缩短超时"));
     }
+    QString sequenceError;
+    const quint64 groundSequence = MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId, &sequenceError);
+    if (groundSequence == 0)
+        return _fail(sequenceError);
     QJsonObject groundCommand{{QStringLiteral("mission_id"), _activeMissionId},
                               {QStringLiteral("type"), type == 30 ? QStringLiteral("abort")
                                    : type == 31 ? QStringLiteral("pause")
@@ -215,7 +219,7 @@ bool MultiDetectMissionController::_control(int type, const QString& policy, dou
                                    : type == 33 ? QStringLiteral("policy_update")
                                                 : QStringLiteral("heartbeat")},
                               {QStringLiteral("sequence"),
-                               static_cast<qint64>(MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId))},
+                               static_cast<qint64>(groundSequence)},
                               {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0},
                               {QStringLiteral("timestamp_version"), 1},
                               {QStringLiteral("timestamp_domain"), QStringLiteral("unix")}};

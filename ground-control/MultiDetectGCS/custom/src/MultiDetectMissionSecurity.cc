@@ -5,7 +5,9 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QSettings>
 #include <algorithm>
+#include <charconv>
 #include <cmath>
+#include <system_error>
 #include <limits>
 
 #if defined(MULTIDETECT_HAVE_OPENSSL)
@@ -60,10 +62,20 @@ QByteArray canonicalValue(const QJsonValue& value)
         return QByteArray("null");
     if (!value.isDouble() || !std::isfinite(value.toDouble()))
         return {};
-    QJsonArray number;
-    number.append(value);
-    const QByteArray encoded = QJsonDocument(number).toJson(QJsonDocument::Compact);
-    return encoded.mid(1, encoded.size() - 2);
+    const double number = value.toDouble();
+    if (!std::isfinite(number))
+        return {};
+    if (number == 0.0)
+        return QByteArray("0");
+    if (std::floor(number) == number && std::abs(number) <= 9007199254740992.0)
+        return QByteArray::number(static_cast<qint64>(number));
+    char buffer[64] = {};
+    const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), number);
+    if (converted.ec != std::errc())
+        return {};
+    QByteArray encoded(buffer, static_cast<int>(converted.ptr - buffer));
+    encoded.replace('E', 'e');
+    return encoded;
 }
 
 bool signEd25519(const QByteArray& message, const QByteArray& seed, QByteArray* signature,
@@ -150,15 +162,27 @@ bool MultiDetectMissionSecurity::signDocument(QJsonObject* document, const QByte
     return sign(document, privateSeed, keyId, error);
 }
 
-quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId)
+quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId, QString* error)
 {
     const QByteArray digest = QCryptographicHash::hash(missionId.toUtf8(), QCryptographicHash::Sha256).toHex();
     QSettings settings;
     const QString key = QStringLiteral("MultiDetect/ground_sequence/") + QString::fromLatin1(digest);
     const quint64 previous = settings.value(key, 0).toULongLong();
-    const quint64 next = previous == std::numeric_limits<quint64>::max() ? 1 : previous + 1;
+    if (previous == std::numeric_limits<quint64>::max()) {
+        if (error)
+            *error = QStringLiteral("ground command sequence exhausted for mission_id");
+        return 0;
+    }
+    const quint64 next = previous + 1;
     settings.setValue(key, QVariant::fromValue(next));
     settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        if (error)
+            *error = QStringLiteral("failed to persist ground command sequence in GCS user settings");
+        return 0;
+    }
+    if (error)
+        error->clear();
     return next;
 }
 

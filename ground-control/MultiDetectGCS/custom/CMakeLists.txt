@@ -54,8 +54,11 @@ target_include_directories(MultiDetectOperatorProtocol PUBLIC ${CMAKE_CURRENT_SO
 # QGC desktop builds already ship an OpenSSL runtime.  Keep the standalone
 # protocol target buildable on minimal systems by making the Ed25519 backend
 # optional; production/REAL upload fails closed when it is unavailable.
-find_package(OpenSSL QUIET COMPONENTS Crypto)
+set(MULTIDETECT_OPENSSL_ROOT "" CACHE PATH "OpenSSL root containing lib/cmake/OpenSSL or include + lib")
+find_package(OpenSSL QUIET COMPONENTS Crypto
+    HINTS "${MULTIDETECT_OPENSSL_ROOT}" "$ENV{OPENSSL_ROOT_DIR}")
 if(TARGET OpenSSL::Crypto)
+    message(STATUS "Multi-Detect mission security: using OpenSSL Crypto Ed25519 backend")
     target_compile_definitions(MultiDetectOperatorProtocol PRIVATE MULTIDETECT_HAVE_OPENSSL=1)
     target_link_libraries(MultiDetectOperatorProtocol PRIVATE OpenSSL::Crypto)
 endif()
