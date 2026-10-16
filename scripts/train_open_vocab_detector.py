@@ -122,6 +122,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--preflight-memory-out", type=Path)
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="continue an interrupted run from its last.pt (epochs, optimizer and EMA restored)",
+    )
     args = parser.parse_args()
     if min(args.epochs, args.imgsz, args.batch) <= 0:
         parser.error("epochs, imgsz and batch must be positive")
@@ -157,6 +162,14 @@ def main() -> None:
         torch.cuda.reset_peak_memory_stats(cuda_device)
 
     configure_ultralytics(args.weights_dir)
+    if args.resume is not None:
+        if not args.resume.is_file():
+            parser.error(f"resume checkpoint not found: {args.resume}")
+        # Ultralytics restores the saved train args, so the run continues with its original
+        # data, epochs, batch and output directory.
+        model = YOLOE(str(args.resume.resolve()))
+        model.train(trainer=trainer_class(args.mode), resume=True)
+        return
     model = YOLOE(str(args.weights.resolve()))
     model.task = "detect"
     model.overrides["task"] = "detect"
