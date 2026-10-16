@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 
 import pytest
 
@@ -80,8 +82,39 @@ def test_split_closes_planner_before_identity(monkeypatch, tmp_path):
     assert active["count"] == 1
     assert builds["count"] == 1
     assert policy._model_runtime["planning_fallback_to_identity"] is False
+    assert policy._model_runtime["swap_duration_s"] is not None
+    assert policy._model_runtime["swap_completed_monotonic_s"] is not None
+    assert "swap_time_s" not in policy._model_runtime
     policy.close()
     assert active["count"] == 0
+
+
+def test_model_hash_cache_uses_size_and_mtime(monkeypatch, tmp_path):
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"planner")
+    cache = tmp_path / ".model-hash-cache.json"
+    expected = hashlib.sha256(b"planner").hexdigest()
+    assert onboard_policy._model_sha256(model, cache_path=cache) == expected
+    original = onboard_policy.hashlib.sha256
+
+    def fail_hash(*args, **kwargs):
+        raise AssertionError("cache miss unexpectedly re-hashed model")
+
+    monkeypatch.setattr(onboard_policy.hashlib, "sha256", fail_hash)
+    assert onboard_policy._model_sha256(model, cache_path=cache) == expected
+    monkeypatch.setattr(onboard_policy.hashlib, "sha256", original)
+    model.write_bytes(b"planner-updated")
+    assert onboard_policy._model_sha256(model, cache_path=cache) == hashlib.sha256(
+        b"planner-updated"
+    ).hexdigest()
+    assert json.loads(cache.read_text(encoding="utf-8"))
+
+
+def test_model_hash_failure_is_unknown(monkeypatch, tmp_path):
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"x")
+    monkeypatch.setattr(onboard_policy.Path, "open", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("denied")))
+    assert onboard_policy._model_sha256(model, cache_path=tmp_path / "cache.json") == "unknown"
 
 
 def test_split_planner_failure_falls_back_to_identity(monkeypatch, tmp_path):

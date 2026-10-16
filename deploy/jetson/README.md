@@ -193,9 +193,11 @@ The optional `planning_model` field belongs in the onboard JSON configuration ne
 The policy starts the planner `llama-server` directly, sends the text-only mission prompt through
 the existing schema, retry, and package checks, and waits for that process and its localhost port
 to close before starting the identity server on the same port. This keeps one model resident on the
-8 GB Orin Nano. A string value is a planner GGUF path; a mapping may add `mmproj`, although the
-planner prompt contains no images and can omit it. The normal `llama-server.service` remains the
+8 GB Orin Nano. A string value is a planner GGUF path and uses the explicit text-only default
+(`mmproj` omitted); a mapping may add `mmproj` when evaluating a multimodal planner prompt. The
+normal `llama-server.service` remains the
 identity service; no second systemd unit is required. If planner startup or compilation fails,
 the policy records a planning failure and retries with the identity model. It refuses
 initialization unless that retry produces a validated plan. `mission_summary.json` and the package
-mission log record both model paths, SHA-256 hashes, fallback state, and the swap timestamp.
+mission log record both model paths, SHA-256 hashes, fallback state, `swap_duration_s`, and
+`swap_completed_monotonic_s`.

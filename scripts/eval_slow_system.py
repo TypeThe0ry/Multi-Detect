@@ -384,15 +384,18 @@ class LlamaServerRunner:
                 self.process.wait(timeout=10)
         if not getattr(self, "wait_port_free", False):
             return
-        # A planner and identity server may reuse one port.  Do not return
-        # until the old listener has actually gone away.
+        # A planner and identity server may reuse one port.  A failed connect
+        # is not enough evidence: bind the port ourselves before returning.
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                with socket.create_connection(("127.0.0.1", int(self.port)), timeout=0.1):
-                    time.sleep(0.05)
-            except OSError:
+                probe.bind(("127.0.0.1", int(self.port)))
+                probe.close()
                 return
+            except OSError:
+                probe.close()
+                time.sleep(0.05)
         raise TimeoutError(f"llama-server port {self.port} did not become free")
 
 

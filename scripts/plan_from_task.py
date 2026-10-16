@@ -154,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mmproj", type=Path, default=GGUF_DIR / "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
     )
+    parser.add_argument(
+        "--no-mmproj",
+        action="store_true",
+        help="run the text-only planner without a vision projector (deployed split parity)",
+    )
     parser.add_argument("--port", type=int, default=9957)
     parser.add_argument(
         "--prompt-variant", choices=PLAN_PROMPT_VARIANTS, default="default",
@@ -188,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
 
         schema = trained_key_order_schema(schema)
     server = LlamaServerRunner(
-        args.gguf, args.mmproj, executable=args.llama_server, port=args.port,
+        args.gguf, None if args.no_mmproj else args.mmproj,
+        executable=args.llama_server, port=args.port,
         max_new_tokens=768, device=args.device,
     )
     request_usage: list[dict[str, int | None]] = []
@@ -233,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
                     "repairs": error if isinstance(error, list) else None,
                     "raw": raw,
                     "prompt_variant": args.prompt_variant,
+                    "mmproj_mode": "none" if args.no_mmproj else "configured",
                     "request_usage": [dict(usage) for usage in request_usage],
                     "prompt_tokens": request_usage[0]["prompt_tokens"] if request_usage else None,
                     "prompt_tokens_total": _usage_total(request_usage, "prompt_tokens"),
@@ -261,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "first_try_valid_rate": sum(r["valid"] and len(r["attempts_s"]) == 1 for r in rows) / n,
         "median_latency_s": sorted(sum(r["attempts_s"]) for r in rows)[n // 2],
         "model": str(args.gguf.name),
+        "mmproj_mode": "none" if args.no_mmproj else "configured",
         "prompt_variant": args.prompt_variant,
         "prompt_cache": not args.no_prompt_cache,
         "mean_latency_s": _mean_available(rows, "latency_s"),

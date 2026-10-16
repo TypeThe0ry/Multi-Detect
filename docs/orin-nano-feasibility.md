@@ -69,6 +69,8 @@ YOLOE-11s-seg，输入 1280。公开测试：YOLO11n / YOLOv8n 在 Orin Nano 上
 server 并等待端口释放，再加载 identity 模型。额外启动/卸载时间应按约 4–6 秒加两次模型加载时间
 预算，最终数值必须在目标 JetPack 镜像上实测，不能拿开发机时延冒充 Nano 结论。任意时刻只有一个
 模型进程常驻，因此稳态内存仍按上文约 4.7–6.7 GB 预算；planner 因为请求不含图片可以省略
-`mmproj`，identity 继续使用现有视觉 projector。planner 启动或校验失败会计入初始化规划失败并
+`mmproj`（配置 mapping 显式提供时才启用），identity 继续使用现有视觉 projector。planner 启动或校验失败会计入初始化规划失败并
 回退到 identity；只有通过 schema 和 mission-package 检查的计划才允许起飞。split eval 配置使用
-v2-r14-multi 规划、v2-r12-multi 身份判断。
+v2-r14-multi 规划、v2-r12-multi 身份判断。摘要记录 `swap_duration_s`（planner 关闭开始到
+identity ready）和 `swap_completed_monotonic_s`；模型 hash 使用按文件 size/mtime_ns 缓存，hash
+失败记录为 `unknown`，不阻断起飞。

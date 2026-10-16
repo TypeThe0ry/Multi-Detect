@@ -92,16 +92,50 @@ DEFAULTS = {
 }
 
 
-def _model_sha256(path: str | Path) -> str | None:
-    """Return a reproducible model hash without making test fixtures require files."""
+def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+    """Hash a model with a size/mtime keyed cache; failures are non-fatal."""
     candidate = Path(path)
-    if not candidate.is_file():
-        return None
-    digest = hashlib.sha256()
-    with candidate.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    try:
+        stat = candidate.stat()
+        if not candidate.is_file():
+            return "unknown"
+    except OSError:
+        return "unknown"
+    key = str(candidate.resolve())
+    cached: dict[str, Any] = {}
+    if cache_path is not None:
+        try:
+            document = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(document, dict):
+                cached = document
+            entry = cached.get(key)
+            if (
+                isinstance(entry, dict)
+                and entry.get("size") == stat.st_size
+                and entry.get("mtime_ns") == stat.st_mtime_ns
+                and isinstance(entry.get("sha256"), str)
+            ):
+                return entry["sha256"]
+        except (OSError, ValueError, TypeError):
+            cached = {}
+    try:
+        digest = hashlib.sha256()
+        with candidate.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result = digest.hexdigest()
+    except (OSError, ValueError):
+        return "unknown"
+    if cache_path is not None:
+        cached[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": result}
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            temporary.write_text(json.dumps(cached, sort_keys=True), encoding="utf-8")
+            os.replace(temporary, cache_path)
+        except (OSError, TypeError, ValueError):
+            pass
+    return result
 
 
 def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
@@ -708,14 +742,24 @@ class OnboardPolicy:
         )
         split_planning = mission == "from_text" and planning_spec is not None
         self._model_split = bool(split_planning)
+        model_hash_cache = self.work_dir / ".model-hash-cache.json"
         self._model_runtime: dict[str, Any] = {
             "enabled": bool(split_planning),
             "planning_model_path": planning_spec[0] if planning_spec else None,
-            "planning_model_sha256": _model_sha256(planning_spec[0]) if split_planning else None,
+            "planning_model_sha256": (
+                _model_sha256(planning_spec[0], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
             "identity_model_path": options["gguf"],
-            "identity_model_sha256": _model_sha256(options["gguf"]) if split_planning else None,
+            "identity_model_sha256": (
+                _model_sha256(options["gguf"], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
             "planning_fallback_to_identity": False,
-            "swap_time_s": None,
+            "swap_duration_s": None,
+            "swap_completed_monotonic_s": None,
         }
 
         def make_identity_runner():
@@ -733,13 +777,20 @@ class OnboardPolicy:
             )
 
         def start_identity_runner():
-            try:
-                return slow_runner if slow_runner is not None else make_identity_runner()
-            except Exception:
-                health = getattr(self, "health", None)
-                if health is not None:
-                    health.record_planning_failure()
-                raise
+            if slow_runner is not None:
+                return slow_runner
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    return make_identity_runner()
+                except Exception as exc:
+                    address_busy = "address already in use" in str(exc).lower() or "address in use" in str(exc).lower()
+                    if not address_busy or time.monotonic() >= deadline:
+                        health = getattr(self, "health", None)
+                        if health is not None:
+                            health.record_planning_failure()
+                        raise
+                    time.sleep(0.1)
 
         planner_start_error: Exception | None = None
         if split_planning:
@@ -905,6 +956,7 @@ class OnboardPolicy:
 
                 if split_planning:
                     planner_error = planner_start_error
+                    swap_close_started = None
                     if planner_error is not None:
                         self._model_runtime["planning_fallback_to_identity"] = True
                         self.health.record_planning_failure()
@@ -921,6 +973,7 @@ class OnboardPolicy:
                                 )
                         except Exception:
                             self._model_runtime["planning_fallback_to_identity"] = True
+                            swap_close_started = time.monotonic()
                             close = getattr(self.slow, "close", None)
                             if close is not None:
                                 close()
@@ -934,12 +987,19 @@ class OnboardPolicy:
                                     close()
                                 raise
                         else:
+                            swap_close_started = time.monotonic()
                             close = getattr(self.slow, "close", None)
                             if close is not None:
                                 close()
                             self.slow = start_identity_runner()
                             self.health.runner = self.slow
-                    self._model_runtime["swap_time_s"] = time.monotonic()
+                    swap_completed = time.monotonic()
+                    self._model_runtime["swap_duration_s"] = (
+                        swap_completed - swap_close_started
+                        if swap_close_started is not None
+                        else None
+                    )
+                    self._model_runtime["swap_completed_monotonic_s"] = swap_completed
                 else:
                     try:
                         plan, report = compile_once(self.slow)
