@@ -1,5 +1,7 @@
 # Onboard ground projection audit and DEM support
 
+步间多视角三角化与地面不确定度融合（默认关闭）的配置、用途和离线证据见 [中文说明](onboard-step-triangulation.md)。
+
 Audited and replayed on 2026-10-15. All measurements below use offline CPU geometry;
 no simulator, aircraft, detector, VLM, GPU, Docker, or downloads were used.
 

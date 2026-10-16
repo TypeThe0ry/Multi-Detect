@@ -88,6 +88,10 @@ def summarize_mission(
                     "frame_id": finding.get("frame_id"),
                 }
             )
+            findings[-1].update({
+                key: value for key, value in finding.items()
+                if key.startswith("position_") and key != "position_ne"
+            })
         else:
             findings.append(
                 {

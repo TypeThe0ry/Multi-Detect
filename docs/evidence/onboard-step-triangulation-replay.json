@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "execution": {
+    "cpu_only": true,
+    "model_loaded": false,
+    "dataset_read_only": true
+  },
+  "dataset_root": "D:\\Projects\\Multi-Detect\\artifacts\\datasets\\onboard-loop",
+  "selection": "sorted episode paths, first max_episodes; same complete geometry sample as old evaluator (depth-only stratification is not used)",
+  "selected_episode_count": 30,
+  "used_episode_count": 30,
+  "sample_count": 1274,
+  "association": {
+    "segmentation": 1274
+  },
+  "counts": {
+    "cache_hit": 719,
+    "samples": 1274,
+    "reference_rejected": 512,
+    "reference_accepted": 762,
+    "unassociated_track": 86,
+    "duplicate_target_observation_same_step": 45
+  },
+  "reference": {
+    "valid_output_rate": 0.598116169544741,
+    "horizontal_error": {
+      "count": 762,
+      "mean_m": 1.1268837899491382,
+      "median_m": 0.4848300754015555,
+      "rmse_m": 2.2563727142963046,
+      "p95_m": 4.4522201354486315,
+      "max_m": 21.118723632743038
+    },
+    "slant_error": {
+      "count": 762,
+      "mean_m": 1.1397481843412935,
+      "median_m": 0.4261237328287901,
+      "rmse_m": 2.4303533111294544,
+      "p95_m": 4.6612279517380415,
+      "max_m": 22.669798837350978
+    }
+  },
+  "same_input_parity": {
+    "passed": true,
+    "quality_gate_mismatches": 0,
+    "max_position_difference_m": 0.0,
+    "max_scaled_sigma_difference_m": 0.0,
+    "max_geometry_difference": 0.0,
+    "tolerance": 1e-08,
+    "step_numbering": "unique observation ordinal preserves all legacy ray inputs; the old evaluator can put multiple tracks for one truth target into one recorded step",
+    "camera_origin": "legacy body local-NED origin and legacy calibrated ray, unchanged only to verify same-input pure-function parity; runtime uses the actual camera mount centre and shared ground-projector camera model"
+  },
+  "distinct_recorded_step_replay": {
+    "description": "legacy camera geometry and truth-target association retained; actual recorded step numbers, one latest target observation per step, window current_step - 8 < view.step <= current_step; differs from legacy history for duplicate tracks and gaps",
+    "sample_count": 575,
+    "valid_output_rate": 0.4513343799058085,
+    "horizontal_error": {
+      "count": 575,
+      "mean_m": 1.7004170797263543,
+      "median_m": 0.7017754148495996,
+      "rmse_m": 3.471646620936751,
+      "p95_m": 6.176744136015529,
+      "max_m": 30.564084563271102
+    },
+    "slant_error": {
+      "count": 575,
+      "mean_m": 1.7672030506063816,
+      "median_m": 0.6933491408147319,
+      "rmse_m": 3.7616332647167803,
+      "p95_m": 6.442640913595085,
+      "max_m": 33.64726889612714
+    },
+    "unscaled_coverage": {
+      "sigma_scale": 1.0,
+      "sample_count": 575,
+      "slant_95_covered": 428,
+      "slant_95_coverage": 0.7443478260869565,
+      "horizontal_ne_95_covered": 439,
+      "horizontal_ne_95_coverage": 0.7634782608695653
+    },
+    "selected_coverage": {
+      "sigma_scale": 2.5,
+      "sample_count": 575,
+      "slant_95_covered": 553,
+      "slant_95_coverage": 0.9617391304347827,
+      "horizontal_ne_95_covered": 555,
+      "horizontal_ne_95_coverage": 0.9652173913043478
+    },
+    "candidate_coverage": [
+      {
+        "sigma_scale": 1.5,
+        "sample_count": 575,
+        "slant_95_covered": 504,
+        "slant_95_coverage": 0.8765217391304347,
+        "horizontal_ne_95_covered": 509,
+        "horizontal_ne_95_coverage": 0.8852173913043478
+      },
+      {
+        "sigma_scale": 2.0,
+        "sample_count": 575,
+        "slant_95_covered": 535,
+        "slant_95_coverage": 0.9304347826086956,
+        "horizontal_ne_95_covered": 538,
+        "horizontal_ne_95_coverage": 0.9356521739130435
+      },
+      {
+        "sigma_scale": 2.5,
+        "sample_count": 575,
+        "slant_95_covered": 553,
+        "slant_95_coverage": 0.9617391304347827,
+        "horizontal_ne_95_covered": 555,
+        "horizontal_ne_95_coverage": 0.9652173913043478
+      },
+      {
+        "sigma_scale": 3.0,
+        "sample_count": 575,
+        "slant_95_covered": 563,
+        "slant_95_coverage": 0.9791304347826087,
+        "horizontal_ne_95_covered": 566,
+        "horizontal_ne_95_coverage": 0.9843478260869565
+      }
+    ]
+  },
+  "runtime_camera_logged_track_diagnostic": {
+    "description": "shared pixel_camera_ray actual camera centre plus centre ray; per-recorded-track ID history, latest 8 action steps. Only offline-associated rows are replayed; ground reidentification/association, fusion and closed-loop actions are not replayed. Truth associates/scores recorded targets but does not change ray values or geometry gates.",
+    "sample_count": 496,
+    "valid_output_rate": 0.3893249607535322,
+    "horizontal_error": {
+      "count": 496,
+      "mean_m": 1.849336602709414,
+      "median_m": 0.7120336777862282,
+      "rmse_m": 3.9818663069399864,
+      "p95_m": 7.0725222312471,
+      "max_m": 36.47952456614808
+    },
+    "slant_error": {
+      "count": 496,
+      "mean_m": 1.929445053718199,
+      "median_m": 0.712108602439228,
+      "rmse_m": 4.40724599429649,
+      "p95_m": 7.725463800619668,
+      "max_m": 48.276723692592476
+    },
+    "unscaled_coverage": {
+      "sigma_scale": 1.0,
+      "sample_count": 496,
+      "slant_95_covered": 364,
+      "slant_95_coverage": 0.7338709677419355,
+      "horizontal_ne_95_covered": 376,
+      "horizontal_ne_95_coverage": 0.7580645161290323
+    },
+    "selected_coverage": {
+      "sigma_scale": 2.5,
+      "sample_count": 496,
+      "slant_95_covered": 472,
+      "slant_95_coverage": 0.9516129032258065,
+      "horizontal_ne_95_covered": 476,
+      "horizontal_ne_95_coverage": 0.9596774193548387
+    },
+    "candidate_coverage": [
+      {
+        "sigma_scale": 1.5,
+        "sample_count": 496,
+        "slant_95_covered": 429,
+        "slant_95_coverage": 0.8649193548387096,
+        "horizontal_ne_95_covered": 434,
+        "horizontal_ne_95_coverage": 0.875
+      },
+      {
+        "sigma_scale": 2.0,
+        "sample_count": 496,
+        "slant_95_covered": 458,
+        "slant_95_coverage": 0.9233870967741935,
+        "horizontal_ne_95_covered": 459,
+        "horizontal_ne_95_coverage": 0.9254032258064516
+      },
+      {
+        "sigma_scale": 2.5,
+        "sample_count": 496,
+        "slant_95_covered": 472,
+        "slant_95_coverage": 0.9516129032258065,
+        "horizontal_ne_95_covered": 476,
+        "horizontal_ne_95_coverage": 0.9596774193548387
+      },
+      {
+        "sigma_scale": 3.0,
+        "sample_count": 496,
+        "slant_95_covered": 483,
+        "slant_95_coverage": 0.9737903225806451,
+        "horizontal_ne_95_covered": 485,
+        "horizontal_ne_95_coverage": 0.9778225806451613
+      }
+    ]
+  },
+  "sigma_calibration": {
+    "target_slant_95_coverage": 0.93,
+    "minimum_empirical_scale": 1.4847185027997636,
+    "candidates": [
+      {
+        "sigma_scale": 1.0,
+        "sample_count": 762,
+        "slant_95_covered": 647,
+        "slant_95_coverage": 0.8490813648293963,
+        "horizontal_ne_95_covered": 656,
+        "horizontal_ne_95_coverage": 0.8608923884514436
+      },
+      {
+        "sigma_scale": 1.5,
+        "sample_count": 762,
+        "slant_95_covered": 709,
+        "slant_95_coverage": 0.9304461942257218,
+        "horizontal_ne_95_covered": 715,
+        "horizontal_ne_95_coverage": 0.9383202099737533
+      },
+      {
+        "sigma_scale": 2.0,
+        "sample_count": 762,
+        "slant_95_covered": 734,
+        "slant_95_coverage": 0.963254593175853,
+        "horizontal_ne_95_covered": 733,
+        "horizontal_ne_95_coverage": 0.9619422572178478
+      },
+      {
+        "sigma_scale": 2.5,
+        "sample_count": 762,
+        "slant_95_covered": 748,
+        "slant_95_coverage": 0.9816272965879265,
+        "horizontal_ne_95_covered": 750,
+        "horizontal_ne_95_coverage": 0.984251968503937
+      },
+      {
+        "sigma_scale": 3.0,
+        "sample_count": 762,
+        "slant_95_covered": 753,
+        "slant_95_coverage": 0.9881889763779528,
+        "horizontal_ne_95_covered": 755,
+        "horizontal_ne_95_coverage": 0.9908136482939632
+      }
+    ],
+    "selected": {
+      "sigma_scale": 2.5,
+      "sample_count": 762,
+      "slant_95_covered": 748,
+      "slant_95_coverage": 0.9816272965879265,
+      "horizontal_ne_95_covered": 750,
+      "horizontal_ne_95_coverage": 0.984251968503937
+    },
+    "coverage_target_passed": true,
+    "limitation": "same recorded data used for scale calibration and coverage reporting; not an independent held-out or real-flight validation; NE check is radial horizontal error <= 1.96 sigma, not a calibrated 2-D Gaussian confidence ellipse"
+  },
+  "source_sha256": {
+    "scripts\\evaluate_onboard_ranging_reuse.py": "ca5d67b352052af63b95830a8806cdf35f7962ae7e63ecb24da011c6b44cb218",
+    "scripts\\validate_step_triangulation_replay.py": "19f18985b5d11cb0662fd4d25cf71766ce08dbf1aca79d3b0593ac4164222ea7",
+    "src\\multidetect\\autonomy\\step_triangulation.py": "7869b1bdd13c1bfc3934395777ebd9ed5b7510f4b97bd0a910e70be63525c480",
+    "src\\multidetect\\simulator\\camera_projection.py": "63889b31d37acb025d7e926f1fca17acb22c3338f1338c263c2ff0ae9d81c204",
+    "simulation\\gazebo\\calibration\\gazebo-multirotor-front-camera-v1.json": "5d274eaa050ea3747f122f9183c22084c14873cf8f3518fdadd48c0c867dc653"
+  },
+  "episodes": [
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0000/episodes/episode-0000-d7c79815",
+      "steps_sha256": "5955541c0f1191f0c6c06a91a120e82c012165f4db14289936238783693f25a4"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0000/episodes/episode-0001-5cb35098",
+      "steps_sha256": "e1f7e03cd56c642cca4ba7c685cca7e2824c38b21f6e693270fb0e03b2400202"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0001/episodes/episode-0000-1b581852",
+      "steps_sha256": "d7cad865b93242e4a1c95850d9e8929c6dff1ec07663eadfa521249afc1ddcfc"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0001/episodes/episode-0001-b24b92e9",
+      "steps_sha256": "0f09f202518e639b0b6d2be64f6238e287373e80f39e456350c43c6cba2f1ba3"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0002/episodes/episode-0000-93cc6e04",
+      "steps_sha256": "e1ae67bf2994a8a8a87456e962bad207c90470b3e1321b19dd66355e098fd54d"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0002/episodes/episode-0001-11fac259",
+      "steps_sha256": "9b645197d32b232ba4678fe1d49316c7a1995f011d545c074ad18ddb783de020"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0003/episodes/episode-0000-045dac77",
+      "steps_sha256": "c4063aa1b169c23ccc9c192a90e1a6b4093cb80ba34656eecc44de187da24c7c"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0003/episodes/episode-0001-9d93208c",
+      "steps_sha256": "22426078f3f90c5ec1bcc05e7fb55601092f4e393858d1fdf58fe1214e39e1cc"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0004/episodes/episode-0000-5730d884",
+      "steps_sha256": "88f696a7c03cd0153282a6295aee8c9b6dfe3a62b62e193c24f0f557753f0673"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0004/episodes/episode-0001-f3065e10",
+      "steps_sha256": "721066143e0054422a6248144e960b24d961d12f8ae964725e92e0f0194f89a2"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0005/episodes/episode-0000-d81772eb",
+      "steps_sha256": "ed0465593656a2da8ee593391820cdb4592a835eb63e5e4bd8d8403e8a61f342"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0005/episodes/episode-0001-8c96f233",
+      "steps_sha256": "a35855535a2b0ec7bd6c490ecd0f394af3637e8ceea7b5acb67d3e61db1ef452"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0006/episodes/episode-0000-b9aa48b6",
+      "steps_sha256": "488d2da4d92ddd0a80066a649eec859f9c3861a58cd82089fb4d9358b1c4e152"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0006/episodes/episode-0001-fbc7d7c7",
+      "steps_sha256": "445628ad273e1c5ebb9c89b22939ee21a3a501388c885c1bc60aab06b0a59ef3"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0007/episodes/episode-0000-e6faa230",
+      "steps_sha256": "daac40f15adad280ab8e7cee78f4cf41e641c2c4d8a6dd1ab13f7ca030b710ed"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0007/episodes/episode-0001-70b0ae91",
+      "steps_sha256": "24095748459b1ce6ac6a96aed68607c4c6f25304f212e9f7ea24d5315739d9aa"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0008/episodes/episode-0000-0f5a2f82",
+      "steps_sha256": "fded0d681ae7ee795a63369e2076d01be900ffbf8993210b2898694c071289bf"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0008/episodes/episode-0001-850f6205",
+      "steps_sha256": "a98648aca1bf8113084c1cfd4cffde4e766bcae70472e219801a56c777623af2"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0009/episodes/episode-0000-285dc1f9",
+      "steps_sha256": "0b3046f92ed39f60157e18c9807652cfd039deb495bd618c7ba22de202bca020"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0009/episodes/episode-0001-2d518f82",
+      "steps_sha256": "e0899e1fa616739175a51895db1005a3598e64d6bbd5daca17f79c7932cf904d"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0010/episodes/episode-0000-aaf71684",
+      "steps_sha256": "0e198eccff7b15cf4606a9dec8bcbfb30e38856412b0f9a364a111bca241f569"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0010/episodes/episode-0001-a6cbd1a8",
+      "steps_sha256": "b030a1c69d2e54ba9c9d9cbf958f43031498a0c59896102bc0af505c46ea6315"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0011/episodes/episode-0000-0e396753",
+      "steps_sha256": "61a1dfd5aab76724ddf5edc89072fd990b86bc06d918ce56753ba2172b5b95d2"
+    },
+    {
+      "episode": "dagger-cfs-r8-low/gen_cfs_w0011/episodes/episode-0001-5bccdec4",
+      "steps_sha256": "d5d082a6a83f6afb2b82ced7457cf58f5450e5e57bd47e9adee938985b15c1bf"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0000/episodes/episode-0000-6e56401d",
+      "steps_sha256": "21b93d1f4c56644e4b750b07cb6c46a47cfef245f5297d698c184cedc084b30c"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0000/episodes/episode-0001-ceee097b",
+      "steps_sha256": "65d20ce0a050cdf6bcc5a0bbc649f7def1c6e0f4796a29e9878c9aae6d5c2619"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0001/episodes/episode-0000-35f50107",
+      "steps_sha256": "d559429d51693de01a1ee1c478af7fe3acc6497acedb42012f8e4247744bb809"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0001/episodes/episode-0001-ae31aabd",
+      "steps_sha256": "ad6ed37354eaeaf2fce1d9e078e23fe76b86d1ceddc1559446decb0eedd89b43"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0002/episodes/episode-0000-09b58cbf",
+      "steps_sha256": "2278084f9d99b35edfb59a35e07d7ac5d3d2b01270d3566a0ffe640eb061ac0d"
+    },
+    {
+      "episode": "dagger-cfs2-r12-fast/gen_cfs2_w0002/episodes/episode-0001-a6b8e6ac",
+      "steps_sha256": "27e5fe32508da128fb9a380a5d1d22c822d2f245b0f42aa156d3d804f577787a"
+    }
+  ]
+}

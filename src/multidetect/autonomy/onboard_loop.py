@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
+from multidetect.autonomy.step_triangulation import (
+    PositionEstimate, ViewObservation, fuse_position_estimates, make_ground_estimate,
+    triangulate_views,
+)
 from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
@@ -168,6 +172,17 @@ class CameraModel:
     def bearing_deg(self, u: float) -> float:
         return math.degrees(math.atan2(u - self.cx, self.fx))
 
+    def ray_ned(self, u: float, v: float, yaw_deg: float) -> tuple[float, float, float]:
+        """Unit ray for the same level-flight model as ``ground_point``."""
+        x, y = (u - self.cx) / self.fx, (v - self.cy) / self.fy
+        pitch, yaw = self.pitch_down_rad, math.radians(yaw_deg)
+        forward = math.cos(pitch) - y * math.sin(pitch)
+        down = math.sin(pitch) + y * math.cos(pitch)
+        raw = (forward * math.cos(yaw) - x * math.sin(yaw),
+               forward * math.sin(yaw) + x * math.cos(yaw), down)
+        norm = math.sqrt(sum(value * value for value in raw))
+        return tuple(value / norm for value in raw)
+
     def ground_point(
         self, u: float, v: float, *, north: float, east: float, height_m: float, yaw_deg: float,
         ground_model: GroundModel | None = None,
@@ -247,6 +262,9 @@ class Track:
     needs_fresh_verdict: bool = False
     # Number of small-box rejection rechecks already scheduled for this track.
     small_reject_rechecks: int = 0
+    # Independent of the bottom-pixel ground anchor used by tracking and memory.
+    position_views: list[ViewObservation] = field(default_factory=list)
+    position_estimate: PositionEstimate | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,8 +337,24 @@ class LoopConfig:
     memory_min_verdicts: int = 3
     memory_max_range_ratio: float = 0.7
     max_blocked_legs: int = 2
+    step_triangulation: bool = False
+    step_triangulation_max_views: int = 8
+    ground_height_sigma_m: float = 1.0
+    step_triangulation_sigma_scale: float = 2.5
 
     def __post_init__(self) -> None:
+        if not isinstance(self.step_triangulation, bool):
+            raise ValueError("step_triangulation must be a boolean")
+        if (isinstance(self.step_triangulation_max_views, bool)
+            or not isinstance(self.step_triangulation_max_views, int)
+            or not 2 <= self.step_triangulation_max_views <= 64):
+            raise ValueError("step_triangulation_max_views must be an integer in [2, 64]")
+        for name, minimum in (("ground_height_sigma_m", 0.0),
+                              ("step_triangulation_sigma_scale", 1.0)):
+            value = getattr(self, name)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value <= 0 or value < minimum):
+                raise ValueError(f"{name} must be finite and positive, and >= {minimum}")
         if self.small_reject_recheck_px is not None and (
             not math.isfinite(self.small_reject_recheck_px)
             or self.small_reject_recheck_px <= 0
@@ -547,6 +581,8 @@ class OnboardLoop:
         yaw_deg: float | None = None,
         ground_point: Callable[[float, float], tuple[float, float] | None] | None = None,
         frame_rgb: Any = None,
+        camera_ray: Callable[[float, float], tuple[tuple[float, float, float], tuple[float, float, float]] | None] | None = None,
+        timestamp_s: float | None = None,
     ) -> list[Track]:
         """Associate detections with tracks by ground position and predicted pixels.
 
@@ -721,6 +757,9 @@ class OnboardLoop:
                     best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
+            if self.config.step_triangulation:
+                self._update_position(best, ground, pose_ned, yaw_deg, camera_ray, timestamp_s,
+                                      allow_level_ray=ground_point is None)
             if appearance is not None:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
@@ -767,6 +806,83 @@ class OnboardLoop:
                     if other is not None:
                         other.covis_truncated = True
         return current
+
+    def _update_position(self, track, ground, pose_ned, yaw_deg, camera_ray, timestamp_s,
+                         *, allow_level_ray: bool) -> None:
+        """Estimate after association; never feed this result back into identity."""
+        track.position_estimate = None
+        track.position_views[:] = [view for view in track.position_views
+                                  if self.step_index - self.config.step_triangulation_max_views
+                                  < view.step <= self.step_index]
+        try:
+            if camera_ray is None:
+                # A custom ground projector needs its matching calibrated ray callback.
+                if not allow_level_ray or pose_ned is None or yaw_deg is None:
+                    return
+                camera_ray = lambda u, v: (tuple(pose_ned), self.camera.ray_ned(u, v, yaw_deg))
+                ground = self.camera.ground_point(
+                    _center(track.bbox)[0], track.bbox[3], north=pose_ned[0], east=pose_ned[1],
+                    height_m=max(0.0, -pose_ned[2]), yaw_deg=yaw_deg,
+                )
+            stamp = float(self.step_index) if timestamp_s is None else timestamp_s
+            if not math.isfinite(stamp) or stamp < 0:
+                return
+            centre_ray = camera_ray(*_center(track.bbox))
+            if centre_ray is None:
+                return
+            camera, direction = centre_ray
+            # Repeated calls in one action step are a single observation.
+            track.position_views[:] = [view for view in track.position_views
+                                      if view.step != self.step_index]
+            if track.position_views and stamp < track.position_views[-1].timestamp_s:
+                track.position_views.clear()
+            track.position_views.append(ViewObservation(tuple(camera), tuple(direction),
+                                                        self.step_index, stamp))
+            track.position_views[:] = track.position_views[-self.config.step_triangulation_max_views:]
+            tri = triangulate_views(track.position_views,
+                                    max_views=self.config.step_triangulation_max_views,
+                                    sigma_scale=self.config.step_triangulation_sigma_scale)
+            ground_estimate = None
+            bottom_ray = camera_ray(_center(track.bbox)[0], track.bbox[3])
+            if ground is not None and bottom_ray is not None:
+                origin, ray = bottom_ray
+                horizontal_norm2 = ray[0] ** 2 + ray[1] ** 2
+                # NE alone cannot recover height from a vertical ray.
+                if horizontal_norm2 > 1e-12:
+                    scale = sum((ground[i] - origin[i]) * ray[i] for i in range(2)) / horizontal_norm2
+                    down = origin[2] + scale * ray[2]
+                    ground_estimate = make_ground_estimate(
+                        (ground[0], ground[1], down), camera_ned=tuple(origin),
+                        direction_ned=tuple(ray), ground_height_sigma_m=self.config.ground_height_sigma_m,
+                        timestamp_s=stamp,
+                    )
+            # Every rejected triangulation falls back to the current ground point.
+            track.position_estimate = (fuse_position_estimates(ground_estimate, tri)
+                                       if tri is not None else ground_estimate)
+        except (ValueError, TypeError, ArithmeticError, LookupError, AttributeError, RuntimeError):
+            # Sensor/calibration faults cannot interrupt the mission state machine.
+            track.position_estimate = None
+
+    def target_position(self, track: Track) -> tuple[float, float] | None:
+        """Position for reporting/navigation, independent of association anchors."""
+        if self.config.step_triangulation and track.position_estimate is not None:
+            return tuple(track.position_estimate.position_ned[:2])
+        return track.ground
+
+    def position_metadata(self, track: Track) -> dict[str, Any]:
+        if not self.config.step_triangulation:
+            return {}
+        estimate = track.position_estimate
+        return {
+            "position_source": estimate.source if estimate else "ground",
+            "position_sigma_m": estimate.sigma_m if estimate else None,
+            "position_view_count": max(estimate.view_count if estimate else 0,
+                                       len(track.position_views)),
+            "position_baseline_m": estimate.baseline_m if estimate else 0.0,
+            "position_ray_angle_deg": estimate.ray_angle_deg if estimate else 0.0,
+            "position_consistent": estimate.consistent if estimate else True,
+            "position_consistency_note": estimate.consistency_note if estimate else None,
+        }
 
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
         stale = [
@@ -1291,12 +1407,13 @@ class OnboardLoop:
                         info.update(reason="approach_exhausted", dropped=focus.track_id)
                     if wanted and lost <= self.config.lost_after_steps:
                         info["reason"] = "focus_briefly_lost"
-                        if focus.ground is None:
+                        focus_position = self.target_position(focus)
+                        if focus_position is None:
                             return ActionPrimitive.hold(1.0), info
                         # Small objects drop out of single frames: keep closing on
                         # the last ground estimate instead of hovering.
                         focus.approach_steps += 1
-                        dn, de = focus.ground[0] - pose_ned[0], focus.ground[1] - pose_ned[1]
+                        dn, de = focus_position[0] - pose_ned[0], focus_position[1] - pose_ned[1]
                         horizontal = math.hypot(dn, de)
                         bearing = _wrap(math.degrees(math.atan2(de, dn)) - yaw_deg)
                         info.update(
@@ -1340,6 +1457,11 @@ class OnboardLoop:
             bearing = self.camera.bearing_deg(u)
             # The bottom centre of the box is where the object meets the ground.
             ground = ground_point(u, best.bbox[3])
+            if self.config.step_triangulation and best.position_estimate is not None:
+                ground = self.target_position(best)
+                if ground is not None:
+                    bearing = _wrap(math.degrees(math.atan2(
+                        ground[1] - pose_ned[1], ground[0] - pose_ned[0])) - yaw_deg)
             horizontal = (
                 math.hypot(ground[0] - pose_ned[0], ground[1] - pose_ned[1]) if ground else None
             )
@@ -1400,6 +1522,7 @@ class OnboardLoop:
                     "confirm_views": votes,
                     "step": self.step_index - 1,
                 }
+                record.update(self.position_metadata(best))
                 if not self.config.stop_on_confirm:
                     return self._count_confirmation(best, record, pose_ned, yaw_deg, info)
                 self.state = "returning"

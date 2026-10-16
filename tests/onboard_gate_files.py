@@ -5,6 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 _EXACT = {
+    "test_step_triangulation.py", "test_onboard_loop_step_triangulation.py",
+    "test_onboard_policy_step_triangulation.py",
     "test_fast_identity.py", "test_build_flight_identity_eval.py", "test_autonomy_planner.py",
     "test_energy_estimator.py", "test_ground_model.py", "test_onboard_ground_policy.py",
     "test_mission_executor.py", "test_mission_executor_remaining_gaps.py",

@@ -422,6 +422,9 @@ class MissionExecutor:
             run.loop.config = replace(
                 run.loop.config,
                 lost_after_steps=max(7, run.loop.config.lost_after_steps),
+                # Step triangulation assumes a static target. A moving-target
+                # skill must also ignore estimates inherited from a finding.
+                step_triangulation=False,
                 # Following moving objects must not opt into static-place re-id.
                 ground_reid_max_steps=(
                     0 if run.loop.config.ground_reid_max_steps is None
@@ -526,6 +529,8 @@ class MissionExecutor:
         ground_point: GroundPoint | None = None,
         frame_rgb: Any = None,
         landed: bool | None = None,
+        camera_ray: Callable[[float, float], Any] | None = None,
+        timestamp_s: float | None = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
         self._init_home(pose_ned)
@@ -552,6 +557,10 @@ class MissionExecutor:
             yaw_deg=yaw_deg,
             ground_point=project,
             frame_rgb=frame_rgb,
+            # A following target may move: static multi-view intersection is
+            # intentionally excluded from this skill's live ground tracking.
+            **({"camera_ray": camera_ray, "timestamp_s": timestamp_s}
+               if camera_ray is not None and run.step.skill != "follow" else {}),
         )
         if run.step.skill == "follow":
             run.fresh_ground_tracks = {
@@ -706,14 +715,20 @@ class MissionExecutor:
                 "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
             }
         )
-        north, east = point
+        # Keep alert association/deduplication anchored to the existing ground
+        # cluster; only the reported target location uses the optional estimate.
+        report_point = point
+        if run.loop.config.step_triangulation and track.position_estimate is not None:
+            report_point = run.loop.target_position(track) or point
+        north, east = report_point
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
             run,
             {
                 "track_id": track.track_id,
-                "position_estimate_ne": point,
+                "position_estimate_ne": report_point,
                 "bbox": track.bbox,
+                **run.loop.position_metadata(track),
             },
             None,
         )
@@ -988,6 +1003,10 @@ class MissionExecutor:
             "rule": record.get("rule"),
             "frame_id": frame_id,
         }
+        finding.update({
+            key: value for key, value in record.items()
+            if key.startswith("position_") and key != "position_estimate_ne"
+        })
         self.findings.append(finding)
         if run.loop is not None:
             self._finding_loops[id(finding)] = run.loop
