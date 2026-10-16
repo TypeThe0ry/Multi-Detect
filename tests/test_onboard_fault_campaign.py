@@ -22,10 +22,12 @@ from scripts.run_onboard_fault_campaign import (
 
 
 def test_fault_schedule_is_sorted_and_rejects_overlap():
-    events = schedule_faults([
-        FaultEvent("pose_stale", 2, 0.5),
-        FaultEvent("camera_drop", 0, 0.5),
-    ])
+    events = schedule_faults(
+        [
+            FaultEvent("pose_stale", 2, 0.5),
+            FaultEvent("camera_drop", 0, 0.5),
+        ]
+    )
     assert [event.fault for event in events] == ["camera_drop", "pose_stale"]
     with pytest.raises(ValueError, match="overlapping"):
         schedule_faults([FaultEvent("camera_drop", 0, 2), FaultEvent("pose_stale", 1, 1)])
@@ -33,8 +35,12 @@ def test_fault_schedule_is_sorted_and_rejects_overlap():
 
 @pytest.mark.parametrize(
     ("fault", "expected"),
-    [("camera_freeze", "conservative"), ("battery_sag", "return_now"),
-     ("offboard_loss", "refuse"), ("gcs_heartbeat_recovery", "continue")],
+    [
+        ("camera_freeze", "conservative"),
+        ("battery_sag", "return_now"),
+        ("offboard_loss", "refuse"),
+        ("gcs_heartbeat_recovery", "continue"),
+    ],
 )
 def test_expected_outcome_from_policy(fault, expected):
     assert expected_outcome(fault, {"action": "continue_then_return"}) == expected
@@ -101,17 +107,13 @@ def _always_return(session: CampaignSession) -> None:
 def _ignores_policy(session: CampaignSession) -> None:
     # A policy-ignoring runtime continues while a continue-then-return package
     # is past its configured silence timeout.
-    session.controller.decide = lambda _pose: (
-        "continue", "mutant ignored package policy"
-    )
+    session.controller.decide = lambda _pose: ("continue", "mutant ignored package policy")
 
 
 def _relaxes_latched_policy(session: CampaignSession) -> None:
     """Release a terminal supervisor action after it has been observed."""
     if session.controller.event.fault == "gcs_heartbeat_loss":
-        session.controller.decide = lambda _pose: (
-            "continue", "mutant released latched policy"
-        )
+        session.controller.decide = lambda _pose: ("continue", "mutant released latched policy")
         return
 
     original = session.controller.decide
@@ -131,7 +133,8 @@ def _prefault_rtl_then_continue(session: CampaignSession) -> None:
     if session.controller.event.fault == "gcs_heartbeat_loss":
         session.vehicle.rtl()
         session.controller.decide = lambda _pose: (
-            "continue", "mutant continued after pre-fault rtl"
+            "continue",
+            "mutant continued after pre-fault rtl",
         )
 
 
@@ -145,8 +148,7 @@ def _out_of_area_after_fence(session: CampaignSession) -> None:
     def send(setpoint):
         if session.controller.fault_active():
             setpoint = PositionSetpoint(
-                area["north_max_m"] + 1.0, setpoint.east_m, setpoint.down_m,
-                setpoint.yaw_deg
+                area["north_max_m"] + 1.0, setpoint.east_m, setpoint.down_m, setpoint.yaw_deg
             )
         original(setpoint)
 
@@ -190,24 +192,49 @@ def _no_op_runtime(session: CampaignSession) -> None:
 
 
 @pytest.mark.parametrize(
-    ("mutator", "expected_failed"), [
+    ("mutator", "expected_failed"),
+    [
         (_no_op_runtime, set(FAULTS)),
-        (_always_hold, {"gcs_heartbeat_loss", "battery_sag", "battery_stale",
-                        "gcs_heartbeat_recovery"}),
-        (_always_return, {"camera_freeze", "camera_drop", "pose_stale",
-                          "slow_model_timeout", "slow_model_crash", "detector_exception",
-                          "gcs_heartbeat_loss", "gcs_heartbeat_recovery", "offboard_loss",
-                          "battery_sag", "battery_stale", "home_change"}),
-        (_ignores_policy, {"gcs_heartbeat_loss", "gcs_heartbeat_recovery",
-                           "battery_sag", "battery_stale"}),
+        (
+            _always_hold,
+            {"gcs_heartbeat_loss", "battery_sag", "battery_stale", "gcs_heartbeat_recovery"},
+        ),
+        (
+            _always_return,
+            {
+                "camera_freeze",
+                "camera_drop",
+                "pose_stale",
+                "slow_model_timeout",
+                "slow_model_crash",
+                "detector_exception",
+                "gcs_heartbeat_loss",
+                "gcs_heartbeat_recovery",
+                "offboard_loss",
+                "battery_sag",
+                "battery_stale",
+                "home_change",
+            },
+        ),
+        (
+            _ignores_policy,
+            {"gcs_heartbeat_loss", "gcs_heartbeat_recovery", "battery_sag", "battery_stale"},
+        ),
         (_relaxes_latched_policy, {"gcs_heartbeat_loss"}),
         (_prefault_rtl_then_continue, {"gcs_heartbeat_loss"}),
         (_out_of_area_after_fence, {"fence_approach"}),
         (_released_latch, {"gcs_heartbeat_loss"}),
     ],
-    ids=["no-op", "always-hold", "always-return", "ignores-package-policy",
-         "releases-latched-policy", "prefault-rtl-then-continue",
-         "fence-out-of-area", "released-latch"],
+    ids=[
+        "no-op",
+        "always-hold",
+        "always-return",
+        "ignores-package-policy",
+        "releases-latched-policy",
+        "prefault-rtl-then-continue",
+        "fence-out-of-area",
+        "released-latch",
+    ],
 )
 def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
     from test_mission_supervisor import document
@@ -217,8 +244,11 @@ def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
     key_path = tmp_path / "operator.key"
     key_path.write_bytes(key)
     package_path.write_text(
-        json.dumps(sign_document(document("continue_then_return", timeout=0.4), key,
-                                  algorithm="hmac-sha256")),
+        json.dumps(
+            sign_document(
+                document("continue_then_return", timeout=0.4), key, algorithm="hmac-sha256"
+            )
+        ),
         encoding="utf-8",
     )
     report = run_campaign(
@@ -226,7 +256,7 @@ def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
         package=package_path,
         operator_key=key_path,
         runtime_factory=_mutant_factory(mutator),
-            duration_s=5.5,
+        duration_s=5.5,
     )
     assert report["passed"] is False
     failed = {row["scenario"] for row in report["scenarios"] if not row["passed"]}

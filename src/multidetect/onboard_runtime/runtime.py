@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import queue
 import threading
@@ -43,11 +44,17 @@ class RuntimeConfig:
 
     def __post_init__(self) -> None:
         numeric = (
-            self.stream_hz, self.camera_timeout_s, self.pose_timeout_s,
-            self.heartbeat_timeout_s, self.hold_before_failsafe_s,
-            self.autonomy_timeout_s, self.action_timeout_s,
-            self.position_tolerance_m, self.yaw_tolerance_deg,
-            self.speed_tolerance_mps, self.shutdown_timeout_s,
+            self.stream_hz,
+            self.camera_timeout_s,
+            self.pose_timeout_s,
+            self.heartbeat_timeout_s,
+            self.hold_before_failsafe_s,
+            self.autonomy_timeout_s,
+            self.action_timeout_s,
+            self.position_tolerance_m,
+            self.yaw_tolerance_deg,
+            self.speed_tolerance_mps,
+            self.shutdown_timeout_s,
             self.terminal_retry_timeout_s,
         )
         if any(not math.isfinite(v) or v <= 0 for v in numeric):
@@ -92,7 +99,11 @@ class SetpointPump:
     """One bounded writer, with constant-memory timing statistics."""
 
     def __init__(
-        self, vehicle: VehicleInterface, initial: PositionSetpoint, *, rate_hz: float = 20,
+        self,
+        vehicle: VehicleInterface,
+        initial: PositionSetpoint,
+        *,
+        rate_hz: float = 20,
         before_send: Callable[[], None] | None = None,
     ) -> None:
         if not math.isfinite(rate_hz) or rate_hz < 10:
@@ -178,15 +189,23 @@ class OnboardRuntime:
     """
 
     def __init__(
-        self, vehicle: VehicleInterface, camera: CameraSource, policy: Policy, *,
+        self,
+        vehicle: VehicleInterface,
+        camera: CameraSource,
+        policy: Policy,
+        *,
         config: RuntimeConfig | None = None,
         home_ned: tuple[float, float, float] | None = None,
         event_sink: Callable[[str, float, dict[str, Any]], None] | None = None,
+        arbiter: Any | None = None,
+        supervisor: Any | None = None,
     ) -> None:
         self.vehicle, self.camera, self.policy = vehicle, camera, policy
         self.config = config or RuntimeConfig()
         self.home_ned = home_ned
         self.event_sink = event_sink
+        self.arbiter = arbiter
+        self.supervisor = supervisor
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
@@ -208,8 +227,8 @@ class OnboardRuntime:
         self._event_sink_dropped = 0
         # One worker drains a bounded queue: the sink can never stall or crash the
         # pump/watchdog/coordinator, events keep their order, and no thread piles up.
-        self._event_queue: queue.Queue[tuple[str, float, dict[str, Any]] | None] = (
-            queue.Queue(maxsize=256)
+        self._event_queue: queue.Queue[tuple[str, float, dict[str, Any]] | None] = queue.Queue(
+            maxsize=256
         )
         self._event_worker: threading.Thread | None = None
         if self.event_sink is not None:
@@ -230,6 +249,64 @@ class OnboardRuntime:
         self.pump: SetpointPump | None = None
         self.policy_worker_stopped = True
         self.mission_complete = False
+
+    def _arbitrate_action(
+        self,
+        action: ActionPrimitive,
+        *,
+        pose_ned: tuple[float, float, float],
+        yaw_deg: float,
+        observation: dict[str, Any] | None = None,
+    ) -> tuple[ActionPrimitive, dict[str, Any]]:
+        """Run the optional final action arbiter without coupling its API.
+
+        The onboard safety envelope has evolved independently of this runtime;
+        accepting ``arbitrate``/``apply``/callable implementations keeps the
+        pump integration small while allowing a decision record to be attached
+        to runtime events.  A malformed arbiter result fails closed to a hold.
+        """
+        if self.arbiter is None:
+            return action, {}
+        fn = getattr(self.arbiter, "arbitrate", None)
+        if fn is None:
+            fn = getattr(self.arbiter, "apply", None)
+        if fn is None and callable(self.arbiter):
+            fn = self.arbiter
+        if fn is None:
+            raise TypeError("arbiter must be callable or expose arbitrate/apply")
+        # Select the call shape up front; catching TypeError around invocation
+        # could execute a stateful arbiter twice when its own body raises.
+        try:
+            parameters = inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "observation" in parameters:
+            result = fn(action, pose_ned=pose_ned, yaw_deg=yaw_deg, observation=observation)
+        elif parameters and any(
+            p.kind is inspect.Parameter.POSITIONAL_ONLY for p in parameters.values()
+        ):
+            result = fn(action, pose_ned, yaw_deg)
+        else:
+            result = fn(action, pose_ned=pose_ned, yaw_deg=yaw_deg)
+        info: dict[str, Any] = {}
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[0], ActionPrimitive)
+        ):
+            action, metadata = result
+            if isinstance(metadata, dict):
+                info = metadata
+        elif isinstance(result, ActionPrimitive):
+            action = result
+        elif hasattr(result, "action") and isinstance(result.action, ActionPrimitive):
+            action = result.action
+            metadata = result.info() if callable(getattr(result, "info", None)) else None
+            if isinstance(metadata, dict):
+                info = metadata
+        else:
+            raise TypeError("arbiter must return ActionPrimitive or (ActionPrimitive, info)")
+        return action, info
 
     def _event(self, name: str, **details: Any) -> None:
         timestamp = time.monotonic()
@@ -267,20 +344,128 @@ class OnboardRuntime:
                 self._event_sink_failures += 1
                 if not self._event_sink_failure_reported:
                     self._event_sink_failure_reported = True
-                    self.events.append({
-                        "event": "event_sink_failure", "monotonic_s": time.monotonic(),
-                        "reason": str(exc),
-                    })
+                    self.events.append(
+                        {
+                            "event": "event_sink_failure",
+                            "monotonic_s": time.monotonic(),
+                            "reason": str(exc),
+                        }
+                    )
+
+    def _set_target_checked(
+        self,
+        target: PositionSetpoint,
+        purpose: str,
+        *,
+        state: VehicleState | None = None,
+        already_enveloped: bool = False,
+    ) -> PositionSetpoint:
+        """Publish every target through one boundary check.
+
+        Policy labels containing ``safety`` mean the primitive was already
+        arbitrated; this helper only checks the resulting absolute setpoint and
+        never clips it a second time. Holds are always accepted so a violated
+        current position can still be held safely.
+        """
+        if self.pump is None:
+            raise RuntimeError("runtime has not started")
+        if purpose not in {
+            "policy_action",
+            "takeoff",
+            "hazard_hold",
+            "policy_hold",
+            "close_hold",
+            "terminal_hold",
+        }:
+            raise ValueError(f"unknown setpoint purpose: {purpose}")
+        check_state = state
+        if check_state is None:
+            try:
+                check_state = self.vehicle.snapshot()
+            except Exception:
+                check_state = None
+        envelope = self.arbiter
+        pending_reports: list[str] = []
+
+        def report(reason: str) -> None:
+            pending_reports.append(reason)
+
+        def current_violation() -> None:
+            if envelope is None or check_state is None or check_state.position_ned is None:
+                return
+            config = getattr(envelope, "config", None)
+            home = getattr(envelope, "home_ned", None) or self.home_ned
+            if config is None or home is None:
+                return
+            altitude = float(home[2]) - float(check_state.position_ned[2])
+            if (
+                getattr(config, "max_altitude_m", None) is not None
+                and altitude > float(config.max_altitude_m) + 1e-9
+            ):
+                report("max_altitude")
+            if altitude < float(getattr(config, "min_altitude_m", 0.0)) - 1e-9:
+                report("min_altitude")
+
+        if purpose in {"policy_hold", "hazard_hold", "close_hold", "terminal_hold"}:
+            # Holds are never refused, including while already outside the
+            # envelope.  The violation is reported for supervisor escalation.
+            current_violation()
+        elif envelope is not None and purpose == "takeoff":
+            config = getattr(envelope, "config", None)
+            home = self.home_ned or getattr(envelope, "home_ned", None)
+            if home is None:
+                raise RuntimeError("takeoff envelope requires known home")
+            max_alt = getattr(config, "max_altitude_m", None)
+            # NED: higher altitude = more negative down.  Clip only a target above
+            # the ceiling; a lower requested takeoff altitude is kept as is.
+            if max_alt is not None and target.down_m < float(home[2]) - float(max_alt):
+                target = PositionSetpoint(
+                    target.north_m, target.east_m, float(home[2]) - float(max_alt), target.yaw_deg
+                )
+        if envelope is not None and purpose == "policy_action" and not already_enveloped:
+            config = getattr(envelope, "config", None)
+            home = getattr(envelope, "home_ned", None) or self.home_ned
+            if config is not None:
+                if getattr(config, "max_altitude_m", None) is not None and home is not None:
+                    max_down = float(home[2]) - float(config.max_altitude_m)
+                    if target.down_m < max_down - 1e-9:
+                        report("max_altitude")
+                        target = hold_setpoint(state or self.vehicle.snapshot())
+                if getattr(config, "min_altitude_m", 0.0) > 0 and home is not None:
+                    min_down = float(home[2]) - float(config.min_altitude_m)
+                    if target.down_m > min_down + 1e-9:
+                        report("min_altitude")
+                        target = hold_setpoint(state or self.vehicle.snapshot())
+        self.pump.set_target(target)
+        report_failures = 0
+        for reason in dict.fromkeys(pending_reports):
+            try:
+                supervisor = self.supervisor or getattr(envelope, "supervisor", None)
+                if supervisor is not None and hasattr(supervisor, "report_envelope_violation"):
+                    supervisor.report_envelope_violation(reason)
+                self._event("envelope_setpoint_violation", purpose=purpose, reason=reason)
+            except Exception as exc:
+                report_failures += 1
+                if not getattr(self, "_envelope_report_failure_reported", False):
+                    self._envelope_report_failure_reported = True
+                    self._event("envelope_report_failure", reason=str(exc))
+        if report_failures:
+            self._envelope_report_failures = (
+                getattr(self, "_envelope_report_failures", 0) + report_failures
+            )
+        return target
 
     def _freshness_fault(
-        self, state: VehicleState, frame: CameraFrame | None, now: float,
+        self,
+        state: VehicleState,
+        frame: CameraFrame | None,
+        now: float,
     ) -> str | None:
         for name, stamp, limit in (
             ("pose", state.pose_monotonic, self.config.pose_timeout_s),
             ("attitude", state.attitude_monotonic, self.config.pose_timeout_s),
             ("heartbeat", state.heartbeat_monotonic, self.config.heartbeat_timeout_s),
-            ("camera", frame.timestamp_monotonic if frame else None,
-             self.config.camera_timeout_s),
+            ("camera", frame.timestamp_monotonic if frame else None, self.config.camera_timeout_s),
         ):
             if stamp is None or not math.isfinite(stamp) or not 0 <= now - stamp <= limit:
                 return f"stale_{name}"
@@ -299,7 +484,9 @@ class OnboardRuntime:
             self._motion = None
             if self.pump and self._last_good_state:
                 self._hazard_target = hold_setpoint(self._last_good_state)
-                self.pump.set_target(self._hazard_target)
+                self._set_target_checked(
+                    self._hazard_target, "hazard_hold", state=self._last_good_state
+                )
             self._event("watchdog_hold", reason=reason)
 
     def _guard(self) -> None:
@@ -309,11 +496,15 @@ class OnboardRuntime:
             state, frame = self.vehicle.snapshot(), self.camera.latest()
             fault = self._freshness_fault(state, frame, now)
             with self._lock:
-                if (state.pose_monotonic is not None and state.attitude_monotonic is not None
+                if (
+                    state.pose_monotonic is not None
+                    and state.attitude_monotonic is not None
                     and 0 <= now - state.pose_monotonic <= self.config.pose_timeout_s
                     and 0 <= now - state.attitude_monotonic <= self.config.pose_timeout_s
-                    and state.position_ned is not None and state.attitude_deg is not None
-                    and all(math.isfinite(v) for v in (*state.position_ned, *state.attitude_deg))):
+                    and state.position_ned is not None
+                    and state.attitude_deg is not None
+                    and all(math.isfinite(v) for v in (*state.position_ned, *state.attitude_deg))
+                ):
                     self._last_good_state = state
                 if self._closed:
                     return
@@ -321,8 +512,10 @@ class OnboardRuntime:
                     self._latch(fault, now)
                 elif self._policy_error:
                     self._latch(self._policy_error, now)
-                elif (self._job_started is not None
-                      and now - self._job_started > self.config.autonomy_timeout_s):
+                elif (
+                    self._job_started is not None
+                    and now - self._job_started > self.config.autonomy_timeout_s
+                ):
                     self._latch("autonomy_timeout", now)
                 elif self._active and not self.failsafe_sent:
                     if not state.armed:
@@ -334,7 +527,7 @@ class OnboardRuntime:
                     ):
                         self._latch("home_changed", now)
                 if self.hazard and self._hazard_target and self.pump:
-                    self.pump.set_target(self._hazard_target)
+                    self._set_target_checked(self._hazard_target, "hazard_hold", state=state)
         except Exception as exc:
             self._latch(f"sensor_error: {exc}", now)
 
@@ -351,7 +544,9 @@ class OnboardRuntime:
         self._active = active
         self._flight_owned = active and own_flight
         self.pump = SetpointPump(
-            self.vehicle, hold_setpoint(state), rate_hz=self.config.stream_hz,
+            self.vehicle,
+            hold_setpoint(state),
+            rate_hz=self.config.stream_hz,
             before_send=self._guard,
         )
         self.pump.start()
@@ -403,7 +598,7 @@ class OnboardRuntime:
             target = PositionSetpoint(
                 *state.position_ned[:2], bound_home[2] - altitude_m, state.attitude_deg[2]
             )
-            self.pump.set_target(target)
+            self._set_target_checked(target, "takeoff", state=state)
         while not self._arrived(self.vehicle.snapshot(), target):
             self.poll(allow_policy=False)
             if self.hazard or self._stopping.is_set() or time.monotonic() >= deadline:
@@ -417,12 +612,14 @@ class OnboardRuntime:
         error = math.dist(state.position_ned, (target.north_m, target.east_m, target.down_m))
         yaw_error = (state.attitude_deg[2] - target.yaw_deg + 180) % 360 - 180
         speed = math.sqrt(sum(v * v for v in state.velocity_ned))
-        return (error <= self.config.position_tolerance_m
-                and abs(yaw_error) <= self.config.yaw_tolerance_deg
-                and speed <= self.config.speed_tolerance_mps)
+        return (
+            error <= self.config.position_tolerance_m
+            and abs(yaw_error) <= self.config.yaw_tolerance_deg
+            and speed <= self.config.speed_tolerance_mps
+        )
 
     def _launch_policy(self, frame: CameraFrame, state: VehicleState) -> None:
-        self.pump.set_target(hold_setpoint(state))
+        self._set_target_checked(hold_setpoint(state), "policy_hold", state=state)
         observation = observation_for(frame, state)
         self._job_started = time.monotonic()
         started = self._job_started
@@ -431,7 +628,9 @@ class OnboardRuntime:
         def work() -> None:
             try:
                 action, labels = self.policy.act(
-                    observation, pose_ned=state.position_ned, yaw_deg=state.attitude_deg[2],
+                    observation,
+                    pose_ned=state.position_ned,
+                    yaw_deg=state.attitude_deg[2],
                 )
                 with self._lock:
                     if time.monotonic() - started > self.config.autonomy_timeout_s:
@@ -459,7 +658,9 @@ class OnboardRuntime:
         self._terminal_attempts += 1
         if self.pump is not None and self._last_good_state is not None:
             # Keep a fresh hold stream until telemetry confirms the mode change.
-            self.pump.set_target(hold_setpoint(self._last_good_state))
+            self._set_target_checked(
+                hold_setpoint(self._last_good_state), "terminal_hold", state=self._last_good_state
+            )
         self._event("flight_handoff", action=action)
         if action == "hold":
             return
@@ -486,11 +687,17 @@ class OnboardRuntime:
         if self.failsafe_sent not in {"land", "rtl"}:
             return False
         stamp = state.heartbeat_monotonic
-        if (stamp is None or stamp < self._handoff_started
-            or time.monotonic() - stamp > self.config.heartbeat_timeout_s):
+        if (
+            stamp is None
+            or stamp < self._handoff_started
+            or time.monotonic() - stamp > self.config.heartbeat_timeout_s
+        ):
             return False
-        return (state.armed is False or state.mode == self.failsafe_sent.upper()
-                or state.mode == f"AUTO.{self.failsafe_sent.upper()}")
+        return (
+            state.armed is False
+            or state.mode == self.failsafe_sent.upper()
+            or state.mode == f"AUTO.{self.failsafe_sent.upper()}"
+        )
 
     def poll(self, *, allow_policy: bool = True) -> None:
         self._check_running()
@@ -506,14 +713,17 @@ class OnboardRuntime:
                         confirmed = self._handoff_confirmed(self.vehicle.snapshot())
                     except Exception:
                         confirmed = False
-                if (not self.failsafe_sent
-                    or (not confirmed
-                        and now - self._command_last_sent >= 1.0)):
-                        self._command(self.config.failsafe)
+                if not self.failsafe_sent or (
+                    not confirmed and now - self._command_last_sent >= 1.0
+                ):
+                    self._command(self.config.failsafe)
                 return
             if self.failsafe_sent in {"land", "rtl"}:
-                self._event("terminal_state", action=self.failsafe_sent,
-                            reason=self.hazard or "terminal handoff latched")
+                self._event(
+                    "terminal_state",
+                    action=self.failsafe_sent,
+                    reason=self.hazard or "terminal handoff latched",
+                )
                 try:
                     confirmed = self._handoff_confirmed(self.vehicle.snapshot())
                 except Exception:
@@ -527,15 +737,24 @@ class OnboardRuntime:
                         self.failsafe_sent == "rtl"
                         and now - self._terminal_started >= self.config.terminal_retry_timeout_s
                     ):
-                        self._event("terminal_fallback", from_action="rtl", action="land",
-                                    attempts=self._terminal_attempts)
+                        self._event(
+                            "terminal_fallback",
+                            from_action="rtl",
+                            action="land",
+                            attempts=self._terminal_attempts,
+                        )
                         self._command("land")
-                    elif (self.failsafe_sent == "land"
-                          and now - self._terminal_started >= self.config.terminal_retry_timeout_s):
+                    elif (
+                        self.failsafe_sent == "land"
+                        and now - self._terminal_started >= self.config.terminal_retry_timeout_s
+                    ):
                         if not self._terminal_fallback_logged:
                             self._terminal_fallback_logged = True
-                            self._event("terminal_fallback_exhausted",
-                                        action="land", attempts=self._terminal_attempts)
+                            self._event(
+                                "terminal_fallback_exhausted",
+                                action="land",
+                                attempts=self._terminal_attempts,
+                            )
                     else:
                         self._command(self.failsafe_sent)
                 return
@@ -559,8 +778,16 @@ class OnboardRuntime:
             if self._result:
                 action, _labels, source_state = self._result
                 self._result = None
+                if isinstance(_labels, dict) and "safety" in _labels:
+                    envelope_info = _labels["safety"]
+                else:
+                    action, envelope_info = self._arbitrate_action(
+                        action,
+                        pose_ned=tuple(source_state.position_ned),
+                        yaw_deg=source_state.attitude_deg[2],
+                    )
                 self.steps += 1
-                self._event("autonomy_action", action=action.to_dict())
+                self._event("autonomy_action", action=action.to_dict(), envelope=envelope_info)
                 if action.kind == "stop":
                     self.mission_complete = True
                     self._command(self.config.completion_action)
@@ -571,15 +798,25 @@ class OnboardRuntime:
                     n, e, d, yaw = primitive_to_ned(action, source_state.attitude_deg[2])
                     origin = source_state.position_ned
                     target = PositionSetpoint(
-                        origin[0] + n, origin[1] + e, origin[2] + d,
+                        origin[0] + n,
+                        origin[1] + e,
+                        origin[2] + d,
                         source_state.attitude_deg[2] + yaw,
                     )
-                self.pump.set_target(target)
+                self._set_target_checked(
+                    target,
+                    "policy_action",
+                    state=state,
+                    already_enveloped=isinstance(_labels, dict) and "safety" in _labels,
+                )
                 self._motion = action, now
             if self._motion:
                 action, started = self._motion
-                complete = (now - started >= action.seconds if action.kind == "hold"
-                            else self._arrived(state, self.pump.target))
+                complete = (
+                    now - started >= action.seconds
+                    if action.kind == "hold"
+                    else self._arrived(state, self.pump.target)
+                )
                 if not complete:
                     if now - started >= self.config.action_timeout_s:
                         self._latch("action_timeout", now)
@@ -598,8 +835,13 @@ class OnboardRuntime:
                 state = self.vehicle.snapshot()
             except Exception:
                 state = None
-            if (self.failsafe_sent and self.failsafe_sent != "hold"
-                and state is not None and state.landed is True and state.armed is False):
+            if (
+                self.failsafe_sent
+                and self.failsafe_sent != "hold"
+                and state is not None
+                and state.landed is True
+                and state.armed is False
+            ):
                 break
             if duration_s is not None and time.monotonic() - started >= duration_s:
                 break
@@ -629,12 +871,17 @@ class OnboardRuntime:
             self._closed = True
             self._result = None
             if self.pump and self._last_good_state:
-                self.pump.set_target(hold_setpoint(self._last_good_state))
+                self._set_target_checked(
+                    hold_setpoint(self._last_good_state), "close_hold", state=self._last_good_state
+                )
         errors = []
         try:
             if self.pump and self._flight_owned:
-                action = (self.failsafe_sent if self.failsafe_sent in {"land", "rtl"}
-                          else self.config.shutdown_action)
+                action = (
+                    self.failsafe_sent
+                    if self.failsafe_sent in {"land", "rtl"}
+                    else self.config.shutdown_action
+                )
                 self._command(action)
                 until = time.monotonic() + self.config.shutdown_timeout_s
                 while not self._handoff_confirmed(self.vehicle.snapshot()):
@@ -663,8 +910,11 @@ class OnboardRuntime:
                 self.policy_worker_stopped = not self._worker.is_alive()
                 if not self.policy_worker_stopped:
                     errors.append("autonomy worker did not stop within two seconds")
-            for close in (self.pump.stop if self.pump else None,
-                          self.camera.close, self.vehicle.close):
+            for close in (
+                self.pump.stop if self.pump else None,
+                self.camera.close,
+                self.vehicle.close,
+            ):
                 if close:
                     try:
                         close()
