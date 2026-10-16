@@ -103,6 +103,8 @@ def create_onnxruntime_session(
     *,
     providers: Sequence[str] | None = None,
     trt_engine_cache_path: Path | None = None,
+    intra_op_num_threads: int | None = None,
+    inter_op_num_threads: int | None = None,
 ) -> tuple[Any, OrtSessionSelection]:
     """Create an ONNX Runtime session using a deterministic provider policy.
 
@@ -134,7 +136,15 @@ def create_onnxruntime_session(
                 candidate,
                 trt_engine_cache_path=trt_engine_cache_path,
             )
-            session = ort.InferenceSession(str(model_path), providers=descriptors)
+            kwargs = {"providers": descriptors}
+            if intra_op_num_threads is not None or inter_op_num_threads is not None:
+                options = ort.SessionOptions()
+                if intra_op_num_threads is not None:
+                    options.intra_op_num_threads = intra_op_num_threads
+                if inter_op_num_threads is not None:
+                    options.inter_op_num_threads = inter_op_num_threads
+                kwargs["sess_options"] = options
+            session = ort.InferenceSession(str(model_path), **kwargs)
         except Exception as exc:  # provider libraries fail with several exception types
             detail = f"{type(exc).__name__}: {exc}"
             attempts.append(ProviderAttempt(candidate, detail))

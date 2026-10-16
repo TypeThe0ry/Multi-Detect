@@ -96,3 +96,46 @@ python scripts/run_onboard_gate.py -q -p no:warnings
 ```
 
 目标移动、框中心因遮挡变化、错误关联、位姿漂移、时间不同步、杆臂或相机标定错误，均可能造成错误交会。质量门不能识别所有系统性误差。当前选项应保持默认关闭，需经后续闭环 SIM 和真机验证后再决定任务中是否开启。
+
+## B2：近距单目深度（默认关闭）
+
+B2 在原有的步间三角化和地面相交之上，增加一个可选的近距单目深度来源。`near_depth` 默认是 `false`；关闭时不创建深度估计器、不加载 ONNX Runtime 或 TensorRT，也不增加任务日志字段，原有输出和控制路径保持不变。
+
+深度门控在 `OnboardPolicy` 的慢身份判断完成后、`next_action` 之前同步执行，因此同一帧不会和 VLM 请求并发。普通 loop 只在 `approaching` 或已到最近视角时放行；MissionExecutor 的 tracking loop 只在 `approaching`/最近视角放行，`inspect` 只在 `face` 和 `capture` 阶段放行。门控还要求当前焦点轨迹、当前估计斜距小于 `near_depth_max_range_m`（默认 10 米）、距离上次推理至少 `near_depth_min_interval_s`（默认 0.2 秒），并用 step token 保证每步最多一次。缺少图像、相机标定或中心视线时会跳过。
+
+配置项如下：
+
+```json
+{
+  "near_depth": false,
+  "near_depth_model_path": "D:/Projects/Multi-Detect/artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx",
+  "near_depth_backend": "onnx-cpu",
+  "near_depth_max_range_m": 10.0,
+  "near_depth_min_interval_s": 0.2,
+  "near_depth_max_age_s": 1.0,
+  "near_depth_sigma_scale": 1.0
+}
+```
+
+开发和 SIM 使用 `onnx-cpu`，明确选择 `CPUExecutionProvider`，线程数固定为 intra-op/inter-op 各 2。Orin 使用 `tensorrt` 时必须给出已经预置的 `.engine` 或 `.plan`；路径不存在、后缀不匹配、ONNX digest 不在白名单或后端不可用都会在启动时抛错，绝不静默降级到 CPU。估计器只在 `near_depth=true` 的构造分支中惰性加载，任务结束时释放会话。
+
+每次有效深度结果先检查正数、有限值和新鲜度（当前观测时钟减结果的 `captured_at_s` 不超过 `near_depth_max_age_s`，默认 1 秒）。有效结果包装成已有的 `RangeMeasurement(distance_m, sigma_m, timestamp_s, source="near_depth")`，沿目标中心视线调用 `position_from_range`，然后和三角化/地面估计一起走 `fuse_position_estimates`。深度 sigma 取模型 sigma 与离线经验桶的较大值，再乘 `near_depth_sigma_scale`：小于 10 米为 1.60 米，10–20 米为 10.57 米，20–40 米为 26.29 米，40 米以上为 50.71 米。融合仍使用逆方差加权和现有 2.5-sigma 一致性门；不一致时沿用现有的最新来源回退策略并放大 sigma。深度只改变位置估计，不改变 track association、地面锚点、身份票数、VLM verdict 或目标确认。
+
+任务日志在开启时增加 `onboard.near_depth`，包含 `inference_count`、`failure_count`、各类跳过计数、最近一次推理耗时以及推理前后的 RSS。常见跳过原因包括 `stage`、`not_focus`、`range`、`interval`、`step`、`calibration`、`image`、`expired` 和 `invalid`。
+
+### CPU 小规模 SIM 回放
+
+使用只读录像 `eval-v2-test-r3seg-descent/gen_v2_w0035/episode-0000-3be7faf9` 的 48 帧，近距段优先覆盖（目标斜距约 6.9–9.0 米），运行固定 outdoor-small ONNX、CPU、2 线程。回放脚本是 `scripts/validate_near_depth_replay.py`，结果写入 `.tmp/near_depth_replay.json`。目标框采用录像真值投影，几何基线使用最近 8 个视线，深度只在几何当前斜距小于 10 米时尝试。
+
+本次样本中有 19 帧得到几何估计，2 帧通过近距门并实际完成深度推理，2 帧深度结果进入融合。几何位置误差均值为 1.02 米，几何加深度融合为 2.74 米，变化为 **+1.71 米**；对应斜距误差均值为 0.85 米和 1.54 米。这个结果说明在该小样本上深度没有改善几何位置，不能据此关闭一致性门或把模型当作普适测距器。深度结果只有 2 个，且目标框来自真值投影，回放不是端到端机载评估。离线模型评估本身在小于 10 米桶只有 3 个样本，10–20 米 P95 约 10.57 米，更远距离迅速恶化，因此默认保持关闭，开启前应使用任务数据重新标定 sigma 和门控。
+
+复现命令（PowerShell）：
+
+```powershell
+$tmp = "D:\Projects\mdwt\neardepth\.tmp"
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$env:TEMP=$env:TMP=$env:TMPDIR=$tmp
+$env:CUDA_VISIBLE_DEVICES = "-1"
+$env:PYTHONPATH = "src"
+python scripts/validate_near_depth_replay.py --max-frames 48
+```
