@@ -299,7 +299,7 @@ def _write_map_and_terrain(maps_dir: Path, terrain_dir: Path, world_id: str) -> 
     _write(terrain_dir / f"{world_id}.dem.json", {"schema_version": 1, "scenario_id": world_id, "coordinate_reference": "WGS84", "vertical_datum": "MSL", "origin": {"latitude_deg": ORIGIN_LAT, "longitude_deg": ORIGIN_LON, "elevation_m": 18.0}, "north_origin_m": -200.0, "east_origin_m": -200.0, "north_spacing_m": 100.0, "east_spacing_m": 100.0, "elevation_m": [[18.0] * 5 for _ in range(5)], "vertical_sigma_m": 0.4, "slope_sigma_m_per_m": 0.002})
 
 
-def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0, appearance: str | Sequence[str] | None = None) -> dict[str, Any]:
+def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, float] = (0.7, 0.15, 0.15), out_worlds: str | Path = "simulation/gazebo/worlds", out_scenarios: str | Path = "configs/scenarios/generated", real_time_factor: float = 1.0, appearance: str | Sequence[str] | None = None, *, world_prefix: str = "gen_w", target_specs: Sequence[tuple[str, str]] | None = None, confuser_map: Mapping[str, Sequence[tuple[str, str]]] | None = None, min_distractors: int | None = None) -> dict[str, Any]:
     """Generate ``count`` worlds and return the deterministic index document."""
     if count < 1 or seed < 0 or real_time_factor <= 0:
         raise ValueError("count/seed must be non-negative (count > 0), and real_time_factor > 0")
@@ -311,7 +311,7 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
     rng = random.Random(seed)
     entries: list[dict[str, Any]] = []
     for index in range(count):
-        world_id = f"gen_w{index:04d}"
+        world_id = f"{world_prefix}{index:04d}"
         split = _split(index, count, split_ratios)
         objects: list[_Object] = []
         obstacles: list[tuple[Any, ...]] = []
@@ -332,11 +332,19 @@ def generate_worlds(count: int, seed: int, split_ratios: tuple[float, float, flo
             obstacles.append((f"obstacle_{obstacle_index:02d}", x, y, sz / 2, sx, sy, sz, (rng.uniform(.25,.65), rng.uniform(.25,.65), rng.uniform(.25,.65)), rng.uniform(-math.pi, math.pi)))
         target_color_cn, target_color, target_rgb = COLORS[index % len(COLORS)]
         target_kind_cn, target_kind = KINDS[index % len(KINDS)]
+        if target_specs:
+            target_kind_cn, target_kind = target_specs[index % len(target_specs)]
         x, y = point(4.0)
         objects.append(_Object(f"target_true_{index:04d}", x, y, 0.75, rng.uniform(-math.pi, math.pi), 4.0, f"{target_color}_{target_kind}", target_color_cn, target_rgb, target_kind, True))
-        for distractor_index in range(rng.randint(0, 4)):
+        distractor_total = rng.randint(0, 4)
+        if min_distractors is not None:
+            distractor_total = max(distractor_total, min_distractors)
+        forced = tuple((confuser_map or {}).get(target_kind, ()))
+        for distractor_index in range(max(distractor_total, len(forced))):
             color_cn, color, rgb = COLORS[(index + distractor_index + 1) % len(COLORS)]
             kind_cn, kind = KINDS[(index + distractor_index + 1) % len(KINDS)]
+            if distractor_index < len(forced):
+                kind_cn, kind = forced[distractor_index]
             dx, dy = point(4.0)
             objects.append(_Object(f"distractor_{index:04d}_{distractor_index:02d}", dx, dy, 0.75, rng.uniform(-math.pi, math.pi), 4.0, f"{color}_{kind}", color_cn, rgb, kind))
         profile = appearances[index % len(appearances)] if appearances else None
@@ -386,7 +394,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          spread_m: tuple[float, float] = (24.0, 120.0),
                          confusers: Mapping[str, Sequence[str]] | None = None,
                          confuser_copies: int = 1,
-                         appearance: str | Sequence[str] | None = None) -> dict[str, Any]:
+                         appearance: str | Sequence[str] | None = None,
+                         forced_distractors: Mapping[str, Sequence[str]] | None = None) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
     ``unambiguous_tasks`` keeps out distractors that the generated task text would
@@ -440,6 +449,20 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             if task_equivalent(asset_by_slug[target_slug], asset):
                 raise ValueError(f"confuser {slug} also matches task for {target_slug}")
             confuser_assets[target_slug].append(asset)
+    forced_assets: dict[str, list[dict[str, Any]]] = {}
+    for target_slug, slugs in (forced_distractors or {}).items():
+        if target_slug not in asset_by_slug or "target" not in asset_by_slug[target_slug].get("role_eligibility", []):
+            raise ValueError(f"ineligible forced-distractor target slug: {target_slug}")
+        if isinstance(slugs, str):
+            raise ValueError("forced distractor slugs must be a sequence of slugs, not a string")
+        forced_assets[target_slug] = []
+        for slug in dict.fromkeys(slugs):
+            if slug not in asset_by_slug or "distractor" not in asset_by_slug[slug].get("role_eligibility", []):
+                raise ValueError(f"ineligible forced distractor slug: {slug}")
+            asset = asset_by_slug[slug]
+            if task_equivalent(asset_by_slug[target_slug], asset):
+                raise ValueError(f"forced distractor {slug} also matches task for {target_slug}")
+            forced_assets[target_slug].append(asset)
     rng = random.Random(seed); worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
     worlds_dir.mkdir(parents=True, exist_ok=True); scenarios_dir.mkdir(parents=True, exist_ok=True)
     entries = []; target_combos = []
@@ -546,6 +569,12 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                 oid = f"confuser_{i:04d}_{j:02d}_{k:02d}"
                 confuser_ids.add(oid)
                 objects.append((oid, asset, x, y, rng.uniform(-math.pi, math.pi), False))
+        forced_ids: set[str] = set()
+        for j, asset in enumerate(forced_assets.get(target["slug"], [])):
+            x, y = pose_point(used, max(asset["measured_size_m"][:2]) / 2)
+            oid = f"forced_{i:04d}_{j:02d}"
+            forced_ids.add(oid)
+            objects.append((oid, asset, x, y, rng.uniform(-math.pi, math.pi), False))
         same_category = [a for a in eligible if a["slug"] != target["slug"] and a["category"] == target["category"]]
         distractor_pool = same_category + [a for a in eligible if a["slug"] != target["slug"] and a not in same_category]
         if unambiguous_tasks or counting:
@@ -573,7 +602,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                     "asset_slug": asset["slug"],
                     "role": "target" if is_target else (
                         "count_member" if counting and oid in count_ids else
-                        "confuser" if oid in confuser_ids else "distractor"
+                        "confuser" if oid in confuser_ids else
+                        "forced_distractor" if oid in forced_ids else "distractor"
                     ),
                 }
                 next_label += 1
@@ -603,6 +633,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         for row in target_rows:
             if row["target_id"] in confuser_ids:
                 row["confuser"] = True
+            if row["target_id"] in forced_ids:
+                row["forced_distractor"] = True
         truth={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"asset_mode":"fuel_v1","targets":target_rows}
         if segmentation_labels:
             truth["segmentation_labels"] = segmentation_map

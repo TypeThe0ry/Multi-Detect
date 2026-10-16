@@ -1,0 +1,321 @@
+{
+  "schema_version": 1,
+  "version": "r15-fuel-v1",
+  "seed": 20261016,
+  "count": 20,
+  "split_ratios": [
+    0.8,
+    0.2,
+    0.0
+  ],
+  "world_prefix": "gen_r15_w",
+  "asset_mode": "fuel_v1",
+  "catalog": "configs/sim-assets/fuel-catalog.json",
+  "resolved_root": "artifacts/cache/gz-fuel/resolved",
+  "leave_out_target_slugs": [
+    "pickup",
+    "postbox",
+    "stop_sign"
+  ],
+  "segmentation_labels": true,
+  "unambiguous_tasks": true,
+  "count_copies": 1,
+  "confuser_copies": 1,
+  "spread_m": [
+    20.0,
+    90.0
+  ],
+  "appearance_presets": [
+    "noon_clear",
+    "morning_low_sun",
+    "evening_low_sun",
+    "overcast_flat",
+    "dusk_dim",
+    "haze"
+  ],
+  "worlds": [
+    {
+      "world_id": "gen_r15_w0000",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "standing_person"
+      ],
+      "appearance": "noon_clear"
+    },
+    {
+      "world_id": "gen_r15_w0001",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "walking_person"
+      ],
+      "appearance": "morning_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0002",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "standing_person"
+      ],
+      "appearance": "evening_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0003",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "walking_person"
+      ],
+      "appearance": "overcast_flat"
+    },
+    {
+      "world_id": "gen_r15_w0004",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "standing_person"
+      ],
+      "appearance": "dusk_dim"
+    },
+    {
+      "world_id": "gen_r15_w0005",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "walking_person"
+      ],
+      "appearance": "haze"
+    },
+    {
+      "world_id": "gen_r15_w0006",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "standing_person"
+      ],
+      "appearance": "noon_clear"
+    },
+    {
+      "world_id": "gen_r15_w0007",
+      "split": "train",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "walking_person"
+      ],
+      "appearance": "morning_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0008",
+      "split": "train",
+      "target": "construction_cone",
+      "confusers": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "forced_distractors": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "appearance": "evening_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0009",
+      "split": "train",
+      "target": "construction_cone",
+      "confusers": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "forced_distractors": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "appearance": "overcast_flat"
+    },
+    {
+      "world_id": "gen_r15_w0010",
+      "split": "train",
+      "target": "mailbox",
+      "confusers": [
+        "fire_hydrant",
+        "electrical_box"
+      ],
+      "forced_distractors": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "appearance": "dusk_dim"
+    },
+    {
+      "world_id": "gen_r15_w0011",
+      "split": "train",
+      "target": "mailbox",
+      "confusers": [
+        "fire_hydrant",
+        "electrical_box"
+      ],
+      "forced_distractors": [
+        "fire_hydrant",
+        "electrical_box"
+      ],
+      "appearance": "haze"
+    },
+    {
+      "world_id": "gen_r15_w0012",
+      "split": "train",
+      "target": "fire_hydrant",
+      "confusers": {},
+      "forced_distractors": [
+        "construction_cone",
+        "mailbox"
+      ],
+      "appearance": "noon_clear"
+    },
+    {
+      "world_id": "gen_r15_w0013",
+      "split": "train",
+      "target": "fire_hydrant",
+      "confusers": {},
+      "forced_distractors": [
+        "construction_cone",
+        "mailbox"
+      ],
+      "appearance": "morning_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0014",
+      "split": "train",
+      "target": "suv",
+      "confusers": [],
+      "forced_distractors": [
+        "pickup"
+      ],
+      "appearance": "evening_low_sun"
+    },
+    {
+      "world_id": "gen_r15_w0015",
+      "split": "train",
+      "target": "jersey_barrier",
+      "confusers": {},
+      "forced_distractors": [
+        "stop_sign"
+      ],
+      "appearance": "overcast_flat"
+    },
+    {
+      "world_id": "gen_r15_w0016",
+      "split": "val",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "standing_person"
+      ],
+      "appearance": "dusk_dim"
+    },
+    {
+      "world_id": "gen_r15_w0017",
+      "split": "val",
+      "target": "backpack",
+      "confusers": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "forced_distractors": [
+        "walking_person"
+      ],
+      "appearance": "haze"
+    },
+    {
+      "world_id": "gen_r15_w0018",
+      "split": "val",
+      "target": "construction_cone",
+      "confusers": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "forced_distractors": [
+        "fire_hydrant",
+        "mailbox"
+      ],
+      "appearance": "noon_clear"
+    },
+    {
+      "world_id": "gen_r15_w0019",
+      "split": "val",
+      "target": "mailbox",
+      "confusers": [
+        "fire_hydrant",
+        "electrical_box"
+      ],
+      "forced_distractors": [
+        "electrical_box",
+        "cardboard_box"
+      ],
+      "appearance": "morning_low_sun"
+    }
+  ],
+  "camera": {
+    "width_px": 1280,
+    "height_px": 960,
+    "fx_px": 539.93636802453,
+    "fy_px": 539.93636802453,
+    "cx_px": 640.0,
+    "cy_px": 480.0,
+    "pitch_down_deg": 10.313,
+    "forward_m": 0.18,
+    "down_m": 0.12
+  },
+  "distance_calculation": {
+    "formula": "px_short = fx_px * short_edge_m / slant_distance_m",
+    "backpack_short_edge_m": 0.263615,
+    "backpack_ranges_m": {
+      "12px": 11.9,
+      "16px": 8.9,
+      "24px": 5.9,
+      "32px": 4.5
+    }
+  },
+  "flight_geometry": {
+    "takeoff_altitude_m": 18.0,
+    "approach_slant_distance_m": [16.0, 11.9, 8.9, 5.9, 4.5, 4.0],
+    "frames_per_second": 20,
+    "steps_per_episode": 560
+  }
+}
