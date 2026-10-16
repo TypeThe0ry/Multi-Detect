@@ -3,6 +3,7 @@
   "base_experiment": "artifacts/experiments/yoloe-v2-r3-seg-drop-full",
   "indexes": ["configs/scenarios/generated-v2/index.json", "configs/scenarios/generated-confusers/index.json", "configs/scenarios/generated-confusers-2/index.json"],
   "label_source": "segmentation",
+  "detector_class_map_source": "scripts/build_sim_detector_dataset.py:_load_fuel_catalog (the same catalog-derived names and numeric ids are used by preflight synthetic data)",
   "min_box_px": 2,
   "min_seg_area_px": 1,
   "holdout_classes": ["stop_sign", "postbox", "pickup"],

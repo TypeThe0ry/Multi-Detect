@@ -12,12 +12,17 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from build_sim_detector_dataset import _load_fuel_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def write_tiny_dataset(root: Path, count: int = 8) -> Path:
+def write_tiny_dataset(
+    root: Path, class_names: tuple[str, ...] | None = None, count: int = 8
+) -> Path:
     """Create an isolated YOLO dataset; no campaign or truth artifact is read."""
+    if class_names is None:
+        class_names = _load_fuel_catalog()[0]
     for split in ("train", "val"):
         (root / "images" / split).mkdir(parents=True, exist_ok=True)
         (root / "labels" / split).mkdir(parents=True, exist_ok=True)
@@ -27,13 +32,18 @@ def write_tiny_dataset(root: Path, count: int = 8) -> Path:
             cv2.rectangle(image, (36, 34), (56, 56), (128, 128, 128), -1)
             name = f"synthetic-{index:03d}.jpg"
             cv2.imwrite(str(root / "images" / split / name), image)
+            labels = []
+            for offset in range(3):
+                class_id = (index * 3 + offset) % len(class_names)
+                labels.append(f"{class_id} {0.2 + offset * 0.3} 0.25 0.2 0.2")
             (root / "labels" / split / name.replace(".jpg", ".txt")).write_text(
-                "0 0.25 0.28125 0.25 0.3125\n0 0.71875 0.703125 0.3125 0.34375\n",
-                encoding="utf-8",
+                "\n".join(labels) + "\n", encoding="utf-8"
             )
     data = root / "data.yaml"
     data.write_text(
-        f"path: {root.resolve()}\ntrain: images/train\nval: images/val\nnames:\n  0: object\n",
+        f"path: {root.resolve()}\ntrain: images/train\nval: images/val\nnames:\n"
+        + "\n".join(f"  {index}: {name}" for index, name in enumerate(class_names))
+        + "\n",
         encoding="utf-8",
     )
     return data
@@ -45,7 +55,8 @@ def run_training_preflight(
 ) -> dict:
     """Run the production trainer and retry batch one only after CUDA OOM."""
     tiny_root = output_root / "tiny-dataset"
-    data = write_tiny_dataset(tiny_root)
+    class_names = _load_fuel_catalog()[0]
+    data = write_tiny_dataset(tiny_root, class_names=class_names)
     for batch in (requested_batch, 1):
         run_dir = output_root / f"train-batch-{batch}"
         memory_path = run_dir / "cuda-memory.json"

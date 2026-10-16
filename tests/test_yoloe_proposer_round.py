@@ -167,6 +167,12 @@ def test_preflight_runs_real_trainer_and_retries_oom(tmp_path):
     assert result["peak_gpu_memory_bytes"] == 11
     batches = [calls[i][calls[i].index("--batch") + 1] for i in range(2)]
     assert batches == ["2", "1"]
+    data_yaml = (tmp_path / "work" / "tiny-dataset" / "data.yaml").read_text()
+    assert "0: vehicle" in data_yaml
+    assert "22: stop_sign" in data_yaml
+    assert "23: suv" in data_yaml
+    assert "21: postbox" in data_yaml
+    assert "20: pickup" in data_yaml
 
 
 def test_split_map_merges_indexes_and_rejects_conflict(tmp_path):
