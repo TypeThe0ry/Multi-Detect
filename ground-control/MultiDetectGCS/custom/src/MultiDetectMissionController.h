@@ -27,6 +27,7 @@ class MultiDetectMissionController final : public QObject
 
 public:
     explicit MultiDetectMissionController(QObject* parent = nullptr);
+    ~MultiDetectMissionController() override;
 
     QString packageJson() const { return _json; }
 

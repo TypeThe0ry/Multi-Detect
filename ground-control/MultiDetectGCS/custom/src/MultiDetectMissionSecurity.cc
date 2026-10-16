@@ -3,7 +3,13 @@
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
+#include <QtCore/QFileInfo>
+#include <QtCore/QDir>
+#include <QtCore/QLockFile>
+#include <QtCore/QMutex>
+#include <QtCore/QMutexLocker>
 #include <QtCore/QSettings>
+#include <QtCore/QStandardPaths>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -40,7 +46,10 @@ QByteArray canonicalValue(const QJsonValue& value)
         for (int index = 0; index < keys.size(); ++index) {
             if (index)
                 result.append(',');
-            result.append(quoted(keys.at(index))).append(':').append(canonicalValue(object.value(keys.at(index))));
+            const QByteArray child = canonicalValue(object.value(keys.at(index)));
+            if (child.isEmpty())
+                return {};
+            result.append(quoted(keys.at(index))).append(':').append(child);
         }
         return result.append('}');
     }
@@ -50,7 +59,10 @@ QByteArray canonicalValue(const QJsonValue& value)
         for (int index = 0; index < array.size(); ++index) {
             if (index)
                 result.append(',');
-            result.append(canonicalValue(array.at(index)));
+            const QByteArray child = canonicalValue(array.at(index));
+            if (child.isEmpty())
+                return {};
+            result.append(child);
         }
         return result.append(']');
     }
@@ -67,8 +79,10 @@ QByteArray canonicalValue(const QJsonValue& value)
         return {};
     if (number == 0.0)
         return QByteArray("0");
-    if (std::floor(number) == number && std::abs(number) <= 9007199254740992.0)
+    if (std::floor(number) == number && std::abs(number) <= 9007199254740991.0)
         return QByteArray::number(static_cast<qint64>(number));
+    if (std::floor(number) == number)
+        return {};
     char buffer[64] = {};
     const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), number);
     if (converted.ec != std::errc())
@@ -135,6 +149,11 @@ bool sign(QJsonObject* document, const QByteArray& seed, const QString& keyId, Q
     document->remove(QStringLiteral("signature_alg"));
     const QByteArray payload = MultiDetectMissionSecurity::canonicalJson(
         *document, {QStringLiteral("signature"), QStringLiteral("signature_alg")});
+    if (payload.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("mission document contains a number outside the exact JSON range");
+        return false;
+    }
     QByteArray signature;
     if (!signEd25519(payload, seed, &signature, error))
         return false;
@@ -164,13 +183,34 @@ bool MultiDetectMissionSecurity::signDocument(QJsonObject* document, const QByte
 
 quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId, QString* error)
 {
+    static QMutex processMutex;
+    QMutexLocker locker(&processMutex);
     const QByteArray digest = QCryptographicHash::hash(missionId.toUtf8(), QCryptographicHash::Sha256).toHex();
+    QSettings settingsForPath;
+    QString settingsDirectory = QFileInfo(settingsForPath.fileName()).absolutePath();
+    if (settingsDirectory.isEmpty() || settingsDirectory == QStringLiteral("."))
+        settingsDirectory = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    if (settingsDirectory.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("unable to determine GCS settings directory for sequence lock");
+        return 0;
+    }
+    QLockFile sequenceLock(QDir(settingsDirectory).filePath(QStringLiteral(".multidetect-ground-sequence.lock")));
+    sequenceLock.setStaleLockTime(30000);
+    if (!sequenceLock.tryLock(250)) {
+        if (error)
+            *error = QStringLiteral("timed out acquiring ground command sequence lock");
+        return 0;
+    }
+    // Reopen after taking the inter-process lock so another GCS process cannot
+    // leave this instance with a pre-lock cached value.
     QSettings settings;
     const QString key = QStringLiteral("MultiDetect/ground_sequence/") + QString::fromLatin1(digest);
     const quint64 previous = settings.value(key, 0).toULongLong();
-    if (previous == std::numeric_limits<quint64>::max()) {
+    constexpr quint64 kMaxJsonExactInteger = 9007199254740991ULL;
+    if (previous >= kMaxJsonExactInteger) {
         if (error)
-            *error = QStringLiteral("ground command sequence exhausted for mission_id");
+            *error = QStringLiteral("ground command sequence exhausted exact JSON integer range");
         return 0;
     }
     const quint64 next = previous + 1;
@@ -189,8 +229,13 @@ quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId,
 bool MultiDetectMissionSecurity::signGroundCommand(QJsonObject* command, const QByteArray& privateSeed,
                                                    const QString& keyId, QString* error)
 {
+    constexpr double kMaxJsonExactInteger = 9007199254740991.0;
+    const QJsonValue sequence = command ? command->value(QStringLiteral("sequence")) : QJsonValue();
     if (!command || !command->contains(QStringLiteral("mission_id")) ||
         !command->contains(QStringLiteral("type")) || !command->contains(QStringLiteral("sequence")) ||
+        !sequence.isDouble() || !std::isfinite(sequence.toDouble()) ||
+        std::floor(sequence.toDouble()) != sequence.toDouble() ||
+        sequence.toDouble() < 1.0 || sequence.toDouble() > kMaxJsonExactInteger ||
         !command->contains(QStringLiteral("timestamp")) || command->value(QStringLiteral("timestamp_version")).toInt() != 1 ||
         !QStringList({QStringLiteral("monotonic"), QStringLiteral("unix")}).contains(
             command->value(QStringLiteral("timestamp_domain")).toString())) {

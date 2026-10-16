@@ -53,12 +53,18 @@ def canonical_auth_bytes(value: Mapping[str, Any], *excluded: str) -> bytes:
                 raise ValueError("canonical JSON numbers must be finite")
             if node == 0.0:
                 return 0
-            if node.is_integer() and abs(node) <= 2**53:
+            if node.is_integer():
+                if abs(node) > (2**53 - 1):
+                    raise ValueError("canonical JSON integers must fit the exact JSON range")
                 return int(node)
             return node
-        if isinstance(node, dict):
+        if isinstance(node, bool):
+            return node
+        if isinstance(node, int) and abs(node) > (2**53 - 1):
+            raise ValueError("canonical JSON integers must fit the exact JSON range")
+        if isinstance(node, Mapping):
             return {key: normalize(item) for key, item in node.items()}
-        if isinstance(node, list):
+        if isinstance(node, (list, tuple)):
             return [normalize(item) for item in node]
         return node
 

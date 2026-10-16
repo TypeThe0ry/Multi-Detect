@@ -32,6 +32,7 @@ QByteArray configuredPrivateSeed()
     const QByteArray prefix("ed25519-private:");
     if (encoded.startsWith(prefix))
         encoded = encoded.mid(prefix.size());
+    qunsetenv("MULTIDETECT_OPERATOR_ED25519_PRIVATE_KEY");
     QByteArray seed = QByteArray::fromHex(encoded);
     if (seed.size() == 32 && seed.toHex().compare(encoded, Qt::CaseInsensitive) == 0)
         return seed;
@@ -53,6 +54,13 @@ MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QO
     _timer.setInterval(250);
     connect(&_timer, &QTimer::timeout, this, &MultiDetectMissionController::_poll);
     _timer.start();
+}
+
+MultiDetectMissionController::~MultiDetectMissionController()
+{
+    shutdown();
+    std::fill(_missionPrivateSeed.begin(), _missionPrivateSeed.end(), '\0');
+    _missionPrivateSeed.clear();
 }
 
 void MultiDetectMissionController::shutdown()
