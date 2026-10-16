@@ -1,0 +1,39 @@
+{
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              103.8178,
+              1.3501
+            ],
+            [
+              103.8218,
+              1.3501
+            ],
+            [
+              103.8218,
+              1.3541
+            ],
+            [
+              103.8178,
+              1.3541
+            ],
+            [
+              103.8178,
+              1.3501
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "properties": {},
+      "type": "Feature"
+    }
+  ],
+  "scenario_id": "gen_r15_w0001",
+  "schema_version": 1,
+  "type": "FeatureCollection"
+}
