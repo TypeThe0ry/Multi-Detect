@@ -15,6 +15,8 @@ def plan(goal, steps, report=("photos",)):
 
 
 def step(i, skill, params, success=None, fail=None):
+    if fail is None and success is not None:
+        fail = success
     return {"id": i, "skill": skill, "params": params, "on_success": success, "on_fail": fail}
 
 
@@ -52,6 +54,7 @@ def test_deliver_requires_capability():
     (lambda p: p["steps"][0].update({"on_success": "missing"}), "references unknown"),
     (lambda p: p["steps"][0].update({"on_success": "s1"}), "cycle"),
     (lambda p: p["steps"][-1].update({"skill": "area_search", "params": {"region": "zone:A", "query": "car"}}), "terminal"),
+    (lambda p: p["steps"][-1].update({"on_success": "s1"}), "terminal step"),
 ])
 def test_rejection_rules(mutator, message):
     import copy
@@ -66,6 +69,48 @@ def test_duplicate_nan_and_bad_params_rejected():
     bad = plan("x", [step("s1", "hover", {"duration_s": float("nan")}, None, None)])
     with pytest.raises(AutonomyContractError):
         validate_mission_plan(json.dumps(bad, allow_nan=True))
+
+
+@pytest.mark.parametrize("region", ["poi:gate", "route:north", "finding:1", "track:2", "home"])
+def test_region_must_be_a_zone_reference(region):
+    document = plan(
+        "search",
+        [
+            step("s1", "area_search", {"region": region, "query": "car"}, "s2", "s2"),
+            step("s2", "return_home", {}, None, None),
+        ],
+    )
+    with pytest.raises(AutonomyContractError, match="region must be a zone reference"):
+        validate_mission_plan(document)
+
+
+def test_inspect_min_views_seen_has_bounded_contract():
+    document = plan(
+        "inspect",
+        [
+            step(
+                "s1",
+                "inspect",
+                {"target_ref": "poi:gate", "query": "gate", "views": 4, "min_views_seen": 2, "standoff_m": 8},
+                "s2",
+                "s2",
+            ),
+            step("s2", "land", {}, None, None),
+        ],
+    )
+    parsed = validate_mission_plan(document)
+    assert parsed.steps[0].params["min_views_seen"] == 2
+    document["steps"][0]["params"]["min_views_seen"] = 25
+    with pytest.raises(AutonomyContractError):
+        validate_mission_plan(document)
+
+
+def test_nonterminal_null_edge_is_rejected():
+    import copy
+    document = copy.deepcopy(VALID[0])
+    document["steps"][0]["on_fail"] = None
+    with pytest.raises(AutonomyContractError, match="must reach a terminal"):
+        validate_mission_plan(document)
 
 
 def test_schema_is_json_and_structurally_valid():

@@ -26,6 +26,7 @@ from .mission_operator_protocol import (
     ACK,
     CHUNK,
     CONTROL,
+    MAX_COMMAND_DOCUMENT_BYTES,
     MAX_DOCUMENT_BYTES,
     TELEMETRY_ACK,
     TIGHTEN,
@@ -42,6 +43,16 @@ MAX_LOG_DOCUMENT_BYTES = 1536
 
 @dataclass
 class _Upload:
+    token: int
+    count: int
+    total: int
+    digest: bytes
+    touched: float
+    parts: list[bytes] = field(default_factory=list)
+
+
+@dataclass
+class _CommandUpload:
     token: int
     count: int
     total: int
@@ -91,8 +102,14 @@ class MissionOperatorAdapter:
         self.clock, self.upload_timeout_s = clock, upload_timeout_s
         self._lock = RLock()
         self._upload: _Upload | None = None
+        self._command_upload: _CommandUpload | None = None
+        self._completed_commands: OrderedDict[int, tuple[bytes, int, int, tuple[bytes, ...], bool, str]] = OrderedDict()
         self._completed: OrderedDict[int, tuple[bytes, int, int, tuple[bytes, ...]]] = OrderedDict()
         self._receipts: OrderedDict[tuple[int, int], tuple[bytes, bool, str]] = OrderedDict()
+        # ACK replay identity is checked before touching the stop-and-wait
+        # transfer.  Keep it bounded because ACKs are network-controlled.
+        self._telemetry_ack_replay: OrderedDict[tuple[int, int, int], None] = OrderedDict()
+        self._telemetry_ack_highwater: dict[int, tuple[int, int]] = {}
         self._last_sequence: int | None = None
         self._sequence = 0
         self._status_sequence = 0
@@ -140,28 +157,46 @@ class MissionOperatorAdapter:
             now = self.clock()
             if self._upload is not None and now - self._upload.touched > self.upload_timeout_s:
                 self._retire_upload()
+            if self._command_upload is not None and now - self._command_upload.touched > self.upload_timeout_s:
+                self._command_upload = None
             if self._peer is not None and peer != self._peer and now - self._peer_seen <= 5:
                 # Bind acknowledgements and transfers to the live authenticated peer.
                 return []
             self._peer, self._peer_seen = peer, now
             if kind == 36:
                 token, index = TELEMETRY_ACK.unpack(body)
+                replay_id = (packet.sequence, token, index)
+                if replay_id in self._telemetry_ack_replay:
+                    return []
                 pending = self._telemetry
-                if pending is not None and token == pending.token and index == pending.index:
-                    pending.index += 1
-                    pending.attempts = 0
-                    pending.sent = float("-inf")
-                    if pending.index == len(pending.messages):
-                        pending.accepted = True
-                        pending.complete.set()
-                        self._telemetry = None
+                if pending is None or token != pending.token or index != pending.index:
+                    return []
+                previous = self._telemetry_ack_highwater.get(token)
+                if previous is not None:
+                    previous_sequence, previous_index = previous
+                    delta = (packet.sequence - previous_sequence) & 0xFFFFFFFF
+                    if delta >= 0x80000000 or (delta == 0 and index <= previous_index):
+                        return []
+                # Commit the replay identity only after all checks above and
+                # immediately before the single valid state transition.
+                self._telemetry_ack_replay[replay_id] = None
+                while len(self._telemetry_ack_replay) > 512:
+                    self._telemetry_ack_replay.popitem(last=False)
+                self._telemetry_ack_highwater[token] = (packet.sequence, index)
+                pending.index += 1
+                pending.attempts = 0
+                pending.sent = float("-inf")
+                if pending.index == len(pending.messages):
+                    pending.accepted = True
+                    pending.complete.set()
+                    self._telemetry = None
                 return []
-            if kind not in (28, 30, 31, 32, 33, 34):
+            if kind not in (28, 30, 31, 32, 33, 34, 37):
                 return []
             token, index = (
-                CHUNK.unpack_from(body)[0:2] if kind == 28 else (CONTROL.unpack_from(body)[1], 0)
+                CHUNK.unpack_from(body)[0:2] if kind in (28, 37) else (CONTROL.unpack_from(body)[1], 0)
             )
-            if kind != 28:
+            if kind not in (28, 37):
                 cached = self._receipts.get((kind, token))
                 if cached is not None:
                     previous, accepted, detail = cached
@@ -174,7 +209,7 @@ class MissionOperatorAdapter:
                             detail if body == previous else "请求标识冲突",
                         )
                     ]
-            elif token in self._completed:
+            elif kind == 28 and token in self._completed:
                 digest, count, total, hashes = self._completed[token]
                 _, _, requested_count, requested_total, requested_digest = CHUNK.unpack_from(body)
                 accepted = (
@@ -191,7 +226,7 @@ class MissionOperatorAdapter:
                         "任务包已接纳" if accepted else "上传标识已过期或冲突",
                     )
                 ]
-            elif (
+            elif kind == 28 and (
                 self._upload is not None
                 and token == self._upload.token
                 and index < len(self._upload.parts)
@@ -207,6 +242,26 @@ class MissionOperatorAdapter:
                         token, kind, index, accepted, "分块已接收" if accepted else "分块内容冲突"
                     )
                 ]
+            elif kind == 37 and token in self._completed_commands:
+                digest, count, total, hashes, was_accepted, detail = self._completed_commands[token]
+                _, _, requested_count, requested_total, requested_digest = CHUNK.unpack_from(body)
+                matches = (
+                    (count, total, digest) == (requested_count, requested_total, requested_digest)
+                    and index < len(hashes)
+                    and hashlib.sha256(body[CHUNK.size :]).digest() == hashes[index]
+                )
+                return [self._ack(token, kind, index, matches and was_accepted, detail if matches else "conflicting ground command transfer")]
+            elif kind == 37 and (
+                self._command_upload is not None
+                and token == self._command_upload.token
+                and index < len(self._command_upload.parts)
+            ):
+                upload = self._command_upload
+                metadata = CHUNK.unpack_from(body)
+                accepted = metadata[2:] == (upload.count, upload.total, upload.digest) and upload.parts[index] == body[CHUNK.size :]
+                return [
+                    self._ack(token, kind, index, accepted, "ground command chunk already received" if accepted else "conflicting ground command chunk")
+                ]
             if self._last_sequence is not None:
                 delta = (packet.sequence - self._last_sequence) & 0xFFFFFFFF
                 if delta == 0 or delta >= 0x80000000:
@@ -215,6 +270,8 @@ class MissionOperatorAdapter:
             try:
                 if kind == 28:
                     accepted, detail = self._receive_chunk(body, now)
+                elif kind == 37:
+                    accepted, detail = self._receive_command_chunk(body, now)
                 else:
                     accepted, detail = self._ground_event(kind, body)
                     self._receipts[(kind, token)] = (body, accepted, detail)
@@ -225,6 +282,49 @@ class MissionOperatorAdapter:
                 if kind == 28 and self._upload is not None and self._upload.token == token:
                     self._retire_upload(rejected=True)
             return [self._ack(token, kind, index, accepted, detail)]
+
+    def _receive_command_chunk(self, body: bytes, now: float) -> tuple[bool, str]:
+        token, index, count, total, digest = CHUNK.unpack_from(body)
+        if total > MAX_COMMAND_DOCUMENT_BYTES:
+            raise ValueError("ground command exceeds transfer limit")
+        if self._command_upload is None:
+            if index != 0:
+                raise ValueError("ground command must start at the first chunk")
+            self._command_upload = _CommandUpload(token, count, total, digest, now)
+        upload = self._command_upload
+        if (token, count, total, digest) != (
+            upload.token,
+            upload.count,
+            upload.total,
+            upload.digest,
+        ):
+            raise ValueError("conflicting ground command transfer")
+        if index < len(upload.parts):
+            if upload.parts[index] != body[CHUNK.size :]:
+                raise ValueError("conflicting ground command chunk")
+            return True, "ground command chunk already received"
+        if index != len(upload.parts):
+            raise ValueError("ground command chunks must be ordered")
+        upload.parts.append(body[CHUNK.size :])
+        upload.touched = now
+        if len(upload.parts) < count:
+            return True, "ground command chunk received"
+        payload = b"".join(upload.parts)
+        self._command_upload = None
+        if len(payload) != total or hashlib.sha256(payload).digest() != digest:
+            raise ValueError("ground command digest mismatch")
+        accepted, detail = self._ground_event_json(payload)
+        self._completed_commands[token] = (
+            digest,
+            count,
+            total,
+            tuple(hashlib.sha256(part).digest() for part in upload.parts),
+            accepted,
+            detail,
+        )
+        while len(self._completed_commands) > 256:
+            self._completed_commands.popitem(last=False)
+        return accepted, detail
 
     def _retire_upload(self, *, rejected: bool = True) -> None:
         upload, self._upload = self._upload, None
@@ -306,6 +406,16 @@ class MissionOperatorAdapter:
         # Omitting timestamp makes MissionSupervisor sample its own local clock.
         accepted = supervisor.ground_event(event)
         return accepted, "已接纳" if accepted else "机载监督器拒绝事件或策略放宽"
+
+    def _ground_event_json(self, payload: bytes) -> tuple[bool, str]:
+        supervisor = self.supervisor
+        if supervisor is None:
+            return False, "no active onboard mission"
+        event = strict_json_loads(payload, name="ground command")
+        if not isinstance(event, dict):
+            raise ValueError("ground command must be a JSON object")
+        accepted = supervisor.ground_event(event)
+        return accepted, "ground command accepted" if accepted else "ground supervisor rejected command"
 
     def _new_telemetry(self, document: dict[str, Any]) -> _Telemetry:
         payload = json.dumps(

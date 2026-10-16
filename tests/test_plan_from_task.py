@@ -13,6 +13,59 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import plan_from_task  # noqa: E402
 from plan_from_task import compute_diagnosis  # noqa: E402
 
+from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+
+
+def _plan(*steps):
+    return {
+        "plan_version": 1, "goal": "test", "report": [],
+        "steps": [
+            {"id": f"s{i}", "skill": skill, "params": params,
+             "on_success": f"s{i + 1}" if i + 1 < len(steps) else None,
+             "on_fail": f"s{len(steps) - 1}" if i + 1 < len(steps) else None}
+            for i, (skill, params) in enumerate(steps)
+        ],
+    }
+
+
+@pytest.mark.parametrize("steps,refs", [
+    ((('goto', {'target_ref': 'poi:missing'}), ('return_home', {})),
+     ('poi:gate', 'poi:pad')),
+    ((('deliver', {'target_ref': 'poi:gate', 'payload_ref': 'payload:box'}),
+      ('return_home', {})), ('poi:gate',)),
+])
+def test_invalid_task_accepts_host_rejection(steps, refs):
+    plan, _, attempts, outcome = plan_from_task.compile_task(
+        lambda *args: json.dumps(_plan(*steps)), "invalid request", refs, {},
+    )
+    assert plan is None
+    assert len(attempts) == 2
+    assert isinstance(outcome, str)
+    assert plan_from_task.score_task({"expect_invalid": True}, plan, outcome)["exact"]
+
+
+def test_invalid_task_accepts_only_repaired_home_fallback():
+    plan, _, _, outcome = plan_from_task.compile_task(
+        lambda *args: json.dumps(_plan()), "cannot do this", (), {},
+    )
+    assert outcome == ["appended return_home"]
+    assert plan_from_task.score_task({"expect_invalid": True}, plan, outcome)["exact"]
+    assert not plan_from_task.score_task({"expect_invalid": True}, plan, None)["exact"]
+    operational = validate_mission_plan(_plan(('hover', {'duration_s': 5}), ('return_home', {})))
+    row = plan_from_task.score_task(
+        {"expect_invalid": True}, operational, ["appended return_home"],
+    )
+    assert not row["exact"]
+    assert not row["same_skills"]
+
+
+def test_invalid_task_excluded_from_skill_confusion_but_counted_for_language():
+    row = _row([], ['return_home'], exact=True, expect_invalid=True)
+    diagnosis = compute_diagnosis([row])
+    assert diagnosis['expected_skill_recall'] == {}
+    assert diagnosis['substitutions'] == []
+    assert diagnosis['language_exact_match_rate'] == {'en': 1.0}
+
 
 @pytest.fixture
 def output_dir():
@@ -109,7 +162,7 @@ def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
         LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
         _http_json=lambda *args: None,
     ))
-    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args: (
+    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args, **kwargs: (
         ["survey", "land"], "{}", [0.1], None,
     ))
     monkeypatch.setattr(plan_from_task, "success_path", lambda plan: plan)
@@ -119,3 +172,98 @@ def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
     assert result["diagnosis"]["language_exact_match_rate"] == {"test": 1.0}
     assert result["diagnosis"]["expected_skill_recall"] == {"inspect": 0.0, "land": 1.0}
     assert "inspect -> survey: 1" in capsys.readouterr().out
+
+
+def test_main_scores_invalid_tasks_and_uses_task_refs(output_dir, monkeypatch):
+    tasks = output_dir / "invalid.json"
+    output = output_dir / "result.json"
+    tasks.write_text(json.dumps({
+        "refs": ["poi:gate"], "tasks": [
+            {"text": "Deliver a parcel", "expect_invalid": True},
+            {"text": "Go somewhere unknown", "expect_invalid": True,
+             "refs": ["poi:pad", "poi:tower"]},
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
+        LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
+        _http_json=lambda *args: None,
+    ))
+    seen_refs = []
+
+    def compile_task(post, text, refs, schema, **kwargs):
+        seen_refs.append(refs)
+        return None, "{}", [0.1, 0.1], "rejected"
+
+    monkeypatch.setattr(plan_from_task, "compile_task", compile_task)
+    assert plan_from_task.main(["--tasks", str(tasks), "--output", str(output)]) == 0
+    assert seen_refs == [("poi:gate",), ("poi:pad", "poi:tower")]
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["summary"]["exact_sequence_rate"] == 1.0
+    assert result["summary"]["valid_rate"] == 0.0
+    assert all(row["expect_invalid"] and row["exact"] for row in result["rows"])
+    assert result["diagnosis"]["substitutions"] == []
+
+
+def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
+    tasks = output_dir / "tasks.json"
+    output = output_dir / "result.json"
+    tasks.write_text(json.dumps({"tasks": [
+        {"text": "Return home.", "skills": ["return_home"]},
+        {"text": "Come back.", "skills": ["return_home"]},
+    ]}), encoding="utf-8")
+    plan = json.dumps({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s1", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    responses = iter([
+        {"choices": [{"message": {"content": "invalid json"}}],
+         "usage": {"prompt_tokens": 100, "completion_tokens": 3}},
+        {"choices": [{"message": {"content": plan}}],
+         "usage": {"prompt_tokens": 120, "completion_tokens": 22}},
+        {"choices": [{"message": {"content": plan}}]},
+    ])
+    requests, runners, closed = [], [], []
+
+    def http_json(url, body):
+        requests.append(body)
+        return next(responses)
+
+    def runner(*args, **kwargs):
+        runners.append(kwargs)
+        return SimpleNamespace(close=lambda: closed.append(True))
+
+    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
+        LlamaServerRunner=runner, _http_json=http_json,
+    ))
+    assert plan_from_task.main([
+        "--tasks", str(tasks), "--output", str(output), "--prompt-variant", "compact",
+        "--llama-server", str(output_dir / "llama-server"), "--device", "cpu",
+        "--no-prompt-cache",
+    ]) == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    first, second = result["rows"]
+    assert len(first["request_usage"]) == 2
+    assert first["prompt_tokens"] == 100
+    assert first["prompt_tokens_total"] == 220
+    assert first["completion_tokens_total"] == 25
+    assert second["prompt_tokens"] is None and second["prompt_tokens_total"] is None
+    assert second["completion_tokens_total"] is None
+    assert result["summary"]["mean_prompt_tokens"] == 100
+    assert result["summary"]["mean_prompt_tokens_total"] == 220
+    assert result["summary"]["mean_completion_tokens_total"] == 25
+    assert result["summary"]["tasks_with_prompt_usage"] == 1
+    assert result["summary"]["prompt_cache"] is False
+    assert all(request["cache_prompt"] is False for request in requests)
+    assert all(request["messages"][0]["content"].count("Task:") == 1 for request in requests)
+    assert "The previous plan was rejected:" in requests[1]["messages"][0]["content"]
+    assert runners[0]["device"] == "cpu"
+    assert runners[0]["executable"] == output_dir / "llama-server"
+    assert closed == [True]
+
+
+def test_usage_totals_are_unknown_if_any_retry_usage_is_missing():
+    assert plan_from_task._usage_total([], "prompt_tokens") is None
+    assert plan_from_task._usage_total(
+        [{"prompt_tokens": 100}, {"prompt_tokens": None}], "prompt_tokens"
+    ) is None

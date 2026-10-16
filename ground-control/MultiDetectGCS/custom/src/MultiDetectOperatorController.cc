@@ -1587,7 +1587,7 @@ void MultiDetectOperatorController::_startDirectOperatorLink()
 
 bool MultiDetectOperatorController::sendMissionMessage(int type, const QByteArray& body)
 {
-    if (type < 28 || type > 36 || type == 29 || type == 35) {
+    if (type < 28 || type > 37 || type == 29 || type == 35) {
         _setLastError(QStringLiteral("任务协议方向或序号无效"));
         return false;
     }

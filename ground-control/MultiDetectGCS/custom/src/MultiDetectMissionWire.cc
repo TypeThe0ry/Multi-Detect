@@ -28,11 +28,12 @@ bool MultiDetectMissionWire::decode(int type, const QByteArray& body, QVariantMa
     quint16 index = 0, count = 0;
     quint32 total = 0;
     quint8 requestType = 0, accepted = 0, policy = 0;
-    if (type == 28 || type == 35) {
+    if (type == 28 || type == 35 || type == 37) {
         if (body.size() <= 48)
             return fail(error);
         in >> token >> index >> count >> total;
-        if (!token || total == 0 || total > kMaximumDocumentBytes || count != (total + kChunkBytes - 1) / kChunkBytes ||
+        const quint32 maximum = type == 37 ? 8192u : static_cast<quint32>(kMaximumDocumentBytes);
+        if (!token || total == 0 || total > maximum || count != (total + kChunkBytes - 1) / kChunkBytes ||
             index >= count || body.size() - 48 != std::min<int>(kChunkBytes, total - index * kChunkBytes))
             return fail(error);
         fields->insert(QStringLiteral("token"), QVariant::fromValue(token));
@@ -45,8 +46,8 @@ bool MultiDetectMissionWire::decode(int type, const QByteArray& body, QVariantMa
         if (body.size() < 12)
             return fail(error);
         in >> token >> requestType >> index >> accepted;
-        if (!token || accepted > 1 || !(requestType == 28 || (requestType >= 30 && requestType <= 34)) ||
-            (requestType != 28 && index != 0) || index >= (kMaximumDocumentBytes + kChunkBytes - 1) / kChunkBytes)
+        if (!token || accepted > 1 || !(requestType == 28 || requestType == 37 || (requestType >= 30 && requestType <= 34)) ||
+            (requestType != 28 && requestType != 37 && index != 0) || index >= (kMaximumDocumentBytes + kChunkBytes - 1) / kChunkBytes)
             return fail(error);
         QStringDecoder utf8(QStringDecoder::Utf8);
         const QString detail = utf8(body.mid(12));

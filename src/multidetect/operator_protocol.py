@@ -158,6 +158,7 @@ class WireMessageType(IntEnum):
     MISSION_HEARTBEAT = 34
     MISSION_TELEMETRY_CHUNK = 35
     MISSION_TELEMETRY_ACK = 36
+    MISSION_GROUND_COMMAND_CHUNK = 37
 
 
 class SelectionAckReason(IntEnum):

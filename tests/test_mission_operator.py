@@ -25,6 +25,7 @@ from multidetect.autonomy.mission_operator_protocol import (
     mission_token,
 )
 from multidetect.autonomy.mission_package import load_mission_package
+from multidetect.autonomy.mission_security import AuthenticationKey, sign_document
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from multidetect.operator_link import SelectionCommandGuard, VideoGeometry
@@ -145,6 +146,31 @@ def test_upload_ack_only_after_admission_and_idempotent_final_retry(tmp_path):
     assert adapter.supervisor is installed[0]
     assert accepted(adapter, deliver(adapter, 28, messages[-1].body, len(messages)))
     assert len(installed) == 1
+
+
+def test_signed_ground_command_chunks_reach_onboard_verifier(tmp_path):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    command_key = AuthenticationKey("hmac-sha256", KEY, "default")
+    active._security_key = command_key
+    active._require_signature = True
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    command = sign_document(
+        {
+            "mission_id": active.package.mission_id,
+            "type": "heartbeat",
+            "sequence": 1,
+            "timestamp": now[0],
+            "timestamp_version": 1,
+            "timestamp_domain": "monotonic",
+        },
+        command_key,
+    )
+    payload = json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    messages = list(document_chunks(payload, 77, message_type=37))
+    for index, message in enumerate(messages):
+        assert accepted(adapter, deliver(adapter, 37, message.body, index + 1))
+    assert active.last_heartbeat == now[0]
 
 
 def test_upload_fails_closed_without_flight_gate_and_armed_transition(tmp_path):

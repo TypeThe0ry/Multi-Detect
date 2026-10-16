@@ -1,6 +1,7 @@
 #include "MultiDetectMissionController.h"
 
 #include <QtCore/QCryptographicHash>
+#include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QRandomGenerator>
@@ -9,16 +10,33 @@
 #include <cmath>
 
 #include "MultiDetectMissionPackage.h"
+#include "MultiDetectMissionSecurity.h"
 #include "MultiDetectMissionWire.h"
 #include "MultiDetectOperatorProtocol.h"
 
 namespace {
 const QStringList policies = {"continue", "continue_then_return", "hold_then_return", "return_now", "land_now"};
+constexpr qint64 kTelemetryAssemblyDeadlineMs = 30'000;
+constexpr qint64 kTelemetryAssemblyMemoryCap = 128 * 1024;
 
 quint64 token()
 {
     const quint64 value = QRandomGenerator::global()->generate64();
     return value == 0 ? 1 : value;
+}
+
+QByteArray configuredPrivateSeed()
+{
+    const QByteArray configured = qEnvironmentVariable("MULTIDETECT_OPERATOR_ED25519_PRIVATE_KEY").trimmed().toLatin1();
+    QByteArray encoded = configured;
+    const QByteArray prefix("ed25519-private:");
+    if (encoded.startsWith(prefix))
+        encoded = encoded.mid(prefix.size());
+    QByteArray seed = QByteArray::fromHex(encoded);
+    if (seed.size() == 32 && seed.toHex().compare(encoded, Qt::CaseInsensitive) == 0)
+        return seed;
+    seed = QByteArray::fromBase64(encoded, QByteArray::Base64Encoding);
+    return seed.size() == 32 ? seed : QByteArray();
 }
 }  // namespace
 
@@ -28,6 +46,10 @@ MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QO
     setPackageJson(QStringLiteral(
         R"({"mission_id":"","task_text":"","places":{},"zones":{},"routes":{},"ref_labels":{},"operating_area":{"north_min_m":0,"north_max_m":0,"east_min_m":0,"east_max_m":0,"min_altitude_m":0,"max_altitude_m":0},"budget":{"time_s":0,"reserve_time_s":0,"energy_wh":0,"reserve_energy_wh":0},"home":[0,0],"risk_level":"medium","link_loss_policy":{"action":"continue_then_return","timeout_s":0},"heartbeat_timeout_s":5,"oversight_steps":[]})"));
     _clock.start();
+    _missionPrivateSeed = configuredPrivateSeed();
+    _missionKeyId = qEnvironmentVariable("MULTIDETECT_OPERATOR_KEY_ID", "default").trimmed();
+    _requireMissionSignature = qEnvironmentVariable("MULTIDETECT_EXPECTED_RUNTIME_MODE").trimmed().toUpper() ==
+                               QStringLiteral("REAL");
     _timer.setInterval(250);
     connect(&_timer, &QTimer::timeout, this, &MultiDetectMissionController::_poll);
     _timer.start();
@@ -121,7 +143,17 @@ bool MultiDetectMissionController::upload()
         return _fail(_validation);
     if ((_uploadGuard && !_uploadGuard()) || (_telemetry.value("flight_active").toBool() && telemetryFresh()))
         return _fail(QStringLiteral("飞行中不能替换任务包"));
-    _uploadDocument = QJsonDocument(_document).toJson(QJsonDocument::Compact);
+    QJsonObject signedDocument = _document;
+    QString signingError;
+    if (_missionPrivateSeed.isEmpty()) {
+        if (_requireMissionSignature)
+            return _fail(QStringLiteral("REAL 模式必须配置 Ed25519 mission operator key"));
+    } else if (!MultiDetectMissionSecurity::signDocument(&signedDocument, _missionPrivateSeed, _missionKeyId,
+                                                         &signingError)) {
+        return _fail(signingError);
+    }
+    _document = signedDocument;
+    _uploadDocument = MultiDetectMissionSecurity::canonicalJson(signedDocument);
     _uploadToken = token();
     _progress = 0;
     _pending = {};
@@ -133,11 +165,12 @@ bool MultiDetectMissionController::upload()
 
 void MultiDetectMissionController::_beginChunk()
 {
-    _pending.body = MultiDetectMissionWire::chunk(_uploadToken, _pending.index, _uploadDocument);
+    const QByteArray& document = _pending.type == 37 ? _commandDocument : _uploadDocument;
+    _pending.body = MultiDetectMissionWire::chunk(_pending.token, _pending.index, document);
     _pending.attempts = 0;
     _state = QStringLiteral("上传分片 %1 / %2；等待机载确认")
                  .arg(_pending.index + 1)
-                 .arg((_uploadDocument.size() + 43) / 44);
+                 .arg((document.size() + 43) / 44);
     emit stateChanged();
 }
 
@@ -175,14 +208,37 @@ bool MultiDetectMissionController::_control(int type, const QString& policy, dou
             (newRank == oldRank && timed && timeout > _currentPolicyTimeout))
             return _fail(QStringLiteral("飞行中只允许收紧失联策略或缩短超时"));
     }
+    QJsonObject groundCommand{{QStringLiteral("mission_id"), _activeMissionId},
+                              {QStringLiteral("type"), type == 30 ? QStringLiteral("abort")
+                                   : type == 31 ? QStringLiteral("pause")
+                                   : type == 32 ? QStringLiteral("resume")
+                                   : type == 33 ? QStringLiteral("policy_update")
+                                                : QStringLiteral("heartbeat")},
+                              {QStringLiteral("sequence"),
+                               static_cast<qint64>(MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId))},
+                              {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0},
+                              {QStringLiteral("timestamp_version"), 1},
+                              {QStringLiteral("timestamp_domain"), QStringLiteral("unix")}};
+    if (type == 33) {
+        groundCommand.insert(QStringLiteral("policy"), policy);
+        groundCommand.insert(QStringLiteral("timeout_s"), timeout);
+    }
+    QString signingError;
+    if (_missionPrivateSeed.isEmpty()) {
+        if (_requireMissionSignature)
+            return _fail(QStringLiteral("REAL mode requires an Ed25519 ground-command key"));
+    } else if (!MultiDetectMissionSecurity::signGroundCommand(&groundCommand, _missionPrivateSeed, _missionKeyId,
+                                                              &signingError)) {
+        return _fail(signingError);
+    }
+    _commandDocument = MultiDetectMissionSecurity::canonicalJson(groundCommand);
     _pending = {};
-    _pending.type = type;
+    _pending.type = 37;
+    _pending.commandType = type;
     _pending.token = token();
-    _pending.body =
-        MultiDetectMissionWire::command(MultiDetectOperatorProtocol::hash64(_activeMissionId), _pending.token,
-                                        type == 33 ? policies.indexOf(policy) : -1, timeout);
     _pending.requestedPolicy = policy;
     _pending.requestedTimeout = timeout;
+    _beginChunk();
     _state = QStringLiteral("指令已发送；等待机载确认");
     return _sendPending();
 }
@@ -233,9 +289,10 @@ void MultiDetectMissionController::_poll()
         emit telemetryChanged();
     }
     for (auto it = _assemblies.begin(); it != _assemblies.end();) {
-        if (now - it->started > 30000)
+        if (now >= it->deadline) {
+            _telemetryAssemblyBytes -= it->reservedBytes;
             it = _assemblies.erase(it);
-        else
+        } else
             ++it;
     }
 }
@@ -257,8 +314,9 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
             _fail(QStringLiteral("机载拒绝：%1").arg(fields.value("detail").toString()));
             return;
         }
-        if (_pending.type == 28) {
-            const int count = (_uploadDocument.size() + 43) / 44;
+        if (_pending.type == 28 || _pending.type == 37) {
+            const QByteArray& document = _pending.type == 37 ? _commandDocument : _uploadDocument;
+            const int count = (document.size() + 43) / 44;
             _progress = double(index + 1) / count;
             if (index + 1 < count) {
                 ++_pending.index;
@@ -266,6 +324,9 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
                 _sendPending();
                 return;
             }
+            if (_pending.type == 37) {
+                _state = QStringLiteral("ground command accepted by onboard verifier");
+            } else {
             const auto uploaded = QJsonDocument::fromJson(_uploadDocument).object();
             const QString missionId = uploaded["mission_id"].toString();
             if (_activeMissionId != missionId) {
@@ -277,6 +338,7 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
             _activeMissionId = missionId;
             _currentPolicy = uploaded["link_loss_policy"].toObject()["action"].toString();
             _currentPolicyTimeout = uploaded["link_loss_policy"].toObject()["timeout_s"].toDouble();
+            }
             _state = QStringLiteral("任务包已由机载端校验并载入；是否起飞由机载端决定");
         } else {
             // Only telemetry describes the effective policy; the supervisor may
@@ -297,14 +359,33 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
         return;
     }
     if (!_assemblies.contains(request)) {
-        if (_assemblies.size() >= 4)
+        const qint64 required = fields.value("total").toInt();
+        const auto evictOldest = [this]() {
+            if (_assemblies.isEmpty())
+                return false;
+            auto victim = _assemblies.begin();
+            for (auto it = _assemblies.begin(); it != _assemblies.end(); ++it) {
+                if (it->started < victim->started)
+                    victim = it;
+            }
+            _telemetryAssemblyBytes -= victim->reservedBytes;
+            _assemblies.erase(victim);
+            return true;
+        };
+        while ((_assemblies.size() >= 4 || _telemetryAssemblyBytes + required > kTelemetryAssemblyMemoryCap) &&
+               evictOldest()) {
+        }
+        if (_assemblies.size() >= 4 || _telemetryAssemblyBytes + required > kTelemetryAssemblyMemoryCap)
             return;
         Assembly a;
         a.digest = digest;
-        a.total = fields.value("total").toInt();
+        a.total = static_cast<int>(required);
         a.started = _clock.elapsed();
+        a.deadline = a.started + kTelemetryAssemblyDeadlineMs;
+        a.reservedBytes = required;
         a.chunks.resize(fields.value("count").toInt());
         _assemblies.insert(request, a);
+        _telemetryAssemblyBytes += required;
     }
     auto& a = _assemblies[request];
     if (a.digest != digest || a.total != fields.value("total").toInt() ||
@@ -313,7 +394,6 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
     const QByteArray data = fields.value("data").toByteArray();
     if (!a.chunks[index].isEmpty() && a.chunks[index] != data)
         return;
-    a.started = _clock.elapsed();  // Expire on silence, not on total transfer duration.
     a.chunks[index] = data;
     QByteArray document;
     bool complete = true;
@@ -324,12 +404,14 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
     }
     if (complete) {
         if (QCryptographicHash::hash(document, QCryptographicHash::Sha256) != digest || !_adopt(document)) {
+            _telemetryAssemblyBytes -= a.reservedBytes;
             _assemblies.remove(request);
             return;  // Never acknowledge malformed final telemetry.
         }
         if (_completed.size() >= 128)
             _completed.erase(_completed.begin());
         _completed.insert(request, digest);
+        _telemetryAssemblyBytes -= a.reservedBytes;
         _assemblies.remove(request);
     }
     if (_sender)
@@ -338,9 +420,9 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
 
 bool MultiDetectMissionController::_adopt(const QByteArray& json)
 {
-    QJsonParseError error;
-    const auto doc = QJsonDocument::fromJson(json, &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject())
+    QJsonDocument doc;
+    QString error;
+    if (!MultiDetectMissionPackage::parseStrictJson(json, &doc, &error) || !doc.isObject())
         return false;
     const auto obj = doc.object();
     const QString missionId = obj["mission_id"].toString();

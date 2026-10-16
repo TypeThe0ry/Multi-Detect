@@ -420,7 +420,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
     if (magic != QByteArray(kMagic, 2)) {
         return fail(error, QStringLiteral("operator-link magic does not match"));
     }
-    const bool missionType = typeValue >= 28 && typeValue <= 36;
+    const bool missionType = typeValue >= 28 && typeValue <= 37;
     if (version != (missionType ? 2 : kProtocolVersion)) {
         return fail(error, QStringLiteral("operator-link version is unsupported"));
     }
@@ -441,7 +441,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::MissionTelemetryAck)) {
+        typeValue > static_cast<quint8>(MessageType::MissionGroundCommandChunk)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
@@ -2217,7 +2217,7 @@ QByteArray MultiDetectOperatorProtocol::encodeMission(MessageType type, const QB
                                                      quint64 sentAtMs, QString* error) const
 {
     QVariantMap fields;
-    if (static_cast<int>(type) < 28 || static_cast<int>(type) > 36 ||
+    if (static_cast<int>(type) < 28 || static_cast<int>(type) > 37 ||
         !MultiDetectMissionWire::decode(static_cast<int>(type), body, &fields, error)) return {};
     return _encodeFrame(type, sequence, sentAtMs, body, error);
 }

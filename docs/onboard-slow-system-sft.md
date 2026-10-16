@@ -1,5 +1,8 @@
 # Onboard slow-system SFT handoff
 
+Opt-in shorter-prompt flags, offline token/Orin latency tables and the later
+one-command r12 evaluation matrix are in [prompt-budget experiments](onboard-prompt-budget.md).
+
 The offline builder is `scripts/build_slow_system_sft.py`. It uses the three
 2026-10-11 sim-teacher campaigns, projects each `obs_before` and `obs_after`
 independently, and writes references to the original RGB files. It does not
@@ -442,3 +445,31 @@ the same 243 rows.
 Both tasks improve together, so the rank-4 adapter was the bottleneck. The
 GGUF is the same size (merged Q5_K_M, 1.26 GB). Closed-loop flights with
 v2-r12-multi (mission suite and the six find-task test worlds) are running.
+
+### In-flight identity test set (2026-10-15)
+
+The 243-row test split comes from teacher flights. `scripts/build_flight_identity_eval.py`
+rebuilds every real slow-model call of the recorded r8/r9 mission-suite flights in
+the test worlds (frame, focus box, task text, memory) and labels it by scenario
+truth: flight-identity-eval-v1, 1,900 rows (871 matches, 1,029 distractors; only
+the focus crop is available, the original candidate list was not logged).
+
+| Model | Identity acc | Distractor rejection | Match recall | p50 (idle 4060) |
+|---|---:|---:|---:|---:|
+| v2-r8-multi | 84.0% | 74.7% | 95.1% | 0.45 s |
+| v2-r12-multi | **92.8%** | **95.0%** | 90.2% | 0.45 s |
+| v2-r12-multi, one-token verdict | **92.8%** | **95.0%** | 90.4% | **0.14 s** |
+
+Largest error pairs (task asks for X, the candidate is Y; errors / rows):
+
+| Pair | v2-r8-multi | v2-r12-multi |
+|---|---:|---:|
+| pickup / SUV (both never trained as targets) | 167 / 209 | 0 / 209 |
+| backpack / electrical box | 47 / 47 | 9 / 47 |
+| backpack / backpack (missed true backpacks) | 10 / 78 | **46 / 78** |
+| traffic cone / jersey barrier | 14 / 41 | 23 / 41 |
+| stop sign / stop sign (missed) | 13 / 16 | 14 / 16 |
+
+v2-r12-multi is far better on look-alikes, but now rejects most true backpacks
+(the look-alike worlds had many backpack negatives and few backpack positives).
+The next round adds positives for the small categories.

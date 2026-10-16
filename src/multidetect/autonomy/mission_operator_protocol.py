@@ -1,7 +1,7 @@
 """Version 2 mission bodies for the authenticated operator TUNNEL protocol.
 
 The outer framing and key remain unchanged. Version 1 message numbers 1..27
-retain their exact wire representation; only mission messages 28..36 use v2.
+retain their exact wire representation; only mission messages 28..37 use v2.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 MISSION_PROTOCOL_VERSION = 2
 MAX_DOCUMENT_BYTES = 65_536
+MAX_COMMAND_DOCUMENT_BYTES = 8_192
 CHUNK_DATA_BYTES = 44
 MAX_CHUNKS = (MAX_DOCUMENT_BYTES + CHUNK_DATA_BYTES - 1) // CHUNK_DATA_BYTES
 CHUNK = struct.Struct(">QHHI32s")
@@ -20,8 +21,8 @@ ACK = struct.Struct(">QBHB")
 CONTROL = struct.Struct(">QQ")
 TIGHTEN = struct.Struct(">QQBd")
 TELEMETRY_ACK = struct.Struct(">QH")
-MISSION_TYPES = frozenset(range(28, 37))
-REQUEST_TYPES = frozenset((28, 30, 31, 32, 33, 34))
+MISSION_TYPES = frozenset(range(28, 38))
+REQUEST_TYPES = frozenset((28, 30, 31, 32, 33, 34, 37))
 
 
 def mission_token(mission_id: str) -> int:
@@ -32,12 +33,13 @@ def mission_token(mission_id: str) -> int:
 def validate_mission_body(message_type: int, body: bytes) -> None:
     if message_type not in MISSION_TYPES or not isinstance(body, bytes):
         raise ValueError("invalid mission message type or body")
-    if message_type in (28, 35):
+    if message_type in (28, 35, 37):
         if not CHUNK.size < len(body) <= CHUNK.size + CHUNK_DATA_BYTES:
             raise ValueError("invalid mission chunk size")
         token, index, count, total, _ = CHUNK.unpack_from(body)
         expected_count = (total + CHUNK_DATA_BYTES - 1) // CHUNK_DATA_BYTES
-        if not token or not 0 < total <= MAX_DOCUMENT_BYTES or count != expected_count:
+        maximum = MAX_COMMAND_DOCUMENT_BYTES if message_type == 37 else MAX_DOCUMENT_BYTES
+        if not token or not 0 < total <= maximum or count != expected_count:
             raise ValueError("invalid mission transfer bounds")
         if not 0 <= index < count:
             raise ValueError("invalid mission chunk index")
@@ -49,7 +51,7 @@ def validate_mission_body(message_type: int, body: bytes) -> None:
         token, request_type, index, accepted = ACK.unpack_from(body)
         if not token or request_type not in REQUEST_TYPES or accepted not in (0, 1):
             raise ValueError("invalid mission acknowledgement")
-        if request_type != 28 and index:
+        if request_type not in (28, 37) and index:
             raise ValueError("control acknowledgement index must be zero")
         if index >= MAX_CHUNKS:
             raise ValueError("acknowledgement index exceeds transfer bounds")

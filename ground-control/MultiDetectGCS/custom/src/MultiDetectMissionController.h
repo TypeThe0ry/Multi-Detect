@@ -80,6 +80,7 @@ private:
     struct Pending
     {
         int type = 0;
+        int commandType = 0;
         quint64 token = 0;
         int index = 0;
         QByteArray body;
@@ -95,6 +96,8 @@ private:
         int total = 0;
         QList<QByteArray> chunks;
         qint64 started = 0;
+        qint64 deadline = 0;
+        qint64 reservedBytes = 0;
     };
 
     bool _control(int type, const QString& policy = {}, double timeout = 0);
@@ -114,6 +117,10 @@ private:
     QString _currentPolicy;
     double _currentPolicyTimeout = 0;
     QByteArray _uploadDocument;
+    QByteArray _commandDocument;
+    QByteArray _missionPrivateSeed;
+    QString _missionKeyId;
+    bool _requireMissionSignature = false;
     Pending _pending;
     quint64 _uploadToken = 0;
     QVariantMap _telemetry;
@@ -121,6 +128,7 @@ private:
     quint64 _lastStatusSequence = 0;
     quint64 _lastLogSequence = 0;
     QHash<quint64, Assembly> _assemblies;
+    qint64 _telemetryAssemblyBytes = 0;
     QHash<quint64, QByteArray> _completed;
     QElapsedTimer _clock;
     qint64 _lastStatusAt = -1;

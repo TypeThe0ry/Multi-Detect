@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
+
+import pytest
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan
 from multidetect.autonomy.mission_planner import (
+    _UNADVERTISED_PARAMS,
     EXAMPLES,
+    PLAN_PROMPT_VARIANTS,
+    check_plan_refs,
     compile_mission_plan,
     plan_json_schema,
     plan_prompt,
+    plan_prompt_parts,
     repair_plan_document,
 )
 
@@ -47,6 +54,76 @@ def test_examples_are_valid_plans_and_schema_covers_ungated_skills():
     assert plan_prompt("找人").endswith("Task: 找人" + chr(10) + "Plan:")
 
 
+def test_default_prompt_bytes_match_original_training_prompt():
+    # Snapshot recorded from the unchanged implementation before adding ablations.
+    prompt = plan_prompt(
+        "Find the red car", refs=("zone:site (the site)", "poi:pad (launch pad)"),
+        error="unknown reference",
+    )
+    assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == (
+        "24681904d570110416b1482a14f6db3d235b8973e89af0533c5c6c846cb6f4ca"
+    )
+    assert prompt == plan_prompt(
+        "Find the red car", refs=("zone:site (the site)", "poi:pad (launch pad)"),
+        error="unknown reference", prompt_variant="default",
+    )
+
+
+@pytest.mark.parametrize("variant", PLAN_PROMPT_VARIANTS)
+def test_prompt_parts_render_exact_prompt_in_order(variant):
+    parts = plan_prompt_parts("找人", refs=("zone:yard",), prompt_variant=variant)
+    assert list(parts) == ["system", "rules", "refs", "examples", "repair", "task"]
+    assert "".join(parts.values()) == plan_prompt(
+        "找人", refs=("zone:yard",), prompt_variant=variant
+    )
+    assert parts["repair"] == ""
+    assert parts["refs"] == "Known places: zone:yard.\n"
+
+
+@pytest.mark.parametrize(
+    ("variant", "example_count", "compact_rules"),
+    [("default", 6, False), ("no_examples", 0, False), ("two_examples", 2, False),
+     ("compact_rules", 6, True), ("compact", 0, True)],
+)
+def test_prompt_ablations_isolate_rules_and_example_count(variant, example_count, compact_rules):
+    original = plan_prompt_parts("Inspect the truck")
+    parts = plan_prompt_parts("Inspect the truck", prompt_variant=variant)
+    assert parts["examples"].count("Task:") == example_count
+    assert (parts["rules"] != original["rules"]) == compact_rules
+    assert parts["system"] == original["system"]
+    for name, spec in SKILLS.items():
+        if not spec.gated:
+            assert name in parts["rules"]
+            advertised = spec.allowed_params - _UNADVERTISED_PARAMS
+            assert all(param in parts["rules"] for param in advertised)
+    assert "return_home" in parts["rules"] and "land" in parts["rules"]
+    assert "min_views_seen" not in parts["rules"]
+
+
+def test_unknown_prompt_variant_is_rejected_before_model_call():
+    with pytest.raises(ValueError, match="unknown planning prompt variant"):
+        plan_prompt("Find the car", prompt_variant="typo")
+    with pytest.raises(ValueError, match="unknown planning prompt variant"):
+        compile_mission_plan(lambda *args: pytest.fail("called model"), "Find the car",
+                             prompt_variant="typo")
+
+
+def test_short_prompt_variant_is_preserved_when_retrying():
+    responses = iter(("invalid json", json.dumps(_find_plan())))
+    prompts = []
+
+    def post(prompt, schema):
+        prompts.append(prompt)
+        return next(responses)
+
+    plan, report = compile_mission_plan(post, "Find the car", prompt_variant="compact")
+    assert plan is not None and len(report["attempts"]) == 2
+    assert prompts[0] == plan_prompt("Find the car", prompt_variant="compact")
+    assert "The previous plan was rejected:" in prompts[1]
+    assert all(prompt.count("Task:") == 1 for prompt in prompts)
+    assert all("Skills (* required):" in prompt for prompt in prompts)
+
+
 def test_repair_breaks_retry_loops_and_ends_on_a_terminal_step():
     raw = {
         "plan_version": 1,
@@ -76,6 +153,130 @@ def test_repair_breaks_retry_loops_and_ends_on_a_terminal_step():
     assert steps["home"].skill == "return_home" and notes
 
 
+def test_repair_clears_terminal_edges_and_routes_branches_to_terminal():
+    raw = {
+        "plan_version": 1,
+        "goal": "find",
+        "steps": [
+            {
+                "id": "search",
+                "skill": "area_search",
+                "params": {"region": "zone:all", "query": "car"},
+                "on_success": "home",
+                "on_fail": "detour",
+            },
+            {
+                "id": "detour",
+                "skill": "record",
+                "params": {"query": "car"},
+                "on_success": None,
+                "on_fail": "home",
+            },
+            {
+                "id": "home",
+                "skill": "return_home",
+                "params": {},
+                "on_success": "detour",
+                "on_fail": "search",
+            },
+        ],
+        "report": [],
+    }
+    repaired, notes = repair_plan_document(raw)
+    validated = validate_mission_plan(repaired)
+    steps = {step.id: step for step in validated.steps}
+    assert steps["detour"].on_success == "home"
+    assert steps["home"].on_success is None and steps["home"].on_fail is None
+    assert any("terminal" in note for note in notes)
+
+
+def test_check_plan_refs_does_not_accept_known_poi_as_region():
+    document = {
+        "steps": [
+            {"id": "s1", "params": {"region": "poi:gate"}},
+        ]
+    }
+    checked, notes, unknown = check_plan_refs(
+        document, ("poi:gate", "zone:site"), substitute=False
+    )
+    assert checked["steps"][0]["params"]["region"] == "poi:gate"
+    assert notes == []
+    assert unknown == ["poi:gate"]
+
+
+def test_check_plan_refs_repairs_wrong_kind_region_to_zone():
+    document = {
+        "steps": [
+            {"id": "s1", "params": {"region": "finding:1"}},
+        ]
+    }
+    checked, notes, unknown = check_plan_refs(
+        document, ("poi:gate", "zone:site"), substitute=True
+    )
+    assert checked["steps"][0]["params"]["region"] == "zone:site"
+    assert any("finding:1 -> zone:site" in note for note in notes)
+    assert unknown == []
+
+
+def test_check_plan_refs_never_widens_wrong_region_to_unbounded_zone_all():
+    document = {
+        "steps": [
+            {"id": "s1", "params": {"region": "finding:1"}},
+        ]
+    }
+    checked, notes, unknown = check_plan_refs(
+        document, ("poi:gate",), substitute=True
+    )
+    assert checked["steps"][0]["params"]["region"] == "finding:1"
+    assert notes == []
+    assert unknown == ["finding:1"]
+
+
+def test_check_plan_refs_keeps_unknown_zone_bounded():
+    document = {
+        "steps": [
+            {"id": "s1", "params": {"region": "zone:missing"}},
+        ]
+    }
+    checked, notes, unknown = check_plan_refs(
+        document, ("poi:gate",), substitute=True
+    )
+    assert checked["steps"][0]["params"]["region"] == "zone:missing"
+    assert notes == []
+    assert unknown == ["zone:missing"]
+
+
+def test_region_wrong_kind_retries_then_substitutes_zone():
+    raw = {
+        "plan_version": 1,
+        "goal": "count",
+        "steps": [
+            {
+                "id": "s1",
+                "skill": "count",
+                "params": {"region": "poi:gate", "query": "car"},
+                "on_success": "s2",
+                "on_fail": "s2",
+            },
+            {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
+        ],
+        "report": [],
+    }
+    prompts = []
+
+    def post(prompt, schema):
+        prompts.append(prompt)
+        return json.dumps(raw)
+
+    compiled, report = compile_mission_plan(
+        post, "count cars", refs=("poi:gate", "zone:site")
+    )
+    assert "unknown reference(s) poi:gate" in prompts[1]
+    assert compiled is not None
+    assert compiled.steps[0].params["region"] == "zone:site"
+    assert report["error"] is None
+
+
 def test_compile_mission_plan_accepts_valid_model_response():
     raw = json.dumps(_find_plan())
     calls = []
@@ -98,6 +299,53 @@ def test_compile_mission_plan_accepts_valid_model_response():
     assert all(seconds >= 0 for seconds in report["attempts"])
     assert report["repairs"] == []
     assert report["error"] is None
+
+
+def test_compile_passes_payload_capability_to_plan_validation():
+    raw = json.dumps({
+        "plan_version": 1,
+        "goal": "deliver",
+        "steps": [
+            {
+                "id": "drop",
+                "skill": "deliver",
+                "params": {"target_ref": "home", "payload_ref": "home"},
+                "on_success": "home",
+                "on_fail": "home",
+            },
+            {
+                "id": "home", "skill": "return_home", "params": {},
+                "on_success": None, "on_fail": None,
+            },
+        ],
+        "report": [],
+    })
+    plan, report = compile_mission_plan(
+        lambda _prompt, _schema: raw,
+        "deliver",
+        capabilities=frozenset({"payload"}),
+    )
+    assert plan is not None
+    assert report["error"] is None
+
+
+def test_retry_clears_package_violations_and_raw_before_transport_error():
+    responses = iter(("{}", RuntimeError("transport down")))
+
+    def post(_prompt, _schema):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    def reject(_plan):
+        return [{"code": "NO_FLY_ZONE", "message_zh": "禁飞", "message_en": "no fly"}]
+
+    plan, report = compile_mission_plan(post, "find", plan_checker=reject)
+    assert plan is None
+    assert report["error"] == "transport down"
+    assert report["raw"] == ""
+    assert "package_violations" not in report
 
 
 def test_compile_mission_plan_repairs_retry_back_edge():

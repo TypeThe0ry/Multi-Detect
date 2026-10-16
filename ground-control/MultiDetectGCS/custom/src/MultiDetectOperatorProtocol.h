@@ -67,6 +67,7 @@ public:
         MissionHeartbeat = 34,
         MissionTelemetryChunk = 35,
         MissionTelemetryAck = 36,
+        MissionGroundCommandChunk = 37,
     };
 
     struct DecodedPacket

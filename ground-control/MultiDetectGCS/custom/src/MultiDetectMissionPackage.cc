@@ -186,6 +186,24 @@ bool param(const QJsonValue& v, const QString& kind)
 }
 }  // namespace
 
+bool MultiDetectMissionPackage::parseStrictJson(const QByteArray& json, QJsonDocument* document, QString* error)
+{
+    QStringDecoder utf8(QStringDecoder::Utf8);
+    (void) utf8(json);
+    QJsonParseError parseError;
+    const auto parsed = QJsonDocument::fromJson(json, &parseError);
+    if (utf8.hasError() || parseError.error != QJsonParseError::NoError || !uniqueKeys(json)) {
+        if (error)
+            *error = QStringLiteral("JSON must be valid UTF-8 without duplicate object keys or non-finite numbers");
+        return false;
+    }
+    if (document)
+        *document = parsed;
+    if (error)
+        error->clear();
+    return true;
+}
+
 bool MultiDetectMissionPackage::parse(const QByteArray& json, QJsonObject* document, QString* error)
 {
     QStringDecoder utf8(QStringDecoder::Utf8);
@@ -214,7 +232,7 @@ bool MultiDetectMissionPackage::validate(const QJsonObject& doc, QString* error)
     if (!object(doc,
                 {"mission_id", "places", "zones", "routes", "operating_area", "budget", "home", "risk_level",
                  "link_loss_policy", "oversight_steps"},
-                {"task_text", "plan", "ref_labels", "heartbeat_timeout_s"}))
+                 {"task_text", "plan", "ref_labels", "heartbeat_timeout_s", "key_id", "signature_alg", "signature"}))
         return fail(QStringLiteral("任务包有缺失或未知字段"));
     if (!text(doc["mission_id"]) || !QStringList({"low", "medium", "high"}).contains(doc["risk_level"].toString()))
         return fail(QStringLiteral("任务编号或风险等级无效"));

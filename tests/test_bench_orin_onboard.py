@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import json
 import threading
 from unittest.mock import Mock
 
@@ -137,6 +139,19 @@ def test_parse_cuda_device_index(value: str, expected: int) -> None:
 def test_parse_cuda_device_index_rejects_multiple_or_non_cuda_devices() -> None:
     with pytest.raises(ValueError, match="one CUDA index"):
         parse_cuda_device_index("0,1")
+
+
+def test_raw_tensorrt_engine_gets_vocabulary_metadata_without_mutating_source(tmp_path) -> None:
+    raw = tmp_path / "proposer.engine"
+    raw.write_bytes(b"raw serialized TensorRT bytes")
+
+    wrapped = bench._prepare_tensorrt_engine(raw)
+
+    assert raw.read_bytes() == b"raw serialized TensorRT bytes"
+    prefix_length = int.from_bytes(wrapped.read_bytes()[:4], "little")
+    metadata = json.loads(wrapped.read_bytes()[4 : 4 + prefix_length])
+    assert metadata["task"] == "detect"
+    assert len(ast.literal_eval(metadata["names"])) == 20
 
 
 @pytest.mark.parametrize("value", ["camera=0", "camera=abc", "=4321", "camera service=4321"])

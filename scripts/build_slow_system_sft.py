@@ -17,9 +17,10 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -44,6 +45,10 @@ from scripts.build_sim_detector_dataset import (  # noqa: E402
     _sdf_sizes,
     _urban_target,
 )
+from scripts.sft_task_category_balance import (  # noqa: E402
+    balance_task_categories as balance_task_categories_fn,
+)
+from scripts.slow_system_runtime import IDENTITY_VARIANTS, identity_image_sizes  # noqa: E402
 
 CAMPAIGNS = ("campaign-20261011-r2", "campaign-20261011-r3", "campaign-20261011-r4")
 SPLITS = ("train", "val", "test")
@@ -100,6 +105,16 @@ def _target_class(target: dict) -> str:
     return CLASS_ALIASES.get(cls, cls)
 
 
+def _target_category(target: dict) -> str:
+    category = target.get("category")
+    if category:
+        return str(category)
+    words = target.get("category_words") or []
+    if words:
+        return str(words[0]).replace(" ", "_")
+    return _target_class(target)
+
+
 def _task_text(slug: tuple[str, str], variant: int) -> str:
     color, cls = slug
     template = TASK_TEMPLATES[variant % len(TASK_TEMPLATES)]
@@ -147,6 +162,84 @@ def _dhash(image: Image.Image) -> int:
 
 def _near_duplicate(signature: int, prior: list[int]) -> bool:
     return any((signature ^ old).bit_count() <= 3 for old in prior)
+
+
+def _augmentation_config(option: str | Mapping[str, object]) -> dict[str, object]:
+    presets: dict[str, dict[str, object]] = {
+        "mild": {"brightness": (0.82, 1.18), "contrast": (0.85, 1.15), "color_temperature": (-0.12, 0.12), "blur": (0.0, 0.8), "noise": (0.0, 5.0)},
+        "weather": {"brightness": (0.62, 1.05), "contrast": (0.70, 1.05), "color_temperature": (-0.22, 0.18), "blur": (0.0, 1.8), "noise": (0.0, 10.0)},
+    }
+    if isinstance(option, str):
+        if option not in presets:
+            raise ValueError(f"unknown image augmentation preset: {option}")
+        return dict(presets[option])
+    result = dict(option)
+    unknown = set(result) - {"brightness", "contrast", "color_temperature", "blur", "noise"}
+    if unknown:
+        raise ValueError(f"unknown image augmentation fields: {sorted(unknown)}")
+    return result
+
+
+def _sample_augmentation(value: object, rng: random.Random, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return rng.uniform(float(value[0]), float(value[1]))
+    return float(value)
+
+
+def _augment_image(image: Image.Image, option: str | Mapping[str, object], seed: int) -> Image.Image:
+    config = _augmentation_config(option)
+    rng = random.Random(seed)
+    brightness = _sample_augmentation(config.get("brightness"), rng, 1.0)
+    contrast = _sample_augmentation(config.get("contrast"), rng, 1.0)
+    temperature = _sample_augmentation(config.get("color_temperature"), rng, 0.0)
+    blur = max(0.0, _sample_augmentation(config.get("blur"), rng, 0.0))
+    noise = max(0.0, _sample_augmentation(config.get("noise"), rng, 0.0))
+    output = image.convert("RGB")
+    if brightness != 1.0:
+        output = ImageEnhance.Brightness(output).enhance(brightness)
+    if contrast != 1.0:
+        output = ImageEnhance.Contrast(output).enhance(contrast)
+    if temperature:
+        red = 1.0 + max(-0.45, min(0.45, temperature))
+        blue = 1.0 - max(-0.45, min(0.45, temperature))
+        channels = output.split()
+        channels = (channels[0].point(lambda p: max(0, min(255, int(p * red)))), channels[1], channels[2].point(lambda p: max(0, min(255, int(p * blue)))))
+        output = Image.merge("RGB", channels)
+    if blur:
+        output = output.filter(ImageFilter.GaussianBlur(blur))
+    if noise:
+        pixels = []
+        for red, green, blue in output.getdata():
+            pixels.append(tuple(max(0, min(255, int(channel + rng.gauss(0.0, noise)))) for channel in (red, green, blue)))
+        output.putdata(pixels)
+    return output
+
+
+def _materialize_image_augmentation(rows: dict[str, list[dict]], output: Path, option: str | Mapping[str, object], seed: int, source_hashes: dict[str, str]) -> None:
+    cache: dict[str, str] = {}
+    augmented_root = output / "augmented-images"
+    for split_rows in rows.values():
+        for row in split_rows:
+            original_name = str(row["image_path"])
+            if original_name not in cache:
+                source = Path(original_name)
+                if not source.is_absolute():
+                    source = ROOT / source
+                if not source.is_file():
+                    raise FileNotFoundError(f"cannot augment missing image: {source}")
+                key = hashlib.sha256(f"{original_name}:{seed}:{repr(option)}".encode()).hexdigest()[:20]
+                destination = augmented_root / f"{key}.png"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with Image.open(source) as opened:
+                    _augment_image(opened, option, int(key, 16)).save(destination, format="PNG")
+                try:
+                    cache[original_name] = _relative(destination)
+                except ValueError:
+                    cache[original_name] = destination.as_posix()
+                source_hashes[cache[original_name]] = _sha(destination)
+            row["image_path"] = cache[original_name]
 
 
 def _normalized(box: tuple[float, float, float, float], width: int, height: int) -> list[float]:
@@ -213,6 +306,7 @@ def _row(
     candidate_boxes: list[tuple[float, float, float, float]] | None = None,
     focus_index: int | None = None,
     visible_fraction: float | None = None,
+    task_category: str | None = None,
 ) -> dict:
     boxes = candidate_boxes if candidate_boxes is not None else ([] if box is None else [box])
     candidates = [
@@ -223,7 +317,7 @@ def _row(
         target = {**target, "args": {**target["args"], "track_id": f"track-{focus_index + 1}"}}
         parse_onboard_decision(target)
     sample_key = json.dumps([world, _relative(frame), task_text, candidates, target], ensure_ascii=False, sort_keys=True)
-    return {
+    row = {
         "sample_id": hashlib.sha256(sample_key.encode("utf-8")).hexdigest()[:24],
         "world": world,
         "split": split,
@@ -242,6 +336,9 @@ def _row(
         "label_type": label_type,
         "visible_fraction": visible_fraction,
     }
+    if task_category is not None:
+        row["task_category"] = task_category
+    return row
 
 
 def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3, world_metadata: dict[str, dict] | None = None):
@@ -259,7 +356,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
             if world is None or (not urban and world not in world_splits):
                 continue
             split = "train" if urban else world_splits[world]
-            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
+            truth_path = next((candidate for candidate in (ROOT / "configs/scenarios/generated" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-v2-appearance" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json", ROOT / "configs/scenarios/generated-confusers-2" / f"{world}.truth.json") if candidate.is_file()), ROOT / "configs/scenarios/generated" / f"{world}.truth.json")
             sdf_path = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
             if not urban and not truth_path.is_file():
                 continue
@@ -295,7 +392,12 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                     task_text = str(world_info.get("task_text") or step.get("task_text") or episode_task or "")
                     if not task_text:
                         raise ValueError(f"Fuel world {world} has no task text")
-                    slug = {"task_text": task_text, "task_text_en": world_info.get("task_text_en"), "true_target": requested}
+                    slug = {
+                        "task_text": task_text,
+                        "task_text_en": world_info.get("task_text_en"),
+                        "task_category": (world_info.get("target_combo") or {}).get("category"),
+                        "true_target": requested,
+                    }
                 else:
                     slug = _task_slug(str(step.get("task_text") or episode_task))
                 if slug is None:
@@ -396,6 +498,7 @@ def _proposal_rows(
     world: str, split: str, frame: Path, size: tuple[int, int], campaign: str, true_id: str,
     iou_threshold: float, min_side_px: float, confirm_min_side_px: float,
     held_out: frozenset[str] = frozenset(), counterfactual: bool = False, variant: int = 0,
+    task_category: str | None = None,
 ) -> None:
     """Label live FAST proposals by the segmentation object they cover.
 
@@ -444,6 +547,7 @@ def _proposal_rows(
                     world=world, split=split, frame=frame, task_text=other_task, box=box, size=size,
                     target=_identity_match(box, track, confirm_min_side_px), kind="match", campaign=campaign,
                     label_type="proposal_counterfactual", candidate_boxes=shown, focus_index=0,
+                    task_category=_target_category(best["record"]),
                 ))
         else:
             label_type = "proposal_scenery"
@@ -454,6 +558,7 @@ def _proposal_rows(
         groups[kind].append(_row(
             world=world, split=split, frame=frame, task_text=task, box=box, size=size, target=target,
             kind=kind, campaign=campaign, label_type=label_type, candidate_boxes=shown, focus_index=0,
+            task_category=task_category,
         ))
 
 
@@ -463,13 +568,22 @@ def build_dataset(
     confirm_min_side_px: float | None = None,
     proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
+    identity_variant: str = "default",
+    balance_task_categories: float | None = None, max_upsample: int = 4,
+    image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
     if negative_ratio <= 0 or not math.isfinite(negative_ratio):
         raise ValueError("negative_ratio must be finite and positive")
+    if balance_task_categories is not None and (not math.isfinite(balance_task_categories) or balance_task_categories < 0):
+        raise ValueError("balance_task_categories must be finite and non-negative")
+    if max_upsample < 1:
+        raise ValueError("max_upsample must be at least 1")
     if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
         raise ValueError("unsupported crop_policy")
+    if identity_variant not in IDENTITY_VARIANTS:
+        raise ValueError(f"unsupported identity variant: {identity_variant}")
     if not 0.0 <= float(min_visible_fraction) <= 1.0:
         raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
@@ -498,6 +612,20 @@ def build_dataset(
         frame_stats.clear()
         variant = int(hashlib.sha256(f"{world}:{frame.name}:{seed}".encode()).hexdigest()[:8], 16)
         fuel = isinstance(slug, dict)
+        structured_target = next(
+            (
+                item["target"] for item in projected
+                if str(item.get("target", {}).get("target_id", "")).startswith("target_true")
+            ),
+            None,
+        )
+        task_category = (
+            str(slug.get("task_category") or _target_category(slug["true_target"]))
+            if fuel else (_target_category(structured_target) if structured_target else str(slug[1]))
+        )
+        row_task_category = (
+            task_category if balance_task_categories is not None and split == "train" else None
+        )
         task = (str(slug.get("task_text_en") or slug["task_text"]) if variant % 2 else slug["task_text"]) if fuel else _task_text(slug, variant)
         labels = step.get("labels") if isinstance(step, dict) else {}
         labels = labels if isinstance(labels, dict) else {}
@@ -518,7 +646,7 @@ def build_dataset(
             if expert_phase == "scan" and expert_target_in_fov is False:
                 reason = "Expert scan reports no visible target; continue searching."
             target = _decision("search_region", region=region, reason=reason)
-            buckets[split]["search_region"].append(_row(world=world, split=split, frame=frame, task_text=task, box=None, size=size, target=target, kind="search_region", campaign=campaign, label_type="no_candidate"))
+            buckets[split]["search_region"].append(_row(world=world, split=split, frame=frame, task_text=task, box=None, size=size, target=target, kind="search_region", campaign=campaign, label_type="no_candidate", task_category=row_task_category))
             continue
         projected_boxes = [item["box"] for item in projected]
         for p_index, p in enumerate(projected):
@@ -556,7 +684,7 @@ def build_dataset(
                     # depends on the task text, not on the object's class alone.
                     stats["counterfactual"] += 1
                     match = _identity_match(p["box"], f"track-{p_index + 1}", confirm_min_side_px if confirm_min_side_px is not None else 20.0)
-                    buckets[split][match["decision"]].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=p["box"], size=size, target=match, kind=match["decision"], campaign=campaign, label_type="counterfactual", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction")))
+                    buckets[split][match["decision"]].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=p["box"], size=size, target=match, kind=match["decision"], campaign=campaign, label_type="counterfactual", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category))
             elif not class_match:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=f"Wrong class: requested {slug[1]}, candidate is {p['class']}.")
                 kind = "reject_track"
@@ -565,7 +693,7 @@ def build_dataset(
                 kind = "reject_track"
             else:
                 continue
-            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction")))
+            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category))
         if fuel and scene is not None and _relative(frame) in proposal_cache:
             _proposal_rows(
                 buckets[split], stats, proposal_cache[_relative(frame)], scene, slug=slug, task=task,
@@ -574,15 +702,16 @@ def build_dataset(
                 confirm_min_side_px=confirm_min_side_px if confirm_min_side_px is not None else 20.0,
                 held_out=held_out_slugs if split != "test" else frozenset(),
                 counterfactual=counterfactual_tasks and split != "test", variant=variant,
+                task_category=row_task_category,
             )
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
             if background is not None:
                 target = _decision("reject_track", track="track-1", reason="No object is visible inside this candidate box.")
-                buckets[split]["reject_track"].append(_row(world=world, split=split, frame=frame, task_text=task, box=background, size=size, target=target, kind="reject_track", campaign=campaign, label_type="background"))
+                buckets[split]["reject_track"].append(_row(world=world, split=split, frame=frame, task_text=task, box=background, size=size, target=target, kind="reject_track", campaign=campaign, label_type="background", task_category=row_task_category))
         if variant % 35 == 0:
             target = _decision("ask_clarify", reason="Task lacks the class and color needed to identify a target.")
-            buckets[split]["ask_clarify"].append(_row(world=world, split=split, frame=frame, task_text=(("Find the target." if variant % 2 else "\u627e\u5230\u76ee\u6807\u5e76\u8bb0\u5f55\u4f4d\u7f6e") if fuel else "Find the target; class and color unspecified."), box=projected[0]["box"], size=size, target=target, kind="ask_clarify", campaign=campaign, label_type="ambiguous_task"))
+            buckets[split]["ask_clarify"].append(_row(world=world, split=split, frame=frame, task_text=(("Find the target." if variant % 2 else "\u627e\u5230\u76ee\u6807\u5e76\u8bb0\u5f55\u4f4d\u7f6e") if fuel else "Find the target; class and color unspecified."), box=projected[0]["box"], size=size, target=target, kind="ask_clarify", campaign=campaign, label_type="ambiguous_task", task_category=row_task_category))
     selected: dict[str, list[dict]] = {}
     for split in SPLITS:
         groups = buckets[split]
@@ -615,19 +744,27 @@ def build_dataset(
         extras = extras_search + extras_clarify
         rows = positive + negative + extras
         rows.sort(key=lambda r: r["sample_id"])
+        if split == "train" and balance_task_categories is not None:
+            rows, train_category_report = balance_task_categories_fn(
+                rows, min_ratio=balance_task_categories, max_upsample=max_upsample, seed=seed,
+            )
         selected[split] = rows
         if not rows:
             raise ValueError(f"No samples for {split}")
     seen = set()
     for split, rows in selected.items():
         for row in rows:
+            if identity_variant != "default":
+                row["identity_variant"] = identity_variant
             if row["world"] in world_splits and world_splits[row["world"]] != split:
                 raise ValueError("World crossed split boundary")
             if row["sample_id"] in seen:
                 raise ValueError("Duplicate sample ID")
             seen.add(row["sample_id"])
             parse_onboard_decision(row["assistant_target"])
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
+    if image_augmentation is not None:
+        _materialize_image_augmentation(selected, output, image_augmentation, seed, source_hashes)
     output_hashes = {}
     for split, rows in selected.items():
         path = output / f"{split}.jsonl"
@@ -657,6 +794,21 @@ def build_dataset(
         "source_sha256": dict(sorted(source_hashes.items())),
         "output_sha256": output_hashes,
     }
+    if image_augmentation is not None:
+        report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
+    if identity_variant != "default":
+        frame_side, crop_side = identity_image_sizes({}, identity_variant=identity_variant)
+        report["identity_variant"] = identity_variant
+        report["image_policy"] = (
+            f"reference_existing_rgb_png_no_copy; full_frame_resize_to_{frame_side}_max_side_at_model_input; "
+            f"candidate_crop_resize_to_{crop_side}x{crop_side}_at_model_input"
+        )
+    if balance_task_categories is not None:
+        report["task_category_balance"] = {
+            "min_ratio": balance_task_categories,
+            "max_upsample": max_upsample,
+            "categories": train_category_report,
+        }
     (output / "manifest.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return report
 
@@ -669,15 +821,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--negative-ratio", type=float, default=1.5)
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"), default="candidate_zoom_v2")
+    parser.add_argument("--identity-variant", choices=IDENTITY_VARIANTS, default="default", help="persist an opt-in short prompt/image policy for training and evaluation")
     parser.add_argument("--confirm-min-side-px", type=float, default=None, help="fuel_v1 worlds: confirm when the target box min side reaches this many pixels (default: legacy range rule)")
     parser.add_argument("--min-visible-fraction", type=float, default=0.3)
     parser.add_argument("--proposals", type=Path, default=None, help="cached onboard FAST proposals (scripts/cache_onboard_proposals.py); adds rows labelled from live boxes")
     parser.add_argument("--proposal-iou", type=float, default=0.3)
     parser.add_argument("--counterfactual-tasks", action="store_true", help="train/val: also ask for each visible distractor by name (a match), so identity follows the task text")
     parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
+    parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
+    parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
+    parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

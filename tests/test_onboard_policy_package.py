@@ -254,3 +254,179 @@ def test_optional_transport_attaches_and_drains_on_heartbeat(tmp_path, model_stu
         assert policy.supervisor.log.cursor_path.is_file()
     finally:
         policy.close()
+
+
+@pytest.mark.parametrize(
+    "events",
+    [None, {}, [{"t_s": -1, "event": "abort"}],
+     [{"t_s": True, "event": "abort"}], [{"t_s": float("nan"), "event": "abort"}],
+     [{"t_s": 1, "event": "typo"}], [{"t_s": 1, "event": "abort", "extra": 0}],
+     [{"t_s": 2, "event": "pause"}, {"t_s": 1, "event": "resume"}]],
+)
+def test_sim_timeline_rejects_bad_config_before_models(tmp_path, model_stubs, events):
+    with pytest.raises(ValueError):
+        _construct(tmp_path, {"mission_package": document(), "sim_ground_events": events})
+    assert model_stubs == {"proposers": [], "slow": []}
+
+
+def test_sim_timeline_requires_package():
+    with pytest.raises(ValueError, match="requires a mission_package"):
+        onboard_policy.validate_sim_ground_events({"sim_ground_events": []})
+
+
+def _sim_advance(policy, seconds):
+    policy.sim_timeline.advance(
+        {"frame_sensor_stamp_ns": 10_000_000_000 + int(seconds * 1e9)}, policy.supervisor
+    )
+    return policy.supervisor.evaluate()
+
+
+def _records(policy):
+    return [json.loads(line) for line in policy.supervisor.log.path.read_text().splitlines()]
+
+
+def test_empty_sim_timeline_has_no_ground_events_and_uses_sim_time(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        assert _sim_advance(policy, 0) == "continue"
+        assert _sim_advance(policy, 500) == "continue"
+        assert policy.supervisor.started == 0
+        assert policy.supervisor.last_heartbeat is None
+        assert not [r for r in _records(policy) if "ground_event" in r["kind"]]
+        with pytest.raises(ValueError, match="backwards"):
+            _sim_advance(policy, 499)
+    finally:
+        policy.close()
+
+
+def test_sim_link_silence_timeout_latches_before_late_reconnect(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {
+        "mission_package": document("continue_then_return", timeout=30),
+        "sim_ground_events": [
+            {"t_s": 120, "event": "link_lost"},
+            {"t_s": 160, "event": "link_restored"},
+        ],
+    })
+    try:
+        assert _sim_advance(policy, 0) == "continue"
+        assert _sim_advance(policy, 121) == "continue"
+        assert _sim_advance(policy, 149) == "continue"
+        assert _sim_advance(policy, 170) == "return_now"
+        assert policy.supervisor.reason == "operator policy silence/pause timeout"
+        assert _sim_advance(policy, 170) == "return_now"
+        events = [r for r in _records(policy) if r["kind"] == "sim_ground_event"]
+        assert [(r["timestamp"], r["event"]) for r in events] == [
+            (120, "link_lost"), (160, "link_restored")
+        ]
+    finally:
+        policy.close()
+
+
+def test_sim_pause_resume_order_and_abort_act_bypass_models(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {
+        "mission_package": document(),
+        "sim_ground_events": [
+            {"t_s": 10, "event": "pause"},
+            {"t_s": 20, "event": "resume"},
+            {"t_s": 30, "event": "abort"},
+        ],
+    })
+    try:
+        assert _sim_advance(policy, 0) == "continue"
+        assert _sim_advance(policy, 10) == "hold"
+        assert _sim_advance(policy, 20) == "continue"
+        obs = {"frame_sensor_stamp_ns": 40_000_000_000}
+        action, labels = policy.act(obs, pose_ned=(30, 0, -20), yaw_deg=180)
+        assert action.kind == "hold"
+        assert labels["onboard"]["supervisor_reason"] == "explicit operator abort"
+        action, _ = policy.act(obs, pose_ned=(30, 0, -20), yaw_deg=180)
+        assert action.kind == "translate"
+        assert policy.supervisor._recovery_kind == "return_home"
+        assert [r["event_type"] for r in _records(policy)
+                if r["kind"] == "ground_event" and r["event_type"] != "heartbeat"] == [
+            "pause", "resume", "abort"
+        ]
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("mode", ["link", "budget"])
+def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
+    package = document("return_now" if mode == "link" else "continue")
+    if mode == "budget":
+        # Admission must fit the mandatory 40 m out-and-back at the calibrated
+        # 0.75 m/s speed; the supervisor still escalates once reserve is reached.
+        package["budget"].update(time_s=180, reserve_time_s=60)
+    policy = _construct(tmp_path, {
+        "mission_package": package,
+        "sim_ground_events": [{"t_s": 10, "event": "link_lost"}] if mode == "link" else [],
+    })
+    try:
+        assert _sim_advance(policy, 0) == "continue"
+        assert _sim_advance(policy, 10) == "continue"
+        # Reserve escalation occurs after the admitted 120 s usable window.
+        assert _sim_advance(policy, 130) == "return_now"
+        assert policy.supervisor.reason == (
+            "operator link-loss policy" if mode == "link" else "remaining time at or below reserve"
+        )
+    finally:
+        policy.close()
+
+
+def test_live_battery_energy_can_stop_mission_before_image_or_models(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    now = _clock(policy)
+    try:
+        observation = {
+            "energy_telemetry": [
+                {
+                    "received_monotonic_s": now[0],
+                    "message": {
+                        "mavpackettype": "BATTERY_STATUS",
+                        "id": 0,
+                        "battery_remaining": 12,
+                        "voltages": [16000] + [65535] * 9,
+                        "current_battery": -1,
+                        "current_consumed": 0,
+                    },
+                }
+            ]
+        }
+        action, labels = policy.act(observation, pose_ned=(100, 0, -20), yaw_deg=180)
+        assert action.kind == "hold"
+        energy = labels["onboard"]["energy"]
+        assert energy["action_margin_wh"] < 0
+        assert energy["remaining_energy_wh"] >= energy["return_energy_wh"]
+        assert labels["onboard"]["supervisor_action"] == "return_now"
+        assert not labels["onboard"]["slow_calls"]
+        assert not list(policy.work_dir.glob("frame_*.png"))
+    finally:
+        policy.close()
+
+
+def test_sim_energy_receipt_timestamp_is_converted_to_sim_clock(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        action, labels = policy.act(
+            {
+                "frame_sensor_stamp_ns": 0,
+                "mission_estimates": {"remaining_energy_wh": 0},
+                "energy_telemetry": [{
+                    "received_monotonic_s": time.monotonic(),
+                    "message": {
+                        "mavpackettype": "BATTERY_STATUS",
+                        "id": 0,
+                        "battery_remaining": 90,
+                        "voltages": [16000] + [65535] * 9,
+                        "current_battery": -1,
+                        "current_consumed": 0,
+                    },
+                }],
+            },
+            pose_ned=(0, 0, -20),
+            yaw_deg=0,
+        )
+        assert action is not None
+        assert labels["onboard"]["energy"] is not None
+    finally:
+        policy.close()

@@ -112,13 +112,21 @@ int main(int argc, char** argv)
         check(controller.busy(), "uncorrelated ACK cannot complete upload");
         controller.receive(29, ack(t, 28, i, true));
     }
+    check(!controller.busy(), "signed command transfer completes");
     check(controller.activeMissionId() == "test-001" && controller.uploadProgress() == 1,
           "last ACK admits exact uploaded mission");
     check(!controller.tightenPolicy("continue", 0), "weaker policy rejected locally");
     check(!controller.tightenPolicy("continue_then_return", 61), "same policy cannot extend timeout");
     check(controller.tightenPolicy("hold_then_return", 30), "stronger policy sent");
-    check(MultiDetectMissionWire::decode(33, sent.last().second, &fields, &error), "tighten bytes parse");
-    controller.receive(29, ack(fields.value("token").toULongLong(), 33, 0, true));
+    check(MultiDetectMissionWire::decode(37, sent.last().second, &fields, &error), "signed command chunk parses");
+    int commandIterations = 0;
+    while (controller.busy() && commandIterations++ < 256) {
+        const auto t = fields.value("token").toULongLong();
+        const auto i = fields.value("index").toInt();
+        controller.receive(29, ack(t, 37, i, true));
+        if (controller.busy())
+            check(MultiDetectMissionWire::decode(37, sent.last().second, &fields, &error), "next command chunk parses");
+    }
     check(controller.currentPolicy() == "continue_then_return", "effective policy waits for telemetry");
 
     const QByteArray status =

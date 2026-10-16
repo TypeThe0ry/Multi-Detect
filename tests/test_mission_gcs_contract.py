@@ -9,8 +9,10 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from multidetect.autonomy.mission_package import load_mission_package
+from multidetect.autonomy.mission_security import AuthenticationKey, canonical_auth_bytes, sign_document, verify_document
 from multidetect.autonomy.serialization import strict_json_loads
 
 
@@ -120,3 +122,26 @@ def test_native_and_python_reject_ambiguous_json(content, tmp_path):
     path.write_text(content, encoding="utf-8")
     result = subprocess.run([executable, "--validate", str(path)], capture_output=True, timeout=10)
     assert result.returncode == 1
+
+
+def test_gcs_ground_command_golden_vector_matches_onboard_verifier():
+    key = AuthenticationKey("ed25519", bytes(range(32)), "gcs-test")
+    command = {
+        "mission_id": "golden-mission",
+        "type": "abort",
+        "sequence": 7,
+        "timestamp": 1700000000.25,
+        "timestamp_version": 1,
+        "timestamp_domain": "unix",
+    }
+    signed = sign_document(command, key)
+    assert canonical_auth_bytes({**command, "key_id": "gcs-test"}, "signature", "signature_alg") == (
+        b'{"key_id":"gcs-test","mission_id":"golden-mission","sequence":7,'
+        b'"timestamp":1700000000.25,"timestamp_domain":"unix",'
+        b'"timestamp_version":1,"type":"abort"}'
+    )
+    assert signed["signature"] == (
+        "Ow/0p9a6YI5GDT/z2OZEdSwhslBXBgya64HVaqMCck1KuLW9OQhpx1vtSfBc1xeXxfU2hckAA5DPpvzq1rSmDQ=="
+    )
+    public = AuthenticationKey("ed25519", Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key().public_bytes_raw(), "gcs-test")
+    assert verify_document(signed, public)
