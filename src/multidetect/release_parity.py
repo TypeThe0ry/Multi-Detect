@@ -198,6 +198,10 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/simulator/camera_projection.py",
         "src/multidetect/simulator/task_semantics.py",
         "scripts/onboard_policy.py",
+        "src/multidetect/autonomy/onboard_policy_parts/__init__.py",
+        "src/multidetect/autonomy/onboard_policy_parts/config.py",
+        "src/multidetect/autonomy/onboard_policy_parts/proposer.py",
+        "src/multidetect/autonomy/onboard_policy_parts/vocabulary.py",
         # Budget episodes consume the same selection/compilation seam. Bind
         # their projection semantics without claiming physical validation.
         "src/multidetect/simulation/task_episode.py",
