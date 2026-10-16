@@ -64,7 +64,11 @@ def cross_task_split_check(
         ]
         worlds: set[str] = set()
         for document in documents:
-            rows = document.get("rows", []) if isinstance(document, dict) else [document]
+            # A benchmark JSON nests rows; each JSONL line is itself one row.
+            if isinstance(document, dict) and isinstance(document.get("rows"), list):
+                rows = document["rows"]
+            else:
+                rows = [document]
             for item in rows:
                 if not isinstance(item, dict):
                     continue
