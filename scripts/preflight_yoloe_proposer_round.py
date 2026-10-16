@@ -71,7 +71,7 @@ def run_training_preflight(
         try:
             completed = run(
                 command, cwd=ROOT, env={**os.environ, "CUDA_VISIBLE_DEVICES": "0"},
-                capture_output=True, text=True, check=True,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
             )
         except subprocess.CalledProcessError as exc:
             error_text = f"{exc.stdout or ''}{exc.stderr or ''}".lower()
