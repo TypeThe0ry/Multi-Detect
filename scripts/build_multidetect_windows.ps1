@@ -371,6 +371,7 @@ $buildTargets = @('MultiDetectGCS', 'MultiDetectReplayRtspPublisher')
 if ($BuildSelfTests) {
     $buildTargets += @(
         'MultiDetectOperatorProtocolSelfTest',
+        'MultiDetectMissionSelfTest',
         'MultiDetectTargetEvidenceStoreSelfTest',
         'MultiDetectTargetEventReplayStoreSelfTest',
         'MultiDetectProducerEpochDiagnosticsSelfTest',

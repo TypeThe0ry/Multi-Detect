@@ -39,12 +39,38 @@ add_library(
     src/MultiDetectDepthGridReceiver.h
     src/MultiDetectOperatorProtocol.cc
     src/MultiDetectOperatorProtocol.h
+    src/MultiDetectMissionWire.cc
+    src/MultiDetectMissionWire.h
+    src/MultiDetectMissionPackage.cc
+    src/MultiDetectMissionPackage.h
+    src/MultiDetectMissionController.cc
+    src/MultiDetectMissionController.h
+    src/MultiDetectMissionSecurity.cc
+    src/MultiDetectMissionSecurity.h
 )
 target_link_libraries(MultiDetectOperatorProtocol PUBLIC Qt6::Core Qt6::Network)
 target_include_directories(MultiDetectOperatorProtocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# QGC desktop builds already ship an OpenSSL runtime.  Keep the standalone
+# protocol target buildable on minimal systems by making the Ed25519 backend
+# optional; production/REAL upload fails closed when it is unavailable.
+set(MULTIDETECT_OPENSSL_ROOT "" CACHE PATH "OpenSSL root containing lib/cmake/OpenSSL or include + lib")
+find_package(OpenSSL QUIET COMPONENTS Crypto
+    HINTS "${MULTIDETECT_OPENSSL_ROOT}" "$ENV{OPENSSL_ROOT_DIR}")
+if(TARGET OpenSSL::Crypto)
+    message(STATUS "Multi-Detect mission security: using OpenSSL Crypto Ed25519 backend")
+    target_compile_definitions(MultiDetectOperatorProtocol PRIVATE MULTIDETECT_HAVE_OPENSSL=1)
+    target_link_libraries(MultiDetectOperatorProtocol PRIVATE OpenSSL::Crypto)
+endif()
+
 add_executable(MultiDetectOperatorProtocolSelfTest EXCLUDE_FROM_ALL tests/MultiDetectOperatorProtocolSelfTest.cc)
 target_link_libraries(MultiDetectOperatorProtocolSelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
+
+add_executable(MultiDetectMissionSelfTest EXCLUDE_FROM_ALL tests/MultiDetectMissionSelfTest.cc)
+target_link_libraries(MultiDetectMissionSelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
+
+add_executable(MultiDetectMissionSecuritySelfTest EXCLUDE_FROM_ALL tests/MultiDetectMissionSecuritySelfTest.cc)
+target_link_libraries(MultiDetectMissionSecuritySelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
 
 add_executable(
     MultiDetectTargetEvidenceStoreSelfTest EXCLUDE_FROM_ALL

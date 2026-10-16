@@ -46,7 +46,9 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 
 ### GCS producer
 
-GCS 生成地面任务级命令时，必须签名以下完整字段：`mission_id`、`type`、`sequence`、`timestamp`、`timestamp_version`、`timestamp_domain`、`key_id` 以及命令自身的其他字段。签名输入是删除 `signature` 与 `signature_alg` 后，对完整 JSON 对象执行 canonicalization 的 UTF-8 字节：对象键按 Unicode 码点升序、数组保持原顺序、字符串使用 UTF-8、数字必须是有限值、分隔符固定为 `,` 和 `:`，不输出空白；`key_id` 必须保留在签名域中，算法由本地配置决定。当前 GCS 源码尚未实现此 producer，跟踪项是 GCS mission-package panel；因此在该 producer 完成前，real-flight 地面命令仅限 MAVLink-signed operator link。
+GCS 生成地面任务级命令时，必须签名以下完整字段：`mission_id`、`type`、`sequence`、`timestamp`、`timestamp_version`、`timestamp_domain`、`key_id` 以及命令自身的其他字段。签名输入是删除 `signature` 与 `signature_alg` 后，对完整 JSON 对象执行 canonicalization 的 UTF-8 字节：对象键按 Unicode 码点升序、数组保持原顺序、字符串使用 UTF-8、数字必须是有限值、分隔符固定为 `,` 和 `:`，不输出空白；`key_id` 必须保留在签名域中，算法由本地配置决定。GCS panel 将该 JSON 按 mission command chunk（类型 37）发送；onboard 收齐后再交给严格 JSON、签名、时间和 replay 校验。REAL 模式没有 Ed25519 operator key 时，上传和 ground command 都 fail closed。
+
+Ground-command `sequence` 按 `mission_id` 的 SHA-256 hash 持久保存在 GCS 用户级 `QSettings` 中。每次写入都执行 `sync()` 并检查 `QSettings::status()`；`uint64` 到达上限后拒绝新命令，不回绕到 1。
 
 任务包与地面命令使用同一份 canonical JSON 合约。签名者先复制完整 JSON 对象，删除 `signature` 与 `signature_alg` 两个字段，保留 `key_id`，然后按以下规则编码：对象键按 Unicode 码点升序排列；数组顺序保持不变；字符串使用 UTF-8 且不转义非 ASCII；数字必须是有限值；不输出空白，分隔符固定为 `,` 和 `:`；最终字节是 UTF-8 编码的 JSON 文本。签名算法和 `key_id` 由本地密钥配置决定，文档中的同名字段只能用于匹配，不能选择验证算法。
 
