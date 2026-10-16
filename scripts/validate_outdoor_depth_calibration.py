@@ -6,6 +6,9 @@ does not occur in the calibration document are reported as independent holdout
 evidence; the script never changes the deployed calibration.  The optional
 strict gate turns holdout count and supplied error thresholds into an explicit
 fail-closed deployment-readiness check, while the default remains advisory.
+Both raw and actual depths are optical-axis Z. Prefer ``raw_optical_axis_depth_m``
+when reading new metric-depth events; an off-axis surveyed slant range must be
+multiplied by cos(theta) before supplying ``actual_distance_m``.
 """
 
 from __future__ import annotations
@@ -88,7 +91,9 @@ def load_measured_samples(path: Path) -> tuple[_MeasuredSample, ...]:
         sample_id = str(row.get("sample_id") or f"sample-{index:03d}").strip()
         if not sample_id or sample_id in ids:
             raise ValueError(f"duplicate or empty sample_id at row {index}")
-        raw = row.get("raw_depth_m", row.get("raw_slant_range_m"))
+        raw = row.get("raw_optical_axis_depth_m")
+        if raw is None:
+            raw = row.get("raw_depth_m", row.get("raw_slant_range_m"))
         samples.append(
             _MeasuredSample(
                 sample_id=sample_id,

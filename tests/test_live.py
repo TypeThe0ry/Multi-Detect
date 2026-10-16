@@ -2728,6 +2728,7 @@ def test_manual_exclusive_lck_metric_depth_keeps_live_loop_running() -> None:
             self.closed = False
 
         def submit(self, **kwargs) -> bool:
+            assert kwargs["calibration"] == _live_ranging_config().calibration
             self.submitted_target_ids.append(kwargs["target_id"])
             return True
 
@@ -2772,6 +2773,7 @@ def test_manual_trk_metric_depth_keeps_range_input_without_an_lck() -> None:
             self.last_error = None
 
         def submit(self, **kwargs) -> bool:
+            assert kwargs["calibration"] == _live_ranging_config().calibration
             self.submitted_target_ids.append(kwargs["target_id"])
             return True
 
