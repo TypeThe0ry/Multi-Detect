@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "rc_cessna_catapult",
+  "category": "fixed_wing",
+  "subtype": "conventional",
+  "px4_autostart": 4003,
+  "min_airspeed_mps": 10.0,
+  "cruise_airspeed_mps": 15.0,
+  "max_airspeed_mps": 20.0,
+  "stall_airspeed_mps": 7.0,
+  "max_bank_deg": 50.0,
+  "max_climb_rate_mps": 5.0,
+  "max_descent_rate_mps": 3.5,
+  "can_hover": false,
+  "hover_modes": [],
+  "takeoff": {"methods": ["catapult"], "launch_detection": {"accel_threshold_mps2": 30.0, "duration_s": 0.05, "px4_parameters": {"accel": {"value": 30.0, "px4_name": "FW_LAUN_AC_THLD", "unverified": false}, "duration": {"value": 0.05, "px4_name": "FW_LAUN_AC_T", "unverified": false}}}},
+  "landing": {"methods": ["belly"]},
+  "camera": {"mount": "forward", "body_to_camera_rotation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]},
+  "endurance": {"battery_wh": 120.0, "reserve_fraction": 0.25, "hover_power_w": 1.0, "cruise_power_w": 260.0, "loiter_power_w": 250.0, "climb_power_w": 420.0, "descent_power_w": 150.0, "transition_energy_wh": 0.0, "glide_sink_rate_mps": 2.5, "wind_margin_mps": 4.0},
+  "limits": {"max_step_distance_m": 30.0, "max_acceleration_mps2": 4.0, "max_angular_rate_dps": 70.0},
+  "notes": ["弹射变体；launch detection 沿用 PX4 FW_LAUN_* 默认值。"],
+  "provenance": {"airspeed": "PX4 参数文件默认 FW_AIRSPD_*", "launch": "PX4 airframe 默认值"}
+}
