@@ -5,6 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: sudo bash scripts/bootstrap_jetson_orin.sh --date-utc 'YYYY-MM-DD HH:MM:SS UTC'
        [--gateway 192.168.144.100] [--app-dir /home/USER/Multi-Detect]
+       [--run-benchmark] [--benchmark-output artifacts/benchmarks/orin-v3.json]
 
 Installs the bench-only JetPack/Python runtime. It does not enable a systemd
 service, transmit MAVLink, configure arming, or create a payload interface.
@@ -26,6 +27,8 @@ fi
 gateway=192.168.144.100
 date_utc=
 app_dir="/home/${target_user}/Multi-Detect"
+run_benchmark=false
+benchmark_output="artifacts/benchmarks/orin-v3.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +42,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --app-dir)
       app_dir=${2:-}
+      shift 2
+      ;;
+    --run-benchmark)
+      run_benchmark=true
+      shift
+      ;;
+    --benchmark-output)
+      benchmark_output=${2:-}
       shift 2
       ;;
     -h|--help)
@@ -147,3 +158,25 @@ fi
 timedatectl set-ntp true || true
 echo "JETSON_BENCH_RUNTIME_READY"
 echo "Log out and back in before opening a Pixhawk serial device through the dialout group."
+
+if [[ ${run_benchmark} == true ]]; then
+  benchmark_json=${benchmark_output}
+  benchmark_md=${benchmark_json%.json}.md
+  cd "${app_dir}"
+  runuser -u "${target_user}" -- "${venv}/bin/python" scripts/bench_orin_onboard.py \
+    --build-engines \
+    --proposer-onnx-960 tmp/orin-v3/proposer-960.onnx \
+    --proposer-onnx-1280 tmp/orin-v3/proposer-1280.onnx \
+    --tensorrt-engine-960 tmp/orin-v3/proposer-960-fp16.engine \
+    --tensorrt-engine-1280 tmp/orin-v3/proposer-1280-fp16.engine \
+    --depth-onnx artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx \
+    --depth-engine tmp/orin-v3/depth-anything-v2-small-fp16.engine \
+    --frames-dir artifacts/recordings/orin-bench/png \
+    --identity-jsonl artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl \
+    --gguf-model artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf \
+    --r14-gguf-model artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf \
+    --mmproj artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf \
+    --frame-limit 20 --identity-limit 8 --repetitions 5 --warmup 1 \
+    --concurrent-yolo-hz 10 --tegrastats-interval-ms 100 \
+    --output "${benchmark_json}" --markdown "${benchmark_md}"
+fi

@@ -55,25 +55,31 @@ benchmark 的 YOLOE 权重和 Q8_0 mmproj 路径对应 `scripts/onboard_policy.p
 
 开发机已具备 PyTorch 2.6.0+cu124、Ultralytics 8.4.92、ONNX 1.22.0、ONNX Runtime 1.29.0 和 CLIP tokenizer；实际运行未用 GPU、未下载或安装任何依赖。所需本地权重为 `best.pt`（26,608,445 bytes）和 `mobileclip_blt.ts`（599,764,649 bytes）。后者只用于导出前编码通用词表，bench 的 PyTorch 路径同样需要它；仅运行 engine 不需要复制它。缺少依赖或资产时脚本直接失败，不执行 pip。若未查询包索引而无法得知缺失下载的大小，错误中会明确标为 unknown。
 
-在当前 Windows 开发工作树执行以下两次导出；源文件只读，产物写在当前工作树的 `artifacts/exports/orin-proposer/`：
+在当前 Windows 开发工作树执行以下两次导出；源文件只读，产物写在当前工作树的 `tmp/orin-v3/`。附加的 `--comparison-frames-dir` 会在 32 张真实录像帧上比较 PyTorch 与 ONNX 的原始候选框（逐 anchor IoU）和类别分数误差：
 
 ```powershell
 python scripts/export_proposer_for_orin.py `
-  --weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt `
-  --weights-dir D:/Projects/Multi-Detect/weights --imgsz 1280
+  --weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt `
+  --weights-dir D:/Projects/Multi-Detect/weights --output-dir tmp/orin-v3 --imgsz 1280 `
+  --comparison-frames-dir D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r12multi `
+  --comparison-frame-limit 32
 python scripts/export_proposer_for_orin.py `
-  --weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt `
-  --weights-dir D:/Projects/Multi-Detect/weights --imgsz 960
+  --weights D:/Projects/Multi-Detect/artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt `
+  --weights-dir D:/Projects/Multi-Detect/weights --output-dir tmp/orin-v3 --imgsz 960 `
+  --comparison-frames-dir D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r12multi `
+  --comparison-frame-limit 32
 ```
 
 其他开发机显式传入本地 `--weights` / `--weights-dir`；默认指向本仓库下相同路径。默认导出 batch 1、静态方形、FP32、opset 17、`dynamic=False`、`simplify=False`、`nms=False`。FP16 优化交给 Orin 上的 TensorRT。脚本随后运行 `onnx.checker`，并用同一份随机 RGB 输入比较 CPU PyTorch 与 ONNX Runtime：boxes 容差 `rtol=1e-4, atol=0.01`，scores 容差 `rtol=1e-4, atol=1e-5`；这验证原始输出数值，不代表已测 Orin 精度或速度。每个图旁的 `.export.json` 记录源权重 SHA-256、图 SHA-256、词表、版本、尺寸和数值对照结果。
 
-本次 CPU 实际导出结果如下；二者都通过图检查和 CPU 数值对照：
+本次 CPU 实际导出结果如下；二者都通过图检查、随机输入数值对照和 32 帧真实图像一致性：
 
 | ONNX 产物 | 文件大小 | opset | `images` 输入 | `output0` 输出 |
 | --- | ---: | ---: | --- | --- |
-| `proposer-1280.onnx` | 38,422,217 bytes（36.64 MiB） | 17 | float32 `[1,3,1280,1280]` | `[1,24,33600]` |
-| `proposer-960.onnx` | 38,128,215 bytes（36.36 MiB） | 17 | float32 `[1,3,960,960]` | `[1,24,18900]` |
+| `proposer-1280.onnx` | 38,422,200 bytes（36.64 MiB） | 17 | float32 `[1,3,1280,1280]` | `[1,24,33600]` |
+| `proposer-960.onnx` | 38,128,198 bytes（36.36 MiB） | 17 | float32 `[1,3,960,960]` | `[1,24,18900]` |
+
+真实帧原始输出对照结果：1280 的框 IoU 均值 `0.9999953`、最小 `0.9988930`，最大分数绝对差 `4.74e-6`；960 的框 IoU 均值 `0.9999950`、最小 `0.9987532`，最大分数绝对差 `5.07e-6`。判定阈值为逐帧最小 IoU `>=0.995`、最大分数差 `<=1e-5`，两种尺寸均通过。该对照只证明 CPU PyTorch 与 ONNX 图一致，不代表 Orin TensorRT 精度或速度。
 
 输出的 24 通道是 4 个像素坐标 `xywh` 和 20 个类别分数；没有额外 objectness 通道、没有内置 NMS、没有 masks。主机侧必须做与 Ultralytics 等价的 RGB / letterbox / `[0,1]` 归一化、`conf=0.05` 过滤和 class-agnostic NMS，再把框映射回原图。静态 engine 使用完整方形 letterbox；PyTorch 默认矩形最小填充在非方形原图上可能使用较少像素，不能把相同的请求 `imgsz` 当作相同的像素工作量。
 
@@ -127,6 +133,10 @@ python3 scripts/bench_orin_onboard.py \
 ```
 
 `--llama-server` 可省略，从 `PATH` 搜索。无需手动启动 server，脚本管理自己启动的进程。默认原生 TensorRT 路径直接加载 `trtexec` 生成的裸 engine，不经过 Ultralytics 元数据封装；engine 必须是上述 20 类、相同顺序和输出布局。换测 960 时使用 `--tensorrt-engine artifacts/exports/orin-proposer/proposer-960-fp16.engine --concurrent-imgsz 960`，保存到不同 `--output`；固定尺寸不符的阶段记为 `not measured`。engine 必须在 Nano 的 JetPack/TensorRT 环境构建。`--concurrent-yolo-hz` 调整并行 FAST 频率，先测 2–5 Hz，再按任务需要提高。`--planning-text` 可重复提供任务文字；`--planning-jsonl` 可加入 `kind: mission_plan` 和 `prompt` 字段的计划行。
+
+## B2 一条命令验收
+
+拿到 Orin 后可以直接按 `docs/orin-bringup-checklist.md` 的命令运行：`--build-engines` 会在板上串行生成 proposer 960/1280 和 Depth Anything V2 Small engine，随后同一进程测量 r12 完整/fast identity、r14 planning、模型切换、步间三角化 CPU 和近距深度。报告同时写入 `budgets`：快系统至少 10 Hz、r12 fast identity p95 不超过 1 秒、统一 RAM 峰值不超过 6199 MiB（约 6.5 GB 十进制）。阶段缺少依赖时写成 `not measured`，不会把估算值当成通过；Markdown 使用中文并列出各阶段 p50/p95、峰值内存和温度。
 
 只有开发对照才增加 `--pytorch-comparison --yoloe-weights /path/to/best.pt`，同时准备本地 MobileCLIP 和匹配 JetPack 的 PyTorch/Ultralytics；为对照单独保存报告，勿混入飞行镜像的内存结论。运行 engine 的 Nano 飞行镜像不需要这三个包或资产。
 
