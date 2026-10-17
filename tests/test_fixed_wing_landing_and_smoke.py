@@ -75,7 +75,8 @@ def test_fixed_wing_landing_uploads_approach_land_start_and_land():
     ]
     commands = [entry[1][4] for entry in link.mav.sent[1:]]
     assert commands == [16, 189, 21]
-    assert link.modes == ["AUTO.MISSION"]
+    # pymavlink only knows the bare PX4 mode name.
+    assert link.modes == ["MISSION"]
 
 
 def test_fixed_wing_landing_reports_request_timeout_and_unverified_parachute():
