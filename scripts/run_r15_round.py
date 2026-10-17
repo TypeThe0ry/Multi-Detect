@@ -450,7 +450,10 @@ def main():
     p.add_argument("--v3-dataset", type=Path, default=ROOT / "artifacts/datasets/flight-identity-eval-v2-v3prop")
     p.add_argument("--planning-dataset", type=Path, default=ROOT / "artifacts/datasets/plan-eval-tasks-v3.json")
     p.add_argument("--data-root", type=Path, default=ROOT)
-    p.add_argument("--mmproj", type=Path, default=ROOT / "artifacts/models/mmproj.gguf")
+    p.add_argument("--mmproj", type=Path, default=ROOT / (
+        "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
+        "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
+    ))
     p.add_argument("--llama-server", type=Path, default=ROOT / "tools/llama.cpp/llama-server.exe")
     p.add_argument("--min-free-gb", type=float, default=30)
     p.add_argument("--min-free-memory-gb", type=float, default=4)
