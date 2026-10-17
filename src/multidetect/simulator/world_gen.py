@@ -1,4 +1,4 @@
-﻿# ruff: noqa
+# ruff: noqa
 """Deterministic procedural Gazebo worlds for privileged sim-teacher data.
 
 The generator emits self-contained Gazebo Harmonic SDF files and the three
@@ -578,8 +578,13 @@ def generate_mover_worlds(
                 dense.append((a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]), sim_t + f * length / speed))
             sim_t += length / speed
         dense.append((start_x, start_y, sim_t))
-        waypoints_xml = "".join(f"<waypoint>{px:.3f} {py:.3f} 0 {t:.3f}</waypoint>" for px, py, t in dense)
-        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>0 0 {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}</visual></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin><script><loop>true</loop><auto_start>true</auto_start><trajectory id="0" type="move" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
+        # SDF actor waypoints are <time> + <pose> children; a bare "x y z t" text node is
+        # silently ignored by the parser and leaves the actor without a trajectory.
+        waypoints_xml = "".join(
+            f"<waypoint><time>{t:.3f}</time><pose>{px:.3f} {py:.3f} 0 0 0 0</pose></waypoint>"
+            for px, py, t in dense
+        )
+        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>0 0 {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin></visual></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin><script><loop>true</loop><auto_start>true</auto_start><trajectory id="0" type="move" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
         sdf = sdf.replace(
             "<gravity>0 0 -9.80665</gravity>",
             "<gravity>0 0 -9.80665</gravity>"
