@@ -24,12 +24,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
-R15_EPISODES_PER_WORLD = 2
+R15_EPISODES_PER_WORLD = 4
 # Collection plan requires a continuous far-to-near pass through roughly
 # 14-16 m, 9 m, 6 m and 4.5 m, plus 80 frames below 4 m. At 20 FPS, four
 # 80-frame observation windows are the smallest round-number budget that
 # preserves those zones and the required final close-range window.
-R15_STEPS_PER_EPISODE = 400
+R15_STEPS_PER_EPISODE = 120
 R15_WORKERS = 2
 R15_BASE_CONTROL_PORT = 14560
 R15_BASE_TELEMETRY_PORT = 14561
@@ -201,14 +201,18 @@ class Round:
         print(f"[guard] {stage}: 可用磁盘 {free_gb:.1f} GB；可用内存 {available_gb if available_gb is not None else 'unknown'} GB")
 
     def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
+        # Each attempt writes to its own directory so a failed or partial attempt can
+        # never be mistaken for this key's episode (or another key's).
         for attempt in range(self.a.retries + 1):
-            rc = subprocess.run(cmd, cwd=ROOT).returncode
+            attempt_dir = target / f"attempt-{attempt}"
+            attempt_cmd = [*cmd[:-1], str(attempt_dir)]
+            rc = subprocess.run(attempt_cmd, cwd=ROOT).returncode
             if rc == 0:
-                episodes = list(target.rglob("episode-*/episode.json"))
+                episodes = sorted(attempt_dir.rglob("episode-*/episode.json"))
                 valid = [p for p in episodes if json.loads(p.read_text(encoding="utf-8")).get("status") in (None, "complete")]
-                if valid:
-                    path = valid[-1]
-                    return {"status": "complete", "path": str(path), "sha256": sha256(path)}
+                if len(valid) == 1:
+                    path = valid[0]
+                    return {"status": "complete", "path": str(path), "sha256": sha256(path), "attempt": attempt}
             if attempt == self.a.retries:
                 return {"status": "failed", "attempts": attempt + 1}
             time.sleep(min(2 ** attempt, 30))
@@ -226,8 +230,8 @@ class Round:
                 if self.state["episodes"].get(key, {}).get("status") == "complete":
                     continue
                 worker = idx % self.a.workers
-                target = self.a.episodes / world / f"worker-{worker}"
-                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--segmentation", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--out", str(target)]
+                target = self.a.episodes / world / f"ep-{idx}"
+                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--segmentation", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--timeout-s", "900", "--max-episode-s", "900", "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--out", str(target)]
                 jobs.append((key, cmd, target))
                 print(f"[collect] {key} -> worker {worker}; 失败最多重试 {self.a.retries} 次；命令：\n  {subprocess.list2cmdline(cmd)}")
         print("[collect] 总预算：约 40-55 分钟（2 worker，40 episodes，400 steps/episode）；磁盘约 7.5 GiB；总内存门控每个 worker 共用系统阈值")
@@ -241,7 +245,8 @@ class Round:
                 self.state["episodes"][key] = result
                 self.save()
                 if result["status"] != "complete":
-                    raise RuntimeError(f"episode {key} 在 {result['attempts']} 次尝试后失败")
+                    # One stubborn world must not stop the whole round; the report lists it.
+                    print(f"[collect] episode {key} 在 {result['attempts']} 次尝试后失败，跳过")
         self.run("collect", [sys.executable, "-c", "print('episodes collected')"], estimate="约 40-55 分钟：40×约20秒模拟观测，2 worker；依据 r15 计划 560 帧/28秒基线、collector 0.15-0.17 sim s/墙钟 s 注释及 GPU cache 日志的时间基线", disk="约 7.5 GiB（按 15 GiB/80 episodes 线性折半）", outputs=())
 
     def execute(self):
