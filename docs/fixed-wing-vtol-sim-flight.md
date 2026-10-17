@@ -46,7 +46,9 @@ MAVLink 遥测和相机帧仍按 PX4 仿真时间对齐。
 “Mission finished, landed”），全程最远离 home 325 m，帧与位姿时间对齐。
 
 VTOL 返航后先发 `MAV_CMD_DO_VTOL_TRANSITION(param1=3)`，等待
-`vtol_state == MC`，再发 `NAV_VTOL_LAND`，最后等待地面状态。转换和着陆
+`vtol_state == MC`，再发 `NAV_LAND`（PX4 不接受以命令形式发送的 `NAV_VTOL_LAND`，会回 UNSUPPORTED；它只能作为任务项），PX4 原地降落，最后等待地面状态。RTL 与转换命令几乎同时得到 ACK，采集器按命令号分别记录 ACK，避免后到的 ACK 覆盖先到的。
+
+已在真实 PX4/Gazebo SITL 验证（2026-10-18，`quadtailsitter`）：VTOL 起飞、转固定翼（vtol_state 4）、盘旋空速 17.4–21.9 m/s、RTL、转回多旋翼、原地降落并检测到着地，全程最远离 home 137 m，帧与位姿对齐。转换和着陆
 分别使用 90 秒和 420 秒状态预算，命令 ACK 仍从 reader 缓存读取。
 
 伞降只做参数检查并标记“仿真未验证”，不会伪造成功。固定翼滑跑是真实
