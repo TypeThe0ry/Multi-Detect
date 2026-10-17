@@ -5,7 +5,9 @@ from dataclasses import asdict
 
 import pytest
 
+import multidetect.autonomy.onboard_loop as onboard_loop_module
 from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
+from multidetect.autonomy.step_triangulation import PositionEstimate
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 CAMERA = CameraModel(500, 500, 500, 400, 1000, 800)
@@ -112,6 +114,22 @@ def test_single_step_or_pure_turn_falls_back_to_exact_ground(pure_turn):
     assert subject.confirmed["position_estimate_ne"] == list(GROUND)
     assert subject.confirmed["position_source"] == "ground"
     assert current[0].position_estimate.source == "ground"
+
+
+def test_distance_aware_parallax_gate_rejects_far_near_collinear_update(monkeypatch):
+    subject = loop(step_triangulation=True)
+    fake = PositionEstimate(
+        (GROUND[0] + 1.0, GROUND[1], -1.0), 0.2, 1.0, "triangulation",
+        view_count=4, baseline_m=30.0, ray_angle_deg=5.0,
+    )
+    monkeypatch.setattr(onboard_loop_module, "triangulate_views", lambda *args, **kwargs: fake)
+    for pose in ((0.0, -1.0, -10.0), (0.0, 1.0, -10.0)):
+        current = observe(subject, pose)
+    assert current[0].position_estimate is not None
+    assert current[0].position_estimate.source == "ground"
+    assert current[0].position_estimate.consistency_note == (
+        "parallax_below_distance_gate:fallback_ground"
+    )
 
 
 def test_repeated_step_does_not_add_views_and_failed_new_ray_drops_old_estimate():
@@ -237,6 +255,12 @@ def test_count_deduplicates_estimated_positions_even_when_ground_anchors_differ(
         {"ground_height_sigma_m": float("nan")},
         {"step_triangulation_sigma_scale": float("inf")},
         {"step_triangulation_sigma_scale": 0.5},
+        {"step_triangulation_ground_gate_m": -1},
+        {"step_triangulation_ground_gate_m": float("nan")},
+        {"step_triangulation_parallax_deg_per_m": 0},
+        {"step_triangulation_parallax_deg_per_m": float("inf")},
+        {"step_triangulation_min_ray_angle_deg": -1},
+        {"step_triangulation_min_ray_angle_deg": float("nan")},
     ],
 )
 def test_new_configuration_is_strict(options):

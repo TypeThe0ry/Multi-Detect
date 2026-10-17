@@ -125,6 +125,12 @@ def test_custom_ground_model_requires_its_own_matching_ray(tmp_path, monkeypatch
         ("ground_height_sigma_m", math.nan),
         ("step_triangulation_sigma_scale", 0.5),
         ("step_triangulation_sigma_scale", math.inf),
+        ("step_triangulation_ground_gate_m", -1),
+        ("step_triangulation_ground_gate_m", math.nan),
+        ("step_triangulation_parallax_deg_per_m", 0),
+        ("step_triangulation_parallax_deg_per_m", math.inf),
+        ("step_triangulation_min_ray_angle_deg", -1),
+        ("step_triangulation_min_ray_angle_deg", math.nan),
     ],
 )
 def test_policy_passes_config_types_to_strict_validation(tmp_path, key, value):

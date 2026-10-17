@@ -191,7 +191,7 @@ def test_variance_weighting_and_missing_triangulation_exact_fallback():
     assert fused.view_count == 4 and fused.baseline_m == 3
 
 
-def test_inconsistency_selects_newest_then_conservative_and_marks():
+def test_inconsistency_prefers_ground_anchor_and_marks():
     ground = PositionEstimate((0.0, 0.0, 0.0), 2.0, 5.0, "ground")
     tri = PositionEstimate((30.0, 0.0, 0.0), 1.0, 4.0, "triangulation", view_count=4)
     result = fuse_position_estimates(ground, tri)
@@ -202,7 +202,17 @@ def test_inconsistency_selects_newest_then_conservative_and_marks():
     tie = fuse_position_estimates(
         ground, PositionEstimate(tri.position_ned, 3.0, 5.0, "triangulation")
     )
-    assert tie is not None and tie.source == "triangulation"
+    assert tie is not None and tie.source == "ground"
+
+
+def test_ground_anchor_gate_rejects_small_sigma_triangulation_drift():
+    ground = PositionEstimate((10.0, 20.0, 0.0), 1.0, 1.0, "ground")
+    tri = PositionEstimate((10.15, 20.0, 1.0), 0.2, 1.0, "triangulation", view_count=4)
+    result = fuse_position_estimates(ground, tri, ground_anchor_max_error_m=0.1)
+    assert result is not None
+    assert result.source == "ground"
+    assert result.position_ned == ground.position_ned
+    assert result.consistency_note == "ground_anchor_disagreement:fallback_ground"
 
 
 def test_fusion_handles_degenerate_inputs_and_tiny_variances():
