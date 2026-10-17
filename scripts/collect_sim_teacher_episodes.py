@@ -129,7 +129,8 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
-MOTION_ARRIVAL_TOLERANCE_M = 25.0
+MOTION_ARRIVAL_TOLERANCE_M = 8.0
+MOTION_ALONG_TRACK_DONE_M = 5.0
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
 RTL_MODE_CONFIRM_S = 10.0
@@ -997,21 +998,28 @@ def _wait_motion_command(command: Any, reader: MavlinkReader, *, cruise_mps: flo
     started = time.monotonic()
     kind = str(command.kind)
     if kind in {"reposition", "mc_reposition"} and command.target_ned is not None:
-        tolerance = max(float(command.radius_m or 0.0), MOTION_ARRIVAL_TOLERANCE_M)
         try:
-            pose = _state_position(reader.state)
-            distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
+            start = _state_position(reader.state)
         except RuntimeError:
-            distance = 0.0
-        timeout = min(MOTION_REPOSITION_TIMEOUT_S, distance / max(cruise_mps, 1.0) * 1.5 + 15.0)
+            return {"waited": "no_position", "elapsed_s": 0.0}
+        leg_n, leg_e = command.target_ned[0] - start[0], command.target_ned[1] - start[1]
+        leg = math.hypot(leg_n, leg_e)
+        timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(cruise_mps, 1.0) * 1.5 + 15.0)
+        distance = leg
         while time.monotonic() - started < timeout:
             reader.raise_if_failed()
             pose = _state_position(reader.state)
-            distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
-            if distance <= tolerance:
-                return {"waited": "arrived", "distance_m": distance, "elapsed_s": time.monotonic() - started}
-            time.sleep(0.2)
-        return {"waited": "timeout", "distance_m": distance, "elapsed_s": time.monotonic() - started}
+            dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
+            distance = math.hypot(dn, de)
+            # A plane passes its target rather than stopping on it: the leg is done
+            # once little of it remains along the original track (or it is close).
+            remaining = (dn * leg_n + de * leg_e) / leg if leg > 1e-6 else 0.0
+            if distance <= MOTION_ARRIVAL_TOLERANCE_M or remaining <= MOTION_ALONG_TRACK_DONE_M:
+                return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
+                        "elapsed_s": time.monotonic() - started}
+            time.sleep(0.1)
+        return {"waited": "timeout", "distance_m": distance, "leg_m": leg,
+                "elapsed_s": time.monotonic() - started}
     if kind in {"loiter", "orbit", "mc_hold"} and float(command.duration_s or 0.0) > 0.0:
         hold = min(float(command.duration_s), MOTION_LOITER_MAX_WAIT_S)
         while time.monotonic() - started < hold:
