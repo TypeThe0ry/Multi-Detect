@@ -24,7 +24,6 @@ from ..onboard_runtime.fw_vtol_commands import (
     do_vtol_transition,
     nav_land,
     nav_takeoff,
-    nav_vtol_land,
     nav_vtol_takeoff,
 )
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
@@ -197,7 +196,10 @@ class FixedWingVtolExecutor:
             point = kwargs.get("point", (0.0, 0.0))
             alt = float(kwargs.get("alt", 0.0))
             if method == "vtol":
-                return self._send_spec(mav, sender, nav_vtol_land(point=point, alt=alt), timeout_s,
+                # PX4 answers NAV_VTOL_LAND as a COMMAND_LONG with MAV_RESULT_UNSUPPORTED
+                # (it is a mission item); after the MC back-transition NAV_LAND switches
+                # to AUTO.LAND and lands in place.
+                return self._send_spec(mav, sender, nav_land(point=point, alt=alt), timeout_s,
                                        receiver_owner=self.vehicle)
             if self._land_mission is not None:
                 return self._land_mission(method=method, point=point, alt=alt,

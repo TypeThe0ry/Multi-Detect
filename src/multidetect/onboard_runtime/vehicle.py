@@ -28,7 +28,6 @@ from .fw_vtol_commands import (
     do_vtol_transition,
     nav_land,
     nav_takeoff,
-    nav_vtol_land,
     nav_vtol_takeoff,
     parse_custom_mode,
 )
@@ -663,7 +662,9 @@ class PymavlinkVehicle:
         try:
             if normalized == "vtol":
                 return self._command_with_ack(
-                    nav_vtol_land(point=point, alt=alt, yaw_deg=yaw_deg), timeout_s=timeout_s
+                    # NAV_VTOL_LAND is a mission item; as COMMAND_LONG PX4 rejects it
+                    # (MAV_RESULT_UNSUPPORTED).  In MC mode NAV_LAND lands in place.
+                    nav_land(point=point, alt=alt, yaw_deg=yaw_deg), timeout_s=timeout_s
                 )
             if normalized == "parachute":
                 values = parachute_params or {}
@@ -681,7 +682,7 @@ class PymavlinkVehicle:
                 nav_land(point=point, alt=alt, yaw_deg=yaw_deg), timeout_s=timeout_s
             )
         except (ValueError, TypeError) as exc:
-            return CommandResult("failed", 85 if normalized == "vtol" else 21, detail=str(exc))
+            return CommandResult("failed", 21, detail=str(exc))
 
     def change_speed(self, speed_mps: float, *, speed_type: float = 1.0,
                      timeout_s: float = 0.5) -> CommandResult:

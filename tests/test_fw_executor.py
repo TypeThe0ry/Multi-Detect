@@ -159,3 +159,15 @@ def test_motion_command_loiter_and_transition_are_shared_with_runtime():
     assert fake.calls[-1][0] == "orbit"
     assert executor.execute_command(MotionCommand("transition", mode="MC")).status == "success"
     assert fake.calls[-1][0] == "vtol_transition"
+
+
+def test_vtol_landing_over_command_long_uses_nav_land_not_the_mission_only_nav_vtol_land() -> None:
+    # PX4 answers NAV_VTOL_LAND (85) as COMMAND_LONG with MAV_RESULT_UNSUPPORTED.
+    vehicle = RawVehicle()
+    home = ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0))
+    executor = FixedWingVtolExecutor(vehicle, airframe="vtol", landing_method="vtol",
+                                     geo_reference=lambda: home)
+    assert executor.arm_and_takeoff().status == "success"
+    assert executor.land().status == "success"
+    commands = [row[2] for row in vehicle.mav.commands]
+    assert commands[-2:] == [3000, 21] and 85 not in commands
