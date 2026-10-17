@@ -179,6 +179,19 @@ class FixedWingVtolExecutor:
             or 1
         )
         sender(target_system, target_component, int(spec.command), 0, *spec.params)
+        # A link that is already drained by a reader thread must not be polled with
+        # recv_match (the reader would swallow the ACK); such owners expose
+        # wait_command_ack(command, timeout_s) backed by the reader's state.
+        waiter = getattr(receiver_owner, "wait_command_ack", None)
+        if callable(waiter):
+            ack = waiter(int(spec.command), max(0.0, timeout_s))
+            if ack is None:
+                return type("CommandResult", (), {"status": "timeout", "ok": False,
+                                                   "detail": f"COMMAND_ACK timeout for {spec.name}"})()
+            result = ack.get("result", 0) if isinstance(ack, dict) else getattr(ack, "result", 0)
+            ok = int(result or 0) in {0, 1, 2, 3, 4, 5}
+            return type("CommandResult", (), {"status": "accepted" if ok else "failed",
+                                               "ok": ok, "result": result})()
         # A raw link may not expose ACK reception.  In that case the send is
         # still a valid command submission; wrappers with recv_match can
         # return a concrete COMMAND_ACK and failure status.

@@ -1173,6 +1173,38 @@ def _land_mode_confirmed(heartbeat: Any, custom_modes: set[int]) -> bool:
         return str(custom_mode).upper() in {"LAND", "AUTO.LAND"}
 
 
+class _ReaderAckLink:
+    """The telemetry link as seen by the fixed-wing executor.
+
+    The MAVLink reader thread owns ``recv_match`` on this connection, so command
+    ACKs are read from the reader's latest-state cache instead of being raced for.
+    """
+
+    def __init__(self, connection: Any, reader: Any) -> None:
+        self._connection = connection
+        self._reader = reader
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "recv_match":
+            raise AttributeError(name)
+        return getattr(self._connection, name)
+
+    def wait_command_ack(self, command: int, timeout_s: float) -> Any:
+        started_ns = time.monotonic_ns()
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            received = getattr(self._reader.state, "received_monotonic_ns", {})
+            ack = self._reader.state.get("COMMAND_ACK")
+            if (
+                ack is not None
+                and received.get("COMMAND_ACK", -1) >= started_ns
+                and int(_field(ack, "command", -1)) == int(command)
+            ):
+                return {"command": int(command), "result": int(_field(ack, "result", -1))}
+            time.sleep(0.02)
+        return None
+
+
 def _land_diagnostics(
     state: Any, custom_modes: set[int], *, land_started_ns: int
 ) -> dict[str, Any]:
@@ -1870,7 +1902,7 @@ def run_episode(
                 takeoff_method = "vtol" if profile.category == "vtol" else profile.takeoff.methods[0]
                 landing_method = profile.landing.methods[0]
                 executor = FixedWingVtolExecutor(
-                    vehicle, airframe=profile.id, takeoff_method=takeoff_method,
+                    _ReaderAckLink(vehicle, mav_reader), airframe=profile.id, takeoff_method=takeoff_method,
                     landing_method=landing_method, altitude_m=altitude_m,
                     loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
                     position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
