@@ -108,6 +108,7 @@ def conversion_plan(
     base: Path = DEFAULT_BASE,
     adapter: Path | None = None,
     output: Path | None = None,
+    quantization: str = "Q5_K_M",
 ) -> dict:
     """Return commands and explicit availability facts without running them."""
 
@@ -121,7 +122,7 @@ def conversion_plan(
             base_for_command = snapshots[0]
     merged = output / "merged-hf"
     f16 = output / "slow-system-f16.gguf"
-    q4 = output / "slow-system-Q4_K_M.gguf"
+    quantized = output / f"slow-system-{quantization}.gguf"
     adapter_text = _ps(adapter) if adapter else "<ADAPTER_DIR>"
     base_text = _ps(base)
     # Embed concrete paths in the emitted Python.  A single quoted
@@ -154,7 +155,7 @@ def conversion_plan(
             "# MISSING: convert_hf_to_gguf.py; provide a local compatible llama.cpp converter before this step."
         )
     if tools.llama_quantize:
-        commands.append(f"& {_ps(tools.llama_quantize)} {_ps(f16)} {_ps(q4)} Q4_K_M")
+        commands.append(f"& {_ps(tools.llama_quantize)} {_ps(f16)} {_ps(quantized)} {quantization}")
     else:
         commands.append("# MISSING: llama-quantize executable (runtime cache is incomplete).")
     return {
@@ -165,6 +166,7 @@ def conversion_plan(
         "base_for_command": str(base_for_command),
         "adapter": str(adapter) if adapter else None,
         "output": str(output),
+        "quantization": quantization,
         "tools": asdict(tools),
         "adapter_conversion_available": tools.adapter_conversion_available,
         "hf_conversion_available": tools.hf_conversion_available,
@@ -185,8 +187,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--output-json", type=Path, help="Write the plan as UTF-8 LF JSON")
+    parser.add_argument("--quantization", choices=("Q4_K_M", "Q5_K_M", "Q8_0"), default="Q5_K_M")
     args = parser.parse_args(argv)
-    plan = conversion_plan(probe_local_tools(args.llama_root), base=args.base, adapter=args.adapter, output=args.output)
+    plan = conversion_plan(probe_local_tools(args.llama_root), base=args.base, adapter=args.adapter, output=args.output, quantization=args.quantization)
     rendered = json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
