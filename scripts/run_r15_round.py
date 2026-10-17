@@ -345,7 +345,10 @@ class Round:
             if not planning_out.resolve().is_relative_to(ROOT.resolve()):
                 planning_out = ROOT / "artifacts" / f"{self.out.name}-eval-planning"
             planning_summary = planning_out / "summary.json"
-            planning_cmd = [sys.executable, "scripts/run_model_round_eval.py", "--model", "v2-r15-multi", "--gguf", str(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf"), "--data-root", str(self.a.data_root), "--stages", "planning-v3", "--out", str(planning_out), "--min-free-disk-gb", str(self.a.min_free_gb)]
+            planning_cmd = [sys.executable, "scripts/run_model_round_eval.py", "--model", "v2-r15-multi", "--gguf", str(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf"), "--data-root", str(self.a.data_root), "--stages", "planning-v3", "--out", str(planning_out), "--min-free-disk-gb", str(self.a.min_free_gb),
+                            # WDDM lists every desktop app as a GPU process with N/A memory;
+                            # our own GPU jobs are still serialized by the model-round GPU lock.
+                            "--force"]
             self.run("eval_planning", planning_cmd, estimate="约 1-2 小时", disk="约 1 GiB", outputs=(planning_summary,))
         if self.a.stage in ("all", "report"):
             self.guards("report")
