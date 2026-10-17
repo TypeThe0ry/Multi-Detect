@@ -12,7 +12,7 @@ from __future__ import annotations
 import colorsys
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
@@ -341,6 +341,13 @@ class LoopConfig:
     step_triangulation_max_views: int = 8
     ground_height_sigma_m: float = 1.0
     step_triangulation_sigma_scale: float = 2.5
+    # Closed-loop tracking uses the ground hit as its association anchor.  A
+    # small horizontal gate prevents box-centre rays from silently moving it.
+    step_triangulation_ground_gate_m: float = 0.1
+    # Required parallax grows with range because a fixed pixel/ray error turns
+    # into a larger along-ray position error at distance.
+    step_triangulation_parallax_deg_per_m: float = 0.3
+    step_triangulation_min_ray_angle_deg: float = 10.0
     # Near monocular depth is an opt-in supplement to the geometric estimate.
     near_depth: bool = False
 
@@ -354,7 +361,10 @@ class LoopConfig:
             or not 2 <= self.step_triangulation_max_views <= 64):
             raise ValueError("step_triangulation_max_views must be an integer in [2, 64]")
         for name, minimum in (("ground_height_sigma_m", 0.0),
-                              ("step_triangulation_sigma_scale", 1.0)):
+                              ("step_triangulation_sigma_scale", 1.0),
+                              ("step_triangulation_ground_gate_m", 0.0),
+                              ("step_triangulation_parallax_deg_per_m", 0.0),
+                              ("step_triangulation_min_ray_angle_deg", 0.0)):
             value = getattr(self, name)
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not math.isfinite(value) or value <= 0 or value < minimum):
@@ -861,9 +871,40 @@ class OnboardLoop:
                         direction_ned=tuple(ray), ground_height_sigma_m=self.config.ground_height_sigma_m,
                         timestamp_s=stamp,
                     )
-            # Every rejected triangulation falls back to the current ground point.
-            track.position_estimate = (fuse_position_estimates(ground_estimate, tri)
-                                       if tri is not None else ground_estimate)
+            if tri is not None and ground_estimate is not None:
+                # With a reliable ground model, require distance-aware parallax
+                # before trusting the poorly conditioned along-ray component.
+                # Large ground sigma explicitly opts into the old geometry-only
+                # behaviour for callers that do not have a useful ground prior.
+                latest_camera = track.position_views[-1].camera_ned
+                range_m = math.dist(tri.position_ned, latest_camera)
+                required_angle = max(
+                    self.config.step_triangulation_min_ray_angle_deg,
+                    self.config.step_triangulation_parallax_deg_per_m * range_m,
+                )
+                if (
+                    self.config.ground_height_sigma_m <= 10.0
+                    and tri.ray_angle_deg < required_angle
+                ):
+                    tri = None
+                    ground_estimate = replace(
+                        ground_estimate,
+                        consistent=False,
+                        consistency_note="parallax_below_distance_gate:fallback_ground",
+                    )
+            track.position_estimate = (
+                fuse_position_estimates(
+                    ground_estimate,
+                    tri,
+                    ground_anchor_max_error_m=(
+                        self.config.step_triangulation_ground_gate_m
+                        if self.config.ground_height_sigma_m <= 10.0
+                        else None
+                    ),
+                )
+                if tri is not None
+                else ground_estimate
+            )
         except (ValueError, TypeError, ArithmeticError, LookupError, AttributeError, RuntimeError):
             # Sensor/calibration faults cannot interrupt the mission state machine.
             track.position_estimate = None

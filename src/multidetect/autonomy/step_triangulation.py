@@ -241,6 +241,7 @@ def position_from_range(
 def fuse_position_estimates(
     *estimates: PositionEstimate | None,
     consistency_sigma: float = 2.5,
+    ground_anchor_max_error_m: float | None = None,
 ) -> PositionEstimate | None:
     """Inverse-variance fusion with a pairwise Euclidean consistency gate.
 
@@ -250,7 +251,17 @@ def fuse_position_estimates(
     None/invalid sources are omitted, so rejected triangulation leaves ground
     coordinates exactly intact. Independent depth sources can join this API.
     """
-    if not _finite(consistency_sigma) or consistency_sigma <= 0:
+    if (
+        not _finite(consistency_sigma)
+        or consistency_sigma <= 0
+        or (
+            ground_anchor_max_error_m is not None
+            and (
+                not _finite(ground_anchor_max_error_m)
+                or ground_anchor_max_error_m < 0
+            )
+        )
+    ):
         return None
     valid = [value for value in estimates if _estimate_valid(value)]
     if not valid:
@@ -258,6 +269,25 @@ def fuse_position_estimates(
     if len(valid) == 1:
         return valid[0]
     diagnostic = max(valid, key=lambda value: value.view_count)
+    ground = next((value for value in valid if value.source == "ground"), None)
+    if ground is not None and ground_anchor_max_error_m is not None:
+        # The ground hit is the association anchor.  A box-centre ray can
+        # describe the object's elevated centre, but it must not move the
+        # horizontal target away from that anchor by an unbounded amount.
+        for other in valid:
+            if other is ground:
+                continue
+            horizontal_error = math.dist(ground.position_ned[:2], other.position_ned[:2])
+            if horizontal_error > ground_anchor_max_error_m:
+                return replace(
+                    ground,
+                    view_count=diagnostic.view_count,
+                    baseline_m=diagnostic.baseline_m,
+                    ray_angle_deg=diagnostic.ray_angle_deg,
+                    residual_m=diagnostic.residual_m,
+                    consistent=False,
+                    consistency_note="ground_anchor_disagreement:fallback_ground",
+                )
     inconsistent = any(
         math.dist(a.position_ned, b.position_ned)
         > consistency_sigma * math.hypot(a.sigma_m, b.sigma_m)
@@ -265,7 +295,11 @@ def fuse_position_estimates(
         for b in valid[i + 1 :]
     )
     if inconsistent:
-        selected = max(valid, key=lambda value: (value.timestamp_s, value.sigma_m))
+        # A disagreement is a failed geometric update.  The ground hit is
+        # already the track's association coordinate, so prefer it whenever
+        # available instead of allowing a high-sigma triangulation to win a
+        # timestamp tie.
+        selected = ground or max(valid, key=lambda value: (value.timestamp_s, value.sigma_m))
         sigma = max(
             selected.sigma_m,
             *(math.dist(selected.position_ned, other.position_ned) for other in valid),
