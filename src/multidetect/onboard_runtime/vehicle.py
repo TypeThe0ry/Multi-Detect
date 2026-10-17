@@ -130,6 +130,13 @@ class VehicleInterface(Protocol):
 
     def rtl(self) -> None: ...
 
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class FixedWingVtolVehicle(VehicleInterface, Protocol):
+    """Guided fixed-wing / VTOL commands; multirotor-only vehicles need not implement them."""
+
     def loiter_at(self, center: Any, radius: float, alt: float, **kwargs: Any) -> CommandResult: ...
 
     def reposition(self, point: Any, alt: float, ground_speed: float = -1.0,
@@ -142,8 +149,6 @@ class VehicleInterface(Protocol):
     def fw_takeoff(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
 
     def fw_land(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
-
-    def close(self) -> None: ...
 
 
 
