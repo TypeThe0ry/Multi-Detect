@@ -1,6 +1,7 @@
 """SIM teacher collection primitives."""
 
 from .executor import ExecutionResult, PymavlinkPrimitiveExecutor, SetpointStreamer
+from .fw_executor import FixedWingVtolExecutor
 from .isolation import SimulationIsolationError, assert_localhost, validate_local_endpoint
 from .policies import (
     ExpertSearchPolicy,
@@ -42,6 +43,7 @@ __all__ = [
     "ExecutionResult",
     "PymavlinkPrimitiveExecutor",
     "SetpointStreamer",
+    "FixedWingVtolExecutor",
     "SensorSample",
     "SensorStreamReader",
     "MavlinkState",

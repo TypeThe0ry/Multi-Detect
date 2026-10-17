@@ -32,6 +32,7 @@ if __package__ in {None, ""}:
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.sim_teacher import (  # noqa: E402
+    ActionPrimitive,
     EpisodeRecorder,
     ExpertSearchPolicy,
     ExploreBounds,
@@ -40,6 +41,8 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
+from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
+from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
 from multidetect.sim_teacher.streams import (  # noqa: E402
@@ -179,6 +182,8 @@ class CollectionPlan:
     disk_check_interval_steps: int = 10
     video_hz: float = 0.0
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
+    airframe: str = "x500_mono_cam"
+    smoke_flight: bool = False
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -207,18 +212,53 @@ def _scenario_channels(scenario_path: Path) -> tuple[Path, Path]:
     return resolve("runtime_input"), resolve("truth")
 
 
-def _validate_runtime(runtime_path: Path) -> dict[str, Any]:
+def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> dict[str, Any]:
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
     if not isinstance(runtime, dict):
         raise ValueError("runtime channel must be a JSON object")
     vehicle = runtime.get("vehicle", {})
     model = vehicle.get("model") if isinstance(vehicle, dict) else None
-    if model and "multirotor" not in str(model).lower() and "x500" not in str(model).lower():
-        raise ValueError("SIM teacher collector currently supports multirotor only")
+    requested = str(airframe).strip().lower().replace("-", "_")
+    if requested in {"x500", "x500_mono_cam", "multirotor"}:
+        if model and "multirotor" not in str(model).lower() and "x500" not in str(model).lower():
+            raise ValueError("x500_mono_cam requires a multirotor/x500 runtime model")
+    elif not model:
+        raise ValueError(f"airframe {airframe!r} requires runtime.vehicle.model")
     for sensor in runtime.get("sensors", []):
         if isinstance(sensor, dict) and isinstance(sensor.get("stream_uri"), str):
             validate_local_endpoint(sensor["stream_uri"])
     return runtime
+
+
+def _airframe_profile(airframe: str) -> AirframeProfile | None:
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized in {"x500", "x500_mono_cam", "multirotor"}:
+        return None
+    if normalized in {"fixed_wing", "fw", "vtol"}:
+        return None
+    candidates = [ROOT / "configs" / "airframes" / f"{normalized}.json"]
+    aliases = {
+        "rc_cessna_mono_cam": "rc_cessna_runway",
+        "advanced_plane_mono_cam": "advanced_plane",
+        "quadtailsitter_mono_cam": "quadtailsitter",
+        "tiltrotor_mono_cam": "tiltrotor",
+        "standard_vtol_mono_cam": "standard_vtol",
+    }
+    if normalized in aliases:
+        candidates.insert(0, ROOT / "configs" / "airframes" / f"{aliases[normalized]}.json")
+    for path in candidates:
+        if path.is_file():
+            return AirframeProfile.from_json(path)
+    raise ValueError(f"unknown airframe profile: {airframe}")
+
+
+def _frame_age_limit_s(airframe: str) -> float:
+    """Causal frame age budget; high-speed aircraft get the tighter gate."""
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized in {"fixed_wing", "fw", "vtol"}:
+        return 0.10
+    profile = _airframe_profile(airframe)
+    return 0.25 if profile is None or profile.category == "multirotor" else 0.10
 
 
 def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str]:
@@ -294,7 +334,8 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
     if not rgb:
         raise RuntimeError("scenario has no RGB camera")
     world = "default"
-    model = "x500_mono_cam_0"
+    model_name = str(json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("vehicle", {}).get("model", "x500_mono_cam"))
+    model = model_name if model_name.endswith("_0") else model_name + "_0"
     image_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
     camera_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/camera_info"
     navsat_topic = f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
@@ -328,9 +369,13 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "--depth-encoding",
         plan.depth_encoding,
     ]
-    calibration_path = (
-        ROOT / "simulation" / "gazebo" / "calibration" / "gazebo-multirotor-front-camera-v1.json"
+    category = "multirotor" if plan.airframe == "x500_mono_cam" else (_airframe_profile(plan.airframe).category if _airframe_profile(plan.airframe) else "fixed_wing")
+    calibration_name = (
+        "gazebo-multirotor-front-camera-v1.json" if category == "multirotor"
+        else "gazebo-front-camera-v1.json" if category == "vtol"
+        else "gazebo-fixed-wing-front-camera-v1.json"
     )
+    calibration_path = ROOT / "simulation" / "gazebo" / "calibration" / calibration_name
     calibration = json.loads(calibration_path.read_text(encoding="utf-8"))["calibration"]
     command.extend(
         [
@@ -667,6 +712,30 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     ), label
 
 
+class _SmokeFlightPolicy:
+    """Deterministic fixed-wing route used by the real-airframe smoke script."""
+
+    def __init__(self) -> None:
+        self._actions = iter((
+            ActionPrimitive.translate(35.0, 0.0),
+            ActionPrimitive.hold(8.0),
+            ActionPrimitive.translate(0.0, 35.0),
+            ActionPrimitive.turn(90.0),
+            ActionPrimitive.translate(35.0, 0.0),
+            ActionPrimitive.hold(8.0),
+            ActionPrimitive.stop(),
+        ))
+
+    def next_action(self):
+        try:
+            return next(self._actions)
+        except StopIteration:
+            return ActionPrimitive.stop()
+
+    def close(self) -> None:
+        return None
+
+
 def _field(message: Any, name: str, default: object = None) -> object:
     if isinstance(message, dict):
         return message.get(name, default)
@@ -692,6 +761,22 @@ def _state_speed(state: Any) -> float:
     if msg is None:
         return float("inf")
     return math.sqrt(sum(float(_field(msg, key, 0.0)) ** 2 for key in ("vx", "vy", "vz")))
+
+
+def _flight_state_snapshot(state: Any) -> dict[str, Any]:
+    """Copy airframe state fields into progress/episode records."""
+    extended = state.get("EXTENDED_SYS_STATE")
+    hud = state.get("VFR_HUD")
+    airspeed = _field(hud, "airspeed", _field(hud, "airspeed_mps", None))
+    try:
+        airspeed = float(airspeed) if airspeed is not None else None
+    except (TypeError, ValueError):
+        airspeed = None
+    return {
+        "vtol_state": _field(extended, "vtol_state", None),
+        "landed_state": _field(extended, "landed_state", None),
+        "airspeed_mps": airspeed,
+    }
 
 
 def _pose_sim_stamp_ns(state: Any) -> int | None:
@@ -1477,7 +1562,10 @@ def run_episode(
         recorder.mark_finished(status="aborted_low_disk", failure=initial_reason)
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir
-    if plan.teacher == "onboard":
+    if plan.smoke_flight:
+        policy = _SmokeFlightPolicy()
+        task_text = "固定翼/VTOL 冒烟飞行：起飞、转换、盘旋、三次重定位、返航、降落"
+    elif plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
         task_text = _index_task_text(truth_path) or "找到目标并记录位置"
@@ -1512,6 +1600,7 @@ def run_episode(
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
+    recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
     recorder.meta["world_sdf"] = str(world_path) if world_path else None
     recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
@@ -1605,12 +1694,16 @@ def run_episode(
             ):
                 # The helper's contract is deterministic and is embedded in
                 # the command; SensorStreamReader validates it on every frame.
-                model = "x500_mono_cam_0"
+                runtime_model = str(runtime.get("vehicle", {}).get("model", "x500_mono_cam"))
+                model = runtime_model if runtime_model.endswith("_0") else runtime_model + "_0"
+                profile = _airframe_profile(plan.airframe)
+                calibration_file = (
+                    "gazebo-multirotor-front-camera-v1.json" if profile is None or profile.category == "multirotor"
+                    else "gazebo-front-camera-v1.json" if profile.category == "vtol"
+                    else "gazebo-fixed-wing-front-camera-v1.json"
+                )
                 calibration = json.loads(
-                    (
-                        ROOT
-                        / "simulation/gazebo/calibration/gazebo-multirotor-front-camera-v1.json"
-                    ).read_text(encoding="utf-8")
+                    (ROOT / "simulation/gazebo/calibration" / calibration_file).read_text(encoding="utf-8")
                 )["calibration"]
                 depth = next(s for s in runtime["sensors"] if s.get("kind") == "depth_camera")
                 depth_id = depth.get("calibration_id", "gazebo-multirotor-depth-v1")
@@ -1698,24 +1791,22 @@ def run_episode(
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
             start_pos = _state_position(mav_reader.state)
-            setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
-            setpoint_streamer.set_target(
-                start_pos[0],
-                start_pos[1],
-                -altitude_m,
-                _state_yaw(mav_reader.state),
-            )
-            setpoint_streamer.start()
-            _progress("setpoint_streamer_started", rate_hz=20.0)
-            executor = PymavlinkPrimitiveExecutor(
-                vehicle,
-                endpoint=f"udp://127.0.0.1:{plan.telemetry_port}",
-                position=lambda: _state_position(mav_reader.state),
-                yaw_deg=lambda: _state_yaw(mav_reader.state),
-                speed_mps=lambda: _state_speed(mav_reader.state),
-                criterion=None,
-                streamer=setpoint_streamer,
-            )
+            if plan.airframe == "x500_mono_cam":
+                setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
+                setpoint_streamer.set_target(
+                    start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
+                )
+                setpoint_streamer.start()
+                _progress("setpoint_streamer_started", rate_hz=20.0)
+                executor = PymavlinkPrimitiveExecutor(
+                    vehicle,
+                    endpoint=f"udp://127.0.0.1:{plan.telemetry_port}",
+                    position=lambda: _state_position(mav_reader.state),
+                    yaw_deg=lambda: _state_yaw(mav_reader.state),
+                    speed_mps=lambda: _state_speed(mav_reader.state),
+                    criterion=None,
+                    streamer=setpoint_streamer,
+                )
             # Let PX4's commander settle and report healthy before arming.
             # The normal arm command does not bypass these checks.
             prearm_health = _wait_prearm_health(
@@ -1726,67 +1817,93 @@ def run_episode(
             )
             recorder.meta["prearm_health"] = prearm_health
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
-            arm_ack = _arm(
-                telemetry_connection,
-                mav_reader,
-                mavutil,
-                _episode_budget(started, plan.max_episode_s, 30.0),
-                setpoint=setpoint_streamer.send_once,
-                heartbeat_connection=telemetry_connection,
-            )
-            _progress("arm_ack", ack=arm_ack)
-            # Keep a valid climb target streamed at 20 Hz, starting one second before OFFBOARD.
-            setpoint_streamer.set_target(
-                start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
-            )
-            time.sleep(1.0)
-            setpoint_streamer.raise_if_failed()
-            offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
-            last_mode_request = [0.0]
-
-            def _offboard_entered() -> bool:
+            if plan.airframe == "x500_mono_cam":
+                # This is the original x500 sequence. Keep it byte-for-byte
+                # equivalent: setpoints -> arm -> OFFBOARD -> climb.
+                arm_ack = _arm(telemetry_connection, mav_reader, mavutil,
+                               _episode_budget(started, plan.max_episode_s, 30.0),
+                               setpoint=setpoint_streamer.send_once,
+                               heartbeat_connection=telemetry_connection)
+                _progress("arm_ack", ack=arm_ack)
+                setpoint_streamer.set_target(start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state))
+                time.sleep(1.0)
                 setpoint_streamer.raise_if_failed()
-                now = time.monotonic()
-                if now - last_mode_request[0] >= 2.0:
-                    last_mode_request[0] = now
-                    _set_mode(telemetry_connection, "OFFBOARD")
-                hb = mav_reader.state.get("HEARTBEAT")
-                return hb is not None and str(_field(hb, "custom_mode", "")) in offboard_modes
-
-            # The HEARTBEAT seen right after the request still reports the old
-            # mode; only treat a later mode change as an unexpected OFFBOARD exit.
-            _wait_for(
-                _offboard_entered,
-                _episode_budget(started, plan.max_episode_s, 10.0),
-                phase="offboard_entered",
-                health_check=mav_reader.raise_if_failed,
-            )
-            _progress("offboard_entered")
-            last_z_report = [0.0]
-
-            def _takeoff_ready() -> bool:
-                setpoint_streamer.raise_if_failed()
-                hb = mav_reader.state.get("HEARTBEAT")
-                if hb is not None:
-                    mode = str(_field(hb, "custom_mode", ""))
-                    if mode and mode not in {"393216", "OFFBOARD", "OFFBOARD_NED"}:
-                        text = _field(mav_reader.state.get("STATUSTEXT"), "text", "")
-                        raise RuntimeError(
-                            f"OFFBOARD exited unexpectedly: mode={mode}; statustext={text}"
-                        )
-                z = _state_position(mav_reader.state)[2]
-                now = time.monotonic()
-                if now - last_z_report[0] >= 2.0:
-                    last_z_report[0] = now
-                    _progress("takeoff_progress", z_m=z, target_z_m=-altitude_m)
-                return z <= -(altitude_m - 0.5)
-
-            _wait_for(
-                _takeoff_ready,
-                _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
-                phase="takeoff_reached",
-                health_check=mav_reader.raise_if_failed,
-            )
+                offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
+                last_mode_request = [0.0]
+                def _offboard_entered() -> bool:
+                    setpoint_streamer.raise_if_failed()
+                    now = time.monotonic()
+                    if now - last_mode_request[0] >= 2.0:
+                        last_mode_request[0] = now
+                        _set_mode(telemetry_connection, "OFFBOARD")
+                    hb = mav_reader.state.get("HEARTBEAT")
+                    return hb is not None and str(_field(hb, "custom_mode", "")) in offboard_modes
+                _wait_for(_offboard_entered, _episode_budget(started, plan.max_episode_s, 10.0),
+                          phase="offboard_entered", health_check=mav_reader.raise_if_failed)
+                _progress("offboard_entered")
+                last_z_report = [0.0]
+                def _takeoff_ready() -> bool:
+                    setpoint_streamer.raise_if_failed()
+                    hb = mav_reader.state.get("HEARTBEAT")
+                    if hb is not None:
+                        mode = str(_field(hb, "custom_mode", ""))
+                        if mode and mode not in {"393216", "OFFBOARD", "OFFBOARD_NED"}:
+                            text = _field(mav_reader.state.get("STATUSTEXT"), "text", "")
+                            raise RuntimeError(
+                                f"OFFBOARD exited unexpectedly: mode={mode}; STATUSTEXT={text}"
+                            )
+                    z = _state_position(mav_reader.state)[2]
+                    now = time.monotonic()
+                    if now - last_z_report[0] >= 2.0:
+                        last_z_report[0] = now
+                        _progress("takeoff_progress", z_m=z, target_z_m=-altitude_m)
+                    return z <= -(altitude_m - 0.5)
+                _wait_for(_takeoff_ready, _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
+                          phase="takeoff_reached", health_check=mav_reader.raise_if_failed)
+            else:
+                profile = _airframe_profile(plan.airframe)
+                assert profile is not None
+                takeoff_method = "vtol" if profile.category == "vtol" else profile.takeoff.methods[0]
+                landing_method = profile.landing.methods[0]
+                executor = FixedWingVtolExecutor(
+                    vehicle, airframe=profile.id, takeoff_method=takeoff_method,
+                    landing_method=landing_method, altitude_m=altitude_m,
+                    loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
+                    position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
+                )
+                recorder.meta["airframe_profile"] = profile.to_mapping()
+                recorder.meta["takeoff_method"] = takeoff_method
+                recorder.meta["landing_method"] = landing_method
+                if takeoff_method in {"hand", "catapult"}:
+                    recorder.meta["launch_detection"] = "requires external Gazebo impulse; no false success"
+                def _wait_fw_state(phase: str, timeout_s: float) -> bool:
+                    deadline = time.monotonic() + timeout_s
+                    while time.monotonic() < deadline:
+                        mav_reader.raise_if_failed()
+                        state = _flight_state_snapshot(mav_reader.state)
+                        z = _state_position(mav_reader.state)[2]
+                        if phase == "takeoff" and z <= -(altitude_m - 1.0):
+                            return True
+                        if phase == "transition_fw" and state["vtol_state"] in {4, 5}:
+                            return True
+                        if phase == "transition_mc" and state["vtol_state"] in {3, 6}:
+                            return True
+                        if phase == "orbit":
+                            speed = state["airspeed_mps"]
+                            if speed is not None and profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps:
+                                return True
+                        hb_base = _field(mav_reader.state.get("HEARTBEAT"), "base_mode", None)
+                        disarmed = hb_base is not None and (int(hb_base) & 128) == 0
+                        if phase == "land" and (state["landed_state"] == 1 or disarmed):
+                            return True
+                        time.sleep(0.1)
+                    return False
+                executor._wait_for_state = _wait_fw_state
+                arm_ack = executor.arm_and_takeoff(altitude_m)
+                if arm_ack.status != "success":
+                    raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")
+                recorder.record_mavlink({"message_type": "fixed_wing_takeoff_complete", "method": takeoff_method, "ack": arm_ack.ack, "flight_state": _flight_state_snapshot(mav_reader.state)})
+                _progress("takeoff_reached", method=takeoff_method)
             for index in range(plan.steps_per_episode):
                 if index % max(1, plan.disk_check_interval_steps) == 0:
                     reason = disk_space_abort_reason(
@@ -1975,6 +2092,9 @@ def run_episode(
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
+            if plan.airframe != "x500_mono_cam":
+                executor.rtl()
+                _progress("rtl")
             # Give landing its own budget; policy time must not cut teardown short.
             land_result = _land_and_wait(
                 executor,
@@ -1982,6 +2102,7 @@ def run_episode(
                 telemetry_connection,
                 setpoint_streamer,
             )
+            land_result["flight_state"] = _flight_state_snapshot(mav_reader.state)
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
                 recorder.meta["video"] = video_writer.close()
@@ -2086,6 +2207,11 @@ def run_episode(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
+    parser.add_argument(
+        "--airframe", default="x500_mono_cam",
+        help="airframe profile/model id; x500_mono_cam keeps the legacy multirotor path",
+    )
+    parser.add_argument("--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route")
     parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard"), required=True)
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
     parser.add_argument("--deduplicate-depth", action="store_true")
@@ -2166,7 +2292,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     if not scenario.is_file():
         raise SystemExit(f"scenario not found: {scenario}")
     runtime_path, truth_path = _scenario_channels(scenario)
-    _validate_runtime(runtime_path)
+    _airframe_profile(args.airframe)
+    _validate_runtime(runtime_path, args.airframe)
     plan = CollectionPlan(
         str(scenario),
         str(runtime_path),
@@ -2198,6 +2325,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         disk_check_interval_steps=args.disk_check_interval_steps,
         video_hz=args.video_hz,
         video_max_bytes=int(args.video_max_gb * 1024**3),
+        airframe=args.airframe,
+        smoke_flight=args.smoke_flight,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

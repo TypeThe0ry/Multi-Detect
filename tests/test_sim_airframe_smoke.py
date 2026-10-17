@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from scripts import collect_sim_teacher_episodes as collector
+from scripts import smoke_airframe_flight as smoke
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_x500_plan_keeps_legacy_airframe_default() -> None:
+    plan = collector.CollectionPlan("scenario", "runtime", "truth", "explore", 1, 1, 0, "out")
+    assert plan.airframe == "x500_mono_cam"
+
+
+def test_non_multirotor_runtime_is_accepted_for_explicit_airframe() -> None:
+    runtime = ROOT / "configs/scenarios/airframes/advanced_plane_mono_cam_001.runtime.json"
+    data = collector._validate_runtime(runtime, "advanced_plane_mono_cam")
+    assert data["vehicle"]["model"] == "advanced_plane_mono_cam"
+
+
+def test_smoke_plan_has_vtol_transition_and_airframe_speed_gate() -> None:
+    profile = smoke.profile_for("standard_vtol_mono_cam")
+    scenario = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
+    result = smoke.build_plan("standard_vtol_mono_cam", profile, scenario, None)
+    stages = [step["stage"] for step in result["steps"]]
+    assert stages == ["preflight", "takeoff", "transition_fw", "loiter", "reposition", "rtl", "transition_mc", "land"]
+    assert result["frame_alignment"]["max_age_s"] == 0.25
+
+
+def test_smoke_main_dry_run_is_json(capsys) -> None:
+    assert smoke.main(["--airframe", "advanced_plane_mono_cam", "--dry-run"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "dry_run"
+    assert payload["takeoff_method"] == "runway"

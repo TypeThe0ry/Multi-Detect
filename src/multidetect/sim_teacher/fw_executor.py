@@ -9,11 +9,23 @@ methods and record a deterministic command sequence in tests.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from typing import Any
 
 from .executor import ExecutionResult
+from ..onboard_runtime.fw_vtol_commands import (
+    CommandSpec,
+    do_land_start,
+    do_orbit,
+    do_reposition,
+    do_vtol_transition,
+    nav_land,
+    nav_takeoff,
+    nav_vtol_land,
+    nav_vtol_takeoff,
+)
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
 
 
@@ -31,25 +43,46 @@ class FixedWingVtolExecutor:
         loiter_radius_m: float = 80.0,
         ground_speed_mps: float = 15.0,
         criterion: CompletionCriterion | None = None,
+        command_timeout_s: float | None = None,
         position: Callable[[], tuple[float, float, float]] | None = None,
         yaw_deg: Callable[[], float] | None = None,
+        wait_for_state: Callable[[str, float], Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
-        if normalized not in {"fixed_wing", "fw", "vtol"}:
-            raise ValueError("airframe must be fixed_wing or vtol")
+        # Profile IDs are intentionally accepted here so the collector can
+        # pass an airframe profile without a second mode translation layer.
+        if normalized not in {"fixed_wing", "fw", "vtol"} and not any(
+            token in normalized for token in ("plane", "cessna", "vtol", "tiltrotor", "tailsitter")
+        ):
+            raise ValueError("airframe must identify a fixed-wing or VTOL aircraft")
         if altitude_m <= 0 or loiter_radius_m <= 0 or ground_speed_mps <= 0:
             raise ValueError("altitude, loiter radius and ground speed must be positive")
         self.vehicle = vehicle
-        self.airframe = "vtol" if normalized == "vtol" else "fixed_wing"
+        self.airframe = "vtol" if (
+            normalized == "vtol" or "vtol" in normalized or "tiltrotor" in normalized
+            or "tailsitter" in normalized
+        ) else "fixed_wing"
         self.takeoff_method = takeoff_method
         self.landing_method = landing_method
         self.altitude_m = float(altitude_m)
         self.loiter_radius_m = float(loiter_radius_m)
         self.ground_speed_mps = float(ground_speed_mps)
         self.criterion = criterion or CompletionCriterion()
+        if command_timeout_s is not None and (
+            not isinstance(command_timeout_s, (int, float))
+            or not math.isfinite(float(command_timeout_s))
+            or float(command_timeout_s) <= 0
+        ):
+            raise ValueError("command_timeout_s must be positive and finite")
+        self.command_timeout_s = (
+            float(command_timeout_s)
+            if command_timeout_s is not None
+            else min(8.0, self.criterion.timeout_s)
+        )
         self._position = position or (lambda: (0.0, 0.0, -self.altitude_m))
         self._yaw = yaw_deg or (lambda: 0.0)
+        self._wait_for_state = wait_for_state
         self._clock = clock
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
@@ -68,9 +101,144 @@ class FixedWingVtolExecutor:
 
     def _invoke(self, name: str, *args: Any, **kwargs: Any) -> Any:
         method = getattr(self.vehicle, name, None)
-        if not callable(method):
-            raise RuntimeError(f"vehicle lacks {name}()")
-        return method(*args, **kwargs)
+        if callable(method):
+            return method(*args, **kwargs)
+        return self._invoke_command_long(name, *args, **kwargs)
+
+    def _invoke_command_long(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        """Fallback for a raw pymavlink connection without runtime wrappers."""
+        mav = getattr(self.vehicle, "mav", None)
+        if callable(mav):
+            mav = mav()
+        sender = getattr(mav, "command_long_send", None)
+        if not callable(sender):
+            raise RuntimeError(f"vehicle lacks {name}() and COMMAND_LONG sender")
+        timeout_s = float(kwargs.get("timeout_s", self._timeout()))
+        if name == "fw_takeoff":
+            method = str(args[0] if args else kwargs.get("method", "runway")).strip().lower()
+            alt = float(kwargs["alt"])
+            point = kwargs.get("point", (0.0, 0.0))
+            pitch = float(kwargs.get("pitch_deg", 0.0))
+            yaw = float(kwargs.get("yaw_deg", 0.0))
+            spec = nav_vtol_takeoff(alt=alt, pitch_deg=pitch, yaw_deg=yaw, point=point) if method == "vtol" else nav_takeoff(alt=alt, pitch_deg=pitch, yaw_deg=yaw, point=point)
+            return self._send_spec(mav, sender, spec, timeout_s, receiver_owner=self.vehicle)
+        if name == "vtol_transition":
+            target = args[0] if args else kwargs.get("to", "FW")
+            return self._send_spec(mav, sender, do_vtol_transition(target), timeout_s,
+                                   receiver_owner=self.vehicle)
+        if name == "reposition":
+            point = args[0]
+            alt = float(args[1])
+            speed = float(args[2]) if len(args) > 2 else self.ground_speed_mps
+            return self._send_spec(
+                mav, sender,
+                do_reposition(point, alt=alt, ground_speed=speed,
+                              yaw_deg=float(kwargs.get("yaw_deg", 0.0))),
+                timeout_s, receiver_owner=self.vehicle,
+            )
+        if name == "orbit":
+            center = args[0]
+            radius = float(args[1])
+            speed = float(args[2])
+            return self._send_spec(mav, sender, do_orbit(center, radius=radius, speed=speed,
+                                                         alt=kwargs.get("alt")), timeout_s,
+                                   receiver_owner=self.vehicle)
+        if name == "fw_land":
+            method = str(args[0] if args else kwargs.get("method", "runway")).strip().lower()
+            point = kwargs.get("point", (0.0, 0.0))
+            alt = float(kwargs.get("alt", 0.0))
+            if method == "vtol":
+                return self._send_spec(mav, sender, nav_vtol_land(point=point, alt=alt), timeout_s,
+                                       receiver_owner=self.vehicle)
+            start = self._send_spec(mav, sender, do_land_start(), timeout_s,
+                                    receiver_owner=self.vehicle)
+            if not self._ok(start):
+                return start
+            return self._send_spec(mav, sender, nav_land(point=point, alt=alt), timeout_s,
+                                   receiver_owner=self.vehicle)
+        if name == "rtl":
+            return self._send_spec(
+                mav, sender,
+                CommandSpec("MAV_CMD_NAV_RETURN_TO_LAUNCH", 20, (0.0,) * 7),
+                timeout_s,
+                receiver_owner=self.vehicle,
+            )
+        raise RuntimeError(f"vehicle lacks {name}() and no COMMAND_LONG mapping")
+
+    @staticmethod
+    def _send_spec(mav: Any, sender: Any, spec: Any, timeout_s: float,
+                   *, receiver_owner: Any | None = None) -> Any:
+        target_system = int(
+            getattr(mav, "target_system", None)
+            or getattr(receiver_owner, "target_system", None)
+            or 1
+        )
+        target_component = int(
+            getattr(mav, "target_component", None)
+            or getattr(receiver_owner, "target_component", None)
+            or 1
+        )
+        sender(target_system, target_component, int(spec.command), 0, *spec.params)
+        # A raw link may not expose ACK reception.  In that case the send is
+        # still a valid command submission; wrappers with recv_match can
+        # return a concrete COMMAND_ACK and failure status.
+        receiver = getattr(receiver_owner, "recv_match", None)
+        if not callable(receiver):
+            receiver = getattr(mav, "recv_match", None)
+        if not callable(receiver):
+            receiver = getattr(getattr(mav, "_connection", None), "recv_match", None)
+        if not callable(receiver):
+            return type("CommandResult", (), {"status": "sent", "ok": True})()
+        try:
+            ack = receiver(type="COMMAND_ACK", blocking=True, timeout=max(0.0, timeout_s))
+        except (TypeError, OSError):
+            ack = None
+        if ack is None:
+            return type("CommandResult", (), {"status": "timeout", "ok": False,
+                                               "detail": f"COMMAND_ACK timeout for {spec.name}"})()
+        result = getattr(ack, "result", 0)
+        if isinstance(ack, dict):
+            result = ack.get("result", result)
+        ok = int(result or 0) in {0, 1, 2, 3, 4, 5}
+        return type("CommandResult", (), {"status": "accepted" if ok else "failed",
+                                           "ok": ok, "result": result})()
+
+    def _timeout(self) -> float:
+        """Command ACK timeout used for every fixed-wing operation."""
+        return self.command_timeout_s
+
+    def _wait_state(self, phase: str) -> tuple[bool, Any | None]:
+        """Optionally wait for a telemetry state transition.
+
+        Runtime vehicle adapters currently return an ACK and let the caller
+        consume telemetry independently.  Tests and newer adapters may expose
+        ``wait_for_state``; when absent we preserve the historical ACK-only
+        behavior.  A false/timeout result is reported as a failed phase.
+        """
+        if self._wait_for_state is None:
+            return True, None
+        try:
+            result = self._wait_for_state(phase, self._timeout())
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
+            return False, {"error": str(exc), "phase": phase}
+        if result is None or result is True:
+            return True, result
+        if isinstance(result, bool):
+            return result, result
+        ok = getattr(result, "ok", None)
+        if ok is None:
+            ok = getattr(result, "status", "") in {"accepted", "sent", "success", "reached"}
+        return bool(ok), result
+
+    def _failure(self, started: float, *, phase: str, result: Any = None,
+                 reason: str | None = None) -> ExecutionResult:
+        detail = {"phase": phase, "result": result}
+        if reason:
+            detail["reason"] = reason
+        status = getattr(result, "status", None)
+        if status == "timeout" or reason == "timeout":
+            detail["reason"] = "timeout"
+        return ExecutionResult("failed", self._clock() - started, ack=detail)
 
     def arm_and_takeoff(self, altitude_m: float | None = None) -> ExecutionResult:
         started = self._clock()
@@ -79,18 +247,26 @@ class FixedWingVtolExecutor:
             arm = (getattr(self.vehicle, "arm", None)
                    or getattr(self.vehicle, "arducopter_arm", None))
             if callable(arm):
-                arm()
+                arm_result = arm()
+                if not self._ok(arm_result):
+                    return self._failure(started, phase="arm", result=arm_result)
             method = "vtol" if self.airframe == "vtol" else self.takeoff_method
             result = self._invoke("fw_takeoff", method, alt=altitude,
                                   point=self._commanded[:2], pitch_deg=0.0,
-                                  yaw_deg=self._commanded_yaw, timeout_s=0.0)
+                                  yaw_deg=self._commanded_yaw, timeout_s=self._timeout())
             if not self._ok(result):
-                return ExecutionResult("failed", self._clock() - started, ack={"result": result})
+                return self._failure(started, phase="takeoff", result=result)
+            ok, state = self._wait_state("takeoff")
+            if not ok:
+                return self._failure(started, phase="takeoff_state", result=state, reason="timeout")
             if self.airframe == "vtol":
-                transition = self._invoke("vtol_transition", "FW", timeout_s=0.0)
+                transition = self._invoke("vtol_transition", "FW", timeout_s=self._timeout())
                 if not self._ok(transition):
-                    return ExecutionResult("failed", self._clock() - started,
-                                           ack={"takeoff": result, "transition": transition})
+                    return self._failure(started, phase="transition_fw", result=transition)
+                ok, state = self._wait_state("transition_fw")
+                if not ok:
+                    return self._failure(started, phase="transition_fw_state", result=state,
+                                         reason="timeout")
             self._armed = True
             self._commanded = (self._commanded[0], self._commanded[1], -altitude)
             return ExecutionResult("success", self._clock() - started, ack={"takeoff": result})
@@ -104,26 +280,35 @@ class FixedWingVtolExecutor:
         try:
             if action.kind == "hold":
                 result = self._invoke("orbit", origin[:2], self.loiter_radius_m,
-                                      self.ground_speed_mps, alt=-origin[2], timeout_s=0.0)
-                return ExecutionResult("success" if self._ok(result) else "failed",
-                                       self._clock() - started, ack={"orbit": result})
+                                      self.ground_speed_mps, alt=-origin[2],
+                                      timeout_s=self._timeout())
+                if not self._ok(result):
+                    return self._failure(started, phase="orbit", result=result)
+                ok, state = self._wait_state("orbit")
+                if not ok:
+                    return self._failure(started, phase="orbit_state", result=state, reason="timeout")
+                return ExecutionResult("success", self._clock() - started, ack={"orbit": result})
             if action.kind == "stop":
                 return ExecutionResult("success", self._clock() - started)
             if action.kind == "turn":
                 target_yaw = yaw + action.yaw_delta_deg
                 result = self._invoke("reposition", origin[:2], -origin[2],
-                                      self.ground_speed_mps, yaw_deg=target_yaw, timeout_s=0.0)
+                                      self.ground_speed_mps, yaw_deg=target_yaw,
+                                      timeout_s=self._timeout())
+                if not self._ok(result):
+                    return self._failure(started, phase="turn", result=result)
                 self._commanded_yaw = target_yaw
-                return ExecutionResult("success" if self._ok(result) else "failed",
-                                       self._clock() - started, ack={"reposition": result})
+                return ExecutionResult("success", self._clock() - started,
+                                       ack={"reposition": result})
             north, east, down = body_to_ned(action.forward_m, action.right_m,
                                              action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
             result = self._invoke("reposition", target[:2], -target[2],
-                                  self.ground_speed_mps, timeout_s=0.0)
+                                  self.ground_speed_mps, timeout_s=self._timeout())
+            if not self._ok(result):
+                return self._failure(started, phase="reposition", result=result)
             self._commanded = target
-            return ExecutionResult("success" if self._ok(result) else "failed",
-                                   self._clock() - started,
+            return ExecutionResult("success", self._clock() - started,
                                    (north, east, down), ack={"reposition": result})
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
@@ -132,21 +317,34 @@ class FixedWingVtolExecutor:
         method = getattr(self.vehicle, "rtl", None)
         if callable(method):
             method()
+        else:
+            set_mode = getattr(self.vehicle, "set_mode", None)
+            if callable(set_mode):
+                set_mode("RTL")
+            else:
+                self._invoke_command_long("rtl", timeout_s=self._timeout())
         self._armed = False
 
     def land(self) -> ExecutionResult:
         started = self._clock()
         try:
             if self.airframe == "vtol":
-                transition = self._invoke("vtol_transition", "MC", timeout_s=0.0)
+                transition = self._invoke("vtol_transition", "MC", timeout_s=self._timeout())
                 if not self._ok(transition):
-                    return ExecutionResult("failed", self._clock() - started,
-                                           ack={"transition": transition})
+                    return self._failure(started, phase="transition_mc", result=transition)
+                ok, state = self._wait_state("transition_mc")
+                if not ok:
+                    return self._failure(started, phase="transition_mc_state", result=state,
+                                         reason="timeout")
             result = self._invoke("fw_land", self.landing_method, point=self._commanded[:2],
-                                  alt=0.0, timeout_s=0.0)
+                                  alt=0.0, timeout_s=self._timeout())
+            if not self._ok(result):
+                return self._failure(started, phase="land", result=result)
+            ok, state = self._wait_state("land")
+            if not ok:
+                return self._failure(started, phase="land_state", result=state, reason="timeout")
             self._armed = False
-            return ExecutionResult("success" if self._ok(result) else "failed",
-                                   self._clock() - started, ack={"land": result})
+            return ExecutionResult("success", self._clock() - started, ack={"land": result})
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
 
