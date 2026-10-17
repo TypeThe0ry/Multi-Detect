@@ -48,6 +48,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     SensorStreamReader,
     build_observation,
 )
+from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from scripts.run_simulator_docker import build_docker_simulator_plan  # noqa: E402
 
 PINNED_IMAGE = (
@@ -60,6 +61,7 @@ DEFAULT_DEPTH_SIZE = (320, 240)
 DEFAULT_DEPTH_ENCODING = "UINT16_MM"
 DEFAULT_MIN_FREE_GB = 15.0
 DEFAULT_DISK_CHECK_INTERVAL_STEPS = 10
+DEFAULT_VIDEO_MAX_BYTES = 8 * 1024**3
 
 
 class LowDiskSpace(RuntimeError):
@@ -175,6 +177,8 @@ class CollectionPlan:
     onboard_frame_quality: int = 90
     min_free_gb: float = 15.0
     disk_check_interval_steps: int = 10
+    video_hz: float = 0.0
+    video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -1495,6 +1499,11 @@ def run_episode(
         deduplicate_depth=plan.deduplicate_depth,
         compress_mavlink=plan.compress_mavlink,
     )
+    video_writer = (
+        ContinuousVideoWriter(recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes)
+        if plan.video_hz > 0.0
+        else None
+    )
     # Persist the effective per-episode seed/index so a campaign can retry an
     # individual failed recording exactly, even when its next invocation uses a
     # different --episodes value.
@@ -1835,7 +1844,66 @@ def run_episode(
                     labels = {}
                 commanded_delta = primitive_to_ned(action, yaw)[:3]
                 _progress("primitive_start", step=index, action=action.to_dict())
-                result = executor.execute(action)
+                # Optional continuous capture runs during the primitive.  It only
+                # consumes already decoded latest-wins frames and never changes
+                # command timing or policy decisions.
+                action_started = time.monotonic()
+                next_video_s = action_started
+                result = None
+                result_box: list[Any] = []
+                execute_error: list[BaseException] = []
+                def _execute() -> None:
+                    try:
+                        result_box.append(executor.execute(action))
+                    except BaseException as exc:
+                        execute_error.append(exc)
+                execute_thread = threading.Thread(target=_execute, name="sim-teacher-action")
+                execute_thread.start()
+                while execute_thread.is_alive():
+                    now = time.monotonic()
+                    if video_writer is not None and now >= next_video_s:
+                        try:
+                            video_stamp = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                            sensor_reader.request(video_stamp or 0)
+                            sample = sensor_reader.latest
+                            if sample is not None and (video_stamp is None or sample.sensor_stamp_ns >= video_stamp):
+                                aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                                video_obs = _png_observation(build_observation(sample, aligned, camera_info={
+                                    **DEFAULT_CAMERA_INFO,
+                                    "width": plan.rgb_size[0], "height": plan.rgb_size[1],
+                                    "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                                    "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                                    "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                                    "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                                }))
+                                video_obs["flight_stage"] = "action"
+                                video_writer.write(video_obs, action_index=index)
+                        except Exception as exc:
+                            recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                        next_video_s += 1.0 / plan.video_hz
+                    execute_thread.join(timeout=max(0.001, min(0.02, next_video_s - now)))
+                execute_thread.join()
+                if execute_error:
+                    raise execute_error[0]
+                result = result_box[0]
+                if video_writer is not None:
+                    # Ensure the final in-flight frame is represented at the
+                    # primitive boundary when the simulator emitted one.
+                    sample = sensor_reader.latest
+                    if sample is not None:
+                        try:
+                            aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                            final_obs = _png_observation(build_observation(sample, aligned, camera_info={
+                                **DEFAULT_CAMERA_INFO, "width": plan.rgb_size[0], "height": plan.rgb_size[1],
+                                "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                                "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                                "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                                "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                            }))
+                            final_obs["flight_stage"] = "action_end"
+                            video_writer.write(final_obs, action_index=index)
+                        except Exception:
+                            pass
                 primitive_end_ns = time.monotonic_ns()
                 mav_reader.raise_if_failed()
                 _progress(
@@ -1915,6 +1983,8 @@ def run_episode(
                 setpoint_streamer,
             )
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
+            if video_writer is not None:
+                recorder.meta["video"] = video_writer.close()
             recorder.mark_finished(status="complete")
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
@@ -1968,6 +2038,8 @@ def run_episode(
                     connection.close()
                 except Exception:
                     pass
+        if video_writer is not None:
+            recorder.meta["video"] = video_writer.close()
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
@@ -2004,6 +2076,8 @@ def run_episode(
                     pass
         if recorder is not None:
             recorder.close_mavlink_stream()
+        if video_writer is not None:
+            recorder.meta["video"] = video_writer.close()
         recorder.mark_finished(status="failed", failure=f"{type(exc).__name__}: {exc}")
         raise
     return recorder.episode_dir
@@ -2021,6 +2095,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-free-gb", type=float, default=DEFAULT_MIN_FREE_GB)
     parser.add_argument(
         "--disk-check-interval-steps", type=int, default=DEFAULT_DISK_CHECK_INTERVAL_STEPS
+    )
+    parser.add_argument(
+        "--video-hz", type=float, default=0.0,
+        help="continuous RGB/segmentation/depth video rate during actions; 0 disables it",
+    )
+    parser.add_argument(
+        "--video-max-gb", type=float, default=DEFAULT_VIDEO_MAX_BYTES / 1024**3,
+        help="per-episode continuous-video byte cap in GiB",
     )
     parser.add_argument(
         "--onboard-config",
@@ -2063,6 +2145,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
+    if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
+        raise SystemExit("--video-hz must be non-negative and --video-max-gb positive")
     if not 1.0 <= args.timeout_s <= 86400.0:
         raise SystemExit("--timeout-s must be between 1 and 86400 seconds")
     max_episode_s = args.timeout_s if args.max_episode_s is None else args.max_episode_s
@@ -2106,6 +2190,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         onboard_frame_quality=args.onboard_frame_quality,
         min_free_gb=args.min_free_gb,
         disk_check_interval_steps=args.disk_check_interval_steps,
+        video_hz=args.video_hz,
+        video_max_bytes=int(args.video_max_gb * 1024**3),
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
