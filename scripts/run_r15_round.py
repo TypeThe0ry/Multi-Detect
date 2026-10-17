@@ -91,6 +91,35 @@ def distribution(rows: list[dict]) -> dict:
     return {"|".join(key): value for key, value in sorted(stats.items())}
 
 
+def _polarity(row: dict) -> str:
+    decision = (row.get("assistant_target") or {}).get("decision", "unknown")
+    return "positive" if decision in {"confirm_target", "approach_track"} else "negative" if decision == "reject_track" else "other"
+
+
+def top_up_negatives(rows: list[dict], pool: list[dict], max_positive_ratio: float, seed: int = 20261016) -> list[dict]:
+    """Add held-back r12 rejections until the positive share is back under ``max_positive_ratio``.
+
+    New rounds bring mostly positives (r15: small true targets).  r13 showed that
+    tilting the mix toward positives makes the model say "yes" to distractors, so
+    instead of dropping the new positives the replay is topped up with more of
+    r12's own hard negatives that the proportional replay slice left out.
+    """
+    positives = sum(1 for row in rows if _polarity(row) == "positive")
+    negatives = sum(1 for row in rows if _polarity(row) == "negative")
+    if positives / max(1, positives + negatives) <= max_positive_ratio:
+        return rows
+    candidates = [row for row in pool if _polarity(row) == "negative"]
+    random.Random(seed).shuffle(candidates)
+    result = list(rows)
+    for row in candidates:
+        if positives / max(1, positives + negatives) <= max_positive_ratio:
+            break
+        before = len(result)
+        result = merge_without_copies(result, [row])
+        negatives += len(result) - before
+    return result
+
+
 def replay_key(row: dict) -> tuple[str, str, str]:
     decision = (row.get("assistant_target") or {}).get("decision", "unknown")
     side = row.get("candidate_short_side_px")
@@ -364,23 +393,30 @@ def merge_cli(args):
     out = args.merged
     out.mkdir(parents=True, exist_ok=True)
     stats = {}
-    for split in ("train", "val", "test"):
-        base = read_jsonl(args.r12_dataset / f"{split}.jsonl")
-        original_count = len(base)
-        if split == "train" and args.r12_replay_fraction < 1:
-            base = stratified_replay(base, args.r12_replay_fraction, seed=args.seed)
-        added = read_jsonl(args.additions / f"{split}.jsonl")
-        rows = merge_without_copies(base, added)
-        (out / f"{split}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
-        stats[split] = {"r12_original": original_count, "r12_replay": len(base), "r15_additions": len(added), "merged": len(rows), "classes_size_polarity": distribution(rows)}
-    pos = sum(v for k, v in stats["train"]["classes_size_polarity"].items() if k.endswith("|positive"))
-    neg = sum(v for k, v in stats["train"]["classes_size_polarity"].items() if k.endswith("|negative"))
-    ratio = pos / max(1, pos + neg)
     baseline = json.loads((args.r12_dataset / "manifest.json").read_text(encoding="utf-8"))
     baseline_counts = baseline.get("counts", {}).get("train", {}).get("decisions", {})
     baseline_pos = baseline_counts.get("confirm_target", 0) + baseline_counts.get("approach_track", 0)
     baseline_neg = baseline_counts.get("reject_track", 0)
     baseline_ratio = baseline_pos / max(1, baseline_pos + baseline_neg)
+    for split in ("train", "val", "test"):
+        full = read_jsonl(args.r12_dataset / f"{split}.jsonl")
+        base = full
+        original_count = len(base)
+        if split == "train" and args.r12_replay_fraction < 1:
+            base = stratified_replay(base, args.r12_replay_fraction, seed=args.seed)
+        added = read_jsonl(args.additions / f"{split}.jsonl")
+        rows = merge_without_copies(base, added)
+        if split == "train":
+            replayed = {row_key(row) for row in base}
+            rows = top_up_negatives(
+                rows, [row for row in full if row_key(row) not in replayed],
+                baseline_ratio + args.max_positive_ratio_delta / 2, seed=args.seed,
+            )
+        (out / f"{split}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
+        stats[split] = {"r12_original": original_count, "r12_replay": len(base), "r15_additions": len(added), "merged": len(rows), "classes_size_polarity": distribution(rows)}
+    pos = sum(v for k, v in stats["train"]["classes_size_polarity"].items() if k.endswith("|positive"))
+    neg = sum(v for k, v in stats["train"]["classes_size_polarity"].items() if k.endswith("|negative"))
+    ratio = pos / max(1, pos + neg)
     baseline_negative_ratio = baseline_neg / max(1, baseline_pos + baseline_neg)
     merged_negative_ratio = neg / max(1, pos + neg)
     expected_replay_neg = math.ceil(baseline_neg * args.r12_replay_fraction)

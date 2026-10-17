@@ -114,3 +114,16 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
     ] * 2
     # The removal precedes each collector attempt.
     assert [c[0] for c in calls] == ["docker", "docker", "python", "docker", "docker", "python"]
+
+
+def test_merge_tops_up_r12_negatives_instead_of_dropping_new_positives():
+    from scripts.run_r15_round import top_up_negatives
+
+    rows = [row(f"p{i}", "confirm_target", 8) for i in range(6)] + [row(f"n{i}", "reject_track", 20) for i in range(4)]
+    pool = [row(f"r{i}", "reject_track", 10 + i) for i in range(20)] + [row("extra-pos", "confirm_target", 30)]
+    topped = top_up_negatives(rows, pool, 0.41)
+    positives = sum(1 for r in topped if r["assistant_target"]["decision"] == "confirm_target")
+    negatives = sum(1 for r in topped if r["assistant_target"]["decision"] == "reject_track")
+    assert positives == 6  # every new positive kept, none added from the pool
+    assert positives / (positives + negatives) <= 0.41
+    assert len({r["sample_id"] for r in topped}) == len(topped)
