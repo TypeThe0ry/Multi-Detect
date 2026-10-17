@@ -24,19 +24,16 @@ u_fw = (cos(25°), 0, -sin(25°)) = (0.9063, 0, -0.4226)
 
 `standard_vtol_mono_cam` 继续使用已有的 35 度下俯安装；`rc_cessna_mono_cam` 保留原来 0 度前视安装，避免改变既有行为。新固定翼 `advanced_plane_mono_cam` 提供需要下视的相机基准。
 
-`quadtailsitter_mono_cam` 使用机腹挂点，机体姿态为 `pitch=45°、yaw=180°`，因此平飞时光轴为后向下视：
+`quadtailsitter_mono_cam` 的相机安装（2026-10-17 用 Gazebo 实拍图像核实后修正）：PX4 的 quadtailsitter 模型是“立在尾巴上”的，模型 `+Z` 是机头方向。平飞时机身向前俯 90°，模型 `+X` 指向地面、`+Z` 指向前进方向。相机挂点 `0.15 0 0.30`、`pitch=-20°`，光轴是模型 `+X` 向 `+Z` 偏 20°：
 
 ```
-u_body = (-cos(45°), 0, -sin(45°)) = (-0.7071, 0, -0.7071)
+u_model = (cos20°, 0, sin20°) = (0.940, 0, 0.342)
+平飞：向下 0.940、向前 0.342（近乎下视、略看前方，适合搜索）
+悬停：向前 0.940、向上 0.342（看前方、高于地平线 20°，视场下沿仍能看到前方地面）
 ```
 
-tailsitter 悬停时机头上仰 90 度。采用 ENU 中的 `R_y(-90°)`（机体 `+X` 指向世界 `+Z`）后：
-
-```
-u_hover = R_y(-90°) u_body = (0.7071, 0, -0.7071)
-```
-
-所以同一刚性安装在平飞是机腹下视，在悬停是世界前方下视；不在运行时动态改传感器 pose。深度相机与 RGB 同位，分辨率为 1280x960、`R_FLOAT32`、30 Hz。每个新模型都有对应的 `model-overlays/<model>_seg`，额外发布 `/multidetect/teacher/segmentation` 的 instance segmentation，相机内参和光轴与 RGB 一致。
+最初的安装（`pitch=45°、yaw=180°`）在实拍中平飞时大半是天空，已弃用。平飞是搜索的主要阶段，所以优先保证平飞视角；悬停时需要看正下方的任务应使用云台。
+深度相机与 RGB 同位，分辨率为 1280x960、`R_FLOAT32`、30 Hz。每个新模型都有对应的 `model-overlays/<model>_seg`，额外发布 `/multidetect/teacher/segmentation` 的 instance segmentation，相机内参和光轴与 RGB 一致。
 
 ## 起飞方式在 SITL 中的含义
 

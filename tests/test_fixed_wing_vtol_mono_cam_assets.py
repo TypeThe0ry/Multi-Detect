@@ -46,7 +46,7 @@ def test_new_airframe_environment_mapping(
     ("model_name", "px4_model", "pitch_rad"),
     [
         ("advanced_plane_mono_cam", "advanced_plane", math.radians(25)),
-        ("quadtailsitter_mono_cam", "quadtailsitter", math.radians(45)),
+        ("quadtailsitter_mono_cam", "quadtailsitter", math.radians(-20)),
         ("tiltrotor_mono_cam", "tiltrotor", math.radians(25)),
     ],
 )
@@ -76,18 +76,21 @@ def test_new_models_and_segmentation_overlays_are_local_compositions(
     assert "/multidetect/teacher/segmentation" in overlay_text
 
 
-def test_quadtailsitter_camera_axis_is_body_forward_down_and_rotates_with_airframe() -> None:
-    """The fixed belly mount is 45 deg below +X in body coordinates.
+def test_quadtailsitter_camera_looks_down_in_forward_flight() -> None:
+    """PX4's quadtailsitter model stands on its tail: model +Z is the nose.
 
-    At hover the tailsitter body is rotated 90 deg relative to forward flight,
-    so the same rigid optical axis becomes a forward/downward ray in world
-    coordinates instead of silently changing the sensor pose at runtime.
+    In forward flight the body pitches 90 deg nose-down, so model +X points at the
+    ground and model +Z points along the flight path.  The camera's optical axis is
+    model +X tilted 20 deg towards +Z (pitch -20 deg): steeply down and slightly
+    ahead while cruising -- the search phase -- and ahead, 20 deg above the horizon,
+    while hovering.  Verified with rendered frames in Gazebo (2026-10-17).
     """
-    pitch = math.radians(45)
-    # The mount has yaw=pi, so its body-frame ray is rearward/downward.
-    body_axis = (-math.cos(pitch), 0.0, -math.sin(pitch))
-    assert body_axis == pytest.approx((-math.sqrt(0.5), 0.0, -math.sqrt(0.5)))
-    # R_y(-90 deg) is the hover attitude (body nose points up).  In this
-    # convention the same rigid ray is world-forward/downward.
-    hover_axis = (-body_axis[2], 0.0, body_axis[0])
-    assert hover_axis[0] > 0.0 and hover_axis[2] < 0.0
+    pitch = math.radians(-20)
+    # Rotation about +Y maps +X to (cos p, 0, -sin p) in model coordinates.
+    axis_model = (math.cos(pitch), 0.0, -math.sin(pitch))
+    # Forward flight: model +X -> world down, model +Z -> world forward.
+    forward_component, down_component = axis_model[2], axis_model[0]
+    assert down_component > 0.9 and forward_component > 0.3
+    # Hover (standing on the tail): model +X -> world forward, model +Z -> world up.
+    hover_forward, hover_up = axis_model[0], axis_model[2]
+    assert hover_forward > 0.9 and 0.0 < hover_up < 0.4

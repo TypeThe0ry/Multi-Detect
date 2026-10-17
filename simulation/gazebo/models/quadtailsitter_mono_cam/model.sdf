@@ -5,9 +5,9 @@
     <include merge="true">
       <uri>model://mono_cam</uri>
       <!-- Belly mount; 45 degrees below the body +X axis in fixed-wing flight. -->
-      <pose relative_to="base_link">0 0 -0.20 0 0.7853981633974483 3.141592653589793</pose>
+      <pose relative_to="base_link">0.15 0 0.30 0 -0.3490658503988659 0</pose>
     </include>
-    <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>camera_link</child><pose relative_to="base_link">0 0 -0.20 0 0.7853981633974483 3.141592653589793</pose></joint>
+    <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>camera_link</child><pose relative_to="base_link">0.15 0 0.30 0 -0.3490658503988659 0</pose></joint>
     <link name="depth_camera_link">
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <inertial><mass>0.000001</mass><inertia><ixx>0.000000001</ixx><iyy>0.000000001</iyy><izz>0.000000001</izz></inertia></inertial>
