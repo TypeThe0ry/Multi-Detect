@@ -35,3 +35,14 @@ def test_smoke_main_dry_run_is_json(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "dry_run"
     assert payload["takeoff_method"] == "runway"
+
+
+def test_x500_subscribes_to_the_spawned_model_not_the_runtime_airframe_name() -> None:
+    # r15 runtime channels name the abstract airframe; the spawned Gazebo model is x500_mono_cam.
+    runtime = {"vehicle": {"model": "px4_multirotor_standard"}}
+    base = dict(scenario="s.json", runtime="r.json", truth="t.json", teacher="expert_search",
+                episodes=1, steps_per_episode=1, seed=0, out="o")
+    x500 = collector.CollectionPlan(**base)
+    assert collector._gazebo_model_name(x500, runtime) == "x500_mono_cam_0"
+    plane = collector.CollectionPlan(**base, airframe="advanced_plane")
+    assert collector._gazebo_model_name(plane, {"vehicle": {"model": "advanced_plane_mono_cam"}}) == "advanced_plane_mono_cam_0"

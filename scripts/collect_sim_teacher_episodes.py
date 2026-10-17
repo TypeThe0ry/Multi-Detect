@@ -19,7 +19,7 @@ import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -261,6 +261,20 @@ def _airframe_profile(airframe: str) -> AirframeProfile | None:
     raise ValueError(f"unknown airframe profile: {airframe}")
 
 
+def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
+    """Name of the spawned Gazebo model whose sensor topics the collector subscribes to.
+
+    The x500 collector always spawns ``x500_mono_cam``; its runtime channel names the
+    abstract airframe (``px4_multirotor_standard``), not the Gazebo model.  Airframe
+    scenarios name the spawned ``*_mono_cam`` model directly.
+    """
+    if plan.airframe == "x500_mono_cam":
+        return "x500_mono_cam_0"
+    vehicle = runtime.get("vehicle", {}) if isinstance(runtime, Mapping) else {}
+    name = str(vehicle.get("model", plan.airframe)) if isinstance(vehicle, Mapping) else plan.airframe
+    return name if name.endswith("_0") else name + "_0"
+
+
 def _frame_age_limit_s(airframe: str) -> float:
     """Causal frame age budget; high-speed aircraft get the tighter gate."""
     normalized = str(airframe).strip().lower().replace("-", "_")
@@ -347,8 +361,7 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         # frame server requires its contract; fall back to the default binding.
         depth = {}
     world = "default"
-    model_name = str(json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("vehicle", {}).get("model", "x500_mono_cam"))
-    model = model_name if model_name.endswith("_0") else model_name + "_0"
+    model = _gazebo_model_name(plan, json.loads(Path(plan.runtime).read_text(encoding="utf-8")))
     image_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
     camera_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/camera_info"
     navsat_topic = f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
@@ -1946,8 +1959,7 @@ def run_episode(
             if declares_depth or plan.airframe != "x500_mono_cam":
                 # The helper's contract is deterministic and is embedded in
                 # the command; SensorStreamReader validates it on every frame.
-                runtime_model = str(runtime.get("vehicle", {}).get("model", "x500_mono_cam"))
-                model = runtime_model if runtime_model.endswith("_0") else runtime_model + "_0"
+                model = _gazebo_model_name(plan, runtime)
                 profile = _airframe_profile(plan.airframe)
                 calibration_file = (
                     "gazebo-multirotor-front-camera-v1.json" if profile is None or profile.category == "multirotor"
