@@ -146,3 +146,20 @@ def test_initialize_adapter_ignores_frozen_base_weights_but_not_missing_lora(mon
     missing.append("base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight")
     with pytest.raises(ValueError, match="does not match"):
         initialize_adapter("model", adapter)
+
+
+def test_identity_summary_reads_the_metrics_block_and_size_buckets():
+    from scripts.run_r15_round import compare_metrics, identity_summary
+
+    payload = {"metrics": {"identity_accuracy": 0.9, "distractor_rejection_rate": 0.73,
+                           "size_buckets": {"<12": {"true_target_recall": 0.92}}}}
+    assert identity_summary(payload) == {"identity_accuracy": 0.9, "distractor_rejection": 0.73, "under12_recall": 0.92}
+    approved, reasons = compare_metrics(
+        {"v1_identity_accuracy": 0.928, "v1_distractor_rejection": 0.95, "v3_identity_accuracy": 0.785,
+         "v3_under12_recall": 0.46, "v3_distractor_rejection": 0.905},
+        {"v1_identity_accuracy": 0.825, "v1_distractor_rejection": 0.73, "v3_identity_accuracy": 0.901,
+         "v3_under12_recall": 0.92, "v3_distractor_rejection": 0.836},
+    )
+    assert not approved
+    assert any("v1 真实飞行集干扰物拒绝" in r for r in reasons)
+    assert not any("<12 px" in r for r in reasons)  # 46% -> 92% is a real improvement

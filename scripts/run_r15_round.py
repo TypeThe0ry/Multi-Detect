@@ -160,7 +160,20 @@ def compare_metrics(r12: dict, r15: dict) -> tuple[bool, list[str]]:
         reasons.append("v3 干扰物拒绝低于 r12 超过 2 个百分点")
     if r15.get("v1_identity_accuracy", -1) < r12.get("v1_identity_accuracy", 0) - 0.02:
         reasons.append("v1 整体下降超过预设 2 个百分点显著性容忍值")
+    if "v1_distractor_rejection" in r12 and r15.get("v1_distractor_rejection", -1) < r12["v1_distractor_rejection"] - 0.02:
+        reasons.append("v1 真实飞行集干扰物拒绝低于 r12 超过 2 个百分点")
     return not reasons, reasons
+
+
+def identity_summary(payload: dict) -> dict[str, float | None]:
+    """Headline identity metrics from an eval_slow_system JSON (``metrics`` block)."""
+    metrics = payload.get("metrics", payload)
+    under12 = (metrics.get("size_buckets") or {}).get("<12") or {}
+    return {
+        "identity_accuracy": metrics.get("identity_accuracy"),
+        "distractor_rejection": metrics.get("distractor_rejection_rate"),
+        "under12_recall": under12.get("true_target_recall"),
+    }
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -378,11 +391,19 @@ class Round:
             self.a.r12_baseline,
             "artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json",
         )
-        r12 = json.loads(baseline_path.read_text(encoding="utf-8"))
-        v1 = json.loads((self.out / "eval-v1.json").read_text(encoding="utf-8"))
-        v3 = json.loads((self.out / "eval-v3.json").read_text(encoding="utf-8"))
-        old = {"v1_identity_accuracy": self._metric(r12.get("v1", r12), "identity_accuracy", "accuracy"), "v3_identity_accuracy": self._metric(r12.get("v3", r12), "identity_accuracy", "accuracy"), "v3_under12_recall": self._metric(r12.get("v3", r12), "under12_recall", "<12_recall"), "v3_distractor_rejection": self._metric(r12.get("v3", r12), "distractor_rejection", "rejection")}
-        new = {"v1_identity_accuracy": self._metric(v1, "identity_accuracy", "accuracy"), "v3_identity_accuracy": self._metric(v3, "identity_accuracy", "accuracy"), "v3_under12_recall": self._metric(v3, "under12_recall", "<12_recall"), "v3_distractor_rejection": self._metric(v3, "distractor_rejection", "rejection")}
+        r12_v3 = identity_summary(json.loads(baseline_path.read_text(encoding="utf-8")))
+        v1_baseline_path = self.data_path(
+            self.a.r12_v1_baseline, "artifacts/benchmarks/flight-identity-eval-v1-r12.json"
+        )
+        r12_v1 = identity_summary(json.loads(v1_baseline_path.read_text(encoding="utf-8")))
+        v1 = identity_summary(json.loads((self.out / "eval-v1.json").read_text(encoding="utf-8")))
+        v3 = identity_summary(json.loads((self.out / "eval-v3.json").read_text(encoding="utf-8")))
+        old = {"v1_identity_accuracy": r12_v1["identity_accuracy"], "v1_distractor_rejection": r12_v1["distractor_rejection"],
+               "v3_identity_accuracy": r12_v3["identity_accuracy"], "v3_under12_recall": r12_v3["under12_recall"],
+               "v3_distractor_rejection": r12_v3["distractor_rejection"]}
+        new = {"v1_identity_accuracy": v1["identity_accuracy"], "v1_distractor_rejection": v1["distractor_rejection"],
+               "v3_identity_accuracy": v3["identity_accuracy"], "v3_under12_recall": v3["under12_recall"],
+               "v3_distractor_rejection": v3["distractor_rejection"]}
         approved, reasons = compare_metrics({k: (v if v is not None else 0) for k, v in old.items()}, {k: (v if v is not None else -1) for k, v in new.items()})
         lines = ["# r15 慢模型分层验收报告", "", "## 总体判定", "", f"**{'建议替换 r12' if approved else '暂不替换 r12'}**。", ""]
         if reasons:
@@ -466,6 +487,7 @@ def main():
     p.add_argument("--min-free-gb", type=float, default=30)
     p.add_argument("--min-free-memory-gb", type=float, default=4)
     p.add_argument("--r12-baseline", type=Path, default=ROOT / "artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json")
+    p.add_argument("--r12-v1-baseline", type=Path, default=ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r12.json")
     p.add_argument("--r12-adapter", type=Path, default=Path("D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter"))
     p.add_argument("--hot-start", action=argparse.BooleanOptionalAction, default=True, help="默认从 r12 LoRA adapter 热启动；--no-hot-start 从零初始化")
     p.add_argument("--r12-replay-fraction", type=float, default=0.25)
