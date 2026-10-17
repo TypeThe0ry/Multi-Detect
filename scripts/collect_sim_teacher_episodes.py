@@ -434,7 +434,12 @@ def _apply_gazebo_launch(
         f"case \"$topics\" in *{clear_topic}* ) ;; *) echo 'missing {clear_topic}' >&2; exit 21;; esac; "
         f"gz topic -t {topic} -m gz.msgs.EntityWrench -p \"$MD_WRENCH\" & "
         f"(sleep {force['duration_s']:.3f}; gz topic -t {clear_topic} -m gz.msgs.Entity -p \"$MD_CLEAR\") & "
-        "wait"
+        "wait; "
+        # Under load the delayed clear can reach Gazebo before the slower pulse
+        # publisher does, leaving the force on for good (the aircraft ran away to
+        # 3.5 km).  Both publishers have finished here, so this clear always lands
+        # after the pulse.
+        f"gz topic -t {clear_topic} -m gz.msgs.Entity -p \"$MD_CLEAR\""
     )
     started_wall = time.time()
     started_mono = time.monotonic()

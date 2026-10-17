@@ -82,6 +82,8 @@ def test_launch_force_uses_one_persistent_topic_exec_and_clear(monkeypatch) -> N
     assert "/world/default/wrench/persistent" in script and "/world/default/wrench/clear" in script
     # The pulse and the delayed clear start together, so start-up cost cancels out.
     assert '& (sleep 0.250; gz topic -t /world/default/wrench/clear' in script
+    # A final clear after both publishers finish, so the force can never stay on.
+    assert script.rstrip().endswith('gz topic -t /world/default/wrench/clear -m gz.msgs.Entity -p "$MD_CLEAR"')
     assert result["force_n"] == 81.6
 
 
