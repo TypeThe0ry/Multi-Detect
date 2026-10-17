@@ -370,7 +370,12 @@ class Round:
                             # WDDM lists every desktop app as a GPU process with N/A memory;
                             # our own GPU jobs are still serialized by the model-round GPU lock.
                             "--force"]
-            self.run("eval_planning", planning_cmd, estimate="约 1-2 小时", disk="约 1 GiB", outputs=(planning_summary,))
+            try:
+                self.run("eval_planning", planning_cmd, estimate="约 1-2 小时", disk="约 1 GiB", outputs=(planning_summary,))
+            except RuntimeError as exc:
+                # Planning runs on r14, not on this identity model; a failed or invalid
+                # planning run is recorded but does not block the identity report.
+                print(f"[eval_planning] 未通过（不影响身份判定）：{exc}")
         if self.a.stage in ("all", "report"):
             self.guards("report")
             self.write_report()
