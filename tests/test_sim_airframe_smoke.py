@@ -151,3 +151,12 @@ def test_onboard_policy_flies_the_collector_airframe() -> None:
     assert collector._onboard_airframe_id(collector.CollectionPlan(**base)) is None
     assert collector._onboard_airframe_id(
         collector.CollectionPlan(**base, airframe="advanced_plane_mono_cam")) == "advanced_plane"
+
+
+def test_confuser_teacher_flies_to_a_look_alike_chosen_by_seed() -> None:
+    truth = Path("configs/scenarios/generated-r15/gen_r15_w0003.truth.json")
+    true_pos, true_label = collector._truth_target(truth)
+    picks = {collector._truth_target(truth, select="confuser", seed=s)[1] for s in range(4)}
+    assert true_label == "backpack bag"
+    assert picks and true_label not in picks  # only look-alikes, never the true target
+    assert len(picks) > 1  # different seeds visit different confusers

@@ -292,7 +292,7 @@ class Round:
                     continue
                 worker = idx % self.a.workers
                 target = self.a.episodes / world / f"ep-{idx}"
-                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--segmentation", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--timeout-s", "900", "--max-episode-s", "900", "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--out", str(target)]
+                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--segmentation", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--timeout-s", "900", "--max-episode-s", "900", "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--teacher-target", self.a.teacher_target, "--out", str(target)]
                 jobs.append((key, cmd, target))
                 print(f"[collect] {key} -> worker {worker}; 失败最多重试 {self.a.retries} 次；命令：\n  {subprocess.list2cmdline(cmd)}")
         print("[collect] 总预算：约 40-55 分钟（2 worker，40 episodes，400 steps/episode）；磁盘约 7.5 GiB；总内存门控每个 worker 共用系统阈值")
@@ -497,6 +497,8 @@ def main():
     p.add_argument("--workers", type=int, default=R15_WORKERS)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--retries", type=int, default=3)
+    p.add_argument("--teacher-target", choices=("true", "confuser"), default="true",
+                   help="collect true-target flights or look-alike confuser flights (hard negatives)")
     p.add_argument("--merge-only", action="store_true")
     p.add_argument("--additions", type=Path)
     p.add_argument("--merged", type=Path)

@@ -208,6 +208,8 @@ class CollectionPlan:
     video_hz: float = 0.0
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
+    # "true": fly to the true target; "confuser": fly to a look-alike (hard negatives).
+    teacher_target: str = "true"
     smoke_flight: bool = False
     takeoff_method: str | None = None
 
@@ -911,10 +913,29 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
 def _truth_target(
     truth_path: Path,
     origin: tuple[float, float, float] = (1.352100, 103.819800, 18.0),
+    *,
+    select: str = "true",
+    seed: int = 0,
 ) -> tuple[tuple[float, float, float], str]:
+    """Where the expert teacher flies: the true target, or (``select="confuser"``)
+    one of the look-alike confusers placed next to it, picked by ``seed``.
+
+    Confuser flights keep the episode's task text (find the true target), so the
+    frames become hard negatives: a similar object seen up close that is not it.
+    """
     data = json.loads(truth_path.read_text(encoding="utf-8"))
     targets = data.get("targets", []) if isinstance(data, dict) else []
     target = targets[0] if isinstance(targets, list) and targets else {}
+    if select == "confuser":
+        confusers = [
+            t for t in targets
+            if isinstance(t, dict) and not t.get("true_target") and str(t.get("target_id", "")).startswith("confuser_")
+        ]
+        if not confusers:
+            raise ValueError(f"{truth_path.name} has no confuser to fly to")
+        target = confusers[seed % len(confusers)]
+    elif select != "true":
+        raise ValueError(f"unknown teacher target: {select}")
     label = str(target.get("label", "target")) if isinstance(target, dict) else "target"
     position = target.get("position", {}) if isinstance(target, dict) else {}
     if not isinstance(position, dict):
@@ -1032,7 +1053,9 @@ def _wait_motion_command(command: Any, reader: MavlinkReader, *, cruise_mps: flo
 def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     if plan.teacher == "explore":
         return ExplorePolicy(seed=seed, bounds=ExploreBounds())
-    target, label = _truth_target(truth_path, _scenario_origin(plan))
+    target, label = _truth_target(
+        truth_path, _scenario_origin(plan), select=plan.teacher_target, seed=seed
+    )
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
     obstacles = load_sdf_obstacles(scenario_world_path(plan.runtime) or "")
     return ExpertSearchPolicy(
@@ -3071,6 +3094,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route")
     parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard", "hover"), required=True)
+    parser.add_argument(
+        "--teacher-target", choices=("true", "confuser"), default="true",
+        help="expert_search flies to the true target or to a look-alike confuser (hard negatives)",
+    )
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
     parser.add_argument("--deduplicate-depth", action="store_true")
     parser.add_argument("--compress-mavlink", action="store_true")
@@ -3184,6 +3211,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_hz=args.video_hz,
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
+        teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
     )
