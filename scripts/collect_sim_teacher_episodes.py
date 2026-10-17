@@ -2112,6 +2112,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
+    parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
+    parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
@@ -2177,6 +2180,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         max_episode_s=max_episode_s,
         heartbeat_timeout_s=args.heartbeat_timeout_s,
         keep_container_on_failure=args.keep_container_on_failure,
+        container_prefix=args.container_prefix,
+        control_port=args.control_port,
+        telemetry_port=args.telemetry_port,
         rgb_size=args.rgb_size,
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,

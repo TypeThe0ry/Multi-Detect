@@ -257,6 +257,32 @@ def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
     temporary.replace(checkpoint / "state.json")
 
 
+def resolve_adapter_weights(path: Path) -> Path:
+    """Resolve an HF/PEFT adapter directory or direct safetensors file."""
+    candidate = path / "adapter_model.safetensors" if path.is_dir() else path
+    if not candidate.is_file():
+        raise FileNotFoundError(f"adapter weights not found: {candidate}")
+    return candidate
+
+
+def initialize_adapter(model, adapter_path: Path) -> None:
+    """Load r12 adapter tensors into a freshly-created, same-rank LoRA model."""
+    from peft import set_peft_model_state_dict
+    from safetensors.torch import load as load_safetensors
+
+    weights_path = resolve_adapter_weights(adapter_path)
+    weights = load_safetensors(weights_path.read_bytes())
+    result = set_peft_model_state_dict(model, weights)
+    unexpected = getattr(result, "unexpected_keys", None) or []
+    missing = getattr(result, "missing_keys", None) or []
+    del weights
+    if unexpected or missing:
+        raise ValueError(
+            f"initial adapter does not match current LoRA target/rank: "
+            f"unexpected={unexpected[:3]}, missing={missing[:3]}"
+        )
+
+
 def run(args, *, backend_factory=make_backend) -> dict:
     options = TrainOptions(
         epochs=args.epochs, max_steps=args.max_steps, accumulation=args.accumulation,
@@ -281,6 +307,8 @@ def run(args, *, backend_factory=make_backend) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     torch, model, processor, targets, quantization = backend_factory(snapshot, options)
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=options.learning_rate)
+    if getattr(args, "init_adapter", None) and not args.resume:
+        initialize_adapter(model, Path(args.init_adapter))
     state = {"epoch": 0, "cursor": 0, "optimizer_steps": 0, "dataset_sha256": dataset_sha256,
              "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "snapshot": str(snapshot)}
     if args.resume:
@@ -431,6 +459,7 @@ def main(argv=None) -> int:
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
     parser.add_argument("--balance", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--init-adapter", type=Path, default=None, help="initialize LoRA weights from an existing PEFT adapter; optimizer starts fresh")
     args = parser.parse_args(argv)
     print(json.dumps(run(args), indent=2, sort_keys=True))
     return 0
