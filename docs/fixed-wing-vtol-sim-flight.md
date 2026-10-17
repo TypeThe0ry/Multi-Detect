@@ -14,13 +14,36 @@ MAVLink 遥测和相机帧仍按 PX4 仿真时间对齐。
 
 ## 降落流程
 
-固定翼（`advanced_plane`、`rc_cessna_runway`）返航后不会重复发送多旋翼
-`LAND` 命令。采集器根据当前高度和 `FW_LND_ANG`（代码默认 5 度；主线程
-可在 SITL 参数中核对）计算下滑距离，在跑道入口反向生成进近航点，然后在
-同一条 telemetry/GCS 连接上上传三个 `MISSION_ITEM_INT`：进近航点、
-`DO_LAND_START`、`NAV_LAND`。上传完成后切换 `AUTO.MISSION`，等待
-`EXTENDED_SYS_STATE.landed_state == 1`，并记录空速、着陆状态和失败原因。
+固定翼（`advanced_plane`、`rc_cessna_runway`）的降落顺序是：
+
+1. 先 RTL，等飞机回到 home 附近（`2 × 盘旋半径 + 50 m` 以内，最多 300 s）；
+2. 在 home 的跑道上直线进近降落：着陆点就是 home，跑道方向取 PX4
+   `HOME_POSITION` 里的航向（PX4 在解锁时记下机头方向，滑跑起飞就等于跑道方向）；
+3. 上传三项任务：`DO_LAND_START`（`MAV_FRAME_MISSION`，固定版本的 PX4 不接受全局坐标系的这一项）、
+   在跑道反方向、离 home 至少 `盘旋半径 + 1.3 × 20 m / tan(下滑角)`（且不少于 250 m）处
+   `NAV_LOITER_TO_ALT` 盘旋降到 20 m、`NAV_LAND` 落在 home；
+4. 切 `AUTO.MISSION`。PX4 刚收到任务时会先校验，太早切换会回“currently not available”，
+   所以一直重试到心跳显示 `AUTO.MISSION`（最多 15 s）；
+5. 等 `EXTENDED_SYS_STATE.landed_state == 1` 或已上锁。若 30 s 收不到心跳，
+   直接报“遥测中断”（多半是仿真被本机负载卡死），不再空等 420 s。
+
+**没有测距仪的降落参数**：飞机只有单目相机、没有测距仪。PX4 默认
+`FW_LND_USETER=1`、`FW_LND_ABORT=3`，找不到地形就中止降落，并在
+`MIS_LND_ABRT_ALT`（30 m）上空盘旋（日志 “Holding at 30 m above landing waypoint”）。
+固定翼机型档案的 `landing.parameters` 因此写入 `FW_LND_USETER=0`、`FW_LND_ABORT=0`，
+采集器在 SITL 里按档案下发；真机也必须这样设置，拉平高度按 GPS/气压高度判断。
 机腹降落使用相同的任务协议，只改变档案中的着陆方法。
+
+**坐标约定**：策略和执行器都用本地 NED（米）。PX4 通过 `COMMAND_LONG` 收到的
+`DO_REPOSITION`/`DO_ORBIT`/`NAV_TAKEOFF`/`NAV_LAND` 位置是 WGS84 经纬度和
+**海拔（AMSL）**高度。`local_ned_to_global` 以 PX4 home（经纬度、海拔、本地坐标）为锚点换算；
+没有 home 的地理坐标时命令直接失败，不会把“米”当成“度”发出去。此前的仿真冒烟
+把本地米数直接当经纬度、把相对高度当海拔发送，只因 Gazebo 世界海拔约为 0 才没坠机，
+重定位实际飞向几千公里外——已修复，冒烟判定也新增“不得飞出 1.5 km 范围”。
+
+已在真实 PX4/Gazebo SITL 验证（2026-10-17，`advanced_plane` 滑跑）：起飞、盘旋空速
+14.6–14.9 m/s（档案范围内）、RTL、在 home 跑道降落并检测到着地（“Landing detected”/
+“Mission finished, landed”），全程最远离 home 325 m，帧与位姿时间对齐。
 
 VTOL 返航后先发 `MAV_CMD_DO_VTOL_TRANSITION(param1=3)`，等待
 `vtol_state == MC`，再发 `NAV_VTOL_LAND`，最后等待地面状态。转换和着陆
