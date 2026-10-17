@@ -129,6 +129,7 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
+RTL_MODE_CONFIRM_S = 10.0
 MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
@@ -1845,6 +1846,24 @@ def _land_and_wait(
     )
 
 
+def _wait_px4_mode(reader: MavlinkReader, mode: tuple[int, int], *, timeout_s: float,
+                   after_ns: int) -> dict[str, Any]:
+    """Wait for a HEARTBEAT newer than ``after_ns`` reporting PX4 (main, sub) mode."""
+    started = time.monotonic()
+    last: tuple[int, int] | None = None
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        heartbeat = reader.state.get("HEARTBEAT")
+        received = getattr(reader.state, "received_monotonic_ns", {}).get("HEARTBEAT", -1)
+        custom = _field(heartbeat, "custom_mode", None) if heartbeat is not None else None
+        if custom is not None and received >= after_ns:
+            last = _px4_mode_pair(int(custom))
+            if last == tuple(mode):
+                return {"confirmed": True, "mode": list(last), "elapsed_s": time.monotonic() - started}
+        time.sleep(0.1)
+    return {"confirmed": False, "mode": list(last) if last else None, "elapsed_s": time.monotonic() - started}
+
+
 def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float) -> dict[str, Any]:
     """Wait until the local position is within ``radius_m`` of home (horizontal)."""
     started = time.monotonic()
@@ -2801,13 +2820,23 @@ def run_episode(
             mav_reader.raise_if_failed()
             _progress("land")
             if plan.airframe != "x500_mono_cam":
+                rtl_started_ns = time.monotonic_ns()
                 executor.rtl()
-                _progress("rtl")
+                # Confirm PX4 is really in AUTO.RTL before anything else is sent:
+                # otherwise the landing mission upload races the mode change and
+                # PX4 may skip RTL ("No valid mission available").
+                rtl_mode = _wait_px4_mode(mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S,
+                                          after_ns=rtl_started_ns)
+                if not rtl_mode["confirmed"]:
+                    executor.rtl()
+                    rtl_mode = _wait_px4_mode(mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S,
+                                              after_ns=time.monotonic_ns())
+                recorder.meta["rtl_mode"] = rtl_mode
+                _progress("rtl", **rtl_mode)
                 profile = _airframe_profile(plan.airframe)
-                if profile is not None and profile.category == "fixed_wing":
+                if profile is not None and profile.category in {"fixed_wing", "vtol"}:
                     # Let RTL bring the aircraft back over home before the landing
-                    # mission replaces it; switching straight away races PX4's
-                    # mission validation and starts the approach from far out.
+                    # (mission or VTOL back-transition) replaces it.
                     _progress("rtl_home", **_wait_near_home(
                         mav_reader, radius_m=2.0 * profile.orbit_radius() + 50.0,
                         timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],

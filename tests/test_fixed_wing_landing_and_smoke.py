@@ -199,3 +199,17 @@ def test_command_ack_wait_survives_a_later_ack_for_another_command():
     state.received_monotonic_ns["COMMAND_ACK"] = stamp
     link = collector._ReaderAckLink(SimpleNamespace(), SimpleNamespace(state=state))
     assert link.wait_command_ack(3000, 0.2) == {"command": 3000, "result": 0}
+
+
+def test_rtl_is_confirmed_from_a_fresh_heartbeat_before_landing():
+    import time as _time
+
+    state = _State()
+    reader = SimpleNamespace(state=state, raise_if_failed=lambda: None)
+    after = _time.monotonic_ns()
+    # A stale RTL heartbeat from before the request does not count.
+    state.messages["HEARTBEAT"] = {"custom_mode": (4 << 16) | (5 << 24)}
+    state.received_monotonic_ns["HEARTBEAT"] = after - 1
+    assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is False
+    state.received_monotonic_ns["HEARTBEAT"] = after + 1
+    assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is True
