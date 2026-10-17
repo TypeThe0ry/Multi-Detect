@@ -333,6 +333,10 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
     )
     if not rgb:
         raise RuntimeError("scenario has no RGB camera")
+    if depth is None and plan.airframe != "x500_mono_cam":
+        # Every *_mono_cam airframe model carries the registered depth camera, and the
+        # frame server requires its contract; fall back to the default binding.
+        depth = {}
     world = "default"
     model_name = str(json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("vehicle", {}).get("model", "x500_mono_cam"))
     model = model_name if model_name.endswith("_0") else model_name + "_0"
