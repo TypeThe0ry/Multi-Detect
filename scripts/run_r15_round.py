@@ -328,7 +328,7 @@ class Round:
             self.run("train", cmd, estimate="约 1.5-3 小时：r12 训练日志 8042 s/2696 steps、r14 7687 s/2858 steps（约2.7-3.0 s/optimizer step），r12 热启动 + 25% 分层 replay + 1 epoch", disk="至少 30 GiB 可用", outputs=(self.out / "adapter" / "checkpoint" / "state.json",))
         if self.a.stage in ("all", "export"):
             self.guards("export")
-            cmd = [sys.executable, "scripts/export_slow_system_r15.py", "--base", str(self.a.model), "--adapter", str(self.out / "adapter"), "--output", str(self.out / "merged-gguf"), "--quantization", "Q5_K_M"]
+            cmd = [sys.executable, "scripts/export_slow_system_r15.py", "--base", str(self.a.model), "--adapter", str(self.out / "adapter" / "adapter"), "--output", str(self.out / "merged-gguf"), "--quantization", "Q5_K_M"]
             self.run("export", cmd, estimate="约 1-3 小时（合并及量化）", disk="至少 15 GiB 临时空间", outputs=(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf",))
         if self.a.stage in ("all", "eval"):
             self.guards("eval")
