@@ -87,10 +87,18 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
     airspeeds: list[float] = []
     rtl_entered = False
     landed = False
+    airborne = False
+    horizontal: list[float] = []
     aligned: list[bool] = []
     for row in mavlink:
         kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
         if kind == "LOCAL_POSITION_NED":
+            x, y = _mav_value(row, "x"), _mav_value(row, "y")
+            if x is not None and y is not None:
+                try:
+                    horizontal.append(math.hypot(float(x), float(y)))
+                except (TypeError, ValueError):
+                    pass
             z = _mav_value(row, "z")
             if z is not None:
                 try:
@@ -104,17 +112,26 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
             except (TypeError, ValueError):
                 pass
             try:
-                landed = landed or int(_mav_value(row, "landed_state")) == 1
+                landed_state = int(_mav_value(row, "landed_state"))
             except (TypeError, ValueError):
-                pass
+                landed_state = None
+            # MAV_LANDED_STATE: 1 on ground, 2 in air.  Only a touchdown after
+            # flight counts; the aircraft also sits on the ground before takeoff.
+            airborne = airborne or landed_state == 2
+            landed = landed or (airborne and landed_state == 1)
         if kind == "VFR_HUD":
             try:
                 airspeeds.append(float(_mav_value(row, "airspeed")))
             except (TypeError, ValueError):
                 pass
         if kind == "HEARTBEAT":
-            mode = str(_mav_value(row, "custom_mode", _mav_value(row, "mode", ""))).upper()
-            rtl_entered = rtl_entered or "RTL" in mode or "RETURN" in mode
+            raw_mode = _mav_value(row, "custom_mode", _mav_value(row, "mode", ""))
+            if isinstance(raw_mode, int) and not isinstance(raw_mode, bool):
+                # PX4 custom_mode: main mode in bits 16-23, sub mode in 24-31; AUTO.RTL = (4, 5).
+                rtl_entered = rtl_entered or ((raw_mode >> 16) & 0xFF, (raw_mode >> 24) & 0xFF) == (4, 5)
+            else:
+                mode = str(raw_mode).upper()
+                rtl_entered = rtl_entered or "RTL" in mode or "RETURN" in mode
         if kind == "collector_landing_complete":
             state = row.get("flight_state", {})
             landed = landed or state.get("landed_state") == 1 or row.get("status") == "landed"
@@ -179,7 +196,11 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         "transition_success": transition_success,
         "loiter_airspeed_in_range": in_range,
         "loiter_airspeed_mps": measured_speeds,
+        # Guided fixed-wing commands return on PX4's ACK, so the per-step deltas
+        # are short-horizon samples, not route accuracy.
         "reposition_error_m": reposition_errors,
+        "max_distance_from_origin_m": max(horizontal) if horizontal else None,
+        "stayed_in_area": bool(horizontal) and max(horizontal) <= MAX_SMOKE_RANGE_M,
         "rtl_entered": rtl_entered,
         "rtl_success": rtl_entered,
         "landed": landed,
@@ -203,6 +224,9 @@ SCENARIO_ALIASES = {
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
 }
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
+# The smoke route spans a few hundred metres; a guided command sent with wrong
+# coordinates sends the aircraft far beyond this.
+MAX_SMOKE_RANGE_M = 1500.0
 
 
 def profile_for(airframe: str, takeoff_method: str | None = None) -> AirframeProfile:
@@ -318,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
         result["judgement"].update(parsed)
         required = ("takeoff_success", "transition_success", "loiter_airspeed_in_range",
-                    "rtl_entered", "landed", "frames_aligned")
+                    "rtl_entered", "landed", "frames_aligned", "stayed_in_area")
         result["status"] = "pass" if completed.returncode == 0 and all(
             result["judgement"].get(field) is True for field in required
         ) else "fail"

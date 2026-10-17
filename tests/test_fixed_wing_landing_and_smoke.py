@@ -133,9 +133,11 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
     (tmp_path / "episode.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")
     rows = [
-        {"message_type": "LOCAL_POSITION_NED", "z": -8.0},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1, "vtol_state": 0},
+        {"message_type": "LOCAL_POSITION_NED", "x": 300.0, "y": 400.0, "z": -8.0},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 2, "vtol_state": 0},
         {"message_type": "VFR_HUD", "airspeed": 15.0},
-        {"message_type": "HEARTBEAT", "custom_mode": "AUTO.RTL"},
+        {"message_type": "HEARTBEAT", "custom_mode": (4 << 16) | (5 << 24)},
         {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1, "vtol_state": 0},
     ]
     (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
@@ -150,6 +152,22 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     assert result["rtl_entered"] is True
     assert result["landed"] is True
     assert result["reposition_error_m"] == [1.0]
+    assert result["max_distance_from_origin_m"] == 500.0 and result["stayed_in_area"] is True
+
+
+def test_smoke_evaluation_needs_touchdown_after_flight_and_a_real_rtl(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
+    rows = [
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1, "vtol_state": 0},
+        {"message_type": "LOCAL_POSITION_NED", "x": 0.0, "y": 4.0e6, "z": -30.0},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 2, "vtol_state": 0},
+        {"message_type": "HEARTBEAT", "custom_mode": (4 << 16) | (3 << 24)},
+    ]
+    (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    result = evaluate_episode(tmp_path, profile, 5.0)
+    assert result["landed"] is False  # on the ground only before takeoff
+    assert result["rtl_entered"] is False  # AUTO.LOITER is not RTL
+    assert result["stayed_in_area"] is False
 
 
 def test_fixed_wing_profiles_disable_terrain_abort_without_rangefinder():

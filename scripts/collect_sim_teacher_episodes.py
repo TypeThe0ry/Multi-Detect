@@ -121,6 +121,8 @@ LAND_DIAGNOSTIC_INTERVAL_S = 5.0
 FIXED_WING_LANDING_GLIDE_ANGLE_DEG = 5.0
 FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
+MAV_FRAME_MISSION = 2
+LANDING_TELEMETRY_STALE_S = 30.0
 MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
@@ -1298,6 +1300,21 @@ def _global_position(state: Any) -> tuple[float, float]:
     return float(lat) / scale, float(lon) / scale
 
 
+def _home_reference(state: Any) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """PX4 home as ((lat, lon, amsl), local NED) for local-to-global command conversion."""
+    home = state.get("HOME_POSITION")
+    if home is None:
+        raise RuntimeError("PX4 HOME_POSITION is not ready")
+    try:
+        geodetic = (float(_field(home, "latitude", None)) / 1e7,
+                    float(_field(home, "longitude", None)) / 1e7,
+                    float(_field(home, "altitude", None)) / 1e3)
+        local = tuple(float(_field(home, key, None)) for key in ("x", "y", "z"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"PX4 HOME_POSITION is incomplete: {exc}") from exc
+    return geodetic, local
+
+
 def _home_runway(state: Any) -> tuple[tuple[float, float], float]:
     """Touchdown point and runway heading (deg, NED) from PX4 HOME_POSITION.
 
@@ -1396,11 +1413,10 @@ def _upload_fixed_wing_landing_mission(
     def latlon(point: tuple[float, float]) -> tuple[int, int]:
         return round(point[0] * 1e7), round(point[1] * 1e7)
 
-    # (frame, command, param1..4, x, y, z).  DO_LAND_START carries the approach
-    # position so PX4 can also choose this landing for RTL.
+    # (frame, command, param1..4, x, y, z).  The pinned PX4 rejects DO_LAND_START
+    # in a global frame (MAV_MISSION_UNSUPPORTED); it is a MAV_FRAME_MISSION marker.
     items = [
-        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0,
-         *latlon(approach), 0.0),
+        (MAV_FRAME_MISSION, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
         (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LOITER_TO_ALT, 0.0, float(loiter_radius_m), 0.0, 0.0,
          *latlon(approach), float(altitude_m)),
         (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LAND, 0.0, 0.0, 0.0, float("nan"),
@@ -1603,6 +1619,16 @@ def _fixed_wing_or_vtol_land_and_wait(
     while time.monotonic() - started < wait_timeout_s:
         reader.raise_if_failed()
         flight = _flight_state_snapshot(reader.state)
+        last_heartbeat_ns = getattr(reader.state, "received_monotonic_ns", {}).get("HEARTBEAT")
+        if last_heartbeat_ns is not None and (
+            time.monotonic_ns() - last_heartbeat_ns > LANDING_TELEMETRY_STALE_S * 1e9
+        ):
+            # A frozen SITL (PX4 lockstep waiting on a stalled Gazebo) looks like a
+            # landing that never finishes; report it as what it is.
+            raise RuntimeError(
+                f"PX4 telemetry stopped {LANDING_TELEMETRY_STALE_S:.0f}s+ during landing; "
+                f"last landed_state={flight['landed_state']}"
+            )
         heartbeat = reader.state.get("HEARTBEAT")
         base_mode = _field(heartbeat, "base_mode", None)
         disarmed = base_mode is not None and not (int(base_mode) & 128)
@@ -2218,6 +2244,7 @@ def run_episode(
                     landing_method=landing_method, altitude_m=altitude_m,
                     loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
                     position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
+                    geo_reference=lambda: _home_reference(mav_reader.state),
                     land_mission=(
                         (lambda **kwargs: _upload_fixed_wing_landing_mission(
                             _ReaderAckLink(vehicle, mav_reader), mav_reader,
