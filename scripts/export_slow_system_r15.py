@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,7 +46,14 @@ def main() -> int:
     merge_script = a.output / "merge.py"
     merge_script.write_text(merge_code + "\n", encoding="utf-8")
     subprocess.run([sys.executable, str(merge_script)], check=True, cwd=ROOT)
-    subprocess.run([sys.executable, tools.convert_hf_to_gguf, str(merged), "--outfile", str(f16), "--outtype", "f16"], check=True, cwd=ROOT)
+    convert_env = dict(os.environ)
+    if importlib.util.find_spec("sentencepiece") is None:
+        # The Qwen converter imports sentencepiece before falling back to the BPE
+        # tokenizer.json that Qwen3-VL uses; an import-only shim avoids installing it.
+        shim = str(ROOT / "scripts" / "_conversion_shims")
+        convert_env["PYTHONPATH"] = os.pathsep.join(p for p in (shim, convert_env.get("PYTHONPATH")) if p)
+    subprocess.run([sys.executable, tools.convert_hf_to_gguf, str(merged), "--outfile", str(f16), "--outtype", "f16"],
+                   check=True, cwd=ROOT, env=convert_env)
     subprocess.run([tools.llama_quantize, str(f16), str(quant), a.quantization], check=True, cwd=ROOT)
     print(quant)
     return 0
