@@ -28,3 +28,18 @@
 ## 限制与未验证项
 
 当前固定翼投放只实现安全拒绝；真正的 payload 触发、释放方向和飞掠窗口需要载荷控制器提供协议后再启用。真机高层命令使用 home geodetic 将本地 NED 转成 WGS84，仍需在 PX4 SITL/HIL 和实机上验证原点、磁航向、风场及 ACK 超时。档案中的功率、空速、转弯半径是保守输入，必须用飞行日志重新标定。tailsitter MC/FW 相机姿态已接入纯逻辑投影路径，仍需用两种实际姿态的标定图像验证地面投影误差。
+
+## 仿真闭环（2026-10-18）
+
+采集器 `--teacher onboard --airframe <机型>` 现在会把机型交给机上策略：非多旋翼机型由策略输出 `MotionCommand`，交给 `FixedWingVtolExecutor` 执行；重定位要等飞到目标附近（或按巡航速度算出的超时），定时盘旋要等满时长，避免每一帧都换一个指令。步骤记录保留原始动作，实际飞的命令写在 `labels["motion"]`，实际位移从遥测计算。
+
+```powershell
+python scripts/collect_sim_teacher_episodes.py --airframe rc_cessna_mono_cam `
+  --scenario configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json `
+  --teacher onboard --episodes 1 --steps-per-episode 30 --out .tmp/closed-loop-cessna `
+  --container-prefix smoke-cl --control-port 14588 --telemetry-port 14589
+```
+
+真实 SITL 结果（rc_cessna，海岸巡逻场景）：30 步全部由机上 AI 决策，30 条命令 PX4 全部接受执行，之后返航（确认进入 RTL）并在 home 跑道降落，全程不读真值。途中修了一处：命令 ACK 的等待时间被写成 0，导致 PX4 已接受的命令全被记成失败。
+
+**还没解决的**：机上搜索目前是按多旋翼的尺度设计的——每步最多 15 m，很多步是“原地等待”。固定翼不能悬停，最小转弯半径约 21 m，于是只是在附近绕圈、缓慢漂移（30 步只移动约 140 m），没有形成真正的搜索。下一步要按机型给搜索参数：长航段的割草机航线、按转弯半径安排掉头、用不同航向的飞掠来确认目标。

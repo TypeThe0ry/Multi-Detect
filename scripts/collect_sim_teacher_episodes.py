@@ -129,6 +129,9 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
+MOTION_ARRIVAL_TOLERANCE_M = 25.0
+MOTION_REPOSITION_TIMEOUT_S = 120.0
+MOTION_LOITER_MAX_WAIT_S = 60.0
 RTL_MODE_CONFIRM_S = 10.0
 FIXED_WING_MIN_OPERATING_ALT_M = 30.0
 VTOL_TRANSITION_MARGIN_M = 10.0
@@ -964,7 +967,53 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         config_path=Path(plan.onboard_config) if plan.onboard_config else None,
         frame_format=plan.onboard_frame_format,
         frame_quality=plan.onboard_frame_quality,
+        airframe=_onboard_airframe_id(plan),
     )
+
+
+def _onboard_airframe_id(plan: CollectionPlan) -> str | None:
+    """Profile id the onboard policy plans for; None keeps the x500 default untouched."""
+    if plan.airframe == "x500_mono_cam":
+        return None
+    profile = _airframe_profile(plan.airframe)
+    return profile.id if profile is not None else None
+
+
+def _is_motion_command(action: Any) -> bool:
+    return type(action).__name__ == "MotionCommand" and hasattr(action, "kind")
+
+
+def _wait_motion_command(command: Any, reader: MavlinkReader, *, cruise_mps: float) -> dict[str, Any]:
+    """Block like a primitive would: until a reposition arrives or a timed loiter ends.
+
+    Guided fixed-wing commands return on PX4's ACK; without this the onboard policy
+    would issue a new command every frame while the aircraft is still turning.
+    """
+    started = time.monotonic()
+    kind = str(command.kind)
+    if kind in {"reposition", "mc_reposition"} and command.target_ned is not None:
+        tolerance = max(float(command.radius_m or 0.0), MOTION_ARRIVAL_TOLERANCE_M)
+        try:
+            pose = _state_position(reader.state)
+            distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
+        except RuntimeError:
+            distance = 0.0
+        timeout = min(MOTION_REPOSITION_TIMEOUT_S, distance / max(cruise_mps, 1.0) * 1.5 + 15.0)
+        while time.monotonic() - started < timeout:
+            reader.raise_if_failed()
+            pose = _state_position(reader.state)
+            distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
+            if distance <= tolerance:
+                return {"waited": "arrived", "distance_m": distance, "elapsed_s": time.monotonic() - started}
+            time.sleep(0.2)
+        return {"waited": "timeout", "distance_m": distance, "elapsed_s": time.monotonic() - started}
+    if kind in {"loiter", "orbit", "mc_hold"} and float(command.duration_s or 0.0) > 0.0:
+        hold = min(float(command.duration_s), MOTION_LOITER_MAX_WAIT_S)
+        while time.monotonic() - started < hold:
+            reader.raise_if_failed()
+            time.sleep(0.2)
+        return {"waited": "duration", "elapsed_s": time.monotonic() - started}
+    return {"waited": "none", "elapsed_s": 0.0}
 
 
 def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
@@ -2701,7 +2750,23 @@ def run_episode(
                 else:
                     action = policy.next_action()
                     labels = {}
-                commanded_delta = primitive_to_ned(action, yaw)[:3]
+                # Non-multirotor onboard policies emit a MotionCommand (loiter,
+                # reposition, transition, ...).  The step record keeps the source
+                # primitive (stop detection, dataset format); the command itself is
+                # in labels["motion"] and is what the executor flies.
+                motion = action if _is_motion_command(action) else None
+                step_action = action
+                if motion is not None:
+                    step_action = motion.action if motion.action is not None else ActionPrimitive.hold(
+                        max(float(motion.duration_s or 0.0), 1.0)
+                    )
+                    labels = {**labels, "motion": motion.to_dict()}
+                    commanded_delta = (
+                        tuple(float(t) - float(p) for t, p in zip(motion.target_ned, pose))
+                        if motion.target_ned is not None else (0.0, 0.0, 0.0)
+                    )
+                else:
+                    commanded_delta = primitive_to_ned(action, yaw)[:3]
                 _progress("primitive_start", step=index, action=action.to_dict())
                 # Optional continuous capture runs during the primitive.  It only
                 # consumes already decoded latest-wins frames and never changes
@@ -2713,7 +2778,13 @@ def run_episode(
                 execute_error: list[BaseException] = []
                 def _execute() -> None:
                     try:
-                        result_box.append(executor.execute(action))
+                        executed = executor.execute(action)
+                        if motion is not None and executed.status == "success":
+                            executed.ack["motion_wait"] = _wait_motion_command(
+                                motion, mav_reader,
+                                cruise_mps=getattr(_airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0),
+                            )
+                        result_box.append(executed)
                     except BaseException as exc:
                         execute_error.append(exc)
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action")
@@ -2807,16 +2878,22 @@ def run_episode(
                     "action_ack": result.status in {"success", "timeout"},
                     "arm": _plain_record(arm_ack),
                 }
+                achieved_delta = list(result.achieved_delta_ned)
+                if motion is not None:
+                    # Guided commands report no displacement; measure it from telemetry.
+                    achieved_delta = [
+                        float(a) - float(b) for a, b in zip(after["pose"]["local_ned_m"], pose)
+                    ]
                 continue_loop = _record_policy_step(
                     recorder,
                     before,
-                    action,
+                    step_action,
                     ack=ack,
                     outcome={
                         "status": result.status,
                         "elapsed_s": result.elapsed_s,
                         "commanded_delta_ned": list(commanded_delta),
-                        "achieved_delta_ned": list(result.achieved_delta_ned),
+                        "achieved_delta_ned": achieved_delta,
                         "achieved_yaw_delta_deg": result.achieved_yaw_delta_deg,
                     },
                     obs_after=after,
