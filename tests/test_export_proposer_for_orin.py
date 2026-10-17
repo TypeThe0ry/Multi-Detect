@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from scripts import export_proposer_for_orin as exporter
+from scripts.export_proposer_for_orin import (
+    _box_iou,
+    _xywh_to_xyxy,
+    parse_args,
+)
 
 
 def test_output_cannot_escape_worktree() -> None:
@@ -39,3 +46,26 @@ def test_wrong_class_count_is_rejected() -> None:
     predictions = np.zeros((1, 84, 3), dtype=np.float32)
     with pytest.raises(ValueError, match="Unexpected detection output shapes"):
         exporter.verify_predictions(predictions, predictions, class_count=20)
+
+
+def test_export_parser_accepts_frame_comparison_options() -> None:
+    args = parse_args(
+        [
+            "--imgsz",
+            "960",
+            "--comparison-frames-dir",
+            "frames",
+            "--comparison-frame-limit",
+            "24",
+        ]
+    )
+    assert args.imgsz == 960
+    assert args.comparison_frame_limit == 24
+    assert str(args.comparison_frames_dir) == "frames"
+
+
+def test_frame_box_metrics_are_shape_stable_for_anchor_arrays() -> None:
+    xywh = np.array([[10.0, 10.0, 4.0, 4.0], [5.0, 5.0, 2.0, 2.0]], dtype=np.float32)
+    boxes = _xywh_to_xyxy(xywh)
+    assert np.allclose(boxes[0], [8.0, 8.0, 12.0, 12.0])
+    assert np.allclose(_box_iou(boxes, boxes), [1.0, 1.0])

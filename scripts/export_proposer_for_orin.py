@@ -70,6 +70,104 @@ def verify_predictions(actual, expected, class_count: int) -> dict:
     }
 
 
+def _frame_paths(frames_dir: Path, limit: int) -> list[Path]:
+    if limit < 1:
+        raise ValueError("comparison frame limit must be positive")
+    paths = sorted(
+        path
+        for path in frames_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
+    )
+    if not paths:
+        raise FileNotFoundError(f"no PNG/JPEG frames found under {frames_dir}")
+    return paths[:limit]
+
+
+def verify_frame_predictions(
+    session,
+    model,
+    frames_dir: Path,
+    *,
+    image_size: int,
+    class_count: int,
+    limit: int,
+) -> dict:
+    """Compare raw proposal tensors on real recorded frames.
+
+    The comparison is deliberately before NMS: each anchor is stable between
+    PyTorch and ONNX, so its xywh box can be compared with IoU and its class
+    score with an absolute error without introducing matching heuristics.
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    from scripts.orin_tensorrt_proposer import letterbox_rgb
+
+    frame_metrics = []
+    for path in _frame_paths(frames_dir, limit):
+        rgb = np.asarray(Image.open(path).convert("RGB"))
+        # letterbox_rgb follows the runtime BGR input contract.
+        tensor, _scale, _pad = letterbox_rgb(rgb[:, :, ::-1], image_size)
+        with torch.inference_mode():
+            reference = model.model.float().eval()(torch.from_numpy(tensor))
+        if isinstance(reference, tuple):
+            reference = reference[0]
+        expected = reference.detach().cpu().numpy()
+        actual = session.run(None, {"images": tensor})[0]
+        if actual.shape != expected.shape or actual.shape[1] != 4 + class_count:
+            raise ValueError(f"unexpected frame output shape for {path}: {actual.shape}")
+        expected_xyxy = _xywh_to_xyxy(expected[:, :4].transpose(0, 2, 1))
+        actual_xyxy = _xywh_to_xyxy(actual[:, :4].transpose(0, 2, 1))
+        expected_scores = expected[:, 4:].transpose(0, 2, 1)
+        actual_scores = actual[:, 4:].transpose(0, 2, 1)
+        iou = _box_iou(expected_xyxy, actual_xyxy)
+        score_error = np.abs(expected_scores - actual_scores)
+        frame_metrics.append(
+            {
+                "frame": str(path),
+                "box_iou_mean": float(iou.mean()),
+                "box_iou_min": float(iou.min()),
+                "max_abs_score_error": float(score_error.max()),
+                "mean_abs_score_error": float(score_error.mean()),
+            }
+        )
+    return {
+        "frame_count": len(frame_metrics),
+        "frames": frame_metrics,
+        "box_iou_mean": float(np.mean([row["box_iou_mean"] for row in frame_metrics])),
+        "box_iou_min": float(np.min([row["box_iou_min"] for row in frame_metrics])),
+        "max_abs_score_error": float(max(row["max_abs_score_error"] for row in frame_metrics)),
+        "mean_abs_score_error": float(np.mean([row["mean_abs_score_error"] for row in frame_metrics])),
+        "iou_threshold": 0.995,
+        "score_threshold": 1e-5,
+        "passed": all(row["box_iou_min"] >= 0.995 for row in frame_metrics)
+        and max(row["max_abs_score_error"] for row in frame_metrics) <= 1e-5,
+    }
+
+
+def _xywh_to_xyxy(values):
+    import numpy as np
+
+    result = np.empty_like(values)
+    result[..., 0] = values[..., 0] - values[..., 2] / 2
+    result[..., 1] = values[..., 1] - values[..., 3] / 2
+    result[..., 2] = values[..., 0] + values[..., 2] / 2
+    result[..., 3] = values[..., 1] + values[..., 3] / 2
+    return result
+
+
+def _box_iou(left, right):
+    import numpy as np
+
+    lt = np.maximum(left[..., :2], right[..., :2])
+    rb = np.minimum(left[..., 2:], right[..., 2:])
+    intersection = np.prod(np.maximum(rb - lt, 0), axis=-1)
+    area_left = np.prod(np.maximum(left[..., 2:] - left[..., :2], 0), axis=-1)
+    area_right = np.prod(np.maximum(right[..., 2:] - right[..., :2], 0), axis=-1)
+    return intersection / np.maximum(area_left + area_right - intersection, 1e-12)
+
+
 def export(args: argparse.Namespace) -> dict:
     """Bake the exact runtime vocabulary, export, and check the ONNX graph."""
     output_dir = workspace_path(args.output_dir)
@@ -194,6 +292,16 @@ def export(args: argparse.Namespace) -> dict:
         expected = reference.cpu().numpy()
         actual = session.run(None, {"images": image})[0]
         numerical_check = verify_predictions(actual, expected, len(vocabulary))
+        frame_check = None
+        if args.comparison_frames_dir is not None:
+            frame_check = verify_frame_predictions(
+                session,
+                model,
+                args.comparison_frames_dir,
+                image_size=args.imgsz,
+                class_count=len(vocabulary),
+                limit=args.comparison_frame_limit,
+            )
         report = {
             "status": "exported_and_checked",
             "device": "cpu",
@@ -221,6 +329,7 @@ def export(args: argparse.Namespace) -> dict:
             "precision": "float32; build TensorRT with --fp16 on the target Orin",
             "nms": False,
             "cpu_numerical_check": numerical_check,
+            "frame_consistency": frame_check,
             "versions": {
                 name: importlib.metadata.version(name) for name in required if name != "clip"
             },
@@ -249,9 +358,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--imgsz", type=int, choices=(960, 1280), default=1280)
     parser.add_argument("--opset", type=int, default=17)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--comparison-frames-dir",
+        type=Path,
+        help="Optional recorded PNG/JPEG directory for real-frame PyTorch/ONNX comparison",
+    )
+    parser.add_argument(
+        "--comparison-frame-limit",
+        type=int,
+        default=32,
+        help="Number of real frames to compare (recommended 20-50)",
+    )
     args = parser.parse_args(argv)
     if args.threads <= 0:
         parser.error("--threads must be positive")
+    if args.comparison_frame_limit <= 0:
+        parser.error("--comparison-frame-limit must be positive")
     return args
 
 
