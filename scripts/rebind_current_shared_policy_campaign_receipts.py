@@ -12,8 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 ENTRY_KEY = "shared_policy_campaign_receipts_20260925"
 TARGETS = {
-    "parent_receipt": ROOT / "artifacts/evaluation/shared-policy-external-parent-20260927-r14-20261007-current-parity-r1.json",
-    "candidate_receipt": ROOT / "artifacts/evaluation/shared-policy-external-candidate-20260927-r13-20261007-current-parity-r1.json",
+    "parent_receipt": ROOT
+    / "artifacts/evaluation/shared-policy-external-parent-20260927-r14-20261007-current-parity-"
+    "r1.json",
+    "candidate_receipt": ROOT
+    / "artifacts/evaluation/shared-policy-external-candidate-20260927-r13-20261007-current-parity-"
+    "r1.json",
 }
 
 

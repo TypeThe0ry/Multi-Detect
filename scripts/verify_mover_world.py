@@ -83,12 +83,23 @@ def postprocess_episode(episode: Path, truth: dict, *, window_px: int = 12) -> d
         attitude = obs.get("attitude") or {}
         after = (row.get("obs_after") or {}).get("attitude") or {}
         yaw_drift = abs(
-            (float(after.get("yaw_deg", attitude.get("yaw_deg", 0.0)))
-             - float(attitude.get("yaw_deg", 0.0)) + 180.0) % 360.0 - 180.0
+            (
+                float(after.get("yaw_deg", attitude.get("yaw_deg", 0.0)))
+                - float(attitude.get("yaw_deg", 0.0))
+                + 180.0
+            )
+            % 360.0
+            - 180.0
         )
-        if (row.get("action") or {}).get("kind") != "hold" or max(
-            abs(float(attitude.get("roll_deg", 0.0))), abs(float(attitude.get("pitch_deg", 0.0)))
-        ) > MAX_STABLE_TILT_DEG or yaw_drift > MAX_STABLE_YAW_DRIFT_DEG:
+        if (
+            (row.get("action") or {}).get("kind") != "hold"
+            or max(
+                abs(float(attitude.get("roll_deg", 0.0))),
+                abs(float(attitude.get("pitch_deg", 0.0))),
+            )
+            > MAX_STABLE_TILT_DEG
+            or yaw_drift > MAX_STABLE_YAW_DRIFT_DEG
+        ):
             skipped_maneuvering += 1
             continue
         cam = obs.get("camera_info") or {}
@@ -174,9 +185,7 @@ def main() -> int:
     scenario = ROOT / "configs/scenarios/generated-movers" / f"{a.world}.scenario.json"
     a.out.mkdir(parents=True, exist_ok=True)
     prefix = "codex-movers"
-    cmd = build_collector_command(
-        a.world, scenario, a.out, a.duration_s, a.min_free_gb
-    )
+    cmd = build_collector_command(a.world, scenario, a.out, a.duration_s, a.min_free_gb)
     try:
         run = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
         (a.out / f"{a.world}.collector.stdout.log").write_text(run.stdout)
@@ -197,7 +206,8 @@ def main() -> int:
             and verdict.get("segmentation_visible_fraction", 0) > 0.8
             and verdict.get("rgb_visible_fraction", 0) > 0.8
             # The rendered target must sit where the sim-time truth says it is.
-            and (verdict.get("median_centroid_error_px") or float("inf")) <= MAX_MEDIAN_CENTROID_ERROR_PX
+            and (verdict.get("median_centroid_error_px") or float("inf"))
+            <= MAX_MEDIAN_CENTROID_ERROR_PX
         )
         (a.out / f"{a.world}.verdict.json").write_text(json.dumps(verdict, indent=2))
         print(json.dumps(verdict, indent=2))

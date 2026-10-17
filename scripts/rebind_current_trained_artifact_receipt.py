@@ -11,7 +11,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 ENTRY_KEY = "shared_policy_trained_artifact_external_vtol_campaign_20261001_r1"
-TARGET = ROOT / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261007-current-parity-r1.json"
+TARGET = (
+    ROOT
+    / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261007-current-parity-r1.json"
+)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -67,7 +70,8 @@ def main() -> int:
     relative = TARGET.relative_to(ROOT).as_posix()
     entry.update(
         {
-            "status": "retained_file_audit_external_px4_gazebo_shared_trained_artifact_current_parity_rebind",
+            "status": "retained_file_audit_external_px4_gazebo_shared_trained_artifact_current_"
+            "parity_rebind",
             "receipt": relative,
             "receipt_bytes": TARGET.stat().st_size,
             "receipt_file_sha256": _sha256(TARGET),

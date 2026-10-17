@@ -43,7 +43,10 @@ DEFAULT_MMPROJ = (
 )
 DEFAULT_IDENTITY_JSONL = ROOT / "artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl"
 ARTIFACTS_ROOT = Path(os.environ.get("MULTIDETECT_ARTIFACTS", str(ROOT / "artifacts")))
-DEFAULT_R14_GGUF = ARTIFACTS_ROOT / "models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf"
+DEFAULT_R14_GGUF = (
+    ARTIFACTS_ROOT
+    / "models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf"
+)
 DEFAULT_DEPTH_ONNX = ARTIFACTS_ROOT / "evaluation/depth-anything-v2-metric-outdoor-small.onnx"
 DEFAULT_IMG_SIZES = (640, 960, 1280)
 DEFAULT_PLANNING_TEXTS = (
@@ -125,6 +128,7 @@ def evaluate_budgets(report: dict[str, Any]) -> dict[str, Any]:
             operator="<=",
         ),
     }
+
     def phase_p95(*names: str) -> float | None:
         for name in names:
             value = latency(name)
@@ -158,7 +162,9 @@ def evaluate_budgets(report: dict[str, Any]) -> dict[str, Any]:
         "all_required_met": report_status == "pass",
         "status": report_status if all(measured) else "not_measured",
         "gaps": [name for name, item in checks.items() if item["status"] != "pass"],
-        "feasibility_estimates": {name: list(value) for name, value in FEASIBILITY_ESTIMATES.items()},
+        "feasibility_estimates": {
+            name: list(value) for name, value in FEASIBILITY_ESTIMATES.items()
+        },
         "estimate_comparison": estimate_comparison,
         "source": "docs/orin-nano-feasibility.md conservative budget gates",
     }
@@ -216,7 +222,10 @@ def _build_requested_engines(args: argparse.Namespace) -> dict[str, Any]:
             outputs[str(size)] = {"status": "not measured", "reason": "ONNX/engine path missing"}
             continue
         if not onnx_path.is_file():
-            outputs[str(size)] = {"status": "not measured", "reason": f"ONNX not found: {onnx_path}"}
+            outputs[str(size)] = {
+                "status": "not measured",
+                "reason": f"ONNX not found: {onnx_path}",
+            }
             continue
         outputs[str(size)] = _build_tensorrt_engine(onnx_path, engine_path, trtexec)
     if args.depth_onnx is not None and args.depth_engine is not None:
@@ -225,7 +234,11 @@ def _build_requested_engines(args: argparse.Namespace) -> dict[str, Any]:
             if args.depth_onnx.is_file()
             else {"status": "not measured", "reason": f"ONNX not found: {args.depth_onnx}"}
         )
-    status = "measured" if outputs and all(item.get("status") == "measured" for item in outputs.values()) else "failed"
+    status = (
+        "measured"
+        if outputs and all(item.get("status") == "measured" for item in outputs.values())
+        else "failed"
+    )
     return {"status": status, "trtexec": str(trtexec), "engines": outputs}
 
 
@@ -744,7 +757,9 @@ def _run_depth_samples(
     except ImportError as exc:
         return [], [f"ONNX Runtime unavailable: {exc}"]
     try:
-        session = ort.InferenceSession(str(model_path), providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+        session = ort.InferenceSession(
+            str(model_path), providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+        )
         input_meta = session.get_inputs()[0]
         shape = input_meta.shape
         height = int(shape[-2]) if isinstance(shape[-2], int) else 518
@@ -771,7 +786,13 @@ def _run_depth_samples(
             started = time.perf_counter()
             try:
                 infer(image)
-                samples.append({"repetition": repetition + 1, "frame": path.name, "latency_s": time.perf_counter() - started})
+                samples.append(
+                    {
+                        "repetition": repetition + 1,
+                        "frame": path.name,
+                        "latency_s": time.perf_counter() - started,
+                    }
+                )
             except Exception as exc:
                 errors.append(f"{path.name}: {type(exc).__name__}: {exc}")
     return samples, errors
@@ -1423,22 +1444,44 @@ def _write_markdown_chinese(report: dict[str, Any], path: Path) -> None:
     phases = report.get("phases", {})
     budgets = report.get("budgets", {})
     lines = [
-        "# Jetson Orin Nano 8GB 机载实测报告", "",
+        "# Jetson Orin Nano 8GB 机载实测报告",
+        "",
         f"- 生成时间（UTC）：{report.get('generated_at_utc')}",
-        f"- 设备：{report.get('system', {}).get('platform')}（{report.get('system', {}).get('machine')}）",
-        f"- 运行状态：{report.get('status')}", "", "## 预算判定", "",
-        "| 门槛 | 实测值 | 要求 | 结果 |", "|---|---:|---:|---|",
+        f"- 设备：{report.get('system', {}).get('platform')}（"
+        f"{report.get('system', {}).get('machine')}）",
+        f"- 运行状态：{report.get('status')}",
+        "",
+        "## 预算判定",
+        "",
+        "| 门槛 | 实测值 | 要求 | 结果 |",
+        "|---|---:|---:|---|",
     ]
-    labels = {"fast_system_hz": "快系统频率（Hz）", "identity_p95_s": "fast_identity P95（秒）", "peak_ram_used_mb": "峰值统一内存（MiB）"}
+    labels = {
+        "fast_system_hz": "快系统频率（Hz）",
+        "identity_p95_s": "fast_identity P95（秒）",
+        "peak_ram_used_mb": "峰值统一内存（MiB）",
+    }
     result_labels = {"pass": "通过", "fail": "不通过", "not_measured": "未测量"}
     for name, check in budgets.get("checks", {}).items():
         value = check.get("value")
-        lines.append(f"| {labels.get(name, name)} | {value if value is not None else '未测量'} | {check.get('operator')} {check.get('limit')} | {result_labels.get(check.get('status'), check.get('status'))} |")
-    lines.extend([
-        "", f"- 总预算结论：{result_labels.get(budgets.get('status'), budgets.get('status', '未测量'))}",
-        f"- 与 feasibility 估算的差距项：{', '.join(budgets.get('gaps', [])) or '无'}", "",
-        "## 与可行性估算对照", "", "| 指标 | 实测 | 估算范围 | 相对估算上限差值 |", "|---|---:|---:|---:|",
-    ])
+        lines.append(
+            f"| {labels.get(name, name)} | {value if value is not None else '未测量'} | "
+            f"{check.get('operator')} {check.get('limit')} | "
+            f"{result_labels.get(check.get('status'), check.get('status'))} |"
+        )
+    lines.extend(
+        [
+            "",
+            "- 总预算结论："
+            f"{result_labels.get(budgets.get('status'), budgets.get('status', '未测量'))}",
+            f"- 与 feasibility 估算的差距项：{', '.join(budgets.get('gaps', [])) or '无'}",
+            "",
+            "## 与可行性估算对照",
+            "",
+            "| 指标 | 实测 | 估算范围 | 相对估算上限差值 |",
+            "|---|---:|---:|---:|",
+        ]
+    )
     estimate_labels = {
         "fast_latency_s": "快系统 P95（秒）",
         "fast_identity_s": "fast_identity P95（秒）",
@@ -1449,24 +1492,49 @@ def _write_markdown_chinese(report: dict[str, Any], path: Path) -> None:
         expected = comparison.get("estimated_range", [])
         lines.append(
             f"| {estimate_labels.get(name, name)} | {comparison.get('measured', '未测量')} "
-            f"| {expected[0]}–{expected[1]} | {comparison.get('delta_to_estimate_upper', '未测量')} |"
+            f"| {expected[0]}–{expected[1]} | "
+            f"{comparison.get('delta_to_estimate_upper', '未测量')} |"
         )
-    lines.extend([
-        "", "差值为实测值减去可行性估算上限；正数表示超过上限，负数表示低于上限。", "",
-        "## 分阶段延迟", "", "| 阶段 | 状态 | 样本数 | P50（秒） | P95（秒） | 峰值 RAM（MiB） | GPU 显存（MiB） | RSS 峰值（MiB） |", "|---|---|---:|---:|---:|---:|---:|---:|",
-    ])
+    lines.extend(
+        [
+            "",
+            "差值为实测值减去可行性估算上限；正数表示超过上限，负数表示低于上限。",
+            "",
+            "## 分阶段延迟",
+            "",
+            "| 阶段 | 状态 | 样本数 | P50（秒） | P95（秒） | 峰值 RAM（MiB） | GPU 显存（MiB） | "
+            "RSS 峰值（MiB） |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
 
     def row(label: str, phase: dict[str, Any]) -> None:
         latency = phase.get("latency", {})
         resources = phase.get("resources", {})
-        rss = max(resources.get("peak_rss_bytes_by_process", {}).values(), default=0) / (1024 * 1024)
-        value = lambda key: latency.get(key) if latency.get(key) is not None else "未测量"
-        lines.append(f"| {label} | {phase.get('status', 'not measured')} | {latency.get('count', 0)} | {value('p50_s')} | {value('p95_s')} | {resources.get('peak_ram_used_mb', '未测量')} | {resources.get('peak_gpu_memory_used_mb', '未测量')} | {round(rss, 1) if rss else '未测量'} |")
+        rss = max(resources.get("peak_rss_bytes_by_process", {}).values(), default=0) / (
+            1024 * 1024
+        )
+
+        def value(key):
+            return latency.get(key) if latency.get(key) is not None else "未测量"
+
+        lines.append(
+            f"| {label} | {phase.get('status', 'not measured')} | {latency.get('count', 0)} | "
+            f"{value('p50_s')} | {value('p95_s')} | {resources.get('peak_ram_used_mb', '未测量')} "
+            f"| {resources.get('peak_gpu_memory_used_mb', '未测量')} | "
+            f"{round(rss, 1) if rss else '未测量'} |"
+        )
 
     labels_by_phase = {
-        "yoloe_tensorrt_imgsz_960": "YOLOE TensorRT 960", "yoloe_tensorrt_imgsz_1280": "YOLOE TensorRT 1280",
-        "r12_full_identity": "r12 完整身份判断", "r12_fast_identity": "r12 fast_identity", "planning": "r12 规划（兼容阶段）",
-        "r14_planning": "r14 规划", "r14_model_switch": "r14 模型切换", "step_triangulation_cpu": "步间三角化 CPU", "depth_anything_v2_small": "近距深度 Depth Anything V2 Small",
+        "yoloe_tensorrt_imgsz_960": "YOLOE TensorRT 960",
+        "yoloe_tensorrt_imgsz_1280": "YOLOE TensorRT 1280",
+        "r12_full_identity": "r12 完整身份判断",
+        "r12_fast_identity": "r12 fast_identity",
+        "planning": "r12 规划（兼容阶段）",
+        "r14_planning": "r14 规划",
+        "r14_model_switch": "r14 模型切换",
+        "step_triangulation_cpu": "步间三角化 CPU",
+        "depth_anything_v2_small": "近距深度 Depth Anything V2 Small",
     }
     for key, label in labels_by_phase.items():
         if key in phases:
@@ -1475,9 +1543,30 @@ def _write_markdown_chinese(report: dict[str, Any], path: Path) -> None:
     if concurrent:
         identity = concurrent.get("identity", {})
         yolo = concurrent.get("yoloe", {})
-        row("并行身份判断", {"status": concurrent.get("status"), "latency": identity.get("latency", {}), "resources": concurrent.get("resources", {})})
-        row("并行 YOLOE", {"status": concurrent.get("status"), "latency": yolo.get("latency", {}), "resources": concurrent.get("resources", {})})
-    lines.extend(["", "JSON 文件保留逐条样本、错误、tegrastats 来源和各进程 RSS；缺少目标工具的阶段会标记为未测量。", ""])
+        row(
+            "并行身份判断",
+            {
+                "status": concurrent.get("status"),
+                "latency": identity.get("latency", {}),
+                "resources": concurrent.get("resources", {}),
+            },
+        )
+        row(
+            "并行 YOLOE",
+            {
+                "status": concurrent.get("status"),
+                "latency": yolo.get("latency", {}),
+                "resources": concurrent.get("resources", {}),
+            },
+        )
+    lines.extend(
+        [
+            "",
+            "JSON 文件保留逐条样本、错误、tegrastats 来源和各进程 "
+            "RSS；缺少目标工具的阶段会标记为未测量。",
+            "",
+        ]
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
@@ -1498,7 +1587,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tensorrt-engine-1280", type=Path)
     parser.add_argument("--proposer-onnx-960", type=Path)
     parser.add_argument("--proposer-onnx-1280", type=Path)
-    parser.add_argument("--build-engines", action="store_true", help="Build both proposer TensorRT engines with trtexec")
+    parser.add_argument(
+        "--build-engines",
+        action="store_true",
+        help="Build both proposer TensorRT engines with trtexec",
+    )
     parser.add_argument("--trtexec", type=Path, help="trtexec executable on the Jetson")
     parser.add_argument("--identity-jsonl", type=Path, default=DEFAULT_IDENTITY_JSONL)
     parser.add_argument(
@@ -1678,7 +1771,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     continue
                 candidate = TensorRTProposer(engine_path, device=gpu_index)
                 engine_models[size] = candidate
-            engine_model = engine_models.get(args.concurrent_imgsz) or engine_models.get(1280) or next(iter(engine_models.values()), None)
+            engine_model = (
+                engine_models.get(args.concurrent_imgsz)
+                or engine_models.get(1280)
+                or next(iter(engine_models.values()), None)
+            )
             if engine_model is not None:
                 report["configuration"]["fast_backend"] = engine_model.backend
         except Exception as exc:
@@ -1703,7 +1800,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             report["phases"][key] = _measure_phase(
                 key,
                 lambda size=size: _run_yolo_samples(
-                    size_model,
+                    size_model,  # noqa: B023
                     frames,
                     image_size=size,
                     repetitions=args.repetitions,
@@ -1894,7 +1991,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             # r14 is used for planning.  It is intentionally a separate
             # llama-server process so the report includes the model switch and
             # does not conflate caches from the r12 identity run.
-            if planning_prompts and args.r14_gguf_model.is_file() and args.r14_gguf_model != args.gguf_model:
+            if (
+                planning_prompts
+                and args.r14_gguf_model.is_file()
+                and args.r14_gguf_model != args.gguf_model
+            ):
                 switch_started = time.perf_counter()
                 old_model = args.gguf_model
                 r14_server: LlamaServer | None = None
@@ -1921,8 +2022,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     )
                     report["phases"]["r14_model_switch"] = {
                         "status": "measured",
-                        "latency": {"count": 1, "min_s": switch_elapsed, "p50_s": switch_elapsed, "p95_s": switch_elapsed, "max_s": switch_elapsed, "mean_s": switch_elapsed},
-                        "resources": r14_server and {"peak_rss_bytes_by_process": {"llama_server": _process_rss(r14_server.pid)}},
+                        "latency": {
+                            "count": 1,
+                            "min_s": switch_elapsed,
+                            "p50_s": switch_elapsed,
+                            "p95_s": switch_elapsed,
+                            "max_s": switch_elapsed,
+                            "mean_s": switch_elapsed,
+                        },
+                        "resources": r14_server
+                        and {
+                            "peak_rss_bytes_by_process": {
+                                "llama_server": _process_rss(r14_server.pid)
+                            }
+                        },
                     }
                 except Exception as exc:
                     report["phases"]["r14_planning"] = {
@@ -1960,16 +2073,25 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "reason": server_issue or identity_issue or "no identity rows",
             "latency": aggregate_latencies([]),
         }
-    report["phases"].setdefault("r12_full_identity", report["phases"].get("identity", {
-        "status": "not measured", "latency": aggregate_latencies([])
-    }))
+    report["phases"].setdefault(
+        "r12_full_identity",
+        report["phases"].get(
+            "identity", {"status": "not measured", "latency": aggregate_latencies([])}
+        ),
+    )
     report["phases"].setdefault("r12_fast_identity", report["phases"]["identity_one_token"])
-    report["phases"].setdefault("r14_planning", {
-        "status": "not measured", "reason": "r14 planning model was not started", "latency": aggregate_latencies([])
-    })
-    report["phases"].setdefault("r14_model_switch", {
-        "status": "not measured", "reason": "r14 planning model was not started"
-    })
+    report["phases"].setdefault(
+        "r14_planning",
+        {
+            "status": "not measured",
+            "reason": "r14 planning model was not started",
+            "latency": aggregate_latencies([]),
+        },
+    )
+    report["phases"].setdefault(
+        "r14_model_switch",
+        {"status": "not measured", "reason": "r14 planning model was not started"},
+    )
     report["budgets"] = evaluate_budgets(report)
     measured = [phase.get("status") == "measured" for phase in report["phases"].values()]
     report["status"] = "measured" if any(measured) else "not measured"

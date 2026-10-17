@@ -6,8 +6,8 @@ import numpy as np
 
 from multidetect.autonomy.policy_v2.contracts import TaskSpecV1
 from multidetect.autonomy.policy_v2.vlm_grounding import (
-    AttributeGroundingResult,
     AttributeGrounder,
+    AttributeGroundingResult,
     TaskSpecResolver,
 )
 
@@ -39,7 +39,9 @@ class FakeAttributeVlm:
 
 
 def test_task_vlm_strict_json_and_cache() -> None:
-    fake = FakeTaskVlm('{"target_class":"vehicle","target_color":"red","attributes":[],"relative":"nearest","confidence":0.9,"unknown_fields":[]}')
+    fake = FakeTaskVlm(
+        '{"target_class":"vehicle","target_color":"red","attributes":[],"relative":"nearest","confidence":0.9,"unknown_fields":[]}'
+    )
     resolver = TaskSpecResolver(fake, dev_fallback=False)
     first = resolver.resolve("find the nearest red car")
     second = resolver.resolve("find the nearest red car")
@@ -49,10 +51,14 @@ def test_task_vlm_strict_json_and_cache() -> None:
 
 
 def test_malformed_and_timeout_use_unknown_or_dev_parser() -> None:
-    malformed = TaskSpecResolver(FakeTaskVlm("not-json"), dev_fallback=False).resolve("find a red car")
+    malformed = TaskSpecResolver(FakeTaskVlm("not-json"), dev_fallback=False).resolve(
+        "find a red car"
+    )
     assert malformed.confidence == 0.0
     assert "resolver" in malformed.unknown_fields
-    timed_out = TaskSpecResolver(FakeTaskVlm("{}", delay=0.05), timeout_s=0.001, dev_fallback=False).resolve("x")
+    timed_out = TaskSpecResolver(
+        FakeTaskVlm("{}", delay=0.05), timeout_s=0.001, dev_fallback=False
+    ).resolve("x")
     assert timed_out.confidence == 0.0
     assert "resolver" in timed_out.unknown_fields
 
@@ -85,7 +91,10 @@ def test_bad_vlm_output_fails_closed_to_unknown() -> None:
     assert result.source == "unknown"
     assert result.class_match == result.color_match == result.attribute_match == "unknown"
     assert set(result.state_fields()) == {
-        "class_match", "color_match", "attribute_match", "grounding_score"
+        "class_match",
+        "color_match",
+        "attribute_match",
+        "grounding_score",
     }
 
 

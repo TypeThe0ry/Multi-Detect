@@ -8,7 +8,6 @@ import pytest
 
 from multidetect.simulator.stack import stack_plan_from_scenario
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO_ROOT = ROOT / "configs" / "scenarios"
 MODEL_ROOT = ROOT / "simulation" / "gazebo" / "models"
@@ -72,7 +71,7 @@ def test_new_models_and_segmentation_overlays_are_local_compositions(
     assert len(values) == 6 and math.isclose(values[4], pitch_rad, abs_tol=1e-9)
 
     overlay_text = (OVERLAY_ROOT / f"{model_name}_seg" / "model.sdf").read_text(encoding="utf-8")
-    assert "name=\"segmentation_camera\"" in overlay_text
+    assert 'name="segmentation_camera"' in overlay_text
     assert "/multidetect/teacher/segmentation" in overlay_text
 
 

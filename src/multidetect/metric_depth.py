@@ -143,7 +143,9 @@ class MetricDepthConfig:
             raise ValueError("metric-depth association center distance is outside the frame")
         for name in ("intra_op_num_threads", "inter_op_num_threads"):
             value = getattr(self, name)
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+            ):
                 raise ValueError(f"{name} must be a positive integer or None")
 
 

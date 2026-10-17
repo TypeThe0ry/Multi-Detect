@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Execute the local HF merge -> F16 GGUF -> Q5_K_M conversion chain."""
+
 from __future__ import annotations
 
 import argparse
@@ -35,14 +36,19 @@ def main() -> int:
     merged = a.output / "merged-hf"
     f16 = a.output / "slow-system-f16.gguf"
     quant = a.output / f"slow-system-{a.quantization}.gguf"
-    merge_code = "\n".join((
-        "from peft import PeftModel",
-        "from transformers import AutoProcessor, Qwen3VLForConditionalGeneration",
-        f"base = Qwen3VLForConditionalGeneration.from_pretrained({str(base)!r}, local_files_only=True, trust_remote_code=False, torch_dtype='auto')",
-        f"model = PeftModel.from_pretrained(base, {str(a.adapter.resolve())!r}, is_trainable=False).merge_and_unload()",
-        f"model.save_pretrained({str(merged.resolve())!r}, safe_serialization=True)",
-        f"AutoProcessor.from_pretrained({str(base)!r}, local_files_only=True, trust_remote_code=False).save_pretrained({str(merged.resolve())!r})",
-    ))
+    merge_code = "\n".join(
+        (
+            "from peft import PeftModel",
+            "from transformers import AutoProcessor, Qwen3VLForConditionalGeneration",
+            f"base = Qwen3VLForConditionalGeneration.from_pretrained({str(base)!r}, local_files_"
+            "only=True, trust_remote_code=False, torch_dtype='auto')",
+            f"model = PeftModel.from_pretrained(base, {str(a.adapter.resolve())!r}, is_"
+            "trainable=False).merge_and_unload()",
+            f"model.save_pretrained({str(merged.resolve())!r}, safe_serialization=True)",
+            f"AutoProcessor.from_pretrained({str(base)!r}, local_files_only=True, trust_remote_"
+            f"code=False).save_pretrained({str(merged.resolve())!r})",
+        )
+    )
     merge_script = a.output / "merge.py"
     merge_script.write_text(merge_code + "\n", encoding="utf-8")
     subprocess.run([sys.executable, str(merge_script)], check=True, cwd=ROOT)
@@ -51,10 +57,26 @@ def main() -> int:
         # The Qwen converter imports sentencepiece before falling back to the BPE
         # tokenizer.json that Qwen3-VL uses; an import-only shim avoids installing it.
         shim = str(ROOT / "scripts" / "_conversion_shims")
-        convert_env["PYTHONPATH"] = os.pathsep.join(p for p in (shim, convert_env.get("PYTHONPATH")) if p)
-    subprocess.run([sys.executable, tools.convert_hf_to_gguf, str(merged), "--outfile", str(f16), "--outtype", "f16"],
-                   check=True, cwd=ROOT, env=convert_env)
-    subprocess.run([tools.llama_quantize, str(f16), str(quant), a.quantization], check=True, cwd=ROOT)
+        convert_env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (shim, convert_env.get("PYTHONPATH")) if p
+        )
+    subprocess.run(
+        [
+            sys.executable,
+            tools.convert_hf_to_gguf,
+            str(merged),
+            "--outfile",
+            str(f16),
+            "--outtype",
+            "f16",
+        ],
+        check=True,
+        cwd=ROOT,
+        env=convert_env,
+    )
+    subprocess.run(
+        [tools.llama_quantize, str(f16), str(quant), a.quantization], check=True, cwd=ROOT
+    )
     print(quant)
     return 0
 

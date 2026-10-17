@@ -818,7 +818,8 @@ def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutati
         snapshot = request_json("/api/workspace")
         frames = snapshot["document"]["frames"]
         with urlopen(
-            workbench.url + "api/image?frame_id=" + frames[0]["frame_id"], timeout=WORKBENCH_HTTP_TIMEOUT_S
+            workbench.url + "api/image?frame_id=" + frames[0]["frame_id"],
+            timeout=WORKBENCH_HTTP_TIMEOUT_S,
         ) as response:
             assert response.headers.get_content_type() == "image/png"
             assert response.read().startswith(b"\x89PNG")

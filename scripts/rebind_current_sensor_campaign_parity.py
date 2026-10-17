@@ -11,7 +11,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 ENTRY_KEY = "shared_policy_external_vtol_sensor_campaign_20261003_r14"
-TARGET = ROOT / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261007-current-parity-r1.json"
+TARGET = (
+    ROOT
+    / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261007-current-"
+    "parity-r1.json"
+)
 
 
 def _load(path: Path) -> dict[str, Any]:

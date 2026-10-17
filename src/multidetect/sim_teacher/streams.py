@@ -248,16 +248,20 @@ class SensorStreamReader:
                     from scripts.gazebo_segmentation_wire import read_segmentation_wire_frame
 
                     segmentation_frame = read_segmentation_wire_frame(
-                        self.stream, sequence=int(header.sequence),
+                        self.stream,
+                        sequence=int(header.sequence),
                         stamp_ns=int(header.sensor_stamp_ns),
-                        rgb_sha256=bytes(header.sha256).hex(), width=int(header.width),
-                        height=int(header.height), source_topic=self.segmentation_topic,
+                        rgb_sha256=bytes(header.sha256).hex(),
+                        width=int(header.width),
+                        height=int(header.height),
+                        source_topic=self.segmentation_topic,
                     )
                     if np is None:
                         raise RuntimeError("NumPy is required to record segmentation frames")
                     segmentation = (
                         np.frombuffer(segmentation_frame.payload, dtype=np.uint8)
-                        .reshape((int(header.height), int(header.width), 3)).copy()
+                        .reshape((int(header.height), int(header.width), 3))
+                        .copy()
                     )
                     segmentation_info = dict(segmentation_frame.metadata)
                 stamp = self.clock()
@@ -329,8 +333,13 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
     """Copy wire samples with their real receive clocks, never a frame clock."""
     samples = []
     for name in (
-        "BATTERY_STATUS", "SYS_STATUS", "WIND_COV", "HEARTBEAT",
-        "LOCAL_POSITION_NED", "VFR_HUD", "EXTENDED_SYS_STATE",
+        "BATTERY_STATUS",
+        "SYS_STATUS",
+        "WIND_COV",
+        "HEARTBEAT",
+        "LOCAL_POSITION_NED",
+        "VFR_HUD",
+        "EXTENDED_SYS_STATE",
     ):
         message = state.get(name)
         stamp = state.received_monotonic_ns.get(name)
@@ -407,9 +416,7 @@ class MavlinkReader:
             name: [] for name in self.POSE_TYPES
         }
 
-    def _record_pose_message(
-        self, name: str, message: Any, mono: int, wall: float
-    ) -> None:
+    def _record_pose_message(self, name: str, message: Any, mono: int, wall: float) -> None:
         """Copy timestamped pose data while the receiver owns the message."""
         raw_stamp = _field(message, "time_boot_ms", None)
         if isinstance(raw_stamp, bool) or not isinstance(raw_stamp, int) or raw_stamp < 0:
@@ -432,9 +439,7 @@ class MavlinkReader:
                 history.pop(0)
             self._pose_condition.notify_all()
 
-    def aligned_state(
-        self, frame_sensor_stamp_ns: int, *, timeout_s: float = 0.5
-    ) -> MavlinkState:
+    def aligned_state(self, frame_sensor_stamp_ns: int, *, timeout_s: float = 0.5) -> MavlinkState:
         """Return a pose sampled at the frame's simulation time.
 
         A bounded wait lets PX4 telemetry catch up when Gazebo delivers a frame
@@ -445,8 +450,7 @@ class MavlinkReader:
         deadline = time.monotonic() + max(0.0, timeout_s)
         with self._pose_condition:
             while any(
-                not samples or samples[-1][0] < target_ms
-                for samples in self._pose_history.values()
+                not samples or samples[-1][0] < target_ms for samples in self._pose_history.values()
             ):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.done.is_set() or self._stop.is_set():
@@ -591,7 +595,10 @@ class MavlinkReader:
                             self.state.last_preflight_failure_ns = mono
                         if name == "COMMAND_ACK":
                             try:
-                                self.state.command_acks[int(_field(message, "command", -1))] = (message, mono)
+                                self.state.command_acks[int(_field(message, "command", -1))] = (
+                                    message,
+                                    mono,
+                                )
                             except (TypeError, ValueError):
                                 pass
                     if name in self.POSE_TYPES:
@@ -697,11 +704,10 @@ def _ground_agl(
     ALTITUDE.altitude_terrain and bottom_clearance are already distances above
     terrain, not MSL ground elevations. Negative/NaN values mean unavailable.
     """
+
     def finite(value: Any) -> bool:
         return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
         )
 
     for name in ("DISTANCE_SENSOR", "ALTITUDE"):
@@ -748,7 +754,9 @@ def _ground_agl(
 
 
 def build_observation(
-    sensor: SensorSample, mavlink: MavlinkState, *,
+    sensor: SensorSample,
+    mavlink: MavlinkState,
+    *,
     camera_info: Mapping[str, object] | None = None,
     ground_agl_max_age_s: float | None = None,
 ) -> dict[str, Any]:
@@ -886,9 +894,7 @@ def build_observation(
         "sensor_status": "live",
         "frame_sensor_stamp_ns": sensor.sensor_stamp_ns,
         "pose_time_boot_ms": pose_time_boot_ms,
-        "pose_sim_stamp_ns": None
-        if pose_time_boot_ms is None
-        else pose_time_boot_ms * 1_000_000,
+        "pose_sim_stamp_ns": None if pose_time_boot_ms is None else pose_time_boot_ms * 1_000_000,
         "sim_skew_ms": sim_skew_ms,
         "pose_alignment": alignment
         or {

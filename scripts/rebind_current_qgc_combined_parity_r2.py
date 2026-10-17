@@ -12,18 +12,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PARITY_PATH = ROOT / "configs/release-parity.json"
 SOURCE_PATH = (
-    ROOT
-    / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
+    ROOT / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
     "onboard-adapter-parity-audit/combined-evidence.json"
 )
 SUMMARY_PATH = ROOT / "docs/evidence/combined-sim-qgc-20261004-onboard-adapter-parity-audit-r1.json"
 TARGET_SOURCE = (
-    ROOT
-    / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
+    ROOT / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
     "qgc-parity-rebind-20261004-r3/combined-evidence.json"
 )
 TARGET_SUMMARY = ROOT / "docs/evidence/combined-sim-qgc-20261004-qgc-parity-rebind-r3.json"

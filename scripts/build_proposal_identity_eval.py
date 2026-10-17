@@ -25,18 +25,21 @@ import json
 import math
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.sim_teacher.segmentation import boxes_from_segmentation, load_labels_map  # noqa: E402
+from multidetect.sim_teacher.segmentation import (  # noqa: E402
+    boxes_from_segmentation,
+    load_labels_map,
+)
 from scripts.build_flight_identity_eval import (  # noqa: E402
     MEMORY,
     _campaign_name,
-    _relative,
     _task_query,
     _truth_match,
     _world_split,
@@ -46,14 +49,18 @@ from scripts.score_onboard_loop import episode_world_id, truth_for_episode  # no
 SIZE_BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 DEFAULT_SOURCE = Path("D:/Projects/Multi-Detect")
 DEFAULT_V3_CACHE = Path("D:/Projects/mdwt/yoloe-retrain/tmp/yoloe-v3-round-eval/r3/new-cache.jsonl")
-DEFAULT_OLD_CACHE = DEFAULT_SOURCE / "artifacts/datasets/onboard-proposals/v2r3seg-dagger-r8-cfs.jsonl"
+DEFAULT_OLD_CACHE = (
+    DEFAULT_SOURCE / "artifacts/datasets/onboard-proposals/v2r3seg-dagger-r8-cfs.jsonl"
+)
 DEFAULT_V3_OUT = DEFAULT_SOURCE / "artifacts/datasets/flight-identity-eval-v2-v3prop"
 DEFAULT_V2_OUT = DEFAULT_SOURCE / "artifacts/datasets/flight-identity-eval-v2-v2prop"
 
 
 def iou(a: Iterable[float], b: Iterable[float]) -> float:
     a, b = list(map(float, a)), list(map(float, b))
-    inter = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+        0.0, min(a[3], b[3]) - max(a[1], b[1])
+    )
     aa = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
     ab = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
     return inter / (aa + ab - inter) if aa + ab - inter > 0 else 0.0
@@ -61,13 +68,15 @@ def iou(a: Iterable[float], b: Iterable[float]) -> float:
 
 def proposal_coverage(proposal: Iterable[float], truth_box: Iterable[float]) -> float:
     p, t = list(map(float, proposal)), list(map(float, truth_box))
-    inter = max(0.0, min(p[2], t[2]) - max(p[0], t[0])) * max(0.0, min(p[3], t[3]) - max(p[1], t[1]))
+    inter = max(0.0, min(p[2], t[2]) - max(p[0], t[0])) * max(
+        0.0, min(p[3], t[3]) - max(p[1], t[1])
+    )
     area = max(0.0, t[2] - t[0]) * max(0.0, t[3] - t[1])
     return inter / area if area > 0 else 0.0
 
 
 def size_bucket(short_side_px: float) -> str:
-    for edge, bucket in zip((12, 16, 20, 32), SIZE_BUCKETS):
+    for edge, bucket in zip((12, 16, 20, 32), SIZE_BUCKETS, strict=False):
         if short_side_px < edge:
             return bucket
     return SIZE_BUCKETS[-1]
@@ -168,7 +177,12 @@ def _normalised_candidates(boxes: list, width: int, height: int) -> list[dict[st
             continue
         item = {
             "track_id": f"track-{idx + 1}",
-            "box_xyxy_normalized": [round(x1 / width, 4), round(y1 / height, 4), round(x2 / width, 4), round(y2 / height, 4)],
+            "box_xyxy_normalized": [
+                round(x1 / width, 4),
+                round(y1 / height, 4),
+                round(x2 / width, 4),
+                round(y2 / height, 4),
+            ],
             "box_xyxy": [x1, y1, x2, y2],
         }
         if score is not None and math.isfinite(score):
@@ -179,11 +193,21 @@ def _normalised_candidates(boxes: list, width: int, height: int) -> list[dict[st
     return result
 
 
-def associate(proposal: Iterable[float], objects: list[dict[str, Any]], *, iou_threshold: float = 0.30, ambiguous_threshold: float = 0.10) -> tuple[dict[str, Any] | None, str, float, float]:
-    scored = [(iou(proposal, obj["box"]), proposal_coverage(proposal, obj["box"]), obj) for obj in objects]
+def associate(
+    proposal: Iterable[float],
+    objects: list[dict[str, Any]],
+    *,
+    iou_threshold: float = 0.30,
+    ambiguous_threshold: float = 0.10,
+) -> tuple[dict[str, Any] | None, str, float, float]:
+    scored = [
+        (iou(proposal, obj["box"]), proposal_coverage(proposal, obj["box"]), obj) for obj in objects
+    ]
     if not scored:
         return None, "background", 0.0, 0.0
-    best_iou, best_cov, best_obj = max(scored, key=lambda item: (item[0], item[1], str(item[2].get("target_id"))))
+    best_iou, best_cov, best_obj = max(
+        scored, key=lambda item: (item[0], item[1], str(item[2].get("target_id")))
+    )
     if best_iou >= iou_threshold:
         return best_obj, "associated", best_iou, best_cov
     if max(best_iou, best_cov) >= ambiguous_threshold:
@@ -195,33 +219,105 @@ def _reason(label_type: str, obj: dict[str, Any] | None, query: str) -> str:
     if label_type == "truth_match":
         return "Candidate class and color match the task."
     if obj is not None:
-        return f"Candidate is {obj.get('label') or obj.get('class') or obj.get('category')}; task asks for {query}."
+        return (
+            f"Candidate is {obj.get('label') or obj.get('class') or obj.get('category')}; task "
+            f"asks for {query}."
+        )
     return "Candidate has no reliable nearby scenario truth object."
 
 
-def _row(episode: Path, row: dict[str, Any], obs: dict[str, Any], world: str, split: str, task_text: str, task_source: str, truth: dict[str, Any], candidates: list[dict[str, Any]], focus_index: int, obj: dict[str, Any] | None, label_type: str, max_iou: float, coverage: float, source_name: str, source_root: Path) -> dict[str, Any]:
+def _row(
+    episode: Path,
+    row: dict[str, Any],
+    obs: dict[str, Any],
+    world: str,
+    split: str,
+    task_text: str,
+    task_source: str,
+    truth: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    focus_index: int,
+    obj: dict[str, Any] | None,
+    label_type: str,
+    max_iou: float,
+    coverage: float,
+    source_name: str,
+    source_root: Path,
+) -> dict[str, Any]:
     focus = candidates[focus_index]
     query = _task_query(task_text)
     is_match = obj is not None and _truth_match(obj, truth, query)
-    final_type = "truth_match" if is_match else ("truth_distractor" if obj is not None else "unmatched")
-    target = {"decision": "confirm_target" if is_match else "reject_track", "args": {"track_id": focus["track_id"], "region": None, "duration_s": None}, "reason": _reason(final_type, obj, query)}
+    final_type = (
+        "truth_match" if is_match else ("truth_distractor" if obj is not None else "unmatched")
+    )
+    target = {
+        "decision": "confirm_target" if is_match else "reject_track",
+        "args": {"track_id": focus["track_id"], "region": None, "duration_s": None},
+        "reason": _reason(final_type, obj, query),
+    }
     rgb = (episode / str(obs["rgb_path"]).replace("\\", "/")).resolve()
-    key = json.dumps([world, _relative_to(rgb, source_root), task_text, candidates, target], ensure_ascii=False, sort_keys=True)
+    key = json.dumps(
+        [world, _relative_to(rgb, source_root), task_text, candidates, target],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     return {
-        "sample_id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:24], "world": world, "split": "test", "source_split": split,
-        "image_path": _relative_to(rgb, source_root), "image_size": {"width": int((obs.get("camera_info") or {}).get("width", 1280)), "height": int((obs.get("camera_info") or {}).get("height", 960))},
-        "task_text": task_text, "recorded_task_text": str(row.get("task_text") or ""), "task_query": query, "task_text_source": task_source, "task_text_exact": True,
-        "candidates": [{k: v for k, v in c.items() if k not in {"box_xyxy", "short_side_px", "size_bucket"}} for c in candidates], "focus_track_id": focus["track_id"], "memory": MEMORY,
-        "assistant_target": target, "campaign": _campaign_name(episode), "label_type": final_type, "truth_category": obj.get("class") or obj.get("category") or obj.get("label") if obj else None,
-        "recorded_decision": None, "recorded_identity": None, "recorded_reason": None, "recorded_error": None,
-        "truth_distance_m": None, "model": None, "model_source": "not_recorded_hypothetical_query",
-        "truth_target_id": obj.get("target_id") if obj else None, "truth_method": "panoptic_segmentation_iou", "association_iou": round(max_iou, 6), "proposal_coverage": round(coverage, 6),
-        "candidate_size_bucket": focus["size_bucket"], "candidate_short_side_px": round(focus["short_side_px"], 4), "candidate_boxes_source": source_name,
-        "episode": _relative_to(episode, source_root), "step_index": row.get("step_index"), "recorded_track_id": None, "ground_ne": None,
+        "sample_id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:24],
+        "world": world,
+        "split": "test",
+        "source_split": split,
+        "image_path": _relative_to(rgb, source_root),
+        "image_size": {
+            "width": int((obs.get("camera_info") or {}).get("width", 1280)),
+            "height": int((obs.get("camera_info") or {}).get("height", 960)),
+        },
+        "task_text": task_text,
+        "recorded_task_text": str(row.get("task_text") or ""),
+        "task_query": query,
+        "task_text_source": task_source,
+        "task_text_exact": True,
+        "candidates": [
+            {k: v for k, v in c.items() if k not in {"box_xyxy", "short_side_px", "size_bucket"}}
+            for c in candidates
+        ],
+        "focus_track_id": focus["track_id"],
+        "memory": MEMORY,
+        "assistant_target": target,
+        "campaign": _campaign_name(episode),
+        "label_type": final_type,
+        "truth_category": obj.get("class") or obj.get("category") or obj.get("label")
+        if obj
+        else None,
+        "recorded_decision": None,
+        "recorded_identity": None,
+        "recorded_reason": None,
+        "recorded_error": None,
+        "truth_distance_m": None,
+        "model": None,
+        "model_source": "not_recorded_hypothetical_query",
+        "truth_target_id": obj.get("target_id") if obj else None,
+        "truth_method": "panoptic_segmentation_iou",
+        "association_iou": round(max_iou, 6),
+        "proposal_coverage": round(coverage, 6),
+        "candidate_size_bucket": focus["size_bucket"],
+        "candidate_short_side_px": round(focus["short_side_px"], 4),
+        "candidate_boxes_source": source_name,
+        "episode": _relative_to(episode, source_root),
+        "step_index": row.get("step_index"),
+        "recorded_track_id": None,
+        "ground_ne": None,
     }
 
 
-def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SOURCE, indexes: list[Path], include_unmatched: bool = False, max_per_object_bucket: int = 3) -> dict[str, Any]:
+def build_dataset(
+    cache_path: Path,
+    out: Path,
+    *,
+    source_root: Path = DEFAULT_SOURCE,
+    indexes: list[Path],
+    include_unmatched: bool = False,
+    max_per_object_bucket: int = 3,
+) -> dict[str, Any]:
     cache, cache_stats = load_cache(cache_path)
     metadata = _index_metadata(indexes)
     rows: list[dict[str, Any]] = []
@@ -229,7 +325,12 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
     stats = Counter(cache_stats)
     skipped = Counter()
     pending: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
-    episode_cache: dict[Path, tuple[dict[str, tuple[dict[str, Any], dict[str, Any]]], dict[str, Any], dict[str, Any], str]] = {}
+    episode_cache: dict[
+        Path,
+        tuple[
+            dict[str, tuple[dict[str, Any], dict[str, Any]]], dict[str, Any], dict[str, Any], str
+        ],
+    ] = {}
     for key, raw_boxes in sorted(cache.items()):
         try:
             episode = _episode_for_image(source_root, key)
@@ -244,7 +345,14 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
                 skipped["missing_task_text_en"] += 1
                 continue
             if episode not in episode_cache:
-                scenario_dir = next((index.parent for index in indexes if (index.parent / f"{world}.truth.json").is_file()), None)
+                scenario_dir = next(
+                    (
+                        index.parent
+                        for index in indexes
+                        if (index.parent / f"{world}.truth.json").is_file()
+                    ),
+                    None,
+                )
                 _, truth = truth_for_episode(episode, scenario_dir)
                 if not truth:
                     skipped["missing_truth"] += 1
@@ -281,7 +389,24 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
                     continue
                 if status == "background":
                     stats["background_candidates"] += 1
-                row_out = _row(episode, step, obs, world, split, task_text, "scenario_index_task_text_en", truth, candidates, focus_index, obj, "", best_iou, cov, cache_path.name, source_root)
+                row_out = _row(
+                    episode,
+                    step,
+                    obs,
+                    world,
+                    split,
+                    task_text,
+                    "scenario_index_task_text_en",
+                    truth,
+                    candidates,
+                    focus_index,
+                    obj,
+                    "",
+                    best_iou,
+                    cov,
+                    cache_path.name,
+                    source_root,
+                )
                 if row_out["label_type"] == "unmatched":
                     unmatched.append(row_out)
                     if not include_unmatched:
@@ -290,7 +415,11 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
                 if obj is None:
                     dedupe_key = (str(episode), "unmatched", row_out["candidate_size_bucket"])
                 else:
-                    dedupe_key = (str(episode), str(obj["target_id"]), row_out["candidate_size_bucket"])
+                    dedupe_key = (
+                        str(episode),
+                        str(obj["target_id"]),
+                        row_out["candidate_size_bucket"],
+                    )
                 pending[dedupe_key].append(row_out)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             skipped[f"error_{type(exc).__name__}"] += 1
@@ -300,7 +429,16 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
     for group in pending.values():
         group.sort(
             key=lambda r: (
-                -float(next((c.get("score", -1) for c in r["candidates"] if c.get("track_id") == r["focus_track_id"]), -1)),
+                -float(
+                    next(
+                        (
+                            c.get("score", -1)
+                            for c in r["candidates"]
+                            if c.get("track_id") == r["focus_track_id"]
+                        ),
+                        -1,
+                    )
+                ),
                 r["image_path"],
                 r["focus_track_id"],
             )
@@ -312,18 +450,53 @@ def build_dataset(cache_path: Path, out: Path, *, source_root: Path = DEFAULT_SO
         with path.open("w", encoding="utf-8", newline="\n") as handle:
             for value in values:
                 handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
-    counts = {"cache_rows": cache_stats["rows"], "cache_unique_images": cache_stats["unique_images"], **dict(stats), "rows_written": len(rows), "unmatched_rows": len(unmatched), "truth_match_rows": sum(x["label_type"] == "truth_match" for x in rows), "truth_distractor_rows": sum(x["label_type"] == "truth_distractor" for x in rows), "episodes_seen": len(episode_cache), "background_candidates": int(stats.get("background_candidates", 0)), "ambiguous_candidates": int(stats.get("ambiguous_candidates", 0))}
-    manifest = {
-        "schema_version": 1, "dataset": "flight-identity-eval-v2", "split": "test", "proposal_source": cache_path.name, "crop_policy": "candidate_zoom_v2",
-        "association": {"primary_iou": 0.30, "ambiguous_iou_or_truth_coverage": 0.10, "coverage_definition": "intersection_area / truth_object_area", "segmentation": "boxes_from_segmentation(min_area_px=1,min_box_px=1)"},
-        "dedupe": "highest-score candidates per (episode, truth_target_id or unmatched, candidate size bucket); capped by max_per_object_bucket",
-        "size_buckets": list(SIZE_BUCKETS), "include_unmatched": include_unmatched, "max_per_object_bucket": max_per_object_bucket,
-        "counts": counts, "size_distribution": dict(Counter(x["candidate_size_bucket"] for x in rows)), "label_distribution": dict(Counter(x["label_type"] for x in rows)),
-        "task_text_sources": dict(Counter(x["task_text_source"] for x in rows)), "skipped": dict(skipped), "cache": cache_stats,
-        "inputs": {"cache": str(cache_path), "source_root": str(source_root), "indexes": [str(x) for x in indexes]},
-        "notes": "Canonical task_text_en is taken from the same scenario index used for test split admission; this set asks the hypothetical candidate on every cached test frame, unlike v1's recorded slow calls.",
+    counts = {
+        "cache_rows": cache_stats["rows"],
+        "cache_unique_images": cache_stats["unique_images"],
+        **dict(stats),
+        "rows_written": len(rows),
+        "unmatched_rows": len(unmatched),
+        "truth_match_rows": sum(x["label_type"] == "truth_match" for x in rows),
+        "truth_distractor_rows": sum(x["label_type"] == "truth_distractor" for x in rows),
+        "episodes_seen": len(episode_cache),
+        "background_candidates": int(stats.get("background_candidates", 0)),
+        "ambiguous_candidates": int(stats.get("ambiguous_candidates", 0)),
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "dataset": "flight-identity-eval-v2",
+        "split": "test",
+        "proposal_source": cache_path.name,
+        "crop_policy": "candidate_zoom_v2",
+        "association": {
+            "primary_iou": 0.30,
+            "ambiguous_iou_or_truth_coverage": 0.10,
+            "coverage_definition": "intersection_area / truth_object_area",
+            "segmentation": "boxes_from_segmentation(min_area_px=1,min_box_px=1)",
+        },
+        "dedupe": "highest-score candidates per (episode, truth_target_id or unmatched, candidate "
+        "size bucket); capped by max_per_object_bucket",
+        "size_buckets": list(SIZE_BUCKETS),
+        "include_unmatched": include_unmatched,
+        "max_per_object_bucket": max_per_object_bucket,
+        "counts": counts,
+        "size_distribution": dict(Counter(x["candidate_size_bucket"] for x in rows)),
+        "label_distribution": dict(Counter(x["label_type"] for x in rows)),
+        "task_text_sources": dict(Counter(x["task_text_source"] for x in rows)),
+        "skipped": dict(skipped),
+        "cache": cache_stats,
+        "inputs": {
+            "cache": str(cache_path),
+            "source_root": str(source_root),
+            "indexes": [str(x) for x in indexes],
+        },
+        "notes": "Canonical task_text_en is taken from the same scenario index used for test split "
+        "admission; this set asks the hypothetical candidate on every cached test frame, unlike "
+        "v1's recorded slow calls.",
+    }
+    (out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return manifest
 
 
@@ -339,10 +512,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-per-object-bucket", type=int, default=3)
     args = parser.parse_args(argv)
     indexes = args.indexes or sorted((args.source_root / "configs/scenarios").glob("*/index.json"))
-    for name, cache, out in (("v3prop", args.v3_cache, args.out_v3), ("v2prop", args.old_cache, args.out_v2)):
+    for name, cache, out in (
+        ("v3prop", args.v3_cache, args.out_v3),
+        ("v2prop", args.old_cache, args.out_v2),
+    ):
         if not cache.is_file():
             raise FileNotFoundError(cache)
-        print(json.dumps({"proposal": name, **build_dataset(cache, out, source_root=args.source_root, indexes=indexes, include_unmatched=args.include_unmatched, max_per_object_bucket=args.max_per_object_bucket)}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "proposal": name,
+                    **build_dataset(
+                        cache,
+                        out,
+                        source_root=args.source_root,
+                        indexes=indexes,
+                        include_unmatched=args.include_unmatched,
+                        max_per_object_bucket=args.max_per_object_bucket,
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     return 0
 
 

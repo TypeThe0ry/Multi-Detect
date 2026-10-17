@@ -56,7 +56,8 @@ def main() -> int:
     relative = TARGET.relative_to(ROOT).as_posix()
     entry.update(
         {
-            "status": "retained_file_audit_four_mode_shared_policy_contract_matrix_current_parity_rebind",
+            "status": "retained_file_audit_four_mode_shared_policy_contract_matrix_current_parity_"
+            "rebind",
             "evidence": relative,
             "evidence_sha256": _sha256(TARGET),
             "evidence_bytes": TARGET.stat().st_size,
@@ -67,7 +68,18 @@ def main() -> int:
     PROGRESS_PATH.write_bytes(
         (json.dumps(progress, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     )
-    print(json.dumps({"source": source_path.relative_to(ROOT).as_posix(), "target": relative, "parity_sha256": parity_sha, "runtime_rerun": False, "hardware_acceptance": False}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "source": source_path.relative_to(ROOT).as_posix(),
+                "target": relative,
+                "parity_sha256": parity_sha,
+                "runtime_rerun": False,
+                "hardware_acceptance": False,
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.energy_estimator import EnergyConfig  # noqa: E402
+from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m  # noqa: E402
 from multidetect.autonomy.ground_model import ground_projection_from_config  # noqa: E402
 from multidetect.autonomy.mission_executor import (  # noqa: E402
     ExecutorConfig,
@@ -53,13 +54,12 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
-from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m
 from multidetect.autonomy.motion_intent import (  # noqa: E402
     AirframeMotionAdapter,
     MotionCommand,
-    MotionIntentError,
     camera_ray_from_profile,
 )
+from multidetect.autonomy.near_depth import NearDepthConfig, NearDepthController  # noqa: E402
 from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
@@ -68,7 +68,6 @@ from multidetect.autonomy.onboard_loop import (  # noqa: E402
     LoopConfig,
     OnboardLoop,
 )
-from multidetect.autonomy.near_depth import NearDepthConfig, NearDepthController  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
@@ -88,7 +87,10 @@ from multidetect.sim_teacher.policies import (  # noqa: E402
     segment_clear_of_obstacles,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
-from multidetect.simulator.camera_projection import pixel_camera_ray, pixel_ground_point  # noqa: E402
+from multidetect.simulator.camera_projection import (  # noqa: E402
+    pixel_camera_ray,
+    pixel_ground_point,
+)
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
 
@@ -157,6 +159,8 @@ def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str 
         mmproj_path = Path(str(mmproj))
         mmproj = str(mmproj_path if mmproj_path.is_absolute() else ROOT / mmproj_path)
     return str(model_path), mmproj
+
+
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
@@ -326,8 +330,6 @@ def build_mission_from_text(
     return plan, report
 
 
-
-
 class OnboardPolicy:
     # Optional subsystems default to "absent" (tests build bare instances).
     supervisor: MissionSupervisor | None = None
@@ -454,7 +456,9 @@ class OnboardPolicy:
             # or turn-off leg would be clipped, and a clipped high-level command is
             # refused into a loiter.  Use the profile's per-step bound instead
             # (explicit safety settings still win).
-            envelope_source.setdefault("max_translation_m", self.airframe_profile.limits.max_step_distance_m)
+            envelope_source.setdefault(
+                "max_translation_m", self.airframe_profile.limits.max_step_distance_m
+            )
         if self.mission_package is not None:
             area = self.mission_package.document["operating_area"]
             package_polygon = (
@@ -472,11 +476,7 @@ class OnboardPolicy:
             package_home = raw_home if len(raw_home) == 3 else (*raw_home, 0.0)
         self.safety_envelope = SafetyEnvelope(
             SafetyEnvelopeConfig.from_mapping(envelope_source),
-            home_ned=(
-                tuple(float(v) for v in home_ned)
-                if home_ned is not None
-                else package_home
-            ),
+            home_ned=(tuple(float(v) for v in home_ned) if home_ned is not None else package_home),
             ground_model=getattr(self.ground_projection, "model", None),
         )
         # Keep the adapter on the same envelope instance so a rejection has a
@@ -495,7 +495,9 @@ class OnboardPolicy:
             near_depth_enabled = raw_near_depth
         else:
             raise ValueError("near_depth must be a boolean")
-        near_model_path = Path(str(options.get("near_depth_model_path", DEFAULTS["near_depth_model_path"])))
+        near_model_path = Path(
+            str(options.get("near_depth_model_path", DEFAULTS["near_depth_model_path"]))
+        )
         if not near_model_path.is_absolute():
             near_model_path = ROOT / near_model_path
         near_depth_config = NearDepthConfig(
@@ -578,7 +580,9 @@ class OnboardPolicy:
             )
 
         if not self.motion_adapter.is_multirotor:
-            self._search = fixed_wing_search(home_ned or (0.0, 0.0, 0.0), self._search.search_radius_m)
+            self._search = fixed_wing_search(
+                home_ned or (0.0, 0.0, 0.0), self._search.search_radius_m
+            )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
             fy=float(camera_info["fy"]),
@@ -598,8 +602,10 @@ class OnboardPolicy:
         # Keep the original types: LoopConfig strictly rejects strings, bools
         # masquerading as integers, fractional view counts and non-finite sigma.
         for key in (
-            "step_triangulation", "step_triangulation_max_views",
-            "ground_height_sigma_m", "step_triangulation_sigma_scale",
+            "step_triangulation",
+            "step_triangulation_max_views",
+            "ground_height_sigma_m",
+            "step_triangulation_sigma_scale",
             "step_triangulation_ground_gate_m",
             "step_triangulation_parallax_deg_per_m",
             "step_triangulation_min_ray_angle_deg",
@@ -654,7 +660,9 @@ class OnboardPolicy:
             search = self._search
             obstacle_source = StaticMapSource(obstacles)
             if region is not None and not self.motion_adapter.is_multirotor:
-                search = fixed_wing_search((float(region[0]), float(region[1]), 0.0), float(region[2]))
+                search = fixed_wing_search(
+                    (float(region[0]), float(region[1]), 0.0), float(region[2])
+                )
             elif region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -754,7 +762,10 @@ class OnboardPolicy:
                 try:
                     return make_identity_runner()
                 except Exception as exc:
-                    address_busy = "address already in use" in str(exc).lower() or "address in use" in str(exc).lower()
+                    address_busy = (
+                        "address already in use" in str(exc).lower()
+                        or "address in use" in str(exc).lower()
+                    )
                     if not address_busy or time.monotonic() >= deadline:
                         health = getattr(self, "health", None)
                         if health is not None:
@@ -813,8 +824,7 @@ class OnboardPolicy:
             alert_require_majority=(
                 options.get("alert_require_majority", False)
                 if not isinstance(options.get("alert_require_majority", False), str)
-                else options["alert_require_majority"].strip().lower()
-                in {"1", "true", "yes", "on"}
+                else options["alert_require_majority"].strip().lower() in {"1", "true", "yes", "on"}
             ),
             alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
             deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
@@ -873,6 +883,7 @@ class OnboardPolicy:
                     if package_retry and self.mission_package is not None
                     else None
                 )
+
                 def compile_once(runner):
                     post_attempted = False
 
@@ -909,7 +920,9 @@ class OnboardPolicy:
                     try:
                         candidate, candidate_report = build_mission_from_text(
                             self.task_text,
-                            tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
+                            tuple(
+                                f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs
+                            ),
                             post,
                             sorted_keys=bool(options.get("plan_sorted_keys", True)),
                             plan_checker=plan_checker,
@@ -1011,9 +1024,7 @@ class OnboardPolicy:
                 capabilities=capabilities,
                 mission_package=self.mission_package,
                 no_fly_zones=(
-                    self.mission_package.no_fly_zones
-                    if self.mission_package is not None
-                    else ()
+                    self.mission_package.no_fly_zones if self.mission_package is not None else ()
                 ),
                 release_authorized=_enabled(options.get("release_authorized")),
                 task_text=(
@@ -1070,7 +1081,9 @@ class OnboardPolicy:
                 if self._model_split:
                     self.downlink.log.append(
                         "model_swap",
-                        self.sim_timeline.now if self.sim_timeline is not None else time.monotonic(),
+                        self.sim_timeline.now
+                        if self.sim_timeline is not None
+                        else time.monotonic(),
                         model_runtime=dict(self._model_runtime),
                     )
                 # Telemetry readers stamp receipts with host monotonic time,
@@ -1155,14 +1168,14 @@ class OnboardPolicy:
         executor = self.executor
         report = executor.report()
         report_input = {
-                "history": list(executor.history),
-                "findings": list(executor.findings),
-                "counts": dict(executor.counts),
-                "coverage": dict(executor.coverage),
-                "evidence": list(report.evidence_frame_ids),
-                "answers": list(report.state_answers),
-                "alerts": list(report.alerts),
-            }
+            "history": list(executor.history),
+            "findings": list(executor.findings),
+            "counts": dict(executor.counts),
+            "coverage": dict(executor.coverage),
+            "evidence": list(report.evidence_frame_ids),
+            "answers": list(report.state_answers),
+            "alerts": list(report.alerts),
+        }
         if self._model_split:
             report_input["model_runtime"] = dict(self._model_runtime)
         summary, chinese, english = summarize_mission(
@@ -1254,10 +1267,18 @@ class OnboardPolicy:
         }
 
     def _run_near_depth(
-        self, *, loop: OnboardLoop | None, current: Sequence[Any], rgb: Any,
-        frame_id: str, pose_ned: tuple[float, float, float], camera_info: Mapping[str, Any],
-        camera_ray: Callable[[float, float], Any], timestamp_s: float | None,
-        stage_allowed: bool, step_token: int,
+        self,
+        *,
+        loop: OnboardLoop | None,
+        current: Sequence[Any],
+        rgb: Any,
+        frame_id: str,
+        pose_ned: tuple[float, float, float],
+        camera_info: Mapping[str, Any],
+        camera_ray: Callable[[float, float], Any],
+        timestamp_s: float | None,
+        stage_allowed: bool,
+        step_token: int,
     ) -> None:
         """Run the optional depth source after all slow calls, synchronously."""
         if (
@@ -1293,18 +1314,28 @@ class OnboardPolicy:
             else:
                 current_range = None
         from multidetect.multimodal_ranging import CameraCalibration
+
         calibration = CameraCalibration(
             calibration_id="onboard-policy",
-            width_px=self.image_size[0], height_px=self.image_size[1],
-            fx_px=float(camera_info["fx"]), fy_px=float(camera_info["fy"]),
-            cx_px=float(camera_info["cx"]), cy_px=float(camera_info["cy"]),
+            width_px=self.image_size[0],
+            height_px=self.image_size[1],
+            fx_px=float(camera_info["fx"]),
+            fy_px=float(camera_info["fy"]),
+            cx_px=float(camera_info["cx"]),
+            cy_px=float(camera_info["cy"]),
         )
         self.near_depth.run(
-            track=focus, image_bgr=rgb[:, :, ::-1].copy(), frame_id=frame_id,
+            track=focus,
+            image_bgr=rgb[:, :, ::-1].copy(),
+            frame_id=frame_id,
             captured_at_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
             now_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
-            camera_ray=camera_ray, current_range_m=current_range, calibration=calibration,
-            image_size=self.image_size, stage_allowed=stage_allowed, focus=True,
+            camera_ray=camera_ray,
+            current_range_m=current_range,
+            calibration=calibration,
+            image_size=self.image_size,
+            stage_allowed=stage_allowed,
+            focus=True,
             step_token=step_token,
         )
 
@@ -1463,31 +1494,43 @@ class OnboardPolicy:
                 ray = getattr(projector, "ray", None)
                 return ray(u, v, observation) if callable(ray) else None
             base = pixel_camera_ray(
-                u, v, pose=observation, camera_info=camera_info,
+                u,
+                v,
+                pose=observation,
+                camera_info=camera_info,
                 image_size=self.image_size,
             )
             if base is None or not self.airframe_profile.camera.attitude_rotations:
                 return base
             direction = camera_ray_from_profile(
-                u, v, fx=float(camera_info["fx"]), fy=float(camera_info["fy"]),
-                cx=float(camera_info["cx"]), cy=float(camera_info["cy"]),
+                u,
+                v,
+                fx=float(camera_info["fx"]),
+                fy=float(camera_info["fy"]),
+                cx=float(camera_info["cx"]),
+                cy=float(camera_info["cy"]),
                 attitude_deg=(
                     float(observation["attitude"]["roll_deg"]),
                     float(observation["attitude"]["pitch_deg"]),
                     float(observation["attitude"]["yaw_deg"]),
-                ), profile=self.airframe_profile, mode=self.motion_adapter.mode,
+                ),
+                profile=self.airframe_profile,
+                mode=self.motion_adapter.mode,
             )
             return base[0], direction
 
         ranging_enabled = getattr(
-            getattr(getattr(self, "loop", None), "config", None), "step_triangulation", False,
+            getattr(getattr(self, "loop", None), "config", None),
+            "step_triangulation",
+            False,
         )
         ranging_enabled = ranging_enabled or getattr(
             getattr(self, "near_depth", None), "enabled", False
         )
         ranging_kwargs = (
             {"camera_ray": camera_ray, "timestamp_s": _observation_timestamp_s(observation)}
-            if ranging_enabled else {}
+            if ranging_enabled
+            else {}
         )
 
         if self.executor is not None:
@@ -1539,10 +1582,18 @@ class OnboardPolicy:
         run_near_depth = getattr(self, "_run_near_depth", None)
         if callable(run_near_depth):
             run_near_depth(
-                loop=self.loop, current=current, rgb=rgb, frame_id=frame_path.name,
-                pose_ned=tuple(pose_ned), camera_info=camera_info, camera_ray=camera_ray,
+                loop=self.loop,
+                current=current,
+                rgb=rgb,
+                frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned),
+                camera_info=camera_info,
+                camera_ray=camera_ray,
                 timestamp_s=_observation_timestamp_s(observation),
-                stage_allowed=(self.loop.state == "approaching" or getattr(self.loop, "_at_closest", False)), step_token=step,
+                stage_allowed=(
+                    self.loop.state == "approaching" or getattr(self.loop, "_at_closest", False)
+                ),
+                step_token=step,
             )
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
@@ -1601,7 +1652,10 @@ class OnboardPolicy:
         # The legacy multirotor path below is intentionally byte-compatible.
         # Other airframes consume a command object; their executor must never
         # see a zero-speed hold or a zero-radius turn.
-        if getattr(self, "motion_adapter", None) is not None and not self.motion_adapter.is_multirotor:
+        if (
+            getattr(self, "motion_adapter", None) is not None
+            and not self.motion_adapter.is_multirotor
+        ):
             command = self.motion_adapter.from_primitive(
                 action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=labels
             )
@@ -1727,8 +1781,11 @@ class OnboardPolicy:
             ground_point=ground_point,
             frame_rgb=frame_rgb,
             landed=landed,
-            **({"camera_ray": camera_ray, "timestamp_s": timestamp_s}
-               if camera_ray is not None else {}),
+            **(
+                {"camera_ray": camera_ray, "timestamp_s": timestamp_s}
+                if camera_ray is not None
+                else {}
+            ),
         )
         current = list(executor.current_tracks)
         slow = []
@@ -1760,14 +1817,23 @@ class OnboardPolicy:
                 and getattr(mission_run, "phase", None) in {"face", "capture"}
             )
             run_near_depth(
-                loop=mission_loop, current=current, rgb=frame_rgb, frame_id=frame_path.name,
-                pose_ned=tuple(pose_ned), camera_info=camera_info or {}, camera_ray=camera_ray,
+                loop=mission_loop,
+                current=current,
+                rgb=frame_rgb,
+                frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned),
+                camera_info=camera_info or {},
+                camera_ray=camera_ray,
                 timestamp_s=timestamp_s,
-                stage_allowed=(step is not None and (
-                    inspect_near_phase
-                    or getattr(mission_loop, "state", None) == "approaching"
-                    or getattr(mission_loop, "_at_closest", False)
-                )), step_token=self._step,
+                stage_allowed=(
+                    step is not None
+                    and (
+                        inspect_near_phase
+                        or getattr(mission_loop, "state", None) == "approaching"
+                        or getattr(mission_loop, "_at_closest", False)
+                    )
+                ),
+                step_token=self._step,
             )
         alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
@@ -1787,10 +1853,13 @@ class OnboardPolicy:
                 "position_estimate_ne": list(finding["position_ne"]),
                 "rule": finding["rule"],
             }
-            confirmed.update({
-                key: value for key, value in finding.items()
-                if key.startswith("position_") and key != "position_ne"
-            })
+            confirmed.update(
+                {
+                    key: value
+                    for key, value in finding.items()
+                    if key.startswith("position_") and key != "position_ne"
+                }
+            )
         report = executor.report()
         labels = {
             "onboard": {

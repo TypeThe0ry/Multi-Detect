@@ -18,25 +18,41 @@ from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E40
 
 def _plan(*steps):
     return {
-        "plan_version": 1, "goal": "test", "report": [],
+        "plan_version": 1,
+        "goal": "test",
+        "report": [],
         "steps": [
-            {"id": f"s{i}", "skill": skill, "params": params,
-             "on_success": f"s{i + 1}" if i + 1 < len(steps) else None,
-             "on_fail": f"s{len(steps) - 1}" if i + 1 < len(steps) else None}
+            {
+                "id": f"s{i}",
+                "skill": skill,
+                "params": params,
+                "on_success": f"s{i + 1}" if i + 1 < len(steps) else None,
+                "on_fail": f"s{len(steps) - 1}" if i + 1 < len(steps) else None,
+            }
             for i, (skill, params) in enumerate(steps)
         ],
     }
 
 
-@pytest.mark.parametrize("steps,refs", [
-    ((('goto', {'target_ref': 'poi:missing'}), ('return_home', {})),
-     ('poi:gate', 'poi:pad')),
-    ((('deliver', {'target_ref': 'poi:gate', 'payload_ref': 'payload:box'}),
-      ('return_home', {})), ('poi:gate',)),
-])
+@pytest.mark.parametrize(
+    "steps,refs",
+    [
+        ((("goto", {"target_ref": "poi:missing"}), ("return_home", {})), ("poi:gate", "poi:pad")),
+        (
+            (
+                ("deliver", {"target_ref": "poi:gate", "payload_ref": "payload:box"}),
+                ("return_home", {}),
+            ),
+            ("poi:gate",),
+        ),
+    ],
+)
 def test_invalid_task_accepts_host_rejection(steps, refs):
     plan, _, attempts, outcome = plan_from_task.compile_task(
-        lambda *args: json.dumps(_plan(*steps)), "invalid request", refs, {},
+        lambda *args: json.dumps(_plan(*steps)),
+        "invalid request",
+        refs,
+        {},
     )
     assert plan is None
     assert len(attempts) == 2
@@ -46,25 +62,30 @@ def test_invalid_task_accepts_host_rejection(steps, refs):
 
 def test_invalid_task_accepts_only_repaired_home_fallback():
     plan, _, _, outcome = plan_from_task.compile_task(
-        lambda *args: json.dumps(_plan()), "cannot do this", (), {},
+        lambda *args: json.dumps(_plan()),
+        "cannot do this",
+        (),
+        {},
     )
     assert outcome == ["appended return_home"]
     assert plan_from_task.score_task({"expect_invalid": True}, plan, outcome)["exact"]
     assert not plan_from_task.score_task({"expect_invalid": True}, plan, None)["exact"]
-    operational = validate_mission_plan(_plan(('hover', {'duration_s': 5}), ('return_home', {})))
+    operational = validate_mission_plan(_plan(("hover", {"duration_s": 5}), ("return_home", {})))
     row = plan_from_task.score_task(
-        {"expect_invalid": True}, operational, ["appended return_home"],
+        {"expect_invalid": True},
+        operational,
+        ["appended return_home"],
     )
     assert not row["exact"]
     assert not row["same_skills"]
 
 
 def test_invalid_task_excluded_from_skill_confusion_but_counted_for_language():
-    row = _row([], ['return_home'], exact=True, expect_invalid=True)
+    row = _row([], ["return_home"], exact=True, expect_invalid=True)
     diagnosis = compute_diagnosis([row])
-    assert diagnosis['expected_skill_recall'] == {}
-    assert diagnosis['substitutions'] == []
-    assert diagnosis['language_exact_match_rate'] == {'en': 1.0}
+    assert diagnosis["expected_skill_recall"] == {}
+    assert diagnosis["substitutions"] == []
+    assert diagnosis["language_exact_match_rate"] == {"en": 1.0}
 
 
 @pytest.fixture
@@ -102,8 +123,7 @@ def test_diagnosis_aligns_replacements_deletions_and_insertions():
     ]
     substitutions = compute_diagnosis(rows)["substitutions"]
     counts = {
-        (item["expected_skill"], item["predicted_skill"]): item["count"]
-        for item in substitutions
+        (item["expected_skill"], item["predicted_skill"]): item["count"] for item in substitutions
     }
     assert counts == {
         ("inspect", "monitor"): 1,
@@ -124,7 +144,9 @@ def test_diagnosis_orders_substitutions_by_frequency():
         _row(["inspect"], ["survey"]),
     ]
     assert compute_diagnosis(rows)["substitutions"][0] == {
-        "expected_skill": "inspect", "predicted_skill": "monitor", "count": 2,
+        "expected_skill": "inspect",
+        "predicted_skill": "monitor",
+        "count": 2,
     }
 
 
@@ -137,7 +159,9 @@ def test_diagnosis_uses_explicit_language_and_existing_exact_score():
         _row(["inspect"], None, text="检查大门", language="en"),
     ]
     assert compute_diagnosis(rows)["language_exact_match_rate"] == {
-        "en": 0.5, "fr": 1.0, "zh": 0.5,
+        "en": 0.5,
+        "fr": 1.0,
+        "zh": 0.5,
     }
 
 
@@ -150,21 +174,45 @@ def test_empty_diagnosis():
 
 
 def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
-    output_dir, monkeypatch, capsys,
+    output_dir,
+    monkeypatch,
+    capsys,
 ):
     tasks = output_dir / "tasks.json"
     output = output_dir / "result.json"
-    tasks.write_text(json.dumps({"tasks": [{
-        "text": "Inspect the gate", "skills": ["inspect", "land"],
-        "alternatives": [["survey", "land"]], "language": "test",
-    }]}), encoding="utf-8")
-    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
-        LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
-        _http_json=lambda *args: None,
-    ))
-    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args, **kwargs: (
-        ["survey", "land"], "{}", [0.1], None,
-    ))
+    tasks.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "text": "Inspect the gate",
+                        "skills": ["inspect", "land"],
+                        "alternatives": [["survey", "land"]],
+                        "language": "test",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "scripts.eval_slow_system",
+        SimpleNamespace(
+            LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
+            _http_json=lambda *args: None,
+        ),
+    )
+    monkeypatch.setattr(
+        plan_from_task,
+        "compile_task",
+        lambda *args, **kwargs: (
+            ["survey", "land"],
+            "{}",
+            [0.1],
+            None,
+        ),
+    )
     monkeypatch.setattr(plan_from_task, "success_path", lambda plan: plan)
     assert plan_from_task.main(["--tasks", str(tasks), "--output", str(output)]) == 0
     result = json.loads(output.read_text(encoding="utf-8"))
@@ -177,17 +225,30 @@ def test_main_writes_diagnosis_and_preserves_alternative_exact_score(
 def test_main_scores_invalid_tasks_and_uses_task_refs(output_dir, monkeypatch):
     tasks = output_dir / "invalid.json"
     output = output_dir / "result.json"
-    tasks.write_text(json.dumps({
-        "refs": ["poi:gate"], "tasks": [
-            {"text": "Deliver a parcel", "expect_invalid": True},
-            {"text": "Go somewhere unknown", "expect_invalid": True,
-             "refs": ["poi:pad", "poi:tower"]},
-        ],
-    }), encoding="utf-8")
-    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
-        LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
-        _http_json=lambda *args: None,
-    ))
+    tasks.write_text(
+        json.dumps(
+            {
+                "refs": ["poi:gate"],
+                "tasks": [
+                    {"text": "Deliver a parcel", "expect_invalid": True},
+                    {
+                        "text": "Go somewhere unknown",
+                        "expect_invalid": True,
+                        "refs": ["poi:pad", "poi:tower"],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "scripts.eval_slow_system",
+        SimpleNamespace(
+            LlamaServerRunner=lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
+            _http_json=lambda *args: None,
+        ),
+    )
     seen_refs = []
 
     def compile_task(post, text, refs, schema, **kwargs):
@@ -207,22 +268,46 @@ def test_main_scores_invalid_tasks_and_uses_task_refs(output_dir, monkeypatch):
 def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
     tasks = output_dir / "tasks.json"
     output = output_dir / "result.json"
-    tasks.write_text(json.dumps({"tasks": [
-        {"text": "Return home.", "skills": ["return_home"]},
-        {"text": "Come back.", "skills": ["return_home"]},
-    ]}), encoding="utf-8")
-    plan = json.dumps({
-        "plan_version": 1, "goal": "return", "report": [],
-        "steps": [{"id": "s1", "skill": "return_home", "params": {},
-                   "on_success": None, "on_fail": None}],
-    })
-    responses = iter([
-        {"choices": [{"message": {"content": "invalid json"}}],
-         "usage": {"prompt_tokens": 100, "completion_tokens": 3}},
-        {"choices": [{"message": {"content": plan}}],
-         "usage": {"prompt_tokens": 120, "completion_tokens": 22}},
-        {"choices": [{"message": {"content": plan}}]},
-    ])
+    tasks.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {"text": "Return home.", "skills": ["return_home"]},
+                    {"text": "Come back.", "skills": ["return_home"]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = json.dumps(
+        {
+            "plan_version": 1,
+            "goal": "return",
+            "report": [],
+            "steps": [
+                {
+                    "id": "s1",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                }
+            ],
+        }
+    )
+    responses = iter(
+        [
+            {
+                "choices": [{"message": {"content": "invalid json"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 3},
+            },
+            {
+                "choices": [{"message": {"content": plan}}],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 22},
+            },
+            {"choices": [{"message": {"content": plan}}]},
+        ]
+    )
     requests, runners, closed = [], [], []
 
     def http_json(url, body):
@@ -233,14 +318,32 @@ def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
         runners.append(kwargs)
         return SimpleNamespace(close=lambda: closed.append(True))
 
-    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
-        LlamaServerRunner=runner, _http_json=http_json,
-    ))
-    assert plan_from_task.main([
-        "--tasks", str(tasks), "--output", str(output), "--prompt-variant", "compact",
-        "--llama-server", str(output_dir / "llama-server"), "--device", "cpu",
-        "--no-prompt-cache",
-    ]) == 0
+    monkeypatch.setitem(
+        sys.modules,
+        "scripts.eval_slow_system",
+        SimpleNamespace(
+            LlamaServerRunner=runner,
+            _http_json=http_json,
+        ),
+    )
+    assert (
+        plan_from_task.main(
+            [
+                "--tasks",
+                str(tasks),
+                "--output",
+                str(output),
+                "--prompt-variant",
+                "compact",
+                "--llama-server",
+                str(output_dir / "llama-server"),
+                "--device",
+                "cpu",
+                "--no-prompt-cache",
+            ]
+        )
+        == 0
+    )
     result = json.loads(output.read_text(encoding="utf-8"))
     first, second = result["rows"]
     assert len(first["request_usage"]) == 2
@@ -262,26 +365,46 @@ def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
     assert closed == [True]
 
 
-@pytest.mark.parametrize(("extra", "expected_mode", "expected_mmproj"), [
-    ([], "configured", "projector.gguf"),
-    (["--no-mmproj"], "none", None),
-])
-def test_main_mmproj_mode_is_explicit(output_dir, monkeypatch, extra, expected_mode, expected_mmproj):
+@pytest.mark.parametrize(
+    ("extra", "expected_mode", "expected_mmproj"),
+    [
+        ([], "configured", "projector.gguf"),
+        (["--no-mmproj"], "none", None),
+    ],
+)
+def test_main_mmproj_mode_is_explicit(
+    output_dir, monkeypatch, extra, expected_mode, expected_mmproj
+):
     tasks = output_dir / "tasks.json"
     output = output_dir / "result.json"
-    tasks.write_text(json.dumps({"tasks": [{"text": "Return home", "skills": ["return_home"]}]}), encoding="utf-8")
+    tasks.write_text(
+        json.dumps({"tasks": [{"text": "Return home", "skills": ["return_home"]}]}),
+        encoding="utf-8",
+    )
     calls = []
 
     def runner(*args, **kwargs):
         calls.append(args)
         return SimpleNamespace(close=lambda: None)
 
-    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
-        LlamaServerRunner=runner, _http_json=lambda *args, **kwargs: None,
-    ))
-    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args, **kwargs: (
-        _plan(("return_home", {})), "{}", [0.01], None,
-    ))
+    monkeypatch.setitem(
+        sys.modules,
+        "scripts.eval_slow_system",
+        SimpleNamespace(
+            LlamaServerRunner=runner,
+            _http_json=lambda *args, **kwargs: None,
+        ),
+    )
+    monkeypatch.setattr(
+        plan_from_task,
+        "compile_task",
+        lambda *args, **kwargs: (
+            _plan(("return_home", {})),
+            "{}",
+            [0.01],
+            None,
+        ),
+    )
     monkeypatch.setattr(plan_from_task, "success_path", lambda plan: ["return_home"])
     argv = ["--tasks", str(tasks), "--output", str(output), "--mmproj", "projector.gguf", *extra]
     assert plan_from_task.main(argv) == 0
@@ -293,6 +416,9 @@ def test_main_mmproj_mode_is_explicit(output_dir, monkeypatch, extra, expected_m
 
 def test_usage_totals_are_unknown_if_any_retry_usage_is_missing():
     assert plan_from_task._usage_total([], "prompt_tokens") is None
-    assert plan_from_task._usage_total(
-        [{"prompt_tokens": 100}, {"prompt_tokens": None}], "prompt_tokens"
-    ) is None
+    assert (
+        plan_from_task._usage_total(
+            [{"prompt_tokens": 100}, {"prompt_tokens": None}], "prompt_tokens"
+        )
+        is None
+    )

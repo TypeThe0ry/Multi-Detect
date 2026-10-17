@@ -32,8 +32,8 @@ from .rollout import EpisodeMetrics, RolloutConfig, rollout_episode, run_rollout
 from .search_memory import SearchMemoryGrid, SearchMemorySnapshot
 from .state_builder import StateBuilderInput, StructuredSceneStateBuilder
 from .vlm_grounding import (
-    AttributeGroundingResult,
     AttributeGrounder,
+    AttributeGroundingResult,
     TaskSpecResolver,
     VlmGroundingError,
     VlmOutputError,

@@ -6,6 +6,7 @@ search flies lawnmower lanes with Dubins turns (``fw_geometry.lawnmower_search``
 and hands the loop one leg at a time, each at most ``max_leg_m`` ahead, so
 consecutive repositions chain into continuous flight along the lanes.
 """
+
 from __future__ import annotations
 
 import math
@@ -46,14 +47,16 @@ class FixedWingSearch:
         width = min(max(float(footprint_width_m), 30.0), 2.0 * float(radius_m))
         path = lawnmower_search(
             (north - radius_m, north + radius_m, east - radius_m, east + radius_m),
-            width, overlap, max(float(turn_radius_m), 1.0),
+            width,
+            overlap,
+            max(float(turn_radius_m), 1.0),
         )
         # One waypoint every ~0.9 leg along the sampled lanes and turns.
         spacing = 0.9 * float(max_leg_m)
         points = [p.position_ne for p in path.points]
         waypoints = [points[0]]
         travelled = 0.0
-        for a, b in zip(points, points[1:]):
+        for a, b in zip(points, points[1:], strict=False):
             travelled += math.hypot(b[0] - a[0], b[1] - a[1])
             if travelled >= spacing:
                 waypoints.append(b)

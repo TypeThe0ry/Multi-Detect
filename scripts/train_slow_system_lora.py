@@ -32,7 +32,9 @@ from multidetect.autonomy.onboard_decision import parse_onboard_decision
 from scripts.slow_system_runtime import ROOT, chat_messages, dataset_crop_policy, load_jsonl
 from scripts.train_onboard_vlm_grounding import causal_response_loss, response_only_labels
 
-DEFAULT_CACHE = ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
+DEFAULT_CACHE = (
+    ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
+)
 DEFAULT_DATASET = ROOT / "artifacts/datasets/slow-system-sft-r1"
 LANGUAGE_PROJECTION = re.compile(r"model\.language_model\.layers\.\d+\.self_attn\.(q_proj|v_proj)")
 VISION_PROJECTOR = re.compile(r"model\.visual\.merger\.(?:linear_fc1|linear_fc2)")
@@ -57,7 +59,16 @@ class TrainOptions:
     balance: bool = False
 
     def validate(self) -> None:
-        for name in ("epochs", "accumulation", "rank", "alpha", "max_input_tokens", "max_new_tokens", "checkpoint_every", "max_side"):
+        for name in (
+            "epochs",
+            "accumulation",
+            "rank",
+            "alpha",
+            "max_input_tokens",
+            "max_new_tokens",
+            "checkpoint_every",
+            "max_side",
+        ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
         if self.max_steps < 0 or self.quantization not in {"auto", "4bit", "bf16"}:
@@ -71,7 +82,9 @@ def local_snapshot(path: Path) -> Path:
         return path.resolve()
     snapshots = sorted(p for p in path.glob("*/config.json") if p.is_file())
     if len(snapshots) != 1:
-        raise ValueError(f"Expected one complete local Qwen snapshot under {path}; found {len(snapshots)}")
+        raise ValueError(
+            f"Expected one complete local Qwen snapshot under {path}; found {len(snapshots)}"
+        )
     return snapshots[0].parent.resolve()
 
 
@@ -80,7 +93,9 @@ def resolve_quantization(choice: str, *, bnb_available: bool | None = None) -> s
         bnb_available = importlib.util.find_spec("bitsandbytes") is not None
     if choice == "4bit" and not bnb_available:
         raise RuntimeError("4-bit was requested but bitsandbytes is unavailable locally")
-    return "4bit" if choice == "auto" and bnb_available else ("bf16" if choice == "auto" else choice)
+    return (
+        "4bit" if choice == "auto" and bnb_available else ("bf16" if choice == "auto" else choice)
+    )
 
 
 def model_load_kwargs(options: TrainOptions, *, bnb_available: bool | None = None) -> dict:
@@ -102,7 +117,9 @@ def model_load_kwargs(options: TrainOptions, *, bnb_available: bool | None = Non
 
 
 def _input_hash(rows: list[dict]) -> str:
-    data = "\n".join(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows).encode("utf-8")
+    data = "\n".join(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows).encode(
+        "utf-8"
+    )
     return hashlib.sha256(data).hexdigest()
 
 
@@ -126,13 +143,17 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
     return rows, _input_hash(rows)
 
 
-def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: int, crop_policy: str | None = None):
+def encode_response(
+    processor, row: dict, *, max_side: int, max_input_tokens: int, crop_policy: str | None = None
+):
     import torch
 
     messages = chat_messages(row, max_side, crop_policy)
     common = {"tokenize": True, "return_dict": True, "return_tensors": "pt"}
     prefix = processor.apply_chat_template(messages, add_generation_prompt=True, **common)
-    answer = json.dumps(row["assistant_target"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    answer = json.dumps(
+        row["assistant_target"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     full = processor.apply_chat_template(
         messages + [{"role": "assistant", "content": [{"type": "text", "text": answer}]}],
         add_generation_prompt=False,
@@ -153,13 +174,20 @@ def encode_response(processor, row: dict, *, max_side: int, max_input_tokens: in
 def balance_rows(rows: list[dict], *, seed: int) -> list[dict]:
     """Deterministically oversample decision classes to no more than 2:1."""
     names = ("confirm_target", "approach_track", "reject_track")
-    groups = {name: [row for row in rows if row["assistant_target"].get("decision", "mission_plan") == name] for name in names}
+    groups = {
+        name: [
+            row for row in rows if row["assistant_target"].get("decision", "mission_plan") == name
+        ]
+        for name in names
+    }
     present = [group for group in groups.values() if group]
     if not present:
         return list(rows)
     target = max(len(group) for group in present)
     rng = random.Random(seed)
-    result = [row for row in rows if row["assistant_target"].get("decision", "mission_plan") not in names]
+    result = [
+        row for row in rows if row["assistant_target"].get("decision", "mission_plan") not in names
+    ]
     for name in names:
         group = groups[name]
         if group:
@@ -184,7 +212,9 @@ def make_backend(snapshot: Path, options: TrainOptions):
     torch.manual_seed(options.seed)
     torch.cuda.manual_seed_all(options.seed)
     processor = transformers.AutoProcessor.from_pretrained(
-        str(snapshot), local_files_only=True, trust_remote_code=False,
+        str(snapshot),
+        local_files_only=True,
+        trust_remote_code=False,
         max_pixels=options.max_side * options.max_side,
     )
     kwargs = model_load_kwargs(options)
@@ -194,7 +224,8 @@ def make_backend(snapshot: Path, options: TrainOptions):
         kwargs.pop("bnb_4bit_quant_type")
         kwargs.pop("bnb_4bit_compute_dtype")
         kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
     base = transformers.Qwen3VLForConditionalGeneration.from_pretrained(str(snapshot), **kwargs)
@@ -202,7 +233,8 @@ def make_backend(snapshot: Path, options: TrainOptions):
     if quantization == "4bit":
         base = peft.prepare_model_for_kbit_training(base, use_gradient_checkpointing=False)
     targets = [
-        name for name, _ in base.named_modules()
+        name
+        for name, _ in base.named_modules()
         if LANGUAGE_PROJECTION.fullmatch(name)
         or (options.vision_projector and VISION_PROJECTOR.fullmatch(name))
     ]
@@ -210,10 +242,17 @@ def make_backend(snapshot: Path, options: TrainOptions):
         raise ValueError("Qwen language q/v projection modules were not found")
     if options.vision_projector and not any(VISION_PROJECTOR.fullmatch(name) for name in targets):
         raise ValueError("Requested vision projector modules were not found")
-    model = peft.get_peft_model(base, peft.LoraConfig(
-        task_type="CAUSAL_LM", r=options.rank, lora_alpha=options.alpha,
-        lora_dropout=0.0, target_modules=targets, bias="none",
-    ))
+    model = peft.get_peft_model(
+        base,
+        peft.LoraConfig(
+            task_type="CAUSAL_LM",
+            r=options.rank,
+            lora_alpha=options.alpha,
+            lora_dropout=0.0,
+            target_modules=targets,
+            bias="none",
+        ),
+    )
     model.config.use_cache = False
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
@@ -224,13 +263,18 @@ OOM_RETRIES = 5
 OOM_RETRY_WAIT_S = 30.0
 
 
-def _accumulate_batch(torch, model, processor, samples: list[dict], *, options, crop_policy) -> list[float]:
+def _accumulate_batch(
+    torch, model, processor, samples: list[dict], *, options, crop_policy
+) -> list[float]:
     """Forward/backward one accumulation batch; returns per-sample losses."""
     batch_losses: list[float] = []
     for sample in samples:
         full, labels, response_tokens = encode_response(
-            processor, sample, max_side=options.max_side,
-            max_input_tokens=options.max_input_tokens, crop_policy=crop_policy,
+            processor,
+            sample,
+            max_side=options.max_side,
+            max_input_tokens=options.max_input_tokens,
+            crop_policy=crop_policy,
         )
         inputs = {name: tensor.to("cuda:0") for name, tensor in full.items()}
         labels = labels.to("cuda:0")
@@ -253,7 +297,9 @@ def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
     model.save_pretrained(checkpoint, safe_serialization=True)
     torch.save(optimizer.state_dict(), checkpoint / "optimizer.pt")
     temporary = checkpoint / "state.tmp"
-    temporary.write_text(json.dumps(state, sort_keys=True, indent=2), encoding="utf-8", newline="\n")
+    temporary.write_text(
+        json.dumps(state, sort_keys=True, indent=2), encoding="utf-8", newline="\n"
+    )
     temporary.replace(checkpoint / "state.json")
 
 
@@ -287,11 +333,18 @@ def initialize_adapter(model, adapter_path: Path) -> None:
 
 def run(args, *, backend_factory=make_backend) -> dict:
     options = TrainOptions(
-        epochs=args.epochs, max_steps=args.max_steps, accumulation=args.accumulation,
-        rank=args.rank, alpha=args.alpha, learning_rate=args.learning_rate,
-        seed=args.seed, max_input_tokens=args.max_input_tokens,
-        max_new_tokens=args.max_new_tokens, checkpoint_every=args.checkpoint_every,
-        max_side=args.max_side, quantization=args.quantization,
+        epochs=args.epochs,
+        max_steps=args.max_steps,
+        accumulation=args.accumulation,
+        rank=args.rank,
+        alpha=args.alpha,
+        learning_rate=args.learning_rate,
+        seed=args.seed,
+        max_input_tokens=args.max_input_tokens,
+        max_new_tokens=args.max_new_tokens,
+        checkpoint_every=args.checkpoint_every,
+        max_side=args.max_side,
+        quantization=args.quantization,
         vision_projector=args.vision_projector,
     )
     options.validate()
@@ -308,20 +361,32 @@ def run(args, *, backend_factory=make_backend) -> dict:
         raise FileNotFoundError("--resume requires checkpoint/state.json")
     output.mkdir(parents=True, exist_ok=True)
     torch, model, processor, targets, quantization = backend_factory(snapshot, options)
-    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=options.learning_rate)
+    optimizer = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad], lr=options.learning_rate
+    )
     if getattr(args, "init_adapter", None) and not args.resume:
         initialize_adapter(model, Path(args.init_adapter))
-    state = {"epoch": 0, "cursor": 0, "optimizer_steps": 0, "dataset_sha256": dataset_sha256,
-             "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "snapshot": str(snapshot)}
+    state = {
+        "epoch": 0,
+        "cursor": 0,
+        "optimizer_steps": 0,
+        "dataset_sha256": dataset_sha256,
+        "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced},
+        "snapshot": str(snapshot),
+    }
     if args.resume:
         prior = json.loads((output / "checkpoint/state.json").read_text(encoding="utf-8"))
+
         # checkpoint_every only changes how often progress is saved, not the training math,
         # so a resume may save more often (e.g. when a shared GPU keeps interrupting it).
         def _training_options(options: dict) -> dict:
             return {k: v for k, v in options.items() if k != "checkpoint_every"}
 
-        if (prior["dataset_sha256"] != state["dataset_sha256"] or prior["snapshot"] != state["snapshot"]
-                or _training_options(prior["options"]) != _training_options(state["options"])):
+        if (
+            prior["dataset_sha256"] != state["dataset_sha256"]
+            or prior["snapshot"] != state["snapshot"]
+            or _training_options(prior["options"]) != _training_options(state["options"])
+        ):
             raise ValueError("Resume dataset, model or options differ from checkpoint")
         # Load the checkpoint into the default adapter that training updates and saves.
         # (An earlier version trained a second "resume" adapter, saved under resume/,
@@ -337,8 +402,12 @@ def run(args, *, backend_factory=make_backend) -> dict:
         result = set_peft_model_state_dict(model, weights)
         del weights
         if getattr(result, "unexpected_keys", None):
-            raise ValueError(f"checkpoint keys do not match the adapter: {result.unexpected_keys[:3]}")
-        optimizer.load_state_dict(torch.load(output / "checkpoint/optimizer.pt", map_location="cpu", weights_only=True))
+            raise ValueError(
+                f"checkpoint keys do not match the adapter: {result.unexpected_keys[:3]}"
+            )
+        optimizer.load_state_dict(
+            torch.load(output / "checkpoint/optimizer.pt", map_location="cpu", weights_only=True)
+        )
         state = prior
     started = time.perf_counter()
     losses: list[float] = []
@@ -355,8 +424,12 @@ def run(args, *, backend_factory=make_backend) -> dict:
                     optimizer.zero_grad(set_to_none=True)
                     try:
                         batch_losses = _accumulate_batch(
-                            torch, model, processor, [rows[i] for i in order[cursor:end]],
-                            options=options, crop_policy=crop_policy,
+                            torch,
+                            model,
+                            processor,
+                            [rows[i] for i in order[cursor:end]],
+                            options=options,
+                            crop_policy=crop_policy,
                         )
                         break
                     except RuntimeError as error:
@@ -371,8 +444,12 @@ def run(args, *, backend_factory=make_backend) -> dict:
                         torch.cuda.empty_cache()
                         if attempt == OOM_RETRIES:
                             break
-                        print(f"CUDA out of memory at step {state['optimizer_steps'] + 1}; "
-                              f"retry {attempt + 1}/{OOM_RETRIES}", file=sys.stderr, flush=True)
+                        print(
+                            f"CUDA out of memory at step {state['optimizer_steps'] + 1}; "
+                            f"retry {attempt + 1}/{OOM_RETRIES}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
                         time.sleep(OOM_RETRY_WAIT_S)
                 if batch_losses is None:
                     # This batch never fits under the allocator cap: skip it (recorded in the
@@ -381,18 +458,29 @@ def run(args, *, backend_factory=make_backend) -> dict:
                     state.setdefault("skipped_samples", []).extend(skipped)
                     cursor = end
                     state.update(epoch=epoch, cursor=cursor)
-                    log.write(json.dumps({"epoch": epoch + 1, "cursor": cursor,
-                                          "skipped_oom": skipped}, sort_keys=True) + "\n")
+                    log.write(
+                        json.dumps(
+                            {"epoch": epoch + 1, "cursor": cursor, "skipped_oom": skipped},
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
                     log.flush()
                     continue
                 losses.extend(batch_losses)
-                torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True)
+                torch.nn.utils.clip_grad_norm_(
+                    [p for p in model.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
+                )
                 optimizer.step()
                 state["optimizer_steps"] += 1
                 cursor = end
                 state.update(epoch=epoch, cursor=cursor)
-                entry = {"epoch": epoch + 1, "cursor": cursor, "optimizer_step": state["optimizer_steps"],
-                         "loss": round(sum(batch_losses) / len(batch_losses), 6)}
+                entry = {
+                    "epoch": epoch + 1,
+                    "cursor": cursor,
+                    "optimizer_step": state["optimizer_steps"],
+                    "loss": round(sum(batch_losses) / len(batch_losses), 6),
+                }
                 log.write(json.dumps(entry, sort_keys=True) + "\n")
                 log.flush()
                 if state["optimizer_steps"] % options.checkpoint_every == 0:
@@ -420,15 +508,23 @@ def run(args, *, backend_factory=make_backend) -> dict:
             # weights were not the ones saved (it would merge into the base model).
             raise RuntimeError("saved adapter has all-zero lora_B weights after training")
     report = {
-        "schema_version": 1, "dataset_sha256": dataset_sha256, "train_samples": len(rows),
-        "train_worlds": len({row["world"] for row in rows}), "snapshot": str(snapshot),
-        "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "quantization": quantization,
+        "schema_version": 1,
+        "dataset_sha256": dataset_sha256,
+        "train_samples": len(rows),
+        "train_worlds": len({row["world"] for row in rows}),
+        "snapshot": str(snapshot),
+        "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced},
+        "quantization": quantization,
         "optimizer_stream_decision_counts": {
-            name: sum(row["assistant_target"].get("decision", "mission_plan") == name for row in rows)
+            name: sum(
+                row["assistant_target"].get("decision", "mission_plan") == name for row in rows
+            )
             for name in ("confirm_target", "approach_track", "reject_track")
         },
-        "target_modules": targets, "optimizer_steps": state["optimizer_steps"],
-        "completed": completed, "elapsed_s_this_run": round(time.perf_counter() - started, 3),
+        "target_modules": targets,
+        "optimizer_steps": state["optimizer_steps"],
+        "completed": completed,
+        "elapsed_s_this_run": round(time.perf_counter() - started, 3),
         "mean_loss_this_run": sum(losses) / len(losses) if losses else None,
         "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
@@ -436,7 +532,9 @@ def run(args, *, backend_factory=make_backend) -> dict:
         "lora_b_mean_abs": lora_b_mean_abs,
         "skipped_oom_samples": state.get("skipped_samples", []),
     }
-    (output / "training-report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
+    (output / "training-report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n"
+    )
     return report
 
 
@@ -444,9 +542,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--model", type=Path, default=DEFAULT_CACHE)
-    parser.add_argument("--output", type=Path, default=ROOT / "artifacts/models/slow-system-lora-r1")
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "artifacts/models/slow-system-lora-r1"
+    )
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--max-steps", type=int, default=0, help="Total optimizer step cap; 0 means full epochs")
+    parser.add_argument(
+        "--max-steps", type=int, default=0, help="Total optimizer step cap; 0 means full epochs"
+    )
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--rank", type=int, default=4)
     parser.add_argument("--alpha", type=int, default=8)
@@ -461,7 +563,12 @@ def main(argv=None) -> int:
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
     parser.add_argument("--balance", action="store_true")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--init-adapter", type=Path, default=None, help="initialize LoRA weights from an existing PEFT adapter; optimizer starts fresh")
+    parser.add_argument(
+        "--init-adapter",
+        type=Path,
+        default=None,
+        help="initialize LoRA weights from an existing PEFT adapter; optimizer starts fresh",
+    )
     args = parser.parse_args(argv)
     print(json.dumps(run(args), indent=2, sort_keys=True))
     return 0

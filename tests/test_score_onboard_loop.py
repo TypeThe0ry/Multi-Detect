@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-
-import pytest
 import tempfile
 from pathlib import Path
 
@@ -48,10 +46,19 @@ def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
 def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
     from scripts.score_onboard_loop import _moving_track_metrics
 
-    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [10, 0]]}}
+    target = {
+        "pose": {"x_east_m": 0.0, "y_north_m": 0.0},
+        "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [10, 0]]},
+    }
     rows = [
-        {"frame_sensor_stamp_ns": 0, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}},
-        {"frame_sensor_stamp_ns": 5_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 5]}}}},
+        {
+            "frame_sensor_stamp_ns": 0,
+            "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}},
+        },
+        {
+            "frame_sensor_stamp_ns": 5_000_000_000,
+            "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 5]}}},
+        },
     ]
     metrics = _moving_track_metrics(rows, target, 1.0, 5.0)
     assert metrics["moving_track_sample_count"] == 2
@@ -62,8 +69,17 @@ def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
 def test_hovering_target_does_not_meet_time_coverage_or_mean_distance_gate() -> None:
     from scripts.score_onboard_loop import _moving_track_metrics
 
-    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [100, 0]]}}
-    rows = [{"frame_sensor_stamp_ns": i * 1_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}} for i in range(0, 91, 10)]
+    target = {
+        "pose": {"x_east_m": 0.0, "y_north_m": 0.0},
+        "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [100, 0]]},
+    }
+    rows = [
+        {
+            "frame_sensor_stamp_ns": i * 1_000_000_000,
+            "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}},
+        }
+        for i in range(0, 91, 10)
+    ]
     metrics = _moving_track_metrics(rows, target, 2.0, 120.0)
     assert metrics["moving_time_coverage"] < 0.8
     assert metrics["moving_track_eligible"] is False
@@ -129,20 +145,48 @@ def test_mover_worlds_have_explicit_splits_and_sensor_rendered_trajectory(tmp_pa
 
 def test_verify_mover_postprocess_projects_truth_and_reads_recorded_labels(tmp_path) -> None:
     from PIL import Image
+
     from scripts.verify_mover_world import postprocess_episode
 
     episode = tmp_path / "episode-0000"
     (episode / "seg").mkdir(parents=True)
     (episode / "rgb").mkdir()
     cam = {"width": 64, "height": 48, "fx": 40.0, "fy": 40.0, "cx": 32.0, "cy": 24.0}
-    pose = {"local_ned_m": [0.0, 0.0, -10.0], "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0}}
-    seg = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); seg[20:28, 28:36, 2] = 1
-    rgb = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); rgb[20:28, 28:36] = 255
-    Image.fromarray(seg).save(episode / "seg/frame.png"); Image.fromarray(rgb).save(episode / "rgb/frame.png")
-    held = {"action": {"kind": "hold"}, "obs_before": {"frame_sensor_stamp_ns": 0, "pose": pose, "attitude": {"roll_deg": 0.5, "pitch_deg": -0.5}, "camera_info": cam, "segmentation_path": "seg/frame.png", "rgb_path": "rgb/frame.png"}}
+    pose = {
+        "local_ned_m": [0.0, 0.0, -10.0],
+        "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0},
+    }
+    seg = __import__("numpy").zeros((48, 64, 3), dtype="uint8")
+    seg[20:28, 28:36, 2] = 1
+    rgb = __import__("numpy").zeros((48, 64, 3), dtype="uint8")
+    rgb[20:28, 28:36] = 255
+    Image.fromarray(seg).save(episode / "seg/frame.png")
+    Image.fromarray(rgb).save(episode / "rgb/frame.png")
+    held = {
+        "action": {"kind": "hold"},
+        "obs_before": {
+            "frame_sensor_stamp_ns": 0,
+            "pose": pose,
+            "attitude": {"roll_deg": 0.5, "pitch_deg": -0.5},
+            "camera_info": cam,
+            "segmentation_path": "seg/frame.png",
+            "rgb_path": "rgb/frame.png",
+        },
+    }
     turning = {"action": {"kind": "turn"}, "obs_before": dict(held["obs_before"])}
     (episode / "steps.jsonl").write_text(json.dumps(held) + "\n" + json.dumps(turning) + "\n")
-    truth = {"targets": [{"target_id": "t", "true_target": True, "pose": {"x_east_m": 0.0, "y_north_m": 5.0, "z_up_m": 0.0}, "size_m": [2.0, 2.0, 2.0], "bottom_offset_m": -1.0}], "segmentation_labels": {"1": {"target_id": "t"}}}
+    truth = {
+        "targets": [
+            {
+                "target_id": "t",
+                "true_target": True,
+                "pose": {"x_east_m": 0.0, "y_north_m": 5.0, "z_up_m": 0.0},
+                "size_m": [2.0, 2.0, 2.0],
+                "bottom_offset_m": -1.0,
+            }
+        ],
+        "segmentation_labels": {"1": {"target_id": "t"}},
+    }
     result = postprocess_episode(episode, truth)
     assert "median_centroid_error_px" in result
     # Only the frame taken while holding still is scored; the mid-turn one is skipped.

@@ -14,7 +14,6 @@ from multidetect.autonomy.motion_intent import (
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -46,7 +45,9 @@ def test_fixed_wing_translate_is_reposition_when_profile_speed_is_valid():
 def test_vtol_mc_mode_uses_mc_commands():
     adapter = AirframeMotionAdapter("standard_vtol", base_dir=ROOT)
     adapter.set_mode(3)
-    command = adapter.from_primitive(ActionPrimitive.translate(5, 0), pose_ned=(0, 0, -20), yaw_deg=0)
+    command = adapter.from_primitive(
+        ActionPrimitive.translate(5, 0), pose_ned=(0, 0, -20), yaw_deg=0
+    )
     assert command.kind == "mc_reposition"
     assert command.mode == "MC"
     adapter.set_mode(4)
@@ -64,7 +65,8 @@ def test_vtol_mc_recovery_keeps_mc_hold():
     )
     command, safety = adapter.guard_command(
         MotionCommand("mc_reposition", target_ned=(50.0, 0.0, -20.0), mode="MC"),
-        pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0,
+        pose_ned=(0.0, 0.0, -20.0),
+        yaw_deg=0.0,
     )
     assert command.kind == "mc_hold"
     assert command.mode == "MC"
@@ -74,7 +76,9 @@ def test_vtol_mc_recovery_keeps_mc_hold():
 def test_fixed_wing_deliver_fails_closed():
     adapter = AirframeMotionAdapter("advanced_plane", base_dir=ROOT)
     command = adapter.from_primitive(
-        ActionPrimitive.hold(1), pose_ned=(0, 0, -30), yaw_deg=0,
+        ActionPrimitive.hold(1),
+        pose_ned=(0, 0, -30),
+        yaw_deg=0,
         metadata={"onboard": {"state": "deliver"}},
     )
     assert command.rejected
@@ -85,9 +89,7 @@ def test_fixed_wing_deliver_fails_closed():
 
 def test_fixed_wing_turn_carries_profile_turn_radius():
     adapter = AirframeMotionAdapter("advanced_plane", base_dir=ROOT)
-    command = adapter.from_primitive(
-        ActionPrimitive.turn(45), pose_ned=(0, 0, -30), yaw_deg=0
-    )
+    command = adapter.from_primitive(ActionPrimitive.turn(45), pose_ned=(0, 0, -30), yaw_deg=0)
     assert command.kind == "reposition"
     assert command.radius_m == adapter.profile.min_turn_radius_m
 
@@ -106,14 +108,35 @@ def test_fixed_wing_geometry_and_energy_use_profile():
 
 
 def test_plan_prompt_contract_is_unchanged_and_host_adapts_skill():
-    plan = validate_mission_plan({
-        "plan_version": 1, "goal": "hover", "report": [],
-        "steps": [
-            {"id": "h", "skill": "hover", "params": {"duration_s": 2}, "on_success": "r", "on_fail": "r"},
-            {"id": "r", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
-        ],
-    })
-    assert adapt_skill_for_airframe(plan.steps[0], load_airframe_profile(ROOT / "configs/airframes/advanced_plane.json"))[0] == "loiter"
+    plan = validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "hover",
+            "report": [],
+            "steps": [
+                {
+                    "id": "h",
+                    "skill": "hover",
+                    "params": {"duration_s": 2},
+                    "on_success": "r",
+                    "on_fail": "r",
+                },
+                {
+                    "id": "r",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                },
+            ],
+        }
+    )
+    assert (
+        adapt_skill_for_airframe(
+            plan.steps[0], load_airframe_profile(ROOT / "configs/airframes/advanced_plane.json")
+        )[0]
+        == "loiter"
+    )
 
 
 def test_tailsitter_camera_looks_up_in_hover_and_down_ahead_in_forward_flight():
@@ -121,11 +144,13 @@ def test_tailsitter_camera_looks_up_in_hover_and_down_ahead_in_forward_flight():
     # pitch towards -90 deg, so one fixed mount covers both phases (checked against
     # rendered frames and real SITL attitude).
     profile = load_airframe_profile(ROOT / "configs/airframes/quadtailsitter.json")
-    hover = camera_ray_from_profile(320, 240, fx=400, fy=400, cx=320, cy=240,
-                                    attitude_deg=(0, 0, 0), profile=profile)
+    hover = camera_ray_from_profile(
+        320, 240, fx=400, fy=400, cx=320, cy=240, attitude_deg=(0, 0, 0), profile=profile
+    )
     assert hover[0] > 0.9 and hover[2] == pytest.approx(-math.sin(math.radians(20)))
-    cruise = camera_ray_from_profile(320, 240, fx=400, fy=400, cx=320, cy=240,
-                                     attitude_deg=(0, -80, 0), profile=profile)
+    cruise = camera_ray_from_profile(
+        320, 240, fx=400, fy=400, cx=320, cy=240, attitude_deg=(0, -80, 0), profile=profile
+    )
     assert cruise[2] > 0.8 and cruise[0] > 0.3  # mostly down, somewhat ahead
     assert math.isclose(math.sqrt(sum(v * v for v in cruise)), 1.0, rel_tol=1e-9)
 
@@ -146,10 +171,13 @@ def test_fixed_wing_command_safety_rejection_recovers_to_loiter():
     )
     command, safety = adapter.guard_command(
         MotionCommand(
-            "reposition", target_ned=(50.0, 0.0, -30.0),
-            speed_mps=adapter.profile.cruise_airspeed_mps, mode="FW",
+            "reposition",
+            target_ned=(50.0, 0.0, -30.0),
+            speed_mps=adapter.profile.cruise_airspeed_mps,
+            mode="FW",
         ),
-        pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0,
+        pose_ned=(0.0, 0.0, -30.0),
+        yaw_deg=0.0,
     )
     assert command.kind == "loiter"
     assert safety["rejected"] is True
@@ -184,8 +212,9 @@ def test_runtime_sends_guided_commands_as_wgs84_with_amsl_altitude():
 
     vehicle = _GuidedVehicle()
     runtime = _runtime_for(vehicle)
-    state = VehicleState(position_ned=(0.0, 0.0, -40.0), home_ned=(0.0, 0.0, 0.0),
-                         home_geodetic=(31.0, 121.0, 12.0))
+    state = VehicleState(
+        position_ned=(0.0, 0.0, -40.0), home_ned=(0.0, 0.0, 0.0), home_geodetic=(31.0, 121.0, 12.0)
+    )
     runtime._dispatch_motion_command(
         MotionCommand("reposition", target_ned=(100.0, 0.0, -40.0), speed_mps=15.0), state
     )

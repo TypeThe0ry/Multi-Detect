@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -109,16 +109,21 @@ def test_model_hash_cache_uses_size_and_mtime(monkeypatch, tmp_path):
     assert onboard_policy._model_sha256(model, cache_path=cache) == expected
     monkeypatch.setattr(onboard_policy.hashlib, "sha256", original)
     model.write_bytes(b"planner-updated")
-    assert onboard_policy._model_sha256(model, cache_path=cache) == hashlib.sha256(
-        b"planner-updated"
-    ).hexdigest()
+    assert (
+        onboard_policy._model_sha256(model, cache_path=cache)
+        == hashlib.sha256(b"planner-updated").hexdigest()
+    )
     assert json.loads(cache.read_text(encoding="utf-8"))
 
 
 def test_model_hash_failure_is_unknown(monkeypatch, tmp_path):
     model = tmp_path / "model.gguf"
     model.write_bytes(b"x")
-    monkeypatch.setattr(onboard_policy.Path, "open", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("denied")))
+    monkeypatch.setattr(
+        onboard_policy.Path,
+        "open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("denied")),
+    )
     assert onboard_policy._model_sha256(model, cache_path=tmp_path / "cache.json") == "unknown"
 
 

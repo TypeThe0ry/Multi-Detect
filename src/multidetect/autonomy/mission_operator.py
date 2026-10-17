@@ -103,7 +103,9 @@ class MissionOperatorAdapter:
         self._lock = RLock()
         self._upload: _Upload | None = None
         self._command_upload: _CommandUpload | None = None
-        self._completed_commands: OrderedDict[int, tuple[bytes, int, int, tuple[bytes, ...], bool, str]] = OrderedDict()
+        self._completed_commands: OrderedDict[
+            int, tuple[bytes, int, int, tuple[bytes, ...], bool, str]
+        ] = OrderedDict()
         self._completed: OrderedDict[int, tuple[bytes, int, int, tuple[bytes, ...]]] = OrderedDict()
         self._receipts: OrderedDict[tuple[int, int], tuple[bytes, bool, str]] = OrderedDict()
         # ACK replay identity is checked before touching the stop-and-wait
@@ -157,7 +159,10 @@ class MissionOperatorAdapter:
             now = self.clock()
             if self._upload is not None and now - self._upload.touched > self.upload_timeout_s:
                 self._retire_upload()
-            if self._command_upload is not None and now - self._command_upload.touched > self.upload_timeout_s:
+            if (
+                self._command_upload is not None
+                and now - self._command_upload.touched > self.upload_timeout_s
+            ):
                 self._command_upload = None
             if self._peer is not None and peer != self._peer and now - self._peer_seen <= 5:
                 # Bind acknowledgements and transfers to the live authenticated peer.
@@ -194,7 +199,9 @@ class MissionOperatorAdapter:
             if kind not in (28, 30, 31, 32, 33, 34, 37):
                 return []
             token, index = (
-                CHUNK.unpack_from(body)[0:2] if kind in (28, 37) else (CONTROL.unpack_from(body)[1], 0)
+                CHUNK.unpack_from(body)[0:2]
+                if kind in (28, 37)
+                else (CONTROL.unpack_from(body)[1], 0)
             )
             if kind not in (28, 37):
                 cached = self._receipts.get((kind, token))
@@ -250,7 +257,15 @@ class MissionOperatorAdapter:
                     and index < len(hashes)
                     and hashlib.sha256(body[CHUNK.size :]).digest() == hashes[index]
                 )
-                return [self._ack(token, kind, index, matches and was_accepted, detail if matches else "conflicting ground command transfer")]
+                return [
+                    self._ack(
+                        token,
+                        kind,
+                        index,
+                        matches and was_accepted,
+                        detail if matches else "conflicting ground command transfer",
+                    )
+                ]
             elif kind == 37 and (
                 self._command_upload is not None
                 and token == self._command_upload.token
@@ -258,9 +273,20 @@ class MissionOperatorAdapter:
             ):
                 upload = self._command_upload
                 metadata = CHUNK.unpack_from(body)
-                accepted = metadata[2:] == (upload.count, upload.total, upload.digest) and upload.parts[index] == body[CHUNK.size :]
+                accepted = (
+                    metadata[2:] == (upload.count, upload.total, upload.digest)
+                    and upload.parts[index] == body[CHUNK.size :]
+                )
                 return [
-                    self._ack(token, kind, index, accepted, "ground command chunk already received" if accepted else "conflicting ground command chunk")
+                    self._ack(
+                        token,
+                        kind,
+                        index,
+                        accepted,
+                        "ground command chunk already received"
+                        if accepted
+                        else "conflicting ground command chunk",
+                    )
                 ]
             if self._last_sequence is not None:
                 delta = (packet.sequence - self._last_sequence) & 0xFFFFFFFF
@@ -415,7 +441,10 @@ class MissionOperatorAdapter:
         if not isinstance(event, dict):
             raise ValueError("ground command must be a JSON object")
         accepted = supervisor.ground_event(event)
-        return accepted, "ground command accepted" if accepted else "ground supervisor rejected command"
+        return (
+            accepted,
+            "ground command accepted" if accepted else "ground supervisor rejected command",
+        )
 
     def _new_telemetry(self, document: dict[str, Any]) -> _Telemetry:
         payload = json.dumps(

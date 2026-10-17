@@ -34,9 +34,7 @@ def sha256(path: Path) -> str:
 
 def canonical_sha256(value: dict[str, Any]) -> str:
     return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
 
 
@@ -79,12 +77,15 @@ def main() -> int:
     )
     foundation.pop("sha256", None)
     foundation["sha256"] = canonical_sha256(foundation)
-    foundation_path = ROOT / "docs/evidence/v030-pre1-foundation-20261004-onboard-adapter-parity-audit-r1.json"
+    foundation_path = (
+        ROOT / "docs/evidence/v030-pre1-foundation-20261004-onboard-adapter-parity-audit-r1.json"
+    )
     write_new(foundation_path, foundation)
 
     source = load(
         ROOT
-        / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-current-parity/combined-evidence.json"
+        / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-current-parity/combined-"
+        "evidence.json"
     )
     source["hashes"]["release_parity"] = {
         "path": str(parity_path.resolve()),
@@ -102,8 +103,7 @@ def main() -> int:
         "human visual or final release claim."
     )
     source_path = (
-        ROOT
-        / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
+        ROOT / "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048-"
         "onboard-adapter-parity-audit/combined-evidence.json"
     )
     write_new(source_path, source)
@@ -122,7 +122,9 @@ def main() -> int:
         "parity without rerunning; no HIL, REAL, hardware, outdoor GNSS, human "
         "visual or final release claim."
     )
-    summary_path = ROOT / "docs/evidence/combined-sim-qgc-20261004-onboard-adapter-parity-audit-r1.json"
+    summary_path = (
+        ROOT / "docs/evidence/combined-sim-qgc-20261004-onboard-adapter-parity-audit-r1.json"
+    )
     write_new(summary_path, summary)
 
     def retained_external(source_name: str, target_name: str) -> Path:
@@ -150,7 +152,8 @@ def main() -> int:
         "artifacts/evaluation/external-multirotor-depth-shared-policy-20261004-onboard-adapter-parity-audit-r3.json",
     )
     vtol = load(
-        ROOT / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261004-current-parity-audit.receipt.json"
+        ROOT / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261004-current-parity-"
+        "audit.receipt.json"
     )
     vtol["release_parity"] = dict(parity)
     vtol["release_parity"]["scope"] = "receipt_generation_file_binding"
@@ -163,7 +166,10 @@ def main() -> int:
     )
     vtol.pop("receipt_sha256", None)
     vtol["receipt_sha256"] = canonical_sha256(vtol)
-    vtol_path = ROOT / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261004-onboard-adapter-parity-audit-r3.receipt.json"
+    vtol_path = (
+        ROOT / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261004-onboard-adapter-"
+        "parity-audit-r3.receipt.json"
+    )
     write_new(vtol_path, vtol)
     matrix = create_receipt(
         root=ROOT,
@@ -172,11 +178,14 @@ def main() -> int:
         multirotor_evidence=multirotor_path,
         generated_at_utc="2026-10-04T00:00:00Z",
     )
-    matrix_path = ROOT / "docs/evidence/external-mission-matrix-20261004-onboard-adapter-parity-audit-r3.json"
+    matrix_path = (
+        ROOT / "docs/evidence/external-mission-matrix-20261004-onboard-adapter-parity-audit-r3.json"
+    )
     write_new(matrix_path, matrix)
 
     observed = load(
-        ROOT / "artifacts/evaluation/shared-policy-observed-session-20261004-current-parity-audit.json"
+        ROOT
+        / "artifacts/evaluation/shared-policy-observed-session-20261004-current-parity-audit.json"
     )
     observed["release_parity"] = dict(parity)
     observed["evidence_scope"] = "retained_files_audit"
@@ -188,12 +197,17 @@ def main() -> int:
         "current parity without rerunning; no external rerun, HIL, REAL, hardware "
         "or outdoor-GNSS claim."
     )
-    observed_path = ROOT / "artifacts/evaluation/shared-policy-observed-session-20261004-onboard-adapter-parity-audit-r1.json"
+    observed_path = (
+        ROOT
+        / "artifacts/evaluation/shared-policy-observed-session-20261004-onboard-adapter-parity-"
+        "audit-r1.json"
+    )
     write_new(observed_path, observed)
 
     trained_receipt = load(
         ROOT
-        / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261004-current-parity-audit-r2.receipt.json"
+        / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261004-current-parity-audit-"
+        "r2.receipt.json"
     )
     trained_receipt["release_parity"] = dict(parity)
     trained_receipt["release_parity"]["scope"] = "receipt_generation_file_binding"
@@ -208,8 +222,7 @@ def main() -> int:
     trained_receipt.pop("receipt_sha256", None)
     trained_receipt["receipt_sha256"] = canonical_sha256(trained_receipt)
     trained_receipt_path = (
-        ROOT
-        / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261004-"
+        ROOT / "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261004-"
         "onboard-adapter-parity-audit-r1.receipt.json"
     )
     write_new(trained_receipt_path, trained_receipt)
@@ -248,7 +261,8 @@ def main() -> int:
         "current VTOL campaign",
     )
     runtime_matrix = load(
-        ROOT / "artifacts/evaluation/shared-policy-runtime-matrix-20261004-current-parity-audit.json"
+        ROOT
+        / "artifacts/evaluation/shared-policy-runtime-matrix-20261004-current-parity-audit.json"
     )
     runtime_matrix["release_parity"] = dict(parity["hashes"])
     modes = runtime_matrix.get("modes")
@@ -267,11 +281,16 @@ def main() -> int:
         "source parity without rerunning; no HIL, REAL, hardware, outdoor GNSS "
         "or final release claim."
     )
-    runtime_matrix_path = ROOT / "artifacts/evaluation/shared-policy-runtime-matrix-20261004-onboard-adapter-parity-audit-r1.json"
+    runtime_matrix_path = (
+        ROOT
+        / "artifacts/evaluation/shared-policy-runtime-matrix-20261004-onboard-adapter-parity-audit-"
+        "r1.json"
+    )
     write_new(runtime_matrix_path, runtime_matrix)
 
     ai_flight = load(
-        ROOT / "artifacts/evaluation/simulator-docker-ai-flight-20261004-current-parity-audit-r2.json"
+        ROOT
+        / "artifacts/evaluation/simulator-docker-ai-flight-20261004-current-parity-audit-r2.json"
     )
     ai_flight["evidence_scope"] = "retained_layers_file_audit"
     ai_flight["runtime_source_parity_verified"] = False
@@ -295,11 +314,16 @@ def main() -> int:
                         "release_label": parity["release_label"],
                     }
                 )
-    ai_flight_path = ROOT / "artifacts/evaluation/simulator-docker-ai-flight-20261004-onboard-adapter-parity-audit-r1.json"
+    ai_flight_path = (
+        ROOT
+        / "artifacts/evaluation/simulator-docker-ai-flight-20261004-onboard-adapter-parity-audit-"
+        "r1.json"
+    )
     write_new(ai_flight_path, ai_flight)
 
     ai_receipt = load(
-        ROOT / "artifacts/evaluation/simulator-ai-flight-parity-20261004-current-parity-audit-r2.receipt.json"
+        ROOT / "artifacts/evaluation/simulator-ai-flight-parity-20261004-current-parity-audit-"
+        "r2.receipt.json"
     )
     ai_receipt["release_parity"] = {
         "path": str(parity_path.resolve()),
@@ -343,11 +367,17 @@ def main() -> int:
     ai_receipt["evidence_scope"] = "retained_layers_file_audit"
     ai_receipt.pop("receipt_sha256", None)
     ai_receipt["receipt_sha256"] = canonical_sha256(ai_receipt)
-    ai_receipt_path = ROOT / "artifacts/evaluation/simulator-ai-flight-parity-20261004-onboard-adapter-parity-audit-r1.receipt.json"
+    ai_receipt_path = (
+        ROOT
+        / "artifacts/evaluation/simulator-ai-flight-parity-20261004-onboard-adapter-parity-audit-"
+        "r1.receipt.json"
+    )
     write_new(ai_receipt_path, ai_receipt)
 
     sensor_campaign = load(
-        ROOT / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261004-current-r6.json"
+        ROOT
+        / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261004-"
+        "current-r6.json"
     )
     sensor_campaign["status"] = (
         "retained_file_audit_prompt_onboard_sensor_campaign_current_runtime_unproven"
@@ -376,7 +406,11 @@ def main() -> int:
                         "release_label": parity["release_label"],
                     }
                 )
-    sensor_campaign_path = ROOT / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261004-onboard-adapter-parity-audit-r1.json"
+    sensor_campaign_path = (
+        ROOT
+        / "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261004-"
+        "onboard-adapter-parity-audit-r1.json"
+    )
     write_new(sensor_campaign_path, sensor_campaign)
 
     print(

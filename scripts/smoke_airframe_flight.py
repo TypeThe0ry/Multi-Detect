@@ -50,28 +50,22 @@ def _mav_value(row: dict[str, Any], field: str, default: Any = None) -> Any:
     return default
 
 
-def _norm3(values: Any) -> float | None:
-    if not isinstance(values, (list, tuple)) or len(values) < 3:
-        return None
-
-
 def _difference_norm(left: Any, right: Any) -> float | None:
     if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)):
         return None
     if len(left) < 3 or len(right) < 3:
         return None
     try:
-        return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(left[:3], right[:3])))
-    except (TypeError, ValueError):
-        return None
-    try:
-        return math.sqrt(sum(float(v) ** 2 for v in values[:3]))
+        return math.sqrt(
+            sum((float(a) - float(b)) ** 2 for a, b in zip(left[:3], right[:3], strict=False))
+        )
     except (TypeError, ValueError):
         return None
 
 
-def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
-                     target_altitude_m: float = 5.0) -> dict[str, Any]:
+def evaluate_episode(
+    episode_dir: Path, profile: AirframeProfile, target_altitude_m: float = 5.0
+) -> dict[str, Any]:
     """Evaluate a completed collector artifact from telemetry and step records."""
     episode_dir = Path(episode_dir)
     episode = {}
@@ -128,7 +122,10 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
             raw_mode = _mav_value(row, "custom_mode", _mav_value(row, "mode", ""))
             if isinstance(raw_mode, int) and not isinstance(raw_mode, bool):
                 # PX4 custom_mode: main mode in bits 16-23, sub mode in 24-31; AUTO.RTL = (4, 5).
-                rtl_entered = rtl_entered or ((raw_mode >> 16) & 0xFF, (raw_mode >> 24) & 0xFF) == (4, 5)
+                rtl_entered = rtl_entered or ((raw_mode >> 16) & 0xFF, (raw_mode >> 24) & 0xFF) == (
+                    4,
+                    5,
+                )
             else:
                 mode = str(raw_mode).upper()
                 rtl_entered = rtl_entered or "RTL" in mode or "RETURN" in mode
@@ -143,14 +140,20 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         pose_stamp = row.get("pose_sim_stamp_ns")
         skew = row.get("sim_skew_ms")
         if stamp is not None and pose_stamp is not None:
-            aligned.append(int(stamp) >= int(pose_stamp) and (skew is None or abs(float(skew)) <= 100.0))
+            aligned.append(
+                int(stamp) >= int(pose_stamp) and (skew is None or abs(float(skew)) <= 100.0)
+            )
     for row in steps:
         after = row.get("obs_after") or {}
         if "frame_sensor_stamp_ns" in after and "pose_sim_stamp_ns" in after:
             aligned.append(int(after["frame_sensor_stamp_ns"]) >= int(after["pose_sim_stamp_ns"]))
-    takeoff_success = bool(local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8))
+    takeoff_success = bool(
+        local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8)
+    )
     if episode.get("takeoff_altitude_m") is not None:
-        takeoff_success = takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
+        takeoff_success = (
+            takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
+        )
     if profile.category == "vtol":
         transition_success = 4 in vtol_states or 5 in vtol_states
     else:
@@ -158,11 +161,15 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
     if profile.category == "vtol" and transition_success:
         transition_success = transition_success and any(s in {3, 6} for s in vtol_states)
     takeoff_method = str(episode.get("takeoff_method", profile.takeoff.methods[0]))
-    launch_texts = [str(_mav_value(row, "text", "")) for row in mavlink
-                    if str(row.get("message_type", row.get("mavpackettype", ""))).upper() == "STATUSTEXT"]
-    launch_detected = any("detect" in text.lower() and
-                          ("launch" in text.lower() or "takeoff" in text.lower())
-                          for text in launch_texts)
+    launch_texts = [
+        str(_mav_value(row, "text", ""))
+        for row in mavlink
+        if str(row.get("message_type", row.get("mavpackettype", ""))).upper() == "STATUSTEXT"
+    ]
+    launch_detected = any(
+        "detect" in text.lower() and ("launch" in text.lower() or "takeoff" in text.lower())
+        for text in launch_texts
+    )
     launch_required = takeoff_method in {"hand", "catapult"}
     loiter_speeds: list[float] = []
     for row in steps:
@@ -192,8 +199,9 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         if kind not in {"translate", "reposition", "turn"}:
             continue
         outcome = row.get("outcome") or {}
-        error = _difference_norm(outcome.get("commanded_delta_ned"),
-                                 outcome.get("achieved_delta_ned"))
+        error = _difference_norm(
+            outcome.get("commanded_delta_ned"), outcome.get("achieved_delta_ned")
+        )
         if error is not None:
             reposition_errors.append(error)
     video = episode.get("video") or {}
@@ -201,8 +209,12 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
     if not camera_frames:
         camera_frames = sum(1 for row in mavlink if row.get("message_type") == "video_frame")
     if not camera_frames:
-        camera_frames = sum(1 for row in steps if isinstance(row.get("obs_after"), dict)
-                            and row["obs_after"].get("frame_sensor_stamp_ns") is not None)
+        camera_frames = sum(
+            1
+            for row in steps
+            if isinstance(row.get("obs_after"), dict)
+            and row["obs_after"].get("frame_sensor_stamp_ns") is not None
+        )
     failure = episode.get("failure")
     return {
         "takeoff_success": takeoff_success,
@@ -224,6 +236,7 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         "frames_aligned": bool(aligned) and all(aligned),
         "failure_reason": failure,
     }
+
 
 ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane",
@@ -263,10 +276,16 @@ def default_scenario(airframe: str) -> Path | None:
         return None
     directory = ROOT / "configs" / "scenarios" / "airframes"
     candidate = directory / f"{stem}.scenario.json"
-    return candidate if candidate.is_file() else ROOT / "configs" / "scenarios" / f"{stem}.scenario.json"
+    return (
+        candidate
+        if candidate.is_file()
+        else ROOT / "configs" / "scenarios" / f"{stem}.scenario.json"
+    )
 
 
-def build_plan(airframe: str, profile: AirframeProfile, scenario: Path, takeoff_method: str | None) -> dict[str, Any]:
+def build_plan(
+    airframe: str, profile: AirframeProfile, scenario: Path, takeoff_method: str | None
+) -> dict[str, Any]:
     methods = list(profile.takeoff.methods)
     selected = takeoff_method or ("vtol" if profile.category == "vtol" else methods[0])
     if selected not in methods and not (profile.category == "vtol" and selected == "runway"):
@@ -274,23 +293,47 @@ def build_plan(airframe: str, profile: AirframeProfile, scenario: Path, takeoff_
     transition = profile.category == "vtol"
     launch_note = None
     if selected in {"hand", "catapult"}:
-        launch_note = "需要在 PX4 SITL/Gazebo 施加真实初速度/冲量并触发 FW_LAUN_DETCN_ON；未核实前不得宣称手抛/弹射成功"
+        launch_note = (
+            "需要在 PX4 SITL/Gazebo 施加真实初速度/冲量并触发 FW_LAUN_DETCN_"
+            "ON；未核实前不得宣称手抛/弹射成功"
+        )
     if selected in {"hand", "catapult"}:
-        launch_note = "PX4 accepts takeoff, Gazebo sets body-forward velocity, and both PX4 launch detection and climb must be observed."
+        launch_note = (
+            "PX4 accepts takeoff, Gazebo sets body-forward velocity, and both PX4 launch detection "
+            "and climb must be observed."
+        )
     steps = [
         {"stage": "preflight", "action": "GCS heartbeat + prearm + arm", "timeout_s": 45},
         {"stage": "takeoff", "action": selected, "mav_cmd": 84 if selected == "vtol" else 22},
     ]
     if transition:
         steps.append({"stage": "transition_fw", "action": "MC -> FW", "mav_cmd": 3000, "param1": 4})
-    steps.extend([
-        {"stage": "loiter", "action": "orbit", "mav_cmd": 34, "airspeed_mps": [profile.min_airspeed_mps, profile.max_airspeed_mps]},
-        {"stage": "reposition", "action": "translate x3", "mav_cmd": 192, "position_error_m": 15},
-        {"stage": "rtl", "action": "return to launch", "mav_cmd": 192},
-    ])
+    steps.extend(
+        [
+            {
+                "stage": "loiter",
+                "action": "orbit",
+                "mav_cmd": 34,
+                "airspeed_mps": [profile.min_airspeed_mps, profile.max_airspeed_mps],
+            },
+            {
+                "stage": "reposition",
+                "action": "translate x3",
+                "mav_cmd": 192,
+                "position_error_m": 15,
+            },
+            {"stage": "rtl", "action": "return to launch", "mav_cmd": 192},
+        ]
+    )
     if transition:
         steps.append({"stage": "transition_mc", "action": "FW -> MC", "mav_cmd": 3000, "param1": 3})
-    steps.append({"stage": "land", "action": profile.landing.methods[0], "mav_cmd": 189 if profile.landing.methods[0] == "vtol" else 21})
+    steps.append(
+        {
+            "stage": "land",
+            "action": profile.landing.methods[0],
+            "mav_cmd": 189 if profile.landing.methods[0] == "vtol" else 21,
+        }
+    )
     return {
         "schema": "multidetect.sim-airframe-smoke-v1",
         "status": "dry_run",
@@ -306,7 +349,17 @@ def build_plan(airframe: str, profile: AirframeProfile, scenario: Path, takeoff_
             "max_age_s": 0.10 if profile.category == "fixed_wing" else 0.25,
             "reason": "固定翼速度更高，使用更窄的帧时效门限；门限仍由实际锁步吞吐核验",
         },
-        "pass_fields": ["takeoff", "launch_detected", "launch_climb_success", "transition", "loiter_airspeed", "reposition_error", "rtl", "landed_state", "frames_aligned"],
+        "pass_fields": [
+            "takeoff",
+            "launch_detected",
+            "launch_climb_success",
+            "transition",
+            "loiter_airspeed",
+            "reposition_error",
+            "rtl",
+            "landed_state",
+            "frames_aligned",
+        ],
         "judgement": {
             "takeoff_success": None,
             "launch_detected": None if selected in {"hand", "catapult"} else True,
@@ -327,7 +380,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--airframe", required=True)
     parser.add_argument("--scenario", type=Path)
-    parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol", "multirotor"))
+    parser.add_argument(
+        "--takeoff-method", choices=("runway", "hand", "catapult", "vtol", "multirotor")
+    )
     parser.add_argument("--out", type=Path, default=ROOT / ".tmp" / "smoke")
     parser.add_argument("--container-prefix", default="md-smoke-airframe")
     parser.add_argument("--control-port", type=int, default=14540)
@@ -335,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     profile = profile_for(args.airframe, args.takeoff_method)
-    scenario = (args.scenario or default_scenario(args.airframe))
+    scenario = args.scenario or default_scenario(args.airframe)
     if scenario is None:
         raise SystemExit("该 airframe 没有默认场景，请提供 --scenario")
     scenario = scenario.resolve()
@@ -346,37 +401,71 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
     collector = ROOT / "scripts" / "collect_sim_teacher_episodes.py"
-    command = [sys.executable, str(collector), "--scenario", str(scenario), "--airframe", args.airframe,
-               "--teacher", "explore", "--episodes", "1", "--steps-per-episode", "8",
-               "--smoke-flight",
-               "--out", str(args.out), "--container-prefix", args.container_prefix,
-               "--control-port", str(args.control_port), "--telemetry-port", str(args.telemetry_port)]
+    command = [
+        sys.executable,
+        str(collector),
+        "--scenario",
+        str(scenario),
+        "--airframe",
+        args.airframe,
+        "--teacher",
+        "explore",
+        "--episodes",
+        "1",
+        "--steps-per-episode",
+        "8",
+        "--smoke-flight",
+        "--out",
+        str(args.out),
+        "--container-prefix",
+        args.container_prefix,
+        "--control-port",
+        str(args.control_port),
+        "--telemetry-port",
+        str(args.telemetry_port),
+    ]
     if plan["takeoff_method"] in {"hand", "catapult"}:
         command.extend(["--takeoff-method", plan["takeoff_method"]])
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
     result["collector_returncode"] = completed.returncode
-    result["failure_reason"] = None if completed.returncode == 0 else (completed.stderr or completed.stdout)[-2000:]
+    result["failure_reason"] = (
+        None if completed.returncode == 0 else (completed.stderr or completed.stdout)[-2000:]
+    )
     result["collector_stdout_tail"] = completed.stdout[-2000:]
     result["judgement"] = dict(plan["judgement"])
     episodes = sorted(args.out.rglob("episode.json"), key=lambda path: path.stat().st_mtime)
     if episodes:
         parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
         result["judgement"].update(parsed)
-        required = ("takeoff_success", "transition_success", "loiter_airspeed_in_range",
-                    "rtl_entered", "landed", "frames_aligned", "stayed_in_area")
+        required = (
+            "takeoff_success",
+            "transition_success",
+            "loiter_airspeed_in_range",
+            "rtl_entered",
+            "landed",
+            "frames_aligned",
+            "stayed_in_area",
+        )
         if plan["takeoff_method"] in {"hand", "catapult"}:
             required += ("launch_detected", "launch_climb_success")
-        result["status"] = "pass" if completed.returncode == 0 and all(
-            result["judgement"].get(field) is True for field in required
-        ) else "fail"
+        result["status"] = (
+            "pass"
+            if completed.returncode == 0
+            and all(result["judgement"].get(field) is True for field in required)
+            else "fail"
+        )
     else:
         result["judgement"]["failure_reason"] = "collector produced no episode.json artifact"
     if completed.returncode != 0:
         result["judgement"]["failure_reason"] = result["failure_reason"]
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return completed.returncode if completed.returncode != 0 else (0 if result["status"] == "pass" else 1)
+    return (
+        completed.returncode
+        if completed.returncode != 0
+        else (0 if result["status"] == "pass" else 1)
+    )
 
 
 if __name__ == "__main__":

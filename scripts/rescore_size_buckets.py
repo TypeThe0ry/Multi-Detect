@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """离线重算慢模型候选框尺寸分层指标；绝不调用模型。"""
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,9 @@ from scripts.eval_slow_system import size_bucket_metrics
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:

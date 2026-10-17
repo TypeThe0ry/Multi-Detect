@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-import json
 import shutil
-import subprocess
 import sys
 import types
 from argparse import Namespace
 from pathlib import Path
 
-from scripts.run_r15_round import Round, compare_metrics, distribution, merge_without_copies, stratified_replay
+from scripts.run_r15_round import (
+    Round,
+    compare_metrics,
+    distribution,
+    merge_without_copies,
+    stratified_replay,
+)
 from scripts.train_slow_system_lora import initialize_adapter, resolve_adapter_weights
 
 
@@ -34,11 +38,21 @@ def test_merge_rejects_positive_copy_with_new_id_and_keeps_hard_negative():
 
 
 def test_acceptance_rules_require_all_four_gates():
-    old = {"v1_identity_accuracy": .90, "v3_identity_accuracy": .785, "v3_under12_recall": .46, "v3_distractor_rejection": .905}
-    good = {"v1_identity_accuracy": .90, "v3_identity_accuracy": .79, "v3_under12_recall": .56, "v3_distractor_rejection": .89}
+    old = {
+        "v1_identity_accuracy": 0.90,
+        "v3_identity_accuracy": 0.785,
+        "v3_under12_recall": 0.46,
+        "v3_distractor_rejection": 0.905,
+    }
+    good = {
+        "v1_identity_accuracy": 0.90,
+        "v3_identity_accuracy": 0.79,
+        "v3_under12_recall": 0.56,
+        "v3_distractor_rejection": 0.89,
+    }
     ok, reasons = compare_metrics(old, good)
     assert ok and not reasons
-    bad = dict(good, v3_under12_recall=.55, v3_distractor_rejection=.88)
+    bad = dict(good, v3_under12_recall=0.55, v3_distractor_rejection=0.88)
     ok, reasons = compare_metrics(old, bad)
     assert not ok
     assert any("<12" in reason for reason in reasons)
@@ -50,7 +64,10 @@ def test_replay_is_stratified_and_bounded():
     rows += [row(f"n{i}", "reject_track", 8 if i % 2 else 24) for i in range(20)]
     replay = stratified_replay(rows, 0.25)
     assert len(replay) >= 4
-    assert {item["assistant_target"]["decision"] for item in replay} == {"confirm_target", "reject_track"}
+    assert {item["assistant_target"]["decision"] for item in replay} == {
+        "confirm_target",
+        "reject_track",
+    }
     assert {item["candidate_short_side_px"] for item in replay} == {8, 24}
 
 
@@ -67,7 +84,10 @@ def test_initialize_adapter_loads_weights_without_optimizer(monkeypatch, tmp_pat
     adapter.write_bytes(b"synthetic")
     calls = {}
     peft = types.ModuleType("peft")
-    peft.set_peft_model_state_dict = lambda model, weights: calls.update(model=model, weights=weights) or types.SimpleNamespace(unexpected_keys=[], missing_keys=[])
+    peft.set_peft_model_state_dict = lambda model, weights: (
+        calls.update(model=model, weights=weights)
+        or types.SimpleNamespace(unexpected_keys=[], missing_keys=[])
+    )
     safe = types.ModuleType("safetensors.torch")
     safe.load = lambda payload: {"lora": payload}
     monkeypatch.setitem(sys.modules, "peft", peft)
@@ -83,12 +103,24 @@ def test_stage_resume_writes_manifest_and_skips(capsys):
     args = Namespace(out=out, dry_run=False, min_free_gb=0, min_free_memory_gb=0)
     runner = Round(args)
     output = out / "tiny.txt"
-    runner.run("tiny", [sys.executable, "-c", f"open(r'{output}', 'w', encoding='utf-8').write('ok')"], estimate="1 秒", disk="1 KiB", outputs=(output,))
+    runner.run(
+        "tiny",
+        [sys.executable, "-c", f"open(r'{output}', 'w', encoding='utf-8').write('ok')"],
+        estimate="1 秒",
+        disk="1 KiB",
+        outputs=(output,),
+    )
     assert output.read_text() == "ok"
     manifest = out / "manifests" / "tiny.json"
     assert manifest.is_file()
     runner = Round(args)
-    runner.run("tiny", [sys.executable, "-c", "raise SystemExit(99)"], estimate="1 秒", disk="1 KiB", outputs=(output,))
+    runner.run(
+        "tiny",
+        [sys.executable, "-c", "raise SystemExit(99)"],
+        estimate="1 秒",
+        disk="1 KiB",
+        outputs=(output,),
+    )
     assert "skip" in capsys.readouterr().out
     shutil.rmtree(out.parent, ignore_errors=True)
 
@@ -100,7 +132,9 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
 
     def fake_run(command, **kwargs):
         calls.append(list(command))
-        return types.SimpleNamespace(returncode=1, stdout="abc123\n" if command[:2] == ["docker", "ps"] else "")
+        return types.SimpleNamespace(
+            returncode=1, stdout="abc123\n" if command[:2] == ["docker", "ps"] else ""
+        )
 
     monkeypatch.setattr(r15.subprocess, "run", fake_run)
     monkeypatch.setattr(r15.time, "sleep", lambda _s: None)
@@ -109,9 +143,14 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
     cmd = ["python", "collect.py", "--container-prefix", "r15-worker-1", "--out", str(tmp_path)]
     assert round_._collect_one("w:0", cmd, tmp_path)["status"] == "failed"
     docker = [c for c in calls if c[0] == "docker"]
-    assert docker == [
-        ["docker", "ps", "-aq", "--filter", "name=^r15-worker-1-"], ["docker", "rm", "-f", "abc123"],
-    ] * 2
+    assert (
+        docker
+        == [
+            ["docker", "ps", "-aq", "--filter", "name=^r15-worker-1-"],
+            ["docker", "rm", "-f", "abc123"],
+        ]
+        * 2
+    )
     # The removal precedes each collector attempt.
     assert [c[0] for c in calls] == ["docker", "docker", "python", "docker", "docker", "python"]
 
@@ -119,8 +158,12 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
 def test_merge_tops_up_r12_negatives_instead_of_dropping_new_positives():
     from scripts.run_r15_round import top_up_negatives
 
-    rows = [row(f"p{i}", "confirm_target", 8) for i in range(6)] + [row(f"n{i}", "reject_track", 20) for i in range(4)]
-    pool = [row(f"r{i}", "reject_track", 10 + i) for i in range(20)] + [row("extra-pos", "confirm_target", 30)]
+    rows = [row(f"p{i}", "confirm_target", 8) for i in range(6)] + [
+        row(f"n{i}", "reject_track", 20) for i in range(4)
+    ]
+    pool = [row(f"r{i}", "reject_track", 10 + i) for i in range(20)] + [
+        row("extra-pos", "confirm_target", 30)
+    ]
     topped = top_up_negatives(rows, pool, 0.41)
     positives = sum(1 for r in topped if r["assistant_target"]["decision"] == "confirm_target")
     negatives = sum(1 for r in topped if r["assistant_target"]["decision"] == "reject_track")
@@ -129,14 +172,18 @@ def test_merge_tops_up_r12_negatives_instead_of_dropping_new_positives():
     assert len({r["sample_id"] for r in topped}) == len(topped)
 
 
-def test_initialize_adapter_ignores_frozen_base_weights_but_not_missing_lora(monkeypatch, tmp_path: Path):
+def test_initialize_adapter_ignores_frozen_base_weights_but_not_missing_lora(
+    monkeypatch, tmp_path: Path
+):
     import pytest
 
     adapter = tmp_path / "adapter_model.safetensors"
     adapter.write_bytes(b"synthetic")
     missing = ["base_model.model.model.visual.patch_embed.proj.weight"]
     peft = types.ModuleType("peft")
-    peft.set_peft_model_state_dict = lambda model, weights: types.SimpleNamespace(unexpected_keys=[], missing_keys=list(missing))
+    peft.set_peft_model_state_dict = lambda model, weights: types.SimpleNamespace(
+        unexpected_keys=[], missing_keys=list(missing)
+    )
     safe = types.ModuleType("safetensors.torch")
     safe.load = lambda payload: {"lora": payload}
     monkeypatch.setitem(sys.modules, "peft", peft)
@@ -151,14 +198,33 @@ def test_initialize_adapter_ignores_frozen_base_weights_but_not_missing_lora(mon
 def test_identity_summary_reads_the_metrics_block_and_size_buckets():
     from scripts.run_r15_round import compare_metrics, identity_summary
 
-    payload = {"metrics": {"identity_accuracy": 0.9, "distractor_rejection_rate": 0.73,
-                           "size_buckets": {"<12": {"true_target_recall": 0.92}}}}
-    assert identity_summary(payload) == {"identity_accuracy": 0.9, "distractor_rejection": 0.73, "under12_recall": 0.92}
+    payload = {
+        "metrics": {
+            "identity_accuracy": 0.9,
+            "distractor_rejection_rate": 0.73,
+            "size_buckets": {"<12": {"true_target_recall": 0.92}},
+        }
+    }
+    assert identity_summary(payload) == {
+        "identity_accuracy": 0.9,
+        "distractor_rejection": 0.73,
+        "under12_recall": 0.92,
+    }
     approved, reasons = compare_metrics(
-        {"v1_identity_accuracy": 0.928, "v1_distractor_rejection": 0.95, "v3_identity_accuracy": 0.785,
-         "v3_under12_recall": 0.46, "v3_distractor_rejection": 0.905},
-        {"v1_identity_accuracy": 0.825, "v1_distractor_rejection": 0.73, "v3_identity_accuracy": 0.901,
-         "v3_under12_recall": 0.92, "v3_distractor_rejection": 0.836},
+        {
+            "v1_identity_accuracy": 0.928,
+            "v1_distractor_rejection": 0.95,
+            "v3_identity_accuracy": 0.785,
+            "v3_under12_recall": 0.46,
+            "v3_distractor_rejection": 0.905,
+        },
+        {
+            "v1_identity_accuracy": 0.825,
+            "v1_distractor_rejection": 0.73,
+            "v3_identity_accuracy": 0.901,
+            "v3_under12_recall": 0.92,
+            "v3_distractor_rejection": 0.836,
+        },
     )
     assert not approved
     assert any("v1 真实飞行集干扰物拒绝" in r for r in reasons)

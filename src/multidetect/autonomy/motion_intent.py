@@ -10,9 +10,12 @@ same command objects.
 from __future__ import annotations
 
 import math
-from dataclasses import replace, dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
+
+from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
 from .airframe_profile import AirframeProfile, load_airframe_profile
 from .energy_estimator import EnergyParams
@@ -27,7 +30,6 @@ from .fw_geometry import (
     observation_orbit,
 )
 from .safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig, VehicleDynamics
-from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
 
 class MotionIntentError(ValueError):
@@ -48,8 +50,16 @@ def _mat_transpose(matrix: Sequence[float]) -> tuple[float, ...]:
 
 
 def camera_ray_from_profile(
-    u: float, v: float, *, fx: float, fy: float, cx: float, cy: float,
-    attitude_deg: Sequence[float], profile: AirframeProfile, mode: str | None = None,
+    u: float,
+    v: float,
+    *,
+    fx: float,
+    fy: float,
+    cx: float,
+    cy: float,
+    attitude_deg: Sequence[float],
+    profile: AirframeProfile,
+    mode: str | None = None,
 ) -> tuple[float, float, float]:
     """Return a world-NED optical ray using the profile's full mount attitude.
 
@@ -94,7 +104,9 @@ class MotionIntent:
             raise MotionIntentError("intent kind must be non-empty")
         for name in ("target_ned",):
             value = getattr(self, name)
-            if value is not None and (len(value) != 3 or not all(math.isfinite(float(v)) for v in value)):
+            if value is not None and (
+                len(value) != 3 or not all(math.isfinite(float(v)) for v in value)
+            ):
                 raise MotionIntentError(f"{name} must be a finite NED triplet")
         for name in ("radius_m", "requested_radius_m", "duration_s", "speed_mps"):
             value = getattr(self, name)
@@ -102,27 +114,37 @@ class MotionIntent:
                 raise MotionIntentError(f"{name} must be positive and finite")
 
     @classmethod
-    def goto(cls, target_ned: Sequence[float], *, mode: str | None = None) -> "MotionIntent":
+    def goto(cls, target_ned: Sequence[float], *, mode: str | None = None) -> MotionIntent:
         return cls("goto", tuple(float(v) for v in target_ned), mode=mode)
 
     @classmethod
-    def observe(cls, target_ned: Sequence[float], *, radius_m: float | None = None, mode: str | None = None) -> "MotionIntent":
+    def observe(
+        cls, target_ned: Sequence[float], *, radius_m: float | None = None, mode: str | None = None
+    ) -> MotionIntent:
         return cls("observe", tuple(float(v) for v in target_ned), radius_m=radius_m, mode=mode)
 
     @classmethod
-    def wait(cls, duration_s: float = 1.0, *, target_ned: Sequence[float] | None = None) -> "MotionIntent":
-        return cls("wait", None if target_ned is None else tuple(float(v) for v in target_ned), duration_s=float(duration_s))
+    def wait(
+        cls, duration_s: float = 1.0, *, target_ned: Sequence[float] | None = None
+    ) -> MotionIntent:
+        return cls(
+            "wait",
+            None if target_ned is None else tuple(float(v) for v in target_ned),
+            duration_s=float(duration_s),
+        )
 
     @classmethod
-    def return_home(cls, target_ned: Sequence[float]) -> "MotionIntent":
+    def return_home(cls, target_ned: Sequence[float]) -> MotionIntent:
         return cls("return_home", tuple(float(v) for v in target_ned))
 
     @classmethod
-    def land(cls, *, target_ned: Sequence[float] | None = None) -> "MotionIntent":
+    def land(cls, *, target_ned: Sequence[float] | None = None) -> MotionIntent:
         return cls("land", None if target_ned is None else tuple(float(v) for v in target_ned))
 
     @classmethod
-    def deliver(cls, target_ned: Sequence[float], *, radius_m: float | None = None) -> "MotionIntent":
+    def deliver(
+        cls, target_ned: Sequence[float], *, radius_m: float | None = None
+    ) -> MotionIntent:
         return cls("deliver", tuple(float(v) for v in target_ned), radius_m=radius_m)
 
 
@@ -153,13 +175,17 @@ class MotionCommand:
             result["yaw_deg"] = self.yaw_deg
         if self.radius_m is not None:
             result["radius_m"] = self.radius_m
-        result.update(duration_s=self.duration_s, speed_mps=self.speed_mps, metadata=dict(self.metadata))
+        result.update(
+            duration_s=self.duration_s, speed_mps=self.speed_mps, metadata=dict(self.metadata)
+        )
         if self.action is not None:
             result["action"] = self.action.to_dict()
         return result
 
 
-def resolve_airframe_profile(value: str | Path | AirframeProfile | None, *, base_dir: str | Path | None = None) -> AirframeProfile:
+def resolve_airframe_profile(
+    value: str | Path | AirframeProfile | None, *, base_dir: str | Path | None = None
+) -> AirframeProfile:
     """Resolve an id or path.  Unknown profiles fail closed."""
     if isinstance(value, AirframeProfile):
         return value
@@ -218,18 +244,30 @@ def dynamics_from_profile(profile: AirframeProfile) -> VehicleDynamics:
 class AirframeMotionAdapter:
     """Map :class:`MotionIntent` (and legacy primitives) to vehicle commands."""
 
-    def __init__(self, profile: AirframeProfile | str | Path | None = None, *, base_dir: str | Path | None = None, mode: str | None = None, safety: SafetyEnvelope | None = None) -> None:
+    def __init__(
+        self,
+        profile: AirframeProfile | str | Path | None = None,
+        *,
+        base_dir: str | Path | None = None,
+        mode: str | None = None,
+        safety: SafetyEnvelope | None = None,
+    ) -> None:
         self.profile = resolve_airframe_profile(profile, base_dir=base_dir)
         self.mode = (mode or ("MC" if self.profile.category == "multirotor" else "FW")).upper()
         if self.mode not in {"MC", "FW"}:
             raise MotionIntentError("mode must be MC or FW")
         self.energy = energy_params_from_profile(self.profile)
-        self.safety = safety or SafetyEnvelope(SafetyEnvelopeConfig(
-            vehicle=dynamics_from_profile(self.profile),
-            # Multirotors keep the 15 m default; other airframes step by their profile.
-            **({} if self.profile.category == "multirotor"
-               else {"max_translation_m": self.profile.limits.max_step_distance_m}),
-        ))
+        self.safety = safety or SafetyEnvelope(
+            SafetyEnvelopeConfig(
+                vehicle=dynamics_from_profile(self.profile),
+                # Multirotors keep the 15 m default; other airframes step by their profile.
+                **(
+                    {}
+                    if self.profile.category == "multirotor"
+                    else {"max_translation_m": self.profile.limits.max_step_distance_m}
+                ),
+            )
+        )
 
     def set_mode(self, mode: str | None) -> None:
         """Update VTOL mode from telemetry (MC/FW); ignore absent telemetry."""
@@ -243,7 +281,9 @@ class AirframeMotionAdapter:
             self.mode = value
 
     @classmethod
-    def from_profile(cls, profile: AirframeProfile | str | Path, **kwargs: Any) -> "AirframeMotionAdapter":
+    def from_profile(
+        cls, profile: AirframeProfile | str | Path, **kwargs: Any
+    ) -> AirframeMotionAdapter:
         return cls(profile, **kwargs)
 
     @property
@@ -252,13 +292,24 @@ class AirframeMotionAdapter:
 
     def _recovery(self, reason: str, pose: Sequence[float]) -> MotionCommand:
         if self.profile.category == "multirotor":
-            return MotionCommand("hold", duration_s=1.0, reason=reason, action=ActionPrimitive.hold(1.0))
+            return MotionCommand(
+                "hold", duration_s=1.0, reason=reason, action=ActionPrimitive.hold(1.0)
+            )
         if self.profile.category == "vtol" and self.mode == "MC":
             return MotionCommand(
-                "mc_hold", target_ned=tuple(float(v) for v in pose),
-                duration_s=1.0, mode="MC", reason=reason,
+                "mc_hold",
+                target_ned=tuple(float(v) for v in pose),
+                duration_s=1.0,
+                mode="MC",
+                reason=reason,
             )
-        return MotionCommand("loiter", target_ned=tuple(float(v) for v in pose), radius_m=self.profile.orbit_radius(), speed_mps=self.profile.cruise_airspeed_mps, reason=reason)
+        return MotionCommand(
+            "loiter",
+            target_ned=tuple(float(v) for v in pose),
+            radius_m=self.profile.orbit_radius(),
+            speed_mps=self.profile.cruise_airspeed_mps,
+            reason=reason,
+        )
 
     def _safe_legacy(self, action: ActionPrimitive, pose: Sequence[float], yaw_deg: float) -> bool:
         decision = self.safety.apply(
@@ -363,41 +414,88 @@ class AirframeMotionAdapter:
             return recovery, safety
         return command, safety
 
-    def from_primitive(self, action: ActionPrimitive, *, pose_ned: Sequence[float], yaw_deg: float, metadata: Mapping[str, Any] | None = None) -> MotionCommand | ActionPrimitive:
+    def from_primitive(
+        self,
+        action: ActionPrimitive,
+        *,
+        pose_ned: Sequence[float],
+        yaw_deg: float,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> MotionCommand | ActionPrimitive:
         """Compatibility bridge for the existing loop/executor output."""
         if self.is_multirotor:
             return action
-        command = self._from_primitive(action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=metadata)
+        command = self._from_primitive(
+            action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=metadata
+        )
         if isinstance(command, MotionCommand) and command.action is None:
             # Keep the primitive the command came from: step records and stop
             # detection need it, and it explains what the loop asked for.
             command = replace(command, action=action)
         return command
 
-    def _from_primitive(self, action: ActionPrimitive, *, pose_ned: Sequence[float], yaw_deg: float, metadata: Mapping[str, Any] | None = None) -> MotionCommand | ActionPrimitive:
+    def _from_primitive(
+        self,
+        action: ActionPrimitive,
+        *,
+        pose_ned: Sequence[float],
+        yaw_deg: float,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> MotionCommand | ActionPrimitive:
         pose = tuple(float(v) for v in pose_ned)
         meta = metadata or {}
         onboard = meta.get("onboard", {}) if isinstance(meta, Mapping) else {}
         skill = onboard.get("state") if isinstance(onboard, Mapping) else None
         if skill == "deliver":
             return MotionCommand(
-                "reject", target_ned=pose, mode=self.mode,
+                "reject",
+                target_ned=pose,
+                mode=self.mode,
                 reason="fixed-wing delivery requires an explicitly validated fly-by release window",
                 metadata={"fail_closed": True},
             )
         if self.profile.category == "vtol" and self.mode == "MC":
             if action.kind == "hold":
-                return MotionCommand("mc_hold", target_ned=pose, duration_s=action.seconds, mode="MC", metadata=meta)
+                return MotionCommand(
+                    "mc_hold", target_ned=pose, duration_s=action.seconds, mode="MC", metadata=meta
+                )
             if action.kind == "stop":
                 return MotionCommand("mc_land", target_ned=pose, mode="MC", metadata=meta)
             if action.kind == "turn":
-                return MotionCommand("mc_reposition", target_ned=pose, yaw_deg=float(yaw_deg) + action.yaw_delta_deg, mode="MC", metadata=meta)
+                return MotionCommand(
+                    "mc_reposition",
+                    target_ned=pose,
+                    yaw_deg=float(yaw_deg) + action.yaw_delta_deg,
+                    mode="MC",
+                    metadata=meta,
+                )
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw_deg)
-            return MotionCommand("mc_reposition", target_ned=(pose[0] + north, pose[1] + east, pose[2] + down), yaw_deg=float(yaw_deg), mode="MC", metadata=meta)
-        if not self._safe_legacy(ActionPrimitive.translate(action.forward_m, action.right_m, action.up_m), pose, yaw_deg) and action.kind == "translate":
+            return MotionCommand(
+                "mc_reposition",
+                target_ned=(pose[0] + north, pose[1] + east, pose[2] + down),
+                yaw_deg=float(yaw_deg),
+                mode="MC",
+                metadata=meta,
+            )
+        if (
+            not self._safe_legacy(
+                ActionPrimitive.translate(action.forward_m, action.right_m, action.up_m),
+                pose,
+                yaw_deg,
+            )
+            and action.kind == "translate"
+        ):
             return self._recovery("safety envelope rejected motion", pose)
         if action.kind == "hold":
-            return MotionCommand("loiter", target_ned=pose, radius_m=self.profile.orbit_radius(), duration_s=action.seconds, speed_mps=self.profile.cruise_airspeed_mps, mode=self.mode, metadata=meta)
+            return MotionCommand(
+                "loiter",
+                target_ned=pose,
+                radius_m=self.profile.orbit_radius(),
+                duration_s=action.seconds,
+                speed_mps=self.profile.cruise_airspeed_mps,
+                mode=self.mode,
+                metadata=meta,
+            )
         if action.kind == "stop":
             return MotionCommand("stop", target_ned=pose, mode=self.mode, metadata=metadata or {})
         if action.kind == "turn":
@@ -406,16 +504,32 @@ class AirframeMotionAdapter:
             leg = self.profile.limits.max_step_distance_m * 0.9
             target = (pose[0] + leg * math.cos(heading), pose[1] + leg * math.sin(heading), pose[2])
             return MotionCommand(
-                "reposition", target_ned=target,
+                "reposition",
+                target_ned=target,
                 yaw_deg=float(yaw_deg) + action.yaw_delta_deg,
                 radius_m=self.profile.min_turn_radius_m,
                 speed_mps=self.profile.cruise_airspeed_mps,
-                mode=self.mode, metadata=metadata or {},
+                mode=self.mode,
+                metadata=metadata or {},
             )
         north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw_deg)
-        return MotionCommand("reposition", target_ned=(pose[0] + north, pose[1] + east, pose[2] + down), yaw_deg=float(yaw_deg), speed_mps=self.profile.cruise_airspeed_mps, mode=self.mode, metadata=metadata or {})
+        return MotionCommand(
+            "reposition",
+            target_ned=(pose[0] + north, pose[1] + east, pose[2] + down),
+            yaw_deg=float(yaw_deg),
+            speed_mps=self.profile.cruise_airspeed_mps,
+            mode=self.mode,
+            metadata=metadata or {},
+        )
 
-    def intent_to_command(self, intent: MotionIntent, *, pose_ned: Sequence[float], yaw_deg: float = 0.0, mode: str | None = None) -> MotionCommand | ActionPrimitive:
+    def intent_to_command(
+        self,
+        intent: MotionIntent,
+        *,
+        pose_ned: Sequence[float],
+        yaw_deg: float = 0.0,
+        mode: str | None = None,
+    ) -> MotionCommand | ActionPrimitive:
         pose = tuple(float(v) for v in pose_ned)
         active = (mode or intent.mode or self.mode).upper()
         if self.is_multirotor:
@@ -433,33 +547,70 @@ class AirframeMotionAdapter:
             if abs(delta) > 20.0:
                 return ActionPrimitive.turn(delta)
             return ActionPrimitive.translate(distance, 0.0, -dd)
-        if active == "MC" and self.profile.category == "vtol" and intent.kind in {"observe", "wait", "deliver", "land"}:
+        if (
+            active == "MC"
+            and self.profile.category == "vtol"
+            and intent.kind in {"observe", "wait", "deliver", "land"}
+        ):
             if intent.kind == "land":
                 return MotionCommand("mc_land", target_ned=intent.target_ned or pose, mode="MC")
             target = intent.target_ned or pose
             if intent.kind == "wait" and target == pose:
-                return MotionCommand("mc_hold", target_ned=pose, duration_s=intent.duration_s or 1.0, mode="MC")
-            return MotionCommand("mc_reposition", target_ned=target, yaw_deg=intent.yaw_deg or yaw_deg, mode="MC")
+                return MotionCommand(
+                    "mc_hold", target_ned=pose, duration_s=intent.duration_s or 1.0, mode="MC"
+                )
+            return MotionCommand(
+                "mc_reposition", target_ned=target, yaw_deg=intent.yaw_deg or yaw_deg, mode="MC"
+            )
         if intent.kind == "land":
             if self.profile.category == "vtol" and active != "MC":
                 return MotionCommand("transition", mode="MC", reason="landing requires MC")
             method = self.profile.landing.methods[0]
-            return MotionCommand("fw_land", target_ned=intent.target_ned or pose, mode="FW", metadata={"method": method})
+            return MotionCommand(
+                "fw_land",
+                target_ned=intent.target_ned or pose,
+                mode="FW",
+                metadata={"method": method},
+            )
         if intent.kind == "deliver":
-            return MotionCommand("fly_by_deliver", target_ned=intent.target_ned, radius_m=self.profile.orbit_radius(intent.radius_m), speed_mps=self.profile.cruise_airspeed_mps, mode="FW", reason="fixed-wing release window")
+            return MotionCommand(
+                "fly_by_deliver",
+                target_ned=intent.target_ned,
+                radius_m=self.profile.orbit_radius(intent.radius_m),
+                speed_mps=self.profile.cruise_airspeed_mps,
+                mode="FW",
+                reason="fixed-wing release window",
+            )
         if intent.kind in {"wait", "observe"}:
-            return MotionCommand("orbit", target_ned=intent.target_ned or pose, radius_m=self.profile.orbit_radius(intent.radius_m), duration_s=intent.duration_s or 0.0, speed_mps=intent.speed_mps or self.profile.cruise_airspeed_mps, mode=active)
+            return MotionCommand(
+                "orbit",
+                target_ned=intent.target_ned or pose,
+                radius_m=self.profile.orbit_radius(intent.radius_m),
+                duration_s=intent.duration_s or 0.0,
+                speed_mps=intent.speed_mps or self.profile.cruise_airspeed_mps,
+                mode=active,
+            )
         if intent.kind == "transition":
             return MotionCommand("transition", mode=active)
         target = intent.target_ned or pose
-        return MotionCommand("reposition", target_ned=target, yaw_deg=intent.yaw_deg or yaw_deg, speed_mps=intent.speed_mps or self.profile.cruise_airspeed_mps, mode=active)
+        return MotionCommand(
+            "reposition",
+            target_ned=target,
+            yaw_deg=intent.yaw_deg or yaw_deg,
+            speed_mps=intent.speed_mps or self.profile.cruise_airspeed_mps,
+            mode=active,
+        )
 
     def estimated_duration_s(self, intent: MotionIntent, pose_ned: Sequence[float]) -> float:
         target = intent.target_ned
         if target is None:
             return float(intent.duration_s or 0.0)
         distance = math.dist(tuple(float(v) for v in pose_ned), target)
-        speed = self.energy.cruise_airspeed_mps if self.profile.category != "multirotor" else max(self.energy.cruise_airspeed_mps, 1e-6)
+        speed = (
+            self.energy.cruise_airspeed_mps
+            if self.profile.category != "multirotor"
+            else max(self.energy.cruise_airspeed_mps, 1e-6)
+        )
         if intent.kind in {"wait", "observe"}:
             return float(intent.duration_s or 0.0)
         return distance / max(speed, 1e-6)
@@ -468,40 +619,79 @@ class AirframeMotionAdapter:
         seconds = self.estimated_duration_s(intent, pose_ned)
         phase = "loiter" if intent.kind in {"wait", "observe"} else "cruise"
         power = getattr(self.energy, f"{phase}_power_w")
-        return power * seconds / 3600.0 + (self.profile.endurance.transition_energy_wh if intent.kind == "transition" else 0.0)
+        return power * seconds / 3600.0 + (
+            self.profile.endurance.transition_energy_wh if intent.kind == "transition" else 0.0
+        )
 
-    def search_path(self, bounds: Sequence[float], *, footprint_width_m: float, overlap: float) -> SearchPath:
+    def search_path(
+        self, bounds: Sequence[float], *, footprint_width_m: float, overlap: float
+    ) -> SearchPath:
         if self.profile.category == "multirotor":
             raise MotionIntentError("search_path is only for fixed-wing or VTOL-FW mode")
-        return lawnmower_search(bounds, footprint_width_m, overlap, max(self.profile.loiter_radius_m(), 1.0))
+        return lawnmower_search(
+            bounds, footprint_width_m, overlap, max(self.profile.loiter_radius_m(), 1.0)
+        )
 
-    def observation_orbit(self, centre_ned: Sequence[float], requested_radius_m: float, *, altitude_m: float, views: int = 8) -> ObservationOrbit:
+    def observation_orbit(
+        self,
+        centre_ned: Sequence[float],
+        requested_radius_m: float,
+        *,
+        altitude_m: float,
+        views: int = 8,
+    ) -> ObservationOrbit:
         # The geometry helper derives a safe altitude from the camera FOV.  The
         # requested altitude remains metadata for callers that need to clamp it.
         result = observation_orbit(
-            tuple(centre_ned), self.profile.orbit_radius(requested_radius_m),
-            max(self.profile.loiter_radius_m(), 1.0), math.radians(45.0),
-            math.radians(35.0), points=max(8, views),
+            tuple(centre_ned),
+            self.profile.orbit_radius(requested_radius_m),
+            max(self.profile.loiter_radius_m(), 1.0),
+            math.radians(45.0),
+            math.radians(35.0),
+            points=max(8, views),
         )
         return result
 
-    def fly_by_confirmation(self, centre_ned: Sequence[float], *, visible_half_length_m: float, altitude_m: float, passes: int = 3) -> FlyByPlan:
+    def fly_by_confirmation(
+        self,
+        centre_ned: Sequence[float],
+        *,
+        visible_half_length_m: float,
+        altitude_m: float,
+        passes: int = 3,
+    ) -> FlyByPlan:
         return fly_by_passes(
-            tuple(centre_ned), ((centre_ned[0], centre_ned[1]), 0.0), passes,
-            max(self.profile.loiter_radius_m(), 1.0), altitude_m=altitude_m,
+            tuple(centre_ned),
+            ((centre_ned[0], centre_ned[1]), 0.0),
+            passes,
+            max(self.profile.loiter_radius_m(), 1.0),
+            altitude_m=altitude_m,
             airspeed_mps=self.profile.cruise_airspeed_mps,
         )
 
     @staticmethod
-    def evaluate_confirmation(observations: Sequence[Any], *, min_passes: int = 2, sigma_gate_m: float = 8.0, spread_gate_m: float = 12.0) -> ConfirmationResult:
+    def evaluate_confirmation(
+        observations: Sequence[Any],
+        *,
+        min_passes: int = 2,
+        sigma_gate_m: float = 8.0,
+        spread_gate_m: float = 12.0,
+    ) -> ConfirmationResult:
         return evaluate_fixed_wing_confirmation(
-            observations, min_passes=min_passes, max_sigma_m=sigma_gate_m,
+            observations,
+            min_passes=min_passes,
+            max_sigma_m=sigma_gate_m,
             position_tolerance_m=spread_gate_m,
         )
 
 
 __all__ = [
-    "MotionIntent", "MotionCommand", "MotionIntentError", "AirframeMotionAdapter",
-    "resolve_airframe_profile", "energy_params_from_profile", "dynamics_from_profile",
+    "MotionIntent",
+    "MotionCommand",
+    "MotionIntentError",
+    "AirframeMotionAdapter",
+    "resolve_airframe_profile",
+    "energy_params_from_profile",
+    "dynamics_from_profile",
     "camera_ray_from_profile",
 ]

@@ -43,19 +43,31 @@ class RecoveryPolicy:
         if self.transition_altitude_m < 0 or self.transition_min_airspeed_mps < 0:
             raise ValueError("transition limits must be non-negative")
 
-    def sequence(self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None) -> tuple[str, ...]:
+    def sequence(
+        self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None
+    ) -> tuple[str, ...]:
         if self.category == "multirotor":
-            return ("land_now",) if not energy_available else (("hold", "return_home") if trigger == "link_loss" else ("return_home",))
+            return (
+                ("land_now",)
+                if not energy_available
+                else (("hold", "return_home") if trigger == "link_loss" else ("return_home",))
+            )
         if self.category == "fixed_wing":
             if not energy_available and self.parachute_available:
                 return ("parachute",)
-            landing = "parachute" if self.landing_method == "parachute" and self.parachute_available else "fw_land"
+            landing = (
+                "parachute"
+                if self.landing_method == "parachute" and self.parachute_available
+                else "fw_land"
+            )
             return ("loiter", "return_home", landing)
         if not energy_available:
             return ("parachute",) if self.parachute_available else ("fw_land",)
         return ("loiter", "return_home", "vtol_transition_to_mc", "land_now")
 
-    def first_action(self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None) -> str:
+    def first_action(
+        self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None
+    ) -> str:
         return self.sequence(trigger=trigger, energy_available=energy_available, mode=mode)[0]
 
 

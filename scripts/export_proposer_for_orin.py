@@ -138,7 +138,9 @@ def verify_frame_predictions(
         "box_iou_mean": float(np.mean([row["box_iou_mean"] for row in frame_metrics])),
         "box_iou_min": float(np.min([row["box_iou_min"] for row in frame_metrics])),
         "max_abs_score_error": float(max(row["max_abs_score_error"] for row in frame_metrics)),
-        "mean_abs_score_error": float(np.mean([row["mean_abs_score_error"] for row in frame_metrics])),
+        "mean_abs_score_error": float(
+            np.mean([row["mean_abs_score_error"] for row in frame_metrics])
+        ),
         "iou_threshold": 0.995,
         "score_threshold": 1e-5,
         "passed": all(row["box_iou_min"] >= 0.995 for row in frame_metrics)

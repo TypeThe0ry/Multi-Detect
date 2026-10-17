@@ -124,7 +124,9 @@ class HealthMonitor:
                 trigger="health", energy_available=decision != "land"
             )
             action = sequence[0] if sequence else decision
-        return HealthDecision(decision, reason, recovery_action=action, recovery_sequence=sequence, **kwargs)
+        return HealthDecision(
+            decision, reason, recovery_action=action, recovery_sequence=sequence, **kwargs
+        )
 
     @staticmethod
     def jetson_resources():
@@ -198,9 +200,7 @@ class HealthMonitor:
             self.state.clock_raw = raw
             return self.state.elapsed_s
         if raw >= self.state.clock_raw:
-            self.state.elapsed_s += min(
-                self.config.max_frame_delta_s, raw - self.state.clock_raw
-            )
+            self.state.elapsed_s += min(self.config.max_frame_delta_s, raw - self.state.clock_raw)
             self.state.clock_raw = raw
         return self.state.elapsed_s
 
@@ -350,4 +350,10 @@ class HealthMonitor:
 
 
 OnboardHealthMonitor = HealthMonitor
-__all__ = ["RecoveryPolicy", "HealthConfig", "HealthDecision", "HealthMonitor", "OnboardHealthMonitor"]
+__all__ = [
+    "RecoveryPolicy",
+    "HealthConfig",
+    "HealthDecision",
+    "HealthMonitor",
+    "OnboardHealthMonitor",
+]
