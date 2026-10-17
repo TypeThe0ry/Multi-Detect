@@ -80,7 +80,20 @@ def _json(path: Path) -> dict:
 
 
 def _relative(path: Path) -> str:
-    return path.resolve(strict=True).relative_to(ROOT.resolve()).as_posix()
+    """Repository-relative path, as every dataset row stores it.
+
+    A worktree run may read campaign data that lives in the main checkout
+    (``D:/Projects/Multi-Detect/artifacts/...``); such paths are made relative to
+    the repository that holds them so they resolve against that data root.
+    """
+    resolved = path.resolve(strict=True)
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        for parent in resolved.parents:
+            if (parent / ".git").exists():
+                return resolved.relative_to(parent).as_posix()
+        raise
 
 
 def _task_slug(text: str) -> tuple[str, str] | None:
