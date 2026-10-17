@@ -1,0 +1,5 @@
+{
+  "base_suite": "configs/onboard/mission-suite-v2-r12id-r14plan.json",
+  "onboard_config": "configs/onboard/sim-loop-v3-r12id-r14plan-no-triangulation.json",
+  "defaults": {"step_triangulation": false, "ground_height_sigma_m": 1, "near_depth": false}
+}
