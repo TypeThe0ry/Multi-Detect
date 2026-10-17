@@ -339,8 +339,13 @@ class Round:
                 cmd = [sys.executable, "scripts/eval_slow_system.py", "--dataset", str(dataset), "--data-root", str(self.a.data_root), "--backend", "gguf", "--device", "cuda:0", "--identity-only", "--fast-identity", "--crop-policy", "candidate_zoom_v2", "--gguf-model", str(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf"), "--mmproj", str(mmproj), "--llama-server", str(llama_server), "--output", str(self.out / f"eval-{label}.json")]
                 estimate = "v1+v3 合计约 20-50 分钟：GPU fast_identity，1,900+233 行；目标小于 1 小时"
                 self.run(f"eval_{label}", cmd, estimate=estimate, disk="约 1 GiB", outputs=(self.out / f"eval-{label}.json",))
-            planning_summary = self.out / "eval-planning" / "summary.json"
-            planning_cmd = [sys.executable, "scripts/run_model_round_eval.py", "--model", "v2-r15-multi", "--gguf", str(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf"), "--data-root", str(self.a.data_root), "--stages", "planning-v3", "--out", str(self.out / "eval-planning"), "--min-free-disk-gb", str(self.a.min_free_gb)]
+            # run_model_round_eval only writes inside this worktree; keep the planning
+            # output here when the round directory lives in the main checkout.
+            planning_out = self.out / "eval-planning"
+            if not planning_out.resolve().is_relative_to(ROOT.resolve()):
+                planning_out = ROOT / "artifacts" / f"{self.out.name}-eval-planning"
+            planning_summary = planning_out / "summary.json"
+            planning_cmd = [sys.executable, "scripts/run_model_round_eval.py", "--model", "v2-r15-multi", "--gguf", str(self.out / "merged-gguf" / "slow-system-Q5_K_M.gguf"), "--data-root", str(self.a.data_root), "--stages", "planning-v3", "--out", str(planning_out), "--min-free-disk-gb", str(self.a.min_free_gb)]
             self.run("eval_planning", planning_cmd, estimate="约 1-2 小时", disk="约 1 GiB", outputs=(planning_summary,))
         if self.a.stage in ("all", "report"):
             self.guards("report")
