@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from multidetect.sim_teacher.primitives import ActionPrimitive, primitive_to_ned
 from multidetect.autonomy.motion_intent import MotionCommand
+from multidetect.onboard_runtime.fw_vtol_commands import local_ned_to_global
 
 from .camera import CameraFrame, CameraSource
 from .vehicle import PositionSetpoint, VehicleInterface, VehicleState
@@ -96,6 +97,14 @@ def observation_for(frame: CameraFrame, state: VehicleState) -> dict[str, Any]:
         "frame_received_monotonic_ns": int(frame.timestamp_monotonic * 1e9),
         "pose_received_monotonic_ns": int((state.pose_monotonic or 0) * 1e9),
     }
+
+
+# Mode names VehicleState reports (``_mode_name``) while PX4 flies a guided
+# fixed-wing command: orbit, reposition/loiter (HOLD), mission landing, RTL/LAND.
+FIXED_WING_GUIDED_MODES = frozenset({
+    "OFFBOARD", "HOLD", "ORBIT", "AUTO_MISSION", "AUTO_TAKEOFF", "RTL", "LAND",
+    "AUTO_LOITER", "AUTO_RTL", "AUTO_LAND",
+})
 
 
 class SetpointPump:
@@ -553,10 +562,7 @@ class OnboardRuntime:
                     elif self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True):
                         if state.mode != "OFFBOARD":
                             self._latch("offboard_exited", now)
-                    elif state.mode not in {
-                        "OFFBOARD", "AUTO", "AUTO.LOITER", "AUTO.MISSION",
-                        "AUTO.RTL", "AUTO.LAND", "GUIDED",
-                    }:
+                    elif state.mode not in FIXED_WING_GUIDED_MODES:
                         self._latch("fixed_wing_navigation_mode_lost", now)
                     if self.home_ned is not None and (
                         state.home_ned is None or math.dist(state.home_ned, self.home_ned) > 0.5
@@ -725,22 +731,22 @@ class OnboardRuntime:
     def _dispatch_motion_command(self, command: MotionCommand, state: VehicleState) -> Any:
         """Dispatch a profile command to the FixedWingVtolVehicle protocol."""
         vehicle = self.vehicle
-        target = command.target_ned or state.position_ned or (0.0, 0.0, 0.0)
-        # PX4 high-level commands use WGS84.  The policy remains local-NED;
-        # convert around the telemetry home when available.  Fakes without a
-        # geodetic home intentionally receive the local pair for deterministic
-        # tests and SIM adapters.
+        target = command.target_ned or state.position_ned
+        if target is None:
+            raise RuntimeError("motion command has no target and no vehicle position")
+        # The policy plans in local NED; PX4 guided commands carry WGS84 with an
+        # AMSL altitude.  Without a geodetic home there is no safe conversion, so
+        # the command fails closed instead of sending metres as degrees.
         home_geo = getattr(state, "home_geodetic", None)
-        if home_geo is not None and len(home_geo) >= 2:
-            lat0, lon0 = float(home_geo[0]), float(home_geo[1])
-            earth = 6378137.0
-            centre = (
-                lat0 + math.degrees(float(target[0]) / earth),
-                lon0 + math.degrees(float(target[1]) / (earth * max(math.cos(math.radians(lat0)), 1e-6))),
+        home_ned = getattr(state, "home_ned", None)
+        if command.kind not in {"mc_hold", "mc_reposition", "mc_land", "stop"}:
+            if home_geo is None or home_ned is None:
+                raise RuntimeError("fixed-wing command needs a geodetic home (HOME_POSITION)")
+            lat, lon, altitude = local_ned_to_global(
+                target, home_geodetic=home_geo, home_ned=home_ned
             )
-        else:
-            centre = (target[0], target[1])
-        altitude = -target[2]
+            centre = (lat, lon)
+            ground_amsl = float(home_geo[2])
         profile = getattr(self.motion_adapter, "profile", None)
         speed = command.speed_mps or getattr(profile, "cruise_airspeed_mps", 15.0)
         if command.kind in {"mc_hold", "mc_reposition"}:
@@ -777,7 +783,7 @@ class OnboardRuntime:
             if not callable(method):
                 raise RuntimeError("fixed-wing vehicle lacks fw_land()")
             return method((command.metadata or {}).get("method", "runway"), point=centre,
-                          alt=0.0, timeout_s=0.0)
+                          alt=ground_amsl, timeout_s=0.0)
         if command.kind == "mc_land":
             transition = getattr(vehicle, "vtol_transition", None)
             if callable(transition):

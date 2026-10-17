@@ -180,7 +180,8 @@ def _mode_name(custom_mode: Any) -> str | None:
     # HOLD is retained as the historical multirotor-facing alias for
     # AUTO.LOITER.  ``parse_custom_mode`` exposes the canonical PX4 name.
     names = {(6, 0): "OFFBOARD", (4, 2): "AUTO_TAKEOFF", (4, 3): "HOLD",
-             (4, 4): "AUTO_MISSION", (4, 5): "RTL", (4, 6): "LAND", (3, 0): "POSCTL"}
+             (4, 4): "AUTO_MISSION", (4, 5): "RTL", (4, 6): "LAND", (3, 0): "POSCTL",
+             (3, 1): "ORBIT"}
     return names.get((main, sub), f"PX4({main},{sub})")
 
 
@@ -634,7 +635,7 @@ class PymavlinkVehicle:
         except (ValueError, TypeError) as exc:
             return CommandResult("failed", 3000, detail=str(exc))
 
-    def fw_takeoff(self, method: str = "runway", *, alt: float, point: Any = (0.0, 0.0),
+    def fw_takeoff(self, method: str = "runway", *, alt: float, point: Any = None,
                    pitch_deg: float = 0.0, yaw_deg: float = 0.0,
                    timeout_s: float = 0.5) -> CommandResult:
         """Issue a fixed-wing/VTOL takeoff command.
@@ -654,7 +655,7 @@ class PymavlinkVehicle:
         except (ValueError, TypeError) as exc:
             return CommandResult("failed", 84 if normalized == "vtol" else 22, detail=str(exc))
 
-    def fw_land(self, method: str = "runway", *, point: Any = (0.0, 0.0),
+    def fw_land(self, method: str = "runway", *, point: Any = None,
                 alt: float = 0.0, yaw_deg: float = 0.0,
                 parachute_params: Mapping[str, float] | None = None,
                 timeout_s: float = 0.5) -> CommandResult:

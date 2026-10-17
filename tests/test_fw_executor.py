@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.sim_teacher.primitives import ActionPrimitive
@@ -115,7 +117,8 @@ class RawVehicle:
 
 def test_raw_mavlink_fallback_emits_px4_command_long_sequence() -> None:
     vehicle = RawVehicle()
-    executor = FixedWingVtolExecutor(vehicle, airframe="vtol")
+    home = ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0))
+    executor = FixedWingVtolExecutor(vehicle, airframe="vtol", geo_reference=lambda: home)
     assert executor.arm_and_takeoff().status == "success"
     assert executor.execute(ActionPrimitive.hold(1)).status == "success"
     assert executor.land().status == "success"
@@ -123,6 +126,28 @@ def test_raw_mavlink_fallback_emits_px4_command_long_sequence() -> None:
     # NAV_VTOL_TAKEOFF, DO_VTOL_TRANSITION(FW), DO_ORBIT,
     # DO_VTOL_TRANSITION(MC), DO_LAND_START, NAV_LAND.
     assert [row[2] for row in commands] == [84, 3000, 34, 3000, 189, 21]
+    # Positions go out as WGS84 around home with AMSL altitudes, never local metres.
+    orbit = commands[2]
+    assert abs(orbit[-3] - 47.0) < 1e-3 and abs(orbit[-2] - 8.0) < 1e-3
+    assert orbit[-1] == pytest.approx(530.0)
+    land = commands[-1]
+    assert land[-1] == pytest.approx(500.0)
+
+
+def test_raw_mavlink_fallback_refuses_guided_commands_without_a_geodetic_home() -> None:
+    executor = FixedWingVtolExecutor(RawVehicle(), airframe="fixed_wing")
+    result = executor.execute(ActionPrimitive.hold(1))
+    assert result.status == "failed"
+    assert "geodetic home" in str(result.ack)
+
+
+def test_local_ned_to_global_offsets_from_home_and_reports_amsl() -> None:
+    from multidetect.onboard_runtime.fw_vtol_commands import local_ned_to_global
+
+    lat, lon, amsl = local_ned_to_global((111.32, 0.0, -40.0), home_geodetic=(0.0, 0.0, 100.0),
+                                         home_ned=(0.0, 0.0, -2.0))
+    assert lat == pytest.approx(0.001, abs=1e-6) and lon == pytest.approx(0.0)
+    assert amsl == pytest.approx(138.0)
 
 
 def test_motion_command_loiter_and_transition_are_shared_with_runtime():

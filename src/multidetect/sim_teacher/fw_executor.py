@@ -16,6 +16,7 @@ from typing import Any
 
 from .executor import ExecutionResult
 from ..onboard_runtime.fw_vtol_commands import (
+    local_ned_to_global,
     CommandSpec,
     do_land_start,
     do_orbit,
@@ -27,7 +28,10 @@ from ..onboard_runtime.fw_vtol_commands import (
     nav_vtol_takeoff,
 )
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
-from multidetect.autonomy.motion_intent import MotionCommand
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # motion_intent imports sim_teacher (via safety_envelope); avoid the cycle
+    from multidetect.autonomy.motion_intent import MotionCommand
 
 
 class FixedWingVtolExecutor:
@@ -49,6 +53,7 @@ class FixedWingVtolExecutor:
         yaw_deg: Callable[[], float] | None = None,
         wait_for_state: Callable[[str, float], Any] | None = None,
         land_mission: Callable[..., Any] | None = None,
+        geo_reference: Callable[[], tuple[Any, Any]] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
@@ -87,6 +92,9 @@ class FixedWingVtolExecutor:
         self._yaw = yaw_deg or (lambda: 0.0)
         self._wait_for_state = wait_for_state
         self._land_mission = land_mission
+        # () -> (home (lat, lon, amsl), home local NED); converts this executor's
+        # local-NED targets into the WGS84/AMSL positions PX4 commands carry.
+        self._geo_reference = geo_reference
         self._clock = clock
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
@@ -103,7 +111,44 @@ class FixedWingVtolExecutor:
             return bool(value)
         return getattr(result, "status", "") in {"accepted", "sent", "success"}
 
+    _GEO_COMMANDS = frozenset({"reposition", "orbit", "loiter_at", "fw_takeoff", "fw_land"})
+
+    def _to_global(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+                   ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Rewrite local-NED (north, east) + local-up altitude into WGS84 + AMSL."""
+        if name not in self._GEO_COMMANDS:
+            return args, kwargs
+        if self._geo_reference is None:
+            if callable(getattr(self.vehicle, name, None)):
+                return args, kwargs  # deterministic local-frame fakes
+            raise RuntimeError(f"{name} over COMMAND_LONG needs a geodetic home reference")
+        home_geodetic, home_ned = self._geo_reference()
+
+        def convert(point: Any, up: float) -> tuple[tuple[float, float], float]:
+            lat, lon, amsl = local_ned_to_global(
+                (float(point[0]), float(point[1]), -float(up)),
+                home_geodetic=home_geodetic, home_ned=home_ned,
+            )
+            return (lat, lon), amsl
+
+        kwargs = dict(kwargs)
+        if name == "reposition":
+            point, amsl = convert(args[0], args[1])
+            return (point, amsl, *args[2:]), kwargs
+        if name == "orbit":
+            up = kwargs.get("alt")
+            point, kwargs["alt"] = convert(args[0], -self._commanded[2] if up is None else up)
+            return (point, *args[1:]), kwargs
+        if name == "loiter_at":
+            point, amsl = convert(args[0], args[2])
+            return (point, args[1], amsl, *args[3:]), kwargs
+        # Takeoff altitude is the climb height; landing is on the ground (up = 0).
+        point = kwargs.get("point", self._commanded[:2])
+        kwargs["point"], kwargs["alt"] = convert(point, kwargs.get("alt", 0.0))
+        return args, kwargs
+
     def _invoke(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        args, kwargs = self._to_global(name, args, kwargs)
         method = getattr(self.vehicle, name, None)
         if callable(method):
             return method(*args, **kwargs)
@@ -196,7 +241,9 @@ class FixedWingVtolExecutor:
                 return type("CommandResult", (), {"status": "timeout", "ok": False,
                                                    "detail": f"COMMAND_ACK timeout for {spec.name}"})()
             result = ack.get("result", 0) if isinstance(ack, dict) else getattr(ack, "result", 0)
-            ok = int(result or 0) in {0, 1, 2, 3, 4, 5}
+            # MAV_RESULT_ACCEPTED or IN_PROGRESS; TEMPORARILY_REJECTED, DENIED,
+            # UNSUPPORTED and FAILED all mean PX4 did not take the command.
+            ok = int(result or 0) in {0, 5}
             return type("CommandResult", (), {"status": "accepted" if ok else "failed",
                                                "ok": ok, "result": result})()
         # A raw link may not expose ACK reception.  In that case the send is
@@ -307,6 +354,8 @@ class FixedWingVtolExecutor:
         origin = self._commanded
         yaw = self._commanded_yaw
         try:
+            from multidetect.autonomy.motion_intent import MotionCommand
+
             if isinstance(action, MotionCommand):
                 return self.execute_command(action)
             if action.kind == "hold":
@@ -344,7 +393,7 @@ class FixedWingVtolExecutor:
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
 
-    def execute_command(self, command: MotionCommand) -> ExecutionResult:
+    def execute_command(self, command: "MotionCommand") -> ExecutionResult:
         """Execute the shared intent command vocabulary.
 
         A vehicle may implement either ``orbit``/``reposition`` (the PX4
@@ -362,12 +411,12 @@ class FixedWingVtolExecutor:
                 radius = command.radius_m or self.loiter_radius_m
                 orbit_method = getattr(self.vehicle, "orbit", None)
                 loiter_method = getattr(self.vehicle, "loiter_at", None)
-                if callable(orbit_method):
-                    result = orbit_method(centre[:2], radius, speed, alt=altitude, timeout_s=0.0)
-                elif callable(loiter_method):
-                    result = loiter_method(centre[:2], radius, altitude, speed=speed, timeout_s=0.0)
+                if callable(loiter_method) and not callable(orbit_method):
+                    result = self._invoke("loiter_at", centre[:2], radius, altitude, speed=speed,
+                                          timeout_s=0.0)
                 else:
-                    raise RuntimeError("vehicle lacks orbit()/loiter_at()")
+                    result = self._invoke("orbit", centre[:2], radius, speed, alt=altitude,
+                                          timeout_s=0.0)
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"orbit": result})
             if command.kind in {"reposition", "mc_reposition"}:
                 target = command.target_ned or self._commanded

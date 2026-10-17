@@ -92,7 +92,37 @@ def _finite(value: Any, name: str) -> float:
     return float(value)
 
 
+EARTH_RADIUS_M = 6378137.0
+
+
+def local_ned_to_global(
+    target_ned: Any, *, home_geodetic: Any, home_ned: Any = (0.0, 0.0, 0.0)
+) -> tuple[float, float, float]:
+    """Convert a local NED point (m) to WGS84 lat/lon (deg) and AMSL altitude (m).
+
+    PX4 reads the position of a COMMAND_LONG (DO_REPOSITION, DO_ORBIT, NAV_TAKEOFF,
+    NAV_LAND, ...) as WGS84 latitude/longitude with an AMSL altitude.  Local
+    positions are relative to the EKF origin, so the offset is taken from home
+    (``home_ned``) and anchored at home's geodetic position ``(lat, lon, amsl)``.
+    """
+    if target_ned is None or home_geodetic is None or home_ned is None:
+        raise ValueError("local-to-global conversion needs a target and a geodetic home")
+    north, east, down = (_finite(v, "target_ned") for v in tuple(target_ned)[:3])
+    home_n, home_e, home_d = (_finite(v, "home_ned") for v in tuple(home_ned)[:3])
+    lat0, lon0, alt0 = (_finite(v, "home_geodetic") for v in tuple(home_geodetic)[:3])
+    if not (-90.0 <= lat0 <= 90.0 and -180.0 <= lon0 <= 180.0):
+        raise ValueError("home_geodetic must be latitude/longitude in degrees")
+    lat = lat0 + math.degrees((north - home_n) / EARTH_RADIUS_M)
+    lon = lon0 + math.degrees(
+        (east - home_e) / (EARTH_RADIUS_M * max(math.cos(math.radians(lat0)), 1e-6))
+    )
+    return lat, lon, alt0 - (down - home_d)
+
+
 def _point(point: Any, *, alt: float | None = None) -> tuple[float, float, float]:
+    if point is None:
+        # (0, 0) would be a real coordinate in the Gulf of Guinea, never "here".
+        raise ValueError("a WGS84 point is required")
     if isinstance(point, dict):
         lat = point.get("lat", point.get("latitude"))
         lon = point.get("lon", point.get("longitude"))
@@ -197,7 +227,7 @@ def do_vtol_transition(to: str | int) -> CommandSpec:
 
 
 def nav_takeoff(*, alt: float, pitch_deg: float = 0.0, yaw_deg: float = 0.0,
-                point: Any = (0.0, 0.0)) -> CommandSpec:
+                point: Any = None) -> CommandSpec:
     lat, lon, altitude = _point(point, alt=alt)
     return _spec(MAV_CMD_NAV_TAKEOFF,
                  (_finite(pitch_deg, "pitch_deg"), 0.0, 0.0, _finite(yaw_deg, "yaw_deg"),
@@ -205,12 +235,12 @@ def nav_takeoff(*, alt: float, pitch_deg: float = 0.0, yaw_deg: float = 0.0,
 
 
 def nav_vtol_takeoff(*, alt: float, pitch_deg: float = 0.0, yaw_deg: float = 0.0,
-                     point: Any = (0.0, 0.0)) -> CommandSpec:
+                     point: Any = None) -> CommandSpec:
     spec = nav_takeoff(alt=alt, pitch_deg=pitch_deg, yaw_deg=yaw_deg, point=point)
     return CommandSpec(MAV_CMD_NAV_VTOL_TAKEOFF, spec.params, "MAV_CMD_NAV_VTOL_TAKEOFF")
 
 
-def nav_vtol_land(*, point: Any = (0.0, 0.0), alt: float = 0.0,
+def nav_vtol_land(*, point: Any = None, alt: float = 0.0,
                   yaw_deg: float = 0.0) -> CommandSpec:
     lat, lon, altitude = _point(point, alt=alt)
     return _spec(MAV_CMD_NAV_VTOL_LAND,
@@ -218,7 +248,7 @@ def nav_vtol_land(*, point: Any = (0.0, 0.0), alt: float = 0.0,
                  "MAV_CMD_NAV_VTOL_LAND")
 
 
-def nav_land(*, point: Any = (0.0, 0.0), alt: float = 0.0,
+def nav_land(*, point: Any = None, alt: float = 0.0,
              yaw_deg: float = 0.0) -> CommandSpec:
     lat, lon, altitude = _point(point, alt=alt)
     return _spec(MAV_CMD_NAV_LAND,
