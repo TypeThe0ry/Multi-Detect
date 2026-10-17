@@ -27,11 +27,17 @@ VTOL 返航后先发 `MAV_CMD_DO_VTOL_TRANSITION(param1=3)`，等待
 分别使用 90 秒和 420 秒状态预算，命令 ACK 仍从 reader 缓存读取。
 
 伞降只做参数检查并标记“仿真未验证”，不会伪造成功。固定翼滑跑是真实
-PX4/Gazebo 起飞；手抛/弹射需要外部 Gazebo 初速度或冲量，当前采集器只会
-记录 `requires external Gazebo impulse`，未核实前不会宣称成功。若 SITL
-镜像不提供可用的 gz service，使用滑跑起飞或空中出生作为替代方案。
+PX4/Gazebo 起飞；手抛/弹射用 Gazebo 力脉冲近似，见下文“手抛和弹射起飞”。
 
 ## 运行冒烟脚本
+
+### 手抛和弹射起飞
+
+`rc_cessna_mono_cam` 的 `hand` 和 `catapult` 模式会在 PX4 已解锁并接受固定翼起飞命令后，先确认 `/world/default/wrench/persistent` 和 `/world/default/wrench/clear` 出现在 `gz topic -l`（pinned 镜像里没有 `set_entity_state` 之类的设速度服务，只有 ApplyLinkWrench 的力话题），再对 `rc_cessna_mono_cam_0::base_link` 施加一次世界坐标（ENU）力脉冲（`gz.msgs.EntityWrench`，力写在 `wrench { force {...} }` 里）。总质量按约 1.7 kg 计算：手抛目标 12 m/s、0.25 s、82 N、抬头 20 度；弹射目标 17 m/s、0.15 s、193 N、抬头 10 度；脉冲期间另加与重量相等的向上力。施力和延时清除在同一次 `docker exec` 里**同时启动**（各自的 `gz topic` 启动开销相互抵消），否则顺序执行会让力持续约 3 秒。`gz topic` 构造消息失败时也会返回 0，所以输出里出现 “Unable to create message” 同样判失败。采集器只写入参考资料中确认存在的 `FW_LAUN_DETCN_ON=1`、`FW_LAUN_AC_THLD=30`、`FW_LAUN_AC_T=0.05`。
+
+注入动作会记录话题、模型、力向量、时间戳和 PX4 `STATUSTEXT`。只有 PX4 报告起飞/发射检测且 `LOCAL_POSITION_NED` 证明飞机爬升，episode 才能通过。
+
+**真实 SITL 结果（2026-10-18）**：手抛、弹射两种方式都完成了“发射 → 爬升 → 盘旋（空速在档案范围内）→ 返航 → 在 home 跑道降落”。但要如实说明：遥测显示手抛脉冲实际只让地速增加约 4 m/s（目标 12 m/s），飞机没有离地，随后靠电机推力在地面加速完成起飞——仿真里的“手抛”目前更接近“推一把 + 短距滑跑”，不是真正把飞机抛到空中。原因是经 `gz topic` 命令行施力，力的实际持续时间受进程启动和发现延迟影响，无法精确控制。它验证的是 PX4 发射检测参数、起飞检测、爬升和后续流程；手抛动作本身的物理逼真度需要真机或带精确时序的仿真插件来验证。
 
 先设置工作目录环境变量，并确保 Docker/PX4 镜像可用。只查看步骤而不启动
 容器时加 `--dry-run`：
@@ -78,7 +84,7 @@ python scripts/collect_sim_teacher_episodes.py --airframe advanced_plane_mono_ca
 ```powershell
 docker exec <px4-container> gz service -l | Select-String 'pose|state|world'
 docker exec <px4-container> gz service -i -s /world/default/set_pose
-docker exec <px4-container> gz service -i -s /world/default/set_entity_state
+docker exec <px4-container> gz topic -l | Select-String '/world/default/wrench'
 docker exec <px4-container> px4-param show FW_LAUN_DETCN_ON
 docker exec <px4-container> px4-param set FW_LAUN_DETCN_ON 1
 ```
