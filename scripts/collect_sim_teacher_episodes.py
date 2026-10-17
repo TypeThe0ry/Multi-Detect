@@ -948,7 +948,19 @@ def _set_sim_params(
     return applied
 
 
+# pymavlink's PX4 mode table uses bare names ("MISSION", "LOITER"); dotted PX4 UI names
+# are reported as "Unknown mode" and silently not sent.
+_PYMAVLINK_PX4_MODE_ALIASES = {
+    "AUTO.MISSION": "MISSION",
+    "AUTO.LOITER": "LOITER",
+    "AUTO.RTL": "RTL",
+    "AUTO.LAND": "LAND",
+    "AUTO.TAKEOFF": "TAKEOFF",
+}
+
+
 def _set_mode(connection: Any, mode: str) -> None:
+    mode = _PYMAVLINK_PX4_MODE_ALIASES.get(mode, mode)
     setter = getattr(connection, "set_mode", None)
     if callable(setter):
         setter(mode)
