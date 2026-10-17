@@ -220,6 +220,15 @@ class FixedWingVtolExecutor:
         """Command ACK timeout used for every fixed-wing operation."""
         return self.command_timeout_s
 
+    # A runway roll and climb, a VTOL transition or a full approach take far longer
+    # than a command ACK; physical state waits get their own bounded budgets.
+    STATE_TIMEOUT_S = {"takeoff": 180.0, "takeoff_state": 180.0, "transition_fw": 90.0,
+                       "transition_mc": 90.0, "orbit": 90.0, "reposition": 120.0,
+                       "rtl": 300.0, "land": 420.0}
+
+    def _state_timeout(self, phase: str) -> float:
+        return max(self._timeout(), self.STATE_TIMEOUT_S.get(phase, self._timeout()))
+
     def _wait_state(self, phase: str) -> tuple[bool, Any | None]:
         """Optionally wait for a telemetry state transition.
 
@@ -231,7 +240,7 @@ class FixedWingVtolExecutor:
         if self._wait_for_state is None:
             return True, None
         try:
-            result = self._wait_for_state(phase, self._timeout())
+            result = self._wait_for_state(phase, self._state_timeout(phase))
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return False, {"error": str(exc), "phase": phase}
         if result is None or result is True:
