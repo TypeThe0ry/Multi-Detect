@@ -128,6 +128,7 @@ def collect_frames(
                 root,
                 ROOT / "configs/scenarios/generated-confusers",
                 ROOT / "configs/scenarios/generated-confusers-2",
+                ROOT / "configs/scenarios/generated-r15",
                 Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers"),
                 Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers-2"),
             ]

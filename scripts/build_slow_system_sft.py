@@ -379,6 +379,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                         ROOT / "configs/scenarios/generated-v2-appearance" / f"{world}.truth.json",
                         ROOT / "configs/scenarios/generated-confusers" / f"{world}.truth.json",
                         ROOT / "configs/scenarios/generated-confusers-2" / f"{world}.truth.json",
+                        ROOT / "configs/scenarios/generated-r15" / f"{world}.truth.json",
                     )
                     if candidate.is_file()
                 ),

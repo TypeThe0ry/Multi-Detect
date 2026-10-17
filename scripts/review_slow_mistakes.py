@@ -55,6 +55,7 @@ def _truth_for(world: str, explicit: Path | None) -> tuple[dict[str, Any], Path]
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
         ROOT / "configs/scenarios/generated-confusers-2",
+        ROOT / "configs/scenarios/generated-r15",
     ):
         matches = list(directory.glob(f"{world}.truth.json"))
         if matches:

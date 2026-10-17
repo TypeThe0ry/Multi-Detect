@@ -52,6 +52,7 @@ def truth_for_episode(
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
         ROOT / "configs/scenarios/generated-confusers-2",
+        ROOT / "configs/scenarios/generated-r15",
         ROOT / "configs/scenarios/generated-v2-appearance",
         ROOT / "configs/scenarios/generated-v2",
     )
