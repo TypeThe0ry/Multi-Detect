@@ -779,7 +779,9 @@ def build_dataset(
                 rows, min_ratio=balance_task_categories, max_upsample=max_upsample, seed=seed,
             )
         selected[split] = rows
-        if not rows:
+        # Only splits the world index declares must yield samples (a top-up round
+        # has no test worlds; its test file is simply empty).
+        if not rows and split in set(world_splits.values()):
             raise ValueError(f"No samples for {split}")
     seen = set()
     for split, rows in selected.items():
