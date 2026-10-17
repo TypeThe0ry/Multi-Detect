@@ -304,9 +304,12 @@ def test_counterfactual_tasks_name_the_distractor_and_held_out_classes_stay_unla
     assert stats["dropped_held_out_focus"] == 1
 
 
-def test_relative_paths_of_main_checkout_data_from_a_worktree(tmp_path) -> None:
-    from scripts.build_slow_system_sft import _relative
+def test_relative_paths_of_main_checkout_data_from_a_worktree(tmp_path, monkeypatch) -> None:
+    import scripts.build_slow_system_sft as builder
 
+    _relative = builder._relative
+    # The gate's pytest basetemp lives inside this checkout; keep ROOT elsewhere.
+    monkeypatch.setattr(builder, "ROOT", tmp_path / "worktree")
     repo = tmp_path / "Multi-Detect"
     (repo / ".git").mkdir(parents=True)
     frame = repo / "artifacts" / "r15-episodes" / "w" / "rgb" / "000000_before.png"
