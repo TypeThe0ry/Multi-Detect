@@ -220,12 +220,8 @@ def render_report(results: list[dict[str, Any]], output: Path, dry_run: bool = F
         m = item.get("metrics", {})
         p = m.get("position_error_by_source_m", {})
         current = m.get("success_rate")
-        if item["stage"] == "测试世界":
-            comparison = f"当前 {current}；历史 6/12-8/12（范围）"
-        elif item["stage"] == "任务套件":
-            comparison = f"当前 {current}；r8=13/16，r9=11/16"
-        else:
-            comparison = "无独立历史基线"
+        baseline = item.get("baseline")
+        comparison = f"当前 {current}；历史 {baseline}" if baseline else "无独立历史基线"
         elapsed = m.get("mean_time_s")
         if elapsed is None and m.get("mean_steps") is not None:
             elapsed = f"{m['mean_steps']} steps（未提供秒）"
@@ -352,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
                 "stage": "坡地/未知地面（高度偏置回放近似）",
                 "variant": variant,
                 "units": 1,
-                "baseline": "无独立历史坡地基线",
+                "baseline": None,
                 "metrics": _result_metrics(_json(special_report)),
             }
         )
