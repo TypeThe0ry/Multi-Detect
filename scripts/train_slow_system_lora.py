@@ -274,7 +274,9 @@ def initialize_adapter(model, adapter_path: Path) -> None:
     weights = load_safetensors(weights_path.read_bytes())
     result = set_peft_model_state_dict(model, weights)
     unexpected = getattr(result, "unexpected_keys", None) or []
-    missing = getattr(result, "missing_keys", None) or []
+    # missing_keys covers the whole model, so every frozen base weight shows up
+    # there; only a missing LoRA tensor means the adapter does not fit.
+    missing = [key for key in (getattr(result, "missing_keys", None) or []) if "lora_" in key]
     del weights
     if unexpected or missing:
         raise ValueError(

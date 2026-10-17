@@ -127,3 +127,22 @@ def test_merge_tops_up_r12_negatives_instead_of_dropping_new_positives():
     assert positives == 6  # every new positive kept, none added from the pool
     assert positives / (positives + negatives) <= 0.41
     assert len({r["sample_id"] for r in topped}) == len(topped)
+
+
+def test_initialize_adapter_ignores_frozen_base_weights_but_not_missing_lora(monkeypatch, tmp_path: Path):
+    import pytest
+
+    adapter = tmp_path / "adapter_model.safetensors"
+    adapter.write_bytes(b"synthetic")
+    missing = ["base_model.model.model.visual.patch_embed.proj.weight"]
+    peft = types.ModuleType("peft")
+    peft.set_peft_model_state_dict = lambda model, weights: types.SimpleNamespace(unexpected_keys=[], missing_keys=list(missing))
+    safe = types.ModuleType("safetensors.torch")
+    safe.load = lambda payload: {"lora": payload}
+    monkeypatch.setitem(sys.modules, "peft", peft)
+    monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+    monkeypatch.setitem(sys.modules, "safetensors.torch", safe)
+    initialize_adapter("model", adapter)  # base weights are never in an adapter
+    missing.append("base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight")
+    with pytest.raises(ValueError, match="does not match"):
+        initialize_adapter("model", adapter)
