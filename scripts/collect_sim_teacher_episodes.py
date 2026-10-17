@@ -1738,10 +1738,13 @@ def run_episode(
             sensor_process = _make_sensor_process(plan, environment)
             depth_binding = None
             runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
-            if any(
+            # Must match _sensor_command: non-x500 airframes always stream the
+            # registered depth camera even when the scenario omits it.
+            declares_depth = any(
                 isinstance(s, dict) and s.get("kind") == "depth_camera"
                 for s in runtime.get("sensors", [])
-            ):
+            )
+            if declares_depth or plan.airframe != "x500_mono_cam":
                 # The helper's contract is deterministic and is embedded in
                 # the command; SensorStreamReader validates it on every frame.
                 runtime_model = str(runtime.get("vehicle", {}).get("model", "x500_mono_cam"))
@@ -1755,7 +1758,10 @@ def run_episode(
                 calibration = json.loads(
                     (ROOT / "simulation/gazebo/calibration" / calibration_file).read_text(encoding="utf-8")
                 )["calibration"]
-                depth = next(s for s in runtime["sensors"] if s.get("kind") == "depth_camera")
+                depth = next(
+                    (s for s in runtime.get("sensors", []) if isinstance(s, dict) and s.get("kind") == "depth_camera"),
+                    {},
+                )
                 depth_id = depth.get("calibration_id", "gazebo-multirotor-depth-v1")
                 depth_binding = {
                     "source_topic": (
