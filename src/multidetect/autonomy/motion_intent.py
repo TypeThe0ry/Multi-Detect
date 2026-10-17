@@ -10,7 +10,7 @@ same command objects.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import replace, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -224,7 +224,12 @@ class AirframeMotionAdapter:
         if self.mode not in {"MC", "FW"}:
             raise MotionIntentError("mode must be MC or FW")
         self.energy = energy_params_from_profile(self.profile)
-        self.safety = safety or SafetyEnvelope(SafetyEnvelopeConfig(vehicle=dynamics_from_profile(self.profile)))
+        self.safety = safety or SafetyEnvelope(SafetyEnvelopeConfig(
+            vehicle=dynamics_from_profile(self.profile),
+            # Multirotors keep the 15 m default; other airframes step by their profile.
+            **({} if self.profile.category == "multirotor"
+               else {"max_translation_m": self.profile.limits.max_step_distance_m}),
+        ))
 
     def set_mode(self, mode: str | None) -> None:
         """Update VTOL mode from telemetry (MC/FW); ignore absent telemetry."""
@@ -360,9 +365,17 @@ class AirframeMotionAdapter:
 
     def from_primitive(self, action: ActionPrimitive, *, pose_ned: Sequence[float], yaw_deg: float, metadata: Mapping[str, Any] | None = None) -> MotionCommand | ActionPrimitive:
         """Compatibility bridge for the existing loop/executor output."""
-        pose = tuple(float(v) for v in pose_ned)
         if self.is_multirotor:
             return action
+        command = self._from_primitive(action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=metadata)
+        if isinstance(command, MotionCommand) and command.action is None:
+            # Keep the primitive the command came from: step records and stop
+            # detection need it, and it explains what the loop asked for.
+            command = replace(command, action=action)
+        return command
+
+    def _from_primitive(self, action: ActionPrimitive, *, pose_ned: Sequence[float], yaw_deg: float, metadata: Mapping[str, Any] | None = None) -> MotionCommand | ActionPrimitive:
+        pose = tuple(float(v) for v in pose_ned)
         meta = metadata or {}
         onboard = meta.get("onboard", {}) if isinstance(meta, Mapping) else {}
         skill = onboard.get("state") if isinstance(onboard, Mapping) else None
@@ -388,7 +401,10 @@ class AirframeMotionAdapter:
         if action.kind == "stop":
             return MotionCommand("stop", target_ned=pose, mode=self.mode, metadata=metadata or {})
         if action.kind == "turn":
-            target = (pose[0], pose[1], pose[2])
+            # A plane cannot turn in place: head off on the new bearing for one leg.
+            heading = math.radians(float(yaw_deg) + action.yaw_delta_deg)
+            leg = self.profile.limits.max_step_distance_m * 0.9
+            target = (pose[0] + leg * math.cos(heading), pose[1] + leg * math.sin(heading), pose[2])
             return MotionCommand(
                 "reposition", target_ned=target,
                 yaw_deg=float(yaw_deg) + action.yaw_delta_deg,

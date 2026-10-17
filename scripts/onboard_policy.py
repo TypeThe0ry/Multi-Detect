@@ -53,6 +53,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m
 from multidetect.autonomy.motion_intent import (  # noqa: E402
     AirframeMotionAdapter,
     MotionCommand,
@@ -449,6 +450,11 @@ class OnboardPolicy:
                 "climb_rate_mps": dynamics.climb_rate_mps,
                 "descent_rate_mps": dynamics.descent_rate_mps,
             }
+            # The 15 m default step bound is multirotor-sized: a plane's search leg
+            # or turn-off leg would be clipped, and a clipped high-level command is
+            # refused into a loiter.  Use the profile's per-step bound instead
+            # (explicit safety settings still win).
+            envelope_source.setdefault("max_translation_m", self.airframe_profile.limits.max_step_distance_m)
         if self.mission_package is not None:
             area = self.mission_package.document["operating_area"]
             package_polygon = (
@@ -557,6 +563,22 @@ class OnboardPolicy:
             search_pattern=search_pattern,
             **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
+
+        def fixed_wing_search(home, radius_m):
+            # Aircraft that cannot hover fly lawnmower lanes instead of turning in place.
+            profile = self.airframe_profile
+            return FixedWingSearch(
+                home_ned=home,
+                radius_m=radius_m,
+                footprint_width_m=camera_footprint_width_m(
+                    camera_info, self.search_altitude_m or altitude_m, mount_pitch
+                ),
+                turn_radius_m=profile.min_turn_radius_m or profile.orbit_radius(),
+                max_leg_m=profile.limits.max_step_distance_m,
+            )
+
+        if not self.motion_adapter.is_multirotor:
+            self._search = fixed_wing_search(home_ned or (0.0, 0.0, 0.0), self._search.search_radius_m)
         camera = CameraModel(
             fx=float(camera_info["fx"]),
             fy=float(camera_info["fy"]),
@@ -631,7 +653,9 @@ class OnboardPolicy:
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
             obstacle_source = StaticMapSource(obstacles)
-            if region is not None:
+            if region is not None and not self.motion_adapter.is_multirotor:
+                search = fixed_wing_search((float(region[0]), float(region[1]), 0.0), float(region[2]))
+            elif region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
                     target_ned=(1.0e7, 1.0e7, 0.0),
