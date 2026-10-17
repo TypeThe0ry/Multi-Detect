@@ -927,10 +927,16 @@ def _truth_target(
     targets = data.get("targets", []) if isinstance(data, dict) else []
     target = targets[0] if isinstance(targets, list) and targets else {}
     if select == "confuser":
-        confusers = [
-            t for t in targets
-            if isinstance(t, dict) and not t.get("true_target") and str(t.get("target_id", "")).startswith("confuser_")
-        ]
+        # Placed look-alikes first (confuser_*), then the forced distractors some
+        # worlds use for the same purpose (SUV next to a pickup), then any distractor.
+        confusers = []
+        for prefix in ("confuser_", "forced_", "distractor_"):
+            confusers = [
+                t for t in targets
+                if isinstance(t, dict) and not t.get("true_target") and str(t.get("target_id", "")).startswith(prefix)
+            ]
+            if confusers:
+                break
         if not confusers:
             raise ValueError(f"{truth_path.name} has no confuser to fly to")
         target = confusers[seed % len(confusers)]

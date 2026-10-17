@@ -160,3 +160,10 @@ def test_confuser_teacher_flies_to_a_look_alike_chosen_by_seed() -> None:
     assert true_label == "backpack bag"
     assert picks and true_label not in picks  # only look-alikes, never the true target
     assert len(picks) > 1  # different seeds visit different confusers
+
+
+def test_confuser_teacher_falls_back_to_forced_look_alikes() -> None:
+    # gen_r15_w0014 has no confuser_* objects; its forced look-alike is a pickup next to the SUV.
+    truth = Path("configs/scenarios/generated-r15/gen_r15_w0014.truth.json")
+    _, label = collector._truth_target(truth, select="confuser", seed=0)
+    assert "pickup" in label
