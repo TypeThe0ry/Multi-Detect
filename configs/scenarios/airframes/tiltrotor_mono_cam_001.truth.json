@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "scenario_id": "tiltrotor_mono_cam_001",
+  "scenario_version": 1,
+  "targets": [{"target_id": "tiltrotor-marker-001", "label": "orange_rescue_marker", "position": {"latitude_deg": 1.300300, "longitude_deg": 103.800300}, "behavior": "stationary"}]
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="default">
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <latitude_deg>1.300000</latitude_deg>
+      <longitude_deg>103.800000</longitude_deg>
+      <elevation>0.0</elevation>
+    </spherical_coordinates>
+    <physics name="default_physics" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.0</real_time_factor></physics>
+    <model name="flat_runway"><static>true</static><link name="link"><collision name="collision"><geometry><box><size>420 30 0.1</size></box></geometry><pose>0 0 -0.05 0 0 0</pose></collision><visual name="visual"><geometry><box><size>420 30 0.1</size></box></geometry><pose>0 0 -0.05 0 0 0</pose></visual></link></model>
+    <include><uri>model://multidetect_search_target_v1</uri><name>advanced-plane-target</name><pose>80 0 0.5 0 0 0</pose></include>
+  </world>
+</sdf>

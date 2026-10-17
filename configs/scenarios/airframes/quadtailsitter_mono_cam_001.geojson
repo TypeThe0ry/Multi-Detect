@@ -1,0 +1,9 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "quadtailsitter_mono_cam_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "flat", "clearance_radius_m": 200}, "geometry": {"type": "Polygon", "coordinates": [[[103.7970, 1.2980], [103.8030, 1.2980], [103.8030, 1.3020], [103.7970, 1.3020], [103.7970, 1.2980]]]}}
+  ]
+}
