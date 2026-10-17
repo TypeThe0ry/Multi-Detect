@@ -16,11 +16,14 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
+from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.autonomy.step_triangulation import (
-    PositionEstimate, ViewObservation, fuse_position_estimates, make_ground_estimate,
+    PositionEstimate,
+    ViewObservation,
+    fuse_position_estimates,
+    make_ground_estimate,
     triangulate_views,
 )
-from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 Box = tuple[float, float, float, float]
@@ -51,8 +54,11 @@ def appearance_from_box(
     """
     width, height = box[2] - box[0], box[3] - box[1]
     if (
-        range_m is None or not math.isfinite(range_m) or range_m <= 0
-        or not all(math.isfinite(v) for v in box) or min(width, height) <= 0
+        range_m is None
+        or not math.isfinite(range_m)
+        or range_m <= 0
+        or not all(math.isfinite(v) for v in box)
+        or min(width, height) <= 0
     ):
         return None
     histogram = None
@@ -93,6 +99,7 @@ def appearances_consistent(
     """
     if first is None or second is None:
         return False
+
     def ratio_score(a: float, b: float, tolerance: float) -> float:
         if min(a, b) <= 0:
             return 0.0
@@ -102,8 +109,7 @@ def appearances_consistent(
     # Ground range and partial occlusion make the short side substantially
     # noisier than the pixel box itself; keep this wider than the old 1.6x
     # hard gate while retaining the geometry contribution to the score.
-    size = ratio_score(first.size_range, second.size_range,
-                       max(config.appearance_size_ratio, 3.2))
+    size = ratio_score(first.size_range, second.size_range, max(config.appearance_size_ratio, 3.2))
     first_aspect = max(first.aspect_ratio, 1.0 / first.aspect_ratio)
     second_aspect = max(second.aspect_ratio, 1.0 / second.aspect_ratio)
     aspect = ratio_score(first_aspect, second_aspect, config.appearance_aspect_ratio)
@@ -114,10 +120,13 @@ def appearances_consistent(
         and (first.short_side_px or 0.0) >= 24.0
         and (second.short_side_px or 0.0) >= 24.0
     ):
-        distance = sum(
-            abs(a - b)
-            for a, b in zip(first.color_histogram, second.color_histogram, strict=True)
-        ) / 2
+        distance = (
+            sum(
+                abs(a - b)
+                for a, b in zip(first.color_histogram, second.color_histogram, strict=True)
+            )
+            / 2
+        )
         colour = max(0.0, 1.0 - distance / max(config.appearance_color_distance, 1e-9))
         score = 0.5 * score + 0.5 * colour
     # A completely incompatible large-crop colour signature must lose the
@@ -178,13 +187,23 @@ class CameraModel:
         pitch, yaw = self.pitch_down_rad, math.radians(yaw_deg)
         forward = math.cos(pitch) - y * math.sin(pitch)
         down = math.sin(pitch) + y * math.cos(pitch)
-        raw = (forward * math.cos(yaw) - x * math.sin(yaw),
-               forward * math.sin(yaw) + x * math.cos(yaw), down)
+        raw = (
+            forward * math.cos(yaw) - x * math.sin(yaw),
+            forward * math.sin(yaw) + x * math.cos(yaw),
+            down,
+        )
         norm = math.sqrt(sum(value * value for value in raw))
         return tuple(value / norm for value in raw)
 
     def ground_point(
-        self, u: float, v: float, *, north: float, east: float, height_m: float, yaw_deg: float,
+        self,
+        u: float,
+        v: float,
+        *,
+        north: float,
+        east: float,
+        height_m: float,
+        yaw_deg: float,
         ground_model: GroundModel | None = None,
     ) -> tuple[float, float] | None:
         """Intersect a level-flight ray; height_m is local up for a supplied model."""
@@ -196,8 +215,11 @@ class CameraModel:
             yaw = math.radians(yaw_deg)
             return ground_model.intersect_ray(
                 (north, east, height_m),
-                (forward * math.cos(yaw) - x * math.sin(yaw),
-                 forward * math.sin(yaw) + x * math.cos(yaw), down),
+                (
+                    forward * math.cos(yaw) - x * math.sin(yaw),
+                    forward * math.sin(yaw) + x * math.cos(yaw),
+                    down,
+                ),
             )
         if down <= 1e-6 or height_m <= 0:
             return None
@@ -356,22 +378,30 @@ class LoopConfig:
             raise ValueError("step_triangulation must be a boolean")
         if not isinstance(self.near_depth, bool):
             raise ValueError("near_depth must be a boolean")
-        if (isinstance(self.step_triangulation_max_views, bool)
+        if (
+            isinstance(self.step_triangulation_max_views, bool)
             or not isinstance(self.step_triangulation_max_views, int)
-            or not 2 <= self.step_triangulation_max_views <= 64):
+            or not 2 <= self.step_triangulation_max_views <= 64
+        ):
             raise ValueError("step_triangulation_max_views must be an integer in [2, 64]")
-        for name, minimum in (("ground_height_sigma_m", 0.0),
-                              ("step_triangulation_sigma_scale", 1.0),
-                              ("step_triangulation_ground_gate_m", 0.0),
-                              ("step_triangulation_parallax_deg_per_m", 0.0),
-                              ("step_triangulation_min_ray_angle_deg", 0.0)):
+        for name, minimum in (
+            ("ground_height_sigma_m", 0.0),
+            ("step_triangulation_sigma_scale", 1.0),
+            ("step_triangulation_ground_gate_m", 0.0),
+            ("step_triangulation_parallax_deg_per_m", 0.0),
+            ("step_triangulation_min_ray_angle_deg", 0.0),
+        ):
             value = getattr(self, name)
-            if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not math.isfinite(value) or value <= 0 or value < minimum):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+                or value < minimum
+            ):
                 raise ValueError(f"{name} must be finite and positive, and >= {minimum}")
         if self.small_reject_recheck_px is not None and (
-            not math.isfinite(self.small_reject_recheck_px)
-            or self.small_reject_recheck_px <= 0
+            not math.isfinite(self.small_reject_recheck_px) or self.small_reject_recheck_px <= 0
         ):
             raise ValueError("small_reject_recheck_px must be finite and positive or None")
         if (
@@ -457,7 +487,8 @@ class PlaceVerdictMemory:
             )
 
         candidates = [
-            p for p in self.places
+            p
+            for p in self.places
             if math.dist(point, p.center) <= radius_for(p)
             and (
                 p.appearance is None
@@ -468,7 +499,10 @@ class PlaceVerdictMemory:
         return min(candidates, key=lambda p: math.dist(point, p.center), default=None)
 
     def lookup(
-        self, point: tuple[float, float] | None, range_m: float | None, config: LoopConfig,
+        self,
+        point: tuple[float, float] | None,
+        range_m: float | None,
+        config: LoopConfig,
         appearance: AppearanceSignature | None = None,
         track_id: str | None = None,
         co_visible_with: set[str] | None = None,
@@ -595,7 +629,10 @@ class OnboardLoop:
         yaw_deg: float | None = None,
         ground_point: Callable[[float, float], tuple[float, float] | None] | None = None,
         frame_rgb: Any = None,
-        camera_ray: Callable[[float, float], tuple[tuple[float, float, float], tuple[float, float, float]] | None] | None = None,
+        camera_ray: Callable[
+            [float, float], tuple[tuple[float, float, float], tuple[float, float, float]] | None
+        ]
+        | None = None,
         timestamp_s: float | None = None,
     ) -> list[Track]:
         """Associate detections with tracks by ground position and predicted pixels.
@@ -614,8 +651,7 @@ class OnboardLoop:
         free = {
             tid: t
             for tid, t in self._tracks.items()
-            if self.step_index - t.last_step <= self.config.lost_after_steps
-            and not t.exhausted
+            if self.step_index - t.last_step <= self.config.lost_after_steps and not t.exhausted
         }
         # Count-confirmed tracks are never candidates for ordinary active
         # association: a nearby new object must receive its own track/verdict.
@@ -625,8 +661,7 @@ class OnboardLoop:
         exhausted_continuations = {
             tid: t
             for tid, t in self._tracks.items()
-            if t.exhausted
-            and self.step_index - t.last_step in (0, 1)
+            if t.exhausted and self.step_index - t.last_step in (0, 1)
         }
         continuation_used: set[str] = set()
         if yaw_deg is not None and self._last_yaw_deg is not None:
@@ -661,12 +696,15 @@ class OnboardLoop:
                 else None
             )
             appearance = appearance_from_box(
-                detection.bbox, range_m, focal_px=(self.camera.fx + self.camera.fy) / 2,
+                detection.bbox,
+                range_m,
+                focal_px=(self.camera.fx + self.camera.fy) / 2,
                 frame_rgb=frame_rgb,
             )
             exact = next(
                 (
-                    track for track in exhausted_continuations.values()
+                    track
+                    for track in exhausted_continuations.values()
                     if track.track_id not in continuation_used
                     and _iou(track.bbox, detection.bbox) >= 0.99
                 ),
@@ -718,13 +756,18 @@ class OnboardLoop:
 
         # _tracks already retains lost tracks for evidence. Use that task-local
         # graveyard without extending the active/focus timeout or pixel gate.
-        lost = [
-            track
-            for track in self._tracks.values()
-            if self.config.lost_after_steps < self.step_index - track.last_step <= reid_steps
-            and reliable(track.bbox, track.ground)
-            and not track.covis_truncated
-        ] if reid_steps else []
+        lost = (
+            [
+                track
+                for track in self._tracks.values()
+                if self.config.lost_after_steps < self.step_index - track.last_step <= reid_steps
+                and reliable(track.bbox, track.ground)
+                and not track.covis_truncated
+            ]
+            if reid_steps
+            else []
+        )
+
         def revival_radius(track: Track, appearance: AppearanceSignature | None) -> float:
             footprint = (appearance.footprint_m if appearance else None) or (
                 track.appearance.footprint_m if track.appearance else None
@@ -772,8 +815,15 @@ class OnboardLoop:
             if ground is not None:
                 best.ground = ground
             if self.config.step_triangulation or self.config.near_depth:
-                self._update_position(best, ground, pose_ned, yaw_deg, camera_ray, timestamp_s,
-                                      allow_level_ray=ground_point is None)
+                self._update_position(
+                    best,
+                    ground,
+                    pose_ned,
+                    yaw_deg,
+                    camera_ray,
+                    timestamp_s,
+                    allow_level_ray=ground_point is None,
+                )
             if appearance is not None:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
@@ -784,7 +834,8 @@ class OnboardLoop:
         if reid_window is None:
             reid_window = 0 if self.config.stop_on_confirm else 60
         live_ids = {
-            t.track_id for t in self._tracks.values()
+            t.track_id
+            for t in self._tracks.values()
             if self.step_index - t.last_step <= max(self.config.lost_after_steps, reid_window)
         }
         for track in self._tracks.values():
@@ -821,22 +872,34 @@ class OnboardLoop:
                         other.covis_truncated = True
         return current
 
-    def _update_position(self, track, ground, pose_ned, yaw_deg, camera_ray, timestamp_s,
-                         *, allow_level_ray: bool) -> None:
+    def _update_position(
+        self, track, ground, pose_ned, yaw_deg, camera_ray, timestamp_s, *, allow_level_ray: bool
+    ) -> None:
         """Estimate after association; never feed this result back into identity."""
         track.position_estimate = None
-        track.position_views[:] = [view for view in track.position_views
-                                  if self.step_index - self.config.step_triangulation_max_views
-                                  < view.step <= self.step_index]
+        track.position_views[:] = [
+            view
+            for view in track.position_views
+            if self.step_index - self.config.step_triangulation_max_views
+            < view.step
+            <= self.step_index
+        ]
         try:
             if camera_ray is None:
                 # A custom ground projector needs its matching calibrated ray callback.
                 if not allow_level_ray or pose_ned is None or yaw_deg is None:
                     return
-                camera_ray = lambda u, v: (tuple(pose_ned), self.camera.ray_ned(u, v, yaw_deg))
+
+                def camera_ray(u, v):
+                    return (tuple(pose_ned), self.camera.ray_ned(u, v, yaw_deg))
+
                 ground = self.camera.ground_point(
-                    _center(track.bbox)[0], track.bbox[3], north=pose_ned[0], east=pose_ned[1],
-                    height_m=max(0.0, -pose_ned[2]), yaw_deg=yaw_deg,
+                    _center(track.bbox)[0],
+                    track.bbox[3],
+                    north=pose_ned[0],
+                    east=pose_ned[1],
+                    height_m=max(0.0, -pose_ned[2]),
+                    yaw_deg=yaw_deg,
                 )
             stamp = float(self.step_index) if timestamp_s is None else timestamp_s
             if not math.isfinite(stamp) or stamp < 0:
@@ -846,17 +909,26 @@ class OnboardLoop:
                 return
             camera, direction = centre_ray
             # Repeated calls in one action step are a single observation.
-            track.position_views[:] = [view for view in track.position_views
-                                      if view.step != self.step_index]
+            track.position_views[:] = [
+                view for view in track.position_views if view.step != self.step_index
+            ]
             if track.position_views and stamp < track.position_views[-1].timestamp_s:
                 track.position_views.clear()
-            track.position_views.append(ViewObservation(tuple(camera), tuple(direction),
-                                                        self.step_index, stamp))
-            track.position_views[:] = track.position_views[-self.config.step_triangulation_max_views:]
-            tri = (triangulate_views(track.position_views,
-                                     max_views=self.config.step_triangulation_max_views,
-                                     sigma_scale=self.config.step_triangulation_sigma_scale)
-                   if self.config.step_triangulation else None)
+            track.position_views.append(
+                ViewObservation(tuple(camera), tuple(direction), self.step_index, stamp)
+            )
+            track.position_views[:] = track.position_views[
+                -self.config.step_triangulation_max_views :
+            ]
+            tri = (
+                triangulate_views(
+                    track.position_views,
+                    max_views=self.config.step_triangulation_max_views,
+                    sigma_scale=self.config.step_triangulation_sigma_scale,
+                )
+                if self.config.step_triangulation
+                else None
+            )
             ground_estimate = None
             bottom_ray = camera_ray(_center(track.bbox)[0], track.bbox[3])
             if ground is not None and bottom_ray is not None:
@@ -864,11 +936,15 @@ class OnboardLoop:
                 horizontal_norm2 = ray[0] ** 2 + ray[1] ** 2
                 # NE alone cannot recover height from a vertical ray.
                 if horizontal_norm2 > 1e-12:
-                    scale = sum((ground[i] - origin[i]) * ray[i] for i in range(2)) / horizontal_norm2
+                    scale = (
+                        sum((ground[i] - origin[i]) * ray[i] for i in range(2)) / horizontal_norm2
+                    )
                     down = origin[2] + scale * ray[2]
                     ground_estimate = make_ground_estimate(
-                        (ground[0], ground[1], down), camera_ned=tuple(origin),
-                        direction_ned=tuple(ray), ground_height_sigma_m=self.config.ground_height_sigma_m,
+                        (ground[0], ground[1], down),
+                        camera_ned=tuple(origin),
+                        direction_ned=tuple(ray),
+                        ground_height_sigma_m=self.config.ground_height_sigma_m,
                         timestamp_s=stamp,
                     )
             if tri is not None and ground_estimate is not None:
@@ -882,10 +958,7 @@ class OnboardLoop:
                     self.config.step_triangulation_min_ray_angle_deg,
                     self.config.step_triangulation_parallax_deg_per_m * range_m,
                 )
-                if (
-                    self.config.ground_height_sigma_m <= 10.0
-                    and tri.ray_angle_deg < required_angle
-                ):
+                if self.config.ground_height_sigma_m <= 10.0 and tri.ray_angle_deg < required_angle:
                     tri = None
                     ground_estimate = replace(
                         ground_estimate,
@@ -911,7 +984,9 @@ class OnboardLoop:
 
     def target_position(self, track: Track) -> tuple[float, float] | None:
         """Position for reporting/navigation, independent of association anchors."""
-        if (self.config.step_triangulation or self.config.near_depth) and track.position_estimate is not None:
+        if (
+            self.config.step_triangulation or self.config.near_depth
+        ) and track.position_estimate is not None:
             return tuple(track.position_estimate.position_ned[:2])
         return track.ground
 
@@ -922,8 +997,9 @@ class OnboardLoop:
         return {
             "position_source": estimate.source if estimate else "ground",
             "position_sigma_m": estimate.sigma_m if estimate else None,
-            "position_view_count": max(estimate.view_count if estimate else 0,
-                                       len(track.position_views)),
+            "position_view_count": max(
+                estimate.view_count if estimate else 0, len(track.position_views)
+            ),
             "position_baseline_m": estimate.baseline_m if estimate else 0.0,
             "position_ray_angle_deg": estimate.ray_angle_deg if estimate else 0.0,
             "position_consistent": estimate.consistent if estimate else True,
@@ -939,8 +1015,7 @@ class OnboardLoop:
             and not t.exhausted
             and (
                 t.needs_fresh_verdict
-                or
-                t.verdict is None
+                or t.verdict is None
                 # A provisional small-box reject is re-asked only at the confirmation size,
                 # not on TTL expiry while still too small to judge.
                 or (
@@ -993,8 +1068,13 @@ class OnboardLoop:
         )
         if not remembered and not small_recheck:
             self._place_memory.record(
-                track.ground, self._track_range(track), decision, self.config, track.appearance,
-                track.track_id, track.co_visible_with,
+                track.ground,
+                self._track_range(track),
+                decision,
+                self.config,
+                track.appearance,
+                track.track_id,
+                track.co_visible_with,
             )
         verdict = {
             "confirm_target": "confirm",
@@ -1070,8 +1150,12 @@ class OnboardLoop:
         if track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}:
             return None
         decision = self._place_memory.lookup(
-            track.ground, self._track_range(track), self.config, track.appearance,
-            track.track_id, track.co_visible_with,
+            track.ground,
+            self._track_range(track),
+            self.config,
+            track.appearance,
+            track.track_id,
+            track.co_visible_with,
         )
         if decision is None or (decision == "approach_track" and track_id == self._focus):
             return None
@@ -1092,10 +1176,10 @@ class OnboardLoop:
             return
         seen_from = (self._last_pose[0], self._last_pose[1])
         footprint = getattr(track.appearance, "footprint_m", None)
+
         def compatible(item: dict[str, Any]) -> bool:
-            if (
-                item.get("track_id") in track.co_visible_with
-                or track.track_id in item.get("co_visible_with", ())
+            if item.get("track_id") in track.co_visible_with or track.track_id in item.get(
+                "co_visible_with", ()
             ):
                 return False
             prior = item.get("appearance")
@@ -1104,12 +1188,17 @@ class OnboardLoop:
                 or track.appearance is None
                 or appearances_consistent(prior, track.appearance, self.config)
             )
+
         for item in self._rejections:
-            radius = max(
-                1.5,
-                self.config.memory_footprint_factor
-                * (item.get("footprint_m") or footprint or 0.0),
-            ) if (item.get("footprint_m") or footprint) else self.config.count_dedupe_m
+            radius = (
+                max(
+                    1.5,
+                    self.config.memory_footprint_factor
+                    * (item.get("footprint_m") or footprint or 0.0),
+                )
+                if (item.get("footprint_m") or footprint)
+                else self.config.count_dedupe_m
+            )
             if compatible(item) and math.dist(item["ground"], track.ground) <= radius:
                 item["ground"] = track.ground
                 item["views"].append(seen_from)
@@ -1210,7 +1299,8 @@ class OnboardLoop:
                 )
                 radius = (
                     max(1.5, self.config.memory_footprint_factor * footprint)
-                    if footprint else self.config.count_dedupe_m
+                    if footprint
+                    else self.config.count_dedupe_m
                 )
                 compatible = (
                     look["rejection"].get("track_id") not in track.co_visible_with
@@ -1242,7 +1332,8 @@ class OnboardLoop:
 
     def _best_match(self, current: Sequence[Track]) -> Track | None:
         visible = [
-            t for t in current
+            t
+            for t in current
             if t.verdict in {"approach", "confirm", "pending_near"} and not t.exhausted
         ]
         if self._focus is not None:
@@ -1506,8 +1597,10 @@ class OnboardLoop:
             if self.config.step_triangulation and best.position_estimate is not None:
                 ground = self.target_position(best)
                 if ground is not None:
-                    bearing = _wrap(math.degrees(math.atan2(
-                        ground[1] - pose_ned[1], ground[0] - pose_ned[0])) - yaw_deg)
+                    bearing = _wrap(
+                        math.degrees(math.atan2(ground[1] - pose_ned[1], ground[0] - pose_ned[0]))
+                        - yaw_deg
+                    )
             horizontal = (
                 math.hypot(ground[0] - pose_ned[0], ground[1] - pose_ned[1]) if ground else None
             )
@@ -1542,13 +1635,13 @@ class OnboardLoop:
                 and not best.needs_fresh_verdict
                 and not best.verdict_remembered
                 and (
-                votes >= self.config.confirm_matches
-                or (votes >= 1 and (stalled or near))
-                or (
-                    near
-                    and self.config.closest_view_identity_matches is not None
-                    and matches >= self.config.closest_view_identity_matches
-                )
+                    votes >= self.config.confirm_matches
+                    or (votes >= 1 and (stalled or near))
+                    or (
+                        near
+                        and self.config.closest_view_identity_matches is not None
+                        and matches >= self.config.closest_view_identity_matches
+                    )
                 )
             ):
                 record = {

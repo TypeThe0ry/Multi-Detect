@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 SOURCE_ENTRY = "shared_policy_observed_session_20260927_r17"
 LEGACY_ENTRY = "shared_policy_observed_session_20260924"
-TARGET = ROOT / "artifacts/evaluation/shared-policy-observed-session-20261007-current-parity-r1.json"
+TARGET = (
+    ROOT / "artifacts/evaluation/shared-policy-observed-session-20261007-current-parity-r1.json"
+)
 
 
 def _load(path: Path) -> dict[str, Any]:

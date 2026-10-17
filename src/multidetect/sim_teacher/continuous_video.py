@@ -1,9 +1,9 @@
 """Bounded per-action video capture for SIM teacher episodes."""
+
 from __future__ import annotations
 
-import json
 import io
-import time
+import json
 from pathlib import Path
 from typing import Any
 
@@ -47,20 +47,28 @@ class ContinuousVideoWriter:
         seg_path = None
         if observation.get("segmentation") is not None:
             seg_path = self.seg_dir / f"{stem}.png"
-            Image.fromarray(np.asarray(observation["segmentation"], dtype=np.uint8), mode="RGB").save(
-                seg_path, format="PNG", optimize=True
-            )
+            Image.fromarray(
+                np.asarray(observation["segmentation"], dtype=np.uint8), mode="RGB"
+            ).save(seg_path, format="PNG", optimize=True)
         depth_path = None
         if observation.get("depth") is not None:
             depth_path = self.depth_dir / f"{stem}.npz"
-            np.savez_compressed(depth_path, depth=np.asarray(observation["depth"], dtype=np.float32))
+            np.savez_compressed(
+                depth_path, depth=np.asarray(observation["depth"], dtype=np.float32)
+            )
         paths = [p for p in (rgb_path, seg_path, depth_path) if p is not None]
         size = sum(path.stat().st_size for path in paths)
         if self.bytes_written + size > self.max_bytes:
             for path in paths:
                 path.unlink(missing_ok=True)
             self.truncated = True
-            self._write_manifest({"event": "truncated", "reason": "max_video_bytes", "bytes_written": self.bytes_written})
+            self._write_manifest(
+                {
+                    "event": "truncated",
+                    "reason": "max_video_bytes",
+                    "bytes_written": self.bytes_written,
+                }
+            )
             return False
         elapsed = None if self.started_at_s is None else stamp_ns / 1e9 - self.started_at_s
         if self.started_at_s is None:

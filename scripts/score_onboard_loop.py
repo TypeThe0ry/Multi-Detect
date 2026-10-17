@@ -68,6 +68,7 @@ def truth_for_episode(
                 return world_id, None
     return world_id, None
 
+
 from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 from multidetect.simulator.world_gen import trajectory_position  # noqa: E402
@@ -250,12 +251,14 @@ def _mission_area(
     return None
 
 
-def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float) -> dict[str, Any]:
+def _moving_track_metrics(
+    rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float
+) -> dict[str, Any]:
     """Score only SIM-timestamped target estimates; host timestamps are rejected."""
     samples = []
     for row in rows:
         time_s = _row_sim_time(row)
-        confirmed = (((row.get("labels") or {}).get("onboard") or {}).get("confirmed") or {})
+        confirmed = ((row.get("labels") or {}).get("onboard") or {}).get("confirmed") or {}
         estimate = confirmed.get("position_estimate_ne") if isinstance(confirmed, dict) else None
         if time_s is None or not isinstance(estimate, (list, tuple)) or len(estimate) < 2:
             continue
@@ -265,21 +268,33 @@ def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], ra
             distance = math.hypot(north - float(pose["y_north_m"]), east - float(pose["x_east_m"]))
         except (TypeError, ValueError, KeyError):
             continue
-        samples.append({"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m})
+        samples.append(
+            {"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m}
+        )
     samples.sort(key=lambda item: item["time_s"])
     times = [s["time_s"] for s in samples]
     covered = max(0.0, min(task_duration_s, (times[-1] - times[0]) if times else 0.0))
-    gaps = [b - a for a, b in zip(times, times[1:])]
+    gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
     return {
         "moving_track_samples": samples,
-        "moving_distance_mean_m": (sum(s["distance_m"] for s in samples) / len(samples) if samples else None),
+        "moving_distance_mean_m": (
+            sum(s["distance_m"] for s in samples) / len(samples) if samples else None
+        ),
         "moving_distance_max_m": (max(s["distance_m"] for s in samples) if samples else None),
-        "moving_track_continuity": (sum(s["within_radius"] for s in samples) / len(samples) if samples else None),
+        "moving_track_continuity": (
+            sum(s["within_radius"] for s in samples) / len(samples) if samples else None
+        ),
         "moving_track_sample_count": len(samples),
         "moving_task_duration_s": task_duration_s,
         "moving_time_coverage": covered / task_duration_s if task_duration_s > 0 else 0.0,
         "moving_max_gap_s": max(gaps, default=float("inf")),
-        "moving_track_eligible": bool(samples and covered / task_duration_s >= 0.8 and max(gaps, default=float("inf")) <= 5.0 and sum(s["distance_m"] for s in samples) / len(samples) <= radius_m and sum(s["within_radius"] for s in samples) / len(samples) >= 0.8),
+        "moving_track_eligible": bool(
+            samples
+            and covered / task_duration_s >= 0.8
+            and max(gaps, default=float("inf")) <= 5.0
+            and sum(s["distance_m"] for s in samples) / len(samples) <= radius_m
+            and sum(s["within_radius"] for s in samples) / len(samples) >= 0.8
+        ),
     }
 
 
@@ -347,10 +362,7 @@ def _mission_metrics(
                 alerts = alerts[len(previous_alerts) :]
             if isinstance(mission_row.get("alerts"), list):
                 previous_alerts = list(mission_row["alerts"])
-            alert_records.extend(
-                (alert, _row_sim_time(row))
-                for alert in alerts
-            )
+            alert_records.extend((alert, _row_sim_time(row)) for alert in alerts)
     if not alert_records:
         alert_records = [(alert, None) for alert in latest.get("alerts") or []]
     for alert, alert_time_s in alert_records:
@@ -490,11 +502,7 @@ def _supervisor_evidence(episode: Path) -> dict[str, Any]:
         return evidence
     try:
         content = path.read_text(encoding="utf-8")
-        records = [
-            json.loads(line)
-            for line in content.splitlines()
-            if line.strip()
-        ]
+        records = [json.loads(line) for line in content.splitlines() if line.strip()]
         if not content.endswith("\n") or not records:
             return evidence
         mission_id = records[0].get("mission_id")
@@ -536,7 +544,8 @@ def _supervisor_evidence(episode: Path) -> dict[str, Any]:
     evidence["logged_decisions"] = [r.get("action") for r in decisions if r.get("action")]
     evidence["logged_reasons"] = [r.get("reason") for r in decisions if r.get("reason")]
     evidence["logged_ground_events"] = [
-        r.get("event_type") for r in records
+        r.get("event_type")
+        for r in records
         if r.get("kind") == "ground_event" and r.get("event_type")
     ]
     evidence["ground_event_count"] = len(evidence["logged_ground_events"])
@@ -552,29 +561,35 @@ def _supervisor_evidence(episode: Path) -> dict[str, Any]:
         recovery = summary.get("recovery_history") or []
         if isinstance(history, list) and isinstance(recovery, list):
             evidence["original_mission_completed"] = bool(
-                summary.get("action") == "continue" and history
+                summary.get("action") == "continue"
+                and history
                 and history[-1].get("state") == "succeeded"
                 and history[-1].get("skill") in {"return_home", "land"}
             )
     evidence["return_home_started"] = any(
-        r.get("kind") == "execution"
-        and (r.get("state") or {}).get("skill") == "return_home"
+        r.get("kind") == "execution" and (r.get("state") or {}).get("skill") == "return_home"
         for r in records
     ) or any(r.get("skill") == "return_home" for r in summary.get("recovery_history", []))
     first_recovery = next(
-        (i for i, r in enumerate(records) if r.get("kind") == "execution"
-         and (r.get("state") or {}).get("skill") == "return_home"),
+        (
+            i
+            for i, r in enumerate(records)
+            if r.get("kind") == "execution" and (r.get("state") or {}).get("skill") == "return_home"
+        ),
         None,
     )
     abort = next(
-        (i for i, r in enumerate(records) if r.get("kind") == "escalation"
-         and r.get("reason") == "explicit operator abort"), None,
+        (
+            i
+            for i, r in enumerate(records)
+            if r.get("kind") == "escalation" and r.get("reason") == "explicit operator abort"
+        ),
+        None,
     )
     if first_recovery is not None and abort is not None and abort < first_recovery:
         evidence["abort_hover_before_return"] = any(
-            r.get("kind") == "execution"
-            and (r.get("action") or {}).get("kind") == "hold"
-            for r in records[abort + 1:first_recovery]
+            r.get("kind") == "execution" and (r.get("action") or {}).get("kind") == "hold"
+            for r in records[abort + 1 : first_recovery]
         )
     return evidence
 
@@ -639,9 +654,7 @@ def score_episode(
         real_calls = [c for c in calls if not c.get("remembered", False)]
         slow_calls += len(real_calls)
         remembered_verdicts += len(calls) - len(real_calls)
-        slow_latency += [
-            c["latency_s"] for c in real_calls if c.get("latency_s") is not None
-        ]
+        slow_latency += [c["latency_s"] for c in real_calls if c.get("latency_s") is not None]
         if onboard.get("fast_latency_s") is not None:
             fast_latency.append(onboard["fast_latency_s"])
         position = row["obs_before"]["pose"]["local_ned_m"]

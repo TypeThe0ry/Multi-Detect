@@ -21,9 +21,21 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 ENTRY_KEY = "shared_policy_vehicle_matrix_20260927_r2"
 TARGET = ROOT / "artifacts/evaluation/shared-policy-vehicle-matrix-20261007-current-parity-r2.json"
-FIXED = ROOT / "artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261007-current-parity-r1-parity-r14.json"
-MULTIROTOR = ROOT / "artifacts/evaluation/external-multirotor-depth-shared-policy-20261007-current-parity-r1-parity-r14.json"
-VTOL = ROOT / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261007-current-parity-r1-parity-r14.json"
+FIXED = (
+    ROOT
+    / "artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261007-current-parity-r1-"
+    "parity-r14.json"
+)
+MULTIROTOR = (
+    ROOT
+    / "artifacts/evaluation/external-multirotor-depth-shared-policy-20261007-current-parity-r1-"
+    "parity-r14.json"
+)
+VTOL = (
+    ROOT
+    / "artifacts/evaluation/shared-policy-current-vtol-campaign-20261007-current-parity-r1-parity-"
+    "r14.json"
+)
 
 
 def _load(path: Path) -> dict[str, Any]:

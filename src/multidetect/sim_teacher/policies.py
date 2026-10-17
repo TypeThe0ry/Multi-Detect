@@ -44,16 +44,18 @@ def segment_clear_of_obstacles(
     for obstacle in obstacles:
         if obstacle.top_m <= float(altitude_m) - 2.0:
             continue
-        t = 0.0 if denom <= 1e-12 else max(
-            0.0,
-            min(
-                1.0,
-                ((obstacle.north_m - ax) * vx + (obstacle.east_m - ay) * vy) / denom,
-            ),
+        t = (
+            0.0
+            if denom <= 1e-12
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    ((obstacle.north_m - ax) * vx + (obstacle.east_m - ay) * vy) / denom,
+                ),
+            )
         )
-        distance = math.hypot(
-            obstacle.north_m - (ax + t * vx), obstacle.east_m - (ay + t * vy)
-        )
+        distance = math.hypot(obstacle.north_m - (ax + t * vx), obstacle.east_m - (ay + t * vy))
         footprint_radius = math.hypot(obstacle.size_north_m, obstacle.size_east_m) / 2.0
         if distance < footprint_radius + float(margin_m):
             return False
@@ -200,10 +202,13 @@ class HoverPolicy:
             if len(points) >= 2:
                 east = sum(point[0] for point in points) / len(points)
                 north = sum(point[1] for point in points) / len(points)
-                half_extent = max(
-                    max(point[0] for point in points) - min(point[0] for point in points),
-                    max(point[1] for point in points) - min(point[1] for point in points),
-                ) / 2.0
+                half_extent = (
+                    max(
+                        max(point[0] for point in points) - min(point[0] for point in points),
+                        max(point[1] for point in points) - min(point[1] for point in points),
+                    )
+                    / 2.0
+                )
                 distance = max(15.0, 1.6 * half_extent + 6.0)
                 self.centroid_ned = (north, east, target_ned[2])
                 self.standoff_distance_m = distance
@@ -239,7 +244,9 @@ class HoverPolicy:
             return ActionPrimitive.translate(forward, right, 0.0)
         if self._phase == 1 and self.standoff_distance_m is not None:
             pose = pose_ned or (0.0, 0.0, 0.0)
-            desired = math.degrees(math.atan2(self.centroid_ned[1] - pose[1], self.centroid_ned[0] - pose[0]))
+            desired = math.degrees(
+                math.atan2(self.centroid_ned[1] - pose[1], self.centroid_ned[0] - pose[0])
+            )
             delta = (desired - float(yaw_deg) + 180.0) % 360.0 - 180.0
             self._phase = 2
             return ActionPrimitive.turn(delta)
@@ -379,8 +386,10 @@ class ExpertSearchPolicy:
         vertical_ratio = math.tan(vfov / 2.0)
         pitch = self.camera_pitch_rad
         altitude = max(0.0, self.altitude_m)
-        onset = altitude * (math.cos(pitch) - vertical_ratio * math.sin(pitch)) / max(
-            1e-6, math.sin(pitch) + vertical_ratio * math.cos(pitch)
+        onset = (
+            altitude
+            * (math.cos(pitch) - vertical_ratio * math.sin(pitch))
+            / max(1e-6, math.sin(pitch) + vertical_ratio * math.cos(pitch))
         )
         camera_forward = onset * math.cos(pitch) + altitude * math.sin(pitch)
         half_swath = math.tan(hfov / 2.0) * max(0.0, camera_forward)
@@ -433,23 +442,27 @@ class ExpertSearchPolicy:
         if self.search_pattern in {"lawnmower", "two_altitude"}:
             relative = lawnmower(self.search_radius_m, camera, max(altitude_m, 1e-3))
         else:
-            relative = expanding_spiral(
-                self.search_radius_m, camera, max(altitude_m, 1e-3)
-            )
+            relative = expanding_spiral(self.search_radius_m, camera, max(altitude_m, 1e-3))
         home_n, home_e = self.home_ned[:2]
         return [(home_n + n, home_e + e) for n, e in relative[1:]]
 
     def _build_two_altitude_route(self) -> list[tuple[float, float, float]]:
         from multidetect.search_coverage import CoverageCamera, two_altitude_route
+
         camera = CoverageCamera(
-            fx=float(self.intrinsics["fx"]), fy=float(self.intrinsics["fy"]),
+            fx=float(self.intrinsics["fx"]),
+            fy=float(self.intrinsics["fy"]),
             cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
             cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
-            width_px=int(self.image_size[0]), height_px=int(self.image_size[1]),
+            width_px=int(self.image_size[0]),
+            height_px=int(self.image_size[1]),
             pitch_down_deg=math.degrees(self.camera_pitch_rad),
         )
         route = two_altitude_route(
-            self.search_radius_m, camera, self.altitude_m, float(self.low_altitude_m),
+            self.search_radius_m,
+            camera,
+            self.altitude_m,
+            float(self.low_altitude_m),
             max_altitude_step_m=self.max_altitude_step_m,
         )
         home_n, home_e = self.home_ned[:2]
@@ -542,8 +555,10 @@ class ExpertSearchPolicy:
     ) -> float:
         vx, vy = b[0] - a[0], b[1] - a[1]
         denom = vx * vx + vy * vy
-        t = 0.0 if denom <= 1e-12 else max(
-            0.0, min(1.0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / denom)
+        t = (
+            0.0
+            if denom <= 1e-12
+            else max(0.0, min(1.0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / denom))
         )
         qx, qy = a[0] + t * vx, a[1] + t * vy
         return math.hypot(p[0] - qx, p[1] - qy)
@@ -571,7 +586,8 @@ class ExpertSearchPolicy:
         waypoint = waypoints[self._waypoint_index] if self.state == "search" and waypoints else None
         distance = (
             math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1])
-            if waypoint is not None else None
+            if waypoint is not None
+            else None
         )
         # A short perpendicular sidestep clears the blocking footprint when possible.
         # If the first pair is clipped/blocked, escalate to a larger lateral
@@ -608,12 +624,14 @@ class ExpertSearchPolicy:
                         )
                     self._waypoint_last_distance[waypoint_key] = new_distance
                     if self._waypoint_attempts[waypoint_key] >= self.max_blocked_attempts:
-                        self.skipped_waypoints.append({
-                            "waypoint_index": self._waypoint_index,
-                            "ned": tuple(waypoint),
-                            "phase": phase,
-                            "attempts": self._waypoint_attempts[waypoint_key],
-                        })
+                        self.skipped_waypoints.append(
+                            {
+                                "waypoint_index": self._waypoint_index,
+                                "ned": tuple(waypoint),
+                                "phase": phase,
+                                "attempts": self._waypoint_attempts[waypoint_key],
+                            }
+                        )
                         self._waypoint_index += 1
                         self._waypoint_attempts.pop(waypoint_key, None)
                         self._waypoint_last_distance.pop(waypoint_key, None)
@@ -637,12 +655,14 @@ class ExpertSearchPolicy:
         self._waypoint_attempts[waypoint_key] = attempts
         if attempts >= self.max_blocked_attempts:
             if waypoint is not None:
-                self.skipped_waypoints.append({
-                    "waypoint_index": self._waypoint_index,
-                    "ned": tuple(waypoint),
-                    "phase": phase,
-                    "attempts": attempts,
-                })
+                self.skipped_waypoints.append(
+                    {
+                        "waypoint_index": self._waypoint_index,
+                        "ned": tuple(waypoint),
+                        "phase": phase,
+                        "attempts": attempts,
+                    }
+                )
             self._waypoint_index += 1
             self._blocked_attempts = 0
             self._waypoint_attempts.pop(waypoint_key, None)

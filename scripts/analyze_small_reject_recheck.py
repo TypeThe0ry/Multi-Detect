@@ -16,7 +16,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_R12 = Path(
     r"D:\Projects\Multi-Detect\artifacts\benchmarks\flight-identity-eval-v1-r12.json"
 )
@@ -158,7 +157,10 @@ def _md_table(analyses: dict[str, Any], thresholds: tuple[float, ...]) -> str:
             item = analysis["thresholds"][_threshold_key(threshold)]
             target = item["true_target_rejects"]["total"]
             distractor = item["distractor_rejects"]["total"]
-            lines.append(f"| {name} | {int(threshold) if threshold.is_integer() else threshold:g} | {target} | {distractor} | {target + distractor} |")
+            lines.append(
+                f"| {name} | {int(threshold) if threshold.is_integer() else threshold:g} | "
+                f"{target} | {distractor} | {target + distractor} |"
+            )
     return "\n".join(lines)
 
 
@@ -170,9 +172,17 @@ def _category_lines(analyses: dict[str, Any], thresholds: tuple[float, ...]) -> 
             item = analysis["thresholds"][_threshold_key(threshold)]
             target = item["true_target_rejects"]["by_category"]
             distractor = item["distractor_rejects"]["by_category"]
-            lines.append(f"\n阈值 **{int(threshold) if threshold.is_integer() else threshold:g} px**：")
-            lines.append("- 真目标：" + ("、".join(f"{key} {value}" for key, value in target.items()) or "无"))
-            lines.append("- 干扰物：" + ("、".join(f"{key} {value}" for key, value in distractor.items()) or "无"))
+            lines.append(
+                f"\n阈值 **{int(threshold) if threshold.is_integer() else threshold:g} px**："
+            )
+            lines.append(
+                "- 真目标："
+                + ("、".join(f"{key} {value}" for key, value in target.items()) or "无")
+            )
+            lines.append(
+                "- 干扰物："
+                + ("、".join(f"{key} {value}" for key, value in distractor.items()) or "无")
+            )
     return lines
 
 
@@ -186,7 +196,8 @@ def build_markdown(
         "",
         f"- 数据集：`{dataset_path}`（{dataset_count} 条）",
         "- 候选框：`box_xyxy_normalized` 按 1280×960 画布换算；短边 = min(宽、高)。",
-        "- 纳入条件：评测 `decision == reject_track` 且候选短边 **严格小于** 阈值；`truth_match` 计为真目标，`truth_distractor` 计为干扰物。",
+        "- 纳入条件：评测 `decision == reject_track` 且候选短边 **严格小于** 阈值；`truth_match` "
+        "计为真目标，`truth_distractor` 计为干扰物。",
         "- 连接键：`sample_id`。",
         "",
         _md_table(analyses, thresholds),
@@ -208,7 +219,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--r12", type=Path, default=DEFAULT_R12, help="r12 评测 JSON")
     parser.add_argument("--r14fast", type=Path, default=DEFAULT_R14FAST, help="r14fast 评测 JSON")
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET, help="test.jsonl")
-    parser.add_argument("--out", type=Path, required=True, help="输出目录（写入 JSON 和中文 Markdown）")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="输出目录（写入 JSON 和中文 Markdown）"
+    )
     parser.add_argument(
         "--thresholds",
         type=float,
@@ -250,7 +263,9 @@ def main() -> int:
     json_path = args.out / "small_reject_recheck_analysis.json"
     md_path = args.out / "small_reject_recheck_analysis.md"
     json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    md_path.write_text(build_markdown(analyses, args.dataset, thresholds, len(dataset_rows)), encoding="utf-8")
+    md_path.write_text(
+        build_markdown(analyses, args.dataset, thresholds, len(dataset_rows)), encoding="utf-8"
+    )
     print(json_path)
     print(md_path)
     return 0

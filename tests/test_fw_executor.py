@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.autonomy.motion_intent import MotionCommand
+from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 
@@ -144,8 +144,9 @@ def test_raw_mavlink_fallback_refuses_guided_commands_without_a_geodetic_home() 
 def test_local_ned_to_global_offsets_from_home_and_reports_amsl() -> None:
     from multidetect.onboard_runtime.fw_vtol_commands import local_ned_to_global
 
-    lat, lon, amsl = local_ned_to_global((111.32, 0.0, -40.0), home_geodetic=(0.0, 0.0, 100.0),
-                                         home_ned=(0.0, 0.0, -2.0))
+    lat, lon, amsl = local_ned_to_global(
+        (111.32, 0.0, -40.0), home_geodetic=(0.0, 0.0, 100.0), home_ned=(0.0, 0.0, -2.0)
+    )
     assert lat == pytest.approx(0.001, abs=1e-6) and lon == pytest.approx(0.0)
     assert amsl == pytest.approx(138.0)
 
@@ -153,9 +154,12 @@ def test_local_ned_to_global_offsets_from_home_and_reports_amsl() -> None:
 def test_motion_command_loiter_and_transition_are_shared_with_runtime():
     fake = FakeVehicle()
     executor = FixedWingVtolExecutor(fake, airframe="vtol")
-    assert executor.execute_command(
-        MotionCommand("loiter", target_ned=(1, 2, -30), radius_m=40, speed_mps=15, mode="FW")
-    ).status == "success"
+    assert (
+        executor.execute_command(
+            MotionCommand("loiter", target_ned=(1, 2, -30), radius_m=40, speed_mps=15, mode="FW")
+        ).status
+        == "success"
+    )
     assert fake.calls[-1][0] == "orbit"
     assert executor.execute_command(MotionCommand("transition", mode="MC")).status == "success"
     assert fake.calls[-1][0] == "vtol_transition"
@@ -165,8 +169,9 @@ def test_vtol_landing_over_command_long_uses_nav_land_not_the_mission_only_nav_v
     # PX4 answers NAV_VTOL_LAND (85) as COMMAND_LONG with MAV_RESULT_UNSUPPORTED.
     vehicle = RawVehicle()
     home = ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0))
-    executor = FixedWingVtolExecutor(vehicle, airframe="vtol", landing_method="vtol",
-                                     geo_reference=lambda: home)
+    executor = FixedWingVtolExecutor(
+        vehicle, airframe="vtol", landing_method="vtol", geo_reference=lambda: home
+    )
     assert executor.arm_and_takeoff().status == "success"
     assert executor.land().status == "success"
     commands = [row[2] for row in vehicle.mav.commands]
@@ -182,8 +187,11 @@ def test_motion_command_over_command_long_waits_for_the_ack() -> None:
             return {"command": command, "result": 0} if timeout_s > 0 else None
 
     vehicle = ReaderOwnedLink()
-    executor = FixedWingVtolExecutor(vehicle, airframe="fixed_wing",
-                                     geo_reference=lambda: ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0)))
-    result = executor.execute_command(MotionCommand("reposition", target_ned=(100.0, 0.0, -30.0), speed_mps=15.0))
+    executor = FixedWingVtolExecutor(
+        vehicle, airframe="fixed_wing", geo_reference=lambda: ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0))
+    )
+    result = executor.execute_command(
+        MotionCommand("reposition", target_ned=(100.0, 0.0, -30.0), speed_mps=15.0)
+    )
     assert result.status == "success"
     assert vehicle.mav.commands[-1][2] == 192

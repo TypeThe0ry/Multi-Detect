@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
+
 from .obstacle_source import ObstacleSource
 
 Point = tuple[float, float]
@@ -49,7 +50,11 @@ def _contains(point: Point, polygon: tuple[Point, ...]) -> bool:
     for a, b in zip(polygon, (*polygon[1:], polygon[0]), strict=True):
         ax, ay, bx, by = *a, *b
         cross = (x - ax) * (by - ay) - (y - ay) * (bx - ax)
-        if abs(cross) <= 1e-9 and min(ax, bx) - 1e-9 <= x <= max(ax, bx) + 1e-9 and min(ay, by) - 1e-9 <= y <= max(ay, by) + 1e-9:
+        if (
+            abs(cross) <= 1e-9
+            and min(ax, bx) - 1e-9 <= x <= max(ax, bx) + 1e-9
+            and min(ay, by) - 1e-9 <= y <= max(ay, by) + 1e-9
+        ):
             return True
         if (ay > y) != (by > y) and x < (bx - ax) * (y - ay) / (by - ay) + ax:
             inside = not inside
@@ -62,7 +67,16 @@ def _segment_inside(start: Point, end: Point, polygon: tuple[Point, ...]) -> boo
         return True
     distance = math.dist(start, end)
     count = max(2, int(math.ceil(distance / 0.25)) + 1)
-    return all(_contains((start[0] + (end[0] - start[0]) * i / (count - 1), start[1] + (end[1] - start[1]) * i / (count - 1)), polygon) for i in range(count))
+    return all(
+        _contains(
+            (
+                start[0] + (end[0] - start[0]) * i / (count - 1),
+                start[1] + (end[1] - start[1]) * i / (count - 1),
+            ),
+            polygon,
+        )
+        for i in range(count)
+    )
 
 
 def _segment_hits(start: Point, end: Point, polygon: tuple[Point, ...]) -> bool:
@@ -71,7 +85,16 @@ def _segment_hits(start: Point, end: Point, polygon: tuple[Point, ...]) -> bool:
         return False
     distance = math.dist(start, end)
     count = max(2, int(math.ceil(distance / 0.25)) + 1)
-    return any(_contains((start[0] + (end[0] - start[0]) * i / (count - 1), start[1] + (end[1] - start[1]) * i / (count - 1)), polygon) for i in range(count))
+    return any(
+        _contains(
+            (
+                start[0] + (end[0] - start[0]) * i / (count - 1),
+                start[1] + (end[1] - start[1]) * i / (count - 1),
+            ),
+            polygon,
+        )
+        for i in range(count)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,9 +121,15 @@ class VehicleDynamics:
             raise ValueError("category must be multirotor, fixed_wing or vtol")
         if not isinstance(self.can_hover, bool):
             raise ValueError("can_hover must be boolean")
-        values = (self.min_airspeed_mps, self.cruise_airspeed_mps, self.max_airspeed_mps,
-                  self.min_turn_radius_m, self.max_bank_deg, self.climb_rate_mps,
-                  self.descent_rate_mps)
+        values = (
+            self.min_airspeed_mps,
+            self.cruise_airspeed_mps,
+            self.max_airspeed_mps,
+            self.min_turn_radius_m,
+            self.max_bank_deg,
+            self.climb_rate_mps,
+            self.descent_rate_mps,
+        )
         if any(not math.isfinite(float(v)) or float(v) < 0 for v in values):
             raise ValueError("vehicle dynamics must be finite and non-negative")
         if self.max_airspeed_mps < self.min_airspeed_mps:
@@ -139,11 +168,15 @@ class SafetyEnvelopeConfig:
             raise ValueError("max_altitude_m must be at least min_altitude_m")
         if not math.isfinite(self.max_translation_m) or self.max_translation_m <= 0:
             raise ValueError("max_translation_m must be positive")
-        if self.max_horizontal_step_m is not None and (not math.isfinite(self.max_horizontal_step_m) or self.max_horizontal_step_m <= 0):
+        if self.max_horizontal_step_m is not None and (
+            not math.isfinite(self.max_horizontal_step_m) or self.max_horizontal_step_m <= 0
+        ):
             raise ValueError("max_horizontal_step_m must be positive")
         if not math.isfinite(self.max_vertical_step_m) or self.max_vertical_step_m <= 0:
             raise ValueError("max_vertical_step_m must be positive")
-        if self.max_radius_from_home_m is not None and (not math.isfinite(self.max_radius_from_home_m) or self.max_radius_from_home_m <= 0):
+        if self.max_radius_from_home_m is not None and (
+            not math.isfinite(self.max_radius_from_home_m) or self.max_radius_from_home_m <= 0
+        ):
             raise ValueError("max_radius_from_home_m must be positive")
         if not math.isfinite(self.low_altitude_exception_m) or self.low_altitude_exception_m < 0:
             raise ValueError("low_altitude_exception_m must be finite and non-negative")
@@ -151,11 +184,14 @@ class SafetyEnvelopeConfig:
             raise ValueError("vehicle must be VehicleDynamics")
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any] | None = None, *, default_max_translation_m: float = 15.0) -> "SafetyEnvelopeConfig":
+    def from_mapping(
+        cls, values: Mapping[str, Any] | None = None, *, default_max_translation_m: float = 15.0
+    ) -> SafetyEnvelopeConfig:
         src: Mapping[str, Any] = values or {}
         nested = src.get("safety_envelope")
         if isinstance(nested, Mapping):
             src = {**src, **nested}
+
         def polygons(value: Any) -> tuple[tuple[Point, ...], ...]:
             if value is None:
                 return ()
@@ -173,21 +209,40 @@ class SafetyEnvelopeConfig:
                     raise ValueError("polygon points must be finite [north,east] pairs")
                 result.append(tuple(p for p in pts if p is not None))
             return tuple(result)
+
         vehicle_values = src.get("vehicle", src.get("vehicle_dynamics", {}))
         if not isinstance(vehicle_values, Mapping):
             vehicle_values = {}
+
         def vget(name: str, default: Any) -> Any:
             return vehicle_values.get(name, src.get(name, default))
+
         return cls(
-            operating_polygon=(polygons(src.get("operating_polygon", src.get("geofence_polygon", ()))) or ((),))[0],
+            operating_polygon=(
+                polygons(src.get("operating_polygon", src.get("geofence_polygon", ()))) or ((),)
+            )[0],
             no_fly_polygons=polygons(src.get("no_fly_polygons", src.get("no_fly_zones", ()))),
-            max_radius_from_home_m=(None if src.get("max_radius_from_home_m", src.get("home_radius_m")) is None else float(src.get("max_radius_from_home_m", src.get("home_radius_m")))),
+            max_radius_from_home_m=(
+                None
+                if src.get("max_radius_from_home_m", src.get("home_radius_m")) is None
+                else float(src.get("max_radius_from_home_m", src.get("home_radius_m")))
+            ),
             min_altitude_m=float(src.get("min_altitude_m", 0.0)),
-            max_altitude_m=(None if src.get("max_altitude_m") is None else float(src["max_altitude_m"])),
+            max_altitude_m=(
+                None if src.get("max_altitude_m") is None else float(src["max_altitude_m"])
+            ),
             min_agl_m=(None if src.get("min_agl_m") is None else float(src["min_agl_m"])),
             max_translation_m=float(src.get("max_translation_m", default_max_translation_m)),
-            max_horizontal_step_m=(None if src.get("max_horizontal_step_m") is None else float(src["max_horizontal_step_m"])),
-            max_vertical_step_m=float(src.get("max_vertical_step_m", src.get("max_translation_m", default_max_translation_m))),
+            max_horizontal_step_m=(
+                None
+                if src.get("max_horizontal_step_m") is None
+                else float(src["max_horizontal_step_m"])
+            ),
+            max_vertical_step_m=float(
+                src.get(
+                    "max_vertical_step_m", src.get("max_translation_m", default_max_translation_m)
+                )
+            ),
             rth_after_rejections=int(src.get("rth_after_rejections", 0)),
             hover_seconds=float(src.get("safety_hover_seconds", 1.0)),
             low_altitude_exception_m=float(src.get("low_altitude_exception_m", 0.0)),
@@ -195,7 +250,9 @@ class SafetyEnvelopeConfig:
                 category=str(vget("category", vget("vehicle_category", "multirotor"))),
                 can_hover=bool(vget("can_hover", True)),
                 min_airspeed_mps=float(vget("min_airspeed_mps", 0.0)),
-                cruise_airspeed_mps=float(vget("cruise_airspeed_mps", vget("cruise_speed_mps", 5.0))),
+                cruise_airspeed_mps=float(
+                    vget("cruise_airspeed_mps", vget("cruise_speed_mps", 5.0))
+                ),
                 max_airspeed_mps=float(vget("max_airspeed_mps", 100.0)),
                 min_turn_radius_m=float(vget("min_turn_radius_m", 0.0)),
                 max_bank_deg=float(vget("max_bank_deg", 45.0)),
@@ -273,22 +330,53 @@ class SafetyEnvelope:
         threshold = self.config.rth_after_rejections
         action = ActionPrimitive.stop() if stop else ActionPrimitive.hold(self.config.hover_seconds)
         recovery = "loiter" if self.vehicle.category == "fixed_wing" else "hold"
-        decision = SafetyDecision(action, "rejected", tuple(dict.fromkeys(reasons)), True, threshold > 0 and self._consecutive_rejections >= threshold, self._consecutive_rejections, recovery_action=recovery)
+        decision = SafetyDecision(
+            action,
+            "rejected",
+            tuple(dict.fromkeys(reasons)),
+            True,
+            threshold > 0 and self._consecutive_rejections >= threshold,
+            self._consecutive_rejections,
+            recovery_action=recovery,
+        )
         self._record(decision)
         return decision
 
-    def _accept(self, action: ActionPrimitive, reasons: list[str], segments: tuple[ActionPrimitive, ...] = ()) -> SafetyDecision:
+    def _accept(
+        self,
+        action: ActionPrimitive,
+        reasons: list[str],
+        segments: tuple[ActionPrimitive, ...] = (),
+    ) -> SafetyDecision:
         self._consecutive_rejections = 0
-        decision = SafetyDecision(action, "clipped" if reasons else "accepted", tuple(dict.fromkeys(reasons)), False, False, 0, segments)
+        decision = SafetyDecision(
+            action,
+            "clipped" if reasons else "accepted",
+            tuple(dict.fromkeys(reasons)),
+            False,
+            False,
+            0,
+            segments,
+        )
         self._record(decision)
         return decision
 
     def _record(self, decision: SafetyDecision) -> None:
-        self.events.append({"status": decision.status, "reasons": list(decision.reasons), "rejected": decision.rejected, "return_home": decision.return_home, "consecutive_rejections": decision.consecutive_rejections})
+        self.events.append(
+            {
+                "status": decision.status,
+                "reasons": list(decision.reasons),
+                "rejected": decision.rejected,
+                "return_home": decision.return_home,
+                "consecutive_rejections": decision.consecutive_rejections,
+            }
+        )
         del self.events[:-128]
 
     def _altitude(self, pose: Pose, current_agl_m: float | None) -> tuple[float, float | None]:
-        home_down = float(self.home_ned[2]) if self.home_ned is not None and len(self.home_ned) > 2 else 0.0  # type: ignore[arg-type]
+        home_down = (
+            float(self.home_ned[2]) if self.home_ned is not None and len(self.home_ned) > 2 else 0.0
+        )  # type: ignore[arg-type]
         if current_agl_m is None and self.ground_model is not None:
             # GroundModel implementations vary: FlatGround exposes a plane,
             # while telemetry adapters commonly expose ``agl_m``/``height_at``.
@@ -297,7 +385,9 @@ class SafetyEnvelope:
                 if hasattr(model, "agl_m"):
                     current_agl_m = float(model.agl_m(pose))
                 elif hasattr(model, "height_at"):
-                    current_agl_m = home_down - float(pose[2]) - float(model.height_at(pose[0], pose[1]))
+                    current_agl_m = (
+                        home_down - float(pose[2]) - float(model.height_at(pose[0], pose[1]))
+                    )
                 elif hasattr(model, "ground_up_m"):
                     current_agl_m = home_down - float(pose[2]) - float(model.ground_up_m)
             except (TypeError, ValueError, AttributeError):
@@ -310,7 +400,9 @@ class SafetyEnvelope:
 
     def _spatial_reasons(self, start: Point, end: Point) -> list[str]:
         reasons: list[str] = []
-        if self.config.operating_polygon and not _segment_inside(start, end, self.config.operating_polygon):
+        if self.config.operating_polygon and not _segment_inside(
+            start, end, self.config.operating_polygon
+        ):
             reasons.append("geofence")
         if self.config.max_radius_from_home_m is not None and self.home_ned is not None:
             home = (float(self.home_ned[0]), float(self.home_ned[1]))  # type: ignore[index]
@@ -340,7 +432,9 @@ class SafetyEnvelope:
         previous = (pose[0], pose[1], pose[2])
         reasons: list[str] = []
         for i in range(1, count):
-            angle = heading - sign * math.pi / 2 + sign * math.radians(abs(delta_deg)) * i / (count - 1)
+            angle = (
+                heading - sign * math.pi / 2 + sign * math.radians(abs(delta_deg)) * i / (count - 1)
+            )
             point = (cx + radius * math.cos(angle), cy + radius * math.sin(angle))
             reasons.extend(self._spatial_reasons(point, point))
             current = (point[0], point[1], pose[2])
@@ -353,9 +447,32 @@ class SafetyEnvelope:
         """Compatibility helper: return the single bounded action for this frame."""
         if action.kind != "translate" or abs(action.up_m) <= self.config.max_vertical_step_m + 1e-9:
             return (action,)
-        return (ActionPrimitive.translate(action.forward_m, action.right_m, math.copysign(self.config.max_vertical_step_m, action.up_m)),)
+        return (
+            ActionPrimitive.translate(
+                action.forward_m,
+                action.right_m,
+                math.copysign(self.config.max_vertical_step_m, action.up_m),
+            ),
+        )
 
-    def apply(self, action: ActionPrimitive, *, pose_ned: Pose, yaw_deg: float = 0.0, current_agl_m: float | None = None, agl_m: float | None = None, phase: str | None = None, skill: str | None = None, airspeed_mps: float | None = None, bank_deg: float | None = None, turn_radius_m: float | None = None, climb_rate_mps: float | None = None, descent_rate_mps: float | None = None, mode: str | None = None, duration_s: float | None = None) -> SafetyDecision:
+    def apply(
+        self,
+        action: ActionPrimitive,
+        *,
+        pose_ned: Pose,
+        yaw_deg: float = 0.0,
+        current_agl_m: float | None = None,
+        agl_m: float | None = None,
+        phase: str | None = None,
+        skill: str | None = None,
+        airspeed_mps: float | None = None,
+        bank_deg: float | None = None,
+        turn_radius_m: float | None = None,
+        climb_rate_mps: float | None = None,
+        descent_rate_mps: float | None = None,
+        mode: str | None = None,
+        duration_s: float | None = None,
+    ) -> SafetyDecision:
         """Filter one primitive; long vertical moves are clipped for this frame."""
         pose = tuple(float(v) for v in pose_ned)
         if len(pose) != 3 or not all(math.isfinite(v) for v in pose):
@@ -369,12 +486,22 @@ class SafetyEnvelope:
                 active = "multirotor"
             else:
                 active = mode_name or ("fw" if vehicle.category == "fixed_wing" else "transition")
-                if vehicle.category == "vtol" and active not in {"fw", "fixed_wing", "transition", "trans"}:
+                if vehicle.category == "vtol" and active not in {
+                    "fw",
+                    "fixed_wing",
+                    "transition",
+                    "trans",
+                }:
                     active = "transition"
             if active in {"fw", "fixed_wing", "transition"}:
-                if airspeed_mps is None and (vehicle.category == "fixed_wing" or active == "transition"):
+                if airspeed_mps is None and (
+                    vehicle.category == "fixed_wing" or active == "transition"
+                ):
                     return self._reject(["airspeed_unknown"])
-                if airspeed_mps is not None and (airspeed_mps < vehicle.min_airspeed_mps - 1e-9 or airspeed_mps > vehicle.max_airspeed_mps + 1e-9):
+                if airspeed_mps is not None and (
+                    airspeed_mps < vehicle.min_airspeed_mps - 1e-9
+                    or airspeed_mps > vehicle.max_airspeed_mps + 1e-9
+                ):
                     return self._reject(["airspeed"])
                 if bank_deg is not None:
                     limit = vehicle.max_bank_deg * (0.5 if active == "transition" else 1.0)
@@ -388,15 +515,41 @@ class SafetyEnvelope:
         if vehicle.category == "vtol" and active == "transition":
             if altitude < max(self.config.min_altitude_m, 5.0) - 1e-9:
                 return self._reject(["transition_altitude"])
-        low_exception = str(skill or "").lower() in {"deliver", "land", "landing"} and str(phase or "").lower() in {
-            "descent", "release", "land", "landing", "landing_commanded",
-            "landing_pending", "low_altitude",
+        low_exception = str(skill or "").lower() in {"deliver", "land", "landing"} and str(
+            phase or ""
+        ).lower() in {
+            "descent",
+            "release",
+            "land",
+            "landing",
+            "landing_commanded",
+            "landing_pending",
+            "low_altitude",
         }
-        min_alt = max(self.config.low_altitude_exception_m, 0.0) if low_exception else self.config.min_altitude_m
+        min_alt = (
+            max(self.config.low_altitude_exception_m, 0.0)
+            if low_exception
+            else self.config.min_altitude_m
+        )
         if action.kind in {"turn", "hold"}:
-            if altitude < min_alt - 1e-9 or (self.config.max_altitude_m is not None and altitude > self.config.max_altitude_m + 1e-9) or (self.config.min_agl_m is not None and agl is not None and agl < self.config.min_agl_m - 1e-9):
+            if (
+                altitude < min_alt - 1e-9
+                or (
+                    self.config.max_altitude_m is not None
+                    and altitude > self.config.max_altitude_m + 1e-9
+                )
+                or (
+                    self.config.min_agl_m is not None
+                    and agl is not None
+                    and agl < self.config.min_agl_m - 1e-9
+                )
+            ):
                 return self._reject(["altitude"])
-            if vehicle.category in {"fixed_wing", "vtol"} and action.kind == "turn" and active != "multirotor":
+            if (
+                vehicle.category in {"fixed_wing", "vtol"}
+                and action.kind == "turn"
+                and active != "multirotor"
+            ):
                 clear, reasons = self._arc_clear(pose, yaw_deg, action.yaw_delta_deg)
                 if not clear:
                     return self._reject(reasons)
@@ -408,15 +561,29 @@ class SafetyEnvelope:
         target_alt = altitude + up
         # Clamp altitude while preserving the horizontal component.
         if target_alt < min_alt:
-            up = min_alt - altitude; target_alt = min_alt; reasons.append("min_altitude")
+            up = min_alt - altitude
+            target_alt = min_alt
+            reasons.append("min_altitude")
         if self.config.max_altitude_m is not None and target_alt > self.config.max_altitude_m:
-            up = self.config.max_altitude_m - altitude; target_alt = self.config.max_altitude_m; reasons.append("max_altitude")
-        if self.config.min_agl_m is not None and agl is not None and agl + up < self.config.min_agl_m and not low_exception:
-            up = self.config.min_agl_m - agl; target_alt = altitude + up; reasons.append("min_agl")
+            up = self.config.max_altitude_m - altitude
+            target_alt = self.config.max_altitude_m
+            reasons.append("max_altitude")
+        if (
+            self.config.min_agl_m is not None
+            and agl is not None
+            and agl + up < self.config.min_agl_m
+            and not low_exception
+        ):
+            up = self.config.min_agl_m - agl
+            target_alt = altitude + up
+            reasons.append("min_agl")
         horizontal = math.hypot(forward, right)
         hlimit = self.config.max_horizontal_step_m or self.config.max_translation_m
         if horizontal > hlimit + 1e-9:
-            scale = hlimit / horizontal; forward *= scale; right *= scale; reasons.append("max_horizontal_step")
+            scale = hlimit / horizontal
+            forward *= scale
+            right *= scale
+            reasons.append("max_horizontal_step")
         if abs(up) > self.config.max_vertical_step_m + 1e-9:
             up = math.copysign(self.config.max_vertical_step_m, up)
             reasons.append("max_vertical_step")
@@ -435,14 +602,34 @@ class SafetyEnvelope:
         reasons.extend(self._spatial_reasons((pose[0], pose[1]), end))
         if not self._segment_clear(pose, (end[0], end[1], pose[2] - up)):
             reasons.append("obstacle")
-        if vehicle.category in {"fixed_wing", "vtol"} and active == "transition" and abs(action.yaw_delta_deg) > 0:
+        if (
+            vehicle.category in {"fixed_wing", "vtol"}
+            and active == "transition"
+            and abs(action.yaw_delta_deg) > 0
+        ):
             reasons.append("transition_bank")
-        if any(r in reasons for r in ("geofence", "home_radius", "no_fly", "obstacle", "climb_rate", "descent_rate", "transition_bank")):
+        if any(
+            r in reasons
+            for r in (
+                "geofence",
+                "home_radius",
+                "no_fly",
+                "obstacle",
+                "climb_rate",
+                "descent_rate",
+                "transition_bank",
+            )
+        ):
             return self._reject(reasons)
         # Preserve the original object/value representation when the default
         # envelope did not change the primitive.  This keeps serialized actions
         # byte-identical for existing valid policy output (including ints).
-        if not reasons and forward == action.forward_m and right == action.right_m and up == action.up_m:
+        if (
+            not reasons
+            and forward == action.forward_m
+            and right == action.right_m
+            and up == action.up_m
+        ):
             filtered = action
         else:
             filtered = ActionPrimitive.translate(forward, right, up)

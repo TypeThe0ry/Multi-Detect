@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from scripts import collect_sim_teacher_episodes as collector
-from scripts.verify_mover_world import build_collector_command
 from multidetect.sim_teacher import HoverPolicy
 from multidetect.sim_teacher.primitives import ActionPrimitive
+from scripts import collect_sim_teacher_episodes as collector
+from scripts.verify_mover_world import build_collector_command
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs/scenarios/generated-movers/gen_mov_w0000.scenario.json"

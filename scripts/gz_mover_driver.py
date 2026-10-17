@@ -13,11 +13,11 @@ import math
 import re
 import signal
 import subprocess
-import sys
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 
 def parse_clock_text(text: str) -> float | None:
@@ -36,7 +36,9 @@ def parse_clock_text(text: str) -> float | None:
     return float(sec.group(1)) + float(nsec.group(1) if nsec else 0) / 1_000_000_000.0
 
 
-def trajectory_position_yaw(trajectory: Mapping[str, Any], time_s: float) -> tuple[float, float, float]:
+def trajectory_position_yaw(
+    trajectory: Mapping[str, Any], time_s: float
+) -> tuple[float, float, float]:
     """Return ENU east, north, yaw for the looping constant-speed polyline."""
     points = [tuple(float(v) for v in p[:2]) for p in trajectory.get("waypoints", ())]
     if len(points) < 2:
@@ -46,7 +48,7 @@ def trajectory_position_yaw(trajectory: Mapping[str, Any], time_s: float) -> tup
         raise ValueError("trajectory speed_mps must be positive")
     legs = []
     total = 0.0
-    for start, end in zip(points, points[1:] + points[:1]):
+    for start, end in zip(points, points[1:] + points[:1], strict=False):
         length = math.hypot(end[0] - start[0], end[1] - start[1])
         legs.append((start, end, length))
         total += length
@@ -68,7 +70,7 @@ def pose_request(model: str, east: float, north: float, z: float, yaw: float) ->
     """Build the text protobuf accepted by gz service."""
     return (
         f'name: "{model}", position: {{x: {east:.6f}, y: {north:.6f}, z: {z:.6f}}}, '
-        f'orientation: {{x: 0, y: 0, z: {math.sin(yaw / 2):.9f}, w: {math.cos(yaw / 2):.9f}}}'
+        f"orientation: {{x: 0, y: 0, z: {math.sin(yaw / 2):.9f}, w: {math.cos(yaw / 2):.9f}}}"
     )
 
 
@@ -76,11 +78,28 @@ def _service(world: str, request: str) -> tuple[bool, float, str]:
     started = time.monotonic()
     result = subprocess.run(
         [
-            "gz", "service", "-s", f"/world/{world}/set_pose", "--reqtype", "gz.msgs.Pose",
-            "--reptype", "gz.msgs.Boolean", "--timeout", "500", "--req", request,
-        ], capture_output=True, text=True, check=False,
+            "gz",
+            "service",
+            "-s",
+            f"/world/{world}/set_pose",
+            "--reqtype",
+            "gz.msgs.Pose",
+            "--reptype",
+            "gz.msgs.Boolean",
+            "--timeout",
+            "500",
+            "--req",
+            request,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    return result.returncode == 0 and "data: true" in (result.stdout or "").lower(), time.monotonic() - started, (result.stderr or result.stdout or "").strip()
+    return (
+        result.returncode == 0 and "data: true" in (result.stdout or "").lower(),
+        time.monotonic() - started,
+        (result.stderr or result.stdout or "").strip(),
+    )
 
 
 class LatestClock:
@@ -94,8 +113,11 @@ class LatestClock:
         self.sim_time: float | None = None
         self._lock = threading.Lock()
         self.process = subprocess.Popen(
-            ["gz", "topic", "-e", "-t", "/clock"], stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, bufsize=1,
+            ["gz", "topic", "-e", "-t", "/clock"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
         )
         self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
@@ -149,13 +171,21 @@ def run(args: argparse.Namespace) -> int:
                 continue
             last_sim = sim_time
             east, north, yaw = trajectory_position_yaw(trajectory, sim_time)
-            ok, latency, detail = _service(args.world, pose_request(args.model, east, north, args.z, yaw))
+            ok, latency, detail = _service(
+                args.world, pose_request(args.model, east, north, args.z, yaw)
+            )
             applied = clock.latest()
             row = {
-                "sim_time_s": sim_time, "east_m": east, "north_m": north,
-                "z_m": args.z, "yaw_rad": yaw, "ok": ok, "wall_latency_s": latency,
+                "sim_time_s": sim_time,
+                "east_m": east,
+                "north_m": north,
+                "z_m": args.z,
+                "yaw_rad": yaw,
+                "ok": ok,
+                "wall_latency_s": latency,
                 # Sim time when the call returned: how stale the commanded pose was.
-                "applied_sim_time_s": applied, "detail": detail,
+                "applied_sim_time_s": applied,
+                "detail": detail,
             }
             if log:
                 log.write(json.dumps(row, sort_keys=True) + "\n")

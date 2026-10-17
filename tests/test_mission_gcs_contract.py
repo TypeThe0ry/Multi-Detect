@@ -12,7 +12,12 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from multidetect.autonomy.mission_package import load_mission_package
-from multidetect.autonomy.mission_security import AuthenticationKey, canonical_auth_bytes, sign_document, verify_document
+from multidetect.autonomy.mission_security import (
+    AuthenticationKey,
+    canonical_auth_bytes,
+    sign_document,
+    verify_document,
+)
 from multidetect.autonomy.serialization import strict_json_loads
 
 
@@ -135,7 +140,9 @@ def test_gcs_ground_command_golden_vector_matches_onboard_verifier():
         "timestamp_domain": "unix",
     }
     signed = sign_document(command, key)
-    assert canonical_auth_bytes({**command, "key_id": "gcs-test"}, "signature", "signature_alg") == (
+    assert canonical_auth_bytes(
+        {**command, "key_id": "gcs-test"}, "signature", "signature_alg"
+    ) == (
         b'{"key_id":"gcs-test","mission_id":"golden-mission","sequence":7,'
         b'"timestamp":1700000000.25,"timestamp_domain":"unix",'
         b'"timestamp_version":1,"type":"abort"}'
@@ -143,7 +150,11 @@ def test_gcs_ground_command_golden_vector_matches_onboard_verifier():
     assert signed["signature"] == (
         "Ow/0p9a6YI5GDT/z2OZEdSwhslBXBgya64HVaqMCck1KuLW9OQhpx1vtSfBc1xeXxfU2hckAA5DPpvzq1rSmDQ=="
     )
-    public = AuthenticationKey("ed25519", Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key().public_bytes_raw(), "gcs-test")
+    public = AuthenticationKey(
+        "ed25519",
+        Ed25519PrivateKey.from_private_bytes(bytes(range(32))).public_key().public_bytes_raw(),
+        "gcs-test",
+    )
     assert verify_document(signed, public)
 
 
@@ -159,7 +170,9 @@ def test_gcs_canonical_numbers_and_unicode_golden_vector():
         "\U0001f600": "\u00e9",
     }
     signed = sign_document(command, key)
-    assert canonical_auth_bytes({**command, "key_id": "gcs-test"}, "signature", "signature_alg").hex() == (
+    assert canonical_auth_bytes(
+        {**command, "key_id": "gcs-test"}, "signature", "signature_alg"
+    ).hex() == (
         "7b2241223a312c2261223a313730303030303030302c22617272223a5b302e312c31652d30372c2d322e352c"
         "3132333435363738392e3132352c5b22e99baa222c22f09f9880225d5d2c226b65795f6964223a"
         "226763732d74657374222c226e65676174697665223a2d34322c227a65726f223a302c22c3a9223a22e99baa"

@@ -12,9 +12,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from multidetect.sim_teacher.primitives import ActionPrimitive, primitive_to_ned
 from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.onboard_runtime.fw_vtol_commands import local_ned_to_global
+from multidetect.sim_teacher.primitives import ActionPrimitive, primitive_to_ned
 
 from .camera import CameraFrame, CameraSource
 from .vehicle import PositionSetpoint, VehicleInterface, VehicleState
@@ -101,10 +101,20 @@ def observation_for(frame: CameraFrame, state: VehicleState) -> dict[str, Any]:
 
 # Mode names VehicleState reports (``_mode_name``) while PX4 flies a guided
 # fixed-wing command: orbit, reposition/loiter (HOLD), mission landing, RTL/LAND.
-FIXED_WING_GUIDED_MODES = frozenset({
-    "OFFBOARD", "HOLD", "ORBIT", "AUTO_MISSION", "AUTO_TAKEOFF", "RTL", "LAND",
-    "AUTO_LOITER", "AUTO_RTL", "AUTO_LAND",
-})
+FIXED_WING_GUIDED_MODES = frozenset(
+    {
+        "OFFBOARD",
+        "HOLD",
+        "ORBIT",
+        "AUTO_MISSION",
+        "AUTO_TAKEOFF",
+        "RTL",
+        "LAND",
+        "AUTO_LOITER",
+        "AUTO_RTL",
+        "AUTO_LAND",
+    }
+)
 
 
 class SetpointPump:
@@ -234,7 +244,9 @@ class OnboardRuntime:
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._job_started: float | None = None
-        self._result: tuple[ActionPrimitive | MotionCommand, dict[str, Any], VehicleState] | None = None
+        self._result: (
+            tuple[ActionPrimitive | MotionCommand, dict[str, Any], VehicleState] | None
+        ) = None
         self._policy_error: str | None = None
         self._hazard_since: float | None = None
         self.hazard: str | None = None
@@ -507,7 +519,9 @@ class OnboardRuntime:
             self._result = None
             self._motion = None
             if self.pump and self._last_good_state:
-                if self.motion_adapter is not None and not getattr(self.motion_adapter, "is_multirotor", True):
+                if self.motion_adapter is not None and not getattr(
+                    self.motion_adapter, "is_multirotor", True
+                ):
                     try:
                         recovery = MotionCommand(
                             "loiter",
@@ -559,7 +573,9 @@ class OnboardRuntime:
                 elif self._active and not self.failsafe_sent:
                     if not state.armed:
                         self._latch("unexpected_disarm", now)
-                    elif self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True):
+                    elif self.motion_adapter is None or getattr(
+                        self.motion_adapter, "is_multirotor", True
+                    ):
                         if state.mode != "OFFBOARD":
                             self._latch("offboard_exited", now)
                     elif state.mode not in FIXED_WING_GUIDED_MODES:
@@ -699,8 +715,10 @@ class OnboardRuntime:
         self.failsafe_sent = action
         self._command_last_sent = time.monotonic()
         self._terminal_attempts += 1
-        if self.pump is not None and self._last_good_state is not None and (
-            self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True)
+        if (
+            self.pump is not None
+            and self._last_good_state is not None
+            and (self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True))
         ):
             # Keep a fresh hold stream until telemetry confirms the mode change.
             self._set_target_checked(
@@ -771,8 +789,14 @@ class OnboardRuntime:
             method = getattr(vehicle, "reposition", None)
             if not callable(method):
                 raise RuntimeError("fixed-wing vehicle lacks reposition()")
-            return method(centre, altitude, speed, radius=command.radius_m or 0.0,
-                          yaw_deg=command.yaw_deg, timeout_s=0.0)
+            return method(
+                centre,
+                altitude,
+                speed,
+                radius=command.radius_m or 0.0,
+                yaw_deg=command.yaw_deg,
+                timeout_s=0.0,
+            )
         if command.kind == "transition":
             method = getattr(vehicle, "vtol_transition", None)
             if not callable(method):
@@ -782,8 +806,12 @@ class OnboardRuntime:
             method = getattr(vehicle, "fw_land", None)
             if not callable(method):
                 raise RuntimeError("fixed-wing vehicle lacks fw_land()")
-            return method((command.metadata or {}).get("method", "runway"), point=centre,
-                          alt=ground_amsl, timeout_s=0.0)
+            return method(
+                (command.metadata or {}).get("method", "runway"),
+                point=centre,
+                alt=ground_amsl,
+                timeout_s=0.0,
+            )
         if command.kind == "mc_land":
             transition = getattr(vehicle, "vtol_transition", None)
             if callable(transition):
@@ -907,9 +935,11 @@ class OnboardRuntime:
                         self._latch(f"motion_command_error: {exc}", now)
                         return
                     result_ok = (
-                        True if result is None else
-                        bool(getattr(result, "ok", False)) if getattr(result, "ok", None) is not None else
-                        getattr(result, "status", "") in {"accepted", "sent", "success"}
+                        True
+                        if result is None
+                        else bool(getattr(result, "ok", False))
+                        if getattr(result, "ok", None) is not None
+                        else getattr(result, "status", "") in {"accepted", "sent", "success"}
                     )
                     if not result_ok:
                         self._latch(
@@ -917,7 +947,9 @@ class OnboardRuntime:
                         )
                         return
                     self.steps += 1
-                    self._event("autonomy_motion_command", command=action.to_dict(), result=str(result))
+                    self._event(
+                        "autonomy_motion_command", command=action.to_dict(), result=str(result)
+                    )
                     if action.kind in {"stop", "mc_land", "fw_land"}:
                         self.mission_complete = action.kind == "stop"
                         if action.kind == "stop":

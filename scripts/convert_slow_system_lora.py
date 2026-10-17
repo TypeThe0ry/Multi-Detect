@@ -18,7 +18,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LLAMA_ROOT = ROOT / "artifacts" / "cache" / "llama-cpp"
-DEFAULT_BASE = ROOT / "artifacts" / "cache" / "huggingface-vlm" / "models--Qwen--Qwen3-VL-2B-Instruct" / "snapshots"
+DEFAULT_BASE = (
+    ROOT
+    / "artifacts"
+    / "cache"
+    / "huggingface-vlm"
+    / "models--Qwen--Qwen3-VL-2B-Instruct"
+    / "snapshots"
+)
 
 
 @dataclass(frozen=True)
@@ -83,7 +90,7 @@ def probe_local_tools(llama_root: Path = DEFAULT_LLAMA_ROOT) -> LocalTools:
     converter_hf = _first_file(roots, {"convert_hf_to_gguf.py"})
     quantize = _first_file(
         roots,
-        {"llama-quantize.exe", "llama-quantize", "llama-quantize.exe"},
+        {"llama-quantize.exe", "llama-quantize"},
     )
     server = _first_file(roots, {"llama-server.exe", "llama-server"})
     return LocalTools(
@@ -140,19 +147,24 @@ def conversion_plan(
         "from pathlib import Path",
         "from peft import PeftModel",
         "from transformers import AutoProcessor, Qwen3VLForConditionalGeneration",
-        f"base = Qwen3VLForConditionalGeneration.from_pretrained({py_base}, local_files_only=True, trust_remote_code=False, torch_dtype='auto')",
-        f"model = PeftModel.from_pretrained(base, {py_adapter}, is_trainable=False).merge_and_unload()",
+        f"base = Qwen3VLForConditionalGeneration.from_pretrained({py_base}, local_files_only=True, "
+        "trust_remote_code=False, torch_dtype='auto')",
+        f"model = PeftModel.from_pretrained(base, {py_adapter}, is_trainable=False).merge_and_"
+        "unload()",
         f"model.save_pretrained({py_merged}, safe_serialization=True)",
-        f"AutoProcessor.from_pretrained({py_base}, local_files_only=True, trust_remote_code=False).save_pretrained({py_merged})",
+        f"AutoProcessor.from_pretrained({py_base}, local_files_only=True, trust_remote_"
+        f"code=False).save_pretrained({py_merged})",
         '"@ | & .venv-vlm/Scripts/python.exe -',
     ]
     if tools.convert_hf_to_gguf:
         commands.append(
-            f"& .venv-vlm/Scripts/python.exe {_ps(tools.convert_hf_to_gguf)} {_ps(merged)} --outfile {_ps(f16)} --outtype f16"
+            f"& .venv-vlm/Scripts/python.exe {_ps(tools.convert_hf_to_gguf)} {_ps(merged)} --"
+            f"outfile {_ps(f16)} --outtype f16"
         )
     else:
         commands.append(
-            "# MISSING: convert_hf_to_gguf.py; provide a local compatible llama.cpp converter before this step."
+            "# MISSING: convert_hf_to_gguf.py; provide a local compatible llama.cpp converter "
+            "before this step."
         )
     if tools.llama_quantize:
         commands.append(f"& {_ps(tools.llama_quantize)} {_ps(f16)} {_ps(quantized)} {quantization}")
@@ -172,10 +184,13 @@ def conversion_plan(
         "hf_conversion_available": tools.hf_conversion_available,
         "commands": commands,
         "notes": [
-            "llama-server accepts --lora PATH only for a GGUF LoRA adapter; an HF PEFT adapter cannot be passed directly.",
+            "llama-server accepts --lora PATH only for a GGUF LoRA adapter; an HF PEFT adapter "
+            "cannot be passed directly.",
             "The language-only adapter leaves the existing Qwen3-VL mmproj GGUF unchanged.",
-            "If vision projector modules were trained, regenerate a matching mmproj with the same converter build; do not mix versions.",
-            "Do not quantize an already-quantized Q4 model; merge into HF, convert to F16 GGUF, then quantize once to Q4_K_M.",
+            "If vision projector modules were trained, regenerate a matching mmproj with the same "
+            "converter build; do not mix versions.",
+            "Do not quantize an already-quantized Q4 model; merge into HF, convert to F16 GGUF, "
+            "then quantize once to Q4_K_M.",
         ],
     }
 
@@ -189,7 +204,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-json", type=Path, help="Write the plan as UTF-8 LF JSON")
     parser.add_argument("--quantization", choices=("Q4_K_M", "Q5_K_M", "Q8_0"), default="Q5_K_M")
     args = parser.parse_args(argv)
-    plan = conversion_plan(probe_local_tools(args.llama_root), base=args.base, adapter=args.adapter, output=args.output, quantization=args.quantization)
+    plan = conversion_plan(
+        probe_local_tools(args.llama_root),
+        base=args.base,
+        adapter=args.adapter,
+        output=args.output,
+        quantization=args.quantization,
+    )
     rendered = json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)

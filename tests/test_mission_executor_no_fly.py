@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 
 import pytest
@@ -33,26 +32,39 @@ def _factory(blocked=None):
 
 
 def _return_plan():
-    return validate_mission_plan({
-        "plan_version": 1,
-        "goal": "return",
-        "steps": [{"id": "home", "skill": "return_home", "params": {},
-                   "on_success": None, "on_fail": None}],
-        "report": [],
-    })
+    return validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "return",
+            "steps": [
+                {
+                    "id": "home",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                }
+            ],
+            "report": [],
+        }
+    )
 
 
 def _executor(*, zones=(((10.0, 0.0), 2.0),), area=None, config=None, blocked=None):
     package = None
     executor = MissionExecutor(
-        _return_plan(), loop_factory=_factory(blocked), config=config,
+        _return_plan(),
+        loop_factory=_factory(blocked),
+        config=config,
         no_fly_zones=zones,
         mission_package=package,
     )
     executor.home = (0.0, 0.0)
     executor.operating_area = area or {
-        "north_min_m": -30.0, "north_max_m": 30.0,
-        "east_min_m": -30.0, "east_max_m": 30.0,
+        "north_min_m": -30.0,
+        "north_max_m": 30.0,
+        "east_min_m": -30.0,
+        "east_max_m": 30.0,
     }
     return executor
 
@@ -99,38 +111,89 @@ def test_package_preflight_uses_inflated_radius_and_zone_cap():
         "zone:yard": {"centre_ne": [10, 0], "radius_m": 2, "risk_tag": "no-fly"},
     }
     document = {
-        "mission_id": "nf", "risk_level": "low",
+        "mission_id": "nf",
+        "risk_level": "low",
         "link_loss_policy": {"action": "continue", "timeout_s": 30},
-        "home": [0, 0], "places": {"poi:edge": [7, 0]}, "zones": zones,
-        "routes": {}, "oversight_steps": [], "heartbeat_timeout_s": 5,
-        "operating_area": {"north_min_m": -30, "north_max_m": 30,
-                            "east_min_m": -30, "east_max_m": 30,
-                            "min_altitude_m": 5, "max_altitude_m": 60},
-        "budget": {"time_s": 600, "reserve_time_s": 60,
-                   "energy_wh": 300, "reserve_energy_wh": 30},
+        "home": [0, 0],
+        "places": {"poi:edge": [7, 0]},
+        "zones": zones,
+        "routes": {},
+        "oversight_steps": [],
+        "heartbeat_timeout_s": 5,
+        "operating_area": {
+            "north_min_m": -30,
+            "north_max_m": 30,
+            "east_min_m": -30,
+            "east_max_m": 30,
+            "min_altitude_m": 5,
+            "max_altitude_m": 60,
+        },
+        "budget": {"time_s": 600, "reserve_time_s": 60, "energy_wh": 300, "reserve_energy_wh": 30},
     }
-    plan = validate_mission_plan({"plan_version": 1, "goal": "x", "steps": [
-        {"id": "g", "skill": "goto", "params": {"target_ref": "poi:edge"},
-         "on_success": "home", "on_fail": "home"},
-        {"id": "home", "skill": "return_home", "params": {},
-         "on_success": None, "on_fail": None}], "report": []})
+    plan = validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "x",
+            "steps": [
+                {
+                    "id": "g",
+                    "skill": "goto",
+                    "params": {"target_ref": "poi:edge"},
+                    "on_success": "home",
+                    "on_fail": "home",
+                },
+                {
+                    "id": "home",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                },
+            ],
+            "report": [],
+        }
+    )
     document["plan"] = {
-        "plan_version": 1, "goal": "x", "steps": [
-            {"id": "g", "skill": "goto", "params": {"target_ref": "poi:edge"},
-             "on_success": "home", "on_fail": "home"},
-            {"id": "home", "skill": "return_home", "params": {},
-             "on_success": None, "on_fail": None}], "report": []}
+        "plan_version": 1,
+        "goal": "x",
+        "steps": [
+            {
+                "id": "g",
+                "skill": "goto",
+                "params": {"target_ref": "poi:edge"},
+                "on_success": "home",
+                "on_fail": "home",
+            },
+            {
+                "id": "home",
+                "skill": "return_home",
+                "params": {},
+                "on_success": None,
+                "on_fail": None,
+            },
+        ],
+        "report": [],
+    }
     package = load_mission_package(document)
     violations = check_plan_against_package(plan, package)
     assert any(v["code"] == "NO_FLY_ZONE" for v in violations)
 
     for index in range(MAX_NO_FLY_ZONES + 1):
-        zones[f"zone:nf{index}"] = {"centre_ne": [0, 0],
-                                     "radius_m": 1, "risk_tag": "no-fly"}
+        zones[f"zone:nf{index}"] = {"centre_ne": [0, 0], "radius_m": 1, "risk_tag": "no-fly"}
     document["plan"] = {
-        "plan_version": 1, "goal": "x", "steps": [
-            {"id": "home", "skill": "return_home", "params": {},
-             "on_success": None, "on_fail": None}], "report": []}
+        "plan_version": 1,
+        "goal": "x",
+        "steps": [
+            {
+                "id": "home",
+                "skill": "return_home",
+                "params": {},
+                "on_success": None,
+                "on_fail": None,
+            }
+        ],
+        "report": [],
+    }
     capped = load_mission_package(document)
     violations = check_plan_against_package(plan, capped)
     cap = next(v for v in violations if v["code"] == "NO_FLY_ZONE_LIMIT_EXCEEDED")
@@ -167,24 +230,26 @@ def test_each_detour_leg_checks_segment_clear_and_obstacle_holds():
 def test_tangent_circle_and_area_boundary_never_produce_invalid_detour():
     executor = _executor(
         zones=(((10.0, 5.0), 2.0),),
-        area={"north_min_m": 0.0, "north_max_m": 20.0,
-              "east_min_m": -8.0, "east_max_m": 8.0},
+        area={"north_min_m": 0.0, "north_max_m": 20.0, "east_min_m": -8.0, "east_max_m": 8.0},
     )
     path = executor._return_home_detour((20.0, 0.0), (0.0, 0.0))
     if path is not None:
         points = [(20.0, 0.0), *path, (0.0, 0.0)]
         assert all(executor._point_inside_area(p, executor.operating_area) for p in points)
-        assert all(not executor._leg_enters_no_fly(a, b) for a, b in zip(points, points[1:]))
+        assert all(
+            not executor._leg_enters_no_fly(a, b) for a, b in zip(points, points[1:], strict=False)
+        )
 
 
 @pytest.mark.timing
 def test_timing_64_non_overlapping_circles_replan_under_50ms():
     if not os.environ.get("RUN_TIMING"):
         pytest.skip("timing benchmark is opt-in; onboard gate excludes timing tests")
-    zones = tuple((((i % 8) * 65.0 + 20.0, (i // 8) * 65.0 + 20.0), 5.0)
-                  for i in range(64))
-    executor = _executor(zones=zones, area={"north_min_m": 0.0, "north_max_m": 600.0,
-                                            "east_min_m": 0.0, "east_max_m": 600.0})
+    zones = tuple((((i % 8) * 65.0 + 20.0, (i // 8) * 65.0 + 20.0), 5.0) for i in range(64))
+    executor = _executor(
+        zones=zones,
+        area={"north_min_m": 0.0, "north_max_m": 600.0, "east_min_m": 0.0, "east_max_m": 600.0},
+    )
     result = executor._return_home_detour((590.0, 590.0), (5.0, 5.0))
     assert result is not executor_module._DETOUR_TIMEOUT
     assert executor._visibility_graph_build_ms >= 0.0

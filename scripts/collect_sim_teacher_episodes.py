@@ -31,8 +31,13 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
+from multidetect.px4_mission import (  # noqa: E402
+    MAV_CMD_NAV_LAND,
+    MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+)
 from multidetect.sim_teacher import (  # noqa: E402
     ActionPrimitive,
     EpisodeRecorder,
@@ -44,8 +49,8 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
+from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
-from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
 from multidetect.sim_teacher.streams import (  # noqa: E402
@@ -54,16 +59,11 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     SensorStreamReader,
     build_observation,
 )
-from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
+from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
+from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
     build_docker_simulator_plan,
-)
-from multidetect.simulator.stack import SimulatorStackError, _vehicle_spec as _stack_vehicle_spec  # noqa: E402
-from multidetect.px4_mission import (
-    MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-    MAV_CMD_NAV_WAYPOINT,
-    MAV_CMD_NAV_LAND,
 )
 
 PINNED_IMAGE = (
@@ -411,8 +411,11 @@ def _launch_force(method: str, yaw_ned_rad: float) -> dict[str, float]:
 
 
 def _apply_gazebo_launch(
-    plan: CollectionPlan, environment: DockerSimEnvironment, model: str,
-    yaw_ned_rad: float, method: str,
+    plan: CollectionPlan,
+    environment: DockerSimEnvironment,
+    model: str,
+    yaw_ned_rad: float,
+    method: str,
 ) -> dict[str, Any]:
     """Apply one world-frame force pulse and always clear its persistent wrench."""
     executable = _docker_executable(plan)
@@ -423,8 +426,10 @@ def _apply_gazebo_launch(
     # gz.msgs.EntityWrench nests force/torque under ``wrench``; the clear topic takes
     # a gz.msgs.Entity.  Both go in through the environment so no shell quoting can
     # strip the quoted link name.
-    proto = (f'entity {{ name: "{link}" type: LINK }} '
-             f'wrench {{ force {{ x: {force["x"]:.6f} y: {force["y"]:.6f} z: {force["z"]:.6f} }} }}')
+    proto = (
+        f'entity {{ name: "{link}" type: LINK }} '
+        f"wrench {{ force {{ x: {force['x']:.6f} y: {force['y']:.6f} z: {force['z']:.6f} }} }}"
+    )
     clear_proto = f'name: "{link}" type: LINK'
     # Each `gz topic -p` spends most of its time on start-up and discovery before
     # it publishes.  Start the pulse and the delayed clear together so the start-up
@@ -434,22 +439,37 @@ def _apply_gazebo_launch(
         "set -u; "
         "topics=$(gz topic -l); "
         f"case \"$topics\" in *{topic}* ) ;; *) echo 'missing {topic}' >&2; exit 20;; esac; "
-        f"case \"$topics\" in *{clear_topic}* ) ;; *) echo 'missing {clear_topic}' >&2; exit 21;; esac; "
-        f"gz topic -t {topic} -m gz.msgs.EntityWrench -p \"$MD_WRENCH\" & "
-        f"(sleep {force['duration_s']:.3f}; gz topic -t {clear_topic} -m gz.msgs.Entity -p \"$MD_CLEAR\") & "
+        f'case "$topics" in *{clear_topic}* ) ;; '
+        f"*) echo 'missing {clear_topic}' >&2; exit 21;; esac; "
+        f'gz topic -t {topic} -m gz.msgs.EntityWrench -p "$MD_WRENCH" & '
+        f"(sleep {force['duration_s']:.3f}; "
+        f'gz topic -t {clear_topic} -m gz.msgs.Entity -p "$MD_CLEAR") & '
         "wait; "
         # Under load the delayed clear can reach Gazebo before the slower pulse
         # publisher does, leaving the force on for good (the aircraft ran away to
         # 3.5 km).  Both publishers have finished here, so this clear always lands
         # after the pulse.
-        f"gz topic -t {clear_topic} -m gz.msgs.Entity -p \"$MD_CLEAR\""
+        f'gz topic -t {clear_topic} -m gz.msgs.Entity -p "$MD_CLEAR"'
     )
     started_wall = time.time()
     started_mono = time.monotonic()
     result = subprocess.run(
-        [executable, "exec", "-e", f"MD_WRENCH={proto}", "-e", f"MD_CLEAR={clear_proto}",
-         environment.name, "bash", "-c", script],
-        capture_output=True, text=True, timeout=max(8.0, force["duration_s"] + 5.0), check=False,
+        [
+            executable,
+            "exec",
+            "-e",
+            f"MD_WRENCH={proto}",
+            "-e",
+            f"MD_CLEAR={clear_proto}",
+            environment.name,
+            "bash",
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=max(8.0, force["duration_s"] + 5.0),
+        check=False,
     )
     ended_mono = time.monotonic()
     ended_wall = time.time()
@@ -533,10 +553,20 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "--depth-encoding",
         plan.depth_encoding,
     ]
-    category = "multirotor" if plan.airframe == "x500_mono_cam" else (_airframe_profile(plan.airframe).category if _airframe_profile(plan.airframe) else "fixed_wing")
+    category = (
+        "multirotor"
+        if plan.airframe == "x500_mono_cam"
+        else (
+            _airframe_profile(plan.airframe).category
+            if _airframe_profile(plan.airframe)
+            else "fixed_wing"
+        )
+    )
     calibration_name = (
-        "gazebo-multirotor-front-camera-v1.json" if category == "multirotor"
-        else "gazebo-front-camera-v1.json" if category == "vtol"
+        "gazebo-multirotor-front-camera-v1.json"
+        if category == "multirotor"
+        else "gazebo-front-camera-v1.json"
+        if category == "vtol"
         else "gazebo-fixed-wing-front-camera-v1.json"
     )
     calibration_path = ROOT / "simulation" / "gazebo" / "calibration" / calibration_name
@@ -699,7 +729,9 @@ class DockerSimEnvironment:
 def _mover_truth(truth_path: Path) -> dict[str, Any] | None:
     data = json.loads(truth_path.read_text(encoding="utf-8"))
     target = next((item for item in data.get("targets", ()) if item.get("true_target")), None)
-    return target if isinstance(target, dict) and isinstance(target.get("trajectory"), dict) else None
+    return (
+        target if isinstance(target, dict) and isinstance(target.get("trajectory"), dict) else None
+    )
 
 
 def _start_mover_driver(
@@ -712,31 +744,58 @@ def _start_mover_driver(
     model = f"target_true_{scenario_id}"
     trajectory_json = json.dumps(target["trajectory"], separators=(",", ":"))
     command = [
-        _docker_executable(plan), "exec", "-d", environment.name, "python3",
-        f"{CONTAINER_SCRIPT_ROOT}/gz_mover_driver.py", "--world", "default",
-        "--model", model, "--trajectory-json", trajectory_json, "--z",
-        str(float(target.get("pose", {}).get("z_up_m", 0.0))), "--period-s", "0.1",
-        "--log", "/tmp/mover_driver.log",
+        _docker_executable(plan),
+        "exec",
+        "-d",
+        environment.name,
+        "python3",
+        f"{CONTAINER_SCRIPT_ROOT}/gz_mover_driver.py",
+        "--world",
+        "default",
+        "--model",
+        model,
+        "--trajectory-json",
+        trajectory_json,
+        "--z",
+        str(float(target.get("pose", {}).get("z_up_m", 0.0))),
+        "--period-s",
+        "0.1",
+        "--log",
+        "/tmp/mover_driver.log",
     ]
     result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"mover driver failed to start: {(result.stderr or result.stdout)[-500:]}")
+        raise RuntimeError(
+            f"mover driver failed to start: {(result.stderr or result.stdout)[-500:]}"
+        )
     return {"command": command, "model": model, "remote_log": "/tmp/mover_driver.log"}
 
 
 def _copy_mover_driver_log(
-    plan: CollectionPlan, environment: DockerSimEnvironment, recorder: EpisodeRecorder,
+    plan: CollectionPlan,
+    environment: DockerSimEnvironment,
+    recorder: EpisodeRecorder,
     driver: dict[str, Any] | None,
 ) -> None:
     if driver is None:
         return
     destination = recorder.episode_dir / "mover_driver.log"
     result = subprocess.run(
-        [_docker_executable(plan), "cp", f"{environment.name}:/tmp/mover_driver.log", str(destination)],
-        capture_output=True, text=True, timeout=15, check=False,
+        [
+            _docker_executable(plan),
+            "cp",
+            f"{environment.name}:/tmp/mover_driver.log",
+            str(destination),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"failed to copy mover driver log: {(result.stderr or result.stdout)[-500:]}")
+        raise RuntimeError(
+            f"failed to copy mover driver log: {(result.stderr or result.stdout)[-500:]}"
+        )
     rows = []
     for line in destination.read_text(encoding="utf-8").splitlines():
         try:
@@ -748,21 +807,29 @@ def _copy_mover_driver_log(
     successes = [row for row in rows if row.get("ok")]
     early = [row for row in successes if float(row.get("sim_time_s", 1e9)) <= 10.0]
     if not early:
-        raise RuntimeError("mover driver produced no successful set_pose within first 10 sim seconds")
+        raise RuntimeError(
+            "mover driver produced no successful set_pose within first 10 sim seconds"
+        )
     latencies = [float(row["wall_latency_s"]) for row in successes if "wall_latency_s" in row]
-    driver.update({
-        "log": str(destination.relative_to(recorder.episode_dir)),
-        "update_count": len(rows),
-        "successful_update_count": len(successes),
-        "median_set_pose_wall_latency_s": statistics.median(latencies) if latencies else None,
-        "max_set_pose_wall_latency_s": max(latencies, default=None),
-        "max_sim_time_s": max((float(row.get("sim_time_s", 0.0)) for row in rows), default=None),
-        "max_apply_sim_time_lag_s": None,
-    })
+    driver.update(
+        {
+            "log": str(destination.relative_to(recorder.episode_dir)),
+            "update_count": len(rows),
+            "successful_update_count": len(successes),
+            "median_set_pose_wall_latency_s": statistics.median(latencies) if latencies else None,
+            "max_set_pose_wall_latency_s": max(latencies, default=None),
+            "max_sim_time_s": max(
+                (float(row.get("sim_time_s", 0.0)) for row in rows), default=None
+            ),
+            "max_apply_sim_time_lag_s": None,
+        }
+    )
 
 
 def _wait_for_mover_driver_start(
-    plan: CollectionPlan, environment: DockerSimEnvironment, driver: dict[str, Any] | None,
+    plan: CollectionPlan,
+    environment: DockerSimEnvironment,
+    driver: dict[str, Any] | None,
     timeout_s: float = 90.0,
 ) -> None:
     if driver is None:
@@ -771,7 +838,10 @@ def _wait_for_mover_driver_start(
     while time.monotonic() < deadline:
         result = subprocess.run(
             [_docker_executable(plan), "exec", environment.name, "cat", driver["remote_log"]],
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         rows = []
         for line in (result.stdout or "").splitlines():
@@ -784,7 +854,9 @@ def _wait_for_mover_driver_start(
         successful = [row for row in rows if row.get("ok")]
         if any(float(row.get("sim_time_s", 0.0)) >= 10.0 for row in rows):
             if not any(float(row.get("sim_time_s", 1e9)) <= 10.0 for row in successful):
-                raise RuntimeError("mover driver has no successful set_pose in first 10 sim seconds")
+                raise RuntimeError(
+                    "mover driver has no successful set_pose in first 10 sim seconds"
+                )
             return
         time.sleep(0.5)
     raise TimeoutError("mover driver did not reach 10 sim seconds before timeout")
@@ -932,8 +1004,11 @@ def _truth_target(
         confusers = []
         for prefix in ("confuser_", "forced_", "distractor_"):
             confusers = [
-                t for t in targets
-                if isinstance(t, dict) and not t.get("true_target") and str(t.get("target_id", "")).startswith(prefix)
+                t
+                for t in targets
+                if isinstance(t, dict)
+                and not t.get("true_target")
+                and str(t.get("target_id", "")).startswith(prefix)
             ]
             if confusers:
                 break
@@ -1016,7 +1091,9 @@ def _is_motion_command(action: Any) -> bool:
     return type(action).__name__ == "MotionCommand" and hasattr(action, "kind")
 
 
-def _wait_motion_command(command: Any, reader: MavlinkReader, *, cruise_mps: float) -> dict[str, Any]:
+def _wait_motion_command(
+    command: Any, reader: MavlinkReader, *, cruise_mps: float
+) -> dict[str, Any]:
     """Block like a primitive would: until a reposition arrives or a timed loiter ends.
 
     Guided fixed-wing commands return on PX4's ACK; without this the onboard policy
@@ -1042,11 +1119,19 @@ def _wait_motion_command(command: Any, reader: MavlinkReader, *, cruise_mps: flo
             # once little of it remains along the original track (or it is close).
             remaining = (dn * leg_n + de * leg_e) / leg if leg > 1e-6 else 0.0
             if distance <= MOTION_ARRIVAL_TOLERANCE_M or remaining <= MOTION_ALONG_TRACK_DONE_M:
-                return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
-                        "elapsed_s": time.monotonic() - started}
+                return {
+                    "waited": "arrived",
+                    "distance_m": distance,
+                    "leg_m": leg,
+                    "elapsed_s": time.monotonic() - started,
+                }
             time.sleep(0.1)
-        return {"waited": "timeout", "distance_m": distance, "leg_m": leg,
-                "elapsed_s": time.monotonic() - started}
+        return {
+            "waited": "timeout",
+            "distance_m": distance,
+            "leg_m": leg,
+            "elapsed_s": time.monotonic() - started,
+        }
     if kind in {"loiter", "orbit", "mc_hold"} and float(command.duration_s or 0.0) > 0.0:
         hold = min(float(command.duration_s), MOTION_LOITER_MAX_WAIT_S)
         while time.monotonic() - started < hold:
@@ -1090,15 +1175,17 @@ class _SmokeFlightPolicy:
     """Deterministic fixed-wing route used by the real-airframe smoke script."""
 
     def __init__(self) -> None:
-        self._actions = iter((
-            ActionPrimitive.translate(35.0, 0.0),
-            ActionPrimitive.hold(8.0),
-            ActionPrimitive.translate(0.0, 35.0),
-            ActionPrimitive.turn(90.0),
-            ActionPrimitive.translate(35.0, 0.0),
-            ActionPrimitive.hold(8.0),
-            ActionPrimitive.stop(),
-        ))
+        self._actions = iter(
+            (
+                ActionPrimitive.translate(35.0, 0.0),
+                ActionPrimitive.hold(8.0),
+                ActionPrimitive.translate(0.0, 35.0),
+                ActionPrimitive.turn(90.0),
+                ActionPrimitive.translate(35.0, 0.0),
+                ActionPrimitive.hold(8.0),
+                ActionPrimitive.stop(),
+            )
+        )
 
     def next_action(self):
         try:
@@ -1270,7 +1357,9 @@ def _profile_landing_parameters(airframe: str) -> tuple[tuple[str, str], ...]:
     )
 
 
-def _profile_launch_parameters(airframe: str, takeoff_method: str | None) -> tuple[tuple[str, str], ...]:
+def _profile_launch_parameters(
+    airframe: str, takeoff_method: str | None
+) -> tuple[tuple[str, str], ...]:
     if takeoff_method not in {"hand", "catapult"}:
         return ()
     profile = _airframe_profile(airframe, takeoff_method)
@@ -1297,9 +1386,11 @@ def _set_sim_params(
     """Apply the SIM-only GCS input setting after PX4 heartbeat is live."""
     executable = _docker_executable(plan)
     applied: list[dict[str, Any]] = []
-    for parameter, value in (*SIM_PREARM_PARAMETERS,
-                             *_profile_launch_parameters(plan.airframe, plan.takeoff_method),
-                             *_profile_landing_parameters(plan.airframe)):
+    for parameter, value in (
+        *SIM_PREARM_PARAMETERS,
+        *_profile_launch_parameters(plan.airframe, plan.takeoff_method),
+        *_profile_landing_parameters(plan.airframe),
+    ):
         command = [
             executable,
             "exec",
@@ -1602,9 +1693,15 @@ def _plain_record(value: Any) -> Any:
         return [_plain_record(v) for v in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
-    attrs = {k: v for k, v in vars(value).items() if not k.startswith("_")} if hasattr(value, "__dict__") else {}
+    attrs = (
+        {k: v for k, v in vars(value).items() if not k.startswith("_")}
+        if hasattr(value, "__dict__")
+        else {}
+    )
     if not attrs:
-        attrs = {k: getattr(value, k) for k in ("status", "ok", "result", "detail") if hasattr(value, k)}
+        attrs = {
+            k: getattr(value, k) for k in ("status", "ok", "result", "detail") if hasattr(value, k)
+        }
     return {"type": type(value).__name__, **{k: _plain_record(v) for k, v in attrs.items()}}
 
 
@@ -1630,7 +1727,10 @@ class _ReaderAckLink:
         while time.monotonic() < deadline:
             per_command = getattr(self._reader.state, "command_acks", {}).get(int(command))
             if per_command is not None and per_command[1] >= started_ns:
-                return {"command": int(command), "result": int(_field(per_command[0], "result", -1))}
+                return {
+                    "command": int(command),
+                    "result": int(_field(per_command[0], "result", -1)),
+                }
             received = getattr(self._reader.state, "received_monotonic_ns", {})
             ack = self._reader.state.get("COMMAND_ACK")
             if (
@@ -1642,8 +1742,9 @@ class _ReaderAckLink:
             time.sleep(0.02)
         return None
 
-    def wait_message(self, message_types: set[str] | tuple[str, ...],
-                     timeout_s: float, *, after_ns: int = 0) -> Any:
+    def wait_message(
+        self, message_types: set[str] | tuple[str, ...], timeout_s: float, *, after_ns: int = 0
+    ) -> Any:
         """Read a protocol message from the reader-owned latest state."""
         wanted = set(message_types)
         deadline = time.monotonic() + max(0.0, float(timeout_s))
@@ -1677,9 +1778,11 @@ def _home_reference(state: Any) -> tuple[tuple[float, float, float], tuple[float
     if home is None:
         raise RuntimeError("PX4 HOME_POSITION is not ready")
     try:
-        geodetic = (float(_field(home, "latitude", None)) / 1e7,
-                    float(_field(home, "longitude", None)) / 1e7,
-                    float(_field(home, "altitude", None)) / 1e3)
+        geodetic = (
+            float(_field(home, "latitude", None)) / 1e7,
+            float(_field(home, "longitude", None)) / 1e7,
+            float(_field(home, "altitude", None)) / 1e3,
+        )
         local = tuple(float(_field(home, key, None)) for key in ("x", "y", "z"))
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"PX4 HOME_POSITION is incomplete: {exc}") from exc
@@ -1707,7 +1810,9 @@ def _home_runway(state: Any) -> tuple[tuple[float, float], float]:
     return (float(lat) / 1e7, float(lon) / 1e7), heading_deg % 360.0
 
 
-def _offset_latlon(origin: tuple[float, float], bearing_deg: float, distance_m: float) -> tuple[float, float]:
+def _offset_latlon(
+    origin: tuple[float, float], bearing_deg: float, distance_m: float
+) -> tuple[float, float]:
     lat, lon = origin
     radius = 6371008.8
     bearing = math.radians(bearing_deg)
@@ -1759,11 +1864,13 @@ def _upload_fixed_wing_landing_mission(
     """Upload DO_LAND_START, NAV_LOITER_TO_ALT and NAV_LAND, then enter MISSION."""
     method = str(landing_method).strip().lower()
     if method == "parachute":
-        return SimpleNamespace(status="failed", ok=False,
-                               detail="parachute landing is not verified in PX4/Gazebo SITL")
+        return SimpleNamespace(
+            status="failed", ok=False, detail="parachute landing is not verified in PX4/Gazebo SITL"
+        )
     if method not in {"runway", "belly"}:
-        return SimpleNamespace(status="failed", ok=False,
-                               detail=f"unsupported fixed-wing landing method: {method}")
+        return SimpleNamespace(
+            status="failed", ok=False, detail=f"unsupported fixed-wing landing method: {method}"
+        )
     configured_angle = getattr(link, "FW_LND_ANG", None)
     params = getattr(link, "params", None)
     if configured_angle is None and isinstance(params, dict):
@@ -1772,10 +1879,15 @@ def _upload_fixed_wing_landing_mission(
         try:
             glide_angle_deg = float(configured_angle)
         except (TypeError, ValueError):
-            return SimpleNamespace(status="failed", ok=False,
-                                   detail=f"invalid FW_LND_ANG parameter: {configured_angle!r}")
+            return SimpleNamespace(
+                status="failed",
+                ok=False,
+                detail=f"invalid FW_LND_ANG parameter: {configured_angle!r}",
+            )
     approach, landing, altitude_m, heading_deg = _fixed_wing_landing_items(
-        reader.state, glide_angle_deg=glide_angle_deg, loiter_radius_m=loiter_radius_m,
+        reader.state,
+        glide_angle_deg=glide_angle_deg,
+        loiter_radius_m=loiter_radius_m,
     )
     target_system = int(getattr(link, "target_system", 1) or 1)
     target_component = int(getattr(link, "target_component", 1) or 1)
@@ -1788,16 +1900,33 @@ def _upload_fixed_wing_landing_mission(
     # in a global frame (MAV_MISSION_UNSUPPORTED); it is a MAV_FRAME_MISSION marker.
     items = [
         (MAV_FRAME_MISSION, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
-        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LOITER_TO_ALT, 0.0, float(loiter_radius_m), 0.0, 0.0,
-         *latlon(approach), float(altitude_m)),
-        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LAND, 0.0, 0.0, 0.0, float("nan"),
-         *latlon(landing), 0.0),
+        (
+            MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            MAV_CMD_NAV_LOITER_TO_ALT,
+            0.0,
+            float(loiter_radius_m),
+            0.0,
+            0.0,
+            *latlon(approach),
+            float(altitude_m),
+        ),
+        (
+            MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            MAV_CMD_NAV_LAND,
+            0.0,
+            0.0,
+            0.0,
+            float("nan"),
+            *latlon(landing),
+            0.0,
+        ),
     ]
     sender = getattr(getattr(link, "mav", None), "mission_count_send", None)
     item_sender = getattr(getattr(link, "mav", None), "mission_item_int_send", None)
     if not callable(sender) or not callable(item_sender):
-        return SimpleNamespace(status="failed", ok=False,
-                               detail="MAVLink connection lacks mission upload methods")
+        return SimpleNamespace(
+            status="failed", ok=False, detail="MAVLink connection lacks mission upload methods"
+        )
     started_ns = time.monotonic_ns()
     sender(target_system, target_component, len(items), mission_type)
     sent: set[int] = set()
@@ -1810,17 +1939,34 @@ def _upload_fixed_wing_landing_mission(
         if sequence in sent or not 0 <= sequence < len(items):
             continue
         frame, command, p1, p2, p3, p4, x, y, z = items[sequence]
-        item_sender(target_system, target_component, sequence, frame, command,
-                    0, 1, p1, p2, p3, p4, x, y, z, mission_type)
+        item_sender(
+            target_system,
+            target_component,
+            sequence,
+            frame,
+            command,
+            0,
+            1,
+            p1,
+            p2,
+            p3,
+            p4,
+            x,
+            y,
+            z,
+            mission_type,
+        )
         sent.add(sequence)
     if len(sent) != len(items):
-        return SimpleNamespace(status="timeout", ok=False,
-                               detail=f"MISSION_REQUEST_INT timeout; sent={sorted(sent)}")
+        return SimpleNamespace(
+            status="timeout", ok=False, detail=f"MISSION_REQUEST_INT timeout; sent={sorted(sent)}"
+        )
     ack = link.wait_message(("MISSION_ACK",), 1.5, after_ns=started_ns)
     result = _field(ack, "type", None) if ack is not None else None
     if ack is None or int(result) != 0:
-        return SimpleNamespace(status="failed", ok=False,
-                               detail=f"MISSION_ACK rejected or timed out: {result}")
+        return SimpleNamespace(
+            status="failed", ok=False, detail=f"MISSION_ACK rejected or timed out: {result}"
+        )
     # PX4 validates a fresh mission asynchronously and answers an early MISSION
     # request with "currently not available"; ask again until the heartbeat
     # reports AUTO.MISSION.
@@ -1832,11 +1978,20 @@ def _upload_fixed_wing_landing_mission(
         if custom is not None and _px4_mode_pair(int(custom)) == (4, 4):
             break
         if time.monotonic() >= mode_deadline:
-            return SimpleNamespace(status="failed", ok=False,
-                                   detail=f"PX4 did not enter AUTO.MISSION; custom_mode={custom}")
-    return SimpleNamespace(status="accepted", ok=True, mission_items=len(items),
-                           approach=approach, landing=landing, altitude_m=altitude_m,
-                           runway_heading_deg=heading_deg)
+            return SimpleNamespace(
+                status="failed",
+                ok=False,
+                detail=f"PX4 did not enter AUTO.MISSION; custom_mode={custom}",
+            )
+    return SimpleNamespace(
+        status="accepted",
+        ok=True,
+        mission_items=len(items),
+        approach=approach,
+        landing=landing,
+        altitude_m=altitude_m,
+        runway_heading_deg=heading_deg,
+    )
 
 
 def _land_diagnostics(
@@ -1952,8 +2107,9 @@ def _land_and_wait(
     )
 
 
-def _wait_px4_mode(reader: MavlinkReader, mode: tuple[int, int], *, timeout_s: float,
-                   after_ns: int) -> dict[str, Any]:
+def _wait_px4_mode(
+    reader: MavlinkReader, mode: tuple[int, int], *, timeout_s: float, after_ns: int
+) -> dict[str, Any]:
     """Wait for a HEARTBEAT newer than ``after_ns`` reporting PX4 (main, sub) mode."""
     started = time.monotonic()
     last: tuple[int, int] | None = None
@@ -1965,9 +2121,17 @@ def _wait_px4_mode(reader: MavlinkReader, mode: tuple[int, int], *, timeout_s: f
         if custom is not None and received >= after_ns:
             last = _px4_mode_pair(int(custom))
             if last == tuple(mode):
-                return {"confirmed": True, "mode": list(last), "elapsed_s": time.monotonic() - started}
+                return {
+                    "confirmed": True,
+                    "mode": list(last),
+                    "elapsed_s": time.monotonic() - started,
+                }
         time.sleep(0.1)
-    return {"confirmed": False, "mode": list(last) if last else None, "elapsed_s": time.monotonic() - started}
+    return {
+        "confirmed": False,
+        "mode": list(last) if last else None,
+        "elapsed_s": time.monotonic() - started,
+    }
 
 
 def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float) -> dict[str, Any]:
@@ -1984,8 +2148,11 @@ def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float)
                 float(_field(position, "y", 0.0)) - float(_field(home, "y", 0.0)),
             )
             if distance <= radius_m:
-                return {"status": "near_home", "distance_m": distance,
-                        "elapsed_s": time.monotonic() - started}
+                return {
+                    "status": "near_home",
+                    "distance_m": distance,
+                    "elapsed_s": time.monotonic() - started,
+                }
         time.sleep(0.25)
     # Landing from farther out still works; the mission flies to the approach first.
     return {"status": "timeout", "distance_m": distance, "elapsed_s": time.monotonic() - started}
@@ -1998,8 +2165,9 @@ def _fixed_wing_or_vtol_land_and_wait(
     timeout_s: float | None = None,
 ) -> dict[str, Any]:
     """Wait for the airframe-specific landing state after its command/mission."""
-    wait_timeout_s = float(timeout_s if timeout_s is not None else
-                           FixedWingVtolExecutor.STATE_TIMEOUT_S["land"])
+    wait_timeout_s = float(
+        timeout_s if timeout_s is not None else FixedWingVtolExecutor.STATE_TIMEOUT_S["land"]
+    )
     started = time.monotonic()
     started_ns = time.monotonic_ns()
     result = executor.land()
@@ -2350,7 +2518,9 @@ def run_episode(
         compress_mavlink=plan.compress_mavlink,
     )
     video_writer = (
-        ContinuousVideoWriter(recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes)
+        ContinuousVideoWriter(
+            recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes
+        )
         if plan.video_hz > 0.0
         else None
     )
@@ -2381,7 +2551,9 @@ def run_episode(
             mover_driver = _start_mover_driver(plan, environment, truth_path)
             if mover_driver is not None:
                 recorder.meta["mover_driver"] = mover_driver
-                recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+                recorder.episode_path.write_text(
+                    json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                )
                 _progress("mover_driver_started", command=mover_driver["command"])
                 _wait_for_mover_driver_start(plan, environment, mover_driver)
                 _progress("mover_driver_initial_visibility_ready")
@@ -2403,14 +2575,13 @@ def run_episode(
                 autoreconnect=False,
             )
             recorder.begin_mavlink_stream()
+
             def _record_mavlink(row: dict[str, Any]) -> None:
                 if str(row.get("message_type", "")).upper() == "STATUSTEXT":
                     launch_status_texts.append(str(row.get("text", "")))
                 recorder.record_mavlink(row)
 
-            mav_reader = MavlinkReader(
-                telemetry_connection, on_message=_record_mavlink
-            ).start()
+            mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
                 lambda: (
@@ -2476,15 +2647,23 @@ def run_episode(
                 model = _gazebo_model_name(plan, runtime)
                 profile = _airframe_profile(plan.airframe)
                 calibration_file = (
-                    "gazebo-multirotor-front-camera-v1.json" if profile is None or profile.category == "multirotor"
-                    else "gazebo-front-camera-v1.json" if profile.category == "vtol"
+                    "gazebo-multirotor-front-camera-v1.json"
+                    if profile is None or profile.category == "multirotor"
+                    else "gazebo-front-camera-v1.json"
+                    if profile.category == "vtol"
                     else "gazebo-fixed-wing-front-camera-v1.json"
                 )
                 calibration = json.loads(
-                    (ROOT / "simulation/gazebo/calibration" / calibration_file).read_text(encoding="utf-8")
+                    (ROOT / "simulation/gazebo/calibration" / calibration_file).read_text(
+                        encoding="utf-8"
+                    )
                 )["calibration"]
                 depth = next(
-                    (s for s in runtime.get("sensors", []) if isinstance(s, dict) and s.get("kind") == "depth_camera"),
+                    (
+                        s
+                        for s in runtime.get("sensors", [])
+                        if isinstance(s, dict) and s.get("kind") == "depth_camera"
+                    ),
                     {},
                 )
                 depth_id = depth.get("calibration_id", "gazebo-multirotor-depth-v1")
@@ -2601,16 +2780,23 @@ def run_episode(
             if plan.airframe == "x500_mono_cam":
                 # This is the original x500 sequence. Keep it byte-for-byte
                 # equivalent: setpoints -> arm -> OFFBOARD -> climb.
-                arm_ack = _arm(telemetry_connection, mav_reader, mavutil,
-                               _episode_budget(started, plan.max_episode_s, 30.0),
-                               setpoint=setpoint_streamer.send_once,
-                               heartbeat_connection=telemetry_connection)
+                arm_ack = _arm(
+                    telemetry_connection,
+                    mav_reader,
+                    mavutil,
+                    _episode_budget(started, plan.max_episode_s, 30.0),
+                    setpoint=setpoint_streamer.send_once,
+                    heartbeat_connection=telemetry_connection,
+                )
                 _progress("arm_ack", ack=arm_ack)
-                setpoint_streamer.set_target(start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state))
+                setpoint_streamer.set_target(
+                    start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
+                )
                 time.sleep(1.0)
                 setpoint_streamer.raise_if_failed()
                 offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
                 last_mode_request = [0.0]
+
                 def _offboard_entered() -> bool:
                     setpoint_streamer.raise_if_failed()
                     now = time.monotonic()
@@ -2619,10 +2805,16 @@ def run_episode(
                         _set_mode(telemetry_connection, "OFFBOARD")
                     hb = mav_reader.state.get("HEARTBEAT")
                     return hb is not None and str(_field(hb, "custom_mode", "")) in offboard_modes
-                _wait_for(_offboard_entered, _episode_budget(started, plan.max_episode_s, 10.0),
-                          phase="offboard_entered", health_check=mav_reader.raise_if_failed)
+
+                _wait_for(
+                    _offboard_entered,
+                    _episode_budget(started, plan.max_episode_s, 10.0),
+                    phase="offboard_entered",
+                    health_check=mav_reader.raise_if_failed,
+                )
                 _progress("offboard_entered")
                 last_z_report = [0.0]
+
                 def _takeoff_ready() -> bool:
                     setpoint_streamer.raise_if_failed()
                     hb = mav_reader.state.get("HEARTBEAT")
@@ -2639,28 +2831,45 @@ def run_episode(
                         last_z_report[0] = now
                         _progress("takeoff_progress", z_m=z, target_z_m=-altitude_m)
                     return z <= -(altitude_m - 0.5)
-                _wait_for(_takeoff_ready, _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
-                          phase="takeoff_reached", health_check=mav_reader.raise_if_failed)
+
+                _wait_for(
+                    _takeoff_ready,
+                    _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
+                    phase="takeoff_reached",
+                    health_check=mav_reader.raise_if_failed,
+                )
             else:
                 profile = _airframe_profile(plan.airframe, plan.takeoff_method)
                 assert profile is not None
-                takeoff_method = ("vtol" if profile.category == "vtol" else
-                                  plan.takeoff_method or profile.takeoff.methods[0])
+                takeoff_method = (
+                    "vtol"
+                    if profile.category == "vtol"
+                    else plan.takeoff_method or profile.takeoff.methods[0]
+                )
                 landing_method = profile.landing.methods[0]
                 executor = FixedWingVtolExecutor(
-                    _ReaderAckLink(vehicle, mav_reader), airframe=profile.id, takeoff_method=takeoff_method,
-                    landing_method=landing_method, altitude_m=altitude_m,
-                    loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
-                    position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
+                    _ReaderAckLink(vehicle, mav_reader),
+                    airframe=profile.id,
+                    takeoff_method=takeoff_method,
+                    landing_method=landing_method,
+                    altitude_m=altitude_m,
+                    loiter_radius_m=profile.orbit_radius(),
+                    ground_speed_mps=profile.cruise_airspeed_mps,
+                    position=lambda: _state_position(mav_reader.state),
+                    yaw_deg=lambda: _state_yaw(mav_reader.state),
                     geo_reference=lambda: _home_reference(mav_reader.state),
                     land_mission=(
-                        (lambda **kwargs: _upload_fixed_wing_landing_mission(
-                            _ReaderAckLink(vehicle, mav_reader), mav_reader,
-                            landing_method=kwargs.get("method", landing_method),
-                            timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["land"],
-                            loiter_radius_m=profile.orbit_radius(),
-                        ))
-                        if profile.category == "fixed_wing" else None
+                        (
+                            lambda **kwargs: _upload_fixed_wing_landing_mission(
+                                _ReaderAckLink(vehicle, mav_reader),
+                                mav_reader,
+                                landing_method=kwargs.get("method", landing_method),
+                                timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["land"],
+                                loiter_radius_m=profile.orbit_radius(),
+                            )
+                        )
+                        if profile.category == "fixed_wing"
+                        else None
                     ),
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
@@ -2669,29 +2878,40 @@ def run_episode(
                 if takeoff_method in {"hand", "catapult"}:
                     recorder.meta["launch_detection"] = {
                         "status": "waiting_for_px4_detection",
-                        "parameters": dict(_profile_launch_parameters(plan.airframe, takeoff_method)),
+                        "parameters": dict(
+                            _profile_launch_parameters(plan.airframe, takeoff_method)
+                        ),
                     }
                 launch_applied: dict[str, Any] | None = None
+
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
                     if phase == "takeoff" and takeoff_method in {"hand", "catapult"}:
                         launch_applied = _apply_gazebo_launch(
-                            plan, environment, _gazebo_model_name(plan, runtime),
-                            _state_yaw(mav_reader.state), takeoff_method,
+                            plan,
+                            environment,
+                            _gazebo_model_name(plan, runtime),
+                            _state_yaw(mav_reader.state),
+                            takeoff_method,
                         )
-                        recorder.meta["launch_detection"].update({
-                            "applied": launch_applied,
-                            "status": "launch_force_applied",
-                        })
-                        recorder.record_mavlink({
-                            "message_type": "gazebo_launch_applied", **launch_applied
-                        })
+                        recorder.meta["launch_detection"].update(
+                            {
+                                "applied": launch_applied,
+                                "status": "launch_force_applied",
+                            }
+                        )
+                        recorder.record_mavlink(
+                            {"message_type": "gazebo_launch_applied", **launch_applied}
+                        )
                         recorder.episode_path.write_text(
                             json.dumps(recorder.meta, indent=2), encoding="utf-8"
                         )
-                        _progress("gazebo_launch_applied", method=takeoff_method,
-                                  force_n=launch_applied["force_n"],
-                                  duration_s=launch_applied["duration_s"])
+                        _progress(
+                            "gazebo_launch_applied",
+                            method=takeoff_method,
+                            force_n=launch_applied["force_n"],
+                            duration_s=launch_applied["duration_s"],
+                        )
                     deadline = time.monotonic() + timeout_s
                     while time.monotonic() < deadline:
                         mav_reader.raise_if_failed()
@@ -2701,15 +2921,19 @@ def run_episode(
                             detected = _launch_detected(launch_status_texts)
                             climbed = z <= -(altitude_m - 1.0)
                             if takeoff_method in {"hand", "catapult"}:
-                                recorder.meta["launch_detection"].update({
-                                    "px4_detected": detected,
-                                    "launch_status_texts": launch_status_texts[-20:],
-                                    "climb_altitude_m": -float(z),
-                                    "climb_confirmed": climbed,
-                                })
+                                recorder.meta["launch_detection"].update(
+                                    {
+                                        "px4_detected": detected,
+                                        "launch_status_texts": launch_status_texts[-20:],
+                                        "climb_altitude_m": -float(z),
+                                        "climb_confirmed": climbed,
+                                    }
+                                )
                             if climbed and (takeoff_method not in {"hand", "catapult"} or detected):
                                 if takeoff_method in {"hand", "catapult"}:
-                                    recorder.meta["launch_detection"]["status"] = "detected_and_climbed"
+                                    recorder.meta["launch_detection"]["status"] = (
+                                        "detected_and_climbed"
+                                    )
                                     recorder.episode_path.write_text(
                                         json.dumps(recorder.meta, indent=2), encoding="utf-8"
                                     )
@@ -2720,7 +2944,10 @@ def run_episode(
                             return True
                         if phase == "orbit":
                             speed = state["airspeed_mps"]
-                            if speed is not None and profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps:
+                            if (
+                                speed is not None
+                                and profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps
+                            ):
                                 return True
                         hb_base = _field(mav_reader.state.get("HEARTBEAT"), "base_mode", None)
                         disarmed = hb_base is not None and (int(hb_base) & 128) == 0
@@ -2728,11 +2955,19 @@ def run_episode(
                             return True
                         time.sleep(0.1)
                     return False
+
                 executor._wait_for_state = _wait_fw_state
                 arm_ack = executor.arm_and_takeoff(altitude_m)
                 if arm_ack.status != "success":
                     raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")
-                recorder.record_mavlink({"message_type": "fixed_wing_takeoff_complete", "method": takeoff_method, "ack": _plain_record(arm_ack.ack), "flight_state": _flight_state_snapshot(mav_reader.state)})
+                recorder.record_mavlink(
+                    {
+                        "message_type": "fixed_wing_takeoff_complete",
+                        "method": takeoff_method,
+                        "ack": _plain_record(arm_ack.ack),
+                        "flight_state": _flight_state_snapshot(mav_reader.state),
+                    }
+                )
                 _progress("takeoff_reached", method=takeoff_method)
             for index in range(plan.steps_per_episode):
                 if index % max(1, plan.disk_check_interval_steps) == 0:
@@ -2799,13 +3034,19 @@ def run_episode(
                 motion = action if _is_motion_command(action) else None
                 step_action = action
                 if motion is not None:
-                    step_action = motion.action if motion.action is not None else ActionPrimitive.hold(
-                        max(float(motion.duration_s or 0.0), 1.0)
+                    step_action = (
+                        motion.action
+                        if motion.action is not None
+                        else ActionPrimitive.hold(max(float(motion.duration_s or 0.0), 1.0))
                     )
                     labels = {**labels, "motion": motion.to_dict()}
                     commanded_delta = (
-                        tuple(float(t) - float(p) for t, p in zip(motion.target_ned, pose))
-                        if motion.target_ned is not None else (0.0, 0.0, 0.0)
+                        tuple(
+                            float(t) - float(p)
+                            for t, p in zip(motion.target_ned, pose, strict=False)
+                        )
+                        if motion.target_ned is not None
+                        else (0.0, 0.0, 0.0)
                     )
                 else:
                     commanded_delta = primitive_to_ned(action, yaw)[:3]
@@ -2818,40 +3059,66 @@ def run_episode(
                 result = None
                 result_box: list[Any] = []
                 execute_error: list[BaseException] = []
+
                 def _execute() -> None:
                     try:
-                        executed = executor.execute(action)
-                        if motion is not None and executed.status == "success":
+                        executed = executor.execute(action)  # noqa: B023
+                        if motion is not None and executed.status == "success":  # noqa: B023
                             executed.ack["motion_wait"] = _wait_motion_command(
-                                motion, mav_reader,
-                                cruise_mps=getattr(_airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0),
+                                motion,  # noqa: B023
+                                mav_reader,
+                                cruise_mps=getattr(
+                                    _airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0
+                                ),
                             )
-                        result_box.append(executed)
+                        result_box.append(executed)  # noqa: B023
                     except BaseException as exc:
-                        execute_error.append(exc)
+                        execute_error.append(exc)  # noqa: B023
+
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action")
                 execute_thread.start()
                 while execute_thread.is_alive():
                     now = time.monotonic()
                     if video_writer is not None and now >= next_video_s:
                         try:
-                            video_stamp = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                            video_stamp = _pose_sim_stamp_ns(
+                                _snapshot_mavlink_state(mav_reader.state)
+                            )
                             sensor_reader.request(video_stamp or 0)
                             sample = sensor_reader.latest
-                            if sample is not None and (video_stamp is None or sample.sensor_stamp_ns >= video_stamp):
+                            if sample is not None and (
+                                video_stamp is None or sample.sensor_stamp_ns >= video_stamp
+                            ):
                                 aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
-                                video_obs = _png_observation(build_observation(sample, aligned, camera_info={
-                                    **DEFAULT_CAMERA_INFO,
-                                    "width": plan.rgb_size[0], "height": plan.rgb_size[1],
-                                    "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
-                                    "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
-                                    "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
-                                    "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
-                                }))
+                                video_obs = _png_observation(
+                                    build_observation(
+                                        sample,
+                                        aligned,
+                                        camera_info={
+                                            **DEFAULT_CAMERA_INFO,
+                                            "width": plan.rgb_size[0],
+                                            "height": plan.rgb_size[1],
+                                            "fx": DEFAULT_CAMERA_INFO["fx"]
+                                            * plan.rgb_size[0]
+                                            / 1280.0,
+                                            "fy": DEFAULT_CAMERA_INFO["fy"]
+                                            * plan.rgb_size[1]
+                                            / 960.0,
+                                            "cx": DEFAULT_CAMERA_INFO["cx"]
+                                            * plan.rgb_size[0]
+                                            / 1280.0,
+                                            "cy": DEFAULT_CAMERA_INFO["cy"]
+                                            * plan.rgb_size[1]
+                                            / 960.0,
+                                        },
+                                    )
+                                )
                                 video_obs["flight_stage"] = "action"
                                 video_writer.write(video_obs, action_index=index)
                         except Exception as exc:
-                            recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                            recorder.record_mavlink(
+                                {"message_type": "video_capture_error", "error": str(exc)}
+                            )
                         next_video_s += 1.0 / plan.video_hz
                     execute_thread.join(timeout=max(0.001, min(0.02, next_video_s - now)))
                 execute_thread.join()
@@ -2865,13 +3132,21 @@ def run_episode(
                     if sample is not None:
                         try:
                             aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
-                            final_obs = _png_observation(build_observation(sample, aligned, camera_info={
-                                **DEFAULT_CAMERA_INFO, "width": plan.rgb_size[0], "height": plan.rgb_size[1],
-                                "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
-                                "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
-                                "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
-                                "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
-                            }))
+                            final_obs = _png_observation(
+                                build_observation(
+                                    sample,
+                                    aligned,
+                                    camera_info={
+                                        **DEFAULT_CAMERA_INFO,
+                                        "width": plan.rgb_size[0],
+                                        "height": plan.rgb_size[1],
+                                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                                    },
+                                )
+                            )
                             final_obs["flight_stage"] = "action_end"
                             video_writer.write(final_obs, action_index=index)
                         except Exception:
@@ -2924,7 +3199,8 @@ def run_episode(
                 if motion is not None:
                     # Guided commands report no displacement; measure it from telemetry.
                     achieved_delta = [
-                        float(a) - float(b) for a, b in zip(after["pose"]["local_ned_m"], pose)
+                        float(a) - float(b)
+                        for a, b in zip(after["pose"]["local_ned_m"], pose, strict=False)
                     ]
                 continue_loop = _record_policy_step(
                     recorder,
@@ -2959,22 +3235,31 @@ def run_episode(
                 # Confirm PX4 is really in AUTO.RTL before anything else is sent:
                 # otherwise the landing mission upload races the mode change and
                 # PX4 may skip RTL ("No valid mission available").
-                rtl_mode = _wait_px4_mode(mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S,
-                                          after_ns=rtl_started_ns)
+                rtl_mode = _wait_px4_mode(
+                    mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S, after_ns=rtl_started_ns
+                )
                 if not rtl_mode["confirmed"]:
                     executor.rtl()
-                    rtl_mode = _wait_px4_mode(mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S,
-                                              after_ns=time.monotonic_ns())
+                    rtl_mode = _wait_px4_mode(
+                        mav_reader,
+                        (4, 5),
+                        timeout_s=RTL_MODE_CONFIRM_S,
+                        after_ns=time.monotonic_ns(),
+                    )
                 recorder.meta["rtl_mode"] = rtl_mode
                 _progress("rtl", **rtl_mode)
                 profile = _airframe_profile(plan.airframe)
                 if profile is not None and profile.category in {"fixed_wing", "vtol"}:
                     # Let RTL bring the aircraft back over home before the landing
                     # (mission or VTOL back-transition) replaces it.
-                    _progress("rtl_home", **_wait_near_home(
-                        mav_reader, radius_m=2.0 * profile.orbit_radius() + 50.0,
-                        timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
-                    ))
+                    _progress(
+                        "rtl_home",
+                        **_wait_near_home(
+                            mav_reader,
+                            radius_m=2.0 * profile.orbit_radius() + 50.0,
+                            timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
+                        ),
+                    )
             # Fixed-wing/VTOL use their physical landing lifecycle.  x500 keeps
             # the original OFFBOARD -> LAND helper and timing unchanged.
             if plan.airframe == "x500_mono_cam":
@@ -3094,14 +3379,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
     parser.add_argument(
-        "--airframe", default="x500_mono_cam",
+        "--airframe",
+        default="x500_mono_cam",
         help="airframe profile/model id; x500_mono_cam keeps the legacy multirotor path",
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
-    parser.add_argument("--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route")
-    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard", "hover"), required=True)
     parser.add_argument(
-        "--teacher-target", choices=("true", "confuser"), default="true",
+        "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
+    )
+    parser.add_argument(
+        "--teacher", choices=("explore", "expert_search", "onboard", "hover"), required=True
+    )
+    parser.add_argument(
+        "--teacher-target",
+        choices=("true", "confuser"),
+        default="true",
         help="expert_search flies to the true target or to a look-alike confuser (hard negatives)",
     )
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
@@ -3114,11 +3406,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--disk-check-interval-steps", type=int, default=DEFAULT_DISK_CHECK_INTERVAL_STEPS
     )
     parser.add_argument(
-        "--video-hz", type=float, default=0.0,
+        "--video-hz",
+        type=float,
+        default=0.0,
         help="continuous RGB/segmentation/depth video rate during actions; 0 disables it",
     )
     parser.add_argument(
-        "--video-max-gb", type=float, default=DEFAULT_VIDEO_MAX_BYTES / 1024**3,
+        "--video-max-gb",
+        type=float,
+        default=DEFAULT_VIDEO_MAX_BYTES / 1024**3,
         help="per-episode continuous-video byte cap in GiB",
     )
     parser.add_argument(

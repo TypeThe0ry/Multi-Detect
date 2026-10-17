@@ -12,9 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / "docs/current-progress.json"
 TARGETS = {
     "external_fixed_wing_shared_policy_depth_mission_20260930": ROOT
-    / "artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261007-current-parity-r1.json",
+    / "artifacts/evaluation/external-fixed-wing-depth-shared-policy-"
+    "20261007-current-parity-r1.json",
     "external_multirotor_shared_policy_depth_mission_20260930": ROOT
-    / "artifacts/evaluation/external-multirotor-depth-shared-policy-20261007-current-parity-r1.json",
+    / "artifacts/evaluation/external-multirotor-depth-shared-policy-"
+    "20261007-current-parity-r1.json",
 }
 
 

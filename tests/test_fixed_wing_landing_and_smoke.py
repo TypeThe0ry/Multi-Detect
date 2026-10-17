@@ -14,8 +14,11 @@ class _State:
             "LOCAL_POSITION_NED": {"z": -100.0},
             "ATTITUDE": {"yaw": 0.0},
             # Home 0.5 km away, runway heading east (yaw 90 deg).
-            "HOME_POSITION": {"latitude": 135045000, "longitude": 1038000000,
-                              "q": [0.7071067811865476, 0.0, 0.0, 0.7071067811865476]},
+            "HOME_POSITION": {
+                "latitude": 135045000,
+                "longitude": 1038000000,
+                "q": [0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
+            },
         }
         self.received_monotonic_ns = {}
 
@@ -39,7 +42,11 @@ class _Reader:
         if "HEARTBEAT" in names:
             # PX4 rejects the first MISSION request while it validates the upload.
             self.mode_polls = getattr(self, "mode_polls", 0) + 1
-            return {"custom_mode": (4 << 16) | (4 << 24) if self.mode_polls > 1 else (4 << 16) | (5 << 24)}
+            return {
+                "custom_mode": (4 << 16) | (4 << 24)
+                if self.mode_polls > 1
+                else (4 << 16) | (5 << 24)
+            }
         return self._ack
 
 
@@ -78,7 +85,10 @@ def test_fixed_wing_landing_uploads_approach_land_start_and_land():
     )
     assert result.ok
     assert [entry[0] for entry in link.mav.sent] == [
-        "MISSION_COUNT", "MISSION_ITEM_INT", "MISSION_ITEM_INT", "MISSION_ITEM_INT"
+        "MISSION_COUNT",
+        "MISSION_ITEM_INT",
+        "MISSION_ITEM_INT",
+        "MISSION_ITEM_INT",
     ]
     commands = [entry[1][4] for entry in link.mav.sent[1:]]
     assert commands == [189, 31, 21]
@@ -120,8 +130,12 @@ def test_vtol_transition_to_mc_uses_command_and_land_state():
             calls.append(("land", method))
             return SimpleNamespace(status="accepted", ok=True)
 
-    executor = __import__("multidetect.sim_teacher.fw_executor", fromlist=["FixedWingVtolExecutor"]).FixedWingVtolExecutor(
-        Vehicle(), airframe="standard_vtol", landing_method="vtol",
+    executor = __import__(
+        "multidetect.sim_teacher.fw_executor", fromlist=["FixedWingVtolExecutor"]
+    ).FixedWingVtolExecutor(
+        Vehicle(),
+        airframe="standard_vtol",
+        landing_method="vtol",
         wait_for_state=lambda phase, timeout: True,
     )
     result = executor.land()
@@ -140,11 +154,16 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
         {"message_type": "HEARTBEAT", "custom_mode": (4 << 16) | (5 << 24)},
         {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1, "vtol_state": 0},
     ]
-    (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
-    step = {"action": {"kind": "translate"}, "outcome": {
-        "commanded_delta_ned": [10.0, 0.0, 0.0],
-        "achieved_delta_ned": [9.0, 0.0, 0.0],
-    }}
+    (tmp_path / "mavlink.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
+    step = {
+        "action": {"kind": "translate"},
+        "outcome": {
+            "commanded_delta_ned": [10.0, 0.0, 0.0],
+            "achieved_delta_ned": [9.0, 0.0, 0.0],
+        },
+    }
     (tmp_path / "steps.jsonl").write_text(json.dumps(step), encoding="utf-8")
     result = evaluate_episode(tmp_path, profile, 5.0)
     assert result["takeoff_success"] is True
@@ -157,8 +176,12 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
 
 def test_smoke_evaluation_takes_rtl_from_px4_statustext(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
-    rows = [{"message_type": "STATUSTEXT", "text": "RTL: start return at 101 m (100 m above destinatio"}]
-    (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    rows = [
+        {"message_type": "STATUSTEXT", "text": "RTL: start return at 101 m (100 m above destinatio"}
+    ]
+    (tmp_path / "mavlink.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
     assert evaluate_episode(tmp_path, profile, 5.0)["rtl_entered"] is True
 
 
@@ -170,7 +193,9 @@ def test_smoke_evaluation_needs_touchdown_after_flight_and_a_real_rtl(tmp_path: 
         {"message_type": "EXTENDED_SYS_STATE", "landed_state": 2, "vtol_state": 0},
         {"message_type": "HEARTBEAT", "custom_mode": (4 << 16) | (3 << 24)},
     ]
-    (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    (tmp_path / "mavlink.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
     result = evaluate_episode(tmp_path, profile, 5.0)
     assert result["landed"] is False  # on the ground only before takeoff
     assert result["rtl_entered"] is False  # AUTO.LOITER is not RTL
@@ -210,9 +235,14 @@ def test_rtl_is_confirmed_from_a_fresh_heartbeat_before_landing():
     # A stale RTL heartbeat from before the request does not count.
     state.messages["HEARTBEAT"] = {"custom_mode": (4 << 16) | (5 << 24)}
     state.received_monotonic_ns["HEARTBEAT"] = after - 1
-    assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is False
+    assert (
+        collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"]
+        is False
+    )
     state.received_monotonic_ns["HEARTBEAT"] = after + 1
-    assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is True
+    assert (
+        collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is True
+    )
 
 
 def test_loiter_airspeed_allows_a_brief_overshoot_but_not_a_stall(tmp_path: Path):
@@ -224,6 +254,6 @@ def test_loiter_airspeed_allows_a_brief_overshoot_but_not_a_stall(tmp_path: Path
         (tmp_path / "mavlink.jsonl").write_text("", encoding="utf-8")
         return evaluate_episode(tmp_path, profile, 5.0)["loiter_airspeed_in_range"]
 
-    assert judge(22.1) is True   # post-transition overshoot
+    assert judge(22.1) is True  # post-transition overshoot
     assert judge(25.0) is False
     assert judge(13.5) is False  # below the minimum: stall margin stays strict

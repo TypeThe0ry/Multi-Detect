@@ -18,7 +18,9 @@ from scripts.slow_system_runtime import (
 
 def _row(path: Path, box: list[float], decision: str = "confirm_target") -> dict:
     return {
-        "image_path": str(path), "task_text": "Find the red vehicle.", "memory": "none",
+        "image_path": str(path),
+        "task_text": "Find the red vehicle.",
+        "memory": "none",
         "candidates": [{"track_id": "track-1", "box_xyxy_normalized": box}],
         "assistant_target": {"decision": decision, "args": {"track_id": "track-1"}},
     }
@@ -46,11 +48,17 @@ def test_old_manifest_is_single_image_and_new_policy_adds_crop(tmp_path: Path) -
 def test_balance_rows_is_deterministic_and_within_two_to_one() -> None:
     rows = []
     for decision, count in (("confirm_target", 1), ("approach_track", 2), ("reject_track", 8)):
-        rows.extend({"assistant_target": {"decision": decision}, "sample_id": f"{decision}-{i}"} for i in range(count))
+        rows.extend(
+            {"assistant_target": {"decision": decision}, "sample_id": f"{decision}-{i}"}
+            for i in range(count)
+        )
     first = trainer.balance_rows(rows, seed=7)
     second = trainer.balance_rows(rows, seed=7)
     assert [r["sample_id"] for r in first] == [r["sample_id"] for r in second]
-    counts = {name: sum(r["assistant_target"]["decision"] == name for r in first) for name in ("confirm_target", "approach_track", "reject_track")}
+    counts = {
+        name: sum(r["assistant_target"]["decision"] == name for r in first)
+        for name in ("confirm_target", "approach_track", "reject_track")
+    }
     assert max(counts.values()) <= 2 * min(counts.values())
 
 
@@ -105,7 +113,8 @@ def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
         assert names == sorted(names)
         assert emitted == names
     count = next(
-        step for step in schema["properties"]["steps"]["items"]["anyOf"]
+        step
+        for step in schema["properties"]["steps"]["items"]["anyOf"]
         if step["properties"]["skill"]["enum"] == ["count"]
     )
     branches = count["properties"]["params"]["anyOf"]

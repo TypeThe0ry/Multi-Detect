@@ -27,7 +27,7 @@ def test_triangulate_reconstructs_point_from_three_rays():
         samples.append((camera, tuple(value / norm for value in ray)))
     estimate = triangulate(samples)
     assert estimate is not None
-    assert all(math.isclose(a, b, abs_tol=1e-6) for a, b in zip(estimate, point))
+    assert all(math.isclose(a, b, abs_tol=1e-6) for a, b in zip(estimate, point, strict=False))
 
 
 def test_triangulate_rejects_degenerate_single_direction():
