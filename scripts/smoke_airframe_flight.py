@@ -157,6 +157,13 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         transition_success = True
     if profile.category == "vtol" and transition_success:
         transition_success = transition_success and any(s in {3, 6} for s in vtol_states)
+    takeoff_method = str(episode.get("takeoff_method", profile.takeoff.methods[0]))
+    launch_texts = [str(_mav_value(row, "text", "")) for row in mavlink
+                    if str(row.get("message_type", row.get("mavpackettype", ""))).upper() == "STATUSTEXT"]
+    launch_detected = any("detect" in text.lower() and
+                          ("launch" in text.lower() or "takeoff" in text.lower())
+                          for text in launch_texts)
+    launch_required = takeoff_method in {"hand", "catapult"}
     loiter_speeds: list[float] = []
     for row in steps:
         action = row.get("action") or {}
@@ -197,6 +204,9 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
     failure = episode.get("failure")
     return {
         "takeoff_success": takeoff_success,
+        "launch_detected": launch_detected if launch_required else True,
+        "launch_climb_success": (launch_detected and takeoff_success) if launch_required else True,
+        "launch_status_texts": launch_texts,
         "transition_success": transition_success,
         "loiter_airspeed_in_range": in_range,
         "loiter_airspeed_mps": measured_speeds,
@@ -262,6 +272,8 @@ def build_plan(airframe: str, profile: AirframeProfile, scenario: Path, takeoff_
     launch_note = None
     if selected in {"hand", "catapult"}:
         launch_note = "需要在 PX4 SITL/Gazebo 施加真实初速度/冲量并触发 FW_LAUN_DETCN_ON；未核实前不得宣称手抛/弹射成功"
+    if selected in {"hand", "catapult"}:
+        launch_note = "PX4 accepts takeoff, Gazebo sets body-forward velocity, and both PX4 launch detection and climb must be observed."
     steps = [
         {"stage": "preflight", "action": "GCS heartbeat + prearm + arm", "timeout_s": 45},
         {"stage": "takeoff", "action": selected, "mav_cmd": 84 if selected == "vtol" else 22},
@@ -291,9 +303,11 @@ def build_plan(airframe: str, profile: AirframeProfile, scenario: Path, takeoff_
             "max_age_s": 0.10 if profile.category == "fixed_wing" else 0.25,
             "reason": "固定翼速度更高，使用更窄的帧时效门限；门限仍由实际锁步吞吐核验",
         },
-        "pass_fields": ["takeoff", "transition", "loiter_airspeed", "reposition_error", "rtl", "landed_state", "frames_aligned"],
+        "pass_fields": ["takeoff", "launch_detected", "launch_climb_success", "transition", "loiter_airspeed", "reposition_error", "rtl", "landed_state", "frames_aligned"],
         "judgement": {
             "takeoff_success": None,
+            "launch_detected": None if selected in {"hand", "catapult"} else True,
+            "launch_climb_success": None if selected in {"hand", "catapult"} else True,
             "transition_success": None if transition else True,
             "loiter_airspeed_in_range": None,
             "reposition_error_m": None,
@@ -334,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
                "--smoke-flight",
                "--out", str(args.out), "--container-prefix", args.container_prefix,
                "--control-port", str(args.control_port), "--telemetry-port", str(args.telemetry_port)]
+    if plan["takeoff_method"] in {"hand", "catapult"}:
+        command.extend(["--takeoff-method", plan["takeoff_method"]])
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
@@ -347,6 +363,8 @@ def main(argv: list[str] | None = None) -> int:
         result["judgement"].update(parsed)
         required = ("takeoff_success", "transition_success", "loiter_airspeed_in_range",
                     "rtl_entered", "landed", "frames_aligned", "stayed_in_area")
+        if plan["takeoff_method"] in {"hand", "catapult"}:
+            required += ("launch_detected", "launch_climb_success")
         result["status"] = "pass" if completed.returncode == 0 and all(
             result["judgement"].get(field) is True for field in required
         ) else "fail"
@@ -355,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     if completed.returncode != 0:
         result["judgement"]["failure_reason"] = result["failure_reason"]
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return completed.returncode
+    return completed.returncode if completed.returncode != 0 else (0 if result["status"] == "pass" else 1)
 
 
 if __name__ == "__main__":

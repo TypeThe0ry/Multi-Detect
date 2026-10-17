@@ -54,6 +54,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from scripts.run_simulator_docker import build_docker_simulator_plan  # noqa: E402
+from multidetect.simulator.stack import SimulatorStackError, _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from multidetect.px4_mission import (
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
     MAV_CMD_NAV_WAYPOINT,
@@ -196,6 +197,7 @@ class CollectionPlan:
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
     smoke_flight: bool = False
+    takeoff_method: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -242,13 +244,16 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
     return runtime
 
 
-def _airframe_profile(airframe: str) -> AirframeProfile | None:
+def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> AirframeProfile | None:
     normalized = str(airframe).strip().lower().replace("-", "_")
     if normalized in {"x500", "x500_mono_cam", "multirotor"}:
         return None
     if normalized in {"fixed_wing", "fw", "vtol"}:
         return None
-    candidates = [ROOT / "configs" / "airframes" / f"{normalized}.json"]
+    selected = normalized
+    if normalized == "rc_cessna_mono_cam" and takeoff_method in {"hand", "catapult"}:
+        selected = f"rc_cessna_{takeoff_method}"
+    candidates = [ROOT / "configs" / "airframes" / f"{selected}.json"]
     aliases = {
         "rc_cessna_mono_cam": "rc_cessna_runway",
         "advanced_plane_mono_cam": "advanced_plane",
@@ -256,7 +261,7 @@ def _airframe_profile(airframe: str) -> AirframeProfile | None:
         "tiltrotor_mono_cam": "tiltrotor",
         "standard_vtol_mono_cam": "standard_vtol",
     }
-    if normalized in aliases:
+    if normalized in aliases and selected == normalized:
         candidates.insert(0, ROOT / "configs" / "airframes" / f"{aliases[normalized]}.json")
     for path in candidates:
         if path.is_file():
@@ -267,14 +272,19 @@ def _airframe_profile(airframe: str) -> AirframeProfile | None:
 def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     """Name of the spawned Gazebo model whose sensor topics the collector subscribes to.
 
-    The x500 collector always spawns ``x500_mono_cam``; its runtime channel names the
-    abstract airframe (``px4_multirotor_standard``), not the Gazebo model.  Airframe
-    scenarios name the spawned ``*_mono_cam`` model directly.
+    Runtime channels name an abstract airframe (``px4_multirotor_standard``,
+    ``px4_fixed_wing_standard``); the simulator stack maps it to the Gazebo model it
+    spawns, so use that same mapping instead of guessing from the runtime name.
     """
     if plan.airframe == "x500_mono_cam":
         return "x500_mono_cam_0"
     vehicle = runtime.get("vehicle", {}) if isinstance(runtime, Mapping) else {}
-    name = str(vehicle.get("model", plan.airframe)) if isinstance(vehicle, Mapping) else plan.airframe
+    vehicle = vehicle if isinstance(vehicle, Mapping) else {}
+    model = str(vehicle.get("model", plan.airframe))
+    try:
+        _, name = _stack_vehicle_spec(model, str(vehicle.get("airframe_profile_id", "")))
+    except SimulatorStackError:
+        name = model
     return name if name.endswith("_0") else name + "_0"
 
 
@@ -343,6 +353,112 @@ def _docker_executable(plan: CollectionPlan) -> str:
     if not Path(executable).is_file() and not shutil.which(executable):
         return "docker"
     return executable
+
+
+LAUNCH_TOTAL_MASS_KG = 1.7
+GRAVITY_MPS2 = 9.80665
+LAUNCH_PULSE = {
+    # Approximate the impulse of a human throw (released upward of level so the
+    # aircraft leaves the ground) or a near-level catapult stroke.
+    "hand": {"delta_v_mps": 12.0, "duration_s": 0.25, "pitch_deg": 20.0},
+    "catapult": {"delta_v_mps": 17.0, "duration_s": 0.15, "pitch_deg": 10.0},
+}
+
+
+def _launch_force(method: str, yaw_ned_rad: float) -> dict[str, float]:
+    """World-frame (ENU) force for the launch pulse.
+
+    The thrown aircraft starts on the ground in SITL, so the pulse also carries its
+    weight (m*g up) while it lasts; otherwise a shallow throw only pushes the model
+    along on its wheels and the "hand launch" turns into a short ground roll.
+    """
+    pulse = LAUNCH_PULSE[method]
+    speed = pulse["delta_v_mps"]
+    pitch = math.radians(pulse["pitch_deg"])
+    yaw_enu = math.pi / 2.0 - yaw_ned_rad
+    direction = {
+        "x": math.cos(pitch) * math.cos(yaw_enu),
+        "y": math.cos(pitch) * math.sin(yaw_enu),
+        "z": math.sin(pitch),
+    }
+    force = LAUNCH_TOTAL_MASS_KG * speed / pulse["duration_s"]
+    weight = LAUNCH_TOTAL_MASS_KG * GRAVITY_MPS2
+    return {
+        "x": force * direction["x"],
+        "y": force * direction["y"],
+        "z": force * direction["z"] + weight,
+        "force_n": force,
+        "weight_compensation_n": weight,
+        "mass_kg": LAUNCH_TOTAL_MASS_KG,
+        "delta_v_mps": speed,
+        "duration_s": pulse["duration_s"],
+        "pitch_deg": pulse["pitch_deg"],
+    }
+
+
+def _apply_gazebo_launch(
+    plan: CollectionPlan, environment: DockerSimEnvironment, model: str,
+    yaw_ned_rad: float, method: str,
+) -> dict[str, Any]:
+    """Apply one world-frame force pulse and always clear its persistent wrench."""
+    executable = _docker_executable(plan)
+    force = _launch_force(method, yaw_ned_rad)
+    topic = "/world/default/wrench/persistent"
+    clear_topic = "/world/default/wrench/clear"
+    link = f"{model}::base_link"
+    # gz.msgs.EntityWrench nests force/torque under ``wrench``; the clear topic takes
+    # a gz.msgs.Entity.  Both go in through the environment so no shell quoting can
+    # strip the quoted link name.
+    proto = (f'entity {{ name: "{link}" type: LINK }} '
+             f'wrench {{ force {{ x: {force["x"]:.6f} y: {force["y"]:.6f} z: {force["z"]:.6f} }} }}')
+    clear_proto = f'name: "{link}" type: LINK'
+    # Each `gz topic -p` spends most of its time on start-up and discovery before
+    # it publishes.  Start the pulse and the delayed clear together so the start-up
+    # cost cancels out and the force stays on for about duration_s, not
+    # duration_s plus a second process start.
+    script = (
+        "set -u; "
+        "topics=$(gz topic -l); "
+        f"case \"$topics\" in *{topic}* ) ;; *) echo 'missing {topic}' >&2; exit 20;; esac; "
+        f"case \"$topics\" in *{clear_topic}* ) ;; *) echo 'missing {clear_topic}' >&2; exit 21;; esac; "
+        f"gz topic -t {topic} -m gz.msgs.EntityWrench -p \"$MD_WRENCH\" & "
+        f"(sleep {force['duration_s']:.3f}; gz topic -t {clear_topic} -m gz.msgs.Entity -p \"$MD_CLEAR\") & "
+        "wait"
+    )
+    started_wall = time.time()
+    started_mono = time.monotonic()
+    result = subprocess.run(
+        [executable, "exec", "-e", f"MD_WRENCH={proto}", "-e", f"MD_CLEAR={clear_proto}",
+         environment.name, "bash", "-c", script],
+        capture_output=True, text=True, timeout=max(8.0, force["duration_s"] + 5.0), check=False,
+    )
+    ended_mono = time.monotonic()
+    ended_wall = time.time()
+    output = (result.stdout or "")[-1000:] + (result.stderr or "")[-1000:]
+    # gz topic exits 0 even when it cannot build the message; treat that as failure.
+    if result.returncode != 0 or "Unable to create message" in output or "Error parsing" in output:
+        raise RuntimeError(f"Gazebo launch wrench failed ({result.returncode}): {output}")
+    return {
+        "method": method,
+        "topic": topic,
+        "clear_topic": clear_topic,
+        "link": link,
+        "force_world_enu_n": {axis: force[axis] for axis in ("x", "y", "z")},
+        **force,
+        "started_wall_time": started_wall,
+        "ended_wall_time": ended_wall,
+        "started_monotonic_s": started_mono,
+        "ended_monotonic_s": ended_mono,
+        "command_returncode": result.returncode,
+        "command_output": output,
+    }
+
+
+def _launch_detected(status_texts: Iterable[str]) -> bool:
+    return any(
+        "detect" in text.lower() and ("launch" in text.lower() or "takeoff" in text.lower())
+        for text in status_texts
+    )
 
 
 def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironment) -> list[str]:
@@ -925,13 +1041,36 @@ def _profile_landing_parameters(airframe: str) -> tuple[tuple[str, str], ...]:
     )
 
 
+def _profile_launch_parameters(airframe: str, takeoff_method: str | None) -> tuple[tuple[str, str], ...]:
+    if takeoff_method not in {"hand", "catapult"}:
+        return ()
+    profile = _airframe_profile(airframe, takeoff_method)
+    if profile is None:
+        raise ValueError(f"{takeoff_method} launch requires a fixed-wing airframe profile")
+    detection = profile.takeoff.launch_detection
+    if detection is None:
+        raise ValueError(f"{takeoff_method} launch profile has no launch detector configuration")
+    parameters = tuple(
+        (ref.px4_name, _px4_param_text(ref.value))
+        for ref in (detection.accel_parameter, detection.duration_parameter)
+        if ref.px4_name is not None and not ref.unverified
+    )
+    required = {"FW_LAUN_AC_THLD", "FW_LAUN_AC_T"}
+    names = {name for name, _ in parameters}
+    if not required.issubset(names):
+        raise ValueError(f"verified PX4 launch parameters missing: {sorted(required - names)}")
+    return (("FW_LAUN_DETCN_ON", "1"), *parameters)
+
+
 def _set_sim_params(
     plan: CollectionPlan, environment: DockerSimEnvironment
 ) -> list[dict[str, Any]]:
     """Apply the SIM-only GCS input setting after PX4 heartbeat is live."""
     executable = _docker_executable(plan)
     applied: list[dict[str, Any]] = []
-    for parameter, value in (*SIM_PREARM_PARAMETERS, *_profile_landing_parameters(plan.airframe)):
+    for parameter, value in (*SIM_PREARM_PARAMETERS,
+                             *_profile_launch_parameters(plan.airframe, plan.takeoff_method),
+                             *_profile_landing_parameters(plan.airframe)):
         command = [
             executable,
             "exec",
@@ -1980,6 +2119,7 @@ def run_episode(
     telemetry_connection = None
     sensor_process = None
     sensor_reader = mav_reader = None
+    launch_status_texts: list[str] = []
     setpoint_streamer = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     try:
@@ -2004,8 +2144,13 @@ def run_episode(
                 autoreconnect=False,
             )
             recorder.begin_mavlink_stream()
+            def _record_mavlink(row: dict[str, Any]) -> None:
+                if str(row.get("message_type", "")).upper() == "STATUSTEXT":
+                    launch_status_texts.append(str(row.get("text", "")))
+                recorder.record_mavlink(row)
+
             mav_reader = MavlinkReader(
-                telemetry_connection, on_message=recorder.record_mavlink
+                telemetry_connection, on_message=_record_mavlink
             ).start()
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
@@ -2238,9 +2383,10 @@ def run_episode(
                 _wait_for(_takeoff_ready, _episode_budget(started, plan.max_episode_s, _takeoff_timeout_s(altitude_m)),
                           phase="takeoff_reached", health_check=mav_reader.raise_if_failed)
             else:
-                profile = _airframe_profile(plan.airframe)
+                profile = _airframe_profile(plan.airframe, plan.takeoff_method)
                 assert profile is not None
-                takeoff_method = "vtol" if profile.category == "vtol" else profile.takeoff.methods[0]
+                takeoff_method = ("vtol" if profile.category == "vtol" else
+                                  plan.takeoff_method or profile.takeoff.methods[0])
                 landing_method = profile.landing.methods[0]
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader), airframe=profile.id, takeoff_method=takeoff_method,
@@ -2262,15 +2408,53 @@ def run_episode(
                 recorder.meta["takeoff_method"] = takeoff_method
                 recorder.meta["landing_method"] = landing_method
                 if takeoff_method in {"hand", "catapult"}:
-                    recorder.meta["launch_detection"] = "requires external Gazebo impulse; no false success"
+                    recorder.meta["launch_detection"] = {
+                        "status": "waiting_for_px4_detection",
+                        "parameters": dict(_profile_launch_parameters(plan.airframe, takeoff_method)),
+                    }
+                launch_applied: dict[str, Any] | None = None
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
+                    nonlocal launch_applied
+                    if phase == "takeoff" and takeoff_method in {"hand", "catapult"}:
+                        launch_applied = _apply_gazebo_launch(
+                            plan, environment, _gazebo_model_name(plan, runtime),
+                            _state_yaw(mav_reader.state), takeoff_method,
+                        )
+                        recorder.meta["launch_detection"].update({
+                            "applied": launch_applied,
+                            "status": "launch_force_applied",
+                        })
+                        recorder.record_mavlink({
+                            "message_type": "gazebo_launch_applied", **launch_applied
+                        })
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                        _progress("gazebo_launch_applied", method=takeoff_method,
+                                  force_n=launch_applied["force_n"],
+                                  duration_s=launch_applied["duration_s"])
                     deadline = time.monotonic() + timeout_s
                     while time.monotonic() < deadline:
                         mav_reader.raise_if_failed()
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
-                        if phase == "takeoff" and z <= -(altitude_m - 1.0):
-                            return True
+                        if phase == "takeoff":
+                            detected = _launch_detected(launch_status_texts)
+                            climbed = z <= -(altitude_m - 1.0)
+                            if takeoff_method in {"hand", "catapult"}:
+                                recorder.meta["launch_detection"].update({
+                                    "px4_detected": detected,
+                                    "launch_status_texts": launch_status_texts[-20:],
+                                    "climb_altitude_m": -float(z),
+                                    "climb_confirmed": climbed,
+                                })
+                            if climbed and (takeoff_method not in {"hand", "catapult"} or detected):
+                                if takeoff_method in {"hand", "catapult"}:
+                                    recorder.meta["launch_detection"]["status"] = "detected_and_climbed"
+                                    recorder.episode_path.write_text(
+                                        json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                                    )
+                                return True
                         if phase == "transition_fw" and state["vtol_state"] in {4, 5}:
                             return True
                         if phase == "transition_mc" and state["vtol_state"] in {3, 6}:
@@ -2611,6 +2795,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--airframe", default="x500_mono_cam",
         help="airframe profile/model id; x500_mono_cam keeps the legacy multirotor path",
     )
+    parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route")
     parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard"), required=True)
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
@@ -2727,6 +2912,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
         smoke_flight=args.smoke_flight,
+        takeoff_method=args.takeoff_method,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
