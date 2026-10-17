@@ -21,19 +21,31 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+import numpy as np
+
+from multidetect.autonomy.mission_package import MAX_NO_FLY_ZONES, effective_no_fly_radius
 from multidetect.autonomy.mission_plan import (
     MissionPlan,
     MissionReport,
     MissionStep,
     validate_mission_plan,
 )
-from multidetect.autonomy.onboard_loop import Detection, OnboardLoop, PlaceVerdictMemory, Track
+from multidetect.autonomy.obstacle_source import ObstacleSource
+from multidetect.autonomy.onboard_loop import (
+    Detection,
+    OnboardLoop,
+    PlaceVerdictMemory,
+    Track,
+    appearances_consistent,
+)
+from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionCommand
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
 Pose = tuple[float, float, float]
 _TRACKING_SKILLS = frozenset({"patrol", "monitor", "follow"})
 PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"}) | _TRACKING_SKILLS
+_DETOUR_TIMEOUT = object()
 
 
 def _wrap(degrees: float) -> float:
@@ -61,6 +73,12 @@ class ExecutorConfig:
     # Shallower survey rays are too distant for reliable detection.
     survey_min_depression_rad: float = 0.35
     max_blocked_legs: int = 2
+    # Three metres keeps the commanded path clear of circle-boundary and
+    # position-estimation error; the package checker uses the same margin.
+    no_fly_margin_m: float = 3.0
+    detour_replan_budget_ms: float = 50.0
+    detour_max_replan_failures: int = 3
+    visibility_graph_build_limit_ms: float = 2000.0
     hold_s: float = 1.0
     follow_stale_s: float = 3.0
     follow_stale_cycles: int = 2
@@ -96,34 +114,49 @@ class ExecutorConfig:
             self.deliver_min_altitude_m <= self.deliver_altitude_m <= self.deliver_max_altitude_m
         ):
             raise ValueError("deliver altitude must be within configured bounds")
+        if (isinstance(self.no_fly_margin_m, bool) or not math.isfinite(self.no_fly_margin_m)
+                or self.no_fly_margin_m < 0):
+            raise ValueError("no-fly margin must be finite and non-negative")
+        if (isinstance(self.detour_replan_budget_ms, bool)
+                or not math.isfinite(self.detour_replan_budget_ms)
+                or self.detour_replan_budget_ms <= 0):
+            raise ValueError("detour replan budget must be finite and positive")
+        if (isinstance(self.detour_max_replan_failures, bool)
+                or self.detour_max_replan_failures < 1):
+            raise ValueError("detour max failures must be positive")
+        if (isinstance(self.visibility_graph_build_limit_ms, bool)
+                or not math.isfinite(self.visibility_graph_build_limit_ms)
+                or self.visibility_graph_build_limit_ms <= 0):
+            raise ValueError("visibility graph build limit must be finite and positive")
 
 
 @dataclass(slots=True)
 class _AlertCluster:
     """Votes belonging to one physical location during a tracking step."""
 
+    # ``centre`` is intentionally the first positive vote.  It is an anchor,
+    # not a running mean: moving it can chain two nearby objects into one.
     centre: tuple[float, float]
+    appearance: Any = None
     members: int = 0
     positive: int = 0
     negative: int = 0
     alerted: bool = False
     last_track_id: str | None = None
+    track_ids: set[str] = field(default_factory=set)
+    footprint_m: float | None = None
 
-    def add(self, point: tuple[float, float], *, positive: bool, track_id: str) -> None:
-        # Keep the centre as a running mean of all member ground points.  This
-        # makes a fragmented track's observations stable while still allowing
-        # the cluster to follow a small amount of position drift.
-        n = self.members
-        self.centre = (
-            (self.centre[0] * n + point[0]) / (n + 1),
-            (self.centre[1] * n + point[1]) / (n + 1),
-        )
+    def add(self, *, positive: bool, track_id: str) -> None:
+        # Rejects can contribute to majority counting, but never alter the
+        # first-positive anchor.  Positive callers have already passed the
+        # appearance/geometry membership gate.
         self.members += 1
         if positive:
             self.positive += 1
         else:
             self.negative += 1
         self.last_track_id = track_id
+        self.track_ids.add(track_id)
 
 
 @dataclass(slots=True)
@@ -160,6 +193,11 @@ class _StepRun:
     # Patrol/monitor identity votes are pooled by ground position because the
     # tracker may give the same object several track IDs.
     alert_clusters: list[_AlertCluster] = field(default_factory=list)
+    # Default alert policy retains the original per-track first-positive
+    # decision and spatial de-duplication independently of vote pooling.
+    alert_positive_tracks: set[str] = field(default_factory=set)
+    alert_positions: list[tuple[float, float]] = field(default_factory=list)
+    alert_observations: list[dict[str, Any]] = field(default_factory=list)
     # Follow retains the selected identity and updates one position record.
     follow_track_id: str | None = None
     acquire_track: bool = False
@@ -172,6 +210,11 @@ class _StepRun:
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
+    # Return-home geofence detour state.
+    detour_waypoints: list[tuple[float, float]] = field(default_factory=list)
+    detour_index: int = 0
+    detour_planned: bool = False
+    detour_replan_failures: int = 0
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -191,6 +234,11 @@ class MissionExecutor:
         capabilities: frozenset[str] = frozenset(),
         release_authorized: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        no_fly_zones: Sequence[tuple[Sequence[float], float]] = (),
+        mission_package: Any | None = None,
+        package: Any | None = None,
+        obstacle_source: ObstacleSource | None = None,
+        airframe_adapter: AirframeMotionAdapter | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
@@ -202,10 +250,59 @@ class MissionExecutor:
         self.loop_factory = loop_factory
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
+        self.airframe_adapter = airframe_adapter
         self.task_text = task_text
+        package = mission_package if mission_package is not None else package
+        self._package_backed = package is not None
+        if package is not None and not no_fly_zones:
+            no_fly_zones = getattr(package, "no_fly_zones", ())
+        self.no_fly_zones = tuple(
+            ((float(centre[0]), float(centre[1])), float(radius))
+            for centre, radius in no_fly_zones
+            if len(centre) >= 2 and math.isfinite(float(radius)) and float(radius) > 0
+        )
+        package_document = getattr(package, "document", None)
+        self.operating_area = (
+            package_document.get("operating_area")
+            if isinstance(package_document, Mapping)
+            else None
+        )
+        self._inflated_no_fly_zones = tuple(
+            (centre, effective_no_fly_radius(radius, self.config.no_fly_margin_m))
+            for centre, radius in self.no_fly_zones
+        )
+        self._visibility_graph_build_ms = 0.0
+        self.mission_log: list[dict[str, Any]] = []
+        self._detour_vertices: list[tuple[float, float]] = []
+        self._detour_edges: dict[int, list[tuple[int, float]]] = {}
+        self._detour_visibility: np.ndarray | None = None
+        self._detour_distances: np.ndarray | None = None
+        self._visibility_graph_area_key: tuple[tuple[str, float], ...] | None = None
+        self._build_visibility_graph()
+        self.mission_log.append({
+            "event": "visibility_graph_built",
+            "build_ms": self._visibility_graph_build_ms,
+            "vertices": len(self._detour_vertices),
+        })
+        self.package_violations: list[dict[str, Any]] = []
+        if (
+            self._package_backed
+            and self._visibility_graph_build_ms > self.config.visibility_graph_build_limit_ms
+        ):
+            self.package_violations.append({
+                "code": "VISIBILITY_GRAPH_BUILD_EXCEEDED",
+                "step_id": self.plan.steps[0].id if self.plan.steps else None,
+                "message_zh": (
+                    "禁飞区可见图构建耗时超过准入上限，任务拒绝起飞"
+                ),
+                "message_en": (
+                    "Visibility graph build time exceeds the admission limit; takeoff refused"
+                ),
+            })
+        self.obstacle_source = obstacle_source
         self._steps = {step.id: step for step in self.plan.steps}
-        # A probe loop gives the camera model and the static-map clearance check.
-        self._probe = loop_factory("Find the object and record its position.")
+        # A probe loop gives the camera model and the configured clearance source.
+        self._probe = self._make_loop("Find the object and record its position.")
         self.home: tuple[float, float] | None = None
         self.cruise_altitude_m: float | None = None
         self.findings: list[dict[str, Any]] = []
@@ -227,6 +324,18 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+
+    def _make_loop(self, task_text: str, **overrides: Any) -> OnboardLoop:
+        """Create a loop while threading the optional typed obstacle source."""
+        if self.obstacle_source is not None:
+            overrides.setdefault("obstacle_source", self.obstacle_source)
+        return self.loop_factory(task_text, **overrides)
+
+    def _segment_clear(self, start: Pose, north: float, east: float) -> bool:
+        """Apply the configured source to an executor geometry leg."""
+        if self.obstacle_source is not None:
+            return self.obstacle_source.segment_clear(start, (north, east, start[2]))
+        return self._probe.segment_clear(start, north, east)
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
@@ -280,7 +389,7 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
-        return self.loop_factory(self.task_text(step), **overrides)
+        return self._make_loop(self.task_text(step), **overrides)
 
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
@@ -290,7 +399,7 @@ class MissionExecutor:
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "inspect":
-            run.loop = self.loop_factory(self.task_text(step))
+            run.loop = self._make_loop(self.task_text(step))
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "follow":
@@ -314,7 +423,16 @@ class MissionExecutor:
                 run.acquire_track = True
                 run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
             run.loop.config = replace(
-                run.loop.config, lost_after_steps=max(7, run.loop.config.lost_after_steps)
+                run.loop.config,
+                lost_after_steps=max(7, run.loop.config.lost_after_steps),
+                # Step triangulation assumes a static target. A moving-target
+                # skill must also ignore estimates inherited from a finding.
+                step_triangulation=False,
+                # Following moving objects must not opt into static-place re-id.
+                ground_reid_max_steps=(
+                    0 if run.loop.config.ground_reid_max_steps is None
+                    else run.loop.config.ground_reid_max_steps
+                ),
             )
         return run
 
@@ -412,7 +530,10 @@ class MissionExecutor:
         pose_ned: Pose,
         yaw_deg: float,
         ground_point: GroundPoint | None = None,
+        frame_rgb: Any = None,
         landed: bool | None = None,
+        camera_ray: Callable[[float, float], Any] | None = None,
+        timestamp_s: float | None = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
         self._init_home(pose_ned)
@@ -434,7 +555,15 @@ class MissionExecutor:
                 projected[u, v] = point
                 return point
         self._current = run.loop.update_tracks(
-            detections, pose_ned=pose_ned, yaw_deg=yaw_deg, ground_point=project
+            detections,
+            pose_ned=pose_ned,
+            yaw_deg=yaw_deg,
+            ground_point=project,
+            frame_rgb=frame_rgb,
+            # A following target may move: static multi-view intersection is
+            # intentionally excluded from this skill's live ground tracking.
+            **({"camera_ray": camera_ray, "timestamp_s": timestamp_s}
+               if camera_ray is not None and run.step.skill != "follow" else {}),
         )
         if run.step.skill == "follow":
             run.fresh_ground_tracks = {
@@ -481,25 +610,83 @@ class MissionExecutor:
         ):
             return
 
-        # Find the nearest physical-location vote cluster.  Track IDs are not
-        # used as the evidence key: onboard association can fragment one
-        # object into several IDs from successive views.
+        # Pool only appearance-compatible observations within a fixed
+        # first-positive anchor.  A reject cannot establish a new identity.
+        positive = track.verdict in {"confirm", "approach"}
+        default_alerts = (
+            self.config.alert_min_identity_matches == 1
+            and not self.config.alert_require_majority
+        )
+        if default_alerts and positive:
+            if track_id in run.alert_positive_tracks:
+                return
+            run.alert_positive_tracks.add(track_id)
+        appearance = self._alert_appearance(run, track)
+        footprint = getattr(appearance, "footprint_m", None)
+
+        def cluster_radius(item: _AlertCluster) -> float:
+            # Missing geometry is common in hand-built/offline tracks. Keep
+            # the configured projection-error tolerance in that case; real
+            # descriptors use the object-sized radius below.
+            size = item.footprint_m or footprint
+            return max(1.5, 1.5 * size) if size else self.config.alert_cluster_radius_m
+
+        membership_radius = (
+            cluster_radius
+            if positive
+            else lambda item: max(cluster_radius(item), self.config.alert_cluster_radius_m)
+        )
+
         cluster = min(
-            run.alert_clusters,
+            (
+                item for item in run.alert_clusters
+                if not (item.track_ids.intersection(track.co_visible_with))
+                and math.dist(track.ground, item.centre) <= membership_radius(item)
+                and (
+                    appearance is None
+                    or item.appearance is None
+                    or appearances_consistent(appearance, item.appearance, run.loop.config)
+                )
+            ),
             key=lambda item: math.dist(track.ground, item.centre),
             default=None,
         )
-        if (
-            cluster is None
-            or math.dist(track.ground, cluster.centre) > self.config.alert_cluster_radius_m
-        ):
-            cluster = _AlertCluster(track.ground)
+        if cluster is None:
+            if not positive:
+                return
+            cluster = _AlertCluster(track.ground, appearance, footprint_m=footprint)
             run.alert_clusters.append(cluster)
-        cluster.add(
-            track.ground,
-            positive=track.verdict in {"confirm", "approach"},
-            track_id=track_id,
-        )
+        cluster.add(positive=positive, track_id=track_id)
+
+        if default_alerts:
+            # Preserve the original first positive + spatial de-duplication
+            # exactly, including tracks whose first positive was suppressed
+            # near an existing alert and later moved away.
+            if not positive:
+                return
+            if any(
+                math.dist(track.ground, item["position"])
+                <= (
+                    max(1.5, 1.5 * (item.get("footprint_m") or footprint))
+                    if (item.get("footprint_m") or footprint)
+                    else self.config.alert_cluster_radius_m
+                )
+                and not (
+                    item.get("track_id") in track.co_visible_with
+                    or track.track_id in item.get("co_visible_with", ())
+                )
+                and (
+                    item.get("appearance") is None
+                    or appearance is None
+                    or appearances_consistent(item["appearance"], appearance, run.loop.config)
+                )
+                for item in run.alert_observations
+            ):
+                return
+            cluster.alerted = True
+            self._emit_alert(run, track, track.ground)
+            return
+
         if cluster.alerted:
             return
 
@@ -512,14 +699,39 @@ class MissionExecutor:
         ):
             return
         cluster.alerted = True
-        north, east = cluster.centre
+        self._emit_alert(run, track, cluster.centre)
+
+    @staticmethod
+    def _alert_appearance(run: _StepRun, track: Track) -> Any:
+        """Use the descriptor captured by association, including range scaling."""
+        appearance = getattr(track, "appearance", None)
+        return appearance
+
+    def _emit_alert(self, run: _StepRun, track: Track, point: tuple[float, float]) -> None:
+        run.alert_positions.append(point)
+        run.alert_observations.append(
+            {
+                "position": point,
+                "track_id": track.track_id,
+                "co_visible_with": set(track.co_visible_with),
+                "appearance": getattr(track, "appearance", None),
+                "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
+            }
+        )
+        # Keep alert association/deduplication anchored to the existing ground
+        # cluster; only the reported target location uses the optional estimate.
+        report_point = point
+        if run.loop.config.step_triangulation and track.position_estimate is not None:
+            report_point = run.loop.target_position(track) or point
+        north, east = report_point
         self.alerts.append(f"{run.step.id}:alert:{run.step.params['query']}@{north:.1f},{east:.1f}")
         self._add_finding(
             run,
             {
-                "track_id": track_id,
-                "position_estimate_ne": cluster.centre,
+                "track_id": track.track_id,
+                "position_estimate_ne": report_point,
                 "bbox": track.bbox,
+                **run.loop.position_metadata(track),
             },
             None,
         )
@@ -575,13 +787,67 @@ class MissionExecutor:
             if result is None:
                 continue  # the step finished without moving; start the next one now
             action, info = result
+            if action.kind == "translate" and self._translate_enters_no_fly(
+                pose_ned, yaw_deg, action
+            ):
+                if run.step.skill == "return_home":
+                    # A live pose can invalidate a cached tangent leg (for
+                    # example after wind or a delayed observation).  Never
+                    # fail recovery in the air: discard the stale route and
+                    # let _move_to rebuild it on the next cycle.
+                    run.detour_planned = False
+                    run.detour_waypoints = []
+                    run.detour_index = 0
+                    run.detour_replan_failures += 1
+                    if run.detour_replan_failures >= self.config.detour_max_replan_failures:
+                        self.alerts.append(f"{run.step.id}:no_fly_detour_guard_land_fallback")
+                        run.phase = "land_fallback"
+                        continue
+                    return ActionPrimitive.hold(self.config.hold_s), {
+                        "step": run.step.id, "skill": run.step.skill,
+                        "step_state": run.state, "detour_replan": True,
+                    }
+                self.alerts.append(f"{run.step.id}:no_fly_zone")
+                self._finish("failed", "no_fly_zone")
+                continue
             run.primitives += 1
             # Used only when the next observation has no pose/simulation clock.
             # Never credit a commanded hold before its following observation.
-            run.pending_elapsed_s = self._estimated_seconds(action)
+            run.pending_elapsed_s = self.estimated_seconds(action, pose_ned)
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
+
+    @staticmethod
+    def _segment_circle_distance(
+        start: tuple[float, float],
+        end: tuple[float, float],
+        centre: tuple[float, float],
+    ) -> float:
+        dn, de = end[0] - start[0], end[1] - start[1]
+        length2 = dn * dn + de * de
+        if length2 <= 1e-12:
+            return math.dist(start, centre)
+        t = max(
+            0.0,
+            min(1.0, ((centre[0] - start[0]) * dn + (centre[1] - start[1]) * de) / length2),
+        )
+        return math.dist(centre, (start[0] + t * dn, start[1] + t * de))
+
+    def _translate_enters_no_fly(
+        self, pose: Pose, yaw_deg: float, action: ActionPrimitive
+    ) -> bool:
+        """Check the exact horizontal leg represented by a translate primitive."""
+        heading = math.radians(yaw_deg)
+        end = (
+            pose[0] + action.forward_m * math.cos(heading) - action.right_m * math.sin(heading),
+            pose[1] + action.forward_m * math.sin(heading) + action.right_m * math.cos(heading),
+        )
+        start = (pose[0], pose[1])
+        return any(
+            self._segment_circle_distance(start, end, centre) < radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
+        )
 
     @staticmethod
     def _estimated_seconds(action: ActionPrimitive) -> float:
@@ -590,6 +856,42 @@ class MissionExecutor:
         if action.kind == "turn":
             return abs(action.yaw_delta_deg) / 90.0
         return action.seconds if action.kind == "hold" else 0.0
+
+    def estimated_seconds(self, action: ActionPrimitive, pose_ned: Pose | None = None) -> float:
+        """Estimate action duration from the selected profile.
+
+        The static helper remains for old callers; profile-aware callers use
+        this method and therefore do not assume a 5 m/s aircraft.
+        """
+        if self.airframe_adapter is None or self.airframe_adapter.is_multirotor:
+            return self._estimated_seconds(action)
+        pose = pose_ned or (0.0, 0.0, 0.0)
+        if action.kind == "hold":
+            return action.seconds
+        if action.kind == "turn":
+            return abs(action.yaw_delta_deg) / max(self.airframe_adapter.profile.limits.max_angular_rate_dps, 1e-6)
+        distance = math.sqrt(action.forward_m ** 2 + action.right_m ** 2 + action.up_m ** 2)
+        return distance / max(self.airframe_adapter.profile.cruise_airspeed_mps, 1e-6)
+
+    def next_motion_intent(self, **kwargs: Any) -> tuple[MotionCommand | ActionPrimitive, dict[str, Any]]:
+        """Intent-facing entry point shared by SIM and real runtime adapters."""
+        action, info = self.next_action(**kwargs)
+        if self.airframe_adapter is None or self.airframe_adapter.is_multirotor:
+            return action, info
+        pose = kwargs.get("pose_ned", (0.0, 0.0, 0.0))
+        yaw = float(kwargs.get("yaw_deg", 0.0))
+        command = self.airframe_adapter.from_primitive(action, pose_ned=pose, yaw_deg=yaw, metadata=info)
+        if isinstance(command, MotionCommand):
+            command, safety = self.airframe_adapter.guard_command(
+                command,
+                pose_ned=pose,
+                yaw_deg=yaw,
+                current_agl_m=kwargs.get("current_agl_m"),
+                skill=getattr(self.current_step, "skill", None),
+            )
+            if safety:
+                info = {**info, "safety": safety}
+        return command, info
 
     def _advance_time(self, run: _StepRun, timestamp_s: float | None) -> None:
         """Prefer the observation's pose clock; wall-clock inference time is unrelated.
@@ -740,6 +1042,10 @@ class MissionExecutor:
             "rule": record.get("rule"),
             "frame_id": frame_id,
         }
+        finding.update({
+            key: value for key, value in record.items()
+            if key.startswith("position_") and key != "position_estimate_ne"
+        })
         self.findings.append(finding)
         if run.loop is not None:
             self._finding_loops[id(finding)] = run.loop
@@ -763,6 +1069,13 @@ class MissionExecutor:
             return
         views = int(run.step.params["views"])
         standoff = float(run.step.params["standoff_m"])
+        if self.airframe_adapter is not None and not self.airframe_adapter.is_multirotor:
+            orbit = self.airframe_adapter.observation_orbit(
+                (*centre, 0.0), standoff, altitude_m=self._inspect_altitude(run), views=views
+            )
+            run.viewpoints = [point.position_ne for point in orbit.waypoints[:-1]]
+            run.goal_altitude_m = self._inspect_altitude(run)
+            return
         start = math.atan2(pose[1] - centre[1], pose[0] - centre[0])
         run.viewpoints = [
             (
@@ -815,6 +1128,8 @@ class MissionExecutor:
             moved = self._move_to(
                 run, pose, yaw, run.viewpoints[run.view_index], run.goal_altitude_m
             )
+            if moved == "no_fly":
+                return None
             if moved == "blocked":
                 run.skipped += 1
                 self.alerts.append(f"{run.step.id}:view{run.view_index + 1}_blocked")
@@ -865,19 +1180,28 @@ class MissionExecutor:
             slant_mid = run.goal_altitude_m / max(1e-6, math.sin(mid_depression))
             swath = 2.0 * slant_mid * math.tan(hfov / 2.0)
             spacing = max(3.0, min(60.0, swath * (1.0 - float(run.step.params["overlap"]))))
-            # Inset lanes in equal strips, no farther apart than the requested spacing.
-            # Keep three crossings even when one swath spans the whole bounding square.
-            lanes = max(3, math.ceil(2.0 * radius / spacing))
-            for lane in range(lanes):
-                offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
-                half_length = math.sqrt(max(0.0, radius**2 - offset**2))
-                ends = [(north - half_length, east + offset), (north + half_length, east + offset)]
-                run.waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
+            if self.airframe_adapter is not None and not self.airframe_adapter.is_multirotor:
+                route = self.airframe_adapter.search_path(
+                    (north - radius, north + radius, east - radius, east + radius),
+                    footprint_width_m=max(swath, spacing),
+                    overlap=float(run.step.params["overlap"]),
+                )
+                run.waypoints.extend(point.position_ne for point in route.waypoints)
+            else:
+                # Multirotor route generation is intentionally unchanged.
+                lanes = max(3, math.ceil(2.0 * radius / spacing))
+                for lane in range(lanes):
+                    offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
+                    half_length = math.sqrt(max(0.0, radius**2 - offset**2))
+                    ends = [(north - half_length, east + offset), (north + half_length, east + offset)]
+                    run.waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
             self.coverage[run.step.id] = 0.0
         while run.waypoint_index < len(run.waypoints):
             moved = self._move_to(
                 run, pose, yaw, run.waypoints[run.waypoint_index], run.goal_altitude_m
             )
+            if moved == "no_fly":
+                return None
             if moved == "blocked":
                 self.alerts.append(f"{run.step.id}:waypoint{run.waypoint_index + 1}_blocked")
                 run.blocked = 0
@@ -915,6 +1239,8 @@ class MissionExecutor:
         while run.waypoint_index < total:
             index = run.waypoint_index % len(run.waypoints)
             moved = self._move_to(run, pose, yaw, run.waypoints[index], run.goal_altitude_m)
+            if moved == "no_fly":
+                return None
             if moved == "blocked":
                 self._finish("failed", "blocked")
                 return None
@@ -1025,6 +1351,8 @@ class MissionExecutor:
         if run.phase == "fly":
             goal = run.waypoints[run.waypoint_index % len(run.waypoints)]
             moved = self._move_to(run, pose, yaw, goal, run.goal_altitude_m)
+            if moved == "no_fly":
+                return None
             if moved == "blocked":
                 self._finish("failed", "blocked")
                 return None
@@ -1114,6 +1442,8 @@ class MissionExecutor:
         moved = self._move_to(
             run, pose, yaw, pose[:2], None if altitude is None else float(altitude)
         )
+        if moved == "no_fly":
+            return None
         if moved == "blocked":
             self._finish("failed", "blocked")
             return None
@@ -1127,7 +1457,15 @@ class MissionExecutor:
             "follow_confidence": 1.0, "ground_age_s": 0.0, "follow_state": "tracking",
         }
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
-        if abs(delta) > self.config.turn_tolerance_deg:
+        # Detour edges are tangent to the inflated polygon.  The normal
+        # flight tolerance can cut across that tangent, so align the vehicle
+        # tightly before each cached-detour leg.
+        turn_tolerance = (
+            1.0
+            if run.step.skill == "return_home" and run.detour_planned
+            else self.config.turn_tolerance_deg
+        )
+        if abs(delta) > turn_tolerance:
             return ActionPrimitive.turn(delta), info
         if distance > standoff + 3.0:
             goal = (
@@ -1136,6 +1474,8 @@ class MissionExecutor:
             )
             blocked_before = run.blocked
             moved = self._move_to(run, pose, yaw, goal)
+            if moved == "no_fly":
+                return None
             if run.blocked > blocked_before:
                 run.follow_blocked_attempts += 1
             # Keep a separate obstruction budget: intermittent successful
@@ -1149,39 +1489,318 @@ class MissionExecutor:
 
     # -- geometry skills -------------------------------------------------------
     def _move_to(self, run, pose, yaw, goal_ne, altitude_m=None, *, tolerance_m=None):
-        """One primitive toward ``goal_ne`` (altitude first); None when arrived."""
+        """Move one primitive toward ``goal_ne`` and enforce package geofences.
+
+        The return values are ``None`` on arrival, ``blocked`` for an obstacle
+        refusal, and ``no_fly`` when the direct NED leg intersects a package
+        no-fly circle.
+        """
         altitude = max(0.0, -pose[2])
         altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
         if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
             target = (pose[0], pose[1], -altitude_m)
             # A pure climb leaves the obstacle footprint vertically; obstacle
             # clearance at the current position must not hold a legal escape.
-            if altitude_m < altitude and not self._probe.segment_clear(
-                target, pose[0], pose[1]
-            ):
+            if altitude_m < altitude and not self._segment_clear(target, pose[0], pose[1]):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"
                 return ActionPrimitive.hold(self.config.hold_s)
             run.blocked = 0
             return ActionPrimitive.translate(0.0, 0.0, altitude_m - altitude)
-        dn, de = goal_ne[0] - pose[0], goal_ne[1] - pose[1]
+        target = (float(goal_ne[0]), float(goal_ne[1]))
+        if run.step.skill == "return_home" and run.detour_planned:
+            while run.detour_index < len(run.detour_waypoints):
+                waypoint = run.detour_waypoints[run.detour_index]
+                if math.dist((pose[0], pose[1]), waypoint) > (
+                    self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m
+                ):
+                    target = waypoint
+                    break
+                run.detour_index += 1
+            if run.detour_index < len(run.detour_waypoints):
+                target = run.detour_waypoints[run.detour_index]
+        if self._leg_enters_no_fly((pose[0], pose[1]), target):
+            if run.step.skill == "return_home" and run.detour_planned:
+                # Numerical error or a changed pose invalidated this cached
+                # tangent. Replan from the observed position on the next
+                # cycle; recovery must not be failed in the air.
+                run.detour_planned = False
+                run.detour_waypoints = []
+                run.detour_index = 0
+                return ActionPrimitive.hold(self.config.hold_s)
+            if run.step.skill == "return_home" and not run.detour_planned:
+                detour = self._return_home_detour((pose[0], pose[1]), target)
+                if detour is _DETOUR_TIMEOUT:
+                    run.detour_replan_failures += 1
+                    if run.detour_replan_failures >= self.config.detour_max_replan_failures:
+                        self.alerts.append(f"{run.step.id}:no_fly_detour_timeout_land_fallback")
+                        run.phase = "land_fallback"
+                        return "land_fallback"
+                    return ActionPrimitive.hold(self.config.hold_s)
+                run.detour_replan_failures = 0
+                run.detour_planned = True
+                if detour:
+                    run.detour_waypoints = detour
+                    run.detour_index = 0
+                    target = detour[0]
+                else:
+                    self.alerts.append(f"{run.step.id}:no_fly_zone_land_fallback")
+                    run.phase = "land_fallback"
+                    return "land_fallback"
+            else:
+                self.alerts.append(f"{run.step.id}:no_fly_zone")
+                self._finish("failed", "no_fly_zone")
+                return "no_fly"
+        dn, de = target[0] - pose[0], target[1] - pose[1]
         distance = math.hypot(dn, de)
         if distance <= (self.config.arrive_tolerance_m if tolerance_m is None else tolerance_m):
             return None
         delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw)
-        if abs(delta) > self.config.turn_tolerance_deg:
+        turn_tolerance = (
+            1.0 if run.step.skill == "return_home" and run.detour_planned
+            else self.config.turn_tolerance_deg
+        )
+        if abs(delta) > turn_tolerance:
             return ActionPrimitive.turn(delta)
         step = min(self.config.max_translate_m, distance)
         heading = math.radians(yaw)
         end = (pose[0] + step * math.cos(heading), pose[1] + step * math.sin(heading))
-        if not self._probe.segment_clear(pose, end[0], end[1]):
+        if not self._segment_clear(pose, end[0], end[1]):
             run.blocked += 1
             if run.blocked > self.config.max_blocked_legs:
                 return "blocked"
             return ActionPrimitive.hold(self.config.hold_s)
         run.blocked = 0
         return ActionPrimitive.translate(step, 0.0, 0.0)
+
+    def _return_home_detour(
+        self, start: tuple[float, float], goal: tuple[float, float]
+    ) -> list[tuple[float, float]] | None | object:
+        """Connect live endpoints to the cached static visibility graph."""
+        area = self.operating_area
+        if not isinstance(area, Mapping):
+            return None
+        area_key = tuple(sorted(
+            (str(key), float(area[key]))
+            for key in ("north_min_m", "north_max_m", "east_min_m", "east_max_m")
+            if key in area
+        ))
+        # Legacy callers may attach an area after construction. Package-backed
+        # executors always build before takeoff and never rebuild here.
+        if self._visibility_graph_area_key != area_key and not self._package_backed:
+            self._build_visibility_graph()
+        # Graph construction is an admission-time cost; the runtime budget
+        # covers only endpoint connection and route search.
+        started = time.perf_counter()
+        circles = self._inflated_no_fly_zones
+        if not circles:
+            return []
+        def inside(point: tuple[float, float]) -> bool:
+            return (
+                area["north_min_m"] <= point[0] <= area["north_max_m"]
+                and area["east_min_m"] <= point[1] <= area["east_max_m"]
+            )
+        if not inside(start) or not inside(goal) or any(
+            math.dist(point, centre) < radius - 1e-9 for point in (start, goal)
+            for centre, radius in circles
+        ):
+            return None
+        import heapq
+        vertices = [start, goal, *self._detour_vertices]
+        edges: dict[int, list[tuple[int, float]]] = {0: [], 1: []}
+        visibility = self._detour_visibility
+        distances_matrix = self._detour_distances
+        endpoint_visibility: dict[int, np.ndarray] = {}
+        for endpoint_index, endpoint in ((0, start), (1, goal)):
+            visible = self._endpoint_visible(endpoint)
+            endpoint_visibility[endpoint_index] = visible
+            for node_index in np.flatnonzero(visible).tolist():
+                node_index += 2
+                length = math.dist(endpoint, vertices[node_index])
+                edges[endpoint_index].append((node_index, length))
+                edges.setdefault(node_index, []).append((endpoint_index, length))
+        if self._detour_visible(start, goal):
+            length = math.dist(start, goal)
+            edges[0].append((1, length))
+            edges[1].append((0, length))
+        else:
+            common = endpoint_visibility[0] & endpoint_visibility[1]
+            if np.any(common):
+                candidates = np.flatnonzero(common)
+                lengths = np.asarray(
+                    [math.dist(start, self._detour_vertices[i])
+                     + math.dist(self._detour_vertices[i], goal) for i in candidates]
+                )
+                best = int(candidates[int(np.argmin(lengths))])
+                return [self._detour_vertices[best]]
+        distances = [math.inf] * len(vertices)
+        previous: list[int | None] = [None] * len(vertices)
+        distances[0] = 0.0
+        queue = [(0.0, 0)]
+        while queue:
+            distance, index = heapq.heappop(queue)
+            if distance != distances[index]:
+                continue
+            if index == 1:
+                break
+            for other, length in edges.get(index, ()):
+                candidate = distance + length
+                if candidate < distances[other]:
+                    distances[other] = candidate
+                    previous[other] = index
+                    heapq.heappush(queue, (candidate, other))
+            if index >= 2 and visibility is not None and distances_matrix is not None:
+                for neighbour in np.flatnonzero(visibility[index - 2]).tolist():
+                    other = neighbour + 2
+                    candidate = distance + float(distances_matrix[index - 2, neighbour])
+                    if candidate < distances[other]:
+                        distances[other] = candidate
+                        previous[other] = index
+                        heapq.heappush(queue, (candidate, other))
+        if not math.isfinite(distances[1]):
+            return None
+        path: list[tuple[float, float]] = []
+        index: int | None = 1
+        while index is not None:
+            path.append(vertices[index])
+            index = previous[index]
+        path.reverse()
+        if (time.perf_counter() - started) * 1000.0 > self.config.detour_replan_budget_ms:
+            return _DETOUR_TIMEOUT
+        return path[1:-1]
+
+    def _detour_visible(self, a: tuple[float, float], b: tuple[float, float]) -> bool:
+        area = self.operating_area
+        return (
+            isinstance(area, Mapping)
+            and self._point_inside_area(a, area)
+            and self._point_inside_area(b, area)
+            and all(
+            self._segment_circle_distance(a, b, centre) >= radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
+            )
+        )
+
+    def _endpoint_visible(self, endpoint: tuple[float, float]) -> np.ndarray:
+        """Vectorized visibility from one live endpoint to cached vertices."""
+        vertices = np.asarray(self._detour_vertices, dtype=np.float32)
+        if not len(vertices):
+            return np.zeros(0, dtype=bool)
+        if (
+            not isinstance(self.operating_area, Mapping)
+            or not self._point_inside_area(endpoint, self.operating_area)
+        ):
+            return np.zeros(len(vertices), dtype=bool)
+        centres = np.asarray([c for c, _ in self._inflated_no_fly_zones], dtype=np.float64)
+        radii = np.asarray([r for _, r in self._inflated_no_fly_zones], dtype=np.float64)
+        delta = vertices - np.asarray(endpoint, dtype=np.float64)
+        denom = np.einsum("ij,ij->i", delta, delta)
+        rel = centres - np.asarray(endpoint, dtype=np.float64)
+        t = np.divide(
+            np.einsum("zk,ik->iz", rel, delta),
+            denom[:, None],
+                out=np.zeros((len(vertices), len(centres))),
+            where=denom[:, None] > 1e-12,
+        )
+        closest = np.asarray(endpoint) + np.clip(t, 0.0, 1.0)[:, :, None] * delta[:, None, :]
+        distance = np.linalg.norm(closest - centres[None, :, :], axis=2)
+        return np.all(distance >= radii[None, :] - 1e-9, axis=1)
+
+    @staticmethod
+    def _point_inside_area(point: tuple[float, float], area: Mapping[str, float]) -> bool:
+        return (area["north_min_m"] <= point[0] <= area["north_max_m"]
+                and area["east_min_m"] <= point[1] <= area["east_max_m"])
+
+    def _build_visibility_graph(self) -> None:
+        """Build the static polygon vertices and their mutual visibility once."""
+        started = time.perf_counter()
+        if len(self._inflated_no_fly_zones) > MAX_NO_FLY_ZONES:
+            self._visibility_graph_build_ms = (time.perf_counter() - started) * 1000.0
+            return
+        area = self.operating_area
+        if not isinstance(area, Mapping):
+            return
+        area_key = tuple(sorted(
+            (str(key), float(area[key]))
+            for key in ("north_min_m", "north_max_m", "east_min_m", "east_max_m")
+            if key in area
+        ))
+        if self._visibility_graph_area_key == area_key:
+            return
+        self._detour_vertices.clear()
+        self._detour_edges.clear()
+        # Twenty vertices keeps the circumscribed approximation within the
+        # required 16–24 range while leaving headroom for the 1 s admission
+        # target on the development machine.
+        sides = 20
+        for centre, radius in self._inflated_no_fly_zones:
+            # A millimetre beyond the circumscribed polygon absorbs floating
+            # point error while retaining tangent-edge semantics for the
+            # actual inflated circle.
+            vertex_radius = radius / math.cos(math.pi / sides) + 1e-3
+            for index in range(sides):
+                angle = 2 * math.pi * index / sides
+                point = (centre[0] + vertex_radius * math.cos(angle),
+                         centre[1] + vertex_radius * math.sin(angle))
+                if self._point_inside_area(point, area) and all(
+                    math.dist(point, c) >= r - 1e-9 for c, r in self._inflated_no_fly_zones
+                ):
+                    self._detour_vertices.append(point)
+        self._detour_edges = {i: [] for i in range(len(self._detour_vertices))}
+        vertices = np.asarray(self._detour_vertices, dtype=np.float32)
+        self._detour_visibility = np.ones((len(vertices), len(vertices)), dtype=bool)
+        self._detour_distances = np.linalg.norm(
+            vertices[:, None, :] - vertices[None, :, :], axis=2
+        ).astype(np.float32, copy=False) if len(vertices) else np.zeros((0, 0), dtype=np.float32)
+        if len(vertices):
+            row, col = np.triu_indices(len(vertices), 1)
+            start = vertices[row]
+            end = vertices[col]
+            clear = np.ones(len(row), dtype=bool)
+            min_n = np.minimum(start[:, 0], end[:, 0])
+            max_n = np.maximum(start[:, 0], end[:, 0])
+            min_e = np.minimum(start[:, 1], end[:, 1])
+            max_e = np.maximum(start[:, 1], end[:, 1])
+            # Broad-phase bounding boxes avoid distance math for remote pairs.
+            for centre, radius in self._inflated_no_fly_zones:
+                candidate = (
+                    (min_n <= centre[0] + radius)
+                    & (max_n >= centre[0] - radius)
+                    & (min_e <= centre[1] + radius)
+                    & (max_e >= centre[1] - radius)
+                    & clear
+                )
+                if not np.any(candidate):
+                    continue
+                a = start[candidate]
+                delta = end[candidate] - a
+                rel = np.asarray(centre, dtype=np.float64) - a
+                denom = np.einsum("ij,ij->i", delta, delta)
+                t = np.divide(
+                    np.einsum("ij,ij->i", rel, delta), denom,
+                    out=np.zeros(len(a)), where=denom > 1e-12,
+                )
+                closest = a + np.clip(t, 0.0, 1.0)[:, None] * delta
+                offset = closest - centre
+                blocked = np.einsum("ij,ij->i", offset, offset) < (radius - 1e-9) ** 2
+                clear[np.flatnonzero(candidate)[blocked]] = False
+            self._detour_visibility[row, col] = clear
+            self._detour_visibility[col, row] = clear
+            np.fill_diagonal(self._detour_visibility, False)
+            self._detour_edges.clear()
+        self._visibility_graph_build_ms = (time.perf_counter() - started) * 1000.0
+        self._visibility_graph_area_key = area_key
+
+    def _leg_enters_no_fly(
+        self, start: tuple[float, float], end: Sequence[float]
+    ) -> bool:
+        """Return whether a complete straight NED leg intersects a no-fly circle."""
+        finish = (float(end[0]), float(end[1]))
+        return any(
+            self._segment_circle_distance(start, finish, centre) < radius - 1e-9
+            for centre, radius in self._inflated_no_fly_zones
+        )
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Accept one host receipt for the active request, before its deadline."""
@@ -1196,6 +1815,9 @@ class MissionExecutor:
         return True
 
     def _deliver(self, run, pose, yaw, ground_point, frame_id):
+        if self.airframe_adapter is not None and self.airframe_adapter.profile.category == "fixed_wing":
+            self._finish("failed", "fixed_wing_delivery_requires_validated_fly_by_window")
+            return None
         if "payload" not in self.capabilities:
             self._finish("failed", "payload_capability_required")
             return None
@@ -1227,7 +1849,7 @@ class MissionExecutor:
         release_pose = (*run.goal_ne, -run.release_altitude_m)
         # Check the low endpoint before descent, release, and each wait cycle.
         # The map API checks horizontal clearance at the supplied altitude.
-        if run.phase != "climb" and not self._probe.segment_clear(
+        if run.phase != "climb" and not self._segment_clear(
             release_pose, run.goal_ne[0], run.goal_ne[1]
         ):
             self._finish("failed", "release_obstacle")
@@ -1272,6 +1894,8 @@ class MissionExecutor:
         moved = self._move_to(
             run, pose, yaw, run.goal_ne, altitude, tolerance_m=tolerance / 2.0
         )
+        if moved == "no_fly":
+            return None
         if moved == "blocked" or run.blocked:
             self._finish("failed", "blocked")
             return None
@@ -1295,6 +1919,8 @@ class MissionExecutor:
             if "altitude_m" in run.step.params:
                 run.goal_altitude_m = float(run.step.params["altitude_m"])
         moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+        if moved == "no_fly":
+            return None
         if moved == "blocked":
             self._finish("failed", "blocked")
             return None
@@ -1309,6 +1935,10 @@ class MissionExecutor:
             altitude = run.step.params.get("altitude_m", self.cruise_altitude_m)
             run.goal_altitude_m = None if altitude is None else float(altitude)
         moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
+        if moved == "land_fallback":
+            return self._land(run, pose, yaw, ground_point, frame_id)
+        if moved == "no_fly":
+            return None
         if moved == "blocked":
             self._finish("failed", "blocked")
             return None

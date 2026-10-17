@@ -259,6 +259,18 @@ class ExpertSearchPolicy:
     altitude_m: float = 5.0
     obstacles: tuple[SDFObstacle, ...] = ()
     camera_pitch_rad: float = 0.18
+    # Route used for target-blind bounded searches.  ``current`` preserves the
+    # historical expanding-square behaviour; alternate routes are useful for
+    # zone search/count experiments and remain target independent.
+    search_pattern: str = "current"
+    # ``two_altitude`` flies its configured route at ``altitude_m`` first, then
+    # descends in place and repeats a close-in route.  Keeping the lower height
+    # on the policy (rather than in the host) makes the transition one bounded
+    # primitive and keeps the route target-blind.
+    low_altitude_m: float | None = None
+    max_altitude_step_m: float = 8.0
+    max_blocked_attempts: int = 3
+    max_blocked_consecutive: int = 10
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -267,17 +279,46 @@ class ExpertSearchPolicy:
             raise ValueError("search radius and translation bound must be positive")
         if not 60.0 <= self.scan_increment_deg <= 90.0:
             raise ValueError("scan increment must be between 60 and 90 degrees")
+        if self.search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
+        if self.low_altitude_m is not None and (
+            not math.isfinite(self.low_altitude_m)
+            or self.low_altitude_m <= 0
+            or self.low_altitude_m > self.altitude_m
+        ):
+            raise ValueError("low_altitude_m must be positive and no higher than altitude_m")
+        if not math.isfinite(self.max_altitude_step_m) or self.max_altitude_step_m <= 0:
+            raise ValueError("max_altitude_step_m must be finite and positive")
         self._commanded_yaw_deg: float | None = None
         self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
         self._waypoint_index = 0
-        self._waypoints = self._build_spiral()
+        self._waypoints = self._build_route()
+        self._search_phase = "high"
+        self._low_waypoints: list[tuple[float, float]] = []
+        if self.search_pattern == "two_altitude":
+            low = self.low_altitude_m
+            if low is None:
+                low = min(self.altitude_m, max(8.0, min(12.0, 0.5 * self.altitude_m)))
+            self.low_altitude_m = low
+            shared = self._build_two_altitude_route()
+            self._waypoints = [(n, e) for n, e, z in shared if z == self.altitude_m]
+            self._low_waypoints = [(n, e) for n, e, z in shared if z == self.low_altitude_m]
         self._last_inside = False
         self._last_approach_range: float | None = None
         self._approach_stall_steps = 0
         self._approach_replan_pending = False
         self._approach_replanned = False
         self._safety_replanned = False
+        self._blocked_attempts = 0
+        self._blocked_consecutive = 0
+        self._blocked = False
+        self._waypoint_attempts: dict[tuple[str, int], int] = {}
+        self._waypoint_last_distance: dict[tuple[str, int], float] = {}
+        self.skipped_waypoints: list[dict[str, Any]] = []
+        self._search_outcome = "running"
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         # Space legs from the pitched camera ground swath, with overlap.
@@ -313,18 +354,71 @@ class ExpertSearchPolicy:
             length += spacing
         return points
 
+    def _build_route(self) -> list[tuple[float, float]]:
+        """Build the configured bounded route in absolute N/E coordinates.
+
+        The coverage helpers intentionally share the same camera geometry as
+        the offline evaluator.  ``two_altitude`` builds both high and low
+        lawnmower legs; the state machine switches between them after the
+        high pass has completed.
+        """
+        if self.search_pattern == "current":
+            return self._build_spiral()
+        return self._build_coverage_route(self.altitude_m)
+
+    def _build_coverage_route(self, altitude_m: float) -> list[tuple[float, float]]:
+        from multidetect.search_coverage import CoverageCamera, expanding_spiral, lawnmower
+
+        camera = CoverageCamera(
+            fx=float(self.intrinsics["fx"]),
+            fy=float(self.intrinsics["fy"]),
+            cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
+            cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
+            width_px=int(self.image_size[0]),
+            height_px=int(self.image_size[1]),
+            pitch_down_deg=math.degrees(self.camera_pitch_rad),
+        )
+        if self.search_pattern in {"lawnmower", "two_altitude"}:
+            relative = lawnmower(self.search_radius_m, camera, max(altitude_m, 1e-3))
+        else:
+            relative = expanding_spiral(
+                self.search_radius_m, camera, max(altitude_m, 1e-3)
+            )
+        home_n, home_e = self.home_ned[:2]
+        return [(home_n + n, home_e + e) for n, e in relative[1:]]
+
+    def _build_two_altitude_route(self) -> list[tuple[float, float, float]]:
+        from multidetect.search_coverage import CoverageCamera, two_altitude_route
+        camera = CoverageCamera(
+            fx=float(self.intrinsics["fx"]), fy=float(self.intrinsics["fy"]),
+            cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
+            cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
+            width_px=int(self.image_size[0]), height_px=int(self.image_size[1]),
+            pitch_down_deg=math.degrees(self.camera_pitch_rad),
+        )
+        route = two_altitude_route(
+            self.search_radius_m, camera, self.altitude_m, float(self.low_altitude_m),
+            max_altitude_step_m=self.max_altitude_step_m,
+        )
+        home_n, home_e = self.home_ned[:2]
+        return [(home_n + n, home_e + e, z) for n, e, z in route]
+
     def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
         self.state = state
         self._commanded_yaw_deg = yaw_deg
         self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
         self._waypoint_index = 0
+        self._search_phase = "high"
         self._last_inside = False
         self._last_approach_range = None
         self._approach_stall_steps = 0
         self._approach_replan_pending = False
         self._approach_replanned = False
         self._safety_replanned = False
+        self._blocked_attempts = 0
+        self._blocked_consecutive = 0
+        self._blocked = False
 
     def _search_leg_action(self, pose_ned, waypoint) -> ActionPrimitive:
         """Turn onto a spiral leg, then fly it body-forward."""
@@ -419,14 +513,93 @@ class ExpertSearchPolicy:
         if self._segment_safe(pose_ned, end_n, end_e):
             return action
         self._safety_replanned = True
+        phase = self._search_phase
+        waypoints = self._low_waypoints if phase == "low" else self._waypoints
+        waypoint_key = (phase, self._waypoint_index)
+        waypoint = waypoints[self._waypoint_index] if self.state == "search" and waypoints else None
+        distance = (
+            math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1])
+            if waypoint is not None else None
+        )
         # A short perpendicular sidestep clears the blocking footprint when possible.
+        # If the first pair is clipped/blocked, escalate to a larger lateral
+        # offset and then a short leg in the opposite heading.  The original
+        # pair remains first, preserving the historical clear-path behaviour.
         length = max(3.5, min(self.max_translate_m, math.hypot(action.forward_m, action.right_m)))
-        for right in (length, -length):
-            candidate = ActionPrimitive.translate(0.0, right, 0.0)
-            cn = pose_ned[0] - right * math.sin(yaw)
-            ce = pose_ned[1] + right * math.cos(yaw)
+        lateral = min(self.max_translate_m, 2.0 * length)
+        candidates = [(yaw, right) for right in (length, -length)]
+        candidates.extend((yaw, right) for right in (lateral, -lateral) if lateral > length + 1e-6)
+        opposite = yaw + math.pi
+        candidates.extend((opposite, right) for right in (length, -length))
+        for candidate_no, (candidate_yaw, right) in enumerate(candidates):
+            cn = pose_ned[0] - right * math.sin(candidate_yaw)
+            ce = pose_ned[1] + right * math.cos(candidate_yaw)
+            # Obstacle recovery must retain the same zone bound as an ordinary
+            # route leg; a perpendicular escape near the rim is otherwise able
+            # to leave the circular search area.
+            rel_n, rel_e = cn - self.home_ned[0], ce - self.home_ned[1]
+            radius = math.hypot(rel_n, rel_e)
+            clipped = radius > self.search_radius_m
+            if clipped:
+                scale = self.search_radius_m / radius
+                cn = self.home_ned[0] + rel_n * scale
+                ce = self.home_ned[1] + rel_e * scale
             if self._segment_safe(pose_ned, cn, ce):
-                return candidate
+                if waypoint is not None and distance is not None:
+                    new_distance = math.hypot(waypoint[0] - cn, waypoint[1] - ce)
+                    previous = self._waypoint_last_distance.get(waypoint_key, distance)
+                    if new_distance < previous - 1e-6:
+                        self._waypoint_attempts[waypoint_key] = 0
+                    else:
+                        self._waypoint_attempts[waypoint_key] = (
+                            self._waypoint_attempts.get(waypoint_key, 0) + 1
+                        )
+                    self._waypoint_last_distance[waypoint_key] = new_distance
+                    if self._waypoint_attempts[waypoint_key] >= self.max_blocked_attempts:
+                        self.skipped_waypoints.append({
+                            "waypoint_index": self._waypoint_index,
+                            "ned": tuple(waypoint),
+                            "phase": phase,
+                            "attempts": self._waypoint_attempts[waypoint_key],
+                        })
+                        self._waypoint_index += 1
+                        self._waypoint_attempts.pop(waypoint_key, None)
+                        self._waypoint_last_distance.pop(waypoint_key, None)
+                self._blocked_consecutive = 0
+                if candidate_no < 2 and not clipped:
+                    # Preserve the historical current-pattern action exactly.
+                    return ActionPrimitive.translate(0.0, right, 0.0)
+                dn, de = cn - pose_ned[0], ce - pose_ned[1]
+                return ActionPrimitive.translate(
+                    dn * math.cos(yaw) + de * math.sin(yaw),
+                    -dn * math.sin(yaw) + de * math.cos(yaw),
+                    0.0,
+                )
+        self._blocked_attempts += 1
+        self._blocked_consecutive += 1
+        attempts = (
+            self._waypoint_attempts.get(waypoint_key, 0) + 1
+            if waypoint is not None
+            else self._blocked_attempts
+        )
+        self._waypoint_attempts[waypoint_key] = attempts
+        if attempts >= self.max_blocked_attempts:
+            if waypoint is not None:
+                self.skipped_waypoints.append({
+                    "waypoint_index": self._waypoint_index,
+                    "ned": tuple(waypoint),
+                    "phase": phase,
+                    "attempts": attempts,
+                })
+            self._waypoint_index += 1
+            self._blocked_attempts = 0
+            self._waypoint_attempts.pop(waypoint_key, None)
+            self._waypoint_last_distance.pop(waypoint_key, None)
+        if self._blocked_consecutive >= self.max_blocked_consecutive:
+            self._blocked = True
+            self._search_outcome = "blocked"
+            self.state = "done"
+            return ActionPrimitive.stop()
         return ActionPrimitive.hold(0.0)
 
     @property
@@ -454,6 +627,8 @@ class ExpertSearchPolicy:
             return ActionPrimitive.stop()
         if self.state == "hold":
             self.state = "done"
+            if self._search_outcome != "blocked":
+                self._search_outcome = "done"
             return ActionPrimitive.stop()
         if self.state not in {"approach", "hold", "done"} and inside:
             self.state = "approach"
@@ -498,14 +673,36 @@ class ExpertSearchPolicy:
             self._initial_scan_remaining -= 1
             return self._scan_action(yaw_deg)
         self.state = "search"
-        if self._waypoint_index >= len(self._waypoints):
+        if self.search_pattern == "two_altitude" and self._search_phase == "high":
+            # Finish the high, fast sweep before spending time on a low pass.
+            # The host applies the returned vertical primitive; until the next
+            # observation reports the lower altitude we must not advance the
+            # route or emit another descent command.
+            if self._waypoint_index >= len(self._waypoints):
+                low = float(self.low_altitude_m)
+                altitude = max(0.0, -float(pose_ned[2]))
+                if altitude > low + 0.5:
+                    drop = min(altitude - low, self.max_altitude_step_m)
+                    return ActionPrimitive.translate(0.0, 0.0, -drop)
+                self._search_phase = "low"
+                self._waypoint_index = 0
+        waypoints = self._low_waypoints if self._search_phase == "low" else self._waypoints
+        if self._waypoint_index >= len(waypoints):
+            # A completed low pass is restarted for counting, just like the
+            # historical route restarts after its final waypoint.
             self._waypoint_index = 0
-        waypoint = self._waypoints[self._waypoint_index]
+        waypoint = waypoints[self._waypoint_index]
         if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 0.5:
             self._waypoint_index += 1
-            if self._waypoint_index >= len(self._waypoints):
+            if (
+                self.search_pattern == "two_altitude"
+                and self._search_phase == "high"
+                and self._waypoint_index >= len(waypoints)
+            ):
+                return ActionPrimitive.hold(0.0)
+            if self._waypoint_index >= len(waypoints):
                 self._waypoint_index = 0
-            waypoint = self._waypoints[self._waypoint_index]
+            waypoint = waypoints[self._waypoint_index]
         return self._search_leg_action(pose_ned, waypoint)
 
     def labels(self, *, pose_ned, yaw_deg: float = 0.0) -> dict[str, Any]:
@@ -526,6 +723,8 @@ class ExpertSearchPolicy:
             "approach_replanned": self._approach_replanned,
             "safety_replanned": self._safety_replanned,
             "standoff_m": self.effective_standoff_m,
+            "skipped_waypoints": [dict(item) for item in self.skipped_waypoints],
+            "search_pass_outcome": self._search_outcome,
         }
 
 

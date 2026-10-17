@@ -354,7 +354,9 @@ def test_sim_pause_resume_order_and_abort_act_bypass_models(tmp_path, model_stub
 def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
     package = document("return_now" if mode == "link" else "continue")
     if mode == "budget":
-        package["budget"].update(time_s=90, reserve_time_s=60)
+        # Admission must fit the mandatory 40 m out-and-back at the calibrated
+        # 0.75 m/s speed; the supervisor still escalates once reserve is reached.
+        package["budget"].update(time_s=180, reserve_time_s=60)
     policy = _construct(tmp_path, {
         "mission_package": package,
         "sim_ground_events": [{"t_s": 10, "event": "link_lost"}] if mode == "link" else [],
@@ -362,7 +364,8 @@ def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
     try:
         assert _sim_advance(policy, 0) == "continue"
         assert _sim_advance(policy, 10) == "continue"
-        assert _sim_advance(policy, 30) == "return_now"
+        # Reserve escalation occurs after the admitted 120 s usable window.
+        assert _sim_advance(policy, 130) == "return_now"
         assert policy.supervisor.reason == (
             "operator link-loss policy" if mode == "link" else "remaining time at or below reserve"
         )
@@ -397,5 +400,33 @@ def test_live_battery_energy_can_stop_mission_before_image_or_models(tmp_path, m
         assert labels["onboard"]["supervisor_action"] == "return_now"
         assert not labels["onboard"]["slow_calls"]
         assert not list(policy.work_dir.glob("frame_*.png"))
+    finally:
+        policy.close()
+
+
+def test_sim_energy_receipt_timestamp_is_converted_to_sim_clock(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        action, labels = policy.act(
+            {
+                "frame_sensor_stamp_ns": 0,
+                "mission_estimates": {"remaining_energy_wh": 0},
+                "energy_telemetry": [{
+                    "received_monotonic_s": time.monotonic(),
+                    "message": {
+                        "mavpackettype": "BATTERY_STATUS",
+                        "id": 0,
+                        "battery_remaining": 90,
+                        "voltages": [16000] + [65535] * 9,
+                        "current_battery": -1,
+                        "current_consumed": 0,
+                    },
+                }],
+            },
+            pose_ned=(0, 0, -20),
+            yaw_deg=0,
+        )
+        assert action is not None
+        assert labels["onboard"]["energy"] is not None
     finally:
         policy.close()

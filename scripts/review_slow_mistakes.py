@@ -51,6 +51,7 @@ def _truth_for(world: str, explicit: Path | None) -> tuple[dict[str, Any], Path]
     for directory in (
         ROOT / "configs/scenarios/generated-movers",
         ROOT / "configs/scenarios/generated-v2",
+        ROOT / "configs/scenarios/generated-v2-appearance",
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
         ROOT / "configs/scenarios/generated-confusers-2",

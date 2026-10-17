@@ -24,6 +24,46 @@ def _box(cx: float, cy: float, side: float) -> tuple[float, float, float, float]
     return (cx - side / 2, cy - side / 2, cx + side / 2, cy + side / 2)
 
 
+def test_loop_without_clearance_configuration_fails_closed() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(1.0, 0.0, 0.0),
+    )
+    assert loop._segment_clear((0.0, 0.0, -10.0), 1.0, 0.0) is False
+
+
+class _BlockSource:
+    def segment_clear(self, _start, _end):
+        return False
+
+
+def test_search_action_keeps_legacy_behavior_without_source_but_is_gated_with_source() -> None:
+    pose = (0.0, 0.0, -10.0)
+    legacy = _loop()
+    assert legacy._search_step(pose, 0.0).kind == "translate"
+    guarded = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        obstacle_source=_BlockSource(),
+    )
+    assert guarded._search_step(pose, 0.0).kind == "hold"
+
+
+def test_repeated_blocked_search_legs_reach_terminal_blocked_state() -> None:
+    guarded = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        obstacle_source=_BlockSource(),
+        config=LoopConfig(max_blocked_legs=2),
+    )
+    pose = (0.0, 0.0, -10.0)
+    assert guarded._search_step(pose, 0.0).kind == "hold"
+    assert guarded.state == "searching"
+    assert guarded._search_step(pose, 0.0).kind == "hold"
+    assert guarded.state == "blocked"
+    assert guarded.next_action([], pose_ned=pose, yaw_deg=0.0)[0].kind == "stop"
+
+
 def test_ground_point_of_image_centre_follows_camera_pitch() -> None:
     north, east = CAMERA.ground_point(640.0, 480.0, north=0.0, east=0.0, height_m=20.0, yaw_deg=0.0)
     assert math.isclose(north, 20.0 / math.tan(0.18), rel_tol=1e-6)
@@ -98,6 +138,71 @@ def test_tiny_boxes_are_not_sent_to_the_slow_model() -> None:
     loop = _loop()
     tracks = loop.update_tracks([Detection(_box(640, 400, 8), 0.3)])
     assert tracks and loop.tracks_needing_verdict(tracks) == []
+
+
+def test_small_reject_recheck_is_opt_in_and_pending_until_confirm_size() -> None:
+    disabled = _loop()
+    tracks = disabled.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    disabled.apply_verdict("t1", "reject_track")
+    assert disabled.tracks["t1"].verdict == "no_match"
+    assert disabled.tracks["t1"].identity_reject_matches == 1
+
+    loop = _loop(
+        small_reject_recheck_px=16.0,
+        small_reject_recheck_max=1,
+        confirm_min_side_px=20.0,
+    )
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    track = loop.tracks["t1"]
+    assert track.verdict == "pending_near"
+    assert track.identity_reject_matches == 0
+    assert track.small_reject_rechecks == 1
+    assert loop.tracks_needing_verdict(tracks) == []
+
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 20), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
+    loop.apply_verdict("t1", "reject_track")
+    assert loop.tracks["t1"].verdict == "no_match"
+    assert loop.tracks["t1"].identity_reject_matches == 1
+
+
+def test_small_reject_recheck_does_not_bypass_confirm_size_gate() -> None:
+    loop = _loop(
+        small_reject_recheck_px=16.0,
+        confirm_min_side_px=20.0,
+        confirm_matches=1,
+    )
+    pose = (0.0, 0.0, -20.0)
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 19), 0.3)])
+    assert loop.tracks_needing_verdict(tracks) == []
+    _action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert loop.state == "approaching"
+    assert info["min_side_px"] == 19.0
+
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 20), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
+    loop.apply_verdict("t1", "confirm_target")
+    _action, _info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0)
+    assert loop.state == "returning"
+
+
+def test_small_reject_recheck_is_not_spent_by_ttl_while_still_small() -> None:
+    loop = _loop(small_reject_recheck_px=16.0, confirm_min_side_px=20.0, verdict_ttl_steps=2)
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    for _ in range(5):
+        loop.step_index += 1
+        tracks = loop.update_tracks([Detection(_box(640, 400, 14), 0.3)])
+        assert loop.tracks_needing_verdict(tracks) == []
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 20), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
 
 
 def test_return_home_turns_then_flies_and_stops() -> None:
@@ -227,7 +332,7 @@ def test_too_close_above_the_floor_descends_in_place() -> None:
     def ground_point(u: float, v: float) -> tuple[float, float]:
         return (18.0, 0.0)
 
-    tracks = loop.update_tracks([Detection(_box(640, 800, 20), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert action.kind == "translate" and action.forward_m == 0.0 and action.up_m < 0
@@ -333,7 +438,7 @@ def test_identity_matches_confirm_at_the_closest_view():
     loop.apply_verdict("t1", "approach_track")
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert action.kind == "hold" and info["reason"] == "closest_view"
-    tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+    tracks = loop.update_tracks([Detection(_box(640, 800, 20), 0.3)])
     loop.apply_verdict("t1", "approach_track")  # one more view, still "approach"
     action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
     assert loop.state == "returning"

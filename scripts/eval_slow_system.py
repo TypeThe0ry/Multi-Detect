@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import socket
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -112,6 +113,79 @@ def _usage_count(usage: Any, key: str) -> int | None:
     return None
 
 
+SIZE_BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
+
+
+def _size_bucket(short_side_px: float) -> str:
+    if short_side_px < 12:
+        return "<12"
+    if short_side_px < 16:
+        return "12-16"
+    if short_side_px < 20:
+        return "16-20"
+    if short_side_px < 32:
+        return "20-32"
+    return ">=32"
+
+
+def _candidate_short_side_px(dataset_row: dict[str, Any]) -> float | None:
+    """Short edge of the focus candidate in pixels, or None when the row has no box.
+
+    Datasets without candidate boxes (e.g. text-only planning sets) are simply not
+    bucketed; this must never fail an evaluation run.
+    """
+    candidates = [item for item in dataset_row.get("candidates") or [] if isinstance(item, dict)]
+    if not candidates:
+        return None
+    focus = dataset_row.get("focus_track_id")
+    candidate = next((item for item in candidates if item.get("track_id") == focus), candidates[0])
+    box = candidate.get("box_xyxy_normalized")
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    width, height = 1280.0, 960.0
+    image_size = dataset_row.get("image_size") or dataset_row.get("camera_info") or {}
+    if isinstance(image_size, dict):
+        width, height = float(image_size.get("width", width)), float(image_size.get("height", height))
+    try:
+        from PIL import Image
+        image_path = dataset_row.get("image_path")
+        if image_path:
+            path = Path(str(image_path))
+            if path.is_file():
+                with Image.open(path) as image:
+                    width, height = map(float, image.size)
+    except (ImportError, OSError, ValueError):
+        pass
+    x1, y1, x2, y2 = (float(value) for value in box)
+    return min(abs(x2 - x1) * width, abs(y2 - y1) * height)
+
+
+def size_bucket_metrics(results: list[dict[str, Any]], dataset_rows: list[dict[str, Any]] | dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Compute identity metrics by candidate short edge without model inference."""
+    by_id = dataset_rows if isinstance(dataset_rows, dict) else {str(row.get("sample_id")): row for row in dataset_rows}
+    grouped: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in SIZE_BUCKETS}
+    for result in results:
+        record = by_id.get(str(result.get("sample_id")))
+        short_side = None if record is None else _candidate_short_side_px(record)
+        if short_side is not None:
+            grouped[_size_bucket(short_side)].append(result)
+    report: dict[str, dict[str, Any]] = {}
+    for bucket in SIZE_BUCKETS:
+        rows = grouped[bucket]
+        matches = [row for row in rows if identity_of(str(row.get("expected"))) == "match"]
+        distractors = [row for row in rows if identity_of(str(row.get("expected"))) == "no_match"]
+        identity_ok = sum(identity_of(str(row.get("decision"))) == identity_of(str(row.get("expected"))) for row in rows)
+        true_recalled = sum(identity_of(str(row.get("decision"))) == "match" for row in matches)
+        rejected = sum(identity_of(str(row.get("decision"))) == "no_match" for row in distractors)
+        report[bucket] = {
+            "sample_count": len(rows),
+            "identity_accuracy": identity_ok / len(rows) if rows else None,
+            "true_target_recall": true_recalled / len(matches) if matches else None,
+            "distractor_rejection_rate": rejected / len(distractors) if distractors else None,
+        }
+    return report
+
+
 def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     valid = [row for row in results if row["valid"]]
     expected = [str(row["expected"]) for row in results]
@@ -178,7 +252,9 @@ def evaluate_predictor(rows: list[dict[str, Any]], predictor: Callable[[dict[str
                 "prompt_tokens": None, "completion_tokens": None,
             }
         results.append(result)
-    return {"metrics": decision_metrics(results), "rows": results}
+    metrics = decision_metrics(results)
+    metrics["size_buckets"] = size_bucket_metrics(results, rows)
+    return {"metrics": metrics, "rows": results}
 
 
 class HFRunner:
@@ -228,7 +304,7 @@ def _http_json(url: str, body: dict[str, Any] | None = None, timeout: float = 18
 class LlamaServerRunner:
     fast_identity = False  # tests build bare instances
 
-    def __init__(self, model: Path, mmproj: Path, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True):
+    def __init__(self, model: Path, mmproj: Path | None = None, *, executable: Path = DEFAULT_LLAMA, adapter: Path | None = None, port: int = 9933, context: int = 4096, max_new_tokens: int = 128, device: str = "cuda:0", crop_policy: str = "none", max_side: int = 448, identity_only: bool = False, logprobs: bool = False, fast_identity: bool = False, identity_variant: str | None = None, cache_prompt: bool = True, wait_port_free: bool = False):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = port, max_new_tokens, crop_policy, max_side
         # Identity rows: prefill the pinned args, read one token's log-probabilities
         # for the three verdicts instead of decoding the whole JSON (~50 tokens).
@@ -236,6 +312,7 @@ class LlamaServerRunner:
         self._verdict_tokens: dict[str, dict[str, int]] = {}
         self._verdict_pieces: dict[str, dict[str, str | None]] = {}
         self.identity_variant, self.cache_prompt, self.last_usage = identity_variant, cache_prompt, None
+        self.wait_port_free = bool(wait_port_free)
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -247,9 +324,13 @@ class LlamaServerRunner:
         else:
             raise ValueError("GGUF device must be cpu or cuda[:index]")
         # llama-server runs with cwd=executable.parent, so relative paths must be resolved first.
-        executable, model, mmproj = Path(executable).resolve(), Path(model).resolve(), Path(mmproj).resolve()
+        executable, model = Path(executable).resolve(), Path(model).resolve()
+        mmproj = Path(mmproj).resolve() if mmproj is not None else None
         adapter = Path(adapter).resolve() if adapter else None
-        command = [str(executable), "-m", str(model), "-mm", str(mmproj), "-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"]
+        command = [str(executable), "-m", str(model)]
+        if mmproj is not None:
+            command.extend(["-mm", str(mmproj)])
+        command.extend(["-ngl", gpu_layers, "-c", str(context), "-n", str(max_new_tokens), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"])
         if adapter:
             command.extend(["--lora", str(adapter)])
         self.server_log = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
@@ -354,6 +435,20 @@ class LlamaServerRunner:
         self.last_usage = response.get("usage")
         return response["choices"][0]["message"].get("content", ""), elapsed
 
+    def probe_health(self, timeout_s: float = 0.5) -> bool:
+        """Cheap synchronous health probe used by the onboard state machine.
+
+        Lifecycle is owned by systemd in flight; this method deliberately only
+        performs a bounded GET and never starts or restarts the server.
+        """
+        try:
+            response = _http_json(
+                f"http://127.0.0.1:{self.port}/health", timeout=float(timeout_s)
+            )
+            return response.get("status") == "ok"
+        except (OSError, ValueError, urllib.error.URLError, TimeoutError):
+            return False
+
     def close(self) -> None:
         if self.process.poll() is None:
             self.process.terminate()
@@ -361,6 +456,22 @@ class LlamaServerRunner:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+                self.process.wait(timeout=10)
+        if not getattr(self, "wait_port_free", False):
+            return
+        # A planner and identity server may reuse one port.  A failed connect
+        # is not enough evidence: bind the port ourselves before returning.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                probe.bind(("127.0.0.1", int(self.port)))
+                probe.close()
+                return
+            except OSError:
+                probe.close()
+                time.sleep(0.05)
+        raise TimeoutError(f"llama-server port {self.port} did not become free")
 
 
 def run(args) -> dict[str, Any]:

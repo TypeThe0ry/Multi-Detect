@@ -30,6 +30,10 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 
 在任务配置中设置 `operator_key_path`（也接受 `mission_key_path`、`mission_signing_key_path` 或 `security.key_path`）。路径可为绝对路径或相对仓库根目录。设置该路径后，未签名或验签失败的任务包会在机载接受前拒绝。命令安全参数可放在 `security` 下：`timestamp_window_s` 默认 30 秒、`clock_skew_s` 默认 5 秒、`rate_limit` 默认 20、`rate_window_s` 默认 10 秒。
 
+任务包验签和地面命令验签可分别配置为 `mission_package_verify_key` 与 `ground_command_verify_key`；旧的 `operator_key_path` 等字段仍兼容但已弃用。飞行模式拒绝使用 `ed25519-private:` 私钥作为验签配置。每个任务首次接纳时会先原子创建 replay high-water 文件；重启后文件缺失或损坏只拒绝地面命令并记录“replay state lost; re-provision mission”，自主任务仍按链路丢失策略运行。命令不携带 session nonce，使用签名绑定的 mission_id、严格递增 sequence 和 freshness timestamp。
+
+地面命令在验签前限制为 8 KiB、嵌套深度 8、字符串 1 KiB；重复 JSON 键会拒绝，认证失败使用 token bucket 限流。`ground_event` 由单一锁保护认证、限流、状态变更和 replay 提交。
+
 密钥 provisioning 和 rotation 流程：在离线操作员主机生成新密钥；通过受控介质把 public key（或 HMAC 预共享密钥）写入机载密钥文件并限制权限；先发布使用新 key 的任务包；确认机载日志中的验签成功后再撤销旧 key。轮换期间只能短暂地在配置层允许两个 key，并以任务版本/有效期区分，禁止把 private key、预共享密钥或命令签名放进日志、JSON 示例、命令行参数和仓库。
 
 时间戳使用机载本地时钟并允许 clock skew；没有 GPS 时间时不会把 GPS 当作认证时钟。sequence 在当前 Supervisor 会话内严格递增；重启或换包时应重新签发任务会话，不能复用旧会话命令。
@@ -37,3 +41,29 @@ Codec 对 TUNNEL 负载做长度检查、sequence/timestamp 编码和截断 HMAC
 ## MAVLink2 链路层签名（互补措施）
 
 应用层签名保护任务语义，MAVLink2 message signing 保护链路上的 MAVLink 帧，两者应同时启用。PX4 中在参数/启动配置启用 MAVLink signing，并把同一个 32 字节链路密钥安全写入对应 MAVLink 实例；QGroundControl 在 Vehicle Setup → Parameters 的 MAVLink signing 页面导入相同密钥、启用 signing，并确认连接状态显示 signed。按 PX4 与 QGC 当前版本的参数名称和 UI 校验后再部署；不要把该链路密钥当作任务包的 operator key，也不要提交到仓库。
+
+## 统一签名合约（Mission Security v2）
+
+### GCS producer
+
+GCS 生成地面任务级命令时，必须签名以下完整字段：`mission_id`、`type`、`sequence`、`timestamp`、`timestamp_version`、`timestamp_domain`、`key_id` 以及命令自身的其他字段。签名输入是删除 `signature` 与 `signature_alg` 后，对完整 JSON 对象执行 canonicalization 的 UTF-8 字节：对象键按 Unicode 码点升序、数组保持原顺序、字符串使用 UTF-8、数字必须是有限值、分隔符固定为 `,` 和 `:`，不输出空白；`key_id` 必须保留在签名域中，算法由本地配置决定。GCS panel 将该 JSON 按 mission command chunk（类型 37）发送；onboard 收齐后再交给严格 JSON、签名、时间和 replay 校验。REAL 模式没有 Ed25519 operator key 时，上传和 ground command 都 fail closed。
+
+Ground-command `sequence` 按 `mission_id` 的 SHA-256 hash 持久保存在 GCS 用户级 `QSettings` 中。每次写入都执行 `sync()` 并检查 `QSettings::status()`；`uint64` 到达上限后拒绝新命令，不回绕到 1。
+
+任务包与地面命令使用同一份 canonical JSON 合约。签名者先复制完整 JSON 对象，删除 `signature` 与 `signature_alg` 两个字段，保留 `key_id`，然后按以下规则编码：对象键按 Unicode 码点升序排列；数组顺序保持不变；字符串使用 UTF-8 且不转义非 ASCII；数字必须是有限值；不输出空白，分隔符固定为 `,` 和 `:`；最终字节是 UTF-8 编码的 JSON 文本。签名算法和 `key_id` 由本地密钥配置决定，文档中的同名字段只能用于匹配，不能选择验证算法。
+
+密钥文件必须使用 `ed25519-public:`, `ed25519-private:` 或 `hmac:` 前缀，并可用 JSON 对象写成 `{ "algorithm": "...", "key_id": "...", "key": "<prefixed-value>" }`。Ed25519 密钥材料严格为 32 字节；HMAC-SHA256 密钥为 16 至 4096 字节。飞行模式（`mode` 为 `flight`、`real`、`hil` 或 `live`，或显式 `flight_mode=true`）以及任何已配置密钥的任务包都必须带签名；密钥缺失、不可读、权限过宽或签名不匹配时拒绝载入。SIM 模式未配置密钥时仍可载入未签名任务包。
+
+签名字段示例：
+
+```json
+{
+  "key_id": "operator-2026-a",
+  "signature_alg": "ed25519",
+  "signature": "<base64>"
+}
+```
+
+GCS 必须对同一份原始对象执行上述 canonicalization 后再签名，不能先删掉 `key_id`，也不能依赖 Qt 默认 JSON 排序或格式化结果。
+
+地面命令还必须携带版本化时间域：`timestamp_version` 当前固定为 `1`，`timestamp_domain` 只能是 `monotonic` 或 `unix`。`monotonic` 表示发送端的单调时钟值，`unix` 表示 Unix 秒；接收端按照声明的域做 freshness 校验，但链路 liveness 永远使用本地收到命令的 monotonic 时间。远端时间只用于 freshness、远端 heartbeat 顺序和审计。缺少版本或时间域的已签名命令直接拒绝，不能根据数值大小猜测时间域。

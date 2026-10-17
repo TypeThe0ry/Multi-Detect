@@ -7,6 +7,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import QtPositioning
+import "qrc:/Custom/qml" as MultiDetectPanels
 
 Item {
     id: root
@@ -26,6 +27,8 @@ Item {
         typeof multiDetectHilUiAutoExitDelayMs !== "undefined" ? multiDetectHilUiAutoExitDelayMs : 0
     property int _hilUiAutoExerciseStage: 0
     property var mapControl
+    property string _missionOriginLatitude: ""
+    property string _missionOriginLongitude: ""
     property var parentToolInsets
     property var totalToolInsets: toolInsets
     property string _pendingExecutionPopup: ""
@@ -2499,6 +2502,22 @@ Item {
         }
     }
 
+    QGCPopupDialogFactory {
+        id: missionPackageDialogFactory
+        dialogComponent: missionPackageDialogComponent
+    }
+
+    Component {
+        id: missionPackageDialogComponent
+        MultiDetectPanels.MultiDetectMissionPanel {
+            mapControl: root.mapControl
+            originLatitude: root._missionOriginLatitude
+            originLongitude: root._missionOriginLongitude
+            onOriginLatitudeChanged: root._missionOriginLatitude = originLatitude
+            onOriginLongitudeChanged: root._missionOriginLongitude = originLongitude
+        }
+    }
+
     // Keep target operations as native QGCButton controls without wrapping
     // them in a second, custom-styled HUD card. The Fly View data overlays
     // remain spatial, while operational chrome inherits QGC's own controls.
@@ -2517,6 +2536,11 @@ Item {
 
             anchors.centerIn: parent
             spacing: root._margin * 0.5
+
+            QGCButton {
+                text: qsTr("任务包")
+                onClicked: missionPackageDialogFactory.open()
+            }
 
             QGCButton {
                 checkable: true

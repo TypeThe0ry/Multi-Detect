@@ -96,6 +96,22 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 
 `COM_DL_LOSS_T` 是 PX4 判定 GCS 连接丢失的秒数；随仓库携带的元数据给出范围 5–300 秒、默认 10 秒。不要把 `NAV_DLL_ACT=1` 误读成 1 秒超时。任务包的心跳新鲜度、继续静默 T、Hold 等待 T 是机上任务规则，三者应明确区分。对于机上负责延时的策略，不能让 PX4 在更早的固定时刻强制执行更激进的动作。还应检查真实飞控的 `COM_DLL_EXCEPT`：它可按 Mission、Auto、Offboard 等模式忽略数据链失联，可能让所选 PX4 后备动作在当前飞行模式里不触发。PX4 曾收到 GCS 后再丢失与起飞以来从未连接 GCS 的行为也应分别核对，机上策略不依赖先连接地面站。
 
+### 实机起飞前 PX4 预检矩阵
+
+机载入口在允许解锁前只读回下列参数和遥测。默认不会写 PX4；只有显式给出 `--apply-px4-params` 才会逐项写入并再次读回。任一阻断项失败都会拒绝解锁，报告同时写入任务目录的 `mission_log/mission.jsonl`。
+
+| 项目 | `continue` / 定时策略 | `return_now` | `land_now` | 通过条件 |
+| --- | --- | --- | --- | --- |
+| `NAV_DLL_ACT` | `0`，机上监督器计时 | `2` Return | `3` Land | 必须与任务包方向一致；更激进值只有在任务包签名内的 `accepted_px4_overrides` 写明理由才允许 |
+| `COM_DL_LOSS_T` | 读回 PX4 秒数，不能替代任务包 T | 同左 | 同左 | 在 PX4 元数据范围 5–300 秒内，并记录实际值 |
+| `NAV_RCL_ACT` / `COM_RC_IN_MODE` | RC 仍按现场接管方案配置 | 同左 | 同左 | `NAV_RCL_ACT` 不得弱于任务动作；`COM_RC_IN_MODE` 必须是 0–8 的有效枚举，不能照抄 SIM 的 4 |
+| `COM_OF_LOSS_T` / `COM_OBL_RC_ACT` | Offboard 丢失仍须 Hold/Return/Land 保护 | 同左 | 同左 | 读回并核对 0–60 秒和动作；不能用地面链路策略关闭机载控制保护 |
+| `GF_ACTION` | Return 及以上 | Return 及以上 | Land 及以上 | 围栏动作不弱于独立安全要求；`GF_MAX_HOR_DIST` 覆盖 home 到运行矩形四角的最大距离，`GF_MAX_VER_DIST` 覆盖最大任务高度，0（禁用）阻断 |
+| `BAT_LOW_THR` / `BAT_CRIT_THR` / `COM_LOW_BAT_ACT` | 低阈值高于临界阈值，临界阈值不低于任务包 reserve_energy_wh / energy_wh | 同左，临界时至少 Return | Land 策略可用 Land | 范围分别为 0.12–0.50、0.05–0.50；电池遥测、SOC 和电量时间戳新鲜 |
+| `SYS_STATUS` / `ESTIMATOR_STATUS` / `GPS_RAW_INT` / `HOME_POSITION` | 传感器、估计器、GNSS、home 全部健康 | 同左 | 同左 | 必需传感器健康位齐全，估计器姿态/速度/位置标志齐全，GNSS 至少 3D fix、6 颗卫星且 home 已知 |
+
+报告的每一行都包含 PX4 实际值、期望值，以及中文和英文解释。任务包若要接受会改变任务语义的 PX4 更保守动作，必须在签名覆盖的 `accepted_px4_overrides` 中填写参数、`accepted: true` 和现场理由；没有理由的覆盖仍然阻断。
+
 `NAV_RCL_ACT` 管的是 RC 或手动输入丢失，由 `COM_RC_LOSS_T` 计时，与 GCS 数据链是两件事。`COM_RC_IN_MODE` 选择手动输入来源；当前 SIM collector 的值 4 表示忽略全部手动输入。这是既有隔离模拟配置，不能照抄为真实飞机的通用建议；真实飞机应根据实际 RC、MAVLink joystick 和接管方案决定，保留所需接管能力及其失联保护。
 
 `COM_OF_LOSS_T` 管的是 Offboard 控制输入丢失，随仓库携带的元数据默认 1 秒、范围 0–60 秒，动作由 `COM_OBL_RC_ACT` 选择。地面站断线而机载计算机和飞控之间的控制流仍健康，和机载控制进程停止发送 setpoint，是两个故障。不要为允许无地面站完成任务而关闭或大幅延长机载 Offboard 失效保护；实际控制进程、定位或飞控链路故障仍由这条独立保护处理。既有 PX4 参数和板上实测快照可由 `pixhawk_parameters.py` 做只读备份与差异核对，但本功能不会自动改写它们。

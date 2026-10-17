@@ -88,6 +88,10 @@ def summarize_mission(
                     "frame_id": finding.get("frame_id"),
                 }
             )
+            findings[-1].update({
+                key: value for key, value in finding.items()
+                if key.startswith("position_") and key != "position_ne"
+            })
         else:
             findings.append(
                 {
@@ -136,6 +140,8 @@ def summarize_mission(
         "not_done": undone,
         "omitted": {},
     }
+    if raw.get("model_runtime") is not None:
+        result["model_runtime"] = dict(raw["model_runtime"])
     if landing_unconfirmed:
         # A dispatched landing command is not confirmed mission completion.
         result["status"] = "landing_commanded_unconfirmed"
@@ -157,6 +163,7 @@ def _bound(result: dict[str, Any]) -> None:
         "steps",
         "counts",
         "skills",
+        "model_runtime",
     )
     while len(summary_json(result).encode("utf-8")) > 2048:
         for key in order:

@@ -127,7 +127,16 @@ def load_candidates(
         association = associations.get(key)
         if association is None or key in seen:
             continue
-        raw_depth_m = _positive_float(details.get("raw_slant_range_m"), "raw_slant_range_m")
+        # Dense-map calibration operates on optical-axis Z.  Older audit events
+        # called that value slant range; retain their field fallback while new
+        # events also expose the actual, view-angle-corrected slant range.
+        raw_depth = details.get("raw_optical_axis_depth_m")
+        if raw_depth is None:
+            raw_depth = details.get("raw_slant_range_m")
+        raw_depth_m = _positive_float(raw_depth, "raw optical-axis depth")
+        calibrated_depth = details.get("optical_axis_depth_m")
+        if calibrated_depth is None:
+            calibrated_depth = details.get("slant_range_m")
         audit_timestamp_s = _positive_float(event["timestamp_s"], "audit timestamp")
         previous_timestamp_s = last_exported_at_s.get(target_id)
         previous_raw_depth_m = last_exported_raw_depth_m.get(target_id)
@@ -148,7 +157,9 @@ def load_candidates(
                 audit_sequence=_positive_int(event["sequence"], "audit sequence"),
                 audit_timestamp_s=audit_timestamp_s,
                 raw_depth_m=raw_depth_m,
-                calibrated_depth_m=_positive_float(details.get("slant_range_m"), "slant_range_m"),
+                calibrated_depth_m=_positive_float(calibrated_depth, "optical-axis depth"),
+                # Diagnostic source-measurement uncertainty, unused by the Z
+                # calibration fitter; preserve its slant-range units.
                 sigma_m=_positive_float(details.get("sigma_m"), "sigma_m"),
                 calibration_profile=_nonempty_string(
                     details.get("calibration_profile"), "calibration_profile"

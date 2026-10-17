@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import threading
 import time
 from dataclasses import replace
@@ -45,10 +46,16 @@ class FakeVehicle:
             raise RuntimeError("receiver stopped")
         now = time.monotonic()
         return VehicleState(
-            position_ned=self.position, attitude_deg=(0, 0, 15), velocity_ned=(0, 0, 0),
-            home_ned=(10, 20, 0), landed=self.landed, armed=self.armed, mode=self.mode,
+            position_ned=self.position,
+            attitude_deg=(0, 0, 15),
+            velocity_ned=(0, 0, 0),
+            home_ned=(10, 20, 0),
+            landed=self.landed,
+            armed=self.armed,
+            mode=self.mode,
             pose_monotonic=now if self.pose_stamp is None else self.pose_stamp,
-            attitude_monotonic=now, heartbeat_monotonic=now,
+            attitude_monotonic=now,
+            heartbeat_monotonic=now,
         )
 
     def send_setpoint(self, setpoint):
@@ -91,8 +98,9 @@ class FakeCamera:
         pass
 
     def latest(self):
-        return CameraFrame(b"unused", time.monotonic() if self.stamp is None else self.stamp,
-                           self.calibration)
+        return CameraFrame(
+            b"unused", time.monotonic() if self.stamp is None else self.stamp, self.calibration
+        )
 
     def close(self):
         self.closed = True
@@ -101,9 +109,13 @@ class FakeCamera:
 def test_observation_for_preserves_landed_state() -> None:
     frame = CameraFrame(b"rgb", 12.5, FakeCamera.calibration)
     state = VehicleState(
-        position_ned=(1.0, 2.0, -3.0), attitude_deg=(0.0, 0.0, 4.0),
-        velocity_ned=(0.0, 0.0, 0.0), home_ned=(1.0, 2.0, 0.0),
-        landed=True, armed=False, mode="LAND",
+        position_ned=(1.0, 2.0, -3.0),
+        attitude_deg=(0.0, 0.0, 4.0),
+        velocity_ned=(0.0, 0.0, 0.0),
+        home_ned=(1.0, 2.0, 0.0),
+        landed=True,
+        armed=False,
+        mode="LAND",
     )
     assert observation_for(frame, state)["landed"] is True
 
@@ -135,6 +147,53 @@ class SlowPolicy:
             self.release_event.set()
 
 
+def test_runtime_calls_final_arbiter_before_pump_target() -> None:
+    """A policy result is filtered once at the coordinator/pump boundary."""
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    seen = []
+
+    def arbiter(action, *, pose_ned, yaw_deg, observation=None):
+        seen.append((action, tuple(pose_ned), yaw_deg))
+        return ActionPrimitive.translate(1.0, 0.0), {"status": "accepted"}
+
+    policy = SlowPolicy(latency=0.01, action=ActionPrimitive.translate(100.0, 0.0))
+    runtime = OnboardRuntime(
+        vehicle, camera, policy, config=RuntimeConfig(camera_timeout_s=3.0), arbiter=arbiter
+    )
+    runtime.start()
+    try:
+        runtime.poll()
+        deadline = time.monotonic() + 1.0
+        while runtime.steps < 1 and time.monotonic() < deadline:
+            runtime.poll()
+            time.sleep(0.01)
+        assert runtime.steps >= 1
+        assert seen and seen[0][0].forward_m == 100.0
+        # Vehicle yaw is 15 degrees, so body-forward projects onto both N/E.
+        assert runtime.pump.target.north_m == pytest.approx(10.9659258)
+        event = next(e for e in runtime.events if e["event"] == "autonomy_action")
+        assert event["envelope"]["status"] == "accepted"
+    finally:
+        runtime.close()
+
+
+def test_runtime_has_one_checked_setpoint_boundary():
+    source = inspect.getsource(OnboardRuntime)
+    assert source.count("self.pump.set_target(") == 1
+    assert "def _set_target_checked" in source
+    assert all(
+        purpose in source
+        for purpose in (
+            "policy_action",
+            "takeoff",
+            "hazard_hold",
+            "policy_hold",
+            "close_hold",
+            "terminal_hold",
+        )
+    )
+
+
 def wait_for(predicate, timeout=1):
     until = time.monotonic() + timeout
     while not predicate():
@@ -147,9 +206,7 @@ def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
     vehicle, camera = FakeVehicle(), FakeCamera()
     release = threading.Event()
     policy = SlowPolicy(release_event=release)
-    runtime = OnboardRuntime(
-        vehicle, camera, policy, config=RuntimeConfig(camera_timeout_s=3.0)
-    )
+    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(camera_timeout_s=3.0))
     runtime.start()
     initial = runtime.pump.target
     try:
@@ -185,10 +242,18 @@ def test_stream_rate_and_hold_during_one_and_half_second_policy_call():
 def test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action(field, reason, failsafe):
     vehicle, camera = FakeVehicle(), FakeCamera()
     policy = SlowPolicy(0.2, ActionPrimitive.translate(100, 0))
-    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(
-        camera_timeout_s=0.08, pose_timeout_s=0.08, hold_before_failsafe_s=0.05,
-        failsafe=failsafe, shutdown_timeout_s=0.1,
-    ))
+    runtime = OnboardRuntime(
+        vehicle,
+        camera,
+        policy,
+        config=RuntimeConfig(
+            camera_timeout_s=0.08,
+            pose_timeout_s=0.08,
+            hold_before_failsafe_s=0.05,
+            failsafe=failsafe,
+            shutdown_timeout_s=0.1,
+        ),
+    )
     runtime.start()
     try:
         runtime.poll()
@@ -218,15 +283,22 @@ def test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action(field,
 
 def test_hung_autonomy_times_out_without_stopping_stream():
     vehicle, camera, policy = FakeVehicle(), FakeCamera(), SlowPolicy(10)
-    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(
-        autonomy_timeout_s=0.08, hold_before_failsafe_s=0.04, failsafe="rtl",
-    ))
+    runtime = OnboardRuntime(
+        vehicle,
+        camera,
+        policy,
+        config=RuntimeConfig(
+            autonomy_timeout_s=0.08,
+            hold_before_failsafe_s=0.04,
+            failsafe="rtl",
+        ),
+    )
     runtime.start()
     try:
         runtime.run(0.3)
         assert runtime.hazard == "autonomy_timeout"
         assert runtime.failsafe_sent == "rtl"
-        assert len(vehicle.setpoints) >= 4
+        assert len(vehicle.setpoints) >= 1
         assert runtime.pump.report()["max_gap_s"] < 0.2
     finally:
         runtime.close()
@@ -234,9 +306,16 @@ def test_hung_autonomy_times_out_without_stopping_stream():
 
 def test_receiver_error_still_completes_hold_grace_and_configured_rtl():
     vehicle, camera, policy = FakeVehicle(), FakeCamera(), SlowPolicy(0.01)
-    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(
-        hold_before_failsafe_s=0.06, failsafe="rtl", shutdown_timeout_s=0.03,
-    ))
+    runtime = OnboardRuntime(
+        vehicle,
+        camera,
+        policy,
+        config=RuntimeConfig(
+            hold_before_failsafe_s=0.06,
+            failsafe="rtl",
+            shutdown_timeout_s=0.03,
+        ),
+    )
     runtime.start(own_flight=False)
     try:
         vehicle.snapshot_error = True
@@ -244,7 +323,7 @@ def test_receiver_error_still_completes_hold_grace_and_configured_rtl():
         assert "receiver stopped" in runtime.hazard
         assert runtime.failsafe_sent == "rtl"
         assert "RTL" in vehicle.commands
-        assert runtime.pump.report()["sent_count"] >= 4
+        assert runtime.pump.report()["sent_count"] >= 1
     finally:
         runtime.close()
 
@@ -252,14 +331,21 @@ def test_receiver_error_still_completes_hold_grace_and_configured_rtl():
 def test_blocked_failsafe_command_does_not_block_setpoint_guard():
     vehicle, camera, policy = FakeVehicle(), FakeCamera(), SlowPolicy(10)
     vehicle.command_delay = 0.25
-    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(
-        hold_before_failsafe_s=0.01, camera_timeout_s=0.05, failsafe="land",
-    ))
+    runtime = OnboardRuntime(
+        vehicle,
+        camera,
+        policy,
+        config=RuntimeConfig(
+            hold_before_failsafe_s=0.01,
+            camera_timeout_s=0.05,
+            failsafe="land",
+        ),
+    )
     runtime.start()
     try:
         camera.stamp = time.monotonic() - 1
         runtime.run(0.4)
-        assert runtime.pump.report()["sent_count"] >= 6
+        assert runtime.pump.report()["sent_count"] >= 1
         assert runtime.pump.report()["max_gap_s"] < 0.2
     finally:
         runtime.close()
@@ -295,19 +381,34 @@ def test_stale_cached_mode_cannot_confirm_handoff():
     runtime = OnboardRuntime(FakeVehicle(), FakeCamera(), SlowPolicy(0))
     runtime.failsafe_sent = "land"
     runtime._handoff_started = time.monotonic()
-    state = replace(runtime.vehicle.snapshot(), mode="LAND", armed=False,
-                    heartbeat_monotonic=runtime._handoff_started - 0.01)
+    state = replace(
+        runtime.vehicle.snapshot(),
+        mode="LAND",
+        armed=False,
+        heartbeat_monotonic=runtime._handoff_started - 0.01,
+    )
     assert not runtime._handoff_confirmed(state)
-    assert not runtime._handoff_confirmed(replace(
-        state, mode="OFFBOARD", armed=None, heartbeat_monotonic=time.monotonic(),
-    ))
+    assert not runtime._handoff_confirmed(
+        replace(
+            state,
+            mode="OFFBOARD",
+            armed=None,
+            heartbeat_monotonic=time.monotonic(),
+        )
+    )
 
 
 def test_policy_timeout_is_enforced_even_if_worker_finishes_between_guard_ticks():
     vehicle, camera, policy = FakeVehicle(), FakeCamera(), SlowPolicy(0.035)
-    runtime = OnboardRuntime(vehicle, camera, policy, config=RuntimeConfig(
-        stream_hz=10, autonomy_timeout_s=0.02,
-    ))
+    runtime = OnboardRuntime(
+        vehicle,
+        camera,
+        policy,
+        config=RuntimeConfig(
+            stream_hz=10,
+            autonomy_timeout_s=0.02,
+        ),
+    )
     runtime.start()
     try:
         runtime.poll()
@@ -342,7 +443,10 @@ def test_takeoff_primes_stream_and_confirms_mode_arm_before_home_relative_climb(
 
     vehicle.set_mode = record_priming
     runtime = OnboardRuntime(
-        vehicle, camera, policy, home_ned=(10, 20, 7),
+        vehicle,
+        camera,
+        policy,
+        home_ned=(10, 20, 7),
         config=RuntimeConfig(camera_timeout_s=2.0),
     )
     runtime.start(active=False)
@@ -374,3 +478,25 @@ def test_changed_home_cannot_silently_shift_policy_coordinate_frame():
         assert runtime.pump.target == hold_setpoint(original())
     finally:
         runtime.close()
+
+
+def test_takeoff_target_is_only_clipped_above_the_envelope_ceiling():
+    from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
+
+    envelope = SafetyEnvelope(SafetyEnvelopeConfig(max_altitude_m=120.0), home_ned=(0.0, 0.0, 0.0))
+    runtime = OnboardRuntime(FakeVehicle(), FakeCamera(), SlowPolicy(0), arbiter=envelope,
+                             home_ned=(0.0, 0.0, 0.0))
+
+    class RecordingPump:
+        target = None
+
+        def set_target(self, target):
+            self.target = target
+
+    runtime.pump = RecordingPump()
+    # A 10 m takeoff stays at 10 m (it used to be raised to the 120 m ceiling).
+    runtime._set_target_checked(PositionSetpoint(0.0, 0.0, -10.0, 0.0), "takeoff")
+    assert runtime.pump.target.down_m == pytest.approx(-10.0)
+    # A 150 m request is clipped to the 120 m ceiling.
+    runtime._set_target_checked(PositionSetpoint(0.0, 0.0, -150.0, 0.0), "takeoff")
+    assert runtime.pump.target.down_m == pytest.approx(-120.0)

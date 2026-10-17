@@ -1,0 +1,313 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r15_w0012",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "apartment",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "ambulance",
+      "role": "distractor",
+      "target_id": "distractor_0012_03"
+    },
+    "2": {
+      "asset_slug": "telephone_pole",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "fire_hydrant",
+      "role": "target",
+      "target_id": "target_true_gen_r15_w0012"
+    },
+    "5": {
+      "asset_slug": "construction_cone",
+      "role": "forced_distractor",
+      "target_id": "forced_0012_00"
+    },
+    "6": {
+      "asset_slug": "mailbox",
+      "role": "forced_distractor",
+      "target_id": "forced_0012_01"
+    },
+    "7": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0012_00"
+    },
+    "8": {
+      "asset_slug": "pickup",
+      "role": "distractor",
+      "target_id": "distractor_0012_01"
+    },
+    "9": {
+      "asset_slug": "stop_sign",
+      "role": "distractor",
+      "target_id": "distractor_0012_02"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 35.839,
+        "y_north_m": 2.068,
+        "yaw_rad": 0.885615,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35211861,
+        "longitude_deg": 103.82012204
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "target_true_gen_r15_w0012",
+      "true_target": true
+    },
+    {
+      "asset_slug": "construction_cone",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.544444,
+      "category_words": [
+        "traffic cone",
+        "cone"
+      ],
+      "class": "traffic_cone",
+      "color": "orange",
+      "forced_distractor": true,
+      "label": "traffic cone cone",
+      "measured_size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "pose": {
+        "x_east_m": -21.829,
+        "y_north_m": -13.156,
+        "yaw_rad": 2.031196,
+        "z_up_m": 0.544
+      },
+      "position": {
+        "altitude_m": 0.544,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35198162,
+        "longitude_deg": 103.81960385
+      },
+      "size_m": [
+        0.50292,
+        0.50292,
+        1.088889
+      ],
+      "target_id": "forced_0012_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "forced_distractor": true,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -0.881,
+        "y_north_m": -53.652,
+        "yaw_rad": -0.556829,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35161722,
+        "longitude_deg": 103.81979209
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "forced_0012_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": -26.281,
+        "y_north_m": -30.019,
+        "yaw_rad": 1.018023,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35182988,
+        "longitude_deg": 103.81956385
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0012_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": 50.172,
+        "y_north_m": -15.365,
+        "yaw_rad": 0.544266,
+        "z_up_m": 0.933
+      },
+      "position": {
+        "altitude_m": 0.933,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35196174,
+        "longitude_deg": 103.82025083
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "distractor_0012_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "stop_sign",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.908798,
+      "category_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "class": "stop_sign",
+      "color": "red",
+      "label": "stop sign road sign",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "pose": {
+        "x_east_m": -12.323,
+        "y_north_m": -78.414,
+        "yaw_rad": 3.1181,
+        "z_up_m": 0.909
+      },
+      "position": {
+        "altitude_m": 0.909,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35139441,
+        "longitude_deg": 103.81968927
+      },
+      "size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "target_id": "distractor_0012_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": -1.601,
+        "y_north_m": 54.018,
+        "yaw_rad": -1.651423,
+        "z_up_m": 1.447
+      },
+      "position": {
+        "altitude_m": 1.447,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35258607,
+        "longitude_deg": 103.81978561
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "distractor_0012_03",
+      "true_target": false
+    }
+  ]
+}

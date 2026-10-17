@@ -40,9 +40,10 @@ class GroundProjector:
         )
         self.ground_down_m = ground_down_m
 
-    def __call__(
+    def ray(
         self, u: float, v: float, observation: dict[str, Any],
-    ) -> tuple[float, float] | None:
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """Return calibrated camera centre and unit ray in N/E/down metres."""
         attitude = observation["attitude"]
         pose = AircraftPose(
             captured_at_s=0, roll_deg=attitude["roll_deg"], pitch_deg=attitude["pitch_deg"],
@@ -58,6 +59,12 @@ class GroundProjector:
         offset = _camera_offset_ned(self.calibration, pose)
         position = observation["pose"]["local_ned_m"]
         centre = tuple(position[i] + offset[i] for i in range(3))
+        return centre, ray
+
+    def __call__(
+        self, u: float, v: float, observation: dict[str, Any],
+    ) -> tuple[float, float] | None:
+        centre, ray = self.ray(u, v, observation)
         height = self.ground_down_m - centre[2]
         if ray[2] <= 1e-6 or height <= 0:
             return None

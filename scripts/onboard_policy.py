@@ -11,6 +11,7 @@ map used for search legs and obstacle clearance; it never reads scenario truth.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import math
@@ -36,7 +37,11 @@ from multidetect.autonomy.mission_executor import (  # noqa: E402
     plan_for_find_task,
     task_text_for,
 )
-from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_package import (  # noqa: E402
+    MissionPackage,
+    check_plan_against_package,
+    load_mission_package,
+)
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
@@ -48,58 +53,109 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.motion_intent import (  # noqa: E402
+    AirframeMotionAdapter,
+    MotionCommand,
+    MotionIntentError,
+    camera_ray_from_profile,
+)
+from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
     CameraModel,
-    Detection,
+    Detection,  # noqa: F401 - retained as a compatibility export
     LoopConfig,
     OnboardLoop,
 )
+from multidetect.autonomy.near_depth import NearDepthConfig, NearDepthController  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
+)
+from multidetect.autonomy.onboard_policy_parts.config import DEFAULTS  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.vocabulary import VOCABULARY  # noqa: E402
+from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
+from multidetect.onboard_runtime.health import (  # noqa: E402
+    HealthConfig,
+    HealthDecision,
+    HealthMonitor,
 )
 from multidetect.sim_teacher.policies import (  # noqa: E402
     ExpertSearchPolicy,
     load_sdf_obstacles,
     segment_clear_of_obstacles,
 )
-from multidetect.simulator.camera_projection import pixel_ground_point  # noqa: E402
+from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+from multidetect.simulator.camera_projection import pixel_camera_ray, pixel_ground_point  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
-DEFAULTS = {
-    "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt",
-    "gguf": ROOT
-    / "artifacts/models/slow-system-lora-v2-r2-seg-merged-gguf"
-    / "slow-system-v2r2seg-merged-Q5_K_M.gguf",
-    "mmproj": ROOT
-    / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
-    "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
-    "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
-}
-# Generic proposal vocabulary: broad object words, not the task's answer.
-VOCABULARY = (
-    "car",
-    "SUV",
-    "pickup truck",
-    "truck",
-    "bus",
-    "ambulance",
-    "fire truck",
-    "person",
-    "traffic cone",
-    "barrel",
-    "concrete barrier",
-    "fire hydrant",
-    "dumpster",
-    "electrical box",
-    "mailbox",
-    "post box",
-    "stop sign",
-    "cardboard box",
-    "backpack",
-    "sign",
-)
+
+def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+    """Hash a model with a size/mtime keyed cache; failures are non-fatal."""
+    candidate = Path(path)
+    try:
+        stat = candidate.stat()
+        if not candidate.is_file():
+            return "unknown"
+    except OSError:
+        return "unknown"
+    key = str(candidate.resolve())
+    cached: dict[str, Any] = {}
+    if cache_path is not None:
+        try:
+            document = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(document, dict):
+                cached = document
+            entry = cached.get(key)
+            if (
+                isinstance(entry, dict)
+                and entry.get("size") == stat.st_size
+                and entry.get("mtime_ns") == stat.st_mtime_ns
+                and isinstance(entry.get("sha256"), str)
+            ):
+                return entry["sha256"]
+        except (OSError, ValueError, TypeError):
+            cached = {}
+    try:
+        digest = hashlib.sha256()
+        with candidate.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result = digest.hexdigest()
+    except (OSError, ValueError):
+        return "unknown"
+    if cache_path is not None:
+        cached[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": result}
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            temporary.write_text(json.dumps(cached, sort_keys=True), encoding="utf-8")
+            os.replace(temporary, cache_path)
+        except (OSError, TypeError, ValueError):
+            pass
+    return result
+
+
+def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
+    """Normalize the optional planner model; planner prompts are text-only."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, Mapping):
+        model = value.get("gguf", value.get("model", value.get("path")))
+        if model is None:
+            raise ValueError("planning_model requires gguf/model/path")
+        # The current mission-planning prompt is text-only, so a projector is
+        # unnecessary.  A caller may still provide one for a future multimodal prompt.
+        mmproj = value.get("mmproj")
+    else:
+        model, mmproj = value, None
+    model_path = Path(str(model))
+    model_path = model_path if model_path.is_absolute() else ROOT / model_path
+    if mmproj is not None:
+        mmproj_path = Path(str(mmproj))
+        mmproj = str(mmproj_path if mmproj_path.is_absolute() else ROOT / mmproj_path)
+    return str(model_path), mmproj
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
@@ -229,6 +285,8 @@ def build_mission_from_text(
     post: Callable[[str, dict], str],
     sorted_keys: bool = True,
     *,
+    plan_checker: Callable[[MissionPlan], Sequence[Mapping[str, Any]]] | None = None,
+    attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
 ) -> tuple[MissionPlan, dict[str, Any]]:
     """Compile a free task sentence, falling back to a validated return-home plan."""
@@ -239,7 +297,13 @@ def build_mission_from_text(
         schema = trained_key_order_schema(schema)
     ref_names = tuple(refs or ())
     plan, report = compile_mission_plan(
-        post, task_text, refs=ref_names, schema=schema, capabilities=capabilities
+        post,
+        task_text,
+        refs=ref_names,
+        schema=schema,
+        attempts=attempts,
+        plan_checker=plan_checker,
+        capabilities=capabilities,
     )
     if plan is None:
         plan = validate_mission_plan(
@@ -261,99 +325,6 @@ def build_mission_from_text(
     return plan, report
 
 
-class YoloeProposer:
-    """Class-agnostic proposals with optional full-frame plus 2x2 tiled inference.
-
-    ``proposer_tiled`` defaults off in OnboardPolicy. Tiles overlap by 20% of
-    their width/height; all five passes use the same imgsz and confidence.
-    ``proposer_tile_overlap`` and ``proposer_merge_iou`` control crop overlap
-    and the class-agnostic merge. The loop's box filter runs after merging.
-    """
-
-    def __init__(
-        self,
-        weights: Path,
-        *,
-        confidence: float,
-        imgsz: int,
-        device: str | int = 0,
-        tiled: bool = False,
-        tile_overlap: float = 0.2,
-        merge_iou: float = 0.5,
-    ) -> None:
-        if not isinstance(tiled, bool):
-            raise ValueError("proposer_tiled must be a boolean")
-        if not 0 <= tile_overlap < 1 or not 0 < merge_iou <= 1:
-            raise ValueError("tile overlap must be in [0, 1); merge IoU must be in (0, 1]")
-        os.environ.setdefault("YOLO_OFFLINE", "true")
-        os.environ.setdefault("YOLO_AUTOINSTALL", "false")
-        from ultralytics import YOLOE
-
-        self.model = YOLOE(str(weights))
-        self.model.to(device)
-        prompts = list(VOCABULARY)
-        # Encode prompts before the first fp16 predict fuses the model.
-        self.model.set_classes(prompts, self.model.get_text_pe(prompts))
-        self.confidence, self.imgsz = confidence, imgsz
-        self.device, self.tiled = device, tiled
-        self.tile_overlap, self.merge_iou = tile_overlap, merge_iou
-
-    def _predict(self, bgr) -> list[Detection]:
-        result = self.model.predict(
-            bgr, imgsz=self.imgsz, conf=self.confidence, device=self.device, verbose=False
-        )[0]
-        boxes = result.boxes
-        return [
-            Detection(tuple(float(v) for v in box), float(score), self.model.names[int(cls)])
-            for box, score, cls in zip(
-                boxes.xyxy.tolist(), boxes.conf.tolist(), boxes.cls.tolist(), strict=True
-            )
-        ]
-
-    def tile_proposals(self, bgr) -> list[Detection]:
-        """Four overlapping crops, resized by YOLOE to imgsz, in full-frame pixels."""
-        height, width = bgr.shape[:2]
-        tile_w = min(width, math.ceil(width / (2 - self.tile_overlap)))
-        tile_h = min(height, math.ceil(height / (2 - self.tile_overlap)))
-        detections = []
-        for y in dict.fromkeys((0, height - tile_h)):
-            for x in dict.fromkeys((0, width - tile_w)):
-                crop = bgr[y : y + tile_h, x : x + tile_w].copy()
-                for detection in self._predict(crop):
-                    x1, y1, x2, y2 = detection.bbox
-                    box = (
-                        max(0.0, min(float(width), x1 + x)),
-                        max(0.0, min(float(height), y1 + y)),
-                        max(0.0, min(float(width), x2 + x)),
-                        max(0.0, min(float(height), y2 + y)),
-                    )
-                    if box[2] > box[0] and box[3] > box[1]:
-                        detections.append(Detection(box, detection.score, detection.label))
-        return detections
-
-    def merge(self, detections: Sequence[Detection]) -> list[Detection]:
-        """Class-agnostic greedy NMS; downstream loop retains its normal limits."""
-        kept: list[Detection] = []
-        for detection in sorted(detections, key=lambda d: d.score, reverse=True):
-            a = detection.bbox
-            for prior in kept:
-                b = prior.bbox
-                intersection = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
-                    0.0, min(a[3], b[3]) - max(a[1], b[1])
-                )
-                union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - intersection
-                if union > 0 and intersection / union > self.merge_iou:
-                    break
-            else:
-                kept.append(detection)
-        return kept
-
-    def __call__(self, bgr) -> list[Detection]:
-        detections = self._predict(bgr)
-        if self.tiled:
-            # Keep full-frame context and objects that cross tile boundaries.
-            return self.merge([*detections, *self.tile_proposals(bgr)])
-        return detections
 
 
 class OnboardPolicy:
@@ -379,21 +350,51 @@ class OnboardPolicy:
         slow_runner: Any = None,
         ground_projector: Callable | None = None,
         home_ned: tuple[float, float, float] | None = None,
+        runtime_mode: str | None = None,
         frame_format: str = "png",
         frame_quality: int = 90,
+        mission_package: MissionPackage | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        # Profile resolution is deliberately early: an unknown aircraft must
+        # fail closed before models, mission plans, or vehicle I/O are started.
+        self.motion_adapter = AirframeMotionAdapter(
+            options.get("airframe", "x500_mono_cam"), base_dir=ROOT
+        )
+        self.airframe_profile = self.motion_adapter.profile
+        effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
         package_raw = options.get("mission_package")
+        if (
+            effective_runtime_mode
+            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
+            and package_raw is None
+        ):
+            raise ValueError("real/flight runtime requires a signed mission_package")
         security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key_setting = (
+        mission_key_setting = options.get("mission_package_verify_key") or security.get(
+            "mission_package_verify_key"
+        )
+        legacy_key_setting = (
             options.get("operator_key_path")
             or options.get("mission_key_path")
             or options.get("mission_signing_key_path")
             or security.get("key_path")
+        )
+        key_setting = mission_key_setting or legacy_key_setting
+        if legacy_key_setting is not None and mission_key_setting is None:
+            warnings.warn(
+                "operator_key_path is deprecated; use mission_package_verify_key",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        ground_key_setting = (
+            options.get("ground_command_verify_key")
+            or security.get("ground_command_verify_key")
+            or legacy_key_setting
         )
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
@@ -401,11 +402,15 @@ class OnboardPolicy:
         if isinstance(package_raw, str):
             package_path = Path(package_raw)
             package_raw = package_path if package_path.is_absolute() else ROOT / package_path
-        self.mission_package = (
+        # ``mission_package`` is supplied by the admission layer when the
+        # comms-free entry is used.  Reusing that exact object prevents a
+        # second load from observing a different path/file after admission.
+        self.mission_package = mission_package or (
             load_mission_package(
                 package_raw,
                 key_path=key_setting,
                 require_signature=key_setting is not None,
+                mode=effective_runtime_mode,
             )
             if package_raw is not None
             else None
@@ -419,13 +424,86 @@ class OnboardPolicy:
             area = package.document["operating_area"]
             if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
                 raise ValueError("launch altitude outside mission package limits")
+        package_capabilities = (
+            frozenset(self.mission_package.document.get("capabilities", ()))
+            if self.mission_package is not None
+            else frozenset()
+        )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
+        # One final arbiter is shared by SIM and onboard callers.  Package
+        # geometry is authoritative for the home and operating rectangle;
+        # explicit safety_envelope settings may tighten it further.
+        envelope_source = dict(options)
+        if self.airframe_profile.category != "multirotor":
+            dynamics = self.motion_adapter.safety.vehicle
+            envelope_source["vehicle"] = {
+                "category": dynamics.category,
+                "can_hover": dynamics.can_hover,
+                "min_airspeed_mps": dynamics.min_airspeed_mps,
+                "cruise_airspeed_mps": dynamics.cruise_airspeed_mps,
+                "max_airspeed_mps": dynamics.max_airspeed_mps,
+                "min_turn_radius_m": dynamics.min_turn_radius_m,
+                "max_bank_deg": dynamics.max_bank_deg,
+                "climb_rate_mps": dynamics.climb_rate_mps,
+                "descent_rate_mps": dynamics.descent_rate_mps,
+            }
+        if self.mission_package is not None:
+            area = self.mission_package.document["operating_area"]
+            package_polygon = (
+                (float(area["north_min_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_max_m"])),
+                (float(area["north_min_m"]), float(area["east_max_m"])),
+            )
+            envelope_source.setdefault("operating_polygon", package_polygon)
+            envelope_source.setdefault("min_altitude_m", float(area["min_altitude_m"]))
+            envelope_source.setdefault("max_altitude_m", float(area["max_altitude_m"]))
+        package_home = None
+        if self.mission_package is not None:
+            raw_home = tuple(float(v) for v in self.mission_package.document["home"])
+            package_home = raw_home if len(raw_home) == 3 else (*raw_home, 0.0)
+        self.safety_envelope = SafetyEnvelope(
+            SafetyEnvelopeConfig.from_mapping(envelope_source),
+            home_ned=(
+                tuple(float(v) for v in home_ned)
+                if home_ned is not None
+                else package_home
+            ),
+            ground_model=getattr(self.ground_projection, "model", None),
+        )
+        # Keep the adapter on the same envelope instance so a rejection has a
+        # single counter/event stream and fixed-wing recovery becomes loiter.
+        self.motion_adapter.safety = self.safety_envelope
         for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
             # Config paths are relative to the repository root.
             path = Path(options[key])
             options[key] = str(path if path.is_absolute() else ROOT / path)
+        raw_near_depth = options.get("near_depth", False)
+        if isinstance(raw_near_depth, str):
+            if raw_near_depth.strip().lower() not in {"true", "false"}:
+                raise ValueError("near_depth must be true or false")
+            near_depth_enabled = raw_near_depth.strip().lower() == "true"
+        elif type(raw_near_depth) is bool:
+            near_depth_enabled = raw_near_depth
+        else:
+            raise ValueError("near_depth must be a boolean")
+        near_model_path = Path(str(options.get("near_depth_model_path", DEFAULTS["near_depth_model_path"])))
+        if not near_model_path.is_absolute():
+            near_model_path = ROOT / near_model_path
+        near_depth_config = NearDepthConfig(
+            enabled=near_depth_enabled,
+            model_path=near_model_path,
+            backend=str(options.get("near_depth_backend", "onnx-cpu")),
+            max_range_m=float(options.get("near_depth_max_range_m", 10.0)),
+            min_interval_s=float(options.get("near_depth_min_interval_s", 0.2)),
+            max_age_s=float(options.get("near_depth_max_age_s", 1.0)),
+            sigma_scale=float(options.get("near_depth_sigma_scale", 1.0)),
+        )
+        # Construction is deliberately lazy: disabled mode does not import a
+        # backend or touch the model artifact.
+        self.near_depth = NearDepthController(near_depth_config)
         # An operator command from the config overrides the world's task sentence.
         self.task_text = str(options.get("task_text") or task_text)
         self.work_dir = work_dir
@@ -437,7 +515,17 @@ class OnboardPolicy:
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
         mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
+        search_pattern = str(options.get("search_pattern", "current"))
+        if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
+            raise ValueError(
+                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
+            )
+        low_search_altitude = None
         obstacles = load_sdf_obstacles(world_path) if world_path else ()
+        # Keep the final arbiter on the same typed clearance source as the
+        # executor/loop.  Optional depth sources can be composed by callers
+        # before runtime construction; an empty map remains byte-compatible.
+        self.safety_envelope.obstacle_source = CompositeSource((StaticMapSource(obstacles),))
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
         self.search_altitude_m = None
@@ -449,6 +537,13 @@ class OnboardPolicy:
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
+        if search_pattern == "two_altitude":
+            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+            low_search_altitude = min(
+                low_search_altitude, self.search_altitude_m or float(altitude_m)
+            )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
         self._search = ExpertSearchPolicy(
@@ -459,6 +554,8 @@ class OnboardPolicy:
             obstacles=obstacles,
             home_ned=home_ned or (0.0, 0.0, 0.0),
             camera_pitch_rad=mount_pitch,
+            search_pattern=search_pattern,
+            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
         camera = CameraModel(
             fx=float(camera_info["fx"]),
@@ -474,7 +571,24 @@ class OnboardPolicy:
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
+            "near_depth": near_depth_enabled,
         }
+        # Keep the original types: LoopConfig strictly rejects strings, bools
+        # masquerading as integers, fractional view counts and non-finite sigma.
+        for key in (
+            "step_triangulation", "step_triangulation_max_views",
+            "ground_height_sigma_m", "step_triangulation_sigma_scale",
+            "step_triangulation_ground_gate_m",
+            "step_triangulation_parallax_deg_per_m",
+            "step_triangulation_min_ray_angle_deg",
+        ):
+            if key in options:
+                loop_defaults[key] = options[key]
+        if "small_reject_recheck_px" in options:
+            value = options["small_reject_recheck_px"]
+            loop_defaults["small_reject_recheck_px"] = None if value is None else float(value)
+        if "small_reject_recheck_max" in options:
+            loop_defaults["small_reject_recheck_max"] = int(options["small_reject_recheck_max"])
         if "proposal_min_side_px" in options:
             min_side = float(options["proposal_min_side_px"])
             if not math.isfinite(min_side) or min_side <= 0:
@@ -499,15 +613,24 @@ class OnboardPolicy:
                 else bool(value)
             )
         for key, convert in (
+            ("ground_reid_radius_m", float),
+            ("appearance_size_ratio", float),
+            ("appearance_aspect_ratio", float),
+            ("appearance_color_distance", float),
             ("memory_radius_m", float),
+            ("memory_footprint_factor", float),
             ("memory_min_verdicts", int),
             ("memory_max_range_ratio", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
+        if "ground_reid_max_steps" in options:
+            value = options["ground_reid_max_steps"]
+            loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
+            obstacle_source = StaticMapSource(obstacles)
             if region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -519,6 +642,12 @@ class OnboardPolicy:
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
                     camera_pitch_rad=mount_pitch,
+                    search_pattern=search_pattern,
+                    **(
+                        {"low_altitude_m": low_search_altitude}
+                        if low_search_altitude is not None
+                        else {}
+                    ),
                 )
             loop = OnboardLoop(
                 camera=camera,
@@ -526,6 +655,7 @@ class OnboardPolicy:
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
+                obstacle_source=obstacle_source,
                 config=LoopConfig(**{**loop_defaults, **overrides}),
             )
             if home_ned is not None:
@@ -550,26 +680,102 @@ class OnboardPolicy:
                 merge_iou=float(options.get("proposer_merge_iou", 0.5)),
             )
         )
-        if slow_runner is None:
-            from scripts.eval_slow_system import LlamaServerRunner
+        from scripts.eval_slow_system import LlamaServerRunner
 
-            self.slow = LlamaServerRunner(
+        identity_port = int(options.get("port", 9941))
+        planning_spec = _planning_model_spec(
+            options.get("planning_model"), identity_mmproj=options["mmproj"]
+        )
+        split_planning = mission == "from_text" and planning_spec is not None
+        self._model_split = bool(split_planning)
+        model_hash_cache = self.work_dir / ".model-hash-cache.json"
+        self._model_runtime: dict[str, Any] = {
+            "enabled": bool(split_planning),
+            "planning_model_path": planning_spec[0] if planning_spec else None,
+            "planning_model_sha256": (
+                _model_sha256(planning_spec[0], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
+            "identity_model_path": options["gguf"],
+            "identity_model_sha256": (
+                _model_sha256(options["gguf"], cache_path=model_hash_cache)
+                if split_planning
+                else None
+            ),
+            "planning_fallback_to_identity": False,
+            "swap_duration_s": None,
+            "swap_completed_monotonic_s": None,
+        }
+
+        def make_identity_runner():
+            return LlamaServerRunner(
                 Path(options["gguf"]),
                 Path(options["mmproj"]),
                 executable=Path(options["llama_server"]),
-                port=int(options.get("port", 9941)),
-                max_new_tokens=768 if mission == "from_text" else 128,
+                port=identity_port,
+                max_new_tokens=128 if split_planning else (768 if mission == "from_text" else 128),
                 crop_policy="candidate_zoom_v2",
-                # Every onboard call names a focus track: only identity verdicts are allowed.
                 identity_only=True,
                 logprobs=True,
-                # One-token verdict after a prefilled answer prefix: same verdicts, a
-                # fraction of the decode time (matters on a Jetson Orin Nano).
                 fast_identity=str(options.get("fast_identity", False)).lower()
                 in {"1", "true", "yes"},
             )
+
+        def start_identity_runner():
+            if slow_runner is not None:
+                return slow_runner
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    return make_identity_runner()
+                except Exception as exc:
+                    address_busy = "address already in use" in str(exc).lower() or "address in use" in str(exc).lower()
+                    if not address_busy or time.monotonic() >= deadline:
+                        health = getattr(self, "health", None)
+                        if health is not None:
+                            health.record_planning_failure()
+                        raise
+                    time.sleep(0.1)
+
+        planner_start_error: Exception | None = None
+        if split_planning:
+            try:
+                self.slow = LlamaServerRunner(
+                    Path(planning_spec[0]),
+                    Path(planning_spec[1]) if planning_spec[1] is not None else None,
+                    executable=Path(options["llama_server"]),
+                    port=identity_port,
+                    max_new_tokens=768,
+                    crop_policy="none",
+                    identity_only=False,
+                    logprobs=False,
+                    wait_port_free=True,
+                )
+            except Exception as exc:
+                planner_start_error = exc
+                self._model_runtime["planning_fallback_to_identity"] = True
+                self.slow = start_identity_runner()
+        elif slow_runner is None:
+            self.slow = make_identity_runner()
         else:
             self.slow = slow_runner
+        health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
+        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 180.0))
+        self.health = HealthMonitor(
+            config=HealthConfig(
+                **{
+                    k: v
+                    for k, v in health_options.items()
+                    if k in HealthConfig.__dataclass_fields__
+                }
+            ),
+            runner=self.slow,
+            disk_path=self.work_dir,
+        )
+        self._slow_failed_current = False
+        self._slow_skipped_current = False
+        self._health_recovery_executor = None
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
         self._mission_plan_labeled = False
@@ -577,7 +783,24 @@ class OnboardPolicy:
         self.executor: MissionExecutor | MissionSupervisor | None = None
         self.supervisor: MissionSupervisor | None = None
         self.downlink: DownlinkQueue | None = None
-        capabilities = (
+        executor_config = ExecutorConfig(
+            step_budget=int(options.get("step_budget", 60)),
+            alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
+            alert_require_majority=(
+                options.get("alert_require_majority", False)
+                if not isinstance(options.get("alert_require_majority", False), str)
+                else options["alert_require_majority"].strip().lower()
+                in {"1", "true", "yes", "on"}
+            ),
+            alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+            deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
+            deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
+            deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
+            deliver_position_tolerance_m=float(options.get("deliver_position_tolerance_m", 1.0)),
+            deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
+            deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
+        )
+        capabilities = frozenset(package_capabilities) | (
             frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
         )
         if mission:
@@ -601,41 +824,157 @@ class OnboardPolicy:
 
                 refs = options.get("refs") or {}
 
-                def post(prompt: str, schema: dict[str, Any]) -> str:
-                    body = {
-                        "model": "local",
-                        "temperature": 0,
-                        "max_tokens": 768,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "response_format": {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": "mission_plan",
-                                "strict": True,
-                                "schema": schema,
-                            },
-                        },
-                    }
-                    response = _http_json(
-                        f"http://127.0.0.1:{self.slow.port}/v1/chat/completions", body
-                    )
-                    return response["choices"][0]["message"].get("content", "")
-
                 labels = options.get("ref_labels") or {}
-                plan, report = build_mission_from_text(
-                    self.task_text,
-                    tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
-                    post,
-                    sorted_keys=bool(options.get("plan_sorted_keys", True)),
-                    capabilities=capabilities,
+                retry_setting = options.get(
+                    "retry_on_package_violation",
+                    options.get(
+                        "retry_on_package_violations",
+                        options.get("mission_package_retry", False),
+                    ),
                 )
+                package_retry = (
+                    retry_setting.strip().lower() in {"1", "true", "yes", "on"}
+                    if isinstance(retry_setting, str)
+                    else bool(retry_setting)
+                )
+                plan_checker = (
+                    (
+                        lambda candidate: check_plan_against_package(
+                            candidate,
+                            self.mission_package,
+                            capabilities=capabilities,
+                            executor_config=executor_config,
+                        )
+                    )
+                    if package_retry and self.mission_package is not None
+                    else None
+                )
+                def compile_once(runner):
+                    post_attempted = False
+
+                    def post(prompt: str, schema: dict[str, Any]) -> str:
+                        nonlocal post_attempted
+                        post_attempted = True
+                        body = {
+                            "model": "local",
+                            "temperature": 0,
+                            "max_tokens": 768,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "response_format": {
+                                "type": "json_schema",
+                                "json_schema": {
+                                    "name": "mission_plan",
+                                    "strict": True,
+                                    "schema": schema,
+                                },
+                            },
+                        }
+                        started = time.perf_counter()
+                        try:
+                            response = _http_json(
+                                f"http://127.0.0.1:{runner.port}/v1/chat/completions",
+                                body,
+                                timeout=self.slow_call_timeout_s,
+                            )
+                        except Exception:
+                            self.health.record_slow_call(time.perf_counter() - started, ok=False)
+                            raise
+                        self.health.record_slow_call(time.perf_counter() - started, ok=True)
+                        return response["choices"][0]["message"].get("content", "")
+
+                    try:
+                        candidate, candidate_report = build_mission_from_text(
+                            self.task_text,
+                            tuple(f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs),
+                            post,
+                            sorted_keys=bool(options.get("plan_sorted_keys", True)),
+                            plan_checker=plan_checker,
+                            capabilities=capabilities,
+                        )
+                    except Exception:
+                        # ``post`` records HTTP outcomes; do not count an
+                        # exception a second time as a slow fault.
+                        self.health.record_planning_failure()
+                        if not post_attempted:
+                            self.health.record_slow_call(0.0, ok=False)
+                        raise
+                    return candidate, candidate_report
+
+                if split_planning:
+                    planner_error = planner_start_error
+                    swap_close_started = None
+                    if planner_error is not None:
+                        self._model_runtime["planning_fallback_to_identity"] = True
+                        self.health.record_planning_failure()
+                        self.health.record_slow_call(0.0, ok=False)
+                        self.health.runner = self.slow
+                        plan, report = compile_once(self.slow)
+                    else:
+                        try:
+                            plan, report = compile_once(self.slow)
+                            if report.get("error"):
+                                self.health.record_planning_failure()
+                                raise ValueError(
+                                    f"mission plan compilation failed: {report['error']}"
+                                )
+                        except Exception:
+                            self._model_runtime["planning_fallback_to_identity"] = True
+                            swap_close_started = time.monotonic()
+                            close = getattr(self.slow, "close", None)
+                            if close is not None:
+                                close()
+                            self.slow = start_identity_runner()
+                            self.health.runner = self.slow
+                            try:
+                                plan, report = compile_once(self.slow)
+                            except Exception:
+                                close = getattr(self.slow, "close", None)
+                                if close is not None:
+                                    close()
+                                raise
+                        else:
+                            swap_close_started = time.monotonic()
+                            close = getattr(self.slow, "close", None)
+                            if close is not None:
+                                close()
+                            self.slow = start_identity_runner()
+                            self.health.runner = self.slow
+                    swap_completed = time.monotonic()
+                    self._model_runtime["swap_duration_s"] = (
+                        swap_completed - swap_close_started
+                        if swap_close_started is not None
+                        else None
+                    )
+                    self._model_runtime["swap_completed_monotonic_s"] = swap_completed
+                else:
+                    try:
+                        plan, report = compile_once(self.slow)
+                    except Exception:
+                        raise
                 self.mission_plan, self.mission_plan_report = plan, report
-                if self.mission_package is not None and report.get("error"):
-                    self.slow.close()
-                    raise ValueError(f"mission package plan compilation failed: {report['error']}")
+                if report.get("error"):
+                    if split_planning:
+                        self.health.record_planning_failure()
+                    if self.mission_package is not None:
+                        package_violations = report.get("package_violations", [])
+                        if package_violations:
+                            self._refuse_package_plan(package_violations)
+                        self.slow.close()
+                        raise ValueError(
+                            f"mission package plan compilation failed: {report['error']}"
+                        )
+                    raise ValueError(f"mission plan compilation failed: {report['error']}")
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
+                violations = check_plan_against_package(
+                    plan,
+                    self.mission_package,
+                    capabilities=capabilities,
+                    executor_config=executor_config,
+                )
+                if violations:
+                    self._refuse_package_plan(violations)
                 try:
                     self.mission_package.validate_plan(plan)
                 except ValueError:
@@ -646,32 +985,25 @@ class OnboardPolicy:
                 loop_factory=make_loop,
                 refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
                 capabilities=capabilities,
+                mission_package=self.mission_package,
+                no_fly_zones=(
+                    self.mission_package.no_fly_zones
+                    if self.mission_package is not None
+                    else ()
+                ),
                 release_authorized=_enabled(options.get("release_authorized")),
                 task_text=(
                     (lambda step: perception_task_text(step, self.task_text))
                     if mission in {"from_text", "package"}
                     else (lambda step: self.task_text)
                 ),
-                config=ExecutorConfig(
-                    step_budget=int(options.get("step_budget", 60)),
-                    alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
-                    alert_require_majority=(
-                        options.get("alert_require_majority", False)
-                        if not isinstance(options.get("alert_require_majority", False), str)
-                        else options["alert_require_majority"].strip().lower()
-                        in {"1", "true", "yes", "on"}
-                    ),
-                    alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
-                    deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
-                    deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
-                    deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
-                    deliver_position_tolerance_m=float(
-                        options.get("deliver_position_tolerance_m", 1.0)
-                    ),
-                    deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
-                    deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
-                ),
+                config=executor_config,
+                airframe_adapter=self.motion_adapter,
             )
+            # When no package is loaded, use the executor's configured home if
+            # it provides one; never infer home from the first observed pose.
+            if self.safety_envelope.home_ned is None and self.executor.home is not None:
+                self.safety_envelope.set_home((*self.executor.home, 0.0))
             # Set home on the executor itself, before any supervisor wraps it.
             if home_ned is not None:
                 self.executor.home = home_ned[:2]
@@ -688,7 +1020,9 @@ class OnboardPolicy:
                     log=log,
                     downlink=self.downlink,
                     **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=str(key_setting) if key_setting is not None else None,
+                    security_key_path=(
+                        str(ground_key_setting) if ground_key_setting is not None else None
+                    ),
                     timestamp_window_s=float(
                         options.get(
                             "command_timestamp_window_s",
@@ -707,11 +1041,54 @@ class OnboardPolicy:
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
+                    runtime_mode=effective_runtime_mode,
                 )
+                if self._model_split:
+                    self.downlink.log.append(
+                        "model_swap",
+                        self.sim_timeline.now if self.sim_timeline is not None else time.monotonic(),
+                        model_runtime=dict(self._model_runtime),
+                    )
+                # Telemetry readers stamp receipts with host monotonic time,
+                # while SIM supervisors run on the simulation clock. Keep a
+                # fixed affine offset so both values are compared in one domain.
+                self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
+
+    def _refuse_package_plan(self, violations: Sequence[Mapping[str, Any]]) -> None:
+        """Persist a fail-closed admission decision before raising to the caller."""
+        if self.mission_package is None:
+            raise ValueError("mission plan violates package policy")
+        log = None
+        try:
+            log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
+            log.append(
+                "mission_refused",
+                now,
+                reason="package_policy_violation",
+                violations=list(violations),
+            )
+            log.finish(
+                now,
+                {
+                    "status": "refused",
+                    "reason": "package_policy_violation",
+                    "violations": list(violations),
+                },
+            )
+        finally:
+            close = getattr(self.slow, "close", None)
+            if close is not None:
+                close()
+        details = "; ".join(
+            f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
+            for item in violations
+        )
+        raise ValueError(f"mission plan refused by package policy: {details}")
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Forward a host receipt; this policy has no payload hardware driver."""
@@ -736,6 +1113,9 @@ class OnboardPolicy:
                         self._write_mission_summary()
                     except OSError as exc:
                         warnings.warn(f"Could not write mission summary: {exc}", stacklevel=2)
+                near_depth = getattr(self, "near_depth", None)
+                if near_depth is not None:
+                    near_depth.close()
 
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
@@ -750,8 +1130,7 @@ class OnboardPolicy:
         """Persist at teardown, beside the collector's steps.jsonl labels."""
         executor = self.executor
         report = executor.report()
-        summary, chinese, english = summarize_mission(
-            {
+        report_input = {
                 "history": list(executor.history),
                 "findings": list(executor.findings),
                 "counts": dict(executor.counts),
@@ -759,7 +1138,11 @@ class OnboardPolicy:
                 "evidence": list(report.evidence_frame_ids),
                 "answers": list(report.state_answers),
                 "alerts": list(report.alerts),
-            },
+            }
+        if self._model_split:
+            report_input["model_runtime"] = dict(self._model_runtime)
+        summary, chinese, english = summarize_mission(
+            report_input,
             executor.plan,
             self.task_text,
         )
@@ -805,10 +1188,23 @@ class OnboardPolicy:
         }
         from scripts.eval_slow_system import decision_confidence, parse_model_decision
 
+        if getattr(self, "health", None) is not None and self.health.state.low_disk:
+            self._slow_skipped_current = True
+            return {
+                "track_id": focus.track_id,
+                "identity": None,
+                "error": "slow_call_skipped_low_disk",
+                "latency_s": 0.0,
+            }
+
         started = time.perf_counter()
         try:
             raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
+            self._slow_failed_current = True
+            health = getattr(self, "health", None)
+            if health is not None:
+                health.record_slow_call(time.perf_counter() - started, ok=False)
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -817,6 +1213,11 @@ class OnboardPolicy:
             }
         self.slow_calls += 1
         decision, error = parse_model_decision(raw)
+        health = getattr(self, "health", None)
+        if health is not None:
+            health.record_slow_call(float(latency), ok=decision is not None)
+        if decision is None:
+            self._slow_failed_current = True
         identity = identity_of(decision["decision"]) if decision else None
         return {
             "track_id": focus.track_id,
@@ -828,37 +1229,153 @@ class OnboardPolicy:
             "latency_s": float(latency),
         }
 
-    def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+    def _run_near_depth(
+        self, *, loop: OnboardLoop | None, current: Sequence[Any], rgb: Any,
+        frame_id: str, pose_ned: tuple[float, float, float], camera_info: Mapping[str, Any],
+        camera_ray: Callable[[float, float], Any], timestamp_s: float | None,
+        stage_allowed: bool, step_token: int,
+    ) -> None:
+        """Run the optional depth source after all slow calls, synchronously."""
+        if (
+            not self.near_depth.enabled
+            or loop is None
+            or not current
+            or rgb is None
+            or camera_ray is None
+        ):
+            return
+        if not all(key in camera_info for key in ("fx", "fy", "cx", "cy")):
+            self.near_depth.stats.skip("calibration")
+            return
+        focus_id = getattr(loop, "_focus", None)
+        focus = next((track for track in current if track.track_id == focus_id), None)
+        if focus is None:
+            return
+        center = ((focus.bbox[0] + focus.bbox[2]) / 2.0, (focus.bbox[1] + focus.bbox[3]) / 2.0)
+        ray_data = camera_ray(*center)
+        if ray_data is None:
+            current_range = None
+        else:
+            origin, _ = ray_data
+            estimate = getattr(focus, "position_estimate", None)
+            if estimate is not None:
+                current_range = math.dist(tuple(origin), tuple(estimate.position_ned))
+            elif focus.ground is not None:
+                current_range = math.sqrt(
+                    (focus.ground[0] - pose_ned[0]) ** 2
+                    + (focus.ground[1] - pose_ned[1]) ** 2
+                    + pose_ned[2] ** 2
+                )
+            else:
+                current_range = None
+        from multidetect.multimodal_ranging import CameraCalibration
+        calibration = CameraCalibration(
+            calibration_id="onboard-policy",
+            width_px=self.image_size[0], height_px=self.image_size[1],
+            fx_px=float(camera_info["fx"]), fy_px=float(camera_info["fy"]),
+            cx_px=float(camera_info["cx"]), cy_px=float(camera_info["cy"]),
+        )
+        self.near_depth.run(
+            track=focus, image_bgr=rgb[:, :, ::-1].copy(), frame_id=frame_id,
+            captured_at_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
+            now_s=float(timestamp_s if timestamp_s is not None else time.monotonic()),
+            camera_ray=camera_ray, current_range_m=current_range, calibration=calibration,
+            image_size=self.image_size, stage_allowed=stage_allowed, focus=True,
+            step_token=step_token,
+        )
+
+    def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        if getattr(self, "motion_adapter", None) is not None:
+            telemetry_mode = observation.get("vtol_state") or observation.get("mode")
+            if isinstance(telemetry_mode, str):
+                self.motion_adapter.set_mode(telemetry_mode)
+        self._slow_failed_current = False
+        self._slow_skipped_current = False
+        # Process external safety inputs first. A latched supervisor decision and
+        # one-shot ground event must never be hidden by a health hold.
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor)
             for sample in observation.get("energy_telemetry", []):
+                received_at = float(sample["received_monotonic_s"])
+                received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
+                received_at = min(received_at, self.supervisor._now)
                 self.supervisor.ingest_energy_telemetry(
-                    sample["message"], received_at_s=sample["received_monotonic_s"]
+                    sample["message"], received_at_s=received_at
                 )
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)
-            self.supervisor.update_estimates(**observation.get("mission_estimates", {}))
-            if self.supervisor.evaluate(pose_ned=pose_ned) != "continue":
+            update_estimates = getattr(self.supervisor, "update_estimates", None)
+            if update_estimates is not None:
+                update_estimates(**observation.get("mission_estimates", {}))
+            evaluate = getattr(self.supervisor, "evaluate", None)
+            if evaluate is not None and evaluate(pose_ned=pose_ned) != "continue":
                 action, info = self.supervisor.next_action(
                     pose_ned=tuple(pose_ned),
                     yaw_deg=yaw_deg,
                     landed=observation.get("landed"),
                     timestamp_s=_observation_timestamp_s(observation),
                 )
-                return action, {
-                    "onboard": {
-                        **info,
-                        "state": "supervised",
-                        "detections": 0,
-                        "tracks": [],
-                        "slow_calls": [],
-                        "confirmed": None,
-                        "alert_vote_clusters": [],
-                        "fast_latency_s": 0.0,
-                        "mission": {"history": list(self.supervisor.history)},
-                    }
+                supervised_labels = {
+                    **info,
+                    "state": "supervised",
+                    "detections": 0,
+                    "tracks": [],
+                    "slow_calls": [],
+                    "confirmed": None,
+                    "alert_vote_clusters": [],
+                    "fast_latency_s": 0.0,
+                    "mission": {"history": list(self.supervisor.history)},
                 }
+                if getattr(getattr(self, "health", None), "config", None) is not None and getattr(
+                    self.health.config, "enabled", False
+                ):
+                    supervised_labels["health"] = {}
+                return action, {"onboard": supervised_labels}
+        health_monitor = getattr(self, "health", None)
+        health_decision = (
+            health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
+            if health_monitor is not None
+            else HealthDecision()
+        )
+        # A completed recovery must not be reused by a later degradation
+        # cycle.  Likewise, once health is back to ``ok`` and the main
+        # mission resumes, discard any stale recovery executor so the next
+        # escalation gets a fresh plan and state.
+        if (
+            health_decision.decision == "ok"
+            and getattr(self, "_health_recovery_executor", None) is not None
+        ):
+            self._health_recovery_executor = None
+        if health_decision.decision in {"return_home", "land"}:
+            if self.supervisor is not None:
+                self.supervisor._escalate(
+                    "land_now" if health_decision.decision == "land" else "return_now",
+                    health_decision.reason or "health degradation",
+                )
+                action, info = self.supervisor.next_action(
+                    pose_ned=tuple(pose_ned), yaw_deg=yaw_deg
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            if self.executor is not None:
+                action, info = self._health_recovery_action(
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    land=health_decision.decision == "land",
+                    timestamp_s=_observation_timestamp_s(observation),
+                )
+                return action, {"onboard": {**info, "health": health_decision.__dict__}}
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": health_decision.decision, "health": health_decision.__dict__}
+            }
+        if health_decision.decision == "hold":
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
+        if health_decision.detector_skip:
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "health_hold", "health": health_decision.__dict__}
+            }
         import numpy as np
         from PIL import Image
 
@@ -867,7 +1384,10 @@ class OnboardPolicy:
         rgb = np.asarray(Image.open(io.BytesIO(observation["rgb"])).convert("RGB"))
         suffix = "jpg" if self.frame_format == "jpeg" else "png"
         frame_path = self.work_dir / f"frame_{step:04d}.{suffix}"
-        if self.frame_format == "jpeg":
+        if health_decision.stop_frame_writes:
+            # Low disk: write no frame; slow calls are skipped by _slow_identity.
+            pass
+        elif self.frame_format == "jpeg":
             Image.fromarray(rgb, mode="RGB").save(
                 frame_path, format="JPEG", quality=self.frame_quality, optimize=True
             )
@@ -884,6 +1404,17 @@ class OnboardPolicy:
             if projector is not None:
                 return projector(u, v, observation)
             # Full attitude + camera mount inverse of the projection model.
+            if self.airframe_profile.camera.attitude_rotations:
+                ray_data = camera_ray(u, v)
+                if ray_data is None:
+                    return None
+                origin, direction = ray_data
+                if ground_model is not None:
+                    return ground_model.intersect_ray(origin, direction)
+                if direction[2] <= 1e-6 or origin[2] <= 0:
+                    return None
+                scale = origin[2] / direction[2]
+                return origin[0] + direction[0] * scale, origin[1] + direction[1] * scale
             return pixel_ground_point(
                 u,
                 v,
@@ -893,19 +1424,73 @@ class OnboardPolicy:
                 ground_model=ground_model,
             )
 
+        def camera_ray(u: float, v: float):
+            projector = getattr(self, "ground_projector", None)
+            if projector is not None:
+                # An injected custom projector must expose its own camera
+                # model; silently assuming the simulator model would mix rays.
+                ray = getattr(projector, "ray", None)
+                return ray(u, v, observation) if callable(ray) else None
+            base = pixel_camera_ray(
+                u, v, pose=observation, camera_info=camera_info,
+                image_size=self.image_size,
+            )
+            if base is None or not self.airframe_profile.camera.attitude_rotations:
+                return base
+            direction = camera_ray_from_profile(
+                u, v, fx=float(camera_info["fx"]), fy=float(camera_info["fy"]),
+                cx=float(camera_info["cx"]), cy=float(camera_info["cy"]),
+                attitude_deg=(
+                    float(observation["attitude"]["roll_deg"]),
+                    float(observation["attitude"]["pitch_deg"]),
+                    float(observation["attitude"]["yaw_deg"]),
+                ), profile=self.airframe_profile, mode=self.motion_adapter.mode,
+            )
+            return base[0], direction
+
+        ranging_enabled = getattr(
+            getattr(getattr(self, "loop", None), "config", None), "step_triangulation", False,
+        )
+        ranging_enabled = ranging_enabled or getattr(
+            getattr(self, "near_depth", None), "enabled", False
+        )
+        ranging_kwargs = (
+            {"camera_ray": camera_ray, "timestamp_s": _observation_timestamp_s(observation)}
+            if ranging_enabled else {}
+        )
+
         if self.executor is not None:
-            return self._act_mission(
+            result = self._act_mission(
                 frame_path,
                 detections,
                 fast_s,
+                frame_rgb=rgb,
                 pose_ned=pose_ned,
                 yaw_deg=yaw_deg,
                 ground_point=ground_point,
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
+                camera_info=camera_info,
+                **({"camera_ray": camera_ray} if ranging_enabled else {}),
             )
+            if self._slow_failed_current:
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
+            if self._slow_skipped_current:
+                labels = {"state": "health_hold"}
+                if self.health.config.enabled:
+                    labels["health"] = {"reason": "low_disk"}
+                return ActionPrimitive.hold(1.0), {"onboard": labels}
+            return result
         current = self.loop.update_tracks(
-            detections, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
+            detections,
+            pose_ned=tuple(pose_ned),
+            yaw_deg=yaw_deg,
+            ground_point=ground_point,
+            frame_rgb=rgb,
+            **ranging_kwargs,
         )
         slow = []
         if self.loop.state in {"searching", "approaching"}:
@@ -920,6 +1505,14 @@ class OnboardPolicy:
                     remembered=verdict.get("remembered", False),
                 )
                 slow.append(verdict)
+        run_near_depth = getattr(self, "_run_near_depth", None)
+        if callable(run_near_depth):
+            run_near_depth(
+                loop=self.loop, current=current, rgb=rgb, frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned), camera_info=camera_info, camera_ray=camera_ray,
+                timestamp_s=_observation_timestamp_s(observation),
+                stage_allowed=(self.loop.state == "approaching" or getattr(self.loop, "_at_closest", False)), step_token=step,
+            )
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
@@ -949,9 +1542,133 @@ class OnboardPolicy:
                 "confirmed": self.loop.confirmed,
             }
         }
+        if getattr(getattr(self, "near_depth", None), "enabled", False):
+            labels["onboard"]["near_depth"] = self.near_depth.stats.as_dict()
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
+        if self._slow_failed_current:
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
+        if self._slow_skipped_current:
+            labels = {"state": "health_hold"}
+            if self.health.config.enabled:
+                labels["health"] = {"reason": "low_disk"}
+            return ActionPrimitive.hold(1.0), {"onboard": labels}
         return action, labels
+
+    def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        """Single return point: every policy primitive crosses the envelope."""
+        action, labels = self._act_impl(observation, pose_ned=pose_ned, yaw_deg=yaw_deg)
+        # Some lightweight test/integration adapters use ``None`` to indicate
+        # that no motion was requested this frame; there is no outgoing
+        # primitive to arbitrate in that case.
+        if action is None:
+            return action, labels
+        envelope = getattr(self, "safety_envelope", None)
+        # The legacy multirotor path below is intentionally byte-compatible.
+        # Other airframes consume a command object; their executor must never
+        # see a zero-speed hold or a zero-radius turn.
+        if getattr(self, "motion_adapter", None) is not None and not self.motion_adapter.is_multirotor:
+            command = self.motion_adapter.from_primitive(
+                action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=labels
+            )
+            if isinstance(command, MotionCommand):
+                onboard = labels.get("onboard", {}) if isinstance(labels, dict) else {}
+                phase = onboard.get("phase") if isinstance(onboard, dict) else None
+                skill = onboard.get("state") if isinstance(onboard, dict) else None
+                agl = observation.get("ground_agl", observation.get("agl_m"))
+                if isinstance(agl, Mapping):
+                    agl = agl.get("height_m", agl.get("agl_m"))
+                try:
+                    agl_value = None if agl is None else float(agl)
+                except (TypeError, ValueError):
+                    agl_value = None
+                command, safety_info = self.motion_adapter.guard_command(
+                    command,
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    current_agl_m=agl_value,
+                    phase=phase,
+                    skill=skill,
+                )
+                if safety_info:
+                    labels = {**labels, "safety": safety_info}
+                    if safety_info.get("rejected") and self.supervisor is not None:
+                        self.supervisor.report_envelope_violation(
+                            ", ".join(safety_info.get("reasons", ())) or "rejected motion command"
+                        )
+                labels = {
+                    **labels,
+                    "motion": command.to_dict(),
+                    "airframe": self.airframe_profile.id,
+                }
+                return command, labels
+        if envelope is None:
+            return action, labels
+        executor = getattr(self, "executor", None)
+        step = getattr(executor, "current_step", None)
+        phase = None
+        if isinstance(labels, dict):
+            onboard = labels.get("onboard", {})
+            phase = onboard.get("phase") if isinstance(onboard, dict) else None
+            if isinstance(onboard, dict) and onboard.get("supervisor_action") == "land_now":
+                phase = "landing"
+                # A terminal supervisor landing is an explicit landing skill;
+                # never let the still-active mission step disable its bounded
+                # low-altitude exception.
+                step = type("_LandingStep", (), {"skill": "land"})()
+        agl = observation.get("ground_agl", observation.get("agl_m"))
+        if isinstance(agl, Mapping):
+            agl = agl.get("height_m", agl.get("agl_m"))
+        decision = envelope.apply(
+            action,
+            pose_ned=tuple(float(v) for v in pose_ned),
+            yaw_deg=float(yaw_deg),
+            current_agl_m=agl,
+            phase=phase,
+            skill=getattr(step, "skill", None),
+        )
+        if decision.rejected and self.supervisor is not None:
+            self.supervisor.report_envelope_violation(
+                ", ".join(decision.reasons) or "rejected primitive"
+            )
+        labels = {**labels, **decision.info()}
+        return decision.action, labels
+
+    def _health_recovery_action(self, *, pose_ned, yaw_deg: float, land: bool, timestamp_s=None):
+        skill = "land" if land else "return_home"
+        if (
+            self._health_recovery_executor is None
+            or self._health_recovery_executor.plan.steps[0].skill != skill
+        ):
+            plan = validate_mission_plan(
+                {
+                    "plan_version": 1,
+                    "goal": "health recovery",
+                    "report": ["status"],
+                    "steps": [
+                        {
+                            "id": "recovery",
+                            "skill": skill,
+                            "params": {},
+                            "on_success": None,
+                            "on_fail": None,
+                        }
+                    ],
+                }
+            )
+            recovery = MissionExecutor(plan, loop_factory=self.executor.loop_factory)
+            recovery.home = getattr(self.executor, "home", None)
+            recovery.cruise_altitude_m = getattr(self.executor, "cruise_altitude_m", None)
+            self._health_recovery_executor = recovery
+        action, info = self._health_recovery_executor.next_action(
+            pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, timestamp_s=timestamp_s
+        )
+        if self._health_recovery_executor.done:
+            self._health_recovery_executor = None
+        return action, info
 
     def _act_mission(
         self,
@@ -962,8 +1679,11 @@ class OnboardPolicy:
         pose_ned,
         yaw_deg,
         ground_point,
+        frame_rgb=None,
         landed=None,
         timestamp_s=None,
+        camera_ray=None,
+        camera_info=None,
     ):
         executor = self.executor
         step = executor.current_step
@@ -974,7 +1694,10 @@ class OnboardPolicy:
             pose_ned=tuple(pose_ned),
             yaw_deg=yaw_deg,
             ground_point=ground_point,
+            frame_rgb=frame_rgb,
             landed=landed,
+            **({"camera_ray": camera_ray, "timestamp_s": timestamp_s}
+               if camera_ray is not None else {}),
         )
         current = list(executor.current_tracks)
         slow = []
@@ -996,6 +1719,25 @@ class OnboardPolicy:
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
             slow.append(verdict)
+        mission_loop = getattr(executor, "active_loop", None)
+        run_near_depth = getattr(self, "_run_near_depth", None)
+        if callable(run_near_depth):
+            mission_run = getattr(executor, "_run", None)
+            inspect_near_phase = (
+                step is not None
+                and step.skill == "inspect"
+                and getattr(mission_run, "phase", None) in {"face", "capture"}
+            )
+            run_near_depth(
+                loop=mission_loop, current=current, rgb=frame_rgb, frame_id=frame_path.name,
+                pose_ned=tuple(pose_ned), camera_info=camera_info or {}, camera_ray=camera_ray,
+                timestamp_s=timestamp_s,
+                stage_allowed=(step is not None and (
+                    inspect_near_phase
+                    or getattr(mission_loop, "state", None) == "approaching"
+                    or getattr(mission_loop, "_at_closest", False)
+                )), step_token=self._step,
+            )
         alert_vote_clusters = list(getattr(executor, "alert_vote_clusters", ()))
         action, info = executor.next_action(
             pose_ned=tuple(pose_ned),
@@ -1014,6 +1756,10 @@ class OnboardPolicy:
                 "position_estimate_ne": list(finding["position_ne"]),
                 "rule": finding["rule"],
             }
+            confirmed.update({
+                key: value for key, value in finding.items()
+                if key.startswith("position_") and key != "position_ne"
+            })
         report = executor.report()
         labels = {
             "onboard": {
@@ -1056,6 +1802,8 @@ class OnboardPolicy:
         if self.mission_plan is not None and not self._mission_plan_labeled:
             labels["onboard"]["mission"]["plan"] = self._mission_plan_label()
             self._mission_plan_labeled = True
+        if getattr(getattr(self, "near_depth", None), "enabled", False):
+            labels["onboard"]["near_depth"] = self.near_depth.stats.as_dict()
         if not math.isfinite(sum(pose_ned)):
             raise RuntimeError("non-finite pose")
         return action, labels

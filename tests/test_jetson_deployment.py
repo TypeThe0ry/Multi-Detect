@@ -6,6 +6,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_llama_server_systemd_unit_is_os_supervised_without_secrets() -> None:
+    service = (ROOT / "deploy/jetson/llama-server.service").read_text(encoding="utf-8")
+
+    assert "User=multidetect" in service
+    assert "Restart=on-failure" in service
+    assert "RestartSec=2" in service
+    assert "LLAMA_MODEL_PATH=" in service
+    assert "LLAMA_MMPROJ_PATH=" in service
+    assert "--model ${LLAMA_MODEL_PATH}" in service
+    assert "--mmproj ${LLAMA_MMPROJ_PATH}" in service
+    assert "--host ${LLAMA_SERVER_HOST}" in service
+    assert "--port ${LLAMA_SERVER_PORT}" in service
+    assert "127.0.0.1" in service
+    assert "password" not in service.lower()
+    assert "secret" not in service.lower()
+
+
 def test_jetson_service_is_patrol_only_read_only_and_unprivileged() -> None:
     service = (ROOT / "deploy/jetson/multi-detect.service").read_text(encoding="utf-8")
     patrol = json.loads(
@@ -100,9 +117,18 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert 'MODE3_CONFIRMATION_ENABLED="${MODE3_CONFIRMATION_ENABLED:-0}"' in launcher
     assert 'MODE3_AIM_CONTROL_ENABLED="${MODE3_AIM_CONTROL_ENABLED:-0}"' in launcher
     assert 'RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"' in launcher
-    assert 'METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT="${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT:-}"' in launcher
-    assert 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION="${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION:-0}"' in launcher
-    assert 'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires metric depth to be enabled.' in launcher
+    assert (
+        'METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT="${METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT:-}"'
+        in launcher
+    )
+    assert (
+        'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION="${METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION:-0}"'
+        in launcher
+    )
+    assert (
+        'METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1 requires metric depth to be enabled.'
+        in launcher
+    )
     assert 'verify_outdoor_depth_calibration_report.py' in launcher
     assert '--require-quality-gate' in launcher
     assert '--gstreamer-latency-ms "${GSTREAMER_LATENCY_MS}"' in launcher

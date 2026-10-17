@@ -71,6 +71,15 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/FlyViewVideo.qml",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectConfigure.qml",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectObservationEpoch.h",
+        # Mission package planning and its QGC wire representation are read
+        # by the production Mission panel and native controller.
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionController.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionController.h",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPackage.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPackage.h",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPanel.qml",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionWire.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionWire.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorProtocol.cc",
@@ -102,6 +111,14 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
     ),
     "core_algorithm": (
+        "src/multidetect/autonomy/policy_v2/__init__.py",
+        "src/multidetect/autonomy/policy_v2/contracts.py",
+        "src/multidetect/autonomy/policy_v2/model.py",
+        "src/multidetect/autonomy/policy_v2/perception_bridge.py",
+        "src/multidetect/autonomy/policy_v2/rollout.py",
+        "src/multidetect/autonomy/policy_v2/search_memory.py",
+        "src/multidetect/autonomy/policy_v2/state_builder.py",
+        "src/multidetect/autonomy/policy_v2/vlm_grounding.py",
         "src/multidetect/clock.py",
         # Gazebo is a SIM adapter, but its fixed wire and ENU/FLU covariance
         # conversion feed the exact shared pose/ranging contract.  Bind both
@@ -174,6 +191,19 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/autonomy/task_session.py",
         "src/multidetect/autonomy/task_policy_runtime.py",
         "src/multidetect/autonomy/mission_outcome.py",
+        "src/multidetect/camera_defaults.py",
+        "src/multidetect/search_coverage.py",
+        "src/multidetect/sim_teacher/policies.py",
+        "src/multidetect/sim_teacher/segmentation.py",
+        "src/multidetect/simulator/camera_projection.py",
+        "src/multidetect/simulator/task_semantics.py",
+        "scripts/onboard_policy.py",
+        "src/multidetect/autonomy/onboard_policy_parts/__init__.py",
+        "src/multidetect/autonomy/onboard_policy_parts/config.py",
+        "src/multidetect/autonomy/onboard_policy_parts/proposer.py",
+        "src/multidetect/autonomy/onboard_policy_parts/vocabulary.py",
+        "src/multidetect/autonomy/step_triangulation.py",
+        "src/multidetect/autonomy/near_depth.py",
         # Budget episodes consume the same selection/compilation seam. Bind
         # their projection semantics without claiming physical validation.
         "src/multidetect/simulation/task_episode.py",
@@ -238,6 +268,16 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "configs/schemas/target-geolocation-accuracy-report.schema.json",
     ),
     "task_contract": (
+        "src/multidetect/autonomy/mission_operator.py",
+        "src/multidetect/autonomy/mission_operator_protocol.py",
+        "src/multidetect/autonomy/mission_package.py",
+        "src/multidetect/autonomy/mission_plan.py",
+        "src/multidetect/autonomy/mission_planner.py",
+        "src/multidetect/autonomy/mission_summary.py",
+        "src/multidetect/autonomy/onboard_decision.py",
+        "src/multidetect/autonomy/onboard_mission_log.py",
+        "configs/onboard/mission-package-count-cones-example.json",
+        "configs/onboard/mission-package-example.json",
         "src/multidetect/autonomy/mission_context_admission.py",
         # Context validity/provenance and canonical decoding are shared task
         # semantics, not backend-only metadata. Bind both versioned schemas
@@ -285,6 +325,32 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/replay.py",
     ),
     "safety_policy": (
+        "src/multidetect/autonomy/energy_estimator.py",
+        "src/multidetect/autonomy/ground_model.py",
+        "src/multidetect/autonomy/mission_security.py",
+        "src/multidetect/autonomy/mission_supervisor.py",
+        "src/multidetect/autonomy/obstacle_source.py",
+        "src/multidetect/autonomy/safety_envelope.py",
+        "src/multidetect/onboard_runtime/__init__.py",
+        "src/multidetect/onboard_runtime/bench.py",
+        "src/multidetect/onboard_runtime/camera.py",
+        "src/multidetect/onboard_runtime/health.py",
+        "src/multidetect/onboard_runtime/policy.py",
+        "src/multidetect/onboard_runtime/preflight.py",
+        "src/multidetect/onboard_runtime/projection.py",
+        "src/multidetect/onboard_runtime/replay.py",
+        "src/multidetect/onboard_runtime/runtime.py",
+        "src/multidetect/onboard_runtime/vehicle.py",
+        "src/multidetect/acceptance.py",
+        "src/multidetect/approach_acceptance.py",
+        "src/multidetect/payload_target_acceptance.py",
+        # These production entrypoints bind reviewed mission decisions and
+        # safety controls into the onboard runtime.
+        "scripts/onboard_main.py",
+        # QGC's Mission Security controller is the native half of the same
+        # fail-closed authorisation boundary as the Python safety policy.
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionSecurity.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionSecurity.h",
         "configs/schemas/autonomy-operator-grant.schema.json",
         # Repository-owned map/DEM resolution is an isolation gate: missing,
         # remote, malformed or world-origin-mismatched assets must fail before
@@ -359,6 +425,12 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/state_machine.py",
     ),
     "px4_mission_path": (
+        "src/multidetect/autonomy/mission_executor.py",
+        "src/multidetect/autonomy/onboard_loop.py",
+        "src/multidetect/sim_teacher/executor.py",
+        "src/multidetect/sim_teacher/isolation.py",
+        "src/multidetect/sim_teacher/primitives.py",
+        "src/multidetect/sim_teacher/streams.py",
         "configs/schemas/pixhawk-odometry-covariance-observation.schema.json",
         "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
         "configs/schemas/pixhawk-covariance-online-preflight.schema.json",

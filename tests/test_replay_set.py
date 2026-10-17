@@ -58,6 +58,10 @@ from multidetect.replay_set_intake import (
 from multidetect.replay_set_readiness import check_replay_set_readiness
 from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
+# Each workbench request re-verifies the whole intake and workspace (several seconds on
+# a loaded Windows host); this test checks behaviour, not latency.
+WORKBENCH_HTTP_TIMEOUT_S = 30
+
 
 def _telemetry() -> dict[str, object]:
     return {
@@ -798,11 +802,11 @@ def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutati
         if token is not None:
             headers["X-Annotation-Token"] = token
         request = Request(workbench.url + path.lstrip("/"), data=payload, headers=headers)
-        with urlopen(request, timeout=5) as response:
+        with urlopen(request, timeout=WORKBENCH_HTTP_TIMEOUT_S) as response:
             return json.loads(response.read())
 
     try:
-        with urlopen(workbench.url, timeout=5) as response:
+        with urlopen(workbench.url, timeout=WORKBENCH_HTTP_TIMEOUT_S) as response:
             html = response.read().decode("utf-8")
             csp = response.headers["Content-Security-Policy"]
         assert "Multi-Detect 标注工作台" in html
@@ -814,7 +818,7 @@ def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutati
         snapshot = request_json("/api/workspace")
         frames = snapshot["document"]["frames"]
         with urlopen(
-            workbench.url + "api/image?frame_id=" + frames[0]["frame_id"], timeout=5
+            workbench.url + "api/image?frame_id=" + frames[0]["frame_id"], timeout=WORKBENCH_HTTP_TIMEOUT_S
         ) as response:
             assert response.headers.get_content_type() == "image/png"
             assert response.read().startswith(b"\x89PNG")
@@ -840,7 +844,7 @@ def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutati
             },
         )
         with pytest.raises(HTTPError) as duplicate:
-            urlopen(duplicate_request, timeout=5)
+            urlopen(duplicate_request, timeout=WORKBENCH_HTTP_TIMEOUT_S)
         assert duplicate.value.code == 409
 
         with pytest.raises(HTTPError) as unknown_field:

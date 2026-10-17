@@ -17,7 +17,12 @@ from .inference_provider import (
     OrtSessionSelection,
     create_onnxruntime_session,
 )
-from .multimodal_ranging import DirectRangeMeasurement, DirectRangeSource
+from .multimodal_ranging import (
+    CameraCalibration,
+    DirectRangeMeasurement,
+    DirectRangeSource,
+    _undistort,
+)
 from .tensorrt_session import TensorRtDepthSession
 from .vision import VisionDependencyError
 
@@ -69,6 +74,8 @@ class MetricDepthConfig:
     association_minimum_iou: float = 0.35
     association_maximum_center_distance: float = 0.15
     providers: tuple[str, ...] = ()
+    intra_op_num_threads: int | None = None
+    inter_op_num_threads: int | None = None
 
     def __post_init__(self) -> None:
         if self.input_size <= 0 or self.input_size % 14 != 0:
@@ -134,11 +141,15 @@ class MetricDepthConfig:
             raise ValueError("metric-depth association IoU must not exceed 1")
         if self.association_maximum_center_distance > math.sqrt(2.0):
             raise ValueError("metric-depth association center distance is outside the frame")
+        for name in ("intra_op_num_threads", "inter_op_num_threads"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise ValueError(f"{name} must be a positive integer or None")
 
 
 @dataclass(frozen=True, slots=True)
 class MetricDepthGrid:
-    """One calibrated, quantized full-frame depth map for QGC visualization."""
+    """One calibrated optical-axis Z map for QGC visualization (not slant range)."""
 
     width: int
     height: int
@@ -180,6 +191,8 @@ class MetricDepthGrid:
 
 @dataclass(frozen=True, slots=True)
 class MetricDepthResult:
+    """Target slant ranges and their underlying optical-axis Z medians."""
+
     target_id: str
     source_bbox: BoundingBox
     frame_id: str
@@ -199,6 +212,8 @@ class MetricDepthResult:
     calibration_curve_raw_range_m: tuple[float, float] | None = None
     calibration_extrapolated: bool = False
     calibration_extrapolation_sigma_m: float = 0.0
+    optical_axis_depth_m: float | None = None
+    raw_optical_axis_depth_m: float | None = None
 
     def measurement(self) -> DirectRangeMeasurement:
         return DirectRangeMeasurement(
@@ -266,9 +281,20 @@ class MetricDepthEstimator:
         target_label: str = "manual",
         frame_id: str,
         captured_at_s: float,
+        calibration: CameraCalibration | None = None,
     ) -> MetricDepthResult:
         if not target_id.strip() or not frame_id.strip():
             raise ValueError("metric-depth target and frame IDs cannot be empty")
+        if calibration is None:
+            raise MetricDepthContractError("metric-depth slant range requires camera calibration")
+        center_x, center_y = bbox.center
+        ray_x, ray_y = _undistort(
+            (center_x * calibration.width_px - calibration.cx_px) / calibration.fx_px,
+            (center_y * calibration.height_px - calibration.cy_px) / calibration.fy_px,
+            calibration,
+        )
+        # The unit camera ray is (x, y, 1) / norm; its Z component is cos(theta).
+        slant_factor = math.hypot(ray_x, ray_y, 1.0)
         started_s = time.perf_counter()
         image = self._np.asarray(image_bgr)
         if image.ndim != 3 or image.shape[2] != 3 or image.size == 0:
@@ -292,12 +318,14 @@ class MetricDepthEstimator:
         raw_values = self._target_values(raw_depth, bbox, target_label=target_label)
         if values.size < self.config.minimum_valid_pixels:
             raise MetricDepthContractError("metric-depth target has too few valid depth pixels")
-        slant_range_m = float(self._np.median(values))
-        raw_slant_range_m = float(self._np.median(raw_values))
-        mad = float(self._np.median(self._np.abs(values - slant_range_m)))
+        optical_axis_depth_m = float(self._np.median(values))
+        raw_optical_axis_depth_m = float(self._np.median(raw_values))
+        slant_range_m = optical_axis_depth_m * slant_factor
+        raw_slant_range_m = raw_optical_axis_depth_m * slant_factor
+        mad = float(self._np.median(self._np.abs(values - optical_axis_depth_m)))
         sigma_m = max(
             self.config.minimum_sigma_m,
-            slant_range_m * self.config.relative_sigma,
+            optical_axis_depth_m * self.config.relative_sigma,
             mad * 1.4826 * 2.0,
         )
         calibration_extrapolated = bool(
@@ -310,6 +338,8 @@ class MetricDepthEstimator:
         )
         if calibration_extrapolated:
             sigma_m = max(sigma_m, self.config.calibration_extrapolation_sigma_m)
+        # Calibration scatter and floors are specified in Z metres as well.
+        sigma_m *= slant_factor
         return MetricDepthResult(
             target_id=target_id,
             source_bbox=bbox,
@@ -318,6 +348,8 @@ class MetricDepthEstimator:
             produced_at_s=time.monotonic(),
             slant_range_m=slant_range_m,
             raw_slant_range_m=raw_slant_range_m,
+            optical_axis_depth_m=optical_axis_depth_m,
+            raw_optical_axis_depth_m=raw_optical_axis_depth_m,
             sigma_m=sigma_m,
             valid_pixel_count=int(values.size),
             processing_time_ms=(time.perf_counter() - started_s) * 1_000.0,
@@ -457,6 +489,8 @@ class MetricDepthEstimator:
                 ort,
                 path,
                 providers=self.config.providers,
+                intra_op_num_threads=self.config.intra_op_num_threads,
+                inter_op_num_threads=self.config.inter_op_num_threads,
             )
         except InferenceProviderError as exc:
             raise VisionDependencyError(str(exc)) from exc
@@ -501,6 +535,7 @@ class AsyncMetricDepthRunner:
         frame_id: str,
         captured_at_s: float,
         now_s: float,
+        calibration: CameraCalibration | None = None,
     ) -> bool:
         with self._lock:
             self._harvest_locked()
@@ -517,6 +552,7 @@ class AsyncMetricDepthRunner:
                 target_label=target_label,
                 frame_id=frame_id,
                 captured_at_s=captured_at_s,
+                calibration=calibration,
             )
             self._last_submit_s = now_s
             return True

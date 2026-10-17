@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import socket
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
-from queue import Empty, SimpleQueue
+from queue import Empty, Full, Queue
 from threading import Condition, Event, Lock, Thread
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autonomy.mission_operator import MissionOperatorAdapter
 
 from .operator_link import (
+    DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
     ApproachChallengeStatusMessage,
     ApproachConfirmationAcceptance,
     ApproachConfirmationCommand,
@@ -28,18 +34,21 @@ from .operator_link import (
     PayloadTargetConfirmationCommand,
     PayloadTargetConfirmationCommandGuard,
     PayloadTargetStatusMessage,
+    PersistentReplayState,
     PolicyRuntimeStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
     RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextStatusMessage,
+    SelectionAcceptance,
     SelectionCommandGuard,
     TargetGeolocationStatusMessage,
     TargetObservationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
+    serial_is_newer,
 )
 from .operator_mavlink import OperatorMavlinkTunnelAdapter
 from .operator_protocol import (
@@ -52,6 +61,7 @@ from .operator_protocol import (
     PayloadTargetConfirmationAckReason,
     RuntimeStatusAck,
     SelectionAck,
+    SelectionAckReason,
     WireMessageType,
 )
 from .operator_transport import (
@@ -66,6 +76,59 @@ from .operator_transport import (
 )
 
 MAX_OPERATOR_UDP_DATAGRAM_BYTES = 512
+DEFAULT_BACKGROUND_ERROR_QUEUE_SIZE = 128
+DEFAULT_BACKGROUND_ERROR_RATE_PER_SOURCE = 10.0
+DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE = 20.0
+DEFAULT_COMMAND_RATE_PER_SECOND = 20.0
+DEFAULT_COMMAND_BURST = 20.0
+DEFAULT_DUPLICATE_ACK_INTERVAL_S = 0.25
+MAX_TRACKED_PEER_STATE_ENTRIES = 64
+
+
+@dataclass(slots=True)
+class _TokenBucket:
+    tokens: float
+    updated_at_s: float
+
+    def consume(self, *, now_s: float, refill_per_s: float, capacity: float) -> bool:
+        elapsed = max(0.0, now_s - self.updated_at_s)
+        self.tokens = min(capacity, self.tokens + elapsed * refill_per_s)
+        self.updated_at_s = now_s
+        if self.tokens < 1.0:
+            return False
+        self.tokens -= 1.0
+        return True
+
+
+_STATUS_MESSAGE_TYPES = frozenset(
+    {
+        WireMessageType.TRACK_STATUS,
+        WireMessageType.MISSION_STATUS,
+        WireMessageType.SAFETY_STATUS,
+        WireMessageType.PATROL_STATUS,
+        WireMessageType.RANGE_STATUS,
+        WireMessageType.TARGET_GEOLOCATION_STATUS,
+        WireMessageType.GNSS_STATUS,
+        WireMessageType.TARGET_OBSERVATION_STATUS,
+        WireMessageType.RELEASE_STATUS,
+        WireMessageType.RUNTIME_STATUS,
+        WireMessageType.APPROACH_CHALLENGE,
+        WireMessageType.APPROACH_STATUS,
+        WireMessageType.PAYLOAD_TARGET_CHALLENGE,
+        WireMessageType.PAYLOAD_TARGET_STATUS,
+        WireMessageType.TARGET_POOL_STATUS,
+        WireMessageType.SCENE_CONTEXT_STATUS,
+        WireMessageType.AUTHORIZATION_CHALLENGE,
+    }
+)
+
+
+class _StatusFreshnessError(OperatorProtocolError):
+    """Authenticated status failed freshness before it could enter a cache."""
+
+    def __init__(self, message_type: WireMessageType, detail: str) -> None:
+        super().__init__(detail)
+        self.message_type = message_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +225,20 @@ class UdpOperatorSelectionServer:
         receive_timeout_s: float | None = None,
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
+        mission_adapter: MissionOperatorAdapter | None = None,
+        configured_peer: tuple[str, int] | None = None,
+        require_configured_peer: bool = False,
+        allow_first_packet_peer: bool = True,
+        background_error_queue_size: int = DEFAULT_BACKGROUND_ERROR_QUEUE_SIZE,
+        background_error_rate_per_source: float = DEFAULT_BACKGROUND_ERROR_RATE_PER_SOURCE,
+        background_error_burst_per_source: float = DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE,
+        command_rate_per_second: float = DEFAULT_COMMAND_RATE_PER_SECOND,
+        command_burst: float = DEFAULT_COMMAND_BURST,
+        duplicate_ack_interval_s: float = DEFAULT_DUPLICATE_ACK_INTERVAL_S,
+        max_commands_per_cycle: int = 16,
+        replay_state_path: str | None = None,
+        status_max_age_s: float = 5.0,
+        status_future_tolerance_s: float = 0.5,
     ) -> None:
         if not bind_host.strip():
             raise ValueError("UDP bind host cannot be empty")
@@ -173,9 +250,75 @@ class UdpOperatorSelectionServer:
             raise ValueError("metadata peer timeout must be finite and positive")
         if not callable(command_clock):
             raise TypeError("command_clock must be callable")
+        if configured_peer is not None:
+            if len(configured_peer) != 2 or not isinstance(configured_peer[0], str):
+                raise ValueError("configured_peer must be an (IPv4 host, port) tuple")
+            if not 0 <= int(configured_peer[1]) <= 65_535:
+                raise ValueError("configured_peer port must be in [0, 65535]")
+            configured_peer = (
+                str(ipaddress.ip_address(configured_peer[0])),
+                int(configured_peer[1]),
+            )
+        if require_configured_peer and configured_peer is None:
+            raise ValueError(
+                "configured_peer is required for real/flight deployments; "
+                "first-packet peer binding is only valid with an explicit sim/dev flag"
+            )
+        for value, name in (
+            (background_error_rate_per_source, "background_error_rate_per_source"),
+            (background_error_burst_per_source, "background_error_burst_per_source"),
+            (command_rate_per_second, "command_rate_per_second"),
+            (command_burst, "command_burst"),
+            (status_max_age_s, "status_max_age_s"),
+            (status_future_tolerance_s, "status_future_tolerance_s"),
+        ):
+            if not isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
+        if not isfinite(duplicate_ack_interval_s) or duplicate_ack_interval_s < 0.0:
+            raise ValueError("duplicate_ack_interval_s must be finite and non-negative")
+        if background_error_queue_size <= 0 or max_commands_per_cycle <= 0:
+            raise ValueError("queue sizes and max_commands_per_cycle must be positive")
         self.mavlink = mavlink
+        if mission_adapter is None:
+            from .autonomy.mission_operator import MissionOperatorAdapter
+
+            mission_adapter = MissionOperatorAdapter(mavlink.codec)
+        self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self._command_clock = command_clock
+        self.configured_peer = configured_peer
+        self.status_max_age_s = status_max_age_s
+        self.status_future_tolerance_s = status_future_tolerance_s
+        self.max_commands_per_cycle = max_commands_per_cycle
+        self._peer_session_nonce = secrets.token_hex(16)
+        self._retired_peer_session_nonces: deque[str] = deque(
+            (self._peer_session_nonce,),
+            maxlen=64,
+        )
+        self._command_peer: tuple[str, int] | None = configured_peer
+        self._peer_session_established = configured_peer is not None
+        self.allow_first_packet_peer = allow_first_packet_peer
+        self._first_packet_peer_rejection_logged = False
+        self._replay_state = PersistentReplayState(replay_state_path)
+        self._max_sequence_forward_jump = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP
+        self._command_rate_per_second = command_rate_per_second
+        self._command_burst = command_burst
+        self._duplicate_ack_interval_s = duplicate_ack_interval_s
+        self._command_buckets: OrderedDict[
+            tuple[tuple[str, int], WireMessageType], _TokenBucket
+        ] = OrderedDict()
+        self._duplicate_ack_sent_at: OrderedDict[
+            tuple[tuple[str, int], WireMessageType], float
+        ] = OrderedDict()
+        self._background_error_rate_per_source = background_error_rate_per_source
+        self._background_error_burst_per_source = background_error_burst_per_source
+        self._background_error_buckets: OrderedDict[tuple[str, int], _TokenBucket] = OrderedDict()
+        self._background_error_counts: OrderedDict[
+            tuple[tuple[str, int] | None, str], int
+        ] = OrderedDict()
+        self._unknown_peer_bucket = _TokenBucket(8.0, time.monotonic())
+        self._background_error_drop_count = 0
+        self._last_received_peer: tuple[str, int] | None = None
         self.selection_server = SelectionCommandServer(mavlink.codec, guard)
         self.authorization_guard = authorization_guard or AuthorizationDecisionCommandGuard()
         self.authorization_server = AuthorizationDecisionCommandServer(
@@ -184,6 +327,16 @@ class UdpOperatorSelectionServer:
         )
         self.approach_guard = approach_guard or ApproachConfirmationCommandGuard()
         self.payload_target_guard = payload_target_guard or PayloadTargetConfirmationCommandGuard()
+        if replay_state_path is not None:
+            # Keep all command classes on one crash-safe sidecar.  The guards
+            # still namespace their keys by command/session kind.
+            for command_guard in (
+                guard,
+                self.authorization_guard,
+                self.approach_guard,
+                self.payload_target_guard,
+            ):
+                command_guard._replay_state = self._replay_state  # type: ignore[attr-defined]
         self._channel = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._channel.settimeout(receive_timeout_s)
         self._channel.bind((bind_host, port))
@@ -209,19 +362,19 @@ class UdpOperatorSelectionServer:
         # use the real OS clock, while acceptance ordering is decided from one
         # monotonic timestamp domain under the condition lock.
         self._runtime_status_clock_ns = time.monotonic_ns
-        self._accepted_commands: SimpleQueue[tuple[TargetSelectionCommand, tuple[str, int]]] = (
-            SimpleQueue()
+        self._accepted_commands: Queue[tuple[TargetSelectionCommand, tuple[str, int]]] = Queue(
+            maxsize=max_commands_per_cycle
         )
-        self._accepted_authorization_decisions: SimpleQueue[
+        self._accepted_authorization_decisions: Queue[
             tuple[AuthorizationDecisionCommand, tuple[str, int]]
-        ] = SimpleQueue()
-        self._accepted_approach_confirmations: SimpleQueue[
+        ] = Queue(maxsize=max_commands_per_cycle)
+        self._accepted_approach_confirmations: Queue[
             tuple[ApproachConfirmationCommand, tuple[str, int]]
-        ] = SimpleQueue()
-        self._accepted_payload_target_confirmations: SimpleQueue[
+        ] = Queue(maxsize=max_commands_per_cycle)
+        self._accepted_payload_target_confirmations: Queue[
             tuple[PayloadTargetConfirmationCommand, tuple[str, int]]
-        ] = SimpleQueue()
-        self._background_errors: SimpleQueue[Exception] = SimpleQueue()
+        ] = Queue(maxsize=background_error_queue_size)
+        self._background_errors: Queue[Exception] = Queue(maxsize=background_error_queue_size)
         self._stop_event = Event()
         self._thread: Thread | None = None
 
@@ -246,6 +399,11 @@ class UdpOperatorSelectionServer:
         if len(frame) > MAX_OPERATOR_UDP_DATAGRAM_BYTES:
             raise ValueError("operator UDP datagram exceeds the diagnostic limit")
         peer = str(raw_peer[0]), int(raw_peer[1])
+        self._last_received_peer = peer
+        if self.configured_peer is not None and peer != self.configured_peer:
+            # Do not let an authenticated frame from an unexpected UDP tuple
+            # replace the configured operator identity.
+            return None
         # QGroundControl emits a signed heartbeat on this direct link. Treat it
         # as authenticated peer discovery so Jetson can publish DET candidates
         # before the first manual selection command arrives.
@@ -256,35 +414,124 @@ class UdpOperatorSelectionServer:
         inner = datagram.operator_payload
         if inner is None:
             if datagram.is_heartbeat:
-                self._register_metadata_peer(peer, from_heartbeat=True)
+                registered = self._register_metadata_peer(
+                    peer,
+                    from_heartbeat=True,
+                    allow_replacement=False,
+                )
+                if registered and self.configured_peer is not None:
+                    self._bind_initial_command_peer(peer)
             return None
         packet = self.mavlink.codec.decode(inner)
+        if int(packet.message_type) >= 28:
+            # Mission v2 shares the authenticated peer/session gate, token
+            # bucket, persistent sequence high-water mark and datagram bound
+            # with the legacy operator commands.  Do this before handing the
+            # packet to the mission state machine so uploads and telemetry ACKs
+            # cannot bypass link hardening.
+            if self._command_peer is None:
+                if not self.allow_first_packet_peer:
+                    self._record_background_error(
+                        OperatorProtocolError(
+                            "authenticated mission packet rejected: configured_peer is required"
+                        ),
+                        peer=peer,
+                    )
+                    return None
+                self._bind_initial_command_peer(peer)
+            elif self._command_peer != peer:
+                return None
+            if not self._allow_command(peer, packet.message_type, now_s=time.monotonic()):
+                return None
+            replay_key = f"mission:{peer[0]}:{peer[1]}"
+            if not self._replay_state.accept_sequence(
+                replay_key,
+                packet.sequence,
+                max_forward_jump=self._max_sequence_forward_jump,
+            ):
+                return None
+            self._register_metadata_peer(peer, from_heartbeat=False)
+            for response in self.mission_adapter.handle(packet, peer=peer):
+                self._channel.sendto(
+                    self.mavlink.wrap_authenticated_operator_payload(response), peer
+                )
+            self.poll_mission_telemetry()
+            return None
         if packet.message_type is WireMessageType.RUNTIME_STATUS_ACK:
             if not isinstance(packet.message, RuntimeStatusAck):
                 raise OperatorProtocolError("decoded runtime-status ACK has the wrong type")
             self._accept_runtime_status_ack(packet.message, peer=peer)
             return None
+        if self._command_peer is None:
+            if not self.allow_first_packet_peer:
+                if not self._first_packet_peer_rejection_logged:
+                    self._first_packet_peer_rejection_logged = True
+                    self._record_background_error(
+                        OperatorProtocolError(
+                            "authenticated command rejected: configured_peer is required"
+                        ),
+                        peer=peer,
+                    )
+                return None
+            self._bind_initial_command_peer(peer)
         # Existing command traffic may discover a metadata peer for interactive
         # operation, but only an authenticated HEARTBEAT marks it eligible for
         # the synchronized runtime-status acceptance barrier.
-        self._register_metadata_peer(peer, from_heartbeat=False)
+        # A command may refresh an already authenticated heartbeat lease, but
+        # it can never establish or replace the metadata peer.  Peer adoption
+        # is reserved for the signed heartbeat or explicit re-handshake.
+        with self._metadata_peer_lock:
+            metadata_peer = self._metadata_peer
+        if metadata_peer is None and self._command_peer == peer:
+            self._register_metadata_peer(peer, from_heartbeat=False, allow_replacement=False)
+        elif metadata_peer == peer:
+            self._register_metadata_peer(peer, from_heartbeat=False, allow_replacement=False)
+        if not self._allow_command(peer, packet.message_type, now_s=time.monotonic()):
+            return None
         # QGC derives command time from authenticated Jetson status envelopes.
         # Integrated/live runtimes inject that exact runtime clock; standalone
         # diagnostic clients retain the historical Unix-time default.
         received_at_s = float(self._command_clock())
         if not isfinite(received_at_s) or received_at_s < 0.0:
             raise ValueError("operator command clock returned an invalid timestamp")
-        self._acknowledgement_sequence = (self._acknowledgement_sequence + 1) & 0xFFFFFFFF
+        self._acknowledgement_sequence = self._replay_state.next_sequence(
+            "acknowledgement",
+            max_forward_jump=self._max_sequence_forward_jump,
+        )
         if packet.message_type is WireMessageType.TARGET_SELECTION:
-            result = self.selection_server.handle_selection(
-                inner,
-                received_at_s=received_at_s,
-                acknowledgement_sequence=self._acknowledgement_sequence,
-            )
+            if self._command_peer != peer:
+                if not isinstance(packet.message, TargetSelectionCommand):
+                    raise OperatorProtocolError("decoded selection message has the wrong type")
+                acceptance = SelectionAcceptance(
+                    False,
+                    ("selection peer does not match the authenticated session",),
+                )
+                acknowledgement_payload = self.mavlink.codec.encode_ack(
+                    SelectionAck(
+                        packet.message.command_id,
+                        False,
+                        SelectionAckReason.INVALID,
+                        packet.message.sequence,
+                    ),
+                    sequence=self._acknowledgement_sequence,
+                    sent_at_s=received_at_s,
+                )
+                result = ServerSelectionResult(
+                    packet.message,
+                    acceptance,
+                    acknowledgement_payload,
+                    False,
+                )
+            else:
+                result = self.selection_server.handle_selection(
+                    inner,
+                    received_at_s=received_at_s,
+                    acknowledgement_sequence=self._acknowledgement_sequence,
+                )
         elif packet.message_type is WireMessageType.AUTHORIZATION_DECISION:
             if not isinstance(packet.message, AuthorizationDecisionCommand):
                 raise OperatorProtocolError("decoded authorization decision has the wrong type")
-            if self._authorization_peer is None or peer != self._authorization_peer:
+            if self._command_peer != peer or self._authorization_peer != peer:
                 acceptance = AuthorizationDecisionAcceptance(
                     False,
                     ("authorization decision peer does not match the challenge recipient",),
@@ -314,7 +561,7 @@ class UdpOperatorSelectionServer:
         elif packet.message_type is WireMessageType.APPROACH_CONFIRMATION:
             if not isinstance(packet.message, ApproachConfirmationCommand):
                 raise OperatorProtocolError("decoded approach confirmation has the wrong type")
-            if self._approach_peer is None or peer != self._approach_peer:
+            if self._command_peer != peer or self._approach_peer != peer:
                 acceptance = ApproachConfirmationAcceptance(
                     False,
                     ("approach confirmation peer does not match the challenge recipient",),
@@ -346,7 +593,7 @@ class UdpOperatorSelectionServer:
                 raise OperatorProtocolError(
                     "decoded payload target confirmation has the wrong type"
                 )
-            if self._payload_target_peer is None or peer != self._payload_target_peer:
+            if self._command_peer != peer or self._payload_target_peer != peer:
                 acceptance = PayloadTargetConfirmationAcceptance(
                     False,
                     ("payload target confirmation peer does not match the challenge recipient",),
@@ -381,16 +628,26 @@ class UdpOperatorSelectionServer:
         acknowledgement = self.mavlink.wrap_authenticated_operator_payload(
             result.acknowledgement_payload
         )
-        self._channel.sendto(acknowledgement, peer)
+        should_send_ack = not result.duplicate or self._allow_duplicate_ack(
+            peer,
+            packet.message_type,
+            now_s=time.monotonic(),
+        )
+        if should_send_ack:
+            self._channel.sendto(acknowledgement, peer)
+            self._duplicate_ack_sent_at[(peer, packet.message_type)] = time.monotonic()
         if result.acceptance.allowed and not result.duplicate:
             if isinstance(result, ServerSelectionResult):
-                self._accepted_commands.put((result.command, peer))
+                self._put_bounded(self._accepted_commands, (result.command, peer))
             elif isinstance(result, ServerAuthorizationDecisionResult):
-                self._accepted_authorization_decisions.put((result.command, peer))
+                self._put_bounded(self._accepted_authorization_decisions, (result.command, peer))
             elif isinstance(result, ServerApproachConfirmationResult):
-                self._accepted_approach_confirmations.put((result.command, peer))
+                self._put_bounded(self._accepted_approach_confirmations, (result.command, peer))
             else:
-                self._accepted_payload_target_confirmations.put((result.command, peer))
+                self._put_bounded(
+                    self._accepted_payload_target_confirmations,
+                    (result.command, peer),
+                )
         return result, peer
 
     def start_background(self) -> None:
@@ -488,6 +745,147 @@ class UdpOperatorSelectionServer:
             return self._background_errors.get_nowait()
         except Empty:
             return None
+
+    @property
+    def background_error_drop_count(self) -> int:
+        return self._background_error_drop_count
+
+    @property
+    def background_error_counts(self) -> dict[tuple[tuple[str, int] | None, str], int]:
+        return dict(self._background_error_counts)
+
+    @property
+    def peer_session_nonce(self) -> str:
+        """Nonce identifying the currently bound authenticated UDP session."""
+
+        return self._peer_session_nonce
+
+    def rehandshake_peer(self, peer: tuple[str, int], challenge_nonce: str) -> None:
+        """Replace a peer only after an application-level fresh challenge.
+
+        The nonce is intentionally supplied by the authenticated challenge
+        controller, rather than inferred from a UDP source tuple.  Callers
+        must retain the nonce until both sides have acknowledged the new
+        session; old frames remain bound to the retired tuple/session.
+        """
+
+        if not isinstance(challenge_nonce, str) or len(challenge_nonce) < 16:
+            raise ValueError("peer re-handshake nonce must be a fresh non-empty value")
+        if len(peer) != 2 or not isinstance(peer[0], str) or not 0 <= int(peer[1]) <= 65_535:
+            raise ValueError("peer must be an (IPv4 host, port) tuple")
+        normalized = (str(ipaddress.ip_address(peer[0])), int(peer[1]))
+        with self._metadata_peer_lock:
+            if challenge_nonce in self._retired_peer_session_nonces:
+                raise ValueError("peer re-handshake nonce was already used")
+            self._peer_session_nonce = challenge_nonce
+            self._retired_peer_session_nonces.append(challenge_nonce)
+            self._command_peer = normalized
+            self._peer_session_established = True
+        self._register_metadata_peer(
+            normalized,
+            from_heartbeat=True,
+            allow_replacement=True,
+        )
+
+    def _allow_command(
+        self,
+        peer: tuple[str, int],
+        message_type: WireMessageType,
+        *,
+        now_s: float,
+    ) -> bool:
+        key = (peer, message_type)
+        bucket = self._command_buckets.get(key)
+        if bucket is None:
+            if self._command_peer is not None and peer != self._command_peer:
+                if not self._unknown_peer_bucket.consume(
+                    now_s=now_s,
+                    refill_per_s=self._command_rate_per_second,
+                    capacity=self._command_burst,
+                ):
+                    return False
+            self._evict_bounded(self._command_buckets, self._command_peer)
+            bucket = _TokenBucket(self._command_burst, now_s)
+            self._command_buckets[key] = bucket
+        else:
+            self._command_buckets.move_to_end(key)
+        return bucket.consume(
+            now_s=now_s,
+            refill_per_s=self._command_rate_per_second,
+            capacity=self._command_burst,
+        )
+
+    def _allow_duplicate_ack(
+        self,
+        peer: tuple[str, int],
+        message_type: WireMessageType,
+        *,
+        now_s: float,
+    ) -> bool:
+        key = (peer, message_type)
+        previous = self._duplicate_ack_sent_at.get(key)
+        if previous is not None and now_s - previous < self._duplicate_ack_interval_s:
+            return False
+        self._evict_bounded(self._duplicate_ack_sent_at, self._command_peer)
+        self._duplicate_ack_sent_at[key] = now_s
+        return True
+
+    @staticmethod
+    def _evict_bounded(mapping: OrderedDict, protected_peer: tuple[str, int] | None) -> None:
+        while len(mapping) >= MAX_TRACKED_PEER_STATE_ENTRIES:
+            victim = next(iter(mapping))
+            key_peer = (
+                victim[0]
+                if isinstance(victim, tuple) and isinstance(victim[0], tuple)
+                else victim
+            )
+            if protected_peer is not None and key_peer == protected_peer:
+                mapping.move_to_end(victim)
+                if len(mapping) == 1:
+                    return
+                continue
+            del mapping[victim]
+            return
+
+    @staticmethod
+    def _put_bounded(queue: Queue[object], item: object) -> None:
+        try:
+            queue.put_nowait(item)
+        except Full:
+            # Accepted commands are deliberately bounded.  Dropping a command
+            # is safer than allowing an authenticated flood to exhaust memory.
+            return
+
+    def _record_background_error(
+        self,
+        exc: Exception,
+        *,
+        peer: tuple[str, int] | None,
+    ) -> None:
+        source = peer
+        key = (source, type(exc).__name__)
+        self._evict_bounded(self._background_error_counts, self._command_peer)
+        self._background_error_counts[key] = self._background_error_counts.get(key, 0) + 1
+        if source is not None:
+            bucket = self._background_error_buckets.get(source)
+            now_s = time.monotonic()
+            if bucket is None:
+                self._evict_bounded(self._background_error_buckets, self._command_peer)
+                bucket = _TokenBucket(self._background_error_burst_per_source, now_s)
+                self._background_error_buckets[source] = bucket
+            else:
+                self._background_error_buckets.move_to_end(source)
+            if not bucket.consume(
+                now_s=now_s,
+                refill_per_s=self._background_error_rate_per_source,
+                capacity=self._background_error_burst_per_source,
+            ):
+                self._background_error_drop_count += 1
+                return
+        try:
+            self._background_errors.put_nowait(exc)
+        except Full:
+            self._background_error_drop_count += 1
 
     def publish_track_status(
         self,
@@ -611,8 +1009,20 @@ class UdpOperatorSelectionServer:
                 retired_sequence = self._retired_runtime_status_ack_sequence_by_run_peer.get(
                     (status.run_hash64, peer)
                 )
-                if (last_sequence is not None and status.sequence <= last_sequence) or (
-                    retired_sequence is not None and status.sequence <= retired_sequence
+                if (
+                    last_sequence is not None
+                    and not serial_is_newer(
+                        status.sequence,
+                        last_sequence,
+                        max_forward_jump=self._max_sequence_forward_jump,
+                    )
+                ) or (
+                    retired_sequence is not None
+                    and not serial_is_newer(
+                        status.sequence,
+                        retired_sequence,
+                        max_forward_jump=self._max_sequence_forward_jump,
+                    )
                 ):
                     raise RuntimeError(
                         "runtime-status acceptance sequence is duplicate or out of order"
@@ -776,8 +1186,15 @@ class UdpOperatorSelectionServer:
         peer: tuple[str, int],
         *,
         from_heartbeat: bool,
-    ) -> None:
+        allow_replacement: bool = True,
+    ) -> bool:
         with self._metadata_peer_lock:
+            if (
+                not allow_replacement
+                and self._metadata_peer is not None
+                and self._metadata_peer != peer
+            ):
+                return False
             previous_heartbeat_peer = (
                 self._metadata_peer if self._metadata_peer_has_heartbeat else None
             )
@@ -793,6 +1210,15 @@ class UdpOperatorSelectionServer:
                     previous_peer=previous_heartbeat_peer,
                     current_peer=current_heartbeat_peer,
                 )
+            return True
+
+    def _bind_initial_command_peer(self, peer: tuple[str, int]) -> None:
+        """Bind the first authenticated command/session peer exactly once."""
+
+        with self._metadata_peer_lock:
+            if self._command_peer is None:
+                self._command_peer = peer
+                self._peer_session_established = True
 
     def _expire_metadata_peer_locked(self, *, now_s: float) -> bool:
         """Expire one peer lease while preserving metadata -> ACK lock order."""
@@ -890,9 +1316,10 @@ class UdpOperatorSelectionServer:
                 previous = self._last_runtime_status_ack_sequence_by_run.get(
                     acknowledgement.run_hash64
                 )
-                if (
-                    previous is not None
-                    and acknowledgement.acknowledged_runtime_sequence <= previous
+                if previous is not None and not serial_is_newer(
+                    acknowledgement.acknowledged_runtime_sequence,
+                    previous,
+                    max_forward_jump=self._max_sequence_forward_jump,
                 ):
                     raise OperatorProtocolError(
                         "runtime-status ACK sequence is duplicate or out of order"
@@ -919,9 +1346,10 @@ class UdpOperatorSelectionServer:
         retired_sequence = self._retired_runtime_status_ack_sequence_by_run_peer.get(
             (acknowledgement.run_hash64, peer)
         )
-        return (
-            retired_sequence is not None
-            and acknowledgement.acknowledged_runtime_sequence <= retired_sequence
+        return retired_sequence is not None and not serial_is_newer(
+            acknowledgement.acknowledged_runtime_sequence,
+            retired_sequence,
+            max_forward_jump=self._max_sequence_forward_jump,
         )
 
     def _retire_runtime_status_send_locked(
@@ -930,7 +1358,11 @@ class UdpOperatorSelectionServer:
     ) -> None:
         key = (send_receipt.run_hash64, send_receipt.remote)
         previous = self._retired_runtime_status_ack_sequence_by_run_peer.get(key)
-        if previous is None or send_receipt.acknowledged_runtime_sequence > previous:
+        if previous is None or serial_is_newer(
+            send_receipt.acknowledged_runtime_sequence,
+            previous,
+            max_forward_jump=self._max_sequence_forward_jump,
+        ):
             self._retired_runtime_status_ack_sequence_by_run_peer[key] = (
                 send_receipt.acknowledged_runtime_sequence
             )
@@ -955,22 +1387,32 @@ class UdpOperatorSelectionServer:
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                self.poll_mission_telemetry()
                 self.serve_once()
             except TimeoutError:
                 continue
             except OSError as exc:
                 if not self._stop_event.is_set():
-                    self._background_errors.put(exc)
+                    self._record_background_error(exc, peer=self._last_received_peer)
                     with self._runtime_status_ack_condition:
                         self._runtime_status_ack_condition.notify_all()
                 return
             except (RuntimeError, ValueError, TypeError) as exc:
-                self._background_errors.put(exc)
+                self._record_background_error(exc, peer=self._last_received_peer)
                 with self._runtime_status_ack_condition:
                     self._runtime_status_ack_condition.notify_all()
 
+    def poll_mission_telemetry(self) -> None:
+        """Also callable by a foreground runtime using ``serve_once`` directly."""
+        peer = self.active_metadata_peer()
+        sender = None if peer is None else lambda payload: self._channel.sendto(
+            self.mavlink.wrap_authenticated_operator_payload(payload), peer
+        )
+        self.mission_adapter.tick(sender)
+
     def close(self) -> None:
         self._stop_event.set()
+        self.mission_adapter.close()
         self._channel.close()
         if self._thread is not None:
             self._thread.join(timeout=1.0)
@@ -995,12 +1437,14 @@ class UdpOperatorSelectionClient:
         retry_interval_s: float = 0.25,
         maximum_attempts: int = 3,
         source_host: str | None = None,
+        replay_state_path: str | None = None,
     ) -> None:
         self.remote = _remote_address(host, port)
         self.mavlink = mavlink
         self.retry_interval_s = retry_interval_s
         self.maximum_attempts = maximum_attempts
         self.source_host = source_host
+        self.replay_state_path = replay_state_path
 
     def deliver(self, command: TargetSelectionCommand) -> UdpSelectionReceipt:
         with UdpOperatorSessionClient(
@@ -1010,6 +1454,7 @@ class UdpOperatorSelectionClient:
             retry_interval_s=self.retry_interval_s,
             maximum_attempts=self.maximum_attempts,
             source_host=self.source_host,
+            replay_state_path=self.replay_state_path,
         ) as session:
             return session.deliver(command)
 
@@ -1026,15 +1471,29 @@ class UdpOperatorSessionClient:
         retry_interval_s: float = 0.25,
         maximum_attempts: int = 3,
         source_host: str | None = None,
+        replay_state_path: str | None = None,
+        status_max_age_s: float = 5.0,
+        status_future_tolerance_s: float = 0.5,
     ) -> None:
         self.remote = _remote_address(host, port)
         if retry_interval_s <= 0.0:
             raise ValueError("UDP retry interval must be positive")
         if maximum_attempts <= 0:
             raise ValueError("UDP maximum attempts must be positive")
+        if not isfinite(status_max_age_s) or status_max_age_s <= 0.0:
+            raise ValueError("status_max_age_s must be finite and positive")
+        if not isfinite(status_future_tolerance_s) or status_future_tolerance_s < 0.0:
+            raise ValueError("status_future_tolerance_s must be finite and non-negative")
         self.mavlink = mavlink
         self.retry_interval_s = retry_interval_s
         self.maximum_attempts = maximum_attempts
+        self.status_max_age_s = status_max_age_s
+        self.status_future_tolerance_s = status_future_tolerance_s
+        self._status_replay_state = PersistentReplayState(replay_state_path)
+        self._status_session_nonce = secrets.token_hex(16)
+        self._status_stale_count = 0
+        self._status_future_count = 0
+        self._last_status_stale = False
         self._channel = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if source_host is not None:
             try:
@@ -1121,6 +1580,9 @@ class UdpOperatorSessionClient:
                     inner, packet = self._receive_packet(timeout_s=remaining_s)
                 except TimeoutError:
                     break
+                except _StatusFreshnessError as exc:
+                    self._note_status_freshness_error(exc)
+                    continue
                 if packet.message_type is WireMessageType.SELECTION_ACK:
                     delivery.handle_acknowledgement(inner)
                     break
@@ -1183,6 +1645,9 @@ class UdpOperatorSessionClient:
                     inner, packet = self._receive_packet(timeout_s=remaining_s)
                 except TimeoutError:
                     break
+                except _StatusFreshnessError as exc:
+                    self._note_status_freshness_error(exc)
+                    continue
                 if packet.message_type is WireMessageType.AUTHORIZATION_ACK:
                     delivery.handle_acknowledgement(inner)
                     break
@@ -1217,6 +1682,9 @@ class UdpOperatorSessionClient:
                     _inner, packet = self._receive_packet(timeout_s=deadline_s - time.monotonic())
                 except TimeoutError:
                     break
+                except _StatusFreshnessError as exc:
+                    self._note_status_freshness_error(exc)
+                    continue
                 if packet.message_type is WireMessageType.APPROACH_ACK:
                     if not isinstance(packet.message, ApproachConfirmationAck):
                         raise OperatorProtocolError("decoded approach ACK has the wrong type")
@@ -1254,6 +1722,9 @@ class UdpOperatorSessionClient:
                     _inner, packet = self._receive_packet(timeout_s=deadline_s - time.monotonic())
                 except TimeoutError:
                     break
+                except _StatusFreshnessError as exc:
+                    self._note_status_freshness_error(exc)
+                    continue
                 if packet.message_type is WireMessageType.PAYLOAD_TARGET_ACK:
                     if not isinstance(packet.message, PayloadTargetConfirmationAck):
                         raise OperatorProtocolError("decoded payload target ACK has the wrong type")
@@ -1290,9 +1761,10 @@ class UdpOperatorSessionClient:
         )
         if not isinstance(status, AuthorizationChallengeStatusMessage):
             raise OperatorProtocolError("decoded authorization challenge has the wrong type")
-        if (
-            self._last_authorization_challenge_sequence is not None
-            and status.sequence <= self._last_authorization_challenge_sequence
+        if self._last_authorization_challenge_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_authorization_challenge_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("authorization challenge sequence is not newer")
         self._last_authorization_challenge_sequence = status.sequence
@@ -1308,7 +1780,15 @@ class UdpOperatorSessionClient:
             raise OperatorProtocolError("decoded tracking status has the wrong type")
         if status.selection_command_id != self._active_command_id:
             raise OperatorProtocolError("tracking status selection command ID does not match")
-        if self._last_status_sequence is not None and status.sequence <= self._last_status_sequence:
+        if self._last_status_sequence is not None and not serial_is_newer(
+
+            status.sequence,
+
+            self._last_status_sequence,
+
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+
+        ):
             raise OperatorProtocolError("tracking status sequence is not newer")
         self._last_status_sequence = status.sequence
         return status
@@ -1321,9 +1801,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.MISSION_STATUS, timeout_s=timeout_s)
         if not isinstance(status, MissionStatusMessage):  # pragma: no cover - type narrowing
             raise OperatorProtocolError("decoded mission status has the wrong type")
-        if (
-            self._last_mission_status_sequence is not None
-            and status.sequence <= self._last_mission_status_sequence
+        if self._last_mission_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_mission_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("mission status sequence is not newer")
         self._last_mission_status_sequence = status.sequence
@@ -1337,9 +1818,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.SAFETY_STATUS, timeout_s=timeout_s)
         if not isinstance(status, SafetyStatusMessage):  # pragma: no cover - type narrowing
             raise OperatorProtocolError("decoded safety status has the wrong type")
-        if (
-            self._last_safety_status_sequence is not None
-            and status.sequence <= self._last_safety_status_sequence
+        if self._last_safety_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_safety_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("safety status sequence is not newer")
         self._last_safety_status_sequence = status.sequence
@@ -1353,9 +1835,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.PATROL_STATUS, timeout_s=timeout_s)
         if not isinstance(status, PatrolStatusMessage):  # pragma: no cover - type narrowing
             raise OperatorProtocolError("decoded patrol status has the wrong type")
-        if (
-            self._last_patrol_status_sequence is not None
-            and status.sequence <= self._last_patrol_status_sequence
+        if self._last_patrol_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_patrol_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("patrol status sequence is not newer")
         self._last_patrol_status_sequence = status.sequence
@@ -1369,9 +1852,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.RANGE_STATUS, timeout_s=timeout_s)
         if not isinstance(status, RangeStatusMessage):  # pragma: no cover - type narrowing
             raise OperatorProtocolError("decoded range status has the wrong type")
-        if (
-            self._last_range_status_sequence is not None
-            and status.sequence <= self._last_range_status_sequence
+        if self._last_range_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_range_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("range status sequence is not newer")
         self._last_range_status_sequence = status.sequence
@@ -1395,9 +1879,10 @@ class UdpOperatorSessionClient:
             TargetGeolocationStatusMessage,
         ):  # pragma: no cover - type narrowing
             raise OperatorProtocolError("decoded target geolocation status has the wrong type")
-        if (
-            self._last_target_geolocation_status_sequence is not None
-            and status.sequence <= self._last_target_geolocation_status_sequence
+        if self._last_target_geolocation_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_target_geolocation_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("target geolocation status sequence is not newer")
         self._last_target_geolocation_status_sequence = status.sequence
@@ -1409,9 +1894,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.GNSS_STATUS, timeout_s=timeout_s)
         if not isinstance(status, GnssStatusMessage):
             raise OperatorProtocolError("decoded GNSS status has the wrong type")
-        if (
-            self._last_gnss_status_sequence is not None
-            and status.sequence <= self._last_gnss_status_sequence
+        if self._last_gnss_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_gnss_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("GNSS status sequence is not newer")
         self._last_gnss_status_sequence = status.sequence
@@ -1432,9 +1918,10 @@ class UdpOperatorSessionClient:
         )
         if not isinstance(status, TargetObservationStatusMessage):
             raise OperatorProtocolError("decoded target observation status has the wrong type")
-        if (
-            self._last_target_observation_status_sequence is not None
-            and status.sequence <= self._last_target_observation_status_sequence
+        if self._last_target_observation_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_target_observation_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("target observation status sequence is not newer")
         self._last_target_observation_status_sequence = status.sequence
@@ -1448,9 +1935,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.RELEASE_STATUS, timeout_s=timeout_s)
         if not isinstance(status, ReleaseStatusMessage):
             raise OperatorProtocolError("decoded release status has the wrong type")
-        if (
-            self._last_release_status_sequence is not None
-            and status.sequence <= self._last_release_status_sequence
+        if self._last_release_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_release_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("release status sequence is not newer")
         self._last_release_status_sequence = status.sequence
@@ -1462,9 +1950,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.RUNTIME_STATUS, timeout_s=timeout_s)
         if not isinstance(status, RuntimeStatusMessage):
             raise OperatorProtocolError("decoded runtime status has the wrong type")
-        if (
-            self._last_runtime_status_sequence is not None
-            and status.sequence <= self._last_runtime_status_sequence
+        if self._last_runtime_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_runtime_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("runtime status sequence is not newer")
         self._last_runtime_status_sequence = status.sequence
@@ -1480,7 +1969,10 @@ class UdpOperatorSessionClient:
 
         if self._last_runtime_status_sequence != status.sequence:
             raise RuntimeError("runtime status must be freshly received before acknowledgement")
-        self._runtime_status_ack_sequence = (self._runtime_status_ack_sequence + 1) & 0xFFFFFFFF
+        self._runtime_status_ack_sequence = self._status_replay_state.next_sequence(
+            f"acknowledgement:{self.remote[0]}:{self.remote[1]}",
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+        )
         acknowledgement = RuntimeStatusAck(
             acknowledged_runtime_sequence=status.sequence,
             run_hash64=status.run_hash64,
@@ -1504,9 +1996,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.APPROACH_CHALLENGE, timeout_s=timeout_s)
         if not isinstance(status, ApproachChallengeStatusMessage):
             raise OperatorProtocolError("decoded approach challenge has the wrong type")
-        if (
-            self._last_approach_challenge_sequence is not None
-            and status.sequence <= self._last_approach_challenge_sequence
+        if self._last_approach_challenge_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_approach_challenge_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("approach challenge sequence is not newer")
         self._last_approach_challenge_sequence = status.sequence
@@ -1518,9 +2011,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.APPROACH_STATUS, timeout_s=timeout_s)
         if not isinstance(status, ApproachStatusMessage):
             raise OperatorProtocolError("decoded approach status has the wrong type")
-        if (
-            self._last_approach_status_sequence is not None
-            and status.sequence <= self._last_approach_status_sequence
+        if self._last_approach_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_approach_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("approach status sequence is not newer")
         self._last_approach_status_sequence = status.sequence
@@ -1539,9 +2033,10 @@ class UdpOperatorSessionClient:
         )
         if not isinstance(status, PayloadTargetChallengeStatusMessage):
             raise OperatorProtocolError("decoded payload target challenge has the wrong type")
-        if (
-            self._last_payload_target_challenge_sequence is not None
-            and status.sequence <= self._last_payload_target_challenge_sequence
+        if self._last_payload_target_challenge_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_payload_target_challenge_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("payload target challenge sequence is not newer")
         self._last_payload_target_challenge_sequence = status.sequence
@@ -1558,9 +2053,10 @@ class UdpOperatorSessionClient:
             raise OperatorProtocolError("decoded payload target status has the wrong type")
         if status.selection_command_id != self._active_command_id:
             raise OperatorProtocolError("payload target status selection command ID does not match")
-        if (
-            self._last_payload_target_status_sequence is not None
-            and status.sequence <= self._last_payload_target_status_sequence
+        if self._last_payload_target_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_payload_target_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("payload target status sequence is not newer")
         self._last_payload_target_status_sequence = status.sequence
@@ -1572,9 +2068,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.TARGET_POOL_STATUS, timeout_s=timeout_s)
         if not isinstance(status, TargetPoolStatusMessage):
             raise OperatorProtocolError("decoded target-pool status has the wrong type")
-        if (
-            self._last_target_pool_status_sequence is not None
-            and status.sequence <= self._last_target_pool_status_sequence
+        if self._last_target_pool_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_target_pool_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("target-pool status sequence is not newer")
         self._last_target_pool_status_sequence = status.sequence
@@ -1586,9 +2083,10 @@ class UdpOperatorSessionClient:
         status = self._receive_message(WireMessageType.SCENE_CONTEXT_STATUS, timeout_s=timeout_s)
         if not isinstance(status, SceneContextStatusMessage):
             raise OperatorProtocolError("decoded scene-context status has the wrong type")
-        if (
-            self._last_scene_context_status_sequence is not None
-            and status.sequence <= self._last_scene_context_status_sequence
+        if self._last_scene_context_status_sequence is not None and not serial_is_newer(
+            status.sequence,
+            self._last_scene_context_status_sequence,
+            max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
         ):
             raise OperatorProtocolError("scene-context status sequence is not newer")
         self._last_scene_context_status_sequence = status.sequence
@@ -1600,7 +2098,63 @@ class UdpOperatorSessionClient:
         if len(frame) > MAX_OPERATOR_UDP_DATAGRAM_BYTES:
             raise ValueError("operator UDP datagram exceeds the diagnostic limit")
         inner = self.mavlink.extract_authenticated_operator_payload(frame)
-        return inner, self.mavlink.codec.decode(inner)
+        packet = self.mavlink.codec.decode(inner)
+        if packet.message_type in _STATUS_MESSAGE_TYPES:
+            now_s = time.time()
+            age_s = now_s - packet.sent_at_s
+            if age_s > self.status_max_age_s:
+                raise _StatusFreshnessError(
+                    packet.message_type,
+                    "status packet is stale and cannot be shown as current"
+                )
+            if age_s < -self.status_future_tolerance_s:
+                raise _StatusFreshnessError(
+                    packet.message_type,
+                    "status packet is dated in the future",
+                )
+            self._last_status_stale = False
+            producer_epoch = getattr(packet.message, "producer_epoch", None)
+            epoch_suffix = "" if producer_epoch is None else f":{producer_epoch}"
+            key = (
+                f"status:{self.remote[0]}:{self.remote[1]}:"
+                f"{packet.message_type.name}{epoch_suffix}"
+            )
+            previous = self._status_replay_state.sequences.get(key)
+            if previous is not None and not serial_is_newer(
+                packet.sequence,
+                previous,
+                max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+            ):
+                raise OperatorProtocolError(
+                    "status sequence is not newer than persisted high-water"
+                )
+            if not self._status_replay_state.accept_sequence(
+                key,
+                packet.sequence,
+                max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
+            ):
+                raise OperatorProtocolError("status sequence replay was rejected")
+        return inner, packet
+
+    @property
+    def status_stale_count(self) -> int:
+        return self._status_stale_count
+
+    @property
+    def status_future_count(self) -> int:
+        return self._status_future_count
+
+    @property
+    def last_status_stale(self) -> bool:
+        return self._last_status_stale
+
+    def _note_status_freshness_error(self, error: _StatusFreshnessError | None = None) -> None:
+        if error is not None and "future" in str(error):
+            self._status_future_count += 1
+            self._last_status_stale = False
+        else:
+            self._status_stale_count += 1
+            self._last_status_stale = True
 
     def _receive_message(
         self,
@@ -1616,7 +2170,13 @@ class UdpOperatorSessionClient:
             remaining_s = deadline_s - time.monotonic()
             if remaining_s <= 0.0:
                 raise TimeoutError(f"operator UDP {expected_type.name.lower()} timed out")
-            _inner, packet = self._receive_packet(timeout_s=remaining_s)
+            try:
+                _inner, packet = self._receive_packet(timeout_s=remaining_s)
+            except _StatusFreshnessError as exc:
+                self._note_status_freshness_error(exc)
+                if exc.message_type is expected_type:
+                    raise OperatorProtocolError(str(exc)) from exc
+                continue
             if packet.message_type is expected_type:
                 return packet.message
             self._queue_status_packet(packet.message_type, packet.message)

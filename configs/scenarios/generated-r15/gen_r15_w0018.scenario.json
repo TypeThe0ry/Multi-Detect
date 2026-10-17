@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_r15_w0018.expectations.json",
+      "sha256": "769c56a742cf67d6e9b9d8f62191294eaea7a3eaf20e5d1152c09a6c8e024556"
+    },
+    "runtime_input": {
+      "path": "gen_r15_w0018.runtime_input.json",
+      "sha256": "0b11f2d31d8137df81264fb2972f6a9fd182ff17d2453ba520ee8b26a56d6d0f"
+    },
+    "truth": {
+      "path": "gen_r15_w0018.truth.json",
+      "sha256": "8a3305957b54b86bc00f41cfb310885602951e1a0131332aac30e8193cb8da75"
+    }
+  },
+  "scenario_id": "gen_r15_w0018",
+  "scenario_version": 1,
+  "schema_version": 1
+}

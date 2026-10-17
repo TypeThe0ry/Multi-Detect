@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 # Must be set before torch initialises CUDA: limits allocator fragmentation on the shared
 # 8 GB GPU, where long runs otherwise fail with "CUDA error: out of memory".
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+# A small fixed cuBLAS workspace: cuBLAS allocates outside the caching allocator and a
+# failed workspace allocation poisons the CUDA context ("CUDA error: out of memory").
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 from multidetect.autonomy.onboard_decision import parse_onboard_decision
 from scripts.slow_system_runtime import ROOT, chat_messages, dataset_crop_policy, load_jsonl
@@ -172,6 +175,11 @@ def make_backend(snapshot: Path, options: TrainOptions):
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise RuntimeError("Qwen3-VL LoRA training requires a free BF16 CUDA GPU")
+    # Cap the caching allocator below the card size so kernels/cuBLAS keep headroom on a GPU
+    # shared with the desktop; an over-budget batch then raises a catchable allocator OOM.
+    torch.cuda.set_per_process_memory_fraction(
+        float(os.environ.get("SLOW_TRAIN_GPU_MEMORY_FRACTION", "0.88"))
+    )
     quantization = resolve_quantization(options.quantization)
     torch.manual_seed(options.seed)
     torch.cuda.manual_seed_all(options.seed)
@@ -249,6 +257,32 @@ def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
     temporary.replace(checkpoint / "state.json")
 
 
+def resolve_adapter_weights(path: Path) -> Path:
+    """Resolve an HF/PEFT adapter directory or direct safetensors file."""
+    candidate = path / "adapter_model.safetensors" if path.is_dir() else path
+    if not candidate.is_file():
+        raise FileNotFoundError(f"adapter weights not found: {candidate}")
+    return candidate
+
+
+def initialize_adapter(model, adapter_path: Path) -> None:
+    """Load r12 adapter tensors into a freshly-created, same-rank LoRA model."""
+    from peft import set_peft_model_state_dict
+    from safetensors.torch import load as load_safetensors
+
+    weights_path = resolve_adapter_weights(adapter_path)
+    weights = load_safetensors(weights_path.read_bytes())
+    result = set_peft_model_state_dict(model, weights)
+    unexpected = getattr(result, "unexpected_keys", None) or []
+    missing = getattr(result, "missing_keys", None) or []
+    del weights
+    if unexpected or missing:
+        raise ValueError(
+            f"initial adapter does not match current LoRA target/rank: "
+            f"unexpected={unexpected[:3]}, missing={missing[:3]}"
+        )
+
+
 def run(args, *, backend_factory=make_backend) -> dict:
     options = TrainOptions(
         epochs=args.epochs, max_steps=args.max_steps, accumulation=args.accumulation,
@@ -273,6 +307,8 @@ def run(args, *, backend_factory=make_backend) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     torch, model, processor, targets, quantization = backend_factory(snapshot, options)
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=options.learning_rate)
+    if getattr(args, "init_adapter", None) and not args.resume:
+        initialize_adapter(model, Path(args.init_adapter))
     state = {"epoch": 0, "cursor": 0, "optimizer_steps": 0, "dataset_sha256": dataset_sha256,
              "options": {**asdict(options), "crop_policy": crop_policy, "balance": balanced}, "snapshot": str(snapshot)}
     if args.resume:
@@ -312,6 +348,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
             cursor = state["cursor"] if epoch == state["epoch"] else 0
             while cursor < len(order):
                 end = min(cursor + options.accumulation, len(order))
+                batch_losses = None
                 for attempt in range(OOM_RETRIES + 1):
                     optimizer.zero_grad(set_to_none=True)
                     try:
@@ -324,13 +361,28 @@ def run(args, *, backend_factory=make_backend) -> dict:
                         # The GPU is shared with other jobs; a transient out-of-memory must not
                         # end a multi-hour run. The batch is recomputed from zeroed gradients,
                         # so a retried step is identical to an uninterrupted one.
-                        if "out of memory" not in str(error) or attempt == OOM_RETRIES:
+                        if "out of memory" not in str(error):
                             raise
                         optimizer.zero_grad(set_to_none=True)
+                        if not isinstance(error, torch.OutOfMemoryError):
+                            raise  # driver-level OOM: the CUDA context is unusable; resume.
                         torch.cuda.empty_cache()
+                        if attempt == OOM_RETRIES:
+                            break
                         print(f"CUDA out of memory at step {state['optimizer_steps'] + 1}; "
                               f"retry {attempt + 1}/{OOM_RETRIES}", file=sys.stderr, flush=True)
                         time.sleep(OOM_RETRY_WAIT_S)
+                if batch_losses is None:
+                    # This batch never fits under the allocator cap: skip it (recorded in the
+                    # log and the report) rather than lose the run.
+                    skipped = [rows[i]["sample_id"] for i in order[cursor:end]]
+                    state.setdefault("skipped_samples", []).extend(skipped)
+                    cursor = end
+                    state.update(epoch=epoch, cursor=cursor)
+                    log.write(json.dumps({"epoch": epoch + 1, "cursor": cursor,
+                                          "skipped_oom": skipped}, sort_keys=True) + "\n")
+                    log.flush()
+                    continue
                 losses.extend(batch_losses)
                 torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True)
                 optimizer.step()
@@ -380,6 +432,7 @@ def run(args, *, backend_factory=make_backend) -> dict:
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
         "adapter_path": str(output / "adapter") if completed else None,
         "lora_b_mean_abs": lora_b_mean_abs,
+        "skipped_oom_samples": state.get("skipped_samples", []),
     }
     (output / "training-report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
     return report
@@ -406,6 +459,7 @@ def main(argv=None) -> int:
     parser.add_argument("--crop-policy", choices=("none", "candidate_zoom_v1", "candidate_zoom_v2"))
     parser.add_argument("--balance", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--init-adapter", type=Path, default=None, help="initialize LoRA weights from an existing PEFT adapter; optimizer starts fresh")
     args = parser.parse_args(argv)
     print(json.dumps(run(args), indent=2, sort_keys=True))
     return 0

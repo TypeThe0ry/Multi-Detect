@@ -121,6 +121,12 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--preflight-memory-out", type=Path)
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="continue an interrupted run from its last.pt (epochs, optimizer and EMA restored)",
+    )
     args = parser.parse_args()
     if min(args.epochs, args.imgsz, args.batch) <= 0:
         parser.error("epochs, imgsz and batch must be positive")
@@ -147,7 +153,23 @@ def main() -> None:
     configure_offline(args.weights, args.weights_dir)
     from ultralytics import YOLOE
 
+    if args.preflight_memory_out is not None:
+        import torch
+        cuda_device = torch.device(
+            f"cuda:{args.device}" if str(args.device).isdigit() else args.device
+        )
+        torch.cuda.init()
+        torch.cuda.reset_peak_memory_stats(cuda_device)
+
     configure_ultralytics(args.weights_dir)
+    if args.resume is not None:
+        if not args.resume.is_file():
+            parser.error(f"resume checkpoint not found: {args.resume}")
+        # Ultralytics restores the saved train args, so the run continues with its original
+        # data, epochs, batch and output directory.
+        model = YOLOE(str(args.resume.resolve()))
+        model.train(trainer=trainer_class(args.mode), resume=True)
+        return
     model = YOLOE(str(args.weights.resolve()))
     model.task = "detect"
     model.overrides["task"] = "detect"
@@ -167,6 +189,16 @@ def main() -> None:
         amp=False,
         plots=False,
     )
+    if args.preflight_memory_out is not None:
+        import torch
+        properties = torch.cuda.get_device_properties(cuda_device)
+        result = {
+            "peak_gpu_memory_bytes": torch.cuda.max_memory_allocated(cuda_device),
+            "peak_gpu_reserved_bytes": torch.cuda.max_memory_reserved(cuda_device),
+            "device_total_memory_bytes": properties.total_memory,
+        }
+        args.preflight_memory_out.parent.mkdir(parents=True, exist_ok=True)
+        args.preflight_memory_out.write_text(json.dumps(result) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

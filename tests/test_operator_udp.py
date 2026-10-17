@@ -55,9 +55,11 @@ from multidetect.operator_mavlink import (
 from multidetect.operator_protocol import (
     ApproachConfirmationAck,
     AuthorizationDecisionAck,
+    OperatorProtocolError,
     OperatorTunnelCodec,
     PayloadTargetConfirmationAck,
     RuntimeStatusAck,
+    WireMessageType,
 )
 from multidetect.operator_udp import (
     UdpOperatorSelectionClient,
@@ -81,6 +83,43 @@ def _adapter(endpoint: OperatorMavlinkEndpoint) -> OperatorMavlinkTunnelAdapter:
         signing_link_id=endpoint.local_component_id,
         initial_signing_timestamp=3_000_000 + endpoint.local_system_id,
     )
+
+
+def test_real_deployment_requires_configured_peer() -> None:
+    with pytest.raises(ValueError, match="configured_peer is required"):
+        UdpOperatorSelectionServer(
+            bind_host="127.0.0.1",
+            port=0,
+            mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+            guard=SelectionCommandGuard(GEOMETRY),
+            require_configured_peer=True,
+        )
+
+
+def test_peer_state_maps_are_bounded_without_evicting_bound_peer() -> None:
+    server = UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+        configured_peer=("127.0.0.1", 41000),
+    )
+    try:
+        bound = ("127.0.0.1", 41000)
+        server._allow_command(bound, WireMessageType.TARGET_SELECTION, now_s=1.0)
+        for port in range(42000, 42150):
+            server._allow_command(("127.0.0.1", port), WireMessageType.TARGET_SELECTION, now_s=1.0)
+            server._allow_duplicate_ack(
+                ("127.0.0.1", port), WireMessageType.TARGET_SELECTION, now_s=1.0
+            )
+            server._record_background_error(ValueError("bad"), peer=("127.0.0.1", port))
+        assert len(server._command_buckets) <= 64
+        assert len(server._duplicate_ack_sent_at) <= 64
+        assert len(server._background_error_buckets) <= 64
+        assert len(server._background_error_counts) <= 64
+        assert any(key[0] == bound for key in server._command_buckets)
+    finally:
+        server.close()
 
 
 def _signed_qgc_heartbeat() -> bytes:
@@ -664,6 +703,140 @@ def test_metadata_peer_lease_default_matches_qgc_stale_timeout() -> None:
         assert server.metadata_peer_timeout_s == pytest.approx(5.0)
     finally:
         server.close()
+
+
+def test_selection_replay_from_another_udp_source_port_cannot_replace_session_peer() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+    attacker_adapter = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=APP_KEY, geometries=(GEOMETRY,)),
+        OperatorMavlinkEndpoint(255, 190, 1, 191),
+        signing_key=MAVLINK_KEY,
+        signing_link_id=190,
+        # A fresh signing timestamp makes this a newly authenticated frame;
+        # pymavlink must not reject it before the application session binding.
+        initial_signing_timestamp=4_000_000,
+    )
+    now_s = time.time()
+    command = TargetSelectionCommand(
+        command_id="99999999-9999-4999-8999-999999999997",
+        session_id="88888888-8888-4888-8888-888888888886",
+        sequence=1,
+        action=SelectionAction.SELECT,
+        geometry=GEOMETRY,
+        issued_at_s=now_s,
+        expires_at_s=now_s + 3.0,
+        bbox=BoundingBox(0.1, 0.1, 0.3, 0.4),
+    )
+    frame = g20.encode_selection(command)
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as first, socket.socket(
+        socket.AF_INET, socket.SOCK_DGRAM
+    ) as attacker:
+        first.settimeout(1.0)
+        attacker.settimeout(0.2)
+        first.sendto(_signed_qgc_heartbeat(), server.bound_address)
+        assert server.serve_once() is None
+        assert server.active_heartbeat_peer() == ("127.0.0.1", first.getsockname()[1])
+        first.sendto(frame, server.bound_address)
+        server.serve_once()
+        accepted_ack, _ = first.recvfrom(1024)
+        assert g20.decode_frame(accepted_ack).message.accepted is True
+        assert server.poll_selection() is not None
+
+        # Encode after the accepted frame so the fresh signer has a strictly
+        # newer MAVLink timestamp and reaches the application session check.
+        attacker_adapter._serializer.signing.timestamp = (
+            g20._serializer.signing.timestamp + 1_000
+        )
+        attacker_frame = attacker_adapter.encode_selection(command)
+        attacker.sendto(attacker_frame, server.bound_address)
+        result = server.serve_once()
+        assert result is not None
+        rejected, rejected_peer = result
+        assert rejected_peer == ("127.0.0.1", attacker.getsockname()[1])
+        assert rejected.acceptance.allowed is False
+        assert "session" in " ".join(rejected.acceptance.reasons)
+        assert server.poll_selection() is None
+
+
+def test_background_error_queue_is_bounded_and_aggregated_per_source() -> None:
+    server = UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+        background_error_queue_size=2,
+        background_error_rate_per_source=1.0,
+        background_error_burst_per_source=1.0,
+    )
+    try:
+        peer = ("127.0.0.1", 49001)
+        for _ in range(100):
+            server._record_background_error(ValueError("malformed"), peer=peer)
+        assert sum(server.poll_error() is not None for _ in range(4)) <= 2
+        assert server.background_error_drop_count > 0
+        assert server.background_error_counts[(peer, "ValueError")] == 100
+    finally:
+        server.close()
+
+
+def test_stale_authenticated_status_is_rejected_before_display() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server, UdpOperatorSessionClient(
+        host="127.0.0.1",
+        port=server.bound_address[1],
+        mavlink=g20,
+        status_max_age_s=0.1,
+    ) as client:
+        server.publish_runtime_status(
+            replace(_runtime_status(1), produced_at_s=time.time() - 10.0),
+            peer=("127.0.0.1", client._channel.getsockname()[1]),
+        )
+        with pytest.raises(OperatorProtocolError, match="stale"):
+            client.receive_runtime_status(timeout_s=1.0)
+
+
+def test_duplicate_authenticated_selection_ack_is_throttled() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+    now_s = time.time()
+    command = TargetSelectionCommand(
+        command_id="99999999-9999-4999-8999-999999999996",
+        session_id="88888888-8888-4888-8888-888888888885",
+        sequence=1,
+        action=SelectionAction.SELECT,
+        geometry=GEOMETRY,
+        issued_at_s=now_s,
+        expires_at_s=now_s + 3.0,
+        bbox=BoundingBox(0.1, 0.1, 0.3, 0.4),
+    )
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+        duplicate_ack_interval_s=10.0,
+    ) as server:
+        server.start_background()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+            sender.settimeout(1.0)
+            frame = g20.encode_selection(command)
+            sender.sendto(frame, server.bound_address)
+            sender.recvfrom(1024)
+            sender.sendto(frame, server.bound_address)
+            with pytest.raises(socket.timeout):
+                sender.recvfrom(1024)
 
 
 def test_real_localhost_udp_selection_and_ack_round_trip() -> None:

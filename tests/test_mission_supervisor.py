@@ -9,6 +9,7 @@ import pytest
 
 from multidetect.autonomy.mission_executor import ExecutorConfig, MissionExecutor
 from multidetect.autonomy.mission_package import POLICIES, RISK_DEFAULTS, load_mission_package
+from multidetect.autonomy.mission_security import sign_document
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop
 from multidetect.autonomy.onboard_mission_log import OnboardMissionLog
@@ -88,6 +89,27 @@ def event(supervisor, kind, **kwargs):
     return supervisor.ground_event({"mission_id": "sortie-1", "type": kind, **kwargs})
 
 
+def signed_event(private_key, sequence, now, kind="heartbeat", **fields):
+    payload = {
+        "mission_id": "sortie-1",
+        "type": kind,
+        "sequence": sequence,
+        "timestamp": now,
+        "timestamp_version": 1,
+        "timestamp_domain": "monotonic",
+    }
+    payload.update(fields)
+    return sign_document(payload, private_key)
+
+
+def secured_supervisor(tmp_path, *, max_sequence_jump=1024):
+    supervisor, now, log = build(tmp_path)
+    key = b"mission-test-key-01"
+    supervisor._security_key = key
+    supervisor.max_sequence_jump = max_sequence_jump
+    return supervisor, now, log, key
+
+
 @pytest.mark.parametrize(
     "policy,early,late",
     [
@@ -104,6 +126,27 @@ def test_all_policies_without_any_ground_station(tmp_path, policy, early, late):
     assert s.evaluate() == early
     now[0] += 30
     assert s.evaluate() == late
+
+
+def test_envelope_violation_preserves_latched_land_precedence(tmp_path):
+    s, _now, _ = build(tmp_path, "continue")
+    s._escalate("land_now", "existing terminal land")
+    assert s.report_envelope_violation("no_fly") == "land_now"
+    assert s.evaluate() == "land_now"
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert any(record["kind"] == "envelope_violation" for record in records)
+
+
+def test_envelope_violation_events_are_rate_limited(tmp_path):
+    s, now, _ = build(tmp_path, "continue")
+    s.report_envelope_violation("no_fly")
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 1
+    now[0] += 5.0
+    s.report_envelope_violation("no_fly")
+    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    assert sum(record["kind"] == "envelope_violation" for record in records) == 2
 
 
 def test_continue_survives_hours_of_silence(tmp_path):
@@ -371,6 +414,97 @@ def test_heartbeat_cannot_postpone_pause_deadline(tmp_path, policy):
     assert s.evaluate() == "return_now"
 
 
+def test_signed_replay_high_water_survives_restart_without_session_nonce(tmp_path):
+    s, now, _log, key = secured_supervisor(tmp_path)
+    assert s.ground_event(signed_event(key, 1, now[0]))
+    state = tmp_path / "ground-replay-state.json"
+    assert "session_nonce" not in json.loads(state.read_text(encoding="utf-8"))
+
+    restarted, restarted_now, _log, restarted_key = secured_supervisor(tmp_path)
+    assert restarted_key == key
+    assert not restarted.ground_event(signed_event(key, 1, restarted_now[0]))
+    assert restarted.ground_event(signed_event(key, 2, restarted_now[0]))
+
+
+def test_sequence_wrap_and_bounded_forward_jump(tmp_path):
+    s, now, _log, key = secured_supervisor(tmp_path, max_sequence_jump=4)
+    state = tmp_path / "ground-replay-state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "mission_id": "sortie-1",
+                "last_sequence": 2**32 - 1,
+                "session_nonce": "previous-session",
+            }
+        ),
+        encoding="utf-8",
+    )
+    s._replay_state_loaded = False
+    assert s.ground_event(signed_event(key, 0, now[0]))
+    assert not s.ground_event(signed_event(key, 10, now[0], session_nonce=s.session_nonce))
+
+
+def test_unix_heartbeat_uses_local_receipt_time_for_liveness(tmp_path):
+    s, now, _log, key = secured_supervisor(tmp_path)
+    unix_now = 1_800_000_000.0
+    s.wall_clock = lambda: unix_now
+    heartbeat = sign_document(
+        {
+            "mission_id": "sortie-1",
+            "type": "heartbeat",
+            "sequence": 1,
+            "timestamp": unix_now,
+            "timestamp_version": 1,
+            "timestamp_domain": "unix",
+        },
+        key,
+    )
+    assert s.ground_event(heartbeat)
+    assert s.last_heartbeat == now[0]
+    assert s.connected
+    now[0] += 6
+    s._time()
+    assert not s.connected
+
+
+def test_signed_command_requires_versioned_timestamp_domain(tmp_path):
+    s, now, _log, key = secured_supervisor(tmp_path)
+    legacy = sign_document(
+        {
+            "mission_id": "sortie-1",
+            "type": "heartbeat",
+            "sequence": 1,
+            "timestamp": now[0],
+        },
+        key,
+    )
+    assert not s.ground_event(legacy)
+    assert s.last_heartbeat is None
+
+
+def test_unsigned_events_are_rate_limited_before_state_mutation(tmp_path):
+    s, now, _log = build(tmp_path)
+    s.rate_limit = 1
+    assert event(s, "pause")
+    s.paused_at = None
+    assert not event(s, "pause")
+    assert s.paused_at is None
+
+
+def test_replay_commit_failure_rolls_back_abort_state(tmp_path, monkeypatch):
+    s, now, log, key = secured_supervisor(tmp_path)
+
+    def fail_commit(path, document):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(s, "_atomic_json", fail_commit)
+    assert not s.ground_event(signed_event(key, 1, now[0], kind="abort"))
+    assert s._terminal is None
+    assert s.action == "continue"
+    assert "explicit operator abort" not in log.path.read_text(encoding="utf-8")
+
+
 def test_remaining_time_estimate_ages_without_new_telemetry(tmp_path):
     s, now, _ = build(tmp_path)
     s.update_estimates(remaining_time_s=70)
@@ -401,6 +535,16 @@ def test_completed_return_recovery_can_escalate_to_land(tmp_path):
     s.finish()
     summary = json.loads(s.log.summary_path.read_text(encoding="utf-8"))
     assert summary["summary"]["action"] == "land_now"
+
+
+def test_supervisor_return_recovery_uses_visibility_graph(tmp_path):
+    s, _now, _ = build(tmp_path, "return_now")
+    s.executor.no_fly_zones = (((10.0, 0.0), 2.0),)
+    s.action = "return_now"
+    recovery = s._recover((20.0, 0.0, -20.0))
+    path = recovery._return_home_detour((20.0, 0.0), (0.0, 0.0))
+    assert path
+    assert recovery.no_fly_zones == s.executor.no_fly_zones
 
 
 def test_package_copies_input_before_admission():

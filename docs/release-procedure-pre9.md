@@ -500,3 +500,17 @@ python .\scripts\check_release_gate.py `
 最后才运行 Windows GCS build，并把新 EXE、portable tree、self-test、offscreen boot、人工视觉结果和 SHA-256 写入 current-progress。
 
 当前环境是只读调查，且没有执行真实 Docker/PX4/GCS acceptance；因此不能诚实地产生 `pre.9` 的 SIM、PX4/QGC combined、Windows EXE 或 HIL/REAL evidence。只能完成 parity 的静态重算和验证；其余步骤必须由具备相应 Windows、Docker、PX4/Gazebo、QGC 和硬件条件的 owner 执行。
+
+## 7. 本次补全 release parity 清单（2026-10-16）
+
+pre.8 之后新增了一批已经在真实运行路径上的代码，但它们不在 parity 的显式文件清单里，生成器看不到它们。本次把这些文件按职责补进清单（只增加，不改动原有文件的归属）：
+
+- 界面契约（ui_contract）：地面站任务包面板、任务包解析、线协议、任务控制器。
+- 核心算法（core_algorithm）：policy_v2、搜索覆盖、相机默认参数与投影、任务语义、仿真教师策略与分割、机载慢系统策略脚本 onboard_policy.py。
+- 任务契约（task_contract）：任务包、任务计划与规划器、操作员协议、任务摘要与日志、机载决策解析，以及两个任务包示例。
+- 安全策略（safety_policy）：安全包络、能量估算、地形与障碍、任务签名与监督、机载运行时（含健康门和 PX4 预检）、验收模块、机载入口脚本 onboard_main.py、地面站签名实现。
+- PX4 执行路径（px4_mission_path）：任务执行器、机载闭环、动作原语、setpoint 输出流和执行隔离。
+
+未纳入：仅用于离线记录、场景生成和评测的文件（例如 sim_teacher/recording.py、simulator/world_gen.py、各类评测套件配置）。
+
+这一步之后，`test_canonical_release_parity_document_matches_current_sources` 会继续失败（pre.8 的 parity 文件已经和源码不一致，这在补清单前就已存在），直到正式发布时重建。正式发布还需要按顺序完成：升版本号到 0.3.0-pre.9 → 用生成器重建 configs/release-parity.json → 真实 SIM/QGC 验收 → 重建发布证据和 current-progress。

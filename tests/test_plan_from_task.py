@@ -262,6 +262,35 @@ def test_main_variant_cli_collects_all_retry_usage(output_dir, monkeypatch):
     assert closed == [True]
 
 
+@pytest.mark.parametrize(("extra", "expected_mode", "expected_mmproj"), [
+    ([], "configured", "projector.gguf"),
+    (["--no-mmproj"], "none", None),
+])
+def test_main_mmproj_mode_is_explicit(output_dir, monkeypatch, extra, expected_mode, expected_mmproj):
+    tasks = output_dir / "tasks.json"
+    output = output_dir / "result.json"
+    tasks.write_text(json.dumps({"tasks": [{"text": "Return home", "skills": ["return_home"]}]}), encoding="utf-8")
+    calls = []
+
+    def runner(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setitem(sys.modules, "scripts.eval_slow_system", SimpleNamespace(
+        LlamaServerRunner=runner, _http_json=lambda *args, **kwargs: None,
+    ))
+    monkeypatch.setattr(plan_from_task, "compile_task", lambda *args, **kwargs: (
+        _plan(("return_home", {})), "{}", [0.01], None,
+    ))
+    monkeypatch.setattr(plan_from_task, "success_path", lambda plan: ["return_home"])
+    argv = ["--tasks", str(tasks), "--output", str(output), "--mmproj", "projector.gguf", *extra]
+    assert plan_from_task.main(argv) == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["summary"]["mmproj_mode"] == expected_mode
+    assert result["rows"][0]["mmproj_mode"] == expected_mode
+    assert calls[0][1] == (Path(expected_mmproj) if expected_mmproj is not None else None)
+
+
 def test_usage_totals_are_unknown_if_any_retry_usage_is_missing():
     assert plan_from_task._usage_total([], "prompt_tokens") is None
     assert plan_from_task._usage_total(

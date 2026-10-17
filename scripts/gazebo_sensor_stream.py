@@ -93,7 +93,9 @@ MAX_SOURCE_HISTORY_SAMPLES = 256
 MAX_DEPTH_HISTORY_SAMPLES = 8
 MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
-MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 8
+# Fixed-wing models spawned on a runway can report a burst of physics-settling
+# velocities before the first valid odometry; the allowance ends at that first sample.
+MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 64
 # A fault diagnostic needs one bounded event slot per requested image plus a
 # small boundary budget for drops, fresh-source callbacks, and recovery
 # markers.  Keeping the extra budget explicit preserves fail-closed overflow

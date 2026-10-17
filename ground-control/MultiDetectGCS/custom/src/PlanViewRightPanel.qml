@@ -3,6 +3,7 @@ import QGroundControl.Controls
 import QGroundControl.PlanView
 import QtQuick
 import QtQuick.Layouts
+import "qrc:/Custom/qml" as MultiDetectPanels
 
 Item {
     id: root
@@ -10,6 +11,8 @@ Item {
     property var _missionController: planMasterController.missionController
     required property var editorMap
     required property var planMasterController
+    property string _missionOriginLatitude: ""
+    property string _missionOriginLongitude: ""
 
     signal editingLayerChangeRequested(int layer)
 
@@ -33,6 +36,22 @@ Item {
 
     QGCPalette {
         id: qgcPal
+    }
+
+    QGCPopupDialogFactory {
+        id: missionPackageDialogFactory
+        dialogComponent: missionPackageDialogComponent
+    }
+
+    Component {
+        id: missionPackageDialogComponent
+        MultiDetectPanels.MultiDetectMissionPanel {
+            mapControl: root.editorMap
+            originLatitude: root._missionOriginLatitude
+            originLongitude: root._missionOriginLongitude
+            onOriginLatitudeChanged: root._missionOriginLatitude = originLatitude
+            onOriginLongitudeChanged: root._missionOriginLongitude = originLongitude
+        }
     }
 
     Rectangle {
@@ -95,6 +114,12 @@ Item {
         ColumnLayout {
             anchors.fill: parent
             spacing: 0
+
+            QGCButton {
+                Layout.fillWidth: true
+                text: qsTr("任务包")
+                onClicked: missionPackageDialogFactory.open()
+            }
 
             PlanTreeView {
                 id: planTreeView

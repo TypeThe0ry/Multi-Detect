@@ -46,10 +46,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--weights", type=Path, default=DEFAULTS["yoloe_weights"])
     parser.add_argument("--confidence", type=float, default=0.05)
     parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument(
+        "--max-frames", type=int,
+        help="optional limit for a bounded smoke run; the default processes every frame",
+    )
+    parser.add_argument(
+        "--device", help="inference device for the proposer (default: the proposer's own default)"
+    )
+    parser.add_argument(
+        "--source-root", type=Path, default=ROOT,
+        help="root that cache image keys are relative to (the checkout holding the campaigns)",
+    )
     args = parser.parse_args(argv)
     import cv2
 
-    proposer = YoloeProposer(args.weights, confidence=args.confidence, imgsz=args.imgsz)
+    proposer_kwargs = {} if args.device is None else {"device": args.device}
+    proposer = YoloeProposer(
+        args.weights, confidence=args.confidence, imgsz=args.imgsz, **proposer_kwargs
+    )
     done: set[str] = set()
     if args.output.is_file():
         done = {
@@ -63,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     with args.output.open("a", encoding="utf-8", newline="\n") as handle:
         for campaign in args.campaign:
             for frame in _frames(campaign):
-                key = frame.resolve().relative_to(ROOT).as_posix()
+                key = frame.resolve().relative_to(args.source_root.resolve()).as_posix()
                 if key in done:
                     continue
                 done.add(key)
@@ -83,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
                 boxes = [[round(v, 1) for v in d.bbox] + [round(d.score, 4)] for d in kept]
                 handle.write(json.dumps({"image": key, "boxes": boxes}) + "\n")
                 written += 1
+                if args.max_frames is not None and written >= args.max_frames:
+                    handle.flush()
+                    print(json.dumps({"frames": written, "output": str(args.output)}))
+                    return 0
                 if written % 200 == 0:
                     handle.flush()
                     print(json.dumps({"frames": written}), flush=True)

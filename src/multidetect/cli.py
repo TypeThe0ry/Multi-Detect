@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -1089,6 +1090,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     operator_server.add_argument("--authorization-window-seconds", type=float, default=5.0)
+    operator_server.add_argument("--operator-peer", help="configured GCS endpoint HOST:PORT")
+    operator_server.add_argument("--operator-link-id", type=int)
+    operator_server.add_argument(
+        "--replay-state-dir", type=Path,
+        help="durable operator replay-state directory (defaults under the work directory)",
+    )
 
     operator_client = subparsers.add_parser(
         "operator-udp-select",
@@ -1114,6 +1121,8 @@ def build_parser() -> argparse.ArgumentParser:
     operator_client.add_argument("--local-component-id", type=int, default=190)
     operator_client.add_argument("--remote-system-id", type=int, default=1)
     operator_client.add_argument("--remote-component-id", type=int, default=191)
+    operator_client.add_argument("--replay-state-dir", type=Path)
+    operator_client.add_argument("--operator-link-id", type=int)
 
     operator_authorize = subparsers.add_parser(
         "operator-udp-authorize",
@@ -1150,6 +1159,8 @@ def build_parser() -> argparse.ArgumentParser:
     operator_authorize.add_argument("--local-component-id", type=int, default=190)
     operator_authorize.add_argument("--remote-system-id", type=int, default=1)
     operator_authorize.add_argument("--remote-component-id", type=int, default=191)
+    operator_authorize.add_argument("--replay-state-dir", type=Path)
+    operator_authorize.add_argument("--operator-link-id", type=int)
     alert_receiver.add_argument("--deduplication-db", type=Path)
     alert_receiver.add_argument("--deduplication-capacity", type=int, default=10_000)
 
@@ -1185,6 +1196,8 @@ def build_parser() -> argparse.ArgumentParser:
     gr01_bench.add_argument("--remote-system-id", type=int, default=1)
     gr01_bench.add_argument("--remote-component-id", type=int, default=191)
     gr01_bench.add_argument("--out", type=Path, required=True)
+    gr01_bench.add_argument("--replay-state-dir", type=Path)
+    gr01_bench.add_argument("--operator-link-id", type=int)
 
     live = subparsers.add_parser(
         "live-camera",
@@ -1822,6 +1835,9 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--operator-local-component-id", type=int, default=191)
     live.add_argument("--operator-remote-system-id", type=int, default=255)
     live.add_argument("--operator-remote-component-id", type=int, default=190)
+    live.add_argument("--replay-state-dir", type=Path)
+    live.add_argument("--operator-peer", help="configured GCS endpoint HOST:PORT")
+    live.add_argument("--operator-link-id", type=int)
     live.add_argument(
         "--simulate-payload-cycle",
         action="store_true",
@@ -1951,6 +1967,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     integrated_replay_qgc.add_argument("--operator-udp-bind-host", default="127.0.0.1")
     integrated_replay_qgc.add_argument("--operator-udp-port", type=int, required=True)
+    integrated_replay_qgc.add_argument("--replay-state-dir", type=Path)
     integrated_replay_qgc.add_argument("--operator-hmac-key-env", required=True)
     integrated_replay_qgc.add_argument("--mavlink-signing-key-hex-env", required=True)
     integrated_replay_qgc.add_argument("--operator-stream-id", default="camera-main")
@@ -2085,6 +2102,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     integrated_sim_qgc.add_argument("--operator-udp-bind-host", default="127.0.0.1")
     integrated_sim_qgc.add_argument("--operator-udp-port", type=int, required=True)
+    integrated_sim_qgc.add_argument("--replay-state-dir", type=Path)
     integrated_sim_qgc.add_argument("--operator-hmac-key-env", required=True)
     integrated_sim_qgc.add_argument("--mavlink-signing-key-hex-env", required=True)
     integrated_sim_qgc.add_argument("--operator-stream-id", default="camera-main")
@@ -2598,6 +2616,37 @@ def _run_operator_link_demo() -> int:
     return 0
 
 
+def _operator_replay_state_path(args: argparse.Namespace, name: str) -> Path:
+    """Return a durable replay sidecar for every production operator construction."""
+    requested = getattr(args, "replay_state_dir", None)
+    if requested is not None:
+        root = Path(requested)
+    else:
+        audit_out = getattr(args, "audit_out", None)
+        root = (
+            Path(audit_out).parent
+            if audit_out is not None
+            else Path.cwd() / ".multidetect-replay-state"
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"operator-{name}.json"
+
+
+def _operator_peer_from_args(args: argparse.Namespace) -> tuple[str, int] | None:
+    value = getattr(args, "operator_peer", None)
+    if not value:
+        return None
+    try:
+        host, port_text = value.rsplit(":", 1)
+        port = int(port_text)
+        ipaddress.ip_address(host)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("--operator-peer must be HOST:PORT with an IPv4 address") from exc
+    if not 0 <= port <= 65_535:
+        raise ValueError("--operator-peer port must be in [0, 65535]")
+    return host, port
+
+
 def _run_operator_udp_server(args: argparse.Namespace) -> int:
     if args.max_datagrams <= 0:
         raise ValueError("--max-datagrams must be positive")
@@ -2624,12 +2673,20 @@ def _run_operator_udp_server(args: argparse.Namespace) -> int:
         local_component_id=args.local_component_id,
         remote_system_id=args.remote_system_id,
         remote_component_id=args.remote_component_id,
+        receive_signing_link_id=getattr(args, "operator_link_id", None),
+        replay_state_path=_operator_replay_state_path(args, "udp-server-link"),
     )
+    replay_state_path = _operator_replay_state_path(args, "udp-server")
+    diagnostic_ephemeral = args.port == 0
     with UdpOperatorSelectionServer(
         bind_host=args.bind_host,
         port=args.port,
         mavlink=adapter,
-        guard=SelectionCommandGuard(geometry),
+        guard=SelectionCommandGuard(geometry, state_path=replay_state_path),
+        replay_state_path=replay_state_path,
+        configured_peer=_operator_peer_from_args(args),
+        require_configured_peer=not diagnostic_ephemeral,
+        allow_first_packet_peer=diagnostic_ephemeral,
         receive_timeout_s=args.receive_timeout_seconds,
     ) as server:
         _emit(
@@ -2756,6 +2813,8 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
         local_component_id=args.local_component_id,
         remote_system_id=args.remote_system_id,
         remote_component_id=args.remote_component_id,
+        receive_signing_link_id=getattr(args, "operator_link_id", None),
+        replay_state_path=_operator_replay_state_path(args, "udp-select-link"),
     )
     issued_at_s = time.time()
     command = TargetSelectionCommand(
@@ -2772,6 +2831,7 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
     if args.wait_track_status_seconds < 0.0:
         raise ValueError("--wait-track-status-seconds cannot be negative")
     remote_status = None
+    replay_state_path = _operator_replay_state_path(args, "udp-select")
     if args.wait_track_status_seconds > 0.0:
         with UdpOperatorSessionClient(
             host=args.host,
@@ -2779,6 +2839,7 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
             mavlink=adapter,
             retry_interval_s=args.retry_interval_seconds,
             maximum_attempts=args.maximum_attempts,
+            replay_state_path=replay_state_path,
         ) as session:
             receipt = session.deliver(command)
             if receipt.acknowledgement.accepted:
@@ -2792,6 +2853,7 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
             mavlink=adapter,
             retry_interval_s=args.retry_interval_seconds,
             maximum_attempts=args.maximum_attempts,
+            replay_state_path=replay_state_path,
         ).deliver(command)
     _emit(
         {
@@ -2833,6 +2895,8 @@ def _run_gr01_link_bench(args: argparse.Namespace) -> int:
         local_component_id=args.local_component_id,
         remote_system_id=args.remote_system_id,
         remote_component_id=args.remote_component_id,
+        receive_signing_link_id=getattr(args, "operator_link_id", None),
+        replay_state_path=_operator_replay_state_path(args, "gr01-link"),
     )
     config = Gr01BenchConfig(
         minimum_round_trips=args.minimum_round_trips,
@@ -2844,6 +2908,7 @@ def _run_gr01_link_bench(args: argparse.Namespace) -> int:
         expected_source_cidr=args.expected_source_cidr,
     )
     source_host: str | None = None
+    replay_state_path = _operator_replay_state_path(args, "gr01-link-bench")
     if config.hardware_mode:
         try:
             source_host = resolve_local_source_address(args.host, args.port)
@@ -2858,6 +2923,7 @@ def _run_gr01_link_bench(args: argparse.Namespace) -> int:
         retry_interval_s=args.retry_interval_seconds,
         maximum_attempts=args.maximum_attempts,
         source_host=source_host,
+        replay_state_path=replay_state_path,
     ) as session:
         document = run_gr01_link_bench(session, geometry, config)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -2885,6 +2951,8 @@ def _run_operator_udp_authorize(args: argparse.Namespace) -> int:
         local_component_id=args.local_component_id,
         remote_system_id=args.remote_system_id,
         remote_component_id=args.remote_component_id,
+        receive_signing_link_id=getattr(args, "operator_link_id", None),
+        replay_state_path=_operator_replay_state_path(args, "udp-authorize-link"),
     )
     issued_at_s = time.time()
     session_token_text = str(uuid4())
@@ -2899,12 +2967,14 @@ def _run_operator_udp_authorize(args: argparse.Namespace) -> int:
         bbox=BoundingBox(args.x1, args.y1, args.x2, args.y2),
         displayed_frame_id="udp-authorization-diagnostic",
     )
+    replay_state_path = _operator_replay_state_path(args, "udp-authorize")
     with UdpOperatorSessionClient(
         host=args.host,
         port=args.port,
         mavlink=adapter,
         retry_interval_s=args.retry_interval_seconds,
         maximum_attempts=args.maximum_attempts,
+        replay_state_path=replay_state_path,
     ) as session:
         selection_receipt = session.deliver(selection)
         _emit(
@@ -2989,6 +3059,8 @@ def _operator_mavlink_adapter(
     local_component_id: int,
     remote_system_id: int,
     remote_component_id: int,
+    receive_signing_link_id: int | None = None,
+    replay_state_path: Path | None = None,
 ) -> OperatorMavlinkTunnelAdapter:
     application_key = _hmac_key_from_env(operator_hmac_key_env)
     if application_key is None or len(application_key) < 32:
@@ -3007,6 +3079,8 @@ def _operator_mavlink_adapter(
         endpoint,
         signing_key=signing_key,
         signing_link_id=local_component_id,
+        receive_signing_link_id=receive_signing_link_id,
+        replay_state_path=replay_state_path,
         initial_signing_timestamp=_current_mavlink_signing_timestamp(),
     )
 
@@ -4992,12 +5066,17 @@ def _run_integrated_replay_qgc(args: argparse.Namespace) -> int:
             local_component_id=args.operator_local_component_id,
             remote_system_id=args.operator_remote_system_id,
             remote_component_id=args.operator_remote_component_id,
+            receive_signing_link_id=getattr(args, "operator_link_id", None),
+            replay_state_path=_operator_replay_state_path(args, "live-link"),
         )
+        replay_state_path = _operator_replay_state_path(args, "integrated-replay")
         operator_transport = UdpOperatorSelectionServer(
             bind_host=args.operator_udp_bind_host,
             port=args.operator_udp_port,
             mavlink=operator_adapter,
-            guard=SelectionCommandGuard(operator_geometry),
+            guard=SelectionCommandGuard(operator_geometry, state_path=replay_state_path),
+            replay_state_path=replay_state_path,
+            allow_first_packet_peer=True,
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
             command_clock=backend.clock.monotonic,
         )
@@ -5722,12 +5801,17 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             local_component_id=args.operator_local_component_id,
             remote_system_id=args.operator_remote_system_id,
             remote_component_id=args.operator_remote_component_id,
+            receive_signing_link_id=getattr(args, "operator_link_id", None),
+            replay_state_path=_operator_replay_state_path(args, "integrated-replay-link"),
         )
+        replay_state_path = _operator_replay_state_path(args, "integrated-sim")
         operator_transport = UdpOperatorSelectionServer(
             bind_host=args.operator_udp_bind_host,
             port=args.operator_udp_port,
             mavlink=operator_adapter,
-            guard=SelectionCommandGuard(operator_geometry),
+            guard=SelectionCommandGuard(operator_geometry, state_path=replay_state_path),
+            replay_state_path=replay_state_path,
+            allow_first_packet_peer=True,
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
             command_clock=backend.clock.monotonic,
         )
@@ -6624,12 +6708,19 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             local_component_id=args.operator_local_component_id,
             remote_system_id=args.operator_remote_system_id,
             remote_component_id=args.operator_remote_component_id,
+            receive_signing_link_id=getattr(args, "operator_link_id", None),
+            replay_state_path=_operator_replay_state_path(args, "integrated-sim-link"),
         )
+        replay_state_path = _operator_replay_state_path(args, "live")
         operator_transport = UdpOperatorSelectionServer(
             bind_host=args.operator_udp_bind_host,
             port=args.operator_udp_port,
             mavlink=operator_adapter,
-            guard=SelectionCommandGuard(operator_geometry),
+            guard=SelectionCommandGuard(operator_geometry, state_path=replay_state_path),
+            replay_state_path=replay_state_path,
+            configured_peer=_operator_peer_from_args(args),
+            require_configured_peer=True,
+            allow_first_packet_peer=False,
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
             command_clock=time.monotonic,
         )

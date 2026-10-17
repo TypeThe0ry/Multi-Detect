@@ -1,0 +1,368 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r15_w0011",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "lamp_post",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "cardboard_box",
+      "role": "forced_distractor",
+      "target_id": "forced_0011_01"
+    },
+    "11": {
+      "asset_slug": "fire_hydrant",
+      "role": "forced_distractor",
+      "target_id": "forced_0011_02"
+    },
+    "12": {
+      "asset_slug": "hatchback_blue",
+      "role": "distractor",
+      "target_id": "distractor_0011_00"
+    },
+    "13": {
+      "asset_slug": "male_visitor",
+      "role": "distractor",
+      "target_id": "distractor_0011_01"
+    },
+    "2": {
+      "asset_slug": "gazebo",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "office_building",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "oak_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "house_3",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "mailbox",
+      "role": "target",
+      "target_id": "target_true_gen_r15_w0011"
+    },
+    "7": {
+      "asset_slug": "fire_hydrant",
+      "role": "confuser",
+      "target_id": "confuser_0011_00_00"
+    },
+    "8": {
+      "asset_slug": "electrical_box",
+      "role": "confuser",
+      "target_id": "confuser_0011_01_00"
+    },
+    "9": {
+      "asset_slug": "electrical_box",
+      "role": "forced_distractor",
+      "target_id": "forced_0011_00"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -76.713,
+        "y_north_m": 0.375,
+        "yaw_rad": -2.406941,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35210338,
+        "longitude_deg": 103.81911069
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "target_true_gen_r15_w0011",
+      "true_target": true
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "confuser": true,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 39.896,
+        "y_north_m": 48.96,
+        "yaw_rad": -0.214463,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35254056,
+        "longitude_deg": 103.82015849
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "confuser_0011_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "confuser": true,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": -40.807,
+        "y_north_m": -62.896,
+        "yaw_rad": 0.727407,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35153404,
+        "longitude_deg": 103.81943333
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "confuser_0011_01_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "forced_distractor": true,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 56.063,
+        "y_north_m": 35.535,
+        "yaw_rad": 0.0489,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35241975,
+        "longitude_deg": 103.82030376
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "forced_0011_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "cardboard_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.15,
+      "category_words": [
+        "cardboard box",
+        "box"
+      ],
+      "class": "cardboard_box",
+      "color": "brown",
+      "forced_distractor": true,
+      "label": "cardboard box box",
+      "measured_size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "pose": {
+        "x_east_m": 63.752,
+        "y_north_m": 32.95,
+        "yaw_rad": 2.728766,
+        "z_up_m": 0.15
+      },
+      "position": {
+        "altitude_m": 0.15,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35239649,
+        "longitude_deg": 103.82037285
+      },
+      "size_m": [
+        0.5,
+        0.4,
+        0.3
+      ],
+      "target_id": "forced_0011_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "forced_distractor": true,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 42.242,
+        "y_north_m": 72.673,
+        "yaw_rad": 0.537907,
+        "z_up_m": 0.466
+      },
+      "position": {
+        "altitude_m": 0.466,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35275393,
+        "longitude_deg": 103.82017957
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "forced_0011_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback_blue",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": "blue",
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": -18.195,
+        "y_north_m": 33.078,
+        "yaw_rad": -2.490497,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35239765,
+        "longitude_deg": 103.81963651
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0011_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "male_visitor",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.887242,
+      "category_words": [
+        "person",
+        "man",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person man",
+      "measured_size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "pose": {
+        "x_east_m": 12.036,
+        "y_north_m": 38.111,
+        "yaw_rad": 1.594324,
+        "z_up_m": 0.887
+      },
+      "position": {
+        "altitude_m": 0.887,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35244294,
+        "longitude_deg": 103.81990815
+      },
+      "size_m": [
+        0.307058,
+        1.644424,
+        1.774483
+      ],
+      "target_id": "distractor_0011_01",
+      "true_target": false
+    }
+  ]
+}

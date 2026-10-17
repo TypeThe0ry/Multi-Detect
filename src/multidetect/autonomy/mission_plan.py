@@ -218,4 +218,19 @@ def interpret_step_decision(step: MissionStep, decision: OnboardDecision) -> str
     return decision.decision
 
 
-__all__ = ["SKILLS", "SkillSpec", "MissionStep", "MissionPlan", "SkillStatus", "MissionReport", "MISSION_PLAN_JSON_SCHEMA", "validate_mission_plan", "interpret_step_decision"]
+def adapt_skill_for_airframe(step: MissionStep, airframe: Any) -> tuple[str, str | None]:
+    """Host-side semantic adaptation that leaves the planning prompt untouched.
+
+    The language model still emits the trained ``hover``/``deliver`` skills.
+    Execution records the replacement explicitly so a fixed-wing vehicle never
+    receives a physically impossible zero-speed command.
+    """
+    category = getattr(airframe, "category", str(airframe))
+    if category == "fixed_wing" and step.skill == "hover":
+        return "loiter", "hover replaced with fixed-wing observation loiter"
+    if category == "fixed_wing" and step.skill == "deliver":
+        return "reject", "fixed-wing delivery requires an explicitly validated fly-by window"
+    return step.skill, None
+
+
+__all__ = ["SKILLS", "SkillSpec", "MissionStep", "MissionPlan", "SkillStatus", "MissionReport", "MISSION_PLAN_JSON_SCHEMA", "validate_mission_plan", "interpret_step_decision", "adapt_skill_for_airframe"]

@@ -93,3 +93,4 @@ models/**/*.plan
 /multidetect-sim-acceptance-ai-job/
 /.pytest-tmp*/
 /.pytest-sim-output.txt
+/.pytest-basetemp/

@@ -11,10 +11,52 @@ from scripts import bench_orin_onboard as bench
 from scripts.bench_orin_onboard import (
     aggregate_latencies,
     aggregate_tegrastats_samples,
+    evaluate_budgets,
     parse_cuda_device_index,
     parse_monitor_pid,
     parse_tegrastats_line,
 )
+
+
+def test_budget_evaluation_marks_fast_identity_and_memory_pass() -> None:
+    report = {
+        "phases": {
+            "yoloe_tensorrt_imgsz_1280": {
+                "latency": {"p95_s": 0.08},
+                "resources": {"peak_ram_used_mb": 5000},
+            },
+            "r12_fast_identity": {
+                "latency": {"p95_s": 0.9},
+                "resources": {"peak_ram_used_mb": 5200},
+            },
+        }
+    }
+    result = evaluate_budgets(report)
+    assert result["status"] == "pass"
+    assert result["all_required_met"] is True
+    assert result["checks"]["fast_system_hz"]["value"] == 12.5
+
+
+def test_budget_evaluation_distinguishes_unmeasured_from_failure() -> None:
+    result = evaluate_budgets({"phases": {"r12_fast_identity": {"latency": {"p95_s": 1.2}}}})
+    assert result["status"] == "not_measured"
+    assert result["checks"]["identity_p95_s"]["status"] == "fail"
+    assert result["checks"]["fast_system_hz"]["status"] == "not_measured"
+
+
+def test_chinese_report_contains_budget_table(tmp_path) -> None:
+    report = {
+        "generated_at_utc": "2026-10-17T00:00:00Z",
+        "status": "measured",
+        "system": {"platform": "test", "machine": "x86"},
+        "phases": {},
+        "budgets": evaluate_budgets({"phases": {}}),
+    }
+    path = tmp_path / "report.md"
+    bench._write_markdown_chinese(report, path)
+    text = path.read_text(encoding="utf-8")
+    assert "预算判定" in text
+    assert "未测量" in text
 
 ORIN_NANO_LINE = (
     "RAM 3342/7620MB (lfb 638x4MB) SWAP 0/3810MB (cached 0MB) "

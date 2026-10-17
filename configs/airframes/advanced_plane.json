@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "advanced_plane",
+  "category": "fixed_wing",
+  "subtype": "conventional",
+  "px4_autostart": 4008,
+  "min_airspeed_mps": 10.0,
+  "cruise_airspeed_mps": 15.0,
+  "max_airspeed_mps": 20.0,
+  "stall_airspeed_mps": 7.0,
+  "max_bank_deg": 50.0,
+  "max_climb_rate_mps": 6.0,
+  "max_descent_rate_mps": 2.7,
+  "can_hover": false,
+  "hover_modes": [],
+  "takeoff": {"methods": ["runway"], "rotation_airspeed_mps": 12.0, "rotation_parameter": {"value": 12.0, "px4_name": "RWTO_ROT_AIRSPD", "unverified": false}, "parameters": {"runway_takeoff": {"value": 1.0, "px4_name": "RWTO_TKOFF", "unverified": false}}},
+  "landing": {"methods": ["runway", "belly"], "parameters": {"terrain_abort": {"value": 0.0, "px4_name": "FW_LND_ABORT", "unverified": false}, "terrain_estimate": {"value": 0.0, "px4_name": "FW_LND_USETER", "unverified": false}}},
+  "camera": {"mount": "forward", "body_to_camera_rotation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]},
+  "endurance": {"battery_wh": 150.0, "reserve_fraction": 0.25, "hover_power_w": 1.0, "cruise_power_w": 300.0, "loiter_power_w": 285.0, "climb_power_w": 450.0, "descent_power_w": 160.0, "transition_energy_wh": 0.0, "glide_sink_rate_mps": 2.2, "wind_margin_mps": 4.0},
+  "limits": {"max_step_distance_m": 35.0, "max_acceleration_mps2": 4.0, "max_angular_rate_dps": 70.0},
+  "notes": ["机上只有单目相机、没有测距仪：降落关闭地形估计与地形中止（FW_LND_USETER=0、FW_LND_ABORT=0），拉平高度按 GPS/气压高度判断。PX4 默认值会因找不到地形而中止降落并在 MIS_LND_ABRT_ALT 盘旋。", "爬升/下沉速率来自 4008_gz_advanced_plane 脚本；空速使用 PX4 固定翼默认值。"],
+  "provenance": {"rates": "PX4 airframe 默认 FW_T_CLMB_MAX/FW_T_SINK_MAX", "runway": "PX4 airframe 默认 RWTO_TKOFF；旋转空速为估计"}
+}
