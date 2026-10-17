@@ -116,6 +116,16 @@ python scripts/calibrate_onboard_energy.py --input-root D:\Projects\Multi-Detect
 
 ## 实机校准流程（必须执行）
 
+### 三种机型
+
+机型参数通过 `EnergyParams` 传入，主线程可以把 `AirframeProfile` 的值转换成这个轻量对象。默认 `category="multirotor"`，旧的 360/400/500 W、5 m/s 和返航公式完全不变。
+
+- 多旋翼继续按悬停、平移、爬升分段积分，返航包含爬升、下降和悬停降落。
+- 固定翼按巡航、盘旋、爬升、下降和进近分别计费。返航距离额外加入进近航线和至少一个最小转弯半径的盘旋圈；风同时影响地速和横风可达性。`glide_distance_m` 用当前高度、巡航空速和滑翔下沉率估计无动力还能飞多远，不能当作有动力返航保证。
+- VTOL 先估算固定翼航段，再加入转换功率和多旋翼降落功率。悬停段使用显著更高的机型悬停功率，能量不足时直接给出 `land_now`，不把不可完成的转换当作可达返航。
+
+新增诊断字段 `return_segments`、`route_distance_m`、`minimum_loiter_distance_m`、`glide_distance_m` 只在固定翼和 VTOL 输出；这样默认多旋翼的结果结构和数值保持兼容。
+
 1. 固定机型、螺旋桨、有效载荷、电池型号/电芯数、环境温度及软件版本；先在受控台架上
    用经过校准的电压表和电流计核对 PX4 的电压、电流方向、单位与 BATTERY_STATUS
    电池 ID。电流的 MAVLink 单位是 cA，电压是 mV，已消耗容量是 mAh。未知哨兵必须过滤。

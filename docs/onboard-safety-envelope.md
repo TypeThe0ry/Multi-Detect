@@ -1,4 +1,4 @@
-﻿# 机载 Safety Envelope（最终动作仲裁器）
+# 机载 Safety Envelope（最终动作仲裁器）
 
 Safety Envelope 是自主飞行链路的最后一道动作边界。策略、任务执行器、MissionSupervisor、恢复动作和健康门先做决定；所有输出的 `ActionPrimitive` 在写入 20 Hz `SetpointPump` 前经过同一个仲裁器。SIM 的 `OnboardPolicy.act` 也在唯一返回点调用同一仲裁器，因此 supervisor/health 的早返回不会绕过检查，也不会在一帧重复调用 `next_action`。
 
@@ -19,6 +19,16 @@ Safety Envelope 是自主飞行链路的最后一道动作边界。策略、任�
 默认 `low_altitude_exception_m=0`。仅在 `deliver` 或 `land/landing` skill 的 descent/release/landing phase 生效，把该值作为受控最低高度；例如配置为 2 m 时，deliver descent 可以到 2 m，但普通搜索动作仍遵守 `min_altitude_m`。
 
 Operating area、no-fly polygon、home radius 和 obstacle 检查作用于完整动作线段。障碍物通过 `ObstacleSource`（可组合静态地图和 depth source）提供，不接受散落 callback；home radius 使用 `effective_radius_from_home()`。
+
+## 三种机型
+
+`VehicleDynamics` 是包络的轻量输入，主线程可以把 `AirframeProfile` 转成它；不传时默认就是多旋翼。
+
+- 多旋翼继续使用原来的高度、水平步长、home 半径、直线段障碍检查，拒绝动作仍是 `hold`，现有动作对象和值不变。
+- 固定翼要求空速位于失速余量到最大空速之间，并检查最大坡度、最小转弯半径和爬升/下降率。转弯不再用直线弦判断，包络会沿圆弧采样每个短段；命中围栏或障碍时拒绝，并在决策元数据中给出 `loiter` 作为安全动作。
+- VTOL 根据 `mode` 在 `mc`、`fw` 和 `transition` 间切换。`transition` 使用更严格的联合包络，要求转换高度并把允许坡度收紧；模式或关键空速未知时按 fail-closed 处理。
+
+底层 `ActionPrimitive` 仍只有 `translate/turn/hold/stop`，所以 `loiter`、`vtol_transition_to_mc`、`fw_land`、`parachute` 作为 supervisor/health 的恢复动作枚举和序列输出，不伪装成不兼容的 primitive。
 
 ## 验证
 

@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,40 @@ from .mission_plan import validate_mission_plan
 from .mission_security import load_key, verify_document
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryPolicy:
+    """Deterministic recovery action vocabulary for each airframe category."""
+
+    category: str = "multirotor"
+    landing_method: str = "runway"
+    transition_altitude_m: float = 30.0
+    transition_min_airspeed_mps: float = 12.0
+    parachute_available: bool = False
+
+    def __post_init__(self) -> None:
+        if self.category not in {"multirotor", "fixed_wing", "vtol"}:
+            raise ValueError("category must be multirotor, fixed_wing or vtol")
+        if self.landing_method not in {"runway", "belly", "parachute"}:
+            raise ValueError("landing_method must be runway, belly or parachute")
+        if self.transition_altitude_m < 0 or self.transition_min_airspeed_mps < 0:
+            raise ValueError("transition limits must be non-negative")
+
+    def sequence(self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None) -> tuple[str, ...]:
+        if self.category == "multirotor":
+            return ("land_now",) if not energy_available else (("hold", "return_home") if trigger == "link_loss" else ("return_home",))
+        if self.category == "fixed_wing":
+            if not energy_available and self.parachute_available:
+                return ("parachute",)
+            landing = "parachute" if self.landing_method == "parachute" and self.parachute_available else "fw_land"
+            return ("loiter", "return_home", landing)
+        if not energy_available:
+            return ("parachute",) if self.parachute_available else ("fw_land",)
+        return ("loiter", "return_home", "vtol_transition_to_mc", "land_now")
+
+    def first_action(self, *, trigger: str = "return", energy_available: bool = True, mode: str | None = None) -> str:
+        return self.sequence(trigger=trigger, energy_available=energy_available, mode=mode)[0]
 
 
 class MissionSupervisor:
@@ -49,6 +83,7 @@ class MissionSupervisor:
         rate_limit: int = 20,
         rate_window_s: float = 10.0,
         energy_config: EnergyConfig | None = None,
+        recovery_policy: RecoveryPolicy | None = None,
         replay_state_path: str | Path | None = None,
         max_sequence_jump: int = 1024,
         runtime_mode: str | None = None,
@@ -112,6 +147,9 @@ class MissionSupervisor:
         self._terminal: str | None = None
         self._recovery: MissionExecutor | None = None
         self._recovery_kind: str | None = None
+        self.recovery_policy = recovery_policy
+        self.recovery_sequence: tuple[str, ...] = ()
+        self.recovery_action: str = "continue"
         self._brake_pending = False
         self._low_confidence = 0
         self._remaining_time: float | None = None
@@ -128,13 +166,19 @@ class MissionSupervisor:
                 package.document["budget"], asdict(energy_config) if energy_config else None
             )
         )
+        if self.recovery_policy is None:
+            self.recovery_policy = RecoveryPolicy(category=self.energy_estimator.params.category)
         self.energy_estimate: dict[str, Any] | None = None
         executor.home = tuple(package.document["home"])
+        energy_model = asdict(self.energy_estimator.config)
+        if self.energy_estimator.params.category == "multirotor":
+            # Preserve the pre-profile mission log shape for the default path.
+            energy_model.pop("vehicle", None)
         self._record(
             "mission_started",
             package=package.document,
             plan=asdict(executor.plan),
-            energy_model=asdict(self.energy_estimator.config),
+            energy_model=energy_model,
         )
         self._ensure_replay_state(admission=True)
 
@@ -567,6 +611,11 @@ class MissionSupervisor:
             self._finished = False
             self._brake_pending = action == "return_now"
             self.reason = reason
+            self.recovery_sequence = self.recovery_policy.sequence(
+                trigger="link_loss" if "link" in reason else "return",
+                energy_available=action != "land_now",
+            )
+            self.recovery_action = self.recovery_sequence[0] if self.recovery_sequence else action
             if record:
                 self._record(
                     "escalation",
@@ -802,6 +851,11 @@ class MissionSupervisor:
             "supervisor_reason": self.reason,
             "energy": self.energy_estimate,
         }
+        if self.recovery_sequence:
+            info.update(
+                recovery_action=self.recovery_action,
+                recovery_sequence=list(self.recovery_sequence),
+            )
         self._record(
             "execution",
             action=action.to_dict(),

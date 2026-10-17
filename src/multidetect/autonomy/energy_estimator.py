@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -17,6 +17,51 @@ def _finite(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if math.isfinite(value) else None
+
+
+@dataclass(frozen=True)
+class EnergyParams:
+    """Aircraft-specific energy parameters supplied by the airframe adapter."""
+
+    category: str = "multirotor"
+    can_hover: bool = True
+    min_airspeed_mps: float = 0.0
+    cruise_airspeed_mps: float = 5.0
+    max_airspeed_mps: float = 100.0
+    min_turn_radius_m: float = 0.0
+    max_bank_deg: float = 45.0
+    climb_rate_mps: float = 2.0
+    descent_rate_mps: float = 1.0
+    hover_power_w: float = 360.0
+    cruise_power_w: float = 400.0
+    loiter_power_w: float = 420.0
+    climb_power_w: float = 500.0
+    descent_power_w: float = 360.0
+    transition_power_w: float = 650.0
+    glide_sink_rate_mps: float = 1.0
+    approach_distance_m: float = 50.0
+    loiter_radius_m: float = 30.0
+    loiter_time_s: float = 0.0
+    wind_margin_mps: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.category not in {"multirotor", "fixed_wing", "vtol"}:
+            raise ValueError("category must be multirotor, fixed_wing or vtol")
+        if not isinstance(self.can_hover, bool):
+            raise ValueError("can_hover must be boolean")
+        vals = (self.min_airspeed_mps, self.cruise_airspeed_mps, self.max_airspeed_mps,
+                self.min_turn_radius_m, self.max_bank_deg, self.climb_rate_mps,
+                self.descent_rate_mps, self.hover_power_w, self.cruise_power_w,
+                self.loiter_power_w, self.climb_power_w, self.descent_power_w,
+                self.transition_power_w, self.glide_sink_rate_mps,
+                self.approach_distance_m, self.loiter_radius_m, self.loiter_time_s,
+                self.wind_margin_mps)
+        if any(not math.isfinite(float(v)) or float(v) < 0 for v in vals):
+            raise ValueError("energy parameters must be finite and non-negative")
+        if self.max_airspeed_mps < self.min_airspeed_mps:
+            raise ValueError("max_airspeed_mps must be >= min_airspeed_mps")
+        if self.category == "fixed_wing" and (self.min_airspeed_mps <= 0 or self.glide_sink_rate_mps <= 0):
+            raise ValueError("fixed-wing min airspeed and glide sink rate must be positive")
 
 
 @dataclass(frozen=True)
@@ -42,9 +87,12 @@ class EnergyConfig:
     battery_id: int = 0
     source_system: int = 1
     source_component: int = 1
+    vehicle: EnergyParams = field(default_factory=EnergyParams)
 
     def __post_init__(self):
         for key, value in asdict(self).items():
+            if key == "vehicle":
+                continue
             if _finite(value) is None or value < 0:
                 raise ValueError(f"invalid energy configuration: {key}")
         for key in (
@@ -72,6 +120,8 @@ class EnergyConfig:
         for key in ("battery_id", "source_system", "source_component"):
             if not isinstance(getattr(self, key), int):
                 raise ValueError(f"{key} must be an integer")
+        if not isinstance(self.vehicle, EnergyParams):
+            raise ValueError("vehicle must be EnergyParams")
 
     @classmethod
     def from_budget(cls, budget: Mapping, options: Mapping | None = None):
@@ -84,12 +134,15 @@ class EnergyConfig:
         # Per-aircraft calibration cannot relax the uploaded mission reserves.
         values["reserve_energy_wh"] = max(values["reserve_energy_wh"], budget["reserve_energy_wh"])
         values["reserve_time_s"] = max(values["reserve_time_s"], budget["reserve_time_s"])
+        if isinstance(values.get("vehicle"), Mapping):
+            values["vehicle"] = EnergyParams(**dict(values["vehicle"]))
         return cls(**values)
 
 
 class OnboardEnergyEstimator:
-    def __init__(self, config: EnergyConfig):
+    def __init__(self, config: EnergyConfig, params: EnergyParams | None = None, vehicle: EnergyParams | None = None):
         self.config = config
+        self.params = params or vehicle or config.vehicle
         self._last_time: float | None = None
         self._battery_at: float | None = None
         self._battery_message_at = -math.inf
@@ -276,6 +329,7 @@ class OnboardEnergyEstimator:
         home_ne,
         return_altitude_m: float,
         mission_remaining_s: float,
+        flight_mode: str | None = None,
     ) -> dict[str, Any]:
         self._advance(now_s)
         c = self.config
@@ -319,6 +373,13 @@ class OnboardEnergyEstimator:
             return result
         if len(pose_ned) != 3 or any(_finite(v) is None for v in pose_ned):
             raise ValueError("invalid energy pose")
+        if self.params.category != "multirotor":
+            return self._estimate_aircraft(
+                result, now_s=now_s, pose_ned=pose_ned, home_ne=home_ne,
+                return_altitude_m=return_altitude_m, powers=powers,
+                remaining=remaining, reserve=reserve, stale=stale,
+                flight_mode=flight_mode,
+            )
         dn, de = home_ne[0] - pose_ned[0], home_ne[1] - pose_ned[1]
         distance = math.hypot(dn, de)
         altitude = max(0, -pose_ned[2])
@@ -374,4 +435,86 @@ class OnboardEnergyEstimator:
                 if not stale
                 else "battery telemetry stale; return while feasible",
             )
+        return result
+
+    def _estimate_aircraft(
+        self, result: dict[str, Any], *, now_s: float, pose_ned, home_ne,
+        return_altitude_m: float, powers: dict[str, float], remaining: float,
+        reserve: float, stale: bool, flight_mode: str | None,
+    ) -> dict[str, Any]:
+        p = self.params
+        dn, de = home_ne[0] - pose_ned[0], home_ne[1] - pose_ned[1]
+        distance = math.hypot(dn, de)
+        altitude = max(0.0, -pose_ned[2])
+        climb = max(0.0, return_altitude_m - altitude)
+        descent = max(altitude, return_altitude_m)
+        air = max(p.min_airspeed_mps, p.cruise_airspeed_mps)
+        wind_source = "configured_wind_margin"
+        wn = we = 0.0
+        if self._wind and now_s - self._wind[2] <= self.config.telemetry_timeout_s:
+            wn, we, _ = self._wind
+            wind_source = "WIND_COV"
+        elif distance:
+            wn, we = p.wind_margin_mps * dn / distance, p.wind_margin_mps * de / distance
+        headwind = (wn * dn + we * de) / distance if distance else 0.0
+        crosswind = abs(wn * de - we * dn) / distance if distance else 0.0
+        ground_speed = max(0.0, math.sqrt(max(0.0, air * air - min(crosswind, air) ** 2)) - max(0.0, headwind))
+        approach = p.approach_distance_m
+        turn = 2 * math.pi * max(p.min_turn_radius_m, p.loiter_radius_m)
+        route_distance = distance + approach + turn
+        horizontal_s = route_distance / max(0.01, ground_speed)
+        climb_s = climb / max(0.01, p.climb_rate_mps)
+        descent_s = descent / max(0.01, p.descent_rate_mps)
+        transition_s = 0.0
+        transition_wh = 0.0
+        mc_landing_s = 0.0
+        mc_landing_wh = 0.0
+        if p.category == "vtol":
+            mode = str(flight_mode or "fw").lower()
+            transition_s = 10.0 if mode in {"mc", "transition", ""} else 5.0
+            transition_wh = p.transition_power_w * transition_s / 3600
+            mc_landing_s = self.config.landing_time_s
+            mc_landing_wh = p.hover_power_w * (descent_s + mc_landing_s) / 3600
+        cruise_wh = p.cruise_power_w * horizontal_s / 3600
+        loiter_duration_s = turn / max(0.01, ground_speed) + p.loiter_time_s
+        loiter_wh = p.loiter_power_w * loiter_duration_s / 3600
+        climb_wh = p.climb_power_w * climb_s / 3600
+        descent_wh = p.descent_power_w * descent_s / 3600
+        approach_wh = p.cruise_power_w * approach / max(0.01, ground_speed) / 3600
+        rtl = self.config.safety_factor * (cruise_wh + loiter_wh + climb_wh + descent_wh + approach_wh + transition_wh + mc_landing_wh)
+        margin = remaining - reserve - rtl
+        result.update(
+            category=p.category,
+            distance_home_m=distance,
+            route_distance_m=route_distance,
+            approach_distance_m=approach,
+            minimum_loiter_distance_m=turn,
+            climb_m=climb,
+            descent_m=descent,
+            return_ground_speed_mps=ground_speed,
+            wind_source=wind_source,
+            phase_power_w={
+                "hover": p.hover_power_w, "cruise": p.cruise_power_w,
+                "loiter": p.loiter_power_w, "climb": p.climb_power_w,
+                "descent": p.descent_power_w, "transition": p.transition_power_w,
+            },
+            return_segments={
+                "cruise_wh": cruise_wh, "loiter_wh": loiter_wh,
+                "climb_wh": climb_wh, "descent_wh": descent_wh,
+                "approach_wh": approach_wh, "transition_wh": transition_wh,
+                "mc_landing_wh": mc_landing_wh,
+            },
+            loiter_time_s=loiter_duration_s,
+            glide_distance_m=altitude * air / max(0.01, p.glide_sink_rate_mps),
+            return_energy_wh=rtl,
+            return_time_s=horizontal_s + climb_s + descent_s + transition_s + mc_landing_s,
+            action_margin_wh=margin,
+            action_margin_s=margin * 3600 / max(p.cruise_power_w, p.hover_power_w, 1.0),
+        )
+        if ground_speed <= 0 and distance > 0:
+            result.update(action="land_now", reason="wind exceeds modeled return capability")
+        elif remaining < rtl:
+            result.update(action="land_now", reason="remaining energy insufficient for return_home")
+        elif margin <= 0 or stale:
+            result.update(action="return_now", reason="energy reserve reached" if not stale else "battery telemetry stale; return while feasible")
         return result

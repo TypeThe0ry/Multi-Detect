@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from multidetect.autonomy.mission_supervisor import RecoveryPolicy
+
 
 @dataclass(frozen=True)
 class HealthConfig:
@@ -57,6 +59,8 @@ class HealthDecision:
     reason: str | None = None
     detector_skip: bool = False
     stop_frame_writes: bool = False
+    recovery_action: str | None = None
+    recovery_sequence: tuple[str, ...] = ()
 
     @property
     def action(self):
@@ -99,6 +103,7 @@ class HealthMonitor:
         disk_path: str | Path | None = None,
         clock: Callable[[], float] = time.monotonic,
         logger: Callable[[str, Mapping[str, Any]], object] | None = None,
+        recovery_policy: RecoveryPolicy | None = None,
     ):
         if isinstance(config, Mapping):
             config = HealthConfig(**dict(config))
@@ -109,6 +114,17 @@ class HealthMonitor:
         self.clock = clock
         self.logger = logger
         self.state = _State()
+        self.recovery_policy = recovery_policy or RecoveryPolicy()
+
+    def _decision(self, decision: str, reason: str | None = None, **kwargs: Any) -> HealthDecision:
+        sequence = ()
+        action = None
+        if decision in {"return_home", "land"}:
+            sequence = self.recovery_policy.sequence(
+                trigger="health", energy_available=decision != "land"
+            )
+            action = sequence[0] if sequence else decision
+        return HealthDecision(decision, reason, recovery_action=action, recovery_sequence=sequence, **kwargs)
 
     @staticmethod
     def jetson_resources():
@@ -275,9 +291,9 @@ class HealthMonitor:
         if mission_requires_images and "low_disk" in self.state.active_reasons:
             holds.append("low_disk")
         if critical:
-            return HealthDecision("land", "critical_resource_pressure", stop_frame_writes=low)
+            return self._decision("land", "critical_resource_pressure", stop_frame_writes=low)
         if any(n - self.state.hold_since.get(r, n) >= self.config.escalate_after_s for r in holds):
-            return HealthDecision("return_home", holds[0], stop_frame_writes=low)
+            return self._decision("return_home", holds[0], stop_frame_writes=low)
         if low and mission_requires_images:
             return HealthDecision("hold", "low_disk", stop_frame_writes=True)
         if pressure:
@@ -334,4 +350,4 @@ class HealthMonitor:
 
 
 OnboardHealthMonitor = HealthMonitor
-__all__ = ["HealthConfig", "HealthDecision", "HealthMonitor", "OnboardHealthMonitor"]
+__all__ = ["RecoveryPolicy", "HealthConfig", "HealthDecision", "HealthMonitor", "OnboardHealthMonitor"]
