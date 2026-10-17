@@ -2119,7 +2119,7 @@ def run_episode(
                     # timeout still means the command stream was accepted
                     # and executed until the bounded completion deadline.
                     "action_ack": result.status in {"success", "timeout"},
-                    "arm": arm_ack,
+                    "arm": _plain_record(arm_ack),
                 }
                 continue_loop = _record_policy_step(
                     recorder,
