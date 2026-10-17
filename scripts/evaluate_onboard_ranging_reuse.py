@@ -110,9 +110,21 @@ def make_track(track, width, height, t, index):
     return UnifiedTrackSnapshot(track_id=str(track.get('id','track')),state=UnifiedTrackState.TRACKING,label='target',bbox=box,predicted_bbox=box,first_seen_at_s=max(0,t-index),last_seen_at_s=t,state_changed_at_s=t,observation_count=index+1,missed_frame_count=0,confidence=1.0,tracking_quality=1.0,velocity_x_s=0.0,velocity_y_s=0.0,appearance_sample_count=0,last_appearance_distance=None,reid_confirmed=True,locked=False,primary=True,actionable=True)
 
 def main(argv=None):
-    ap=argparse.ArgumentParser(); ap.add_argument('root',type=Path); ap.add_argument('--output',type=Path,required=True); ap.add_argument('--scenarios',type=Path); ap.add_argument('--max-depth-frames',type=int,default=300); ap.add_argument('--max-episodes',type=int,default=0); ap.add_argument('--max-samples',type=int,default=0); ap.add_argument('--resume',action='store_true',help='reuse segmentation cache and overwrite output atomically'); args=ap.parse_args(argv)
+    ap=argparse.ArgumentParser(); ap.add_argument('root',type=Path); ap.add_argument('--output',type=Path,required=True); ap.add_argument('--scenarios',type=Path); ap.add_argument('--max-depth-frames',type=int,default=300); ap.add_argument('--max-episodes',type=int,default=0); ap.add_argument('--max-samples',type=int,default=0); ap.add_argument('--video-only',action='store_true',help='evaluate continuous video/ manifests with the onboard temporal estimators'); ap.add_argument('--calibration',type=Path,default=ROOT/'simulation/gazebo/calibration/gazebo-multirotor-front-camera-v1.json'); ap.add_argument('--depth-model',type=Path,default=None,help='optional pinned metric-depth ONNX model for every tenth video frame'); ap.add_argument('--resume',action='store_true',help='reuse segmentation cache and overwrite output atomically'); args=ap.parse_args(argv)
     episodes=sorted({p.parent for p in args.root.rglob('episode.json')});
     if args.max_episodes: episodes=episodes[:args.max_episodes]
+    if args.video_only:
+        from multidetect.continuous_video_eval import evaluate_video_episode
+        reports=[]
+        for ep in episodes:
+            manifest=ep/'video'/'manifest.jsonl'
+            if not manifest.is_file(): continue
+            truth_path = args.scenarios
+            world, truth = truth_for_episode(ep, truth_path)
+            if truth is not None:
+                reports.append(evaluate_video_episode(ep, truth, calibration_path=args.calibration, depth_model=args.depth_model))
+        report={"schema_version": 1, "mode": "continuous_video", "episodes": reports, "frame_count": sum(r["frames"] for r in reports)}
+        args.output.parent.mkdir(parents=True,exist_ok=True); args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8'); print(json.dumps({'output':str(args.output),'frame_count':report['frame_count']},ensure_ascii=False)); return 0
     methods=['flat_ground','flat_bias_2m','flat_bias_-2m','flat_bias_5m','flat_bias_-5m','flat_bias_10m','flat_bias_-10m','known_size','rgb_slam','visual_inertial','vi_monocular_size','step_triangulation','fusion','fusion_g1','fusion_g3','fusion_g5','fusion_bias_0','fusion_bias_2','fusion_bias_-2','fusion_bias_5','fusion_bias_-5','fusion_bias_10','fusion_bias_-10','depth_raw','depth_tri_calibrated']
     vals={m:[] for m in methods}; slants={m:[] for m in methods}; rejects=Counter(); bins=defaultdict(list); rows_count=0; assoc=Counter(); depth_candidates=[]; depth_errors=[]; depth_times=[]; hist=defaultdict(list); fusion_cov=defaultdict(lambda:[[],[]]); tri_bins=defaultdict(list); tri_times=[]; step_hist=defaultdict(list); episode_index=0
     depth_buckets=defaultdict(list); depth_full_buckets=defaultdict(list); depth_target_buckets=defaultdict(list); tri_cov=[[],[]]
