@@ -171,3 +171,19 @@ def test_vtol_landing_over_command_long_uses_nav_land_not_the_mission_only_nav_v
     assert executor.land().status == "success"
     commands = [row[2] for row in vehicle.mav.commands]
     assert commands[-2:] == [3000, 21] and 85 not in commands
+
+
+def test_motion_command_over_command_long_waits_for_the_ack() -> None:
+    # A zero ACK timeout made every closed-loop reposition report failure although
+    # PX4 accepted and flew it.
+    class ReaderOwnedLink(RawVehicle):
+        # Like the collector's _ReaderAckLink: the ACK is visible only to a wait > 0.
+        def wait_command_ack(self, command, timeout_s):
+            return {"command": command, "result": 0} if timeout_s > 0 else None
+
+    vehicle = ReaderOwnedLink()
+    executor = FixedWingVtolExecutor(vehicle, airframe="fixed_wing",
+                                     geo_reference=lambda: ((47.0, 8.0, 500.0), (0.0, 0.0, 0.0)))
+    result = executor.execute_command(MotionCommand("reposition", target_ned=(100.0, 0.0, -30.0), speed_mps=15.0))
+    assert result.status == "success"
+    assert vehicle.mav.commands[-1][2] == 192

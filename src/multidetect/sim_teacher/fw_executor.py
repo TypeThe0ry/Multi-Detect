@@ -415,38 +415,38 @@ class FixedWingVtolExecutor:
                 loiter_method = getattr(self.vehicle, "loiter_at", None)
                 if callable(loiter_method) and not callable(orbit_method):
                     result = self._invoke("loiter_at", centre[:2], radius, altitude, speed=speed,
-                                          timeout_s=0.0)
+                                          timeout_s=self._timeout())
                 else:
                     result = self._invoke("orbit", centre[:2], radius, speed, alt=altitude,
-                                          timeout_s=0.0)
+                                          timeout_s=self._timeout())
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"orbit": result})
             if command.kind in {"reposition", "mc_reposition"}:
                 target = command.target_ned or self._commanded
-                result = self._invoke("reposition", target[:2], -target[2], speed, radius=command.radius_m or 0.0, yaw_deg=command.yaw_deg or 0.0, timeout_s=0.0)
+                result = self._invoke("reposition", target[:2], -target[2], speed, radius=command.radius_m or 0.0, yaw_deg=command.yaw_deg or 0.0, timeout_s=self._timeout())
                 self._commanded = target
                 if command.yaw_deg is not None:
                     self._commanded_yaw = command.yaw_deg
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"reposition": result})
             if command.kind == "transition":
-                result = self._invoke("vtol_transition", command.mode or "FW", timeout_s=0.0)
+                result = self._invoke("vtol_transition", command.mode or "FW", timeout_s=self._timeout())
                 if self._ok(result):
                     self.mode = command.mode or "FW"
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"transition": result})
             if command.kind == "fw_land":
-                result = self._invoke("fw_land", (command.metadata or {}).get("method", self.landing_method), point=centre[:2], alt=0.0, timeout_s=0.0)
+                result = self._invoke("fw_land", (command.metadata or {}).get("method", self.landing_method), point=centre[:2], alt=0.0, timeout_s=self._timeout())
                 self._armed = False
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"land": result})
             if command.kind == "mc_land":
                 if self.airframe == "vtol":
-                    self._invoke("vtol_transition", "MC", timeout_s=0.0)
+                    self._invoke("vtol_transition", "MC", timeout_s=self._timeout())
                 land = getattr(self.vehicle, "land", None)
-                result = land() if callable(land) else self._invoke("fw_land", "vtol", point=centre[:2], alt=0.0, timeout_s=0.0)
+                result = land() if callable(land) else self._invoke("fw_land", "vtol", point=centre[:2], alt=0.0, timeout_s=self._timeout())
                 self._armed = False
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"land": result})
             if command.kind == "fly_by_deliver":
                 # Delivery never stops a fixed-wing vehicle.  The command is a
                 # safe fly-through window for a payload controller to consume.
-                result = self._invoke("reposition", centre[:2], altitude, speed, radius=command.radius_m or self.loiter_radius_m, yaw_deg=command.yaw_deg or 0.0, timeout_s=0.0)
+                result = self._invoke("reposition", centre[:2], altitude, speed, radius=command.radius_m or self.loiter_radius_m, yaw_deg=command.yaw_deg or 0.0, timeout_s=self._timeout())
                 return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"fly_by": result})
             if command.kind == "stop":
                 return ExecutionResult("success", self._clock() - started)
