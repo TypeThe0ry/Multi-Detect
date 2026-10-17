@@ -112,3 +112,14 @@ def test_x500_subscribes_to_the_spawned_model_not_the_runtime_airframe_name() ->
     cessna = collector.CollectionPlan(**base, airframe="rc_cessna_mono_cam")
     runtime = {"vehicle": {"model": "px4_fixed_wing_standard", "airframe_profile_id": "px4_fixed_wing_gazebo_v1"}}
     assert collector._gazebo_model_name(cessna, runtime) == "rc_cessna_mono_cam_0"
+
+
+def test_fixed_wing_and_vtol_never_fly_at_the_multirotor_default_altitude(monkeypatch) -> None:
+    # The tiltrotor transitioned at the 5 m multirotor default and sank into the ground.
+    monkeypatch.setattr(collector, "resolve_takeoff_altitude", lambda runtime, override: (5.0, "default"))
+    base = dict(scenario="s.json", runtime="r.json", truth="t.json", teacher="expert_search",
+                episodes=1, steps_per_episode=1, seed=0, out="o")
+    assert collector._takeoff_altitude_for_plan(collector.CollectionPlan(**base))[0] == 5.0
+    assert collector._takeoff_altitude_for_plan(collector.CollectionPlan(**base, airframe="advanced_plane"))[0] == 30.0
+    tilt = collector._takeoff_altitude_for_plan(collector.CollectionPlan(**base, airframe="tiltrotor"))[0]
+    assert tilt >= 30.0

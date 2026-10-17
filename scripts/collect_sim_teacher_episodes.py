@@ -130,6 +130,8 @@ MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
 RTL_MODE_CONFIRM_S = 10.0
+FIXED_WING_MIN_OPERATING_ALT_M = 30.0
+VTOL_TRANSITION_MARGIN_M = 10.0
 MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
@@ -881,7 +883,20 @@ def resolve_takeoff_altitude(
 
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
-    return resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
+    if profile is None or profile.category == "multirotor":
+        return altitude, source
+    # The multirotor default (5 m) is far below what a fixed-wing needs to loiter
+    # or a VTOL needs to transition: a tiltrotor transitioning at 5 m sank into the
+    # ground.  Keep at least FIXED_WING_MIN_OPERATING_ALT_M, and for VTOL at least
+    # the profile's minimum transition height plus a margin.
+    floor = FIXED_WING_MIN_OPERATING_ALT_M
+    if profile.category == "vtol":
+        floor = max(floor, profile.transition.minimum_height_m + VTOL_TRANSITION_MARGIN_M)
+    if altitude < floor:
+        return floor, f"{source}; raised to the {profile.category} operating floor"
+    return altitude, source
 
 
 def _truth_target(
