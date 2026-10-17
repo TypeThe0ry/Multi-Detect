@@ -318,16 +318,24 @@ class Round:
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = [sys.executable, "scripts/cache_onboard_proposals.py"]
-            for p in sorted(self.a.episodes.glob("gen_r15_w*")):
-                cmd += ["--campaign", str(p)]
-            source_root = self.a.source_root or self.a.episodes
+            for root in (self.a.episodes, *self.a.extra_episodes):
+                for p in sorted(root.glob("gen_r15_w*")):
+                    cmd += ["--campaign", str(p)]
+            # Cache keys must match the repository-relative image paths build_sft looks
+            # up (artifacts/<campaign>/...); key them from the data root that holds the
+            # episodes, otherwise no live proposal ever matches a frame.
+            source_root = self.a.source_root
+            if source_root is None:
+                source_root = (self.a.data_root if self.a.episodes.resolve().is_relative_to(self.a.data_root.resolve())
+                               else self.a.episodes)
             if source_root.resolve() == ROOT.resolve():
                 raise RuntimeError("--source-root 不能指向当前 worktree；请指向 Multi-Detect 主仓库或本轮采集输出根")
             cmd += ["--source-root", str(source_root), "--output", str(self.out / "yoloe-v3-cache.jsonl"), "--device", self.a.annotate_device]
             self.run("annotate", cmd, estimate="约 20-35 分钟：GPU cuda:0；6462 帧历史日志 00:46:47→00:51:10（约4分23秒）且既有记录约20分钟，按 44,800 帧含启动/IO 余量估算", disk="缓存约 1-3 GiB", outputs=(self.out / "yoloe-v3-cache.jsonl",))
         if self.a.stage in ("all", "build_sft"):
             self.guards("build_sft")
-            cmd = [sys.executable, "scripts/build_slow_system_sft.py", "--campaign", str(self.a.episodes), "--index", str(self.a.r15_index), "--proposals", str(self.out / "yoloe-v3-cache.jsonl"), "--counterfactual-tasks", "--crop-policy", "candidate_zoom_v2", "--output", str(self.out / "r15-additions")]
+            extra = [arg for root in self.a.extra_episodes for arg in ("--campaign", str(root))]
+            cmd = [sys.executable, "scripts/build_slow_system_sft.py", "--campaign", str(self.a.episodes), *extra, "--index", str(self.a.r15_index), "--proposals", str(self.out / "yoloe-v3-cache.jsonl"), "--counterfactual-tasks", "--crop-policy", "candidate_zoom_v2", "--output", str(self.out / "r15-additions")]
             self.run("build_sft", cmd, estimate="约 1-3 小时（解码/筛选 44,800 帧）", disk="新增 JSONL <2 GiB；复用图片", outputs=(self.out / "r15-additions" / "manifest.json",))
             merge_cmd = [sys.executable, str(ROOT / "scripts" / "run_r15_round.py"), "--merge-only", "--r12-dataset", str(self.a.r12_dataset), "--additions", str(self.out / "r15-additions"), "--merged", str(self.out / "r15-sft"), "--r12-replay-fraction", str(self.a.r12_replay_fraction), "--seed", "20261016"]
             self.run("merge_sft", merge_cmd, estimate="约 10 分钟", disk="约 r12 数据集体积增量", outputs=(self.out / "r15-sft" / "manifest.json",))
@@ -497,6 +505,8 @@ def main():
     p.add_argument("--workers", type=int, default=R15_WORKERS)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--retries", type=int, default=3)
+    p.add_argument("--extra-episodes", type=Path, action="append", default=[],
+                   help="more campaign roots (e.g. confuser flights) to annotate and build from")
     p.add_argument("--teacher-target", choices=("true", "confuser"), default="true",
                    help="collect true-target flights or look-alike confuser flights (hard negatives)")
     p.add_argument("--merge-only", action="store_true")
