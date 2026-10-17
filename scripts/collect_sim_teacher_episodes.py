@@ -1260,6 +1260,9 @@ class _ReaderAckLink:
         started_ns = time.monotonic_ns()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
+            per_command = getattr(self._reader.state, "command_acks", {}).get(int(command))
+            if per_command is not None and per_command[1] >= started_ns:
+                return {"command": int(command), "result": int(_field(per_command[0], "result", -1))}
             received = getattr(self._reader.state, "received_monotonic_ns", {})
             ack = self._reader.state.get("COMMAND_ACK")
             if (

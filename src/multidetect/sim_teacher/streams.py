@@ -316,6 +316,10 @@ class MavlinkState:
     last_preflight_failure_ns: int = 0
     pose_alignment: dict[str, Any] | None = None
     energy_telemetry: list[dict[str, Any]] | None = None
+    # Latest COMMAND_ACK per command id with its receive clock.  ACKs for two
+    # commands sent back to back (e.g. RTL then VTOL transition) arrive within
+    # milliseconds; the single latest COMMAND_ACK would hide the earlier one.
+    command_acks: dict[int, tuple[Any, int]] = field(default_factory=dict)
 
     def get(self, name: str) -> Any | None:
         return self.messages.get(name)
@@ -585,6 +589,11 @@ class MavlinkReader:
                             and "preflight fail" in str(_field(message, "text", "")).lower()
                         ):
                             self.state.last_preflight_failure_ns = mono
+                        if name == "COMMAND_ACK":
+                            try:
+                                self.state.command_acks[int(_field(message, "command", -1))] = (message, mono)
+                            except (TypeError, ValueError):
+                                pass
                     if name in self.POSE_TYPES:
                         self._record_pose_message(name, message, mono, wall)
                 if self.on_message is not None:

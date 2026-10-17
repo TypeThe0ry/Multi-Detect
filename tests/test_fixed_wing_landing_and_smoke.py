@@ -185,3 +185,17 @@ def test_fixed_wing_profiles_disable_terrain_abort_without_rangefinder():
         assert params == {"FW_LND_ABORT": "0", "FW_LND_USETER": "0"}
     assert collector._profile_landing_parameters("x500_mono_cam") == ()
     assert collector._profile_landing_parameters("quadtailsitter") == ()
+
+
+def test_command_ack_wait_survives_a_later_ack_for_another_command():
+    # RTL (176) and the VTOL back-transition (3000) are sent back to back; PX4's
+    # RTL ACK lands right after the transition ACK and replaces the latest COMMAND_ACK.
+    import time as _time
+
+    state = _State()
+    stamp = _time.monotonic_ns() + 1
+    state.command_acks = {3000: ({"command": 3000, "result": 0}, stamp)}
+    state.messages["COMMAND_ACK"] = {"command": 176, "result": 0}
+    state.received_monotonic_ns["COMMAND_ACK"] = stamp
+    link = collector._ReaderAckLink(SimpleNamespace(), SimpleNamespace(state=state))
+    assert link.wait_command_ack(3000, 0.2) == {"command": 3000, "result": 0}
