@@ -179,8 +179,10 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
         except (TypeError, ValueError):
             pass
     measured_speeds = loiter_speeds or airspeeds
+    # The low side is the stall margin and stays strict; right after a transition
+    # or turn the measured airspeed can briefly overshoot the profile maximum.
     in_range = bool(measured_speeds) and all(
-        profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps
+        profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps * AIRSPEED_OVERSHOOT_ALLOWANCE
         for speed in measured_speeds
     )
     reposition_errors: list[float] = []
@@ -241,6 +243,7 @@ DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 # The smoke route spans a few hundred metres; a guided command sent with wrong
 # coordinates sends the aircraft far beyond this.
 MAX_SMOKE_RANGE_M = 1500.0
+AIRSPEED_OVERSHOOT_ALLOWANCE = 1.10
 
 
 def profile_for(airframe: str, takeoff_method: str | None = None) -> AirframeProfile:

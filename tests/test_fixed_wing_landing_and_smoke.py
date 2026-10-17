@@ -213,3 +213,17 @@ def test_rtl_is_confirmed_from_a_fresh_heartbeat_before_landing():
     assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is False
     state.received_monotonic_ns["HEARTBEAT"] = after + 1
     assert collector._wait_px4_mode(reader, (4, 5), timeout_s=0.2, after_ns=after)["confirmed"] is True
+
+
+def test_loiter_airspeed_allows_a_brief_overshoot_but_not_a_stall(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/quadtailsitter.json"))  # 14..22 m/s
+
+    def judge(speed):
+        step = {"action": {"kind": "hold"}, "obs_after": {"airspeed_mps": speed}}
+        (tmp_path / "steps.jsonl").write_text(json.dumps(step), encoding="utf-8")
+        (tmp_path / "mavlink.jsonl").write_text("", encoding="utf-8")
+        return evaluate_episode(tmp_path, profile, 5.0)["loiter_airspeed_in_range"]
+
+    assert judge(22.1) is True   # post-transition overshoot
+    assert judge(25.0) is False
+    assert judge(13.5) is False  # below the minimum: stall margin stays strict
