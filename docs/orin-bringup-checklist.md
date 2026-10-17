@@ -9,7 +9,7 @@
 | 文件 | 字节数 | SHA-256 |
 |---|---:|---|
 | `proposer-960.onnx` | 38,128,198 | `6f54d3fa397ff82d4d21edefbf4780c46319010a44cf31ce6a68758678ca374c` |
-| `proposer-1280.onnx` | 38,422,200 | `5525778af3f927930f498ab74e8882ada682c73038bd2136452a45b8afae1424` |
+| `proposer-1280.onnx` | 38,422,200 | `09609336c91ae1b93287e7449aa876b84e03a2b9d846cbe237e1282c3dcf6864` |
 | `slow-system-v2r12multi-merged-Q5_K_M.gguf` | 1,257,880,736 | `9724205a50e1fe87fdfe374d1f970fdbc420f564d420791da3b9fe74ce39abfd` |
 | `slow-system-v2r14multi-merged-Q5_K_M.gguf` | 1,257,880,736 | `70cffdea752ce264bcccbace4d20b537b510091432e6823ef445393fb26f94ca` |
 | `mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf` | 445,053,216 | `f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82` |
