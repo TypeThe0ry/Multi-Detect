@@ -324,7 +324,10 @@ class MavlinkState:
 def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
     """Copy wire samples with their real receive clocks, never a frame clock."""
     samples = []
-    for name in ("BATTERY_STATUS", "SYS_STATUS", "WIND_COV", "HEARTBEAT", "LOCAL_POSITION_NED"):
+    for name in (
+        "BATTERY_STATUS", "SYS_STATUS", "WIND_COV", "HEARTBEAT",
+        "LOCAL_POSITION_NED", "VFR_HUD", "EXTENDED_SYS_STATE",
+    ):
         message = state.get(name)
         stamp = state.received_monotonic_ns.get(name)
         if message is None or stamp is None:
@@ -360,6 +363,7 @@ class MavlinkReader:
             "ALTITUDE",
             "HEARTBEAT",
             "EXTENDED_SYS_STATE",
+            "VFR_HUD",
             "COMMAND_ACK",
             "HOME_POSITION",
             "SYS_STATUS",
@@ -754,6 +758,7 @@ def build_observation(
         raise RuntimeError(f"GPS fix is not valid: {gps_fix['fix_type']}")
     extended_state = mavlink.get("EXTENDED_SYS_STATE")
     landed_state = _field(extended_state, "landed_state", None)
+    vtol_state = _field(extended_state, "vtol_state", None)
     landed = (
         landed_state == 1
         if isinstance(landed_state, int)
@@ -761,6 +766,17 @@ def build_observation(
         and landed_state in {1, 2, 3, 4}
         else None
     )
+    # VFR_HUD.airspeed is the PX4 air-relative speed in m/s.  Keep it
+    # separate from LOCAL_POSITION_NED ground velocity; fixed-wing takeoff,
+    # orbit and stall checks depend on the former.
+    vfr_hud = mavlink.get("VFR_HUD")
+    airspeed_raw = _field(vfr_hud, "airspeed", _field(vfr_hud, "airspeed_mps", None))
+    try:
+        airspeed_mps = float(airspeed_raw) if airspeed_raw is not None else None
+    except (TypeError, ValueError):
+        airspeed_mps = None
+    if airspeed_mps is not None and (not math.isfinite(airspeed_mps) or airspeed_mps < 0):
+        airspeed_mps = None
     rgb_value: Any = sensor.rgb
     if isinstance(sensor.rgb, (bytes, bytearray, memoryview)):
         try:
@@ -848,6 +864,12 @@ def build_observation(
         else _energy_telemetry(mavlink),
         "gps_fix": gps_fix,
         "landed": landed,
+        "flight_state": {
+            "vtol_state": vtol_state,
+            "landed_state": landed_state,
+            "airspeed_mps": airspeed_mps,
+        },
+        "airspeed_mps": airspeed_mps,
         "sensor_status": "live",
         "frame_sensor_stamp_ns": sensor.sensor_stamp_ns,
         "pose_time_boot_ms": pose_time_boot_ms,
