@@ -15,6 +15,7 @@ from typing import Any
 
 from .executor import ExecutionResult
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
+from multidetect.autonomy.motion_intent import MotionCommand
 
 
 class FixedWingVtolExecutor:
@@ -42,6 +43,7 @@ class FixedWingVtolExecutor:
             raise ValueError("altitude, loiter radius and ground speed must be positive")
         self.vehicle = vehicle
         self.airframe = "vtol" if normalized == "vtol" else "fixed_wing"
+        self.mode = "FW"
         self.takeoff_method = takeoff_method
         self.landing_method = landing_method
         self.altitude_m = float(altitude_m)
@@ -102,6 +104,8 @@ class FixedWingVtolExecutor:
         origin = self._commanded
         yaw = self._commanded_yaw
         try:
+            if isinstance(action, MotionCommand):
+                return self.execute_command(action)
             if action.kind == "hold":
                 result = self._invoke("orbit", origin[:2], self.loiter_radius_m,
                                       self.ground_speed_mps, alt=-origin[2], timeout_s=0.0)
@@ -125,6 +129,65 @@ class FixedWingVtolExecutor:
             return ExecutionResult("success" if self._ok(result) else "failed",
                                    self._clock() - started,
                                    (north, east, down), ack={"reposition": result})
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
+            return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
+
+    def execute_command(self, command: MotionCommand) -> ExecutionResult:
+        """Execute the shared intent command vocabulary.
+
+        A vehicle may implement either ``orbit``/``reposition`` (the PX4
+        protocol) or the equivalent ``loiter_at`` convenience method.  The
+        duck-typed calls keep this executor usable by deterministic SIM fakes.
+        """
+        started = self._clock()
+        try:
+            if command.rejected:
+                return ExecutionResult("failed", self._clock() - started, ack={"reason": command.reason})
+            centre = command.target_ned or self._commanded
+            altitude = -centre[2]
+            speed = command.speed_mps or self.ground_speed_mps
+            if command.kind in {"loiter", "orbit", "mc_hold"}:
+                radius = command.radius_m or self.loiter_radius_m
+                orbit_method = getattr(self.vehicle, "orbit", None)
+                loiter_method = getattr(self.vehicle, "loiter_at", None)
+                if callable(orbit_method):
+                    result = orbit_method(centre[:2], radius, speed, alt=altitude, timeout_s=0.0)
+                elif callable(loiter_method):
+                    result = loiter_method(centre[:2], radius, altitude, speed=speed, timeout_s=0.0)
+                else:
+                    raise RuntimeError("vehicle lacks orbit()/loiter_at()")
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"orbit": result})
+            if command.kind in {"reposition", "mc_reposition"}:
+                target = command.target_ned or self._commanded
+                result = self._invoke("reposition", target[:2], -target[2], speed, radius=command.radius_m or 0.0, yaw_deg=command.yaw_deg or 0.0, timeout_s=0.0)
+                self._commanded = target
+                if command.yaw_deg is not None:
+                    self._commanded_yaw = command.yaw_deg
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"reposition": result})
+            if command.kind == "transition":
+                result = self._invoke("vtol_transition", command.mode or "FW", timeout_s=0.0)
+                if self._ok(result):
+                    self.mode = command.mode or "FW"
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"transition": result})
+            if command.kind == "fw_land":
+                result = self._invoke("fw_land", (command.metadata or {}).get("method", self.landing_method), point=centre[:2], alt=0.0, timeout_s=0.0)
+                self._armed = False
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"land": result})
+            if command.kind == "mc_land":
+                if self.airframe == "vtol":
+                    self._invoke("vtol_transition", "MC", timeout_s=0.0)
+                land = getattr(self.vehicle, "land", None)
+                result = land() if callable(land) else self._invoke("fw_land", "vtol", point=centre[:2], alt=0.0, timeout_s=0.0)
+                self._armed = False
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"land": result})
+            if command.kind == "fly_by_deliver":
+                # Delivery never stops a fixed-wing vehicle.  The command is a
+                # safe fly-through window for a payload controller to consume.
+                result = self._invoke("reposition", centre[:2], altitude, speed, radius=command.radius_m or self.loiter_radius_m, yaw_deg=command.yaw_deg or 0.0, timeout_s=0.0)
+                return ExecutionResult("success" if self._ok(result) else "failed", self._clock() - started, ack={"fly_by": result})
+            if command.kind == "stop":
+                return ExecutionResult("success", self._clock() - started)
+            raise RuntimeError(f"unsupported motion command: {command.kind}")
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
 

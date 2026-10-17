@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
+from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 
@@ -50,3 +51,14 @@ def test_vtol_takeoff_and_landing_transition_sequence() -> None:
     assert [name for name, _, _ in fake.calls[:3]] == ["arm", "fw_takeoff", "vtol_transition"]
     assert executor.land().status == "success"
     assert [name for name, _, _ in fake.calls[-2:]] == ["vtol_transition", "fw_land"]
+
+
+def test_motion_command_loiter_and_transition_are_shared_with_runtime():
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol")
+    assert executor.execute_command(
+        MotionCommand("loiter", target_ned=(1, 2, -30), radius_m=40, speed_mps=15, mode="FW")
+    ).status == "success"
+    assert fake.calls[-1][0] == "orbit"
+    assert executor.execute_command(MotionCommand("transition", mode="MC")).status == "success"
+    assert fake.calls[-1][0] == "vtol_transition"

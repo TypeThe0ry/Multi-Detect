@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from multidetect.sim_teacher.primitives import ActionPrimitive, primitive_to_ned
+from multidetect.autonomy.motion_intent import MotionCommand
 
 from .camera import CameraFrame, CameraSource
 from .vehicle import PositionSetpoint, VehicleInterface, VehicleState
@@ -86,6 +87,8 @@ def observation_for(frame: CameraFrame, state: VehicleState) -> dict[str, Any]:
         "pose": {"local_ned_m": list(state.position_ned)},
         "attitude": {"roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw},
         "velocity": state.velocity_ned,
+        "mode": state.mode,
+        "vtol_state": getattr(state, "vtol_state", None),
         "home_ned_m": state.home_ned,
         "landed": state.landed,
         "battery_remaining": state.battery_remaining,
@@ -105,10 +108,12 @@ class SetpointPump:
         *,
         rate_hz: float = 20,
         before_send: Callable[[], None] | None = None,
+        motion_adapter: Any | None = None,
     ) -> None:
         if not math.isfinite(rate_hz) or rate_hz < 10:
             raise ValueError("setpoint rate must be at least 10 Hz")
         self.vehicle, self.rate_hz, self.before_send = vehicle, rate_hz, before_send
+        self.motion_adapter = motion_adapter
         self._target = initial
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -134,7 +139,15 @@ class SetpointPump:
             while not self._stop.is_set():
                 if self.before_send:
                     self.before_send()
-                self.vehicle.send_setpoint(self.target)
+                adapter = getattr(self, "motion_adapter", None)
+                vtol_mc = (
+                    adapter is not None
+                    and not getattr(adapter, "is_multirotor", True)
+                    and getattr(getattr(adapter, "profile", None), "category", None) == "vtol"
+                    and getattr(adapter, "mode", "FW") == "MC"
+                )
+                if adapter is None or getattr(adapter, "is_multirotor", True) or vtol_mc:
+                    self.vehicle.send_setpoint(self.target)
                 sent = time.monotonic()
                 with self._lock:
                     if self.last_sent is not None:
@@ -199,6 +212,7 @@ class OnboardRuntime:
         event_sink: Callable[[str, float, dict[str, Any]], None] | None = None,
         arbiter: Any | None = None,
         supervisor: Any | None = None,
+        motion_adapter: Any | None = None,
     ) -> None:
         self.vehicle, self.camera, self.policy = vehicle, camera, policy
         self.config = config or RuntimeConfig()
@@ -206,11 +220,12 @@ class OnboardRuntime:
         self.event_sink = event_sink
         self.arbiter = arbiter
         self.supervisor = supervisor
+        self.motion_adapter = motion_adapter
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._job_started: float | None = None
-        self._result: tuple[ActionPrimitive, dict[str, Any], VehicleState] | None = None
+        self._result: tuple[ActionPrimitive | MotionCommand, dict[str, Any], VehicleState] | None = None
         self._policy_error: str | None = None
         self._hazard_since: float | None = None
         self.hazard: str | None = None
@@ -236,7 +251,7 @@ class OnboardRuntime:
                 target=self._drain_events, name="onboard-event-sink", daemon=True
             )
             self._event_worker.start()
-        self._motion: tuple[ActionPrimitive, float] | None = None
+        self._motion: tuple[ActionPrimitive | MotionCommand, float] | None = None
         self._last_frame_timestamp: float | None = None
         self._last_good_state: VehicleState | None = None
         self._hazard_target: PositionSetpoint | None = None
@@ -483,11 +498,26 @@ class OnboardRuntime:
             self._result = None
             self._motion = None
             if self.pump and self._last_good_state:
-                self._hazard_target = hold_setpoint(self._last_good_state)
-                self._set_target_checked(
-                    self._hazard_target, "hazard_hold", state=self._last_good_state
-                )
-            self._event("watchdog_hold", reason=reason)
+                if self.motion_adapter is not None and not getattr(self.motion_adapter, "is_multirotor", True):
+                    try:
+                        recovery = MotionCommand(
+                            "loiter",
+                            target_ned=self._last_good_state.position_ned,
+                            radius_m=self.motion_adapter.profile.orbit_radius(),
+                            speed_mps=self.motion_adapter.profile.cruise_airspeed_mps,
+                            reason=reason,
+                        )
+                        result = self._dispatch_motion_command(recovery, self._last_good_state)
+                        self._event("watchdog_loiter", reason=reason, result=str(result))
+                    except Exception as exc:
+                        self._event("watchdog_loiter_failed", reason=str(exc))
+                else:
+                    self._hazard_target = hold_setpoint(self._last_good_state)
+                    self._set_target_checked(
+                        self._hazard_target, "hazard_hold", state=self._last_good_state
+                    )
+            if self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True):
+                self._event("watchdog_hold", reason=reason)
 
     def _guard(self) -> None:
         """Runs in the pump, independent of coordinator or inference delays."""
@@ -520,9 +550,15 @@ class OnboardRuntime:
                 elif self._active and not self.failsafe_sent:
                     if not state.armed:
                         self._latch("unexpected_disarm", now)
-                    elif state.mode != "OFFBOARD":
-                        self._latch("offboard_exited", now)
-                    elif self.home_ned is not None and (
+                    elif self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True):
+                        if state.mode != "OFFBOARD":
+                            self._latch("offboard_exited", now)
+                    elif state.mode not in {
+                        "OFFBOARD", "AUTO", "AUTO.LOITER", "AUTO.MISSION",
+                        "AUTO.RTL", "AUTO.LAND", "GUIDED",
+                    }:
+                        self._latch("fixed_wing_navigation_mode_lost", now)
+                    if self.home_ned is not None and (
                         state.home_ned is None or math.dist(state.home_ned, self.home_ned) > 0.5
                     ):
                         self._latch("home_changed", now)
@@ -548,6 +584,7 @@ class OnboardRuntime:
             hold_setpoint(state),
             rate_hz=self.config.stream_hz,
             before_send=self._guard,
+            motion_adapter=self.motion_adapter,
         )
         self.pump.start()
 
@@ -656,7 +693,9 @@ class OnboardRuntime:
         self.failsafe_sent = action
         self._command_last_sent = time.monotonic()
         self._terminal_attempts += 1
-        if self.pump is not None and self._last_good_state is not None:
+        if self.pump is not None and self._last_good_state is not None and (
+            self.motion_adapter is None or getattr(self.motion_adapter, "is_multirotor", True)
+        ):
             # Keep a fresh hold stream until telemetry confirms the mode change.
             self._set_target_checked(
                 hold_setpoint(self._last_good_state), "terminal_hold", state=self._last_good_state
@@ -682,6 +721,80 @@ class OnboardRuntime:
 
         self._command_thread = threading.Thread(target=send, name="onboard-handoff", daemon=True)
         self._command_thread.start()
+
+    def _dispatch_motion_command(self, command: MotionCommand, state: VehicleState) -> Any:
+        """Dispatch a profile command to the FixedWingVtolVehicle protocol."""
+        vehicle = self.vehicle
+        target = command.target_ned or state.position_ned or (0.0, 0.0, 0.0)
+        # PX4 high-level commands use WGS84.  The policy remains local-NED;
+        # convert around the telemetry home when available.  Fakes without a
+        # geodetic home intentionally receive the local pair for deterministic
+        # tests and SIM adapters.
+        home_geo = getattr(state, "home_geodetic", None)
+        if home_geo is not None and len(home_geo) >= 2:
+            lat0, lon0 = float(home_geo[0]), float(home_geo[1])
+            earth = 6378137.0
+            centre = (
+                lat0 + math.degrees(float(target[0]) / earth),
+                lon0 + math.degrees(float(target[1]) / (earth * max(math.cos(math.radians(lat0)), 1e-6))),
+            )
+        else:
+            centre = (target[0], target[1])
+        altitude = -target[2]
+        profile = getattr(self.motion_adapter, "profile", None)
+        speed = command.speed_mps or getattr(profile, "cruise_airspeed_mps", 15.0)
+        if command.kind in {"mc_hold", "mc_reposition"}:
+            if self.pump is None:
+                raise RuntimeError("MC command requires an active setpoint pump")
+            yaw = command.yaw_deg if command.yaw_deg is not None else state.attitude_deg[2]
+            set_target = self.pump.set_target
+            set_target(PositionSetpoint(target[0], target[1], target[2], yaw))
+            return {"status": "accepted", "mode": "MC"}
+        if command.kind in {"loiter", "orbit", "mc_hold"}:
+            radius_fn = getattr(profile, "loiter_radius_m", None)
+            radius = command.radius_m or (radius_fn() if callable(radius_fn) else 30.0)
+            orbit_method = getattr(vehicle, "orbit", None)
+            loiter_method = getattr(vehicle, "loiter_at", None)
+            if callable(orbit_method):
+                return orbit_method(centre, radius, speed, alt=altitude, timeout_s=0.0)
+            if callable(loiter_method):
+                return loiter_method(centre, radius, altitude, speed=speed, timeout_s=0.0)
+            if not callable(orbit_method) and not callable(loiter_method):
+                raise RuntimeError("fixed-wing vehicle lacks orbit()/loiter_at()")
+        if command.kind in {"reposition", "mc_reposition"}:
+            method = getattr(vehicle, "reposition", None)
+            if not callable(method):
+                raise RuntimeError("fixed-wing vehicle lacks reposition()")
+            return method(centre, altitude, speed, radius=command.radius_m or 0.0,
+                          yaw_deg=command.yaw_deg, timeout_s=0.0)
+        if command.kind == "transition":
+            method = getattr(vehicle, "vtol_transition", None)
+            if not callable(method):
+                raise RuntimeError("VTOL vehicle lacks vtol_transition()")
+            return method(command.mode or "FW", timeout_s=0.0)
+        if command.kind == "fw_land":
+            method = getattr(vehicle, "fw_land", None)
+            if not callable(method):
+                raise RuntimeError("fixed-wing vehicle lacks fw_land()")
+            return method((command.metadata or {}).get("method", "runway"), point=centre,
+                          alt=0.0, timeout_s=0.0)
+        if command.kind == "mc_land":
+            transition = getattr(vehicle, "vtol_transition", None)
+            if callable(transition):
+                transition("MC", timeout_s=0.0)
+            method = getattr(vehicle, "land", None)
+            if not callable(method):
+                raise RuntimeError("VTOL vehicle lacks land()")
+            return method()
+        if command.kind == "fly_by_deliver":
+            # A release window needs validated timing, payload state and
+            # actuator acknowledgement.  Repositioning through it would turn
+            # a fail-closed request into an unverified drop, so keep this
+            # command disabled until the dedicated protocol is implemented.
+            raise RuntimeError("fixed-wing fly-by delivery is not enabled")
+        if command.kind == "stop":
+            return None
+        raise RuntimeError(f"unsupported motion command: {command.kind}")
 
     def _handoff_confirmed(self, state: VehicleState) -> bool:
         if self.failsafe_sent not in {"land", "rtl"}:
@@ -778,6 +891,35 @@ class OnboardRuntime:
             if self._result:
                 action, _labels, source_state = self._result
                 self._result = None
+                if isinstance(action, MotionCommand):
+                    if action.rejected:
+                        self._latch(action.reason or "motion command rejected", now)
+                        return
+                    try:
+                        result = self._dispatch_motion_command(action, source_state)
+                    except Exception as exc:
+                        self._latch(f"motion_command_error: {exc}", now)
+                        return
+                    result_ok = (
+                        True if result is None else
+                        bool(getattr(result, "ok", False)) if getattr(result, "ok", None) is not None else
+                        getattr(result, "status", "") in {"accepted", "sent", "success"}
+                    )
+                    if not result_ok:
+                        self._latch(
+                            f"motion_command_rejected: {getattr(result, 'detail', result)}", now
+                        )
+                        return
+                    self.steps += 1
+                    self._event("autonomy_motion_command", command=action.to_dict(), result=str(result))
+                    if action.kind in {"stop", "mc_land", "fw_land"}:
+                        self.mission_complete = action.kind == "stop"
+                        if action.kind == "stop":
+                            self._command(self.config.completion_action)
+                    self._motion = action, now
+                    if action.duration_s <= 0 and action.kind not in {"loiter", "orbit", "mc_hold"}:
+                        self._motion = None
+                    return
                 if isinstance(_labels, dict) and "safety" in _labels:
                     envelope_info = _labels["safety"]
                 else:
@@ -812,11 +954,16 @@ class OnboardRuntime:
                 self._motion = action, now
             if self._motion:
                 action, started = self._motion
-                complete = (
-                    now - started >= action.seconds
-                    if action.kind == "hold"
-                    else self._arrived(state, self.pump.target)
-                )
+                if isinstance(action, MotionCommand):
+                    # High-level commands are acknowledged by PX4; only timed
+                    # observation/loiter windows block the next policy frame.
+                    complete = action.duration_s <= 0 or now - started >= action.duration_s
+                else:
+                    complete = (
+                        now - started >= action.seconds
+                        if action.kind == "hold"
+                        else self._arrived(state, self.pump.target)
+                    )
                 if not complete:
                     if now - started >= self.config.action_timeout_s:
                         self._latch("action_timeout", now)

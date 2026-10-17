@@ -225,7 +225,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         task = ((package_options.get("task_text") if package else None)
                 or recording.task_text or "Find the object and record its position.")
         options: dict[str, Any] = {"mission": "find", "memory_enabled": False,
-                                   "confirm_min_side_px": 1000000}
+                                       "confirm_min_side_px": 1000000,
+                                       "airframe": "x500_mono_cam"}
     else:
         options = (json.loads(args.policy_config.read_text(encoding="utf-8"))
                    if getattr(args, "policy_config", None) else {})
@@ -233,11 +234,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         _validate_local_models(options)
         # Real mode admission has already verified and loaded the signed
         # package above; execution receives that exact object below.
-        # The shared controller's image bearing/rotation assumes a forward camera.
-        # Calibrated ground rays support all axes, but flight control does not yet.
-        for key in ("mount_yaw_right_deg", "mount_roll_clockwise_deg"):
-            if abs(float(calibration.extrinsics.get(key, 0))) > 1e-6:
-                raise ValueError(f"shared flight controller currently requires {key}=0")
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
         vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
@@ -309,6 +305,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             )
         runtime = OnboardRuntime(
             vehicle, camera, policy, config=config, home_ned=home if args.mode == "real" else None,
+            motion_adapter=getattr(raw_policy, "motion_adapter", None),
         )
         takeover = args.mode == "replay"
         runtime.start(active=takeover, own_flight=args.mode == "real")
