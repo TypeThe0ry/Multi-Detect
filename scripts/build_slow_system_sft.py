@@ -603,8 +603,10 @@ def build_dataset(
     index_document = _json(index)
     world_splits = {str(w["world_id"]): str(w["split"]) for w in index_document["worlds"]}
     world_metadata = {str(w["world_id"]): {"asset_mode": index_document.get("asset_mode"), **w} for w in index_document["worlds"]}
-    if set(world_splits.values()) != set(SPLITS):
-        raise ValueError("World index must contain train, val and test")
+    # A full campaign has train/val/test; a top-up round (r15) only adds training
+    # worlds and keeps the frozen test set elsewhere, so train is the requirement.
+    if "train" not in set(world_splits.values()) or not set(world_splits.values()) <= set(SPLITS):
+        raise ValueError("World index must contain train worlds and only train/val/test splits")
     rng = random.Random(seed)
     # Held-out target classes stay fully unseen in train/val: never the focus of a label.
     held_out_slugs = frozenset(
