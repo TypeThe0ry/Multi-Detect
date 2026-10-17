@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "scenario_id": "quadtailsitter_mono_cam_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {"path": "quadtailsitter_mono_cam_001.runtime.json", "sha256": "d25d283bfc9908ceabc4d3b10049bbc1fe9711c493c83e6ff402ca7cd5041ebf"},
+    "truth": {"path": "quadtailsitter_mono_cam_001.truth.json", "sha256": "a6006780188a290c05c68e4cbb77a5c1954ca9baab149ec9d4887ca3e9668967"},
+    "expectations": {"path": "quadtailsitter_mono_cam_001.expectations.json", "sha256": "0d280ed21419f7e12f65286795ccd5624e251245a42daefaf1a6b2a6f1c6a5ee"}
+  }
+}

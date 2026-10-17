@@ -640,6 +640,10 @@ def parse_builtin_world_uri(
         )
     root = _resolve_repository_root(repository_root)
     path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
+    # New airframe fixtures are self-contained under the scenario boundary so
+    # adding a model does not require changing the shared world asset tree.
+    if not path.is_file():
+        path = root / "configs" / "scenarios" / "airframes" / f"{name}.sdf"
     _assert_contained_file(path, root, "world asset")
     _validate_world_sdf(path, expected_name="default")
     return BuiltinWorldReference(value, name, path)
@@ -677,6 +681,8 @@ def parse_builtin_asset_uri(
         )
     root = _resolve_repository_root(repository_root)
     path = root / "simulation" / kind / name
+    if not path.is_file():
+        path = root / "configs" / "scenarios" / "airframes" / name
     _assert_contained_file(path, root, f"{kind} asset")
     return BuiltinAssetReference(value, kind, name, path)
 
@@ -1023,6 +1029,16 @@ def _vehicle_spec(model: str, profile: str) -> tuple[str, str]:
         raise SimulatorStackError("vehicle model/profile must be strings")
     model_lower = model.lower()
     profile_lower = profile.lower()
+    identity = f"{model_lower} {profile_lower}"
+    # Keep the explicit PX4 airframe names ahead of the broad class checks:
+    # advanced_plane contains ``plane`` and the tailsitter/tiltrotor profiles
+    # contain ``vtol`` in their family name but use different PX4 models.
+    if "quadtailsitter" in identity or "quad_tailsitter" in identity:
+        return "vtol", "quadtailsitter_mono_cam"
+    if "tiltrotor" in identity or "tilt_rotor" in identity:
+        return "vtol", "tiltrotor_mono_cam"
+    if "advanced_plane" in identity or "advanced-plane" in identity:
+        return "fixed-wing", "advanced_plane_mono_cam"
     # Check rotorcraft before the generic aircraft tokens.  The explicit
     # model/profile names keep a plain multirotor from being silently treated
     # as a VTOL just because both are rotor-bearing aircraft.
@@ -1319,11 +1335,20 @@ def _validate_model_sdf(path: Path, *, expected_name: str, vehicle_class: str) -
         for item in model.findall("include")
         if item.findtext("uri")
     }
-    base = {
-        "vtol": "model://standard_vtol",
-        "fixed-wing": "model://rc_cessna",
-        "multirotor": "model://x500",
-    }[vehicle_class]
+    base_by_model = {
+        "x500_mono_cam": "model://x500",
+        "standard_vtol_mono_cam": "model://standard_vtol",
+        "rc_cessna_mono_cam": "model://rc_cessna",
+        "advanced_plane_mono_cam": "model://advanced_plane",
+        "quadtailsitter_mono_cam": "model://quadtailsitter",
+        "tiltrotor_mono_cam": "model://tiltrotor",
+    }
+    try:
+        base = base_by_model[expected_name]
+    except KeyError as exc:
+        raise SimulatorStackError(
+            f"unsupported simulator model composition: {expected_name}"
+        ) from exc
     if base not in includes or "model://mono_cam" not in includes:
         raise SimulatorStackError(f"{vehicle_class} model is missing required local compositions")
     for uri in includes:
@@ -1522,6 +1547,9 @@ def _build_environment(
         "standard_vtol_mono_cam": "4004",
         "rc_cessna_mono_cam": "4003",
         "x500_mono_cam": "4001",
+        "advanced_plane_mono_cam": "4008",
+        "quadtailsitter_mono_cam": "4018",
+        "tiltrotor_mono_cam": "4020",
     }.get(model_name)
     if autostart is None:
         raise SimulatorStackError(f"unsupported simulator model for PX4 autostart: {model_name}")

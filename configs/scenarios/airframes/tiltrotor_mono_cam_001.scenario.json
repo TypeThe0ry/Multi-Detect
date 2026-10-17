@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "scenario_id": "tiltrotor_mono_cam_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {"path": "tiltrotor_mono_cam_001.runtime.json", "sha256": "4eb28d0da493915b4387261fab4787108af0ab82a1cddd1ac9e95f34cc54e8a2"},
+    "truth": {"path": "tiltrotor_mono_cam_001.truth.json", "sha256": "776d7ed42b43d32aa32127c20dcd84f33d5f289de79f45ae9d722d9be547b907"},
+    "expectations": {"path": "tiltrotor_mono_cam_001.expectations.json", "sha256": "de1bd4692e4d05fe20957d18fa99b583ea61e7d1304baa9600eef23c1c4169b8"}
+  }
+}
