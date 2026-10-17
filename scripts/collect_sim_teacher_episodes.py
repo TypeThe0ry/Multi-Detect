@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,12 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from scripts.run_simulator_docker import build_docker_simulator_plan  # noqa: E402
+from multidetect.px4_mission import (
+    MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+    MAV_CMD_NAV_WAYPOINT,
+    MAV_CMD_NAV_LAND,
+    Px4MissionItemInt,
+)
 
 PINNED_IMAGE = (
     "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
@@ -112,6 +119,8 @@ LAND_DESCENT_RATE_MPS = 0.2
 LAND_COMMAND_RETRY_INTERVAL_S = 5.0
 LAND_COMMAND_MAX_RETRIES = 5
 LAND_DIAGNOSTIC_INTERVAL_S = 5.0
+FIXED_WING_LANDING_GLIDE_ANGLE_DEG = 5.0
+MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
 GCS_SOURCE_SYSTEM = 255
@@ -1218,6 +1227,145 @@ class _ReaderAckLink:
             time.sleep(0.02)
         return None
 
+    def wait_message(self, message_types: set[str] | tuple[str, ...],
+                     timeout_s: float, *, after_ns: int = 0) -> Any:
+        """Read a protocol message from the reader-owned latest state."""
+        wanted = set(message_types)
+        deadline = time.monotonic() + max(0.0, float(timeout_s))
+        while time.monotonic() < deadline:
+            for name in wanted:
+                message = self._reader.state.get(name)
+                received = self._reader.state.received_monotonic_ns.get(name, -1)
+                if message is not None and received >= after_ns:
+                    return message
+            time.sleep(0.02)
+        return None
+
+
+def _global_position(state: Any) -> tuple[float, float]:
+    message = state.get("GLOBAL_POSITION_INT") or state.get("HOME_POSITION")
+    lat = _field(message, "lat", None)
+    lon = _field(message, "lon", None)
+    if lat is None:
+        lat = _field(message, "latitude", None)
+    if lon is None:
+        lon = _field(message, "longitude", None)
+    if lat is None or lon is None:
+        raise RuntimeError("PX4 GLOBAL_POSITION_INT/HOME_POSITION is not ready for landing")
+    scale = 1e7 if abs(float(lat)) > 90.0 or abs(float(lon)) > 180.0 else 1.0
+    return float(lat) / scale, float(lon) / scale
+
+
+def _fixed_wing_landing_items(
+    state: Any, *, glide_angle_deg: float = FIXED_WING_LANDING_GLIDE_ANGLE_DEG,
+) -> tuple[tuple[float, float], tuple[float, float], float]:
+    """Compute runway-entry and touchdown coordinates from runtime telemetry."""
+    if not math.isfinite(glide_angle_deg) or not 1.0 <= glide_angle_deg <= 30.0:
+        raise ValueError("landing glide angle must be between 1 and 30 degrees")
+    landing = _global_position(state)
+    altitude_m, _ = _landing_altitude(state)
+    distance_m = max(30.0, altitude_m / math.tan(math.radians(glide_angle_deg)))
+    attitude = state.get("ATTITUDE")
+    heading_deg = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else 0.0
+    # The runway heading is the current/scene heading.  The approach point is
+    # behind the threshold along the reciprocal course.
+    bearing = math.radians((heading_deg + 180.0) % 360.0)
+    lat, lon = landing
+    radius = 6371008.8
+    approach = (
+        lat + math.degrees(distance_m * math.cos(bearing) / radius),
+        lon + math.degrees(distance_m * math.sin(bearing) / (radius * math.cos(math.radians(lat)))),
+    )
+    return approach, landing, max(0.0, altitude_m)
+
+
+def _upload_fixed_wing_landing_mission(
+    link: _ReaderAckLink,
+    reader: MavlinkReader,
+    *,
+    landing_method: str,
+    timeout_s: float,
+    glide_angle_deg: float = FIXED_WING_LANDING_GLIDE_ANGLE_DEG,
+) -> Any:
+    """Upload approach, DO_LAND_START and NAV_LAND on the reader-owned link."""
+    method = str(landing_method).strip().lower()
+    if method == "parachute":
+        return SimpleNamespace(status="failed", ok=False,
+                               detail="parachute landing is not verified in PX4/Gazebo SITL")
+    if method not in {"runway", "belly"}:
+        return SimpleNamespace(status="failed", ok=False,
+                               detail=f"unsupported fixed-wing landing method: {method}")
+    configured_angle = getattr(link, "FW_LND_ANG", None)
+    params = getattr(link, "params", None)
+    if configured_angle is None and isinstance(params, dict):
+        configured_angle = params.get("FW_LND_ANG")
+    if configured_angle is not None:
+        try:
+            glide_angle_deg = float(configured_angle)
+        except (TypeError, ValueError):
+            return SimpleNamespace(status="failed", ok=False,
+                                   detail=f"invalid FW_LND_ANG parameter: {configured_angle!r}")
+    approach, landing, altitude_m = _fixed_wing_landing_items(
+        reader.state, glide_angle_deg=glide_angle_deg
+    )
+    target_system = int(getattr(link, "target_system", 1) or 1)
+    target_component = int(getattr(link, "target_component", 1) or 1)
+    mission_type = 0
+    items = [
+        Px4MissionItemInt(
+            target_system=1, target_component=1, sequence=0,
+            frame=MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, command=MAV_CMD_NAV_WAYPOINT,
+            current=1, autocontinue=1, param1=0.0, param2=30.0, param3=0.0,
+            param4=0.0, x=round(approach[0] * 1e7), y=round(approach[1] * 1e7),
+            z=max(altitude_m, 15.0), mission_type=mission_type,
+        ),
+        # DO_LAND_START is intentionally emitted as a raw MISSION_ITEM_INT;
+        # it is a PX4 mission command but is not part of the strict executable
+        # mission compiler's evaluator-facing command allow-list.
+        (2, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
+        Px4MissionItemInt(
+            target_system=1, target_component=1, sequence=2,
+            frame=MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, command=MAV_CMD_NAV_LAND,
+            current=0, autocontinue=1, param1=0.0, param2=0.0, param3=0.0,
+            param4=0.0, x=round(landing[0] * 1e7), y=round(landing[1] * 1e7),
+            z=0.0, mission_type=mission_type,
+        ),
+    ]
+    sender = getattr(getattr(link, "mav", None), "mission_count_send", None)
+    item_sender = getattr(getattr(link, "mav", None), "mission_item_int_send", None)
+    if not callable(sender) or not callable(item_sender):
+        return SimpleNamespace(status="failed", ok=False,
+                               detail="MAVLink connection lacks mission upload methods")
+    started_ns = time.monotonic_ns()
+    sender(target_system, target_component, len(items), mission_type)
+    sent: set[int] = set()
+    deadline = time.monotonic() + max(0.1, float(timeout_s))
+    while time.monotonic() < deadline and len(sent) < len(items):
+        request = link.wait_message(("MISSION_REQUEST_INT",), 0.25, after_ns=started_ns)
+        if request is None:
+            continue
+        sequence = int(_field(request, "seq", -1))
+        if sequence in sent or not 0 <= sequence < len(items):
+            continue
+        item = items[sequence]
+        if isinstance(item, Px4MissionItemInt):
+            item_sender(*item.to_send_args())
+        else:
+            _, command, p1, p2, p3, p4, p5, x, y, z = item
+            item_sender(target_system, target_component, sequence, 2, command,
+                        0, 1, p1, p2, p3, p4, x, y, z, mission_type)
+        sent.add(sequence)
+    if len(sent) != len(items):
+        return SimpleNamespace(status="timeout", ok=False,
+                               detail=f"MISSION_REQUEST_INT timeout; sent={sorted(sent)}")
+    ack = link.wait_message(("MISSION_ACK",), 1.5, after_ns=started_ns)
+    result = _field(ack, "type", None) if ack is not None else None
+    if ack is None or int(result) != 0:
+        return SimpleNamespace(status="failed", ok=False,
+                               detail=f"MISSION_ACK rejected or timed out: {result}")
+    _set_mode(link, "AUTO.MISSION")
+    return SimpleNamespace(status="accepted", ok=True, mission_items=len(items),
+                           approach=approach, landing=landing, altitude_m=altitude_m)
 
 def _land_diagnostics(
     state: Any, custom_modes: set[int], *, land_started_ns: int
@@ -1329,6 +1477,45 @@ def _land_and_wait(
         f"timed out waiting for land after {wait_timeout_s:.1f}s; "
         f"mode={diagnostics['mode']!r}; landed_state={diagnostics['landed_state']!r}; "
         f"altitude_m={diagnostics['altitude_m']}; retries={retries}"
+    )
+
+
+def _fixed_wing_or_vtol_land_and_wait(
+    executor: FixedWingVtolExecutor,
+    reader: MavlinkReader,
+    *,
+    timeout_s: float | None = None,
+) -> dict[str, Any]:
+    """Wait for the airframe-specific landing state after its command/mission."""
+    wait_timeout_s = float(timeout_s if timeout_s is not None else
+                           FixedWingVtolExecutor.STATE_TIMEOUT_S["land"])
+    started = time.monotonic()
+    started_ns = time.monotonic_ns()
+    result = executor.land()
+    if result.status != "success":
+        raise RuntimeError(f"fixed-wing/VTOL landing command failed: {_plain_record(result.ack)}")
+    while time.monotonic() - started < wait_timeout_s:
+        reader.raise_if_failed()
+        flight = _flight_state_snapshot(reader.state)
+        heartbeat = reader.state.get("HEARTBEAT")
+        base_mode = _field(heartbeat, "base_mode", None)
+        disarmed = base_mode is not None and not (int(base_mode) & 128)
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        landed_fresh = received.get("EXTENDED_SYS_STATE", -1) >= started_ns
+        heartbeat_fresh = received.get("HEARTBEAT", -1) >= started_ns
+        if (landed_fresh and flight["landed_state"] == 1) or (heartbeat_fresh and disarmed):
+            return {
+                "status": "landed",
+                "timeout_s": wait_timeout_s,
+                "elapsed_s": time.monotonic() - started,
+                "flight_state": flight,
+                "command": _plain_record(result.ack),
+            }
+        time.sleep(0.25)
+    flight = _flight_state_snapshot(reader.state)
+    raise TimeoutError(
+        f"timed out waiting for airframe landing after {wait_timeout_s:.1f}s; "
+        f"landed_state={flight['landed_state']}; airspeed_mps={flight['airspeed_mps']}"
     )
 
 
@@ -1926,6 +2113,14 @@ def run_episode(
                     landing_method=landing_method, altitude_m=altitude_m,
                     loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
                     position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
+                    land_mission=(
+                        lambda **kwargs: _upload_fixed_wing_landing_mission(
+                            _ReaderAckLink(vehicle, mav_reader), mav_reader,
+                            landing_method=kwargs.get("method", landing_method),
+                            timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["land"],
+                        )
+                        if profile.category == "fixed_wing" else None
+                    ),
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["takeoff_method"] = takeoff_method
@@ -2151,13 +2346,17 @@ def run_episode(
             if plan.airframe != "x500_mono_cam":
                 executor.rtl()
                 _progress("rtl")
-            # Give landing its own budget; policy time must not cut teardown short.
-            land_result = _land_and_wait(
-                executor,
-                mav_reader,
-                telemetry_connection,
-                setpoint_streamer,
-            )
+            # Fixed-wing/VTOL use their physical landing lifecycle.  x500 keeps
+            # the original OFFBOARD -> LAND helper and timing unchanged.
+            if plan.airframe == "x500_mono_cam":
+                land_result = _land_and_wait(
+                    executor,
+                    mav_reader,
+                    telemetry_connection,
+                    setpoint_streamer,
+                )
+            else:
+                land_result = _fixed_wing_or_vtol_land_and_wait(executor, mav_reader)
             land_result["flight_state"] = _flight_state_snapshot(mav_reader.state)
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:

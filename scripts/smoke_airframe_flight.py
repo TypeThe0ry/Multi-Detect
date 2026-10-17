@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,170 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
+
+
+def _jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as stream:
+        rows = []
+        for line in stream:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                rows.append(value)
+        return rows
+
+
+def _mav_value(row: dict[str, Any], field: str, default: Any = None) -> Any:
+    if field in row:
+        return row[field]
+    message = row.get("message")
+    if isinstance(message, dict):
+        return message.get(field, default)
+    return default
+
+
+def _norm3(values: Any) -> float | None:
+    if not isinstance(values, (list, tuple)) or len(values) < 3:
+        return None
+
+
+def _difference_norm(left: Any, right: Any) -> float | None:
+    if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)):
+        return None
+    if len(left) < 3 or len(right) < 3:
+        return None
+    try:
+        return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(left[:3], right[:3])))
+    except (TypeError, ValueError):
+        return None
+    try:
+        return math.sqrt(sum(float(v) ** 2 for v in values[:3]))
+    except (TypeError, ValueError):
+        return None
+
+
+def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
+                     target_altitude_m: float = 5.0) -> dict[str, Any]:
+    """Evaluate a completed collector artifact from telemetry and step records."""
+    episode_dir = Path(episode_dir)
+    episode = {}
+    episode_path = episode_dir / "episode.json"
+    if episode_path.is_file():
+        episode = json.loads(episode_path.read_text(encoding="utf-8"))
+    mavlink = _jsonl(episode_dir / "mavlink.jsonl")
+    if not mavlink:
+        mavlink = _jsonl(episode_dir / "mavlink.jsonl.gz")
+    steps = _jsonl(episode_dir / "steps.jsonl")
+    local_altitudes: list[float] = []
+    vtol_states: list[int] = []
+    airspeeds: list[float] = []
+    rtl_entered = False
+    landed = False
+    aligned: list[bool] = []
+    for row in mavlink:
+        kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+        if kind == "LOCAL_POSITION_NED":
+            z = _mav_value(row, "z")
+            if z is not None:
+                try:
+                    local_altitudes.append(-float(z))
+                except (TypeError, ValueError):
+                    pass
+        if kind == "EXTENDED_SYS_STATE":
+            try:
+                state = int(_mav_value(row, "vtol_state"))
+                vtol_states.append(state)
+            except (TypeError, ValueError):
+                pass
+            try:
+                landed = landed or int(_mav_value(row, "landed_state")) == 1
+            except (TypeError, ValueError):
+                pass
+        if kind == "VFR_HUD":
+            try:
+                airspeeds.append(float(_mav_value(row, "airspeed")))
+            except (TypeError, ValueError):
+                pass
+        if kind == "HEARTBEAT":
+            mode = str(_mav_value(row, "custom_mode", _mav_value(row, "mode", ""))).upper()
+            rtl_entered = rtl_entered or "RTL" in mode or "RETURN" in mode
+        if kind == "collector_landing_complete":
+            state = row.get("flight_state", {})
+            landed = landed or state.get("landed_state") == 1 or row.get("status") == "landed"
+        stamp = row.get("frame_sensor_stamp_ns")
+        pose_stamp = row.get("pose_sim_stamp_ns")
+        skew = row.get("sim_skew_ms")
+        if stamp is not None and pose_stamp is not None:
+            aligned.append(int(stamp) >= int(pose_stamp) and (skew is None or abs(float(skew)) <= 100.0))
+    for row in steps:
+        after = row.get("obs_after") or {}
+        if "frame_sensor_stamp_ns" in after and "pose_sim_stamp_ns" in after:
+            aligned.append(int(after["frame_sensor_stamp_ns"]) >= int(after["pose_sim_stamp_ns"]))
+    takeoff_success = bool(local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8))
+    if episode.get("takeoff_altitude_m") is not None:
+        takeoff_success = takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
+    if profile.category == "vtol":
+        transition_success = 4 in vtol_states or 5 in vtol_states
+    else:
+        transition_success = True
+    if profile.category == "vtol" and transition_success:
+        transition_success = transition_success and any(s in {3, 6} for s in vtol_states)
+    loiter_speeds: list[float] = []
+    for row in steps:
+        action = row.get("action") or {}
+        if str(action.get("kind", "")) not in {"hold", "orbit"}:
+            continue
+        after = row.get("obs_after") or {}
+        value = after.get("airspeed_mps")
+        if value is None:
+            value = (after.get("flight_state") or {}).get("airspeed_mps")
+        try:
+            if value is not None:
+                loiter_speeds.append(float(value))
+        except (TypeError, ValueError):
+            pass
+    measured_speeds = loiter_speeds or airspeeds
+    in_range = bool(measured_speeds) and all(
+        profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps
+        for speed in measured_speeds
+    )
+    reposition_errors: list[float] = []
+    for row in steps:
+        action = row.get("action") or {}
+        kind = str(action.get("kind", ""))
+        if kind not in {"translate", "reposition", "turn"}:
+            continue
+        outcome = row.get("outcome") or {}
+        error = _difference_norm(outcome.get("commanded_delta_ned"),
+                                 outcome.get("achieved_delta_ned"))
+        if error is not None:
+            reposition_errors.append(error)
+    video = episode.get("video") or {}
+    camera_frames = int(video.get("frames_written", video.get("frame_count", 0)) or 0)
+    if not camera_frames:
+        camera_frames = sum(1 for row in mavlink if row.get("message_type") == "video_frame")
+    if not camera_frames:
+        camera_frames = sum(1 for row in steps if isinstance(row.get("obs_after"), dict)
+                            and row["obs_after"].get("frame_sensor_stamp_ns") is not None)
+    failure = episode.get("failure")
+    return {
+        "takeoff_success": takeoff_success,
+        "transition_success": transition_success,
+        "loiter_airspeed_in_range": in_range,
+        "loiter_airspeed_mps": measured_speeds,
+        "reposition_error_m": reposition_errors,
+        "rtl_entered": rtl_entered,
+        "rtl_success": rtl_entered,
+        "landed": landed,
+        "camera_frames": camera_frames,
+        "frames_aligned": bool(aligned) and all(aligned),
+        "failure_reason": failure,
+    }
 
 ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane",
@@ -36,6 +202,7 @@ SCENARIO_ALIASES = {
     "standard_vtol_mono_cam": "river_rescue_vtol_001",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
 }
+DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 
 
 def profile_for(airframe: str, takeoff_method: str | None = None) -> AirframeProfile:
@@ -146,9 +313,17 @@ def main(argv: list[str] | None = None) -> int:
     result["failure_reason"] = None if completed.returncode == 0 else (completed.stderr or completed.stdout)[-2000:]
     result["collector_stdout_tail"] = completed.stdout[-2000:]
     result["judgement"] = dict(plan["judgement"])
-    result["judgement"]["takeoff_success"] = completed.returncode == 0
-    result["judgement"]["landed"] = completed.returncode == 0
-    result["judgement"]["frames_aligned"] = completed.returncode == 0
+    episodes = sorted(args.out.rglob("episode.json"), key=lambda path: path.stat().st_mtime)
+    if episodes:
+        parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
+        result["judgement"].update(parsed)
+        required = ("takeoff_success", "transition_success", "loiter_airspeed_in_range",
+                    "rtl_entered", "landed", "frames_aligned")
+        result["status"] = "pass" if completed.returncode == 0 and all(
+            result["judgement"].get(field) is True for field in required
+        ) else "fail"
+    else:
+        result["judgement"]["failure_reason"] = "collector produced no episode.json artifact"
     if completed.returncode != 0:
         result["judgement"]["failure_reason"] = result["failure_reason"]
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -47,6 +47,7 @@ class FixedWingVtolExecutor:
         position: Callable[[], tuple[float, float, float]] | None = None,
         yaw_deg: Callable[[], float] | None = None,
         wait_for_state: Callable[[str, float], Any] | None = None,
+        land_mission: Callable[..., Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
@@ -83,6 +84,7 @@ class FixedWingVtolExecutor:
         self._position = position or (lambda: (0.0, 0.0, -self.altitude_m))
         self._yaw = yaw_deg or (lambda: 0.0)
         self._wait_for_state = wait_for_state
+        self._land_mission = land_mission
         self._clock = clock
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
@@ -150,6 +152,9 @@ class FixedWingVtolExecutor:
             if method == "vtol":
                 return self._send_spec(mav, sender, nav_vtol_land(point=point, alt=alt), timeout_s,
                                        receiver_owner=self.vehicle)
+            if self._land_mission is not None:
+                return self._land_mission(method=method, point=point, alt=alt,
+                                          timeout_s=timeout_s)
             start = self._send_spec(mav, sender, do_land_start(), timeout_s,
                                     receiver_owner=self.vehicle)
             if not self._ok(start):
