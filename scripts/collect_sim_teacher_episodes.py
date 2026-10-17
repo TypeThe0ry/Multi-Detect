@@ -58,7 +58,6 @@ from multidetect.px4_mission import (
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
     MAV_CMD_NAV_WAYPOINT,
     MAV_CMD_NAV_LAND,
-    Px4MissionItemInt,
 )
 
 PINNED_IMAGE = (
@@ -120,6 +119,8 @@ LAND_COMMAND_RETRY_INTERVAL_S = 5.0
 LAND_COMMAND_MAX_RETRIES = 5
 LAND_DIAGNOSTIC_INTERVAL_S = 5.0
 FIXED_WING_LANDING_GLIDE_ANGLE_DEG = 5.0
+FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
+MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
@@ -1297,27 +1298,64 @@ def _global_position(state: Any) -> tuple[float, float]:
     return float(lat) / scale, float(lon) / scale
 
 
-def _fixed_wing_landing_items(
-    state: Any, *, glide_angle_deg: float = FIXED_WING_LANDING_GLIDE_ANGLE_DEG,
-) -> tuple[tuple[float, float], tuple[float, float], float]:
-    """Compute runway-entry and touchdown coordinates from runtime telemetry."""
-    if not math.isfinite(glide_angle_deg) or not 1.0 <= glide_angle_deg <= 30.0:
-        raise ValueError("landing glide angle must be between 1 and 30 degrees")
-    landing = _global_position(state)
-    altitude_m, _ = _landing_altitude(state)
-    distance_m = max(30.0, altitude_m / math.tan(math.radians(glide_angle_deg)))
-    attitude = state.get("ATTITUDE")
-    heading_deg = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else 0.0
-    # The runway heading is the current/scene heading.  The approach point is
-    # behind the threshold along the reciprocal course.
-    bearing = math.radians((heading_deg + 180.0) % 360.0)
-    lat, lon = landing
+def _home_runway(state: Any) -> tuple[tuple[float, float], float]:
+    """Touchdown point and runway heading (deg, NED) from PX4 HOME_POSITION.
+
+    PX4 stores the arming heading as the home yaw and publishes it in the
+    HOME_POSITION quaternion, so a runway takeoff defines the landing runway.
+    """
+    home = state.get("HOME_POSITION")
+    if home is None:
+        raise RuntimeError("PX4 HOME_POSITION is not ready for landing")
+    lat = _field(home, "latitude", None)
+    lon = _field(home, "longitude", None)
+    if lat is None or lon is None:
+        raise RuntimeError("PX4 HOME_POSITION has no latitude/longitude")
+    q = _field(home, "q", None)
+    heading_deg = 0.0
+    if isinstance(q, (list, tuple)) and len(q) == 4 and all(math.isfinite(float(v)) for v in q):
+        w, x, y, z = (float(v) for v in q)
+        heading_deg = math.degrees(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+    return (float(lat) / 1e7, float(lon) / 1e7), heading_deg % 360.0
+
+
+def _offset_latlon(origin: tuple[float, float], bearing_deg: float, distance_m: float) -> tuple[float, float]:
+    lat, lon = origin
     radius = 6371008.8
-    approach = (
+    bearing = math.radians(bearing_deg)
+    return (
         lat + math.degrees(distance_m * math.cos(bearing) / radius),
         lon + math.degrees(distance_m * math.sin(bearing) / (radius * math.cos(math.radians(lat)))),
     )
-    return approach, landing, max(0.0, altitude_m)
+
+
+def _fixed_wing_landing_items(
+    state: Any,
+    *,
+    glide_angle_deg: float = FIXED_WING_LANDING_GLIDE_ANGLE_DEG,
+    loiter_radius_m: float = 80.0,
+    approach_altitude_m: float = FIXED_WING_LANDING_APPROACH_ALT_M,
+) -> tuple[tuple[float, float], tuple[float, float], float, float]:
+    """Approach loiter and touchdown for a straight-in landing on the home runway.
+
+    The aircraft descends in a loiter (NAV_LOITER_TO_ALT) upwind of home, leaves
+    it tangentially and glides in along the runway heading.  The loiter centre
+    sits far enough back that the remaining glide stays shallower than the
+    glide angle even after leaving the circle.
+    """
+    if not math.isfinite(glide_angle_deg) or not 1.0 <= glide_angle_deg <= 30.0:
+        raise ValueError("landing glide angle must be between 1 and 30 degrees")
+    if not math.isfinite(loiter_radius_m) or loiter_radius_m <= 0.0:
+        raise ValueError("landing loiter radius must be positive")
+    landing, heading_deg = _home_runway(state)
+    glide_m = approach_altitude_m / math.tan(math.radians(glide_angle_deg))
+    distance_m = max(250.0, loiter_radius_m + 1.3 * glide_m)
+    approach = _offset_latlon(landing, (heading_deg + 180.0) % 360.0, distance_m)
+    return approach, landing, approach_altitude_m, heading_deg
+
+
+def _px4_mode_pair(custom_mode: int) -> tuple[int, int]:
+    return (custom_mode >> 16) & 0xFF, (custom_mode >> 24) & 0xFF
 
 
 def _upload_fixed_wing_landing_mission(
@@ -1327,8 +1365,10 @@ def _upload_fixed_wing_landing_mission(
     landing_method: str,
     timeout_s: float,
     glide_angle_deg: float = FIXED_WING_LANDING_GLIDE_ANGLE_DEG,
+    loiter_radius_m: float = 80.0,
+    mode_timeout_s: float = 15.0,
 ) -> Any:
-    """Upload approach, DO_LAND_START and NAV_LAND on the reader-owned link."""
+    """Upload DO_LAND_START, NAV_LOITER_TO_ALT and NAV_LAND, then enter MISSION."""
     method = str(landing_method).strip().lower()
     if method == "parachute":
         return SimpleNamespace(status="failed", ok=False,
@@ -1346,31 +1386,25 @@ def _upload_fixed_wing_landing_mission(
         except (TypeError, ValueError):
             return SimpleNamespace(status="failed", ok=False,
                                    detail=f"invalid FW_LND_ANG parameter: {configured_angle!r}")
-    approach, landing, altitude_m = _fixed_wing_landing_items(
-        reader.state, glide_angle_deg=glide_angle_deg
+    approach, landing, altitude_m, heading_deg = _fixed_wing_landing_items(
+        reader.state, glide_angle_deg=glide_angle_deg, loiter_radius_m=loiter_radius_m,
     )
     target_system = int(getattr(link, "target_system", 1) or 1)
     target_component = int(getattr(link, "target_component", 1) or 1)
     mission_type = 0
+
+    def latlon(point: tuple[float, float]) -> tuple[int, int]:
+        return round(point[0] * 1e7), round(point[1] * 1e7)
+
+    # (frame, command, param1..4, x, y, z).  DO_LAND_START carries the approach
+    # position so PX4 can also choose this landing for RTL.
     items = [
-        Px4MissionItemInt(
-            target_system=1, target_component=1, sequence=0,
-            frame=MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, command=MAV_CMD_NAV_WAYPOINT,
-            current=1, autocontinue=1, param1=0.0, param2=30.0, param3=0.0,
-            param4=0.0, x=round(approach[0] * 1e7), y=round(approach[1] * 1e7),
-            z=max(altitude_m, 15.0), mission_type=mission_type,
-        ),
-        # DO_LAND_START is intentionally emitted as a raw MISSION_ITEM_INT;
-        # it is a PX4 mission command but is not part of the strict executable
-        # mission compiler's evaluator-facing command allow-list.
-        (2, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
-        Px4MissionItemInt(
-            target_system=1, target_component=1, sequence=2,
-            frame=MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, command=MAV_CMD_NAV_LAND,
-            current=0, autocontinue=1, param1=0.0, param2=0.0, param3=0.0,
-            param4=0.0, x=round(landing[0] * 1e7), y=round(landing[1] * 1e7),
-            z=0.0, mission_type=mission_type,
-        ),
+        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_DO_LAND_START, 0.0, 0.0, 0.0, 0.0,
+         *latlon(approach), 0.0),
+        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LOITER_TO_ALT, 0.0, float(loiter_radius_m), 0.0, 0.0,
+         *latlon(approach), float(altitude_m)),
+        (MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_NAV_LAND, 0.0, 0.0, 0.0, float("nan"),
+         *latlon(landing), 0.0),
     ]
     sender = getattr(getattr(link, "mav", None), "mission_count_send", None)
     item_sender = getattr(getattr(link, "mav", None), "mission_item_int_send", None)
@@ -1388,13 +1422,9 @@ def _upload_fixed_wing_landing_mission(
         sequence = int(_field(request, "seq", -1))
         if sequence in sent or not 0 <= sequence < len(items):
             continue
-        item = items[sequence]
-        if isinstance(item, Px4MissionItemInt):
-            item_sender(*item.to_send_args())
-        else:
-            _, command, p1, p2, p3, p4, p5, x, y, z = item
-            item_sender(target_system, target_component, sequence, 2, command,
-                        0, 1, p1, p2, p3, p4, x, y, z, mission_type)
+        frame, command, p1, p2, p3, p4, x, y, z = items[sequence]
+        item_sender(target_system, target_component, sequence, frame, command,
+                    0, 1, p1, p2, p3, p4, x, y, z, mission_type)
         sent.add(sequence)
     if len(sent) != len(items):
         return SimpleNamespace(status="timeout", ok=False,
@@ -1404,9 +1434,23 @@ def _upload_fixed_wing_landing_mission(
     if ack is None or int(result) != 0:
         return SimpleNamespace(status="failed", ok=False,
                                detail=f"MISSION_ACK rejected or timed out: {result}")
-    _set_mode(link, "AUTO.MISSION")
+    # PX4 validates a fresh mission asynchronously and answers an early MISSION
+    # request with "currently not available"; ask again until the heartbeat
+    # reports AUTO.MISSION.
+    mode_deadline = time.monotonic() + max(0.0, float(mode_timeout_s))
+    while True:
+        _set_mode(link, "AUTO.MISSION")
+        heartbeat = link.wait_message(("HEARTBEAT",), 1.0, after_ns=time.monotonic_ns())
+        custom = _field(heartbeat, "custom_mode", None) if heartbeat is not None else None
+        if custom is not None and _px4_mode_pair(int(custom)) == (4, 4):
+            break
+        if time.monotonic() >= mode_deadline:
+            return SimpleNamespace(status="failed", ok=False,
+                                   detail=f"PX4 did not enter AUTO.MISSION; custom_mode={custom}")
     return SimpleNamespace(status="accepted", ok=True, mission_items=len(items),
-                           approach=approach, landing=landing, altitude_m=altitude_m)
+                           approach=approach, landing=landing, altitude_m=altitude_m,
+                           runway_heading_deg=heading_deg)
+
 
 def _land_diagnostics(
     state: Any, custom_modes: set[int], *, land_started_ns: int
@@ -1519,6 +1563,27 @@ def _land_and_wait(
         f"mode={diagnostics['mode']!r}; landed_state={diagnostics['landed_state']!r}; "
         f"altitude_m={diagnostics['altitude_m']}; retries={retries}"
     )
+
+
+def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float) -> dict[str, Any]:
+    """Wait until the local position is within ``radius_m`` of home (horizontal)."""
+    started = time.monotonic()
+    distance = float("nan")
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        position = reader.state.get("LOCAL_POSITION_NED")
+        home = reader.state.get("HOME_POSITION")
+        if position is not None and home is not None:
+            distance = math.hypot(
+                float(_field(position, "x", 0.0)) - float(_field(home, "x", 0.0)),
+                float(_field(position, "y", 0.0)) - float(_field(home, "y", 0.0)),
+            )
+            if distance <= radius_m:
+                return {"status": "near_home", "distance_m": distance,
+                        "elapsed_s": time.monotonic() - started}
+        time.sleep(0.25)
+    # Landing from farther out still works; the mission flies to the approach first.
+    return {"status": "timeout", "distance_m": distance, "elapsed_s": time.monotonic() - started}
 
 
 def _fixed_wing_or_vtol_land_and_wait(
@@ -2154,11 +2219,12 @@ def run_episode(
                     loiter_radius_m=profile.orbit_radius(), ground_speed_mps=profile.cruise_airspeed_mps,
                     position=lambda: _state_position(mav_reader.state), yaw_deg=lambda: _state_yaw(mav_reader.state),
                     land_mission=(
-                        lambda **kwargs: _upload_fixed_wing_landing_mission(
+                        (lambda **kwargs: _upload_fixed_wing_landing_mission(
                             _ReaderAckLink(vehicle, mav_reader), mav_reader,
                             landing_method=kwargs.get("method", landing_method),
                             timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["land"],
-                        )
+                            loiter_radius_m=profile.orbit_radius(),
+                        ))
                         if profile.category == "fixed_wing" else None
                     ),
                 )
@@ -2386,6 +2452,15 @@ def run_episode(
             if plan.airframe != "x500_mono_cam":
                 executor.rtl()
                 _progress("rtl")
+                profile = _airframe_profile(plan.airframe)
+                if profile is not None and profile.category == "fixed_wing":
+                    # Let RTL bring the aircraft back over home before the landing
+                    # mission replaces it; switching straight away races PX4's
+                    # mission validation and starts the approach from far out.
+                    _progress("rtl_home", **_wait_near_home(
+                        mav_reader, radius_m=2.0 * profile.orbit_radius() + 50.0,
+                        timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
+                    ))
             # Fixed-wing/VTOL use their physical landing lifecycle.  x500 keeps
             # the original OFFBOARD -> LAND helper and timing unchanged.
             if plan.airframe == "x500_mono_cam":

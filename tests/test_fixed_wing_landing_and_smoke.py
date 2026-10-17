@@ -13,6 +13,9 @@ class _State:
             "GLOBAL_POSITION_INT": {"lat": 135000000, "lon": 1038000000},
             "LOCAL_POSITION_NED": {"z": -100.0},
             "ATTITUDE": {"yaw": 0.0},
+            # Home 0.5 km away, runway heading east (yaw 90 deg).
+            "HOME_POSITION": {"latitude": 135045000, "longitude": 1038000000,
+                              "q": [0.7071067811865476, 0.0, 0.0, 0.7071067811865476]},
         }
         self.received_monotonic_ns = {}
 
@@ -33,6 +36,10 @@ class _Reader:
                 return next(self._requests)
             except StopIteration:
                 return None
+        if "HEARTBEAT" in names:
+            # PX4 rejects the first MISSION request while it validates the upload.
+            self.mode_polls = getattr(self, "mode_polls", 0) + 1
+            return {"custom_mode": (4 << 16) | (4 << 24) if self.mode_polls > 1 else (4 << 16) | (5 << 24)}
         return self._ack
 
 
@@ -74,9 +81,16 @@ def test_fixed_wing_landing_uploads_approach_land_start_and_land():
         "MISSION_COUNT", "MISSION_ITEM_INT", "MISSION_ITEM_INT", "MISSION_ITEM_INT"
     ]
     commands = [entry[1][4] for entry in link.mav.sent[1:]]
-    assert commands == [16, 189, 21]
-    # pymavlink only knows the bare PX4 mode name.
-    assert link.modes == ["MISSION"]
+    assert commands == [189, 31, 21]
+    # Touchdown at home, approach loiter upwind (west of home for an east runway).
+    land = link.mav.sent[3][1]
+    loiter = link.mav.sent[2][1]
+    assert (land[11], land[12]) == (135045000, 1038000000)
+    assert loiter[11] == 135045000 and loiter[12] < 1038000000
+    assert loiter[13] == collector.FIXED_WING_LANDING_APPROACH_ALT_M
+    assert abs(result.runway_heading_deg - 90.0) < 1e-6
+    # pymavlink only knows the bare PX4 mode name; retried until PX4 reports MISSION.
+    assert link.modes == ["MISSION", "MISSION"]
 
 
 def test_fixed_wing_landing_reports_request_timeout_and_unverified_parachute():
