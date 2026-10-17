@@ -179,6 +179,73 @@ class ExplorePolicy:
         return self.next_action()
 
 
+class HoverPolicy:
+    """Move to a trajectory standoff, turn toward its centroid, then hold."""
+
+    def __init__(
+        self,
+        target_ned: tuple[float, float, float],
+        hold_s: float = 2.0,
+        *,
+        trajectory: Mapping[str, Any] | None = None,
+        standoff_distance_m: float | None = None,
+    ):
+        self.target_ned = target_ned
+        self.hold_s = hold_s
+        self._phase = 0
+        self.centroid_ned = target_ned
+        self.standoff_distance_m = standoff_distance_m
+        if trajectory is not None:
+            points = [tuple(float(v) for v in p[:2]) for p in trajectory.get("waypoints", ())]
+            if len(points) >= 2:
+                east = sum(point[0] for point in points) / len(points)
+                north = sum(point[1] for point in points) / len(points)
+                half_extent = max(
+                    max(point[0] for point in points) - min(point[0] for point in points),
+                    max(point[1] for point in points) - min(point[1] for point in points),
+                ) / 2.0
+                distance = max(15.0, 1.6 * half_extent + 6.0)
+                self.centroid_ned = (north, east, target_ned[2])
+                self.standoff_distance_m = distance
+
+    @staticmethod
+    def ned_to_body(delta_n: float, delta_e: float, yaw_deg: float) -> tuple[float, float]:
+        """Convert a NED horizontal displacement to body forward/right."""
+        yaw = math.radians(float(yaw_deg))
+        return (
+            delta_n * math.cos(yaw) + delta_e * math.sin(yaw),
+            -delta_n * math.sin(yaw) + delta_e * math.cos(yaw),
+        )
+
+    def next_action(
+        self,
+        *,
+        pose_ned: tuple[float, float, float] | None = None,
+        yaw_deg: float = 90.0,
+    ) -> ActionPrimitive:
+        if self._phase == 0:
+            pose = pose_ned or (0.0, 0.0, 0.0)
+            distance = self.standoff_distance_m
+            if distance is None:
+                target = self.target_ned
+                delta_n, delta_e = target[0] - pose[0], target[1] - pose[1]
+            else:
+                # South of the ENU trajectory centroid means lower northing.
+                target_n = self.centroid_ned[0] - distance
+                target_e = self.centroid_ned[1]
+                delta_n, delta_e = target_n - pose[0], target_e - pose[1]
+            forward, right = self.ned_to_body(delta_n, delta_e, yaw_deg)
+            self._phase = 1
+            return ActionPrimitive.translate(forward, right, 0.0)
+        if self._phase == 1 and self.standoff_distance_m is not None:
+            pose = pose_ned or (0.0, 0.0, 0.0)
+            desired = math.degrees(math.atan2(self.centroid_ned[1] - pose[1], self.centroid_ned[0] - pose[0]))
+            delta = (desired - float(yaw_deg) + 180.0) % 360.0 - 180.0
+            self._phase = 2
+            return ActionPrimitive.turn(delta)
+        return ActionPrimitive.hold(self.hold_s)
+
+
 def target_in_fov(
     target_ned: tuple[float, float, float],
     pose_ned: tuple[float, float, float],
@@ -716,6 +783,7 @@ class ExpertSearchPolicy:
 __all__ = [
     "ExploreBounds",
     "ExplorePolicy",
+    "HoverPolicy",
     "ExpertSearchPolicy",
     "SDFObstacle",
     "load_sdf_obstacles",

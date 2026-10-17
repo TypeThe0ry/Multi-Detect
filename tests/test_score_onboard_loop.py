@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import tempfile
 from pathlib import Path
 
@@ -24,6 +26,127 @@ def test_unknown_colour_cannot_rule_out_and_category_match_counts() -> None:
     assert task_equivalent(blue_car, {"category_words": ["car", "suv"], "color": None})
     person = {"category_words": ["person", "pedestrian"], "class": "person"}
     assert task_equivalent(person, {"category_words": ["woman"], "class": "person"})
+
+
+def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
+    from multidetect.simulator.world_gen import trajectory_position
+    from scripts.score_onboard_loop import target_pose_at_time
+
+    trajectory = {
+        "speed_mps": 2.0,
+        "waypoints": [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+    }
+    assert trajectory_position(trajectory, 0.0) == (0.0, 0.0)
+    assert trajectory_position(trajectory, 2.0) == (4.0, 0.0)
+    assert trajectory_position(trajectory, 4.0) == (4.0, 4.0)
+    assert trajectory_position(trajectory, 8.0) == (0.0, 0.0)
+    assert target_pose_at_time(
+        {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": trajectory}, 1.0
+    ) == {"x_east_m": 2.0, "y_north_m": 0.0}
+
+
+def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
+    from scripts.score_onboard_loop import _moving_track_metrics
+
+    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [10, 0]]}}
+    rows = [
+        {"frame_sensor_stamp_ns": 0, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}},
+        {"frame_sensor_stamp_ns": 5_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 5]}}}},
+    ]
+    metrics = _moving_track_metrics(rows, target, 1.0, 5.0)
+    assert metrics["moving_track_sample_count"] == 2
+    assert metrics["moving_track_continuity"] == 1.0
+    assert metrics["moving_distance_max_m"] == 0.0
+
+
+def test_hovering_target_does_not_meet_time_coverage_or_mean_distance_gate() -> None:
+    from scripts.score_onboard_loop import _moving_track_metrics
+
+    target = {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [100, 0]]}}
+    rows = [{"frame_sensor_stamp_ns": i * 1_000_000_000, "labels": {"onboard": {"confirmed": {"position_estimate_ne": [0, 0]}}}} for i in range(0, 91, 10)]
+    metrics = _moving_track_metrics(rows, target, 2.0, 120.0)
+    assert metrics["moving_time_coverage"] < 0.8
+    assert metrics["moving_track_eligible"] is False
+
+
+def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
+    from scripts.score_onboard_loop import _mission_metrics
+
+    truth = {
+        "targets": [
+            {
+                "target_id": "moving-car",
+                "label": "vehicle car",
+                "category_words": ["vehicle", "car"],
+                "class": "vehicle",
+                "pose": {"x_east_m": 0.0, "y_north_m": 0.0},
+                "trajectory": {
+                    "speed_mps": 1.0,
+                    "waypoints": [[0.0, 0.0], [10.0, 0.0]],
+                },
+                "true_target": True,
+            }
+        ]
+    }
+    rows = [
+        {
+            "frame_sensor_stamp_ns": 5_000_000_000,
+            "labels": {
+                "onboard": {
+                    "mission": {
+                        "plan": {"skills": ["monitor"]},
+                        "alerts": ["watch:alert:vehicle@0.0,5.0"],
+                    }
+                }
+            },
+        }
+    ]
+
+    metrics = _mission_metrics(rows, truth, radius_m=1.0)
+
+    assert metrics["mission_alerts"][0]["time_s"] == 5.0
+    assert metrics["mission_alerts"][0]["matches_query"] is True
+    assert metrics["mission_alert_precision"] == 1.0
+
+
+def test_mover_worlds_have_explicit_splits_and_sensor_rendered_trajectory(tmp_path) -> None:
+    from multidetect.simulator.world_gen import generate_mover_worlds
+
+    worlds = tmp_path / "worlds"
+    scenarios = tmp_path / "scenarios"
+    first = generate_mover_worlds(out_worlds=worlds, out_scenarios=scenarios)
+    before = (worlds / "gen_mov_w0000.sdf").read_bytes()
+    second = generate_mover_worlds(out_worlds=worlds, out_scenarios=scenarios)
+    assert before == (worlds / "gen_mov_w0000.sdf").read_bytes()
+    assert first == second
+    assert {entry["split"] for entry in first["worlds"]} == {"train", "val", "test"}
+    text = before.decode()
+    assert '<model name="target_true_gen_mov_w0000"><static>true</static>' in text
+    assert "gz-sim-label-system" in text
+    assert "<actor" not in text
+    assert "trajectory-follower" not in text
+
+
+def test_verify_mover_postprocess_projects_truth_and_reads_recorded_labels(tmp_path) -> None:
+    from PIL import Image
+    from scripts.verify_mover_world import postprocess_episode
+
+    episode = tmp_path / "episode-0000"
+    (episode / "seg").mkdir(parents=True)
+    (episode / "rgb").mkdir()
+    cam = {"width": 64, "height": 48, "fx": 40.0, "fy": 40.0, "cx": 32.0, "cy": 24.0}
+    pose = {"local_ned_m": [0.0, 0.0, -10.0], "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0}}
+    seg = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); seg[20:28, 28:36, 2] = 1
+    rgb = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); rgb[20:28, 28:36] = 255
+    Image.fromarray(seg).save(episode / "seg/frame.png"); Image.fromarray(rgb).save(episode / "rgb/frame.png")
+    held = {"action": {"kind": "hold"}, "obs_before": {"frame_sensor_stamp_ns": 0, "pose": pose, "attitude": {"roll_deg": 0.5, "pitch_deg": -0.5}, "camera_info": cam, "segmentation_path": "seg/frame.png", "rgb_path": "rgb/frame.png"}}
+    turning = {"action": {"kind": "turn"}, "obs_before": dict(held["obs_before"])}
+    (episode / "steps.jsonl").write_text(json.dumps(held) + "\n" + json.dumps(turning) + "\n")
+    truth = {"targets": [{"target_id": "t", "true_target": True, "pose": {"x_east_m": 0.0, "y_north_m": 5.0, "z_up_m": 0.0}, "size_m": [2.0, 2.0, 2.0], "bottom_offset_m": -1.0}], "segmentation_labels": {"1": {"target_id": "t"}}}
+    result = postprocess_episode(episode, truth)
+    assert "median_centroid_error_px" in result
+    # Only the frame taken while holding still is scored; the mid-turn one is skipped.
+    assert result["skipped_maneuvering_frames"] == 1
 
 
 def test_count_metrics_match_findings_to_distinct_members() -> None:
@@ -188,3 +311,14 @@ def test_low_disk_score_checks_metadata_before_missing_or_truncated_steps(tmp_pa
     result = score_episode(episode, {"targets": []})
     assert result["status"] == "aborted_low_disk"
     assert result["excluded_from_model_failure_metrics"] is True
+
+
+def test_mover_trajectory_ids_are_integers_for_gazebo():
+    # SDF requires <trajectory id> to be an integer; `id="move"` made Gazebo reject
+    # the whole world (found by loading it in the real Gazebo Harmonic image).
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    for world in sorted(Path("simulation/gazebo/worlds").glob("gen_mov_w*.sdf")):
+        for trajectory in ET.parse(world).getroot().iter("trajectory"):
+            assert trajectory.get("id", "").isdigit(), world

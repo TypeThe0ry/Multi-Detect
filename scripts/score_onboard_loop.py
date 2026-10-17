@@ -48,6 +48,7 @@ def truth_for_episode(
         return None, None
     roots = [scenarios] if scenarios is not None else []
     default_roots = (
+        ROOT / "configs/scenarios/generated-movers",
         ROOT / "configs/scenarios/generated-count-site",
         ROOT / "configs/scenarios/generated-confusers",
         ROOT / "configs/scenarios/generated-confusers-2",
@@ -68,6 +69,7 @@ def truth_for_episode(
 
 from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
+from multidetect.simulator.world_gen import trajectory_position  # noqa: E402
 
 
 def _iou(a, b) -> float:
@@ -82,12 +84,50 @@ def _true_target(truth: dict[str, Any]) -> dict[str, Any]:
     return next(t for t in truth["targets"] if t.get("true_target"))
 
 
-def _nearest_object(truth: dict[str, Any], north_east, radius_m: float):
+def _sim_time(value: Any) -> float | None:
+    if isinstance(value, dict):
+        for key in ("sim_time_s", "simulation_time_s", "timestamp_s", "sim_timestamp_s"):
+            candidate = value.get(key)
+            if isinstance(candidate, (int, float)) and math.isfinite(float(candidate)):
+                return float(candidate)
+        # Sensor observations carry Gazebo's simulation clock in nanoseconds.
+        # Host receive timestamps are deliberately ignored for mover scoring.
+        for key in ("frame_sensor_stamp_ns", "pose_sim_stamp_ns"):
+            candidate = value.get(key)
+            if isinstance(candidate, (int, float)) and math.isfinite(float(candidate)):
+                return float(candidate) / 1_000_000_000.0
+        for key in ("time", "timestamp"):
+            candidate = value.get(key)
+            if isinstance(candidate, dict):
+                found = _sim_time(candidate)
+                if found is not None:
+                    return found
+    return None
+
+
+def _row_sim_time(row: dict[str, Any]) -> float | None:
+    value = _sim_time(row)
+    return value if value is not None else _sim_time(row.get("obs_before"))
+
+
+def target_pose_at_time(target: dict[str, Any], time_s: float | None) -> dict[str, float]:
+    pose = dict(target.get("pose") or {})
+    trajectory = target.get("trajectory")
+    if trajectory and time_s is not None:
+        x, y = trajectory_position(trajectory, time_s)
+        pose["x_east_m"], pose["y_north_m"] = x, y
+    return pose
+
+
+def _nearest_object(
+    truth: dict[str, Any], north_east, radius_m: float, time_s: float | None = None
+):
     best, best_distance = None, radius_m
     for obj in truth["targets"]:
+        pose = target_pose_at_time(obj, time_s)
         distance = math.hypot(
-            north_east[0] - float(obj["pose"]["y_north_m"]),
-            north_east[1] - float(obj["pose"]["x_east_m"]),
+            north_east[0] - float(pose["y_north_m"]),
+            north_east[1] - float(pose["x_east_m"]),
         )
         if distance <= best_distance:
             best, best_distance = obj, distance
@@ -209,6 +249,39 @@ def _mission_area(
     return None
 
 
+def _moving_track_metrics(rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float) -> dict[str, Any]:
+    """Score only SIM-timestamped target estimates; host timestamps are rejected."""
+    samples = []
+    for row in rows:
+        time_s = _row_sim_time(row)
+        confirmed = (((row.get("labels") or {}).get("onboard") or {}).get("confirmed") or {})
+        estimate = confirmed.get("position_estimate_ne") if isinstance(confirmed, dict) else None
+        if time_s is None or not isinstance(estimate, (list, tuple)) or len(estimate) < 2:
+            continue
+        try:
+            north, east = float(estimate[0]), float(estimate[1])
+            pose = target_pose_at_time(target, time_s)
+            distance = math.hypot(north - float(pose["y_north_m"]), east - float(pose["x_east_m"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+        samples.append({"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m})
+    samples.sort(key=lambda item: item["time_s"])
+    times = [s["time_s"] for s in samples]
+    covered = max(0.0, min(task_duration_s, (times[-1] - times[0]) if times else 0.0))
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    return {
+        "moving_track_samples": samples,
+        "moving_distance_mean_m": (sum(s["distance_m"] for s in samples) / len(samples) if samples else None),
+        "moving_distance_max_m": (max(s["distance_m"] for s in samples) if samples else None),
+        "moving_track_continuity": (sum(s["within_radius"] for s in samples) / len(samples) if samples else None),
+        "moving_track_sample_count": len(samples),
+        "moving_task_duration_s": task_duration_s,
+        "moving_time_coverage": covered / task_duration_s if task_duration_s > 0 else 0.0,
+        "moving_max_gap_s": max(gaps, default=float("inf")),
+        "moving_track_eligible": bool(samples and covered / task_duration_s >= 0.8 and max(gaps, default=float("inf")) <= 5.0 and sum(s["distance_m"] for s in samples) / len(samples) <= radius_m and sum(s["within_radius"] for s in samples) / len(samples) >= 0.8),
+    }
+
+
 def _mission_metrics(
     rows: list[dict[str, Any]],
     truth: dict[str, Any],
@@ -263,7 +336,23 @@ def _mission_metrics(
             )
 
     parsed_alerts = []
-    for alert in latest.get("alerts") or []:
+    alert_records = []
+    previous_alerts: list[str] = []
+    for row in rows:
+        mission_row = ((row.get("labels") or {}).get("onboard") or {}).get("mission") or {}
+        if isinstance(mission_row, dict):
+            alerts = mission_row.get("alerts") or []
+            if isinstance(alerts, list) and alerts[: len(previous_alerts)] == previous_alerts:
+                alerts = alerts[len(previous_alerts) :]
+            if isinstance(mission_row.get("alerts"), list):
+                previous_alerts = list(mission_row["alerts"])
+            alert_records.extend(
+                (alert, _row_sim_time(row))
+                for alert in alerts
+            )
+    if not alert_records:
+        alert_records = [(alert, None) for alert in latest.get("alerts") or []]
+    for alert, alert_time_s in alert_records:
         if not isinstance(alert, str) or ":alert:" not in alert:
             continue
         payload = alert.split(":alert:", 1)[1]
@@ -278,7 +367,9 @@ def _mission_metrics(
         except ValueError:
             continue
         if query.strip() and math.isfinite(north) and math.isfinite(east):
-            parsed_alerts.append({"query": query.strip(), "north": north, "east": east})
+            parsed_alerts.append(
+                {"query": query.strip(), "north": north, "east": east, "time_s": alert_time_s}
+            )
 
     targets = [obj for obj in truth.get("targets", []) if isinstance(obj, dict)]
     zone = _mission_area(missions, mission_config)
@@ -287,7 +378,7 @@ def _mission_metrics(
     for alert in parsed_alerts:
         nearest_index, nearest_distance = None, radius_m
         for index, obj in enumerate(targets):
-            pose = obj.get("pose") or {}
+            pose = target_pose_at_time(obj, alert.get("time_s"))
             try:
                 distance = math.hypot(
                     alert["north"] - float(pose["y_north_m"]),
@@ -323,7 +414,11 @@ def _mission_metrics(
             continue
         if zone is not None:
             center, zone_radius = zone
-            pose = obj.get("pose") or {}
+            pose = target_pose_at_time(obj, None)
+            if obj.get("trajectory"):
+                # Eligibility is evaluated against the object's initial position;
+                # individual alert correctness above remains SIM-time aware.
+                pose = target_pose_at_time(obj, 0.0)
             try:
                 distance = math.hypot(
                     center[0] - float(pose["y_north_m"]),
@@ -336,7 +431,7 @@ def _mission_metrics(
         eligible_indices.add(index)
 
     last_history = history[-1] if history and isinstance(history[-1], dict) else {}
-    return {
+    result = {
         "mission_plan_skills": skills,
         "mission_step_outcomes": history,
         "mission_alerts": parsed_alerts,
@@ -362,6 +457,10 @@ def _mission_metrics(
             and last_history.get("skill") in {"return_home", "land"}
         ),
     }
+    if any(obj.get("trajectory") for obj in targets):
+        duration = 120.0 if _true_target(truth).get("class") == "person" else 300.0
+        result.update(_moving_track_metrics(rows, _true_target(truth), radius_m, duration))
+    return result
 
 
 def _supervisor_evidence(episode: Path) -> dict[str, Any]:
@@ -479,7 +578,9 @@ def _supervisor_evidence(episode: Path) -> dict[str, Any]:
     return evidence
 
 
-def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any]):
+def _true_box(
+    episode: Path, observation: dict[str, Any], truth: dict[str, Any], time_s: float | None = None
+):
     target = _true_target(truth)
     seg_name = observation.get("segmentation_path")
     if seg_name and truth.get("segmentation_labels"):
@@ -489,7 +590,7 @@ def _true_box(episode: Path, observation: dict[str, Any], truth: dict[str, Any])
         boxes = boxes_from_segmentation(labels, truth, min_area_px=4, min_box_px=2)
         hit = boxes.get(str(target["target_id"]))
         return (list(hit["box"]) if hit else None), "segmentation"
-    pose = target["pose"]
+    pose = target_pose_at_time(target, time_s)
     info = observation["camera_info"]
     box = project_target_bbox(
         target_ned=(pose["y_north_m"], pose["x_east_m"], pose["z_up_m"]),
@@ -528,7 +629,6 @@ def score_episode(
         if line.strip()
     ]
     target = _true_target(truth)
-    true_ne = (float(target["pose"]["y_north_m"]), float(target["pose"]["x_east_m"]))
     confirmed_row = None
     slow_calls, remembered_verdicts, slow_latency, fast_latency, flown = 0, 0, [], [], 0.0
     previous = None
@@ -586,10 +686,13 @@ def score_episode(
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]
     estimate = confirmed.get("position_estimate_ne")
+    confirm_time_s = _row_sim_time(confirmed_row)
+    target_pose = target_pose_at_time(target, confirm_time_s)
+    true_ne = (float(target_pose["y_north_m"]), float(target_pose["x_east_m"]))
     distance = (
         math.hypot(estimate[0] - true_ne[0], estimate[1] - true_ne[1]) if estimate else math.inf
     )
-    true_box, source = _true_box(episode, confirmed_row["obs_before"], truth)
+    true_box, source = _true_box(episode, confirmed_row["obs_before"], truth, confirm_time_s)
     overlap = _iou(confirmed["bbox"], true_box) if true_box else 0.0
     result.update(
         confirm_step=confirmed_row["step_index"],
@@ -599,9 +702,11 @@ def score_episode(
         identity_source=source,
         success=bool(distance <= radius_m and overlap >= 0.1),
     )
+    if "moving_track_eligible" in result:
+        result["success"] = bool(result["success"] and result["moving_track_eligible"])
     result["false_confirm"] = not result["success"]
     if result["false_confirm"] and estimate:
-        hit = _nearest_object(truth, estimate, radius_m)
+        hit = _nearest_object(truth, estimate, radius_m, confirm_time_s)
         if hit is not None:
             result["confirmed_object"] = hit.get("label")
             result["task_equivalent"] = not hit.get("true_target") and task_equivalent(target, hit)

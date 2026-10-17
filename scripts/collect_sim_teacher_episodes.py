@@ -13,6 +13,7 @@ import io
 import json
 import math
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -38,6 +39,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     ExpertSearchPolicy,
     ExploreBounds,
     ExplorePolicy,
+    HoverPolicy,
     PymavlinkPrimitiveExecutor,
     SetpointStreamer,
     primitive_to_ned,
@@ -53,7 +55,10 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     build_observation,
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
-from scripts.run_simulator_docker import build_docker_simulator_plan  # noqa: E402
+from scripts.run_simulator_docker import (  # noqa: E402
+    CONTAINER_SCRIPT_ROOT,
+    build_docker_simulator_plan,
+)
 from multidetect.simulator.stack import SimulatorStackError, _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from multidetect.px4_mission import (
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
@@ -677,6 +682,100 @@ class DockerSimEnvironment:
         return False
 
 
+def _mover_truth(truth_path: Path) -> dict[str, Any] | None:
+    data = json.loads(truth_path.read_text(encoding="utf-8"))
+    target = next((item for item in data.get("targets", ()) if item.get("true_target")), None)
+    return target if isinstance(target, dict) and isinstance(target.get("trajectory"), dict) else None
+
+
+def _start_mover_driver(
+    plan: CollectionPlan, environment: DockerSimEnvironment, truth_path: Path
+) -> dict[str, Any] | None:
+    target = _mover_truth(truth_path)
+    if target is None:
+        return None
+    scenario_id = str(json.loads(truth_path.read_text(encoding="utf-8")).get("scenario_id", ""))
+    model = f"target_true_{scenario_id}"
+    trajectory_json = json.dumps(target["trajectory"], separators=(",", ":"))
+    command = [
+        _docker_executable(plan), "exec", "-d", environment.name, "python3",
+        f"{CONTAINER_SCRIPT_ROOT}/gz_mover_driver.py", "--world", "default",
+        "--model", model, "--trajectory-json", trajectory_json, "--z",
+        str(float(target.get("pose", {}).get("z_up_m", 0.0))), "--period-s", "0.1",
+        "--log", "/tmp/mover_driver.log",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"mover driver failed to start: {(result.stderr or result.stdout)[-500:]}")
+    return {"command": command, "model": model, "remote_log": "/tmp/mover_driver.log"}
+
+
+def _copy_mover_driver_log(
+    plan: CollectionPlan, environment: DockerSimEnvironment, recorder: EpisodeRecorder,
+    driver: dict[str, Any] | None,
+) -> None:
+    if driver is None:
+        return
+    destination = recorder.episode_dir / "mover_driver.log"
+    result = subprocess.run(
+        [_docker_executable(plan), "cp", f"{environment.name}:/tmp/mover_driver.log", str(destination)],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"failed to copy mover driver log: {(result.stderr or result.stdout)[-500:]}")
+    rows = []
+    for line in destination.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    successes = [row for row in rows if row.get("ok")]
+    early = [row for row in successes if float(row.get("sim_time_s", 1e9)) <= 10.0]
+    if not early:
+        raise RuntimeError("mover driver produced no successful set_pose within first 10 sim seconds")
+    latencies = [float(row["wall_latency_s"]) for row in successes if "wall_latency_s" in row]
+    driver.update({
+        "log": str(destination.relative_to(recorder.episode_dir)),
+        "update_count": len(rows),
+        "successful_update_count": len(successes),
+        "median_set_pose_wall_latency_s": statistics.median(latencies) if latencies else None,
+        "max_set_pose_wall_latency_s": max(latencies, default=None),
+        "max_sim_time_s": max((float(row.get("sim_time_s", 0.0)) for row in rows), default=None),
+        "max_apply_sim_time_lag_s": None,
+    })
+
+
+def _wait_for_mover_driver_start(
+    plan: CollectionPlan, environment: DockerSimEnvironment, driver: dict[str, Any] | None,
+    timeout_s: float = 90.0,
+) -> None:
+    if driver is None:
+        return
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            [_docker_executable(plan), "exec", environment.name, "cat", driver["remote_log"]],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        rows = []
+        for line in (result.stdout or "").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+        successful = [row for row in rows if row.get("ok")]
+        if any(float(row.get("sim_time_s", 0.0)) >= 10.0 for row in rows):
+            if not any(float(row.get("sim_time_s", 1e9)) <= 10.0 for row in successful):
+                raise RuntimeError("mover driver has no successful set_pose in first 10 sim seconds")
+            return
+        time.sleep(0.5)
+    raise TimeoutError("mover driver did not reach 10 sim seconds before timeout")
+
+
 def gps_to_local_ned(
     latitude_deg: float,
     longitude_deg: float,
@@ -740,7 +839,16 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     path = Path(world_path)
     if not path.is_file() or not path.stem.startswith(
-        ("gen_w", "gen_v2_w", "gen_v2a_w", "gen_cnt_w", "gen_cnt2_w", "gen_cfs_w", "gen_cfs2_w")
+        (
+            "gen_w",
+            "gen_v2_w",
+            "gen_v2a_w",
+            "gen_cnt_w",
+            "gen_cnt2_w",
+            "gen_cfs_w",
+            "gen_cfs2_w",
+            "gen_mov_w",
+        )
     ):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
     obstacles = load_sdf_obstacles(path)
@@ -855,6 +963,20 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         altitude_m=altitude_m,
         obstacles=obstacles,
     ), label
+
+
+def _hover_policy(plan: CollectionPlan, truth_path: Path):
+    data = json.loads(truth_path.read_text(encoding="utf-8"))
+    target = next(item for item in data.get("targets", []) if item.get("true_target"))
+    pose = target.get("pose") or {}
+    return HoverPolicy(
+        (
+            float(pose["y_north_m"]),
+            float(pose["x_east_m"]),
+            -float(pose.get("z_up_m", 0.0)),
+        ),
+        trajectory=target.get("trajectory"),
+    )
 
 
 class _SmokeFlightPolicy:
@@ -2047,11 +2169,12 @@ def _index_task_text(truth_path: Path) -> str | None:
         return None
     scenario_id = Path(truth_path).name.removesuffix(".truth.json")
     for world in worlds:
-        if world.get("world_id") == scenario_id and world.get("asset_mode") == "fuel_v1":
-            # Counting worlds also carry the per-object find sentence: the slow model
-            # judges one candidate at a time, the count itself is the host's plan.
-            text = world.get("find_task_text") or world.get("task_text")
-            return str(text) if text else None
+        if world.get("world_id") != scenario_id:
+            continue
+        # Generated indexes may use a mover-specific asset mode, but retain the
+        # same task-text fields as the original Fuel worlds.
+        text = world.get("find_task_text") or world.get("task_text")
+        return str(text) if text else None
     return None
 
 
@@ -2086,6 +2209,9 @@ def run_episode(
         task_text = _index_task_text(truth_path) or (
             "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
         )
+    elif plan.teacher == "hover":
+        policy = _hover_policy(plan, truth_path)
+        task_text = "Hover above the moving target path and record observations."
     else:
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
@@ -2121,11 +2247,19 @@ def run_episode(
     sensor_reader = mav_reader = None
     launch_status_texts: list[str] = []
     setpoint_streamer = None
+    mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     try:
         with DockerSimEnvironment(plan, episode_id) as environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
+            mover_driver = _start_mover_driver(plan, environment, truth_path)
+            if mover_driver is not None:
+                recorder.meta["mover_driver"] = mover_driver
+                recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+                _progress("mover_driver_started", command=mover_driver["command"])
+                _wait_for_mover_driver_start(plan, environment, mover_driver)
+                _progress("mover_driver_initial_visibility_ready")
             try:
                 from pymavlink import mavutil
             except ImportError as exc:
@@ -2527,6 +2661,9 @@ def run_episode(
                         detections=labels["onboard"]["detections"],
                         slow_calls=len(labels["onboard"]["slow_calls"]),
                     )
+                elif plan.teacher == "hover":
+                    action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
+                    labels = {"teacher": "hover"}
                 else:
                     action = policy.next_action()
                     labels = {}
@@ -2690,6 +2827,8 @@ def run_episode(
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
                 recorder.meta["video"] = video_writer.close()
+            _copy_mover_driver_log(plan, environment, recorder, mover_driver)
+            recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
@@ -2797,7 +2936,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route")
-    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard"), required=True)
+    parser.add_argument("--teacher", choices=("explore", "expert_search", "onboard", "hover"), required=True)
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
     parser.add_argument("--deduplicate-depth", action="store_true")
     parser.add_argument("--compress-mavlink", action="store_true")
@@ -2888,11 +3027,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         args.steps_per_episode,
         args.seed,
         str(args.out.resolve()),
+        container_prefix=args.container_prefix,
         timeout_s=args.timeout_s,
         max_episode_s=max_episode_s,
         heartbeat_timeout_s=args.heartbeat_timeout_s,
         keep_container_on_failure=args.keep_container_on_failure,
-        container_prefix=args.container_prefix,
         control_port=args.control_port,
         telemetry_port=args.telemetry_port,
         rgb_size=args.rgb_size,

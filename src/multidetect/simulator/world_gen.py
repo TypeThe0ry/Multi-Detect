@@ -37,6 +37,29 @@ ORIGIN_LAT = 1.352100
 ORIGIN_LON = 103.819800
 WORLD_RADIUS_M = 150.0
 
+
+def trajectory_position(trajectory: Mapping[str, Any], time_s: float) -> tuple[float, float]:
+    """Evaluate a constant-speed, looping polyline trajectory at SIM time."""
+    points = tuple(tuple(float(v) for v in point[:2]) for point in trajectory.get("waypoints", ()))
+    if len(points) < 2:
+        raise ValueError("trajectory requires at least two waypoints")
+    speed = float(trajectory.get("speed_mps", 0.0))
+    if not math.isfinite(speed) or speed <= 0:
+        raise ValueError("trajectory speed_mps must be positive")
+    distances = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:] + points[:1])]
+    total = sum(distances)
+    if total <= 0:
+        return points[0]
+    distance = (float(time_s) * speed) % total
+    for index, length in enumerate(distances):
+        if distance <= length or index == len(distances) - 1:
+            start, end = points[index], points[(index + 1) % len(points)]
+            fraction = distance / length if length else 0.0
+            return start[0] + fraction * (end[0] - start[0]), start[1] + fraction * (end[1] - start[1])
+        distance -= length
+    return points[0]
+
+
 # Gazebo Harmonic's SDF scene/light fields are deliberately kept as plain
 # scalar values here.  ``haze`` is a contrast/ambient fallback: Ogre2 does
 # not reliably render SDF ``scene/fog`` in the Harmonic stack, so the camera
@@ -394,6 +417,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                          spread_m: tuple[float, float] = (24.0, 120.0),
                          confusers: Mapping[str, Sequence[str]] | None = None,
                          confuser_copies: int = 1,
+                         moving_targets: bool = False,
                          appearance: str | Sequence[str] | None = None,
                          forced_distractors: Mapping[str, Sequence[str]] | None = None) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
@@ -413,6 +437,8 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     target, with ``confuser_copies`` instances per slug and ``confuser: true``
     in truth. Invalid or task-equivalent pairs fail before any files are written.
     """
+    if moving_targets:
+        raise ValueError("moving Fuel worlds are separate from the static-model mover corpus; use generate_mover_worlds")
     copy_counts = (count_copies,) if isinstance(count_copies, int) else tuple(count_copies)
     if not copy_counts or any(type(n) is not int or n < 1 for n in copy_counts):
         raise ValueError("count_copies must contain positive integer copy counts")
@@ -469,7 +495,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     train_target_slugs = [a["slug"] for a in eligible[: max(1, len(eligible) - 6)]]
     test_pool = [a for a in eligible if a["slug"] not in train_target_slugs] or eligible
     def inline_asset(slug: str, object_id: str, x: float, y: float, yaw: float, bottom_z: float,
-                     label_id: int | None = None) -> str:
+                     label_id: int | None = None, trajectory: Mapping[str, Any] | None = None) -> str:
         source = Path(resolved_root) / slug / "model.sdf"
         root = ET.fromstring(source.read_text(encoding="utf-8-sig").lstrip())
         model = root.find("model")
@@ -503,9 +529,14 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         pose.text = f"{-cx:.6f} {-cy:.6f} {-lo[2] - size[2] / 2.0:.6f} 0 0 0"
         if model.find("static") is None:
             model.insert(1, ET.fromstring("<static>true</static>"))
+        if trajectory:
+            # The Fuel model is nested under the movable wrapper.  A static
+            # nested model would remain fixed while only the wrapper moves.
+            model.find("static").text = "false"
+        initial_x, initial_y = trajectory["waypoints"][0] if trajectory else (x, y)
         outer = ET.fromstring(
-            f'<model name="{object_id}"><static>true</static>'
-            f'<pose>{x:.3f} {y:.3f} {size[2] / 2.0:.6f} 0 0 {yaw:.6f}</pose>'
+            f'<model name="{object_id}"><static>{"false" if trajectory else "true"}</static>'
+            f'<pose>{initial_x:.3f} {initial_y:.3f} {size[2] / 2.0:.6f} 0 0 {yaw:.6f}</pose>'
             f'<link name="bounds"><collision name="bounds_collision"><geometry><box>'
             f'<size>{size[0]:.4f} {size[1]:.4f} {size[2]:.4f}</size></box></geometry></collision></link>'
             f'</model>'
@@ -525,6 +556,18 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             # another model level, and the outer bounds link has no visual.
             for mesh_model in model.iter("model"):
                 mesh_model.append(ET.fromstring(ET.tostring(label_plugin, encoding="unicode")))
+        if trajectory:
+            # gz-sim 8's built-in trajectory follower moves a dynamic model
+            # along a looping polyline without an external plugin or asset.
+            follower = ET.fromstring(
+                '<plugin filename="gz-sim-trajectory-follower-system" '
+                'name="gz::sim::systems::TrajectoryFollower">'
+                '<loop>true</loop><speed_mps>{speed:.6f}</speed_mps><waypoints>{points}</waypoints></plugin>'.format(
+                    speed=float(trajectory["speed_mps"]),
+                    points="".join(f'<point>{px:.6f} {py:.6f} 0</point>' for px, py in trajectory["waypoints"]),
+                )
+            )
+            outer.append(follower)
         outer.append(model)
         for uri in model.iter("uri"):
             value = (uri.text or "").strip()
@@ -583,6 +626,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             asset = distractor_pool[(i+j*3)%len(distractor_pool)]; x,y=pose_point(used,max(asset["measured_size_m"][:2])/2)
             objects.append((f"distractor_{i:04d}_{j:02d}",asset,x,y,rng.uniform(-math.pi,math.pi),False))
         models=[]
+        trajectories: dict[str, dict[str, Any]] = {}
         segmentation_map: dict[str, dict[str, Any]] = {}
         next_label = 1
         for j,asset in enumerate(rng.sample(scenery, min(len(scenery), rng.randint(3,6)))):
@@ -595,6 +639,12 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
             models.append(inline_asset(asset["slug"], obstacle_id, x, y, rng.uniform(-math.pi,math.pi), asset["mesh_origin_offset_m"]["z_bottom"], label_id))
         for oid,asset,x,y,yaw,is_target in objects:
             z=asset["mesh_origin_offset_m"]["z_bottom"]
+            trajectory = None
+            if moving_targets and is_target and asset.get("category") in {"person", "car", "suv", "pickup", "ambulance", "fire_truck", "bus"}:
+                speed = 1.0 if asset.get("category") == "person" else 3.0
+                half = 6.0 if asset.get("category") == "person" else 12.0
+                trajectory = {"type": "loop", "speed_mps": speed, "waypoints": [[round(x - half, 3), round(y - half, 3)], [round(x + half, 3), round(y - half, 3)], [round(x + half, 3), round(y + half, 3)], [round(x - half, 3), round(y + half, 3)]]}
+                trajectories[oid] = trajectory
             label_id = next_label if segmentation_labels else None
             if segmentation_labels:
                 segmentation_map[str(label_id)] = {
@@ -607,7 +657,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
                     ),
                 }
                 next_label += 1
-            models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id))
+            models.append(inline_asset(asset["slug"], oid, x, y, yaw, z, label_id, trajectory))
         profile = appearances[i % len(appearances)] if appearances else None
         if profile is None:
             sdf=f'''<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>{real_time_factor:.6f}</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>\n{chr(10).join(models)}</world></sdf>\n'''
@@ -628,7 +678,10 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         target_rows=[]
         for oid,a,x,y,yaw,is_target in objects:
             height = float(a["measured_size_m"][2]); center_height = height / 2.0
-            lat,lon=_lat_lon(x,y); target_rows.append({"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(x,3),"y_north_m":round(y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"stationary","true_target":is_target, **({"count_member": oid in count_ids} if counting else {})})
+            pose_x, pose_y = trajectories[oid]["waypoints"][0] if oid in trajectories else (x, y)
+            lat,lon=_lat_lon(pose_x,pose_y); row={"target_id":oid,"label":(" ".join(a["semantic_words"][:2])),"class":a["category"],"category_words":a["semantic_words"],"asset_slug":a["slug"],"color":a.get("color"),"pose":{"x_east_m":round(pose_x,3),"y_north_m":round(pose_y,3),"z_up_m":round(center_height,3),"yaw_rad":round(yaw,6)},"position":{"latitude_deg":round(lat,8),"longitude_deg":round(lon,8),"altitude_m":round(center_height,3),"altitude_reference":"world"},"size_m":a["measured_size_m"],"measured_size_m":a["measured_size_m"],"bottom_offset_m":round(-center_height,6),"behavior":"moving" if oid in trajectories else "stationary","true_target":is_target, **({"count_member": oid in count_ids} if counting else {})}
+            if oid in trajectories: row["trajectory"] = trajectories[oid]
+            target_rows.append(row)
         runtime={"schema_version":1,"scenario_id":world_id,"scenario_version":1,"seed":seed+i,"world":{"world_asset":f"builtin://gazebo/{world_id}","map_asset":f"builtin://maps/{world_id}.geojson","dem_asset":f"builtin://terrain/{world_id}.dem.json","wind_north_mps":0.0,"wind_east_mps":0.0,"gust_mps":0.0},"vehicle":{"model":"px4_multirotor_standard","airframe_profile_id":"px4_multirotor_gazebo_v1","spawn_id":f"{world_id}_home","spawn_pose":{"x_east_m":0.0,"y_north_m":0.0,"z_up_m":0.2,"roll_rad":0.0,"pitch_rad":0.0,"yaw_rad":0.0}},"sensors":[{"sensor_id":"front-camera","kind":"rgb_camera","stream_uri":f"gazebo://{world_id}/front-camera","calibration_id":"gazebo-multirotor-front-camera-v1"},{"sensor_id":"downward-depth","kind":"depth_camera","stream_uri":f"gazebo://{world_id}/downward-depth","calibration_id":"gazebo-multirotor-depth-v1"},{"sensor_id":"px4-telemetry","kind":"mavlink_telemetry","stream_uri":"udp://127.0.0.1:14541"}],"faults":[]}
         for row in target_rows:
             if row["target_id"] in confuser_ids:
@@ -645,7 +698,16 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
         _write(scenarios_dir/f"{world_id}.scenario.json",scenario)
         task_text, task_text_en = fuel_task_texts(target)
         counting_fields = {}
-        if counting:
+        mover_task = bool(moving_targets and target.get("category") in {"person", "car", "suv", "pickup", "ambulance", "fire_truck", "bus"})
+        if mover_task and target.get("category") == "person":
+            task_text = "鎵惧埌閭ｄ釜琛屼汉鍚庤窡鐫€瀹冭蛋涓ゅ垎閽燂紝鎸佺画鎶ュ憡浣嶇疆"
+            task_text_en = "Find the person and follow it for two minutes, reporting its position."
+            counting_fields = {"task_kind": "follow", "follow_duration_s": 120, "query": "person"}
+        elif mover_task:
+            task_text = "鐩戣鍖哄煙浜斿垎閽燂紝鍙戠幇绉诲姩鐨勮溅杈嗗氨鎶ュ憡浣嶇疆"
+            task_text_en = "Monitor the site for five minutes and report the moving vehicle."
+            counting_fields = {"task_kind": "monitor", "monitor_duration_s": 300, "query": "vehicle"}
+        elif counting:
             counting_fields = {"task_kind": "count", "expected_count": copies,
                                "find_task_text": task_text, "find_task_text_en": task_text_en}
             task_text, task_text_en = fuel_count_texts(target)
@@ -660,4 +722,122 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     if appearances is not None:
         doc["appearance_presets"] = list(appearances)
     _write(scenarios_dir/"index.json",doc); return doc
+
+
+def generate_mover_worlds(
+    count: int = 6,
+    seed: int = 20261015,
+    out_worlds: str | Path = "simulation/gazebo/worlds",
+    out_scenarios: str | Path = "configs/scenarios/generated-movers",
+) -> dict[str, Any]:
+    """Write the small checked-in CPU-only mover corpus without Fuel downloads.
+
+    The corpus uses static box models. ``gz_mover_driver.py`` updates their
+    poses from simulation time through Gazebo's set_pose service.
+    """
+    if count != 6:
+        raise ValueError("the mover corpus is intentionally six worlds")
+    worlds_dir, scenarios_dir = Path(out_worlds), Path(out_scenarios)
+    worlds_dir.mkdir(parents=True, exist_ok=True); scenarios_dir.mkdir(parents=True, exist_ok=True)
+    entries = []
+    for index in range(count):
+        world_id = f"gen_mov_w{index:04d}"; split = "train" if index < 4 else ("val" if index == 4 else "test")
+        person = index % 2 == 0
+        x, y = (-18.0 + index * 7.0, 28.0 - index * 9.0)
+        speed = 1.0 if person else 3.0; half = 6.0 if person else 12.0
+        trajectory = {"type": "loop", "speed_mps": speed, "waypoints": [[x-half,y-half],[x+half,y-half],[x+half,y+half],[x-half,y+half]]}
+        kind = "person" if person else "vehicle"
+        label = "person pedestrian" if person else "vehicle car"
+        task_text = (
+            "\u627e\u5230\u90a3\u4e2a\u7a7f\u7ea2\u8863\u670d\u7684\u4eba\u540e\u8ddf\u7740\u5b83\u8d70\u4e24\u5206\u949f\uff0c\u6301\u7eed\u62a5\u544a\u4f4d\u7f6e"
+            if person
+            else "\u76d1\u89c6\u533a\u57df\u4e94\u5206\u949f\uff0c\u53d1\u73b0\u79fb\u52a8\u7684\u8f66\u8f86\u5c31\u62a5\u544a\u4f4d\u7f6e"
+        )
+        task_text_en = "Find the person and follow it for two minutes, reporting its position." if person else "Monitor the site for five minutes and report the moving vehicle."
+        size = (1.0, 1.0, 1.8) if person else (4.0, 2.0, 1.6)
+        start_x, start_y = trajectory["waypoints"][0]
+        material = "<material><ambient>0.85 0.04 0.03 1</ambient><diffuse>0.95 0.05 0.04 1</diffuse></material>" if person else "<material><ambient>0.12 0.14 0.16 1</ambient><diffuse>0.20 0.22 0.25 1</diffuse></material>"
+        model_xml = (
+            f'<model name="target_true_{world_id}"><static>true</static>'
+            f'<pose>{start_x:.3f} {start_y:.3f} {size[2] / 2:.3f} 0 0 0</pose>'
+            f'<link name="body"><visual name="visual"><geometry><box><size>'
+            f'{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry>{material}'
+            f'</visual></link><plugin filename="gz-sim-label-system" '
+            f'name="gz::sim::systems::Label"><label>1</label></plugin></model>'
+        )
+        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>{model_xml}</world></sdf>\n'''
+        sdf = sdf.replace(
+            "<gravity>0 0 -9.80665</gravity>",
+            "<gravity>0 0 -9.80665</gravity>"
+            f"<spherical_coordinates><surface_model>EARTH_WGS84</surface_model>"
+            f"<world_frame_orientation>ENU</world_frame_orientation>"
+            f"<latitude_deg>{ORIGIN_LAT:.6f}</latitude_deg>"
+            f"<longitude_deg>{ORIGIN_LON:.6f}</longitude_deg><elevation>18</elevation>"
+            "</spherical_coordinates>",
+            1,
+        )
+        world_path = worlds_dir / f"{world_id}.sdf"; world_path.write_text(sdf, encoding="utf-8", newline="\n")
+        truth = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "asset_mode": "generated_mover_v1", "segmentation_labels": {"1": {"asset_slug": "generated_mover", "role": "target", "target_id": f"target_true_{world_id}"}}, "targets": [{"target_id": f"target_true_{world_id}", "label": label, "class": kind, "category_words": label.split(), "color": "red" if person else None, "pose": {"x_east_m": start_x, "y_north_m": start_y, "z_up_m": size[2]/2, "yaw_rad": 0.0}, "size_m": list(size), "measured_size_m": list(size), "bottom_offset_m": -size[2]/2, "behavior": "moving", "trajectory": trajectory, "true_target": True}]}
+        runtime = {
+            "schema_version": 1,
+            "scenario_id": world_id,
+            "scenario_version": 1,
+            "seed": seed + index,
+            "world": {
+                "world_asset": f"builtin://gazebo/{world_id}",
+                "map_asset": f"builtin://maps/{world_id}.geojson",
+                "dem_asset": f"builtin://terrain/{world_id}.dem.json",
+                "wind_north_mps": 0.0,
+                "wind_east_mps": 0.0,
+                "gust_mps": 0.0,
+            },
+            "vehicle": {
+                "model": "px4_multirotor_standard",
+                "airframe_profile_id": "px4_multirotor_gazebo_v1",
+                "spawn_id": f"{world_id}_home",
+                "spawn_pose": {
+                    "x_east_m": 0.0,
+                    "y_north_m": 0.0,
+                    "z_up_m": 0.2,
+                    "roll_rad": 0.0,
+                    "pitch_rad": 0.0,
+                    "yaw_rad": 0.0,
+                },
+            },
+            "sensors": [
+                {
+                    "sensor_id": "front-camera",
+                    "kind": "rgb_camera",
+                    "stream_uri": f"gazebo://{world_id}/front-camera",
+                    "calibration_id": "gazebo-multirotor-front-camera-v1",
+                },
+                {
+                    "sensor_id": "downward-depth",
+                    "kind": "depth_camera",
+                    "stream_uri": f"gazebo://{world_id}/downward-depth",
+                    "calibration_id": "gazebo-multirotor-depth-v1",
+                },
+                {
+                    "sensor_id": "px4-telemetry",
+                    "kind": "mavlink_telemetry",
+                    "stream_uri": "udp://127.0.0.1:14541",
+                },
+            ],
+            "faults": [],
+        }
+        _write_map_and_terrain(*_map_terrain_dirs(worlds_dir), world_id)
+        expectations = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl"], "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}
+        for suffix, data in (("runtime_input", runtime), ("truth", truth), ("expectations", expectations)):
+            _write(scenarios_dir / f"{world_id}.{suffix}.json", data)
+        manifest = {"schema_version": 1, "scenario_id": world_id, "scenario_version": 1, "channels": {k: {"path": f"{world_id}.{k}.json", "sha256": canonical_sha256(v)} for k, v in (("runtime_input", runtime), ("truth", truth), ("expectations", expectations))}}
+        _write(scenarios_dir / f"{world_id}.scenario.json", manifest)
+        entries.append({"world_id": world_id, "split": split, "seed": seed + index, "task_text": task_text, "task_text_en": task_text_en, "task_kind": "follow" if person else "monitor", "world_file": world_path.name, "true_target_id": f"target_true_{world_id}", "asset_mode": "generated_mover_v1"})
+    doc = {"schema_version": 1, "generator": "multidetect.simulator.world_gen", "asset_mode": "generated_mover_v1", "seed": seed, "count": count, "split_ratios": [4/6, 1/6, 1/6], "worlds": entries}
+    _write(scenarios_dir / "index.json", doc)
+    return doc
+
+
+
+
+
 
