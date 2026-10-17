@@ -136,3 +136,13 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     assert result["rtl_entered"] is True
     assert result["landed"] is True
     assert result["reposition_error_m"] == [1.0]
+
+
+def test_fixed_wing_profiles_disable_terrain_abort_without_rangefinder():
+    # The aircraft has no rangefinder; PX4's default terrain abort holds at
+    # MIS_LND_ABRT_ALT instead of landing.
+    for airframe in ("advanced_plane", "rc_cessna_runway", "rc_cessna_hand", "rc_cessna_catapult"):
+        params = dict(collector._profile_landing_parameters(airframe))
+        assert params == {"FW_LND_ABORT": "0", "FW_LND_USETER": "0"}
+    assert collector._profile_landing_parameters("x500_mono_cam") == ()
+    assert collector._profile_landing_parameters("quadtailsitter") == ()

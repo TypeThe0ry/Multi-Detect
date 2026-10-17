@@ -906,13 +906,29 @@ def _start_gcs_heartbeat_loop(
     return stop, thread
 
 
+def _px4_param_text(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def _profile_landing_parameters(airframe: str) -> tuple[tuple[str, str], ...]:
+    """PX4 landing parameters the airframe profile pins (e.g. no-rangefinder landing)."""
+    profile = _airframe_profile(airframe)
+    if profile is None:
+        return ()
+    return tuple(
+        (ref.px4_name, _px4_param_text(ref.value))
+        for ref in profile.landing.parameters.values()
+        if ref.px4_name is not None and not ref.unverified
+    )
+
+
 def _set_sim_params(
     plan: CollectionPlan, environment: DockerSimEnvironment
 ) -> list[dict[str, Any]]:
     """Apply the SIM-only GCS input setting after PX4 heartbeat is live."""
     executable = _docker_executable(plan)
     applied: list[dict[str, Any]] = []
-    for parameter, value in SIM_PREARM_PARAMETERS:
+    for parameter, value in (*SIM_PREARM_PARAMETERS, *_profile_landing_parameters(plan.airframe)):
         command = [
             executable,
             "exec",
