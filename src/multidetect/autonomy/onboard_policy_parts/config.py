@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 
 DEFAULTS = {
+    "airframe": "x500_mono_cam",
     "yoloe_weights": ROOT / "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
     "gguf": ROOT
     / "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf"

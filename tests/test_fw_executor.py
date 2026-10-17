@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
+from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 
@@ -122,3 +123,14 @@ def test_raw_mavlink_fallback_emits_px4_command_long_sequence() -> None:
     # NAV_VTOL_TAKEOFF, DO_VTOL_TRANSITION(FW), DO_ORBIT,
     # DO_VTOL_TRANSITION(MC), DO_LAND_START, NAV_LAND.
     assert [row[2] for row in commands] == [84, 3000, 34, 3000, 189, 21]
+
+
+def test_motion_command_loiter_and_transition_are_shared_with_runtime():
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol")
+    assert executor.execute_command(
+        MotionCommand("loiter", target_ned=(1, 2, -30), radius_m=40, speed_mps=15, mode="FW")
+    ).status == "success"
+    assert fake.calls[-1][0] == "orbit"
+    assert executor.execute_command(MotionCommand("transition", mode="MC")).status == "success"
+    assert fake.calls[-1][0] == "vtol_transition"

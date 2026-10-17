@@ -53,6 +53,12 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.mission_summary import summarize_mission, summary_json  # noqa: E402
 from multidetect.autonomy.mission_supervisor import MissionSupervisor  # noqa: E402
+from multidetect.autonomy.motion_intent import (  # noqa: E402
+    AirframeMotionAdapter,
+    MotionCommand,
+    MotionIntentError,
+    camera_ray_from_profile,
+)
 from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
 from multidetect.autonomy.onboard_decision import identity_of  # noqa: E402
 from multidetect.autonomy.onboard_loop import (  # noqa: E402
@@ -350,6 +356,12 @@ class OnboardPolicy:
         mission_package: MissionPackage | None = None,
     ) -> None:
         options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        # Profile resolution is deliberately early: an unknown aircraft must
+        # fail closed before models, mission plans, or vehicle I/O are started.
+        self.motion_adapter = AirframeMotionAdapter(
+            options.get("airframe", "x500_mono_cam"), base_dir=ROOT
+        )
+        self.airframe_profile = self.motion_adapter.profile
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
@@ -424,6 +436,19 @@ class OnboardPolicy:
         # geometry is authoritative for the home and operating rectangle;
         # explicit safety_envelope settings may tighten it further.
         envelope_source = dict(options)
+        if self.airframe_profile.category != "multirotor":
+            dynamics = self.motion_adapter.safety.vehicle
+            envelope_source["vehicle"] = {
+                "category": dynamics.category,
+                "can_hover": dynamics.can_hover,
+                "min_airspeed_mps": dynamics.min_airspeed_mps,
+                "cruise_airspeed_mps": dynamics.cruise_airspeed_mps,
+                "max_airspeed_mps": dynamics.max_airspeed_mps,
+                "min_turn_radius_m": dynamics.min_turn_radius_m,
+                "max_bank_deg": dynamics.max_bank_deg,
+                "climb_rate_mps": dynamics.climb_rate_mps,
+                "descent_rate_mps": dynamics.descent_rate_mps,
+            }
         if self.mission_package is not None:
             area = self.mission_package.document["operating_area"]
             package_polygon = (
@@ -448,6 +473,9 @@ class OnboardPolicy:
             ),
             ground_model=getattr(self.ground_projection, "model", None),
         )
+        # Keep the adapter on the same envelope instance so a rejection has a
+        # single counter/event stream and fixed-wing recovery becomes loiter.
+        self.motion_adapter.safety = self.safety_envelope
         for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
             # Config paths are relative to the repository root.
             path = Path(options[key])
@@ -970,6 +998,7 @@ class OnboardPolicy:
                     else (lambda step: self.task_text)
                 ),
                 config=executor_config,
+                airframe_adapter=self.motion_adapter,
             )
             # When no package is loaded, use the executor's configured home if
             # it provides one; never infer home from the first observed pose.
@@ -1256,6 +1285,10 @@ class OnboardPolicy:
         )
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        if getattr(self, "motion_adapter", None) is not None:
+            telemetry_mode = observation.get("vtol_state") or observation.get("mode")
+            if isinstance(telemetry_mode, str):
+                self.motion_adapter.set_mode(telemetry_mode)
         self._slow_failed_current = False
         self._slow_skipped_current = False
         # Process external safety inputs first. A latched supervisor decision and
@@ -1371,6 +1404,17 @@ class OnboardPolicy:
             if projector is not None:
                 return projector(u, v, observation)
             # Full attitude + camera mount inverse of the projection model.
+            if self.airframe_profile.camera.attitude_rotations:
+                ray_data = camera_ray(u, v)
+                if ray_data is None:
+                    return None
+                origin, direction = ray_data
+                if ground_model is not None:
+                    return ground_model.intersect_ray(origin, direction)
+                if direction[2] <= 1e-6 or origin[2] <= 0:
+                    return None
+                scale = origin[2] / direction[2]
+                return origin[0] + direction[0] * scale, origin[1] + direction[1] * scale
             return pixel_ground_point(
                 u,
                 v,
@@ -1387,10 +1431,22 @@ class OnboardPolicy:
                 # model; silently assuming the simulator model would mix rays.
                 ray = getattr(projector, "ray", None)
                 return ray(u, v, observation) if callable(ray) else None
-            return pixel_camera_ray(
+            base = pixel_camera_ray(
                 u, v, pose=observation, camera_info=camera_info,
                 image_size=self.image_size,
             )
+            if base is None or not self.airframe_profile.camera.attitude_rotations:
+                return base
+            direction = camera_ray_from_profile(
+                u, v, fx=float(camera_info["fx"]), fy=float(camera_info["fy"]),
+                cx=float(camera_info["cx"]), cy=float(camera_info["cy"]),
+                attitude_deg=(
+                    float(observation["attitude"]["roll_deg"]),
+                    float(observation["attitude"]["pitch_deg"]),
+                    float(observation["attitude"]["yaw_deg"]),
+                ), profile=self.airframe_profile, mode=self.motion_adapter.mode,
+            )
+            return base[0], direction
 
         ranging_enabled = getattr(
             getattr(getattr(self, "loop", None), "config", None), "step_triangulation", False,
@@ -1511,6 +1567,44 @@ class OnboardPolicy:
         if action is None:
             return action, labels
         envelope = getattr(self, "safety_envelope", None)
+        # The legacy multirotor path below is intentionally byte-compatible.
+        # Other airframes consume a command object; their executor must never
+        # see a zero-speed hold or a zero-radius turn.
+        if getattr(self, "motion_adapter", None) is not None and not self.motion_adapter.is_multirotor:
+            command = self.motion_adapter.from_primitive(
+                action, pose_ned=pose_ned, yaw_deg=yaw_deg, metadata=labels
+            )
+            if isinstance(command, MotionCommand):
+                onboard = labels.get("onboard", {}) if isinstance(labels, dict) else {}
+                phase = onboard.get("phase") if isinstance(onboard, dict) else None
+                skill = onboard.get("state") if isinstance(onboard, dict) else None
+                agl = observation.get("ground_agl", observation.get("agl_m"))
+                if isinstance(agl, Mapping):
+                    agl = agl.get("height_m", agl.get("agl_m"))
+                try:
+                    agl_value = None if agl is None else float(agl)
+                except (TypeError, ValueError):
+                    agl_value = None
+                command, safety_info = self.motion_adapter.guard_command(
+                    command,
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    current_agl_m=agl_value,
+                    phase=phase,
+                    skill=skill,
+                )
+                if safety_info:
+                    labels = {**labels, "safety": safety_info}
+                    if safety_info.get("rejected") and self.supervisor is not None:
+                        self.supervisor.report_envelope_violation(
+                            ", ".join(safety_info.get("reasons", ())) or "rejected motion command"
+                        )
+                labels = {
+                    **labels,
+                    "motion": command.to_dict(),
+                    "airframe": self.airframe_profile.id,
+                }
+                return command, labels
         if envelope is None:
             return action, labels
         executor = getattr(self, "executor", None)

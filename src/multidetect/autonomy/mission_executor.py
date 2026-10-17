@@ -38,6 +38,7 @@ from multidetect.autonomy.onboard_loop import (
     Track,
     appearances_consistent,
 )
+from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionCommand
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 GroundPoint = Callable[[float, float], tuple[float, float] | None]
@@ -237,6 +238,7 @@ class MissionExecutor:
         mission_package: Any | None = None,
         package: Any | None = None,
         obstacle_source: ObstacleSource | None = None,
+        airframe_adapter: AirframeMotionAdapter | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = plan if isinstance(plan, MissionPlan) else validate_mission_plan(
@@ -248,6 +250,7 @@ class MissionExecutor:
         self.loop_factory = loop_factory
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
+        self.airframe_adapter = airframe_adapter
         self.task_text = task_text
         package = mission_package if mission_package is not None else package
         self._package_backed = package is not None
@@ -810,7 +813,7 @@ class MissionExecutor:
             run.primitives += 1
             # Used only when the next observation has no pose/simulation clock.
             # Never credit a commanded hold before its following observation.
-            run.pending_elapsed_s = self._estimated_seconds(action)
+            run.pending_elapsed_s = self.estimated_seconds(action, pose_ned)
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
@@ -853,6 +856,42 @@ class MissionExecutor:
         if action.kind == "turn":
             return abs(action.yaw_delta_deg) / 90.0
         return action.seconds if action.kind == "hold" else 0.0
+
+    def estimated_seconds(self, action: ActionPrimitive, pose_ned: Pose | None = None) -> float:
+        """Estimate action duration from the selected profile.
+
+        The static helper remains for old callers; profile-aware callers use
+        this method and therefore do not assume a 5 m/s aircraft.
+        """
+        if self.airframe_adapter is None or self.airframe_adapter.is_multirotor:
+            return self._estimated_seconds(action)
+        pose = pose_ned or (0.0, 0.0, 0.0)
+        if action.kind == "hold":
+            return action.seconds
+        if action.kind == "turn":
+            return abs(action.yaw_delta_deg) / max(self.airframe_adapter.profile.limits.max_angular_rate_dps, 1e-6)
+        distance = math.sqrt(action.forward_m ** 2 + action.right_m ** 2 + action.up_m ** 2)
+        return distance / max(self.airframe_adapter.profile.cruise_airspeed_mps, 1e-6)
+
+    def next_motion_intent(self, **kwargs: Any) -> tuple[MotionCommand | ActionPrimitive, dict[str, Any]]:
+        """Intent-facing entry point shared by SIM and real runtime adapters."""
+        action, info = self.next_action(**kwargs)
+        if self.airframe_adapter is None or self.airframe_adapter.is_multirotor:
+            return action, info
+        pose = kwargs.get("pose_ned", (0.0, 0.0, 0.0))
+        yaw = float(kwargs.get("yaw_deg", 0.0))
+        command = self.airframe_adapter.from_primitive(action, pose_ned=pose, yaw_deg=yaw, metadata=info)
+        if isinstance(command, MotionCommand):
+            command, safety = self.airframe_adapter.guard_command(
+                command,
+                pose_ned=pose,
+                yaw_deg=yaw,
+                current_agl_m=kwargs.get("current_agl_m"),
+                skill=getattr(self.current_step, "skill", None),
+            )
+            if safety:
+                info = {**info, "safety": safety}
+        return command, info
 
     def _advance_time(self, run: _StepRun, timestamp_s: float | None) -> None:
         """Prefer the observation's pose clock; wall-clock inference time is unrelated.
@@ -1030,6 +1069,13 @@ class MissionExecutor:
             return
         views = int(run.step.params["views"])
         standoff = float(run.step.params["standoff_m"])
+        if self.airframe_adapter is not None and not self.airframe_adapter.is_multirotor:
+            orbit = self.airframe_adapter.observation_orbit(
+                (*centre, 0.0), standoff, altitude_m=self._inspect_altitude(run), views=views
+            )
+            run.viewpoints = [point.position_ne for point in orbit.waypoints[:-1]]
+            run.goal_altitude_m = self._inspect_altitude(run)
+            return
         start = math.atan2(pose[1] - centre[1], pose[0] - centre[0])
         run.viewpoints = [
             (
@@ -1134,14 +1180,21 @@ class MissionExecutor:
             slant_mid = run.goal_altitude_m / max(1e-6, math.sin(mid_depression))
             swath = 2.0 * slant_mid * math.tan(hfov / 2.0)
             spacing = max(3.0, min(60.0, swath * (1.0 - float(run.step.params["overlap"]))))
-            # Inset lanes in equal strips, no farther apart than the requested spacing.
-            # Keep three crossings even when one swath spans the whole bounding square.
-            lanes = max(3, math.ceil(2.0 * radius / spacing))
-            for lane in range(lanes):
-                offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
-                half_length = math.sqrt(max(0.0, radius**2 - offset**2))
-                ends = [(north - half_length, east + offset), (north + half_length, east + offset)]
-                run.waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
+            if self.airframe_adapter is not None and not self.airframe_adapter.is_multirotor:
+                route = self.airframe_adapter.search_path(
+                    (north - radius, north + radius, east - radius, east + radius),
+                    footprint_width_m=max(swath, spacing),
+                    overlap=float(run.step.params["overlap"]),
+                )
+                run.waypoints.extend(point.position_ne for point in route.waypoints)
+            else:
+                # Multirotor route generation is intentionally unchanged.
+                lanes = max(3, math.ceil(2.0 * radius / spacing))
+                for lane in range(lanes):
+                    offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
+                    half_length = math.sqrt(max(0.0, radius**2 - offset**2))
+                    ends = [(north - half_length, east + offset), (north + half_length, east + offset)]
+                    run.waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
             self.coverage[run.step.id] = 0.0
         while run.waypoint_index < len(run.waypoints):
             moved = self._move_to(
@@ -1762,6 +1815,9 @@ class MissionExecutor:
         return True
 
     def _deliver(self, run, pose, yaw, ground_point, frame_id):
+        if self.airframe_adapter is not None and self.airframe_adapter.profile.category == "fixed_wing":
+            self._finish("failed", "fixed_wing_delivery_requires_validated_fly_by_window")
+            return None
         if "payload" not in self.capabilities:
             self._finish("failed", "payload_capability_required")
             return None
