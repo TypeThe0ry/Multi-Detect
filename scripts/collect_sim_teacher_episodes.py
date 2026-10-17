@@ -1173,6 +1173,20 @@ def _land_mode_confirmed(heartbeat: Any, custom_modes: set[int]) -> bool:
         return str(custom_mode).upper() in {"LAND", "AUTO.LAND"}
 
 
+def _plain_record(value: Any) -> Any:
+    """JSON-safe copy of executor results (command results are small plain objects)."""
+    if isinstance(value, dict):
+        return {str(k): _plain_record(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_record(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    attrs = {k: v for k, v in vars(value).items() if not k.startswith("_")} if hasattr(value, "__dict__") else {}
+    if not attrs:
+        attrs = {k: getattr(value, k) for k in ("status", "ok", "result", "detail") if hasattr(value, k)}
+    return {"type": type(value).__name__, **{k: _plain_record(v) for k, v in attrs.items()}}
+
+
 class _ReaderAckLink:
     """The telemetry link as seen by the fixed-wing executor.
 
@@ -1938,7 +1952,7 @@ def run_episode(
                 arm_ack = executor.arm_and_takeoff(altitude_m)
                 if arm_ack.status != "success":
                     raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")
-                recorder.record_mavlink({"message_type": "fixed_wing_takeoff_complete", "method": takeoff_method, "ack": arm_ack.ack, "flight_state": _flight_state_snapshot(mav_reader.state)})
+                recorder.record_mavlink({"message_type": "fixed_wing_takeoff_complete", "method": takeoff_method, "ack": _plain_record(arm_ack.ack), "flight_state": _flight_state_snapshot(mav_reader.state)})
                 _progress("takeoff_reached", method=takeoff_method)
             for index in range(plan.steps_per_episode):
                 if index % max(1, plan.disk_check_interval_steps) == 0:
@@ -2093,7 +2107,7 @@ def run_episode(
                 )
                 after = _png_observation(after)
                 ack = {
-                    **result.ack,
+                    **_plain_record(result.ack),
                     "type": "SET_POSITION_TARGET_LOCAL_NED",
                     # PX4 has no per-position-setpoint COMMAND_ACK.  A
                     # timeout still means the command stream was accepted
