@@ -31,8 +31,8 @@ R15_EPISODES_PER_WORLD = 2
 # preserves those zones and the required final close-range window.
 R15_STEPS_PER_EPISODE = 400
 R15_WORKERS = 2
-R15_BASE_CONTROL_PORT = 14540
-R15_BASE_TELEMETRY_PORT = 14541
+R15_BASE_CONTROL_PORT = 14560
+R15_BASE_TELEMETRY_PORT = 14561
 
 
 def sha256(path: Path) -> str:
@@ -227,7 +227,7 @@ class Round:
                     continue
                 worker = idx % self.a.workers
                 target = self.a.episodes / world / f"worker-{worker}"
-                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--out", str(target)]
+                cmd = [sys.executable, "scripts/collect_sim_teacher_episodes.py", "--scenario", str(scenario), "--teacher", "expert_search", "--episodes", "1", "--steps-per-episode", str(self.a.steps_per_episode), "--rgb-size", "1280x960", "--depth-size", "1280x960", "--depth-format", "png16", "--segmentation", "--onboard-frame-format", "jpeg", "--onboard-frame-quality", "90", "--seed", str(20261016 + idx), "--min-free-gb", str(self.a.min_free_gb), "--container-prefix", f"r15-worker-{worker}", "--control-port", str(R15_BASE_CONTROL_PORT + worker * 10), "--telemetry-port", str(R15_BASE_TELEMETRY_PORT + worker * 10), "--out", str(target)]
                 jobs.append((key, cmd, target))
                 print(f"[collect] {key} -> worker {worker}; 失败最多重试 {self.a.retries} 次；命令：\n  {subprocess.list2cmdline(cmd)}")
         print("[collect] 总预算：约 40-55 分钟（2 worker，40 episodes，400 steps/episode）；磁盘约 7.5 GiB；总内存门控每个 worker 共用系统阈值")
