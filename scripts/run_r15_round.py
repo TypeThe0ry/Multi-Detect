@@ -138,6 +138,23 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+
+def _remove_worker_containers(prefix: str) -> None:
+    """Remove this worker's leftover containers so the next attempt can bind the worker's ports.
+
+    A worker runs its episodes one after another, so nothing named ``<prefix>-*`` is live
+    between attempts; a container still holding the port is a previous attempt's leftover.
+    """
+    try:
+        names = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name=^{prefix}-"],
+            capture_output=True, text=True, timeout=30, check=False,
+        ).stdout.split()
+        if names:
+            subprocess.run(["docker", "rm", "-f", *names], capture_output=True, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"[collect] 清理 {prefix} 残留容器失败：{exc}")
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -203,9 +220,11 @@ class Round:
     def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
         # Each attempt writes to its own directory so a failed or partial attempt can
         # never be mistaken for this key's episode (or another key's).
+        prefix = cmd[cmd.index("--container-prefix") + 1]
         for attempt in range(self.a.retries + 1):
             attempt_dir = target / f"attempt-{attempt}"
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
+            _remove_worker_containers(prefix)
             rc = subprocess.run(attempt_cmd, cwd=ROOT).returncode
             if rc == 0:
                 episodes = sorted(attempt_dir.rglob("episode-*/episode.json"))

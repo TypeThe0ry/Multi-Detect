@@ -91,3 +91,26 @@ def test_stage_resume_writes_manifest_and_skips(capsys):
     runner.run("tiny", [sys.executable, "-c", "raise SystemExit(99)"], estimate="1 秒", disk="1 KiB", outputs=(output,))
     assert "skip" in capsys.readouterr().out
     shutil.rmtree(out.parent, ignore_errors=True)
+
+
+def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monkeypatch, tmp_path):
+    import scripts.run_r15_round as r15
+
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        return types.SimpleNamespace(returncode=1, stdout="abc123\n" if command[:2] == ["docker", "ps"] else "")
+
+    monkeypatch.setattr(r15.subprocess, "run", fake_run)
+    monkeypatch.setattr(r15.time, "sleep", lambda _s: None)
+    round_ = Round.__new__(Round)
+    round_.a = Namespace(retries=1)
+    cmd = ["python", "collect.py", "--container-prefix", "r15-worker-1", "--out", str(tmp_path)]
+    assert round_._collect_one("w:0", cmd, tmp_path)["status"] == "failed"
+    docker = [c for c in calls if c[0] == "docker"]
+    assert docker == [
+        ["docker", "ps", "-aq", "--filter", "name=^r15-worker-1-"], ["docker", "rm", "-f", "abc123"],
+    ] * 2
+    # The removal precedes each collector attempt.
+    assert [c[0] for c in calls] == ["docker", "docker", "python", "docker", "docker", "python"]
