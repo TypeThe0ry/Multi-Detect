@@ -132,6 +132,10 @@ def evaluate_episode(episode_dir: Path, profile: AirframeProfile,
             else:
                 mode = str(raw_mode).upper()
                 rtl_entered = rtl_entered or "RTL" in mode or "RETURN" in mode
+        if kind == "STATUSTEXT":
+            # A short RTL (aircraft already near home) can fall between recorded
+            # heartbeats; PX4 announces it as "RTL: start return ...".
+            rtl_entered = rtl_entered or str(_mav_value(row, "text", "")).startswith("RTL:")
         if kind == "collector_landing_complete":
             state = row.get("flight_state", {})
             landed = landed or state.get("landed_state") == 1 or row.get("status") == "landed"

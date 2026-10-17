@@ -155,6 +155,13 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     assert result["max_distance_from_origin_m"] == 500.0 and result["stayed_in_area"] is True
 
 
+def test_smoke_evaluation_takes_rtl_from_px4_statustext(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
+    rows = [{"message_type": "STATUSTEXT", "text": "RTL: start return at 101 m (100 m above destinatio"}]
+    (tmp_path / "mavlink.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    assert evaluate_episode(tmp_path, profile, 5.0)["rtl_entered"] is True
+
+
 def test_smoke_evaluation_needs_touchdown_after_flight_and_a_real_rtl(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
     rows = [
