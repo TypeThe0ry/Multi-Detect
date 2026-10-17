@@ -44,12 +44,22 @@ def build_collector_command(
         "--takeoff-altitude-m",
         "8",
         "--container-prefix",
-        f"verify-mover-{world}",
+        "codex-movers",
         "--out",
         str(out),
         "--min-free-gb",
         str(min_free_gb),
+        "--control-port",
+        "14600",
+        "--telemetry-port",
+        "14601",
     ]
+
+
+MAX_STABLE_TILT_DEG = 3.0
+MAX_MEDIAN_CENTROID_ERROR_PX = 25.0
+# Yaw still settling after a turn shows up as drift across the hold step.
+MAX_STABLE_YAW_DRIFT_DEG = 3.0
 
 
 def postprocess_episode(episode: Path, truth: dict, *, window_px: int = 12) -> dict:
@@ -60,11 +70,26 @@ def postprocess_episode(episode: Path, truth: dict, *, window_px: int = 12) -> d
         if v.get("target_id") == target["target_id"]
     )
     frames = []
+    skipped_maneuvering = 0
     for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         obs = row.get("obs_before") or {}
         stamp = obs.get("frame_sensor_stamp_ns")
         if stamp is None or not obs.get("segmentation_path") or not obs.get("rgb_path"):
+            continue
+        # Score only frames taken while the drone holds still.  Mid-turn frames are
+        # exposed while yaw/roll change quickly, so the pose paired with the image no
+        # longer matches it and the projected truth lands off the real target.
+        attitude = obs.get("attitude") or {}
+        after = (row.get("obs_after") or {}).get("attitude") or {}
+        yaw_drift = abs(
+            (float(after.get("yaw_deg", attitude.get("yaw_deg", 0.0)))
+             - float(attitude.get("yaw_deg", 0.0)) + 180.0) % 360.0 - 180.0
+        )
+        if (row.get("action") or {}).get("kind") != "hold" or max(
+            abs(float(attitude.get("roll_deg", 0.0))), abs(float(attitude.get("pitch_deg", 0.0)))
+        ) > MAX_STABLE_TILT_DEG or yaw_drift > MAX_STABLE_YAW_DRIFT_DEG:
+            skipped_maneuvering += 1
             continue
         cam = obs.get("camera_info") or {}
         size = (int(cam.get("width", 640)), int(cam.get("height", 480)))
@@ -125,6 +150,7 @@ def postprocess_episode(episode: Path, truth: dict, *, window_px: int = 12) -> d
     return {
         "frames": frames,
         "frame_count": len(frames),
+        "skipped_maneuvering_frames": skipped_maneuvering,
         "max_centroid_error_px": max(errors, default=None),
         "median_centroid_error_px": float(np.median(errors)) if errors else None,
         "segmentation_visible_fraction": sum(f["segmentation_visible"] for f in frames)
@@ -147,7 +173,7 @@ def main() -> int:
     a = ap.parse_args()
     scenario = ROOT / "configs/scenarios/generated-movers" / f"{a.world}.scenario.json"
     a.out.mkdir(parents=True, exist_ok=True)
-    prefix = f"verify-mover-{a.world}"
+    prefix = "codex-movers"
     cmd = build_collector_command(
         a.world, scenario, a.out, a.duration_s, a.min_free_gb
     )
@@ -155,7 +181,12 @@ def main() -> int:
         run = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
         (a.out / f"{a.world}.collector.stdout.log").write_text(run.stdout)
         (a.out / f"{a.world}.collector.stderr.log").write_text(run.stderr)
-        eps = sorted((a.out / "episodes").glob("episode-*"))
+        # The newest episode that recorded steps; an earlier aborted run in the same
+        # output directory may have left an episode without them.
+        eps = sorted(
+            (p for p in (a.out / "episodes").glob("episode-*") if (p / "steps.jsonl").is_file()),
+            key=lambda p: (p / "steps.jsonl").stat().st_mtime,
+        )
         truth = json.loads(
             (ROOT / "configs/scenarios/generated-movers" / f"{a.world}.truth.json").read_text()
         )
@@ -165,6 +196,8 @@ def main() -> int:
             run.returncode == 0
             and verdict.get("segmentation_visible_fraction", 0) > 0.8
             and verdict.get("rgb_visible_fraction", 0) > 0.8
+            # The rendered target must sit where the sim-time truth says it is.
+            and (verdict.get("median_centroid_error_px") or float("inf")) <= MAX_MEDIAN_CENTROID_ERROR_PX
         )
         (a.out / f"{a.world}.verdict.json").write_text(json.dumps(verdict, indent=2))
         print(json.dumps(verdict, indent=2))

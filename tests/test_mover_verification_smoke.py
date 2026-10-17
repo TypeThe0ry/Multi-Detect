@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts import collect_sim_teacher_episodes as collector
 from scripts.verify_mover_world import build_collector_command
 from multidetect.sim_teacher import HoverPolicy
@@ -36,13 +38,16 @@ def test_hover_teacher_starts_above_mover_trajectory_origin() -> None:
     policy = collector._hover_policy(None, TRUTH)
 
     assert isinstance(policy, HoverPolicy)
-    action = policy.next_action()
+    action = policy.next_action(pose_ned=(0.0, 0.0, -8.0), yaw_deg=90.0)
     assert isinstance(action, ActionPrimitive)
     assert action.kind == "translate"
     target = policy.target_ned
     assert target[:2] == (22.0, -24.0)
     assert target[2] < 0  # NED down is negative while hovering above the mover.
-    assert (action.forward_m, action.right_m) == target[:2]
+    assert action.forward_m == pytest.approx(-18.0)
+    assert action.right_m == pytest.approx(-12.4)
+    turn = policy.next_action(pose_ned=(0.0, 0.0, -8.0), yaw_deg=90.0)
+    assert turn.kind == "turn"
 
 
 def test_verifier_collector_command_has_hover_segmentation_and_scoped_prefix() -> None:
@@ -52,4 +57,6 @@ def test_verifier_collector_command_has_hover_segmentation_and_scoped_prefix() -
 
     assert command[command.index("--teacher") + 1] == "hover"
     assert "--segmentation" in command
-    assert command[command.index("--container-prefix") + 1] == "verify-mover-gen_mov_w0000"
+    assert command[command.index("--container-prefix") + 1] == "codex-movers"
+    assert command[command.index("--control-port") + 1] == "14600"
+    assert command[command.index("--telemetry-port") + 1] == "14601"

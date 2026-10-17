@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import tempfile
 from pathlib import Path
 
@@ -107,7 +109,7 @@ def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
     assert metrics["mission_alert_precision"] == 1.0
 
 
-def test_mover_worlds_have_explicit_splits_and_native_actor_trajectory(tmp_path) -> None:
+def test_mover_worlds_have_explicit_splits_and_sensor_rendered_trajectory(tmp_path) -> None:
     from multidetect.simulator.world_gen import generate_mover_worlds
 
     worlds = tmp_path / "worlds"
@@ -119,9 +121,10 @@ def test_mover_worlds_have_explicit_splits_and_native_actor_trajectory(tmp_path)
     assert first == second
     assert {entry["split"] for entry in first["worlds"]} == {"train", "val", "test"}
     text = before.decode()
-    assert "<actor name=\"target_true_gen_mov_w0000\"" in text
-    assert "<trajectory id=\"0\" type=\"move\"" in text
-    assert "gz-sim-trajectory-follower-system" not in text
+    assert '<model name="target_true_gen_mov_w0000"><static>true</static>' in text
+    assert "gz-sim-label-system" in text
+    assert "<actor" not in text
+    assert "trajectory-follower" not in text
 
 
 def test_verify_mover_postprocess_projects_truth_and_reads_recorded_labels(tmp_path) -> None:
@@ -136,10 +139,14 @@ def test_verify_mover_postprocess_projects_truth_and_reads_recorded_labels(tmp_p
     seg = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); seg[20:28, 28:36, 2] = 1
     rgb = __import__("numpy").zeros((48, 64, 3), dtype="uint8"); rgb[20:28, 28:36] = 255
     Image.fromarray(seg).save(episode / "seg/frame.png"); Image.fromarray(rgb).save(episode / "rgb/frame.png")
-    (episode / "steps.jsonl").write_text(json.dumps({"obs_before": {"frame_sensor_stamp_ns": 0, "pose": pose, "camera_info": cam, "segmentation_path": "seg/frame.png", "rgb_path": "rgb/frame.png"}}) + "\n")
+    held = {"action": {"kind": "hold"}, "obs_before": {"frame_sensor_stamp_ns": 0, "pose": pose, "attitude": {"roll_deg": 0.5, "pitch_deg": -0.5}, "camera_info": cam, "segmentation_path": "seg/frame.png", "rgb_path": "rgb/frame.png"}}
+    turning = {"action": {"kind": "turn"}, "obs_before": dict(held["obs_before"])}
+    (episode / "steps.jsonl").write_text(json.dumps(held) + "\n" + json.dumps(turning) + "\n")
     truth = {"targets": [{"target_id": "t", "true_target": True, "pose": {"x_east_m": 0.0, "y_north_m": 5.0, "z_up_m": 0.0}, "size_m": [2.0, 2.0, 2.0], "bottom_offset_m": -1.0}], "segmentation_labels": {"1": {"target_id": "t"}}}
     result = postprocess_episode(episode, truth)
     assert "median_centroid_error_px" in result
+    # Only the frame taken while holding still is scored; the mid-turn one is skipped.
+    assert result["skipped_maneuvering_frames"] == 1
 
 
 def test_count_metrics_match_findings_to_distinct_members() -> None:

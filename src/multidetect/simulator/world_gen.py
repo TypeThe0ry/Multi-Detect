@@ -438,7 +438,7 @@ def generate_fuel_worlds(count: int = 40, seed: int = 20261011,
     in truth. Invalid or task-equivalent pairs fail before any files are written.
     """
     if moving_targets:
-        raise ValueError("moving Fuel worlds require native actor trajectories; use generate_mover_worlds")
+        raise ValueError("moving Fuel worlds are separate from the static-model mover corpus; use generate_mover_worlds")
     copy_counts = (count_copies,) if isinstance(count_copies, int) else tuple(count_copies)
     if not copy_counts or any(type(n) is not int or n < 1 for n in copy_counts):
         raise ValueError("count_copies must contain positive integer copy counts")
@@ -732,8 +732,8 @@ def generate_mover_worlds(
 ) -> dict[str, Any]:
     """Write the small checked-in CPU-only mover corpus without Fuel downloads.
 
-    The corpus uses the same Harmonic trajectory follower as Fuel mover output,
-    but boxes keep generation reproducible on hosts that do not cache Fuel.
+    The corpus uses static box models. ``gz_mover_driver.py`` updates their
+    poses from simulation time through Gazebo's set_pose service.
     """
     if count != 6:
         raise ValueError("the mover corpus is intentionally six worlds")
@@ -757,28 +757,15 @@ def generate_mover_worlds(
         size = (1.0, 1.0, 1.8) if person else (4.0, 2.0, 1.6)
         start_x, start_y = trajectory["waypoints"][0]
         material = "<material><ambient>0.85 0.04 0.03 1</ambient><diffuse>0.95 0.05 0.04 1</diffuse></material>" if person else "<material><ambient>0.12 0.14 0.16 1</ambient><diffuse>0.20 0.22 0.25 1</diffuse></material>"
-        # Native Gazebo actor script executes the motion; truth is sampled from sim time.
-        # Densify every straight leg to <=0.5 s.  This bounds interpolation
-        # residual to <= speed*0.5/2 (0.25 m for people, 0.75 m for vehicles)
-        # even if a simulator interpolates between adjacent waypoints.
-        dense: list[tuple[float, float, float]] = []
-        sim_t = 0.0
-        points = trajectory["waypoints"] + [trajectory["waypoints"][0]]
-        for a, b in zip(points, points[1:]):
-            length = math.hypot(b[0] - a[0], b[1] - a[1])
-            steps = max(1, math.ceil(length / (speed * 0.5)))
-            for j in range(steps):
-                f = j / steps
-                dense.append((a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]), sim_t + f * length / speed))
-            sim_t += length / speed
-        dense.append((start_x, start_y, sim_t))
-        # SDF actor waypoints are <time> + <pose> children; a bare "x y z t" text node is
-        # silently ignored by the parser and leaves the actor without a trajectory.
-        waypoints_xml = "".join(
-            f"<waypoint><time>{t:.3f}</time><pose>{px:.3f} {py:.3f} 0 0 0 0</pose></waypoint>"
-            for px, py, t in dense
+        model_xml = (
+            f'<model name="target_true_{world_id}"><static>true</static>'
+            f'<pose>{start_x:.3f} {start_y:.3f} {size[2] / 2:.3f} 0 0 0</pose>'
+            f'<link name="body"><visual name="visual"><geometry><box><size>'
+            f'{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry>{material}'
+            f'</visual></link><plugin filename="gz-sim-label-system" '
+            f'name="gz::sim::systems::Label"><label>1</label></plugin></model>'
         )
-        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model><actor name="target_true_{world_id}"><pose>0 0 0 0 0 0</pose><link name="body"><visual name="visual"><pose>0 0 {size[2]/2:.3f} 0 0 0</pose><geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>{material}<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin></visual></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin><script><loop>true</loop><auto_start>true</auto_start><trajectory id="0" type="move" tension="0.0">{waypoints_xml}</trajectory></script></actor></world></sdf>\n'''
+        sdf = f'''<?xml version="1.0" encoding="UTF-8"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><scene><ambient>0.45 0.45 0.45 1</ambient><background>0.75 0.80 0.88 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4 0.3 -0.8</direction><cast_shadows>true</cast_shadows></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>{model_xml}</world></sdf>\n'''
         sdf = sdf.replace(
             "<gravity>0 0 -9.80665</gravity>",
             "<gravity>0 0 -9.80665</gravity>"
