@@ -123,3 +123,29 @@ def test_fixed_wing_and_vtol_never_fly_at_the_multirotor_default_altitude(monkey
     assert collector._takeoff_altitude_for_plan(collector.CollectionPlan(**base, airframe="advanced_plane"))[0] == 30.0
     tilt = collector._takeoff_altitude_for_plan(collector.CollectionPlan(**base, airframe="tiltrotor"))[0]
     assert tilt >= 30.0
+
+
+def test_closed_loop_motion_commands_wait_like_primitives(monkeypatch) -> None:
+    from multidetect.autonomy.motion_intent import MotionCommand
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    positions = iter([(0.0, 0.0, -30.0), (0.0, 0.0, -30.0), (50.0, 0.0, -30.0), (99.0, 0.0, -30.0)])
+    monkeypatch.setattr(collector, "_state_position", lambda state: next(positions))
+    monkeypatch.setattr(collector.time, "sleep", lambda s: None)
+    reader = type("R", (), {"state": None, "raise_if_failed": lambda self: None})()
+    reposition = MotionCommand("reposition", target_ned=(100.0, 0.0, -30.0),
+                               action=ActionPrimitive.translate(100.0, 0.0))
+    assert collector._is_motion_command(reposition)
+    assert not collector._is_motion_command(ActionPrimitive.hold(1.0))
+    waited = collector._wait_motion_command(reposition, reader, cruise_mps=15.0)
+    assert waited["waited"] == "arrived" and waited["distance_m"] <= 25.0
+    assert collector._wait_motion_command(MotionCommand("transition", mode="FW"), reader,
+                                          cruise_mps=15.0)["waited"] == "none"
+
+
+def test_onboard_policy_flies_the_collector_airframe() -> None:
+    base = dict(scenario="s.json", runtime="r.json", truth="t.json", teacher="onboard",
+                episodes=1, steps_per_episode=1, seed=0, out="o")
+    assert collector._onboard_airframe_id(collector.CollectionPlan(**base)) is None
+    assert collector._onboard_airframe_id(
+        collector.CollectionPlan(**base, airframe="advanced_plane_mono_cam")) == "advanced_plane"

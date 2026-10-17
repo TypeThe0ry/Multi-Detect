@@ -1286,8 +1286,15 @@ class OnboardPolicy:
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         if getattr(self, "motion_adapter", None) is not None:
-            telemetry_mode = observation.get("vtol_state") or observation.get("mode")
-            if isinstance(telemetry_mode, str):
+            # SIM observations carry EXTENDED_SYS_STATE.vtol_state (3 MC, 4 FW) under
+            # flight_state; the real runtime passes a mode string.
+            flight_state = observation.get("flight_state") or {}
+            telemetry_mode = observation.get("vtol_state")
+            if telemetry_mode is None and isinstance(flight_state, dict):
+                telemetry_mode = flight_state.get("vtol_state")
+            if telemetry_mode is None:
+                telemetry_mode = observation.get("mode")
+            if telemetry_mode is not None:
                 self.motion_adapter.set_mode(telemetry_mode)
         self._slow_failed_current = False
         self._slow_skipped_current = False
@@ -1830,8 +1837,12 @@ def build_onboard_policy(
     config_path: Path | None = None,
     frame_format: str = "png",
     frame_quality: int = 90,
+    airframe: str | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
+    if airframe is not None:
+        # The collector flies a specific airframe; the policy must plan for it.
+        config = {**(config or {}), "airframe": airframe}
     return OnboardPolicy(
         task_text=task_text,
         world_path=world_path,
