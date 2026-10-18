@@ -530,6 +530,8 @@ class Round:
                 str(self.out / "r15-sft"),
                 "--r12-replay-fraction",
                 str(self.a.r12_replay_fraction),
+                "--max-positive-ratio-delta",
+                str(self.a.max_positive_ratio_delta),
                 "--seed",
                 "20261016",
             ]
