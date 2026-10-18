@@ -377,7 +377,242 @@ def replay(args: argparse.Namespace) -> dict:
     }
 
 
+def replay_fusion_gates(
+    roots: list[Path],
+    *,
+    loop_configs: dict[str, dict],
+    ground_offsets_m: list[float],
+    scenarios: Path | None = None,
+) -> dict:
+    """Re-run ``OnboardLoop._update_position`` on recorded closed-loop tracks.
+
+    Recorded track IDs, boxes, poses and stamps are replayed unchanged; only
+    the ground model (``FlatGround(offset)``, i.e. ground believed higher than
+    truth) and the loop configuration vary. Association and flight actions are
+    not re-run, so a biased ground cannot change which frames were recorded.
+    Truth only selects/scores the true target (segmentation IoU >= 0.1).
+    """
+    from multidetect.autonomy.ground_model import FlatGround
+    from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop, Track
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    from multidetect.simulator.camera_projection import pixel_ground_point
+    from scripts.score_onboard_loop import (
+        _iou,
+        _row_sim_time,
+        _true_box,
+        _true_target,
+        target_pose_at_time,
+    )
+
+    episodes = sorted({meta.parent for root in roots for meta in root.rglob("episode.json")})
+    rows_by_episode = {}
+    for episode in episodes:
+        _, truth = truth_for_episode(episode, scenarios)
+        steps_path = episode / "steps.jsonl"
+        if truth is None or not steps_path.is_file():
+            continue
+        rows = [
+            json.loads(line)
+            for line in steps_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        boxes = [
+            _true_box(episode, row["obs_before"], truth, _row_sim_time(row))[0] for row in rows
+        ]
+        rows_by_episode[episode] = (rows, _true_target(truth), boxes)
+
+    def summary(values: list[float]) -> dict:
+        result = reference.stats(values)
+        return {key: result[key] for key in ("count", "median_m", "p95_m", "max_m")}
+
+    def stamp_s(observation: dict) -> float | None:
+        # Same precedence as scripts/onboard_policy.py::_observation_timestamp_s.
+        for key, units in (
+            ("pose_time_boot_ms", 1e3),
+            ("pose_sim_stamp_ns", 1e9),
+            ("frame_sensor_stamp_ns", 1e9),
+        ):
+            value = observation.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                return value / units
+        return None
+
+    report = {}
+    for offset in ground_offsets_m:
+        ground_model = FlatGround(offset)
+        for name, options in loop_configs.items():
+            config = LoopConfig(step_triangulation=True, **options)
+            frame_errors, ground_errors, confirm_errors, confirm_ground_errors = [], [], [], []
+            sources: Counter = Counter()
+            by_source: dict[str, list[float]] = defaultdict(list)
+            ground_by_source: dict[str, list[float]] = defaultdict(list)
+            confirm_sources: Counter = Counter()
+            notes: Counter = Counter()
+            frame_rows, confirm_rows = [], []
+            for episode, (rows, target, true_boxes) in rows_by_episode.items():
+                info = rows[0]["obs_before"]["camera_info"]
+                size = (int(info["width"]), int(info["height"]))
+                loop = OnboardLoop(
+                    CameraModel(info["fx"], info["fy"], info["cx"], info["cy"], *size),
+                    lambda p, y: ActionPrimitive.hold(1),
+                    segment_clear=lambda *args: True,
+                    config=config,
+                )
+                tracks: dict[str, Track] = {}
+                confirmed_seen = False
+                for row, true_box in zip(rows, true_boxes, strict=True):
+                    onboard = (row.get("labels") or {}).get("onboard") or {}
+                    observation = row["obs_before"]
+                    pose = tuple(float(x) for x in observation["pose"]["local_ned_m"][:3])
+                    yaw = float(observation["attitude"]["yaw_deg"])
+                    stamp = stamp_s(observation)
+                    loop.step_index = int(row.get("step_index", loop.step_index))
+                    kwargs = dict(pose=observation, camera_info=info, image_size=size)
+
+                    def camera_ray(u, v, kwargs=kwargs):
+                        return pixel_camera_ray(u, v, **kwargs)
+
+                    confirmed = onboard.get("confirmed")
+                    is_confirm = (
+                        not confirmed_seen
+                        and isinstance(confirmed, dict)
+                        and onboard.get("state_before") != "returning"
+                    )
+                    confirmed_id = confirmed.get("track_id") if is_confirm else None
+                    recorded = list(onboard.get("tracks") or [])
+                    if is_confirm and not any(t.get("id") == confirmed_id for t in recorded):
+                        recorded.append({"id": confirmed_id, "bbox": confirmed["bbox"]})
+                    for item in recorded:
+                        # The confirmation record keeps the unrounded box.
+                        raw = confirmed["bbox"] if item.get("id") == confirmed_id else item["bbox"]
+                        box = tuple(float(x) for x in raw)
+                        track = tracks.setdefault(
+                            str(item["id"]),
+                            Track(str(item["id"]), box, loop.step_index, loop.step_index),
+                        )
+                        track.bbox = box
+                        ground = pixel_ground_point(
+                            (box[0] + box[2]) / 2, box[3], **kwargs, ground_model=ground_model
+                        )
+                        track.ground = ground
+                        loop._update_position(
+                            track, ground, pose, yaw, camera_ray, stamp, allow_level_ray=False
+                        )
+                        position = loop.target_position(track)
+                        if position is None or true_box is None or _iou(box, true_box) < 0.1:
+                            continue
+                        truth_pose = target_pose_at_time(target, _row_sim_time(row))
+                        truth_ne = (float(truth_pose["y_north_m"]), float(truth_pose["x_east_m"]))
+                        error = math.dist(position, truth_ne)
+                        ground_error = math.dist(ground, truth_ne) if ground else math.inf
+                        estimate = track.position_estimate
+                        source = estimate.source if estimate else "ground_ne_only"
+                        note = estimate.consistency_note if estimate else None
+                        frame_errors.append(error)
+                        ground_errors.append(ground_error)
+                        sources[source] += 1
+                        by_source[source].append(error)
+                        ground_by_source[source].append(ground_error)
+                        notes[str(note)] += 1
+                        frame_rows.append(
+                            [
+                                episode.relative_to(episode.parents[3]).as_posix(),
+                                loop.step_index,
+                                str(item["id"]),
+                                round(error, 3),
+                                round(ground_error, 3),
+                                source,
+                            ]
+                        )
+                        if item.get("id") == confirmed_id:
+                            confirm_errors.append(error)
+                            confirm_ground_errors.append(ground_error)
+                            confirm_sources[source] += 1
+                            confirm_rows.append(
+                                {
+                                    "episode": episode.relative_to(episode.parents[3]).as_posix(),
+                                    "step": loop.step_index,
+                                    "error_m": round(error, 3),
+                                    "ground_error_m": round(ground_error, 3),
+                                    "source": source,
+                                    "note": note,
+                                    "recorded_position_ne": confirmed.get("position_estimate_ne"),
+                                    "replayed_position_ne": [round(x, 4) for x in position],
+                                }
+                            )
+                    confirmed_seen = confirmed_seen or is_confirm
+            report[f"ground_up_{offset:g}m/{name}"] = {
+                "ground_up_m": offset,
+                "loop_config": options,
+                "true_target_frames": {
+                    "reported": summary(frame_errors),
+                    "ground_intersection": summary(ground_errors),
+                    "sources": dict(sources),
+                    "reported_by_source": {key: summary(by_source[key]) for key in by_source},
+                    "ground_intersection_by_source": {
+                        key: summary(ground_by_source[key]) for key in ground_by_source
+                    },
+                    "notes": dict(notes),
+                    "rows": frame_rows,
+                    "row_fields": [
+                        "episode",
+                        "step",
+                        "track",
+                        "error_m",
+                        "ground_error_m",
+                        "source",
+                    ],
+                },
+                "true_target_confirmations": {
+                    "reported": summary(confirm_errors),
+                    "ground_intersection": summary(confirm_ground_errors),
+                    "sources": dict(confirm_sources),
+                    "rows": confirm_rows,
+                },
+            }
+    return {
+        "schema_version": 1,
+        "execution": {"cpu_only": True, "model_loaded": False, "dataset_read_only": True},
+        "roots": [str(root) for root in roots],
+        "episode_count": len(rows_by_episode),
+        "semantics": (
+            "recorded track boxes/IDs/poses replayed through OnboardLoop._update_position; "
+            "FlatGround(ground_up_m) believes the ground higher than truth; association and "
+            "actions are not re-run; horizontal N/E error to the true target, frames whose "
+            "track box has segmentation IoU >= 0.1 with it"
+        ),
+        "conditions": report,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if "--fusion-gate-replay" in argv:
+        parser = argparse.ArgumentParser(description=replay_fusion_gates.__doc__)
+        parser.add_argument("--fusion-gate-replay", action="store_true")
+        parser.add_argument("roots", type=Path, nargs="+")
+        parser.add_argument("--scenarios", type=Path)
+        parser.add_argument("--ground-offset-m", type=float, action="append")
+        parser.add_argument(
+            "--loop-configs",
+            type=json.loads,
+            default={"default": {}},
+            help='JSON {"name": {LoopConfig options}}; step_triangulation is always on',
+        )
+        parser.add_argument("--output", type=Path, required=True)
+        args = parser.parse_args(argv)
+        report = replay_fusion_gates(
+            args.roots,
+            loop_configs=args.loop_configs,
+            ground_offsets_m=args.ground_offset_m or [0.0, 2.0, 5.0],
+            scenarios=args.scenarios,
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps({"output": str(args.output), "episodes": report["episode_count"]}))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     parser.add_argument("--max-episodes", type=int, default=30)

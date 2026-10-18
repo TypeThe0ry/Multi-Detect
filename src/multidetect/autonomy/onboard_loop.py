@@ -363,9 +363,14 @@ class LoopConfig:
     step_triangulation_max_views: int = 8
     ground_height_sigma_m: float = 1.0
     step_triangulation_sigma_scale: float = 2.5
-    # Closed-loop tracking uses the ground hit as its association anchor.  A
-    # small horizontal gate prevents box-centre rays from silently moving it.
+    # Closed-loop tracking uses the ground hit as its association anchor.
+    # Triangulation may move it horizontally by at most
+    # max(ground_gate_m, ground_gate_sigma * horizontal ground sigma), where the
+    # horizontal sigma is ground_height_sigma_m / tan(bottom-ray depression):
+    # an uncertain ground or a shallow ray lets geometry correct the hit, a
+    # trusted ground keeps it pinned.  ground_gate_sigma=0 is the fixed gate.
     step_triangulation_ground_gate_m: float = 0.1
+    step_triangulation_ground_gate_sigma: float = 2.5
     # Required parallax grows with range because a fixed pixel/ray error turns
     # into a larger along-ray position error at distance.
     step_triangulation_parallax_deg_per_m: float = 0.3
@@ -400,6 +405,14 @@ class LoopConfig:
                 or value < minimum
             ):
                 raise ValueError(f"{name} must be finite and positive, and >= {minimum}")
+        gate_sigma = self.step_triangulation_ground_gate_sigma
+        if (
+            isinstance(gate_sigma, bool)
+            or not isinstance(gate_sigma, (int, float))
+            or not math.isfinite(gate_sigma)
+            or gate_sigma < 0
+        ):
+            raise ValueError("step_triangulation_ground_gate_sigma must be finite and >= 0")
         if self.small_reject_recheck_px is not None and (
             not math.isfinite(self.small_reject_recheck_px) or self.small_reject_recheck_px <= 0
         ):
@@ -930,6 +943,7 @@ class OnboardLoop:
                 else None
             )
             ground_estimate = None
+            anchor_gate_m = self.config.step_triangulation_ground_gate_m
             bottom_ray = camera_ray(_center(track.bbox)[0], track.bbox[3])
             if ground is not None and bottom_ray is not None:
                 origin, ray = bottom_ray
@@ -947,33 +961,36 @@ class OnboardLoop:
                         ground_height_sigma_m=self.config.ground_height_sigma_m,
                         timestamp_s=stamp,
                     )
-            if tri is not None and ground_estimate is not None:
-                # With a reliable ground model, require distance-aware parallax
-                # before trusting the poorly conditioned along-ray component.
-                # Large ground sigma explicitly opts into the old geometry-only
-                # behaviour for callers that do not have a useful ground prior.
+                    if ground_estimate is not None:
+                        # Horizontal shift of the hit per sigma of ground height.
+                        anchor_gate_m = max(
+                            anchor_gate_m,
+                            self.config.step_triangulation_ground_gate_sigma
+                            * self.config.ground_height_sigma_m
+                            * math.sqrt(horizontal_norm2)
+                            / ray[2],
+                        )
+            if tri is not None:
+                # Always require distance-aware parallax before trusting the
+                # poorly conditioned along-ray component: near-collinear rays
+                # produce metre-scale errors whatever the ground model.
                 latest_camera = track.position_views[-1].camera_ned
                 range_m = math.dist(tri.position_ned, latest_camera)
                 required_angle = max(
                     self.config.step_triangulation_min_ray_angle_deg,
                     self.config.step_triangulation_parallax_deg_per_m * range_m,
                 )
-                if self.config.ground_height_sigma_m <= 10.0 and tri.ray_angle_deg < required_angle:
+                if tri.ray_angle_deg < required_angle:
                     tri = None
-                    ground_estimate = replace(
-                        ground_estimate,
-                        consistent=False,
-                        consistency_note="parallax_below_distance_gate:fallback_ground",
-                    )
+                    if ground_estimate is not None:
+                        ground_estimate = replace(
+                            ground_estimate,
+                            consistent=False,
+                            consistency_note="parallax_below_distance_gate:fallback_ground",
+                        )
             track.position_estimate = (
                 fuse_position_estimates(
-                    ground_estimate,
-                    tri,
-                    ground_anchor_max_error_m=(
-                        self.config.step_triangulation_ground_gate_m
-                        if self.config.ground_height_sigma_m <= 10.0
-                        else None
-                    ),
+                    ground_estimate, tri, ground_anchor_max_error_m=anchor_gate_m
                 )
                 if tri is not None
                 else ground_estimate

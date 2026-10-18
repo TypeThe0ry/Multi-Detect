@@ -127,6 +127,8 @@ def test_custom_ground_model_requires_its_own_matching_ray(tmp_path, monkeypatch
         ("step_triangulation_sigma_scale", math.inf),
         ("step_triangulation_ground_gate_m", -1),
         ("step_triangulation_ground_gate_m", math.nan),
+        ("step_triangulation_ground_gate_sigma", -1),
+        ("step_triangulation_ground_gate_sigma", True),
         ("step_triangulation_parallax_deg_per_m", 0),
         ("step_triangulation_parallax_deg_per_m", math.inf),
         ("step_triangulation_min_ray_angle_deg", -1),
@@ -239,7 +241,7 @@ def test_multistep_find_position_drives_inspect_summary_and_persisted_downlink(t
     )
     subject._slow_identity = lambda *args: {"decision": "confirm_target", "confidence": 0.99}
     detection = Detection((290, 350, 350, 410), 0.9)
-    for index, east in enumerate((0.0, 2.0)):
+    for index, east in enumerate((0.0, 10.0)):
         camera = (0.0, east, -20.0)
         vector = (30.0, -east, 20.0)
         norm = math.hypot(*vector)

@@ -607,6 +607,7 @@ class OnboardPolicy:
             "ground_height_sigma_m",
             "step_triangulation_sigma_scale",
             "step_triangulation_ground_gate_m",
+            "step_triangulation_ground_gate_sigma",
             "step_triangulation_parallax_deg_per_m",
             "step_triangulation_min_ray_angle_deg",
         ):

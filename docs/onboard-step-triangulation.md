@@ -150,8 +150,42 @@ python scripts/validate_near_depth_replay.py --max-frames 48
 
 1. 闭环有可靠地面模型时，最小视线夹角同时受 10 度绝对下限和 `0.3 度/米 * 目标距离` 约束，避免固定 0.5 度门限放过远距离近共线视线。
 2. 三角化结果必须与当前地面锚点的水平距离不超过 0.1 m；框中心与底部的高度差只用于三维残差，不允许把跟踪/导航锚点横向带走。
-3. 来源冲突时始终回退地面相交，并记录 `ground_anchor_disagreement:fallback_ground` 或 `parallax_below_distance_gate:fallback_ground`。只有 `ground_height_sigma_m > 10` 的调用者才保留原来的几何优先行为，供明确知道地面模型不可靠的离线/实验调用使用。
+3. 来源冲突时始终回退地面相交，并记录 `ground_anchor_disagreement:fallback_ground` 或 `parallax_below_distance_gate:fallback_ground`。只有 `ground_height_sigma_m > 10` 的调用者才保留原来的几何优先行为，供明确知道地面模型不可靠的离线/实验调用使用。（该例外已于 2026-10-18 取消，见下节。）
 
 按上述门控对闭环确认记录离线重算，真实目标成功架次的修复误差均不大于地面相交误差：w0035 两架次为 2.062/1.228 m，w0036 为 0.312/0.496 m，w0037 正确目标架次为 1.290 m，w0038 两架次为 0.132/0.369 m。w0039 的两次确认属于错误目标，地面和三角化都偏离真值约 70 m，不能用来证明定位算法质量；修复对两次都回退地面。
 
 离线回放仍通过同输入 parity：1274 个样本、762 个有效几何样本，P95 斜距覆盖率 98.16%，水平覆盖率 98.43%。这批闭环数据规模很小，且成功目标类型、距离和视角有限，因此不建议把三角化作为任务默认开启项；当前结论是保持 `step_triangulation=false`，仅在有同步位姿、可靠相机标定和足够视差的任务上显式开启。
+
+## 按地面不确定度放宽锚点门（2026-10-18）
+
+上一节的门控有两个缺口：`ground_height_sigma_m <= 10` 时三角化只能在地面交点 0.1 m 内生效，等于在有地面模型时永远不能修正错误的地面高度；`> 10` 时视差门和锚点门同时关闭，又回到 6–15 度近共线视线造成 3–13 m 误差的旧模式。而纠正未知地面高度（坡地、无高程图）恰恰是三角化的用途。
+
+现在的规则：
+
+1. 距离相关视差门（`max(step_triangulation_min_ray_angle_deg, step_triangulation_parallax_deg_per_m × 距离)`）对每个三角化结果始终生效，与地面 sigma 无关；没有三维地面来源时，被拒绝的三角化同样丢弃，报告回退 `track.ground`。
+2. 三角化相对地面交点允许的水平修正量为 `max(step_triangulation_ground_gate_m, step_triangulation_ground_gate_sigma × ground_height_sigma_m / tan(框底边视线俯角))`。后一项正是地面高度偏 1 sigma 时交点沿视线的水平位移：地面越不确定、视线越平，允许三角化移动得越多。超出时仍回退地面并记 `ground_anchor_disagreement:fallback_ground`；通过后仍走原来的 2.5 sigma 三维一致性检查与 `1/sigma²` 融合。
+3. 新增 `step_triangulation_ground_gate_sigma`，默认 2.5（与融合一致性门同为 2.5 sigma），须有限且 `>= 0`；设为 0 即严格等价于原来的固定 0.1 m 门。`step_triangulation_ground_gate_m` 保持原名、原默认值，含义变为下限。没有高程图或地面高度不可信时，应把 `ground_height_sigma_m` 设成真实的不确定度（例如 5 m，与终验坡地专项一致），而不是靠大于 10 的“模式开关”。
+
+回放验证：`validate_step_triangulation_replay.py --fusion-gate-replay` 把录像中的 track ID、框、位姿与时间戳原样送入 `OnboardLoop._update_position`，只改变地面模型（`FlatGround(ground_up_m)`，即机上以为地面比真实高）和配置，不重跑关联与动作；以分割框 IoU ≥ 0.1 选出真实目标帧，误差为水平 N/E 距离。`step_triangulation_ground_gate_sigma=0` 的回放与改动前代码逐帧一致，并与 `tri-fallback` 录像中记录的确认位置差 0.000 m。三组闭环录像（`eval-v3-test-r12id-r14plan-{tri-fallback,tri,notri}`，39 集，325 个真实目标帧，27 次真实目标确认）：
+
+| 地面 | 配置 | 帧误差 中位 / P95 (m) | 确认误差 中位 / P95 (m) | 帧来源 fused / ground |
+|---|---|---:|---:|---:|
+| 正确 | 原门控（σ=1） | 1.22 / 4.77 | 0.50 / 1.60 | 4 / 321 |
+| 正确 | 新门控 σ=1 | 1.16 / 4.60 | 0.56 / 1.60 | 85 / 240 |
+| 正确 | 新门控 σ=5 | 1.12 / 4.60 | 0.56 / 1.60 | 85 / 240 |
+| 高 2 m | 原门控（σ=1） | 4.37 / 9.89 | 3.44 / 6.98 | 0 / 325 |
+| 高 2 m | 新门控 σ=1 | 4.07 / 9.89 | 3.44 / 6.98 | 65 / 260 |
+| 高 2 m | 新门控 σ=5 | 4.00 / 9.89 | 3.44 / 6.98 | 85 / 240 |
+| 高 5 m | 原门控（σ=1） | 12.47 / 23.13 | 8.07 / 15.62 | 0 / 325 |
+| 高 5 m | 新门控 σ=1 | 12.47 / 23.13 | 8.07 / 15.62 | 0 / 325 |
+| 高 5 m | 新门控 σ=5 | 12.02 / 23.13 | 7.98 / 15.62 | 85 / 240 |
+
+旧的 σ=20 几何模式在正确地面下为 1.38 / 22.61 m（确认 1.00 / 10.13 m），不能作为无地面先验时的安全选项。
+
+通过视差门的 85 帧上，三角化本身不依赖地面：地面高 5 m 时新门控 σ=5 的误差为中位 0.75 m、P95 3.48 m，同帧地面交点为 6.62 / 13.78 m；11 次融合确认为中位 0.32 m、最大 3.89 m，地面交点为 4.64 / 9.93 m。正确地面下，这 85 帧为 0.66 / 2.72 m（σ=1）对地面 0.64 / 2.76 m；11 次融合确认中分别有 2 次（σ=1）和 4 次（σ=5）比地面差 0.05 m 以上，最大的一次是 `tri` 录像 w0035 的 3.25 m（σ=1）/ 3.75 m（σ=5）对地面 2.06 m。总体中位数和 P95 改善有限，原因是只有约 26% 的真实目标帧有足够视差，其余帧仍只能回退（可能有偏的）地面交点；放宽视差门（例如固定 5 度）能让更多帧被修正，但正确地面下确认 P95 会升到 8.65 m，因此不放宽。旧报告排序前 30 集（176 帧）结论相同：正确地面下帧 P95 从 1.42 m 变为 1.80 m（由单帧 1.11 → 1.96 m 引起，最大值 4.02 m 不变），地面高 5 m 且 σ=5 时确认中位从 4.75 m 降到 2.62 m。样本仍很小，三角化继续默认关闭。
+
+```powershell
+$env:CUDA_VISIBLE_DEVICES="-1"; $env:PYTHONPATH="src;."; $env:PYTHONUTF8="1"
+$d="D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop"
+python scripts/validate_step_triangulation_replay.py --fusion-gate-replay "$d/eval-v3-test-r12id-r14plan-tri-fallback" "$d/eval-v3-test-r12id-r14plan-tri" "$d/eval-v3-test-r12id-r14plan-notri" --loop-configs '{\"old_gate\": {\"step_triangulation_ground_gate_sigma\": 0}, \"new_s1\": {}, \"new_s5\": {\"ground_height_sigma_m\": 5}}' --output tmp/tri-gate-replay.json
+```
