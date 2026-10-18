@@ -1,0 +1,14 @@
+{
+  "gguf": "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf",
+  "planning_model": "artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf",
+  "confirm_max_range_m": 40,
+  "fast_identity": true,
+  "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+  "step_triangulation": true,
+  "ground_height_sigma_m": 5.0,
+  "near_depth": false,
+  "ground_model": {
+    "type": "flat",
+    "ground_up_m": 2.0
+  }
+}
