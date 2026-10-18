@@ -483,3 +483,67 @@ def test_far_confirm_verdicts_only_count_as_matches():
     # Two confirm answers 85 m away: still approaching, no confirmation yet.
     assert loop.state == "approaching" and loop.tracks["t1"].confirm_steps == []
     assert len(loop.tracks["t1"].match_steps) == 2
+
+
+def test_unresolved_positive_tracks_survive_loss_and_revival_until_judged() -> None:
+    loop = _loop(stop_on_confirm=False)
+    pose = (0.0, 0.0, -8.0)
+    places = {400.0: (30.0, 20.0), 700.0: (30.5, 20.0), 1000.0: (-10.0, 40.0)}
+
+    def ground(u, _v):
+        return places[min(places, key=lambda x: abs(x - u))]
+
+    seen = [Detection(_box(u, 700, 13), 0.5) for u in places]
+    small, distinct, counted = loop.update_tracks(
+        seen, pose_ned=pose, yaw_deg=0.0, ground_point=ground
+    )
+    loop.apply_verdict(small.track_id, "approach_track")
+    # A co-visible neighbour is a different object; its rejection is not this place's.
+    loop.apply_verdict(distinct.track_id, "reject_track")
+    loop.apply_verdict(counted.track_id, "approach_track")
+    loop.confirmations.append({"position_estimate_ne": [-10.0, 40.2], "track_id": "other"})
+    loop.step_index += loop.config.lost_after_steps + 2
+    assert loop.unresolved_positive_tracks() == [small]
+    # A ground revival clears the cached verdict but not what the model said.
+    (revived,) = loop.update_tracks(
+        [Detection(_box(400, 700, 10), 0.5)], pose_ned=pose, yaw_deg=0.0, ground_point=ground
+    )
+    assert revived is small and small.verdict is None
+    assert loop.unresolved_positive_tracks() == [small]
+    loop.apply_verdict(small.track_id, "reject_track")
+    assert loop.unresolved_positive_tracks() == []
+
+
+def test_place_revisit_flies_to_a_near_side_view_without_spending_second_looks() -> None:
+    loop = _loop(stop_on_confirm=False)
+    pose = (0.0, 0.0, -8.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 700, 13), 0.5)],
+        pose_ned=pose,
+        yaw_deg=0.0,
+        ground_point=lambda u, v: (40.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "approach_track")
+    loop.state = "blocked"
+    look = loop.plan_place_revisit(track, pose)
+    assert look["kind"] == "place_revisit" and look["centre"] == (40.0, 0.0)
+    assert 0.0 < look["goal"][0] < 40.0 and abs(look["goal"][1]) < 1e-9
+    info: dict = {}
+    action = loop.begin_place_revisit(look, pose, 0.0, info)
+    assert loop.state == "searching" and action.kind == "translate"
+    assert info["second_look"] == {"centre": [40.0, 0.0], "phase": "fly", "kind": "place_revisit"}
+    blocked = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.hold(1.0),
+        segment_clear=lambda *_args: False,
+    )
+    assert blocked.plan_place_revisit(track, pose) is None
+    # Flying the look to completion does not consume the second-look budget.
+    north = 0.0
+    for _ in range(12):
+        action, _ = loop.next_action([], pose_ned=(north, 0.0, -8.0), yaw_deg=0.0)
+        if action.kind == "translate":
+            north += action.forward_m
+        if loop._revisit is None:
+            break
+    assert loop._revisit is None and loop._revisits_done == 0
