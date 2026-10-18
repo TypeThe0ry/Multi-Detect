@@ -283,6 +283,16 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
     raise ValueError(f"unknown airframe profile: {airframe}")
 
 
+def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
+    """A camera sample the continuous video has not written yet.
+
+    The image pipeline always lags the newest pose, so requiring the sample to
+    be at or after the current pose stamp wrote no frame at all; the pose for
+    the frame comes from ``aligned_state`` at the image's own stamp instead.
+    """
+    return sample is not None and int(sample.sensor_stamp_ns) > last_written_ns
+
+
 def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     """Name of the spawned Gazebo model whose sensor topics the collector subscribes to.
 
@@ -2524,6 +2534,7 @@ def run_episode(
         if plan.video_hz > 0.0
         else None
     )
+    last_video_stamp_ns: list[int] = [-1]
     # Persist the effective per-episode seed/index so a campaign can retry an
     # individual failed recording exactly, even when its next invocation uses a
     # different --episodes value.
@@ -3086,9 +3097,8 @@ def run_episode(
                             )
                             sensor_reader.request(video_stamp or 0)
                             sample = sensor_reader.latest
-                            if sample is not None and (
-                                video_stamp is None or sample.sensor_stamp_ns >= video_stamp
-                            ):
+                            if _new_video_sample(sample, last_video_stamp_ns[0]):
+                                last_video_stamp_ns[0] = sample.sensor_stamp_ns
                                 aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
                                 video_obs = _png_observation(
                                     build_observation(

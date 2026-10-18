@@ -63,3 +63,16 @@ def test_continuous_video_runs_temporal_estimators(tmp_path: Path):
     assert report["methods"]["rgb_slam"]["valid_output_rate"] > 0
     assert report["methods"]["visual_inertial"]["valid_output_rate"] > 0
     assert report["buckets"]
+
+
+def test_video_sampling_takes_new_frames_that_lag_the_pose():
+    """The image always lags the newest pose; the old "image stamp >= pose stamp"
+    rule wrote no in-action frame in a real 10 Hz run (only action-end frames)."""
+    from types import SimpleNamespace
+
+    from scripts.collect_sim_teacher_episodes import _new_video_sample
+
+    assert not _new_video_sample(None, -1)
+    assert _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_000), -1)
+    assert not _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_000), 1_000)
+    assert _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_100), 1_000)
