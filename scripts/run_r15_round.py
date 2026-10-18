@@ -501,6 +501,11 @@ class Round:
                 "--proposals",
                 str(self.out / "yoloe-v3-cache.jsonl"),
                 "--counterfactual-tasks",
+                # Paired rejects: renamed-task rows alone taught "find the pickup" to
+                # accept an SUV (r15/r16 on the v1 real-flight set).
+                "--counterfactual-negatives",
+                # The frozen v1/v3 test classes stay unseen in top-up rounds.
+                *(arg for path in self.a.holdout_from for arg in ("--holdout-from", str(path))),
                 "--crop-policy",
                 "candidate_zoom_v2",
                 "--output",
@@ -912,6 +917,13 @@ def main():
         "--r12-baseline",
         type=Path,
         default=ROOT / "artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json",
+    )
+    p.add_argument(
+        "--holdout-from",
+        type=Path,
+        action="append",
+        default=[ROOT / "configs/scenarios/generated-v2/index.json"],
+        help="index whose held_out_target_combos stay unseen in the new rows (frozen test set)",
     )
     p.add_argument(
         "--r12-v1-baseline",

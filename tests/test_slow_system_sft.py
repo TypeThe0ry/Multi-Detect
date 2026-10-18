@@ -540,6 +540,92 @@ def test_counterfactual_tasks_name_the_distractor_and_held_out_classes_stay_unla
     assert stats["dropped_held_out_focus"] == 1
 
 
+def test_counterfactual_negatives_reject_another_object_under_the_renamed_task():
+    """r15/r16 regression: renamed-task rows only said "yes", so "find the pickup"
+    accepted an SUV. Each counterfactual now pairs with a reject on another object,
+    the true target first, never a held-out class."""
+    from collections import Counter, defaultdict
+
+    true = {"target_id": "target_true_w", "category_words": ["suv"], "class": "suv", "color": None}
+    pickup = {
+        "target_id": "forced_pickup",
+        "category_words": ["pickup"],
+        "class": "pickup",
+        "color": None,
+    }
+    sign = {
+        "target_id": "d_sign",
+        "category_words": ["stop sign"],
+        "class": "stop_sign",
+        "color": "red",
+    }
+    scene = [
+        {
+            "target_id": "target_true_w",
+            "box": (100.0, 100.0, 160.0, 140.0),
+            "asset_slug": "suv",
+            "record": true,
+        },
+        {
+            "target_id": "forced_pickup",
+            "box": (300.0, 300.0, 400.0, 360.0),
+            "asset_slug": "pickup",
+            "record": pickup,
+        },
+        {
+            "target_id": "d_sign",
+            "box": (600.0, 100.0, 630.0, 130.0),
+            "asset_slug": "stop_sign",
+            "record": sign,
+        },
+    ]
+    boxes = [[300, 300, 400, 360, 0.6], [100, 100, 160, 140, 0.7], [600, 100, 630, 130, 0.5]]
+    groups = defaultdict(list)
+    stats = Counter()
+    builder._proposal_rows(
+        groups,
+        stats,
+        boxes,
+        scene,
+        slug={"true_target": true},
+        task="Find the SUV and record its position.",
+        world="w",
+        split="train",
+        frame=Path(builder.__file__),
+        size=(1280, 960),
+        campaign="c",
+        true_id="target_true_w",
+        iou_threshold=0.3,
+        min_side_px=10.0,
+        confirm_min_side_px=20.0,
+        held_out=frozenset({"stop_sign"}),
+        counterfactual=True,
+        variant=1,
+        counterfactual_negatives=True,
+    )
+    rows = [row for rows in groups.values() for row in rows]
+    negatives = [row for row in rows if row["label_type"] == "proposal_counterfactual_negative"]
+    assert len(negatives) == 1 and stats["proposal_counterfactual_negative"] == 1
+    negative = negatives[0]
+    assert negative["task_text"] == "Find the pickup and record its position."
+    assert negative["assistant_target"]["decision"] == "reject_track"
+    # The focus is the SUV (true target) box, not the held-out stop sign.
+    assert negative["candidates"][0]["box_xyxy_normalized"][0] == round(100 / 1280, 4)
+    positives = [row for row in rows if row["label_type"] == "proposal_counterfactual"]
+    assert [row["task_text"] for row in positives] == [negative["task_text"]]
+
+    focus = builder._counterfactual_negative_focus(
+        pickup, [(0, sign), (1, {**true, "asset_slug": "suv"})], frozenset({"stop_sign"})
+    )
+    assert focus is not None and focus[0] == 1
+    assert (
+        builder._counterfactual_negative_focus(
+            pickup, [(0, {**sign, "asset_slug": "stop_sign"})], frozenset({"stop_sign"})
+        )
+        is None
+    )
+
+
 def test_relative_paths_of_main_checkout_data_from_a_worktree(tmp_path, monkeypatch) -> None:
     import scripts.build_slow_system_sft as builder
 

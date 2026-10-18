@@ -17,7 +17,7 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from PIL import Image, ImageEnhance, ImageFilter
@@ -521,12 +521,55 @@ def _counterfactual_task(obj: dict, others: list[dict], variant: int) -> str | N
     return english if variant % 2 else chinese
 
 
+def _counterfactual_negative_focus(named: dict, others: list[tuple[int, dict]], held_out: frozenset[str]):
+    """Another visible object the counterfactual task does not describe.
+
+    Counterfactual rows alone only ever say "yes" to a renamed task, which taught
+    r15/r16 that a task naming a vehicle class accepts any vehicle (task "pickup",
+    candidate SUV). The paired reject keeps identity tied to the named class.
+    The true target is preferred: it is the most salient object in the frame.
+    """
+    eligible = [
+        (index, obj) for index, obj in others
+        if obj is not named and not task_equivalent(named, obj) and obj.get("asset_slug") not in held_out
+    ]
+    eligible.sort(key=lambda item: not str(item[1].get("target_id", "")).startswith("target_true"))
+    return eligible[0] if eligible else None
+
+
+def _proposal_counterfactual_negative(
+    groups, stats: Counter, proposals, index: int, named_obj: dict, task: str, covered_object, *,
+    held_out: frozenset[str], min_side_px: float, world: str, split: str, frame: Path,
+    size: tuple[int, int], campaign: str,
+) -> None:
+    others = []
+    for j, other_box in enumerate(proposals):
+        if j == index or min(other_box[2] - other_box[0], other_box[3] - other_box[1]) < min_side_px:
+            continue
+        obj = covered_object(other_box)
+        if obj is not None and obj.get("record") is not None and obj is not named_obj:
+            others.append((j, {"asset_slug": obj.get("asset_slug"), **obj["record"]}))
+    pick = _counterfactual_negative_focus(named_obj["record"], others, held_out)
+    if pick is None:
+        return
+    j, record = pick
+    box = proposals[j]
+    shown = [box] + [other for k, other in enumerate(proposals) if k != j][:3]
+    stats["proposal_counterfactual_negative"] += 1
+    groups["reject_track"].append(_row(
+        world=world, split=split, frame=frame, task_text=task, box=box, size=size,
+        target=_decision("reject_track", track="track-1", reason=_fuel_reject_reason(record, named_obj["record"], task)),
+        kind="reject_track", campaign=campaign, label_type="proposal_counterfactual_negative",
+        candidate_boxes=shown, focus_index=0, task_category=_target_category(named_obj["record"]),
+    ))
+
+
 def _proposal_rows(
     groups, stats: Counter, boxes: list[list[float]], scene: list[dict], *, slug: dict, task: str,
     world: str, split: str, frame: Path, size: tuple[int, int], campaign: str, true_id: str,
     iou_threshold: float, min_side_px: float, confirm_min_side_px: float,
     held_out: frozenset[str] = frozenset(), counterfactual: bool = False, variant: int = 0,
-    task_category: str | None = None,
+    task_category: str | None = None, counterfactual_negatives: bool = False,
 ) -> None:
     """Label live FAST proposals by the segmentation object they cover.
 
@@ -536,6 +579,11 @@ def _proposal_rows(
     """
     proposals = [tuple(float(v) for v in box[:4]) for box in boxes]
     requested = slug["true_target"]
+
+    def covered_object(box) -> dict | None:
+        """The scene object a proposal clearly covers, if any."""
+        best_iou, best = max(((_iou(box, obj["box"]), obj) for obj in scene), key=lambda item: item[0], default=(0.0, None))
+        return best if best is not None and best_iou >= iou_threshold else None
     for index, box in enumerate(proposals):
         if min(box[2] - box[0], box[3] - box[1]) < min_side_px:
             continue
@@ -577,6 +625,12 @@ def _proposal_rows(
                     label_type="proposal_counterfactual", candidate_boxes=shown, focus_index=0,
                     task_category=_target_category(best["record"]),
                 ))
+                if counterfactual_negatives:
+                    _proposal_counterfactual_negative(
+                        groups, stats, proposals, index, best, other_task, covered_object,
+                        held_out=held_out, min_side_px=min_side_px, world=world, split=split,
+                        frame=frame, size=size, campaign=campaign,
+                    )
         else:
             label_type = "proposal_scenery"
             scenery = {"category_words": str(best.get("asset_slug") or "structure").split("_"), "color": None}
@@ -596,6 +650,7 @@ def build_dataset(
     confirm_min_side_px: float | None = None,
     proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
+    holdout_from: Sequence[Path] = (), counterfactual_negatives: bool = False,
     identity_variant: str = "default",
     balance_task_categories: float | None = None, max_upsample: int = 4,
     image_augmentation: str | Mapping[str, object] | None = None,
@@ -626,6 +681,10 @@ def build_dataset(
     held_out_slugs = frozenset(
         str(combo["slug"]) for combo in index_document.get("held_out_target_combos", [])
     ) if unseen_holdout else frozenset()
+    # A top-up round's worlds have no held-out list of their own; the frozen test
+    # set's classes (e.g. generated-v2) must stay unseen or its scores are inflated.
+    for holdout_index in holdout_from:
+        held_out_slugs |= frozenset(str(combo["slug"]) for combo in _json(holdout_index).get("held_out_target_combos", []))
     proposal_cache: dict[str, list[list[float]]] = {}
     if proposals is not None:
         for line in proposals.read_text(encoding="utf-8").splitlines():
@@ -633,6 +692,8 @@ def build_dataset(
                 entry = json.loads(line)
                 proposal_cache[entry["image"]] = entry["boxes"]
     source_hashes = {_relative(index): _sha(index), _relative(Path(__file__)): _sha(Path(__file__))}
+    for holdout_index in holdout_from:
+        source_hashes[_relative(holdout_index)] = _sha(holdout_index)
     buckets: dict[str, dict[str, list[dict]]] = {split: defaultdict(list) for split in SPLITS}
     stats = Counter()
     if proposals is not None:
@@ -670,6 +731,11 @@ def build_dataset(
             true_id = slug["true_target"]["target_id"]
         if world.startswith("urban_"):
             true_id = "multidetect_search_target_urban_001"
+        if fuel and split != "test" and slug["true_target"].get("asset_slug") in held_out_slugs:
+            # A training world whose target is a held-out class: every row from it
+            # would teach that class (as a target or by its look-alikes).
+            stats["dropped_held_out_world_frame"] += 1
+            continue
         if not projected:
             region = SEARCH_REGIONS[variant % len(SEARCH_REGIONS)]
             reason = "No visible candidate; continue searching."
@@ -715,6 +781,13 @@ def build_dataset(
                     stats["counterfactual"] += 1
                     match = _identity_match(p["box"], f"track-{p_index + 1}", confirm_min_side_px if confirm_min_side_px is not None else 20.0)
                     buckets[split][match["decision"]].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=p["box"], size=size, target=match, kind=match["decision"], campaign=campaign, label_type="counterfactual", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category))
+                    pick = _counterfactual_negative_focus(
+                        p["target"], [(q_index, q["target"]) for q_index, q in enumerate(projected) if q_index != p_index], held_out_slugs,
+                    ) if counterfactual_negatives else None
+                    if pick is not None:
+                        q_index, q_target = pick
+                        stats["counterfactual_negative"] += 1
+                        buckets[split]["reject_track"].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=projected[q_index]["box"], size=size, target=_decision("reject_track", track=f"track-{q_index + 1}", reason=_fuel_reject_reason(q_target, p["target"], other_task)), kind="reject_track", campaign=campaign, label_type="counterfactual_negative", candidate_boxes=projected_boxes, focus_index=q_index, visible_fraction=projected[q_index].get("visible_fraction"), task_category=row_task_category))
             elif not class_match:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=f"Wrong class: requested {slug[1]}, candidate is {p['class']}.")
                 kind = "reject_track"
@@ -732,7 +805,7 @@ def build_dataset(
                 confirm_min_side_px=confirm_min_side_px if confirm_min_side_px is not None else 20.0,
                 held_out=held_out_slugs if split != "test" else frozenset(),
                 counterfactual=counterfactual_tasks and split != "test", variant=variant,
-                task_category=row_task_category,
+                task_category=row_task_category, counterfactual_negatives=counterfactual_negatives,
             )
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
@@ -752,7 +825,11 @@ def build_dataset(
         # Keep negatives at roughly 1.5 per visual positive while preserving all
         # positive examples and a bounded set of search/clarification cases.
         # Live scenery/background proposals are rare hard negatives: keep them all.
-        rare = [row for row in negative if row["label_type"] in {"proposal_scenery", "proposal_background"}]
+        # So are the rejects paired with counterfactual tasks; without them the
+        # renamed-task rows only ever teach "yes".
+        rare = [row for row in negative if row["label_type"] in {
+            "proposal_scenery", "proposal_background", "counterfactual_negative", "proposal_counterfactual_negative",
+        }]
         negative = rare + [row for row in negative if row not in rare][: max(0, round(len(positive) * negative_ratio) - len(rare))]
         # Preserve at least one no-candidate/clarification example per world;
         # otherwise the bounded prefix can silently discard the urban train
@@ -809,6 +886,8 @@ def build_dataset(
         "image_policy": "reference_existing_rgb_png_no_copy; full_frame_resize_to_448_max_side_at_model_input; candidate_crop_resize_to_224x224_at_model_input",
         "crop_policy": crop_policy,
         "counterfactual_tasks": counterfactual_tasks,
+        "counterfactual_negatives": counterfactual_negatives,
+        "holdout_from": [_relative(path) for path in holdout_from],
         "unseen_holdout": sorted(held_out_slugs),
         "proposals": (
             {"cache": _relative(proposals), "iou": proposal_iou, "min_side_px": proposal_min_side_px}
@@ -860,12 +939,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--proposal-iou", type=float, default=0.3)
     parser.add_argument("--counterfactual-tasks", action="store_true", help="train/val: also ask for each visible distractor by name (a match), so identity follows the task text")
     parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
+    parser.add_argument("--holdout-from", type=Path, action="append", default=[], help="train/val: also keep this index's held_out_target_combos unseen (the frozen test set of a top-up round)")
+    parser.add_argument("--counterfactual-negatives", action="store_true", help="pair each counterfactual task with a reject on another visible object it does not describe")
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
