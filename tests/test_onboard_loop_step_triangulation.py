@@ -13,6 +13,8 @@ from multidetect.sim_teacher.primitives import ActionPrimitive
 CAMERA = CameraModel(500, 500, 500, 400, 1000, 800)
 TARGET = (30.0, 0.0, -1.0)
 GROUND = (34.0, 0.0)
+# About 15 degrees of parallax at 30 m: clears the always-on distance gate.
+WIDE = ((0.0, -4.0, -10.0), (0.0, 4.0, -10.0))
 
 
 def loop(**options):
@@ -76,7 +78,7 @@ def test_disabled_is_identical_including_records_association_and_memory(count):
 @pytest.mark.parametrize("count", [False, True])
 def test_multistep_estimate_is_reported_without_changing_tracking_ground(count):
     subject = loop(step_triangulation=True, ground_height_sigma_m=20, stop_on_confirm=not count)
-    for pose in ((0.0, -1.0, -10.0), (0.0, 1.0, -10.0)):
+    for pose in WIDE:
         current = observe(subject, pose)
         assert current[0].track_id == "t1"
         assert current[0].ground == GROUND
@@ -86,8 +88,8 @@ def test_multistep_estimate_is_reported_without_changing_tracking_ground(count):
     assert record["position_source"] == "fused"
     assert record["position_sigma_m"] > 0
     assert record["position_view_count"] == 2
-    assert record["position_baseline_m"] == pytest.approx(2)
-    assert record["position_ray_angle_deg"] > 0.5
+    assert record["position_baseline_m"] == pytest.approx(8)
+    assert record["position_ray_angle_deg"] > 10
     assert record["position_consistent"] is True
     assert info["horizontal_m"] == pytest.approx(
         math.dist(record["position_estimate_ne"], pose[:2])
@@ -132,18 +134,70 @@ def test_distance_aware_parallax_gate_rejects_far_near_collinear_update(monkeypa
     )
 
 
+def test_large_ground_sigma_no_longer_bypasses_the_parallax_gate():
+    # Formerly ground_height_sigma_m > 10 disabled both gates; about 3.8
+    # degrees of parallax at 30 m now falls back to the ground hit.
+    subject = loop(step_triangulation=True, ground_height_sigma_m=20)
+    for step, pose in enumerate(((0.0, -1.0, -10.0), (0.0, 1.0, -10.0))):
+        subject.step_index = step
+        current = observe(subject, pose)
+    assert len(current[0].position_views) == 2
+    assert current[0].position_estimate.source == "ground"
+    assert current[0].position_estimate.consistency_note == (
+        "parallax_below_distance_gate:fallback_ground"
+    )
+    assert subject.target_position(current[0]) == GROUND
+
+
+@pytest.mark.parametrize(
+    "ground_sigma,gate_sigma,corrected",
+    [
+        # Default k=2.5: 1 m of ground-height sigma on a ~19 degree bottom ray
+        # allows about 7 m of horizontal correction, so the 4 m one is used.
+        (1.0, 2.5, True),
+        # A trusted ground (small sigma) keeps the anchor pinned.
+        (0.25, 2.5, False),
+        # k=0 is exactly the former fixed 0.1 m gate.
+        (1.0, 0.0, False),
+    ],
+)
+def test_anchor_gate_scales_with_ground_horizontal_sigma(
+    monkeypatch, ground_sigma, gate_sigma, corrected
+):
+    subject = loop(
+        step_triangulation=True,
+        ground_height_sigma_m=ground_sigma,
+        step_triangulation_ground_gate_sigma=gate_sigma,
+    )
+    fake = PositionEstimate(
+        TARGET, 0.2, 1.0, "triangulation", view_count=2, baseline_m=8.0, ray_angle_deg=15.0
+    )
+    monkeypatch.setattr(onboard_loop_module, "triangulate_views", lambda *args, **kwargs: fake)
+    for pose in WIDE:
+        current = observe(subject, pose)
+    estimate = current[0].position_estimate
+    assert current[0].ground == GROUND
+    if corrected:
+        assert estimate.source == "fused" and estimate.consistent
+        assert subject.target_position(current[0]) == pytest.approx(TARGET[:2], abs=0.1)
+    else:
+        assert estimate.source == "ground" and not estimate.consistent
+        assert estimate.consistency_note == "ground_anchor_disagreement:fallback_ground"
+        assert subject.target_position(current[0]) == GROUND
+
+
 def test_repeated_step_does_not_add_views_and_failed_new_ray_drops_old_estimate():
     subject = loop(step_triangulation=True, ground_height_sigma_m=20)
-    observe(subject, (0.0, -1.0, -10.0))
-    track = observe(subject, (0.0, -1.0, -10.0))[0]
+    observe(subject, WIDE[0])
+    track = observe(subject, WIDE[0])[0]
     assert len(track.position_views) == 1
     subject.step_index += 1
-    observe(subject, (0.0, 1.0, -10.0))
+    observe(subject, WIDE[1])
     assert track.position_estimate.source == "fused"
     subject.step_index += 1
     subject.update_tracks(
-        [detection((0.0, 2.0, -10.0))],
-        pose_ned=(0.0, 2.0, -10.0),
+        [detection((0.0, 5.0, -10.0))],
+        pose_ned=(0.0, 5.0, -10.0),
         yaw_deg=0,
         ground_point=lambda u, v: GROUND,
         camera_ray=lambda u, v: None,
@@ -188,7 +242,7 @@ def test_camera_callback_failure_falls_back_without_interrupting_loop(error):
 @pytest.mark.parametrize("multistep", [False, True])
 def test_vertical_bottom_ray_does_not_invent_ground_height(multistep):
     subject = loop(step_triangulation=True)
-    poses = ((0.0, -1.0, -10.0), (0.0, 1.0, -10.0)) if multistep else ((0.0, -1.0, -10.0),)
+    poses = WIDE if multistep else WIDE[:1]
     for step, pose in enumerate(poses):
         subject.step_index = step
         box = detection(pose)
@@ -220,7 +274,7 @@ def test_count_deduplicates_estimated_positions_even_when_ground_anchors_differ(
         ground_reid_max_steps=0,
     )
     for start, anchor in ((0, (34.0, 0.0)), (10, (39.0, 0.0))):
-        for offset, pose in enumerate(((0.0, -1.0, -10.0), (0.0, 1.0, -10.0))):
+        for offset, pose in enumerate(WIDE):
             subject.step_index = start + offset
             current = subject.update_tracks(
                 [detection(pose)],
@@ -257,6 +311,9 @@ def test_count_deduplicates_estimated_positions_even_when_ground_anchors_differ(
         {"step_triangulation_sigma_scale": 0.5},
         {"step_triangulation_ground_gate_m": -1},
         {"step_triangulation_ground_gate_m": float("nan")},
+        {"step_triangulation_ground_gate_sigma": -0.5},
+        {"step_triangulation_ground_gate_sigma": float("inf")},
+        {"step_triangulation_ground_gate_sigma": True},
         {"step_triangulation_parallax_deg_per_m": 0},
         {"step_triangulation_parallax_deg_per_m": float("inf")},
         {"step_triangulation_min_ray_angle_deg": -1},
