@@ -85,4 +85,14 @@ v3 的提升不是泄漏造成的：去掉 SUV / 皮卡两个测试世界后，r
 
 自动报告按准确率与干扰物拒绝判定“建议替换”，但它不看召回。少认一个真目标会让飞机继续搜索或重新接近，认错会报告错误目标——两者在任务里的代价不同，所以用闭环飞行裁决：同一套默认配置（三角化开启、sigma 5）在 6 个测试世界 × 2 架次上把身份模型换成 r18，与 r12 的平地复验（`eval-v3-test-defaults-flat`）对比。结果出来前机上仍用 r12。
 
+闭环“找目标”结果（2026-10-19 00:00，`eval-v3-test-r18-defaults-flat` vs `eval-v3-test-defaults-flat`）：
+
+| | r12 | r18 |
+|---|---:|---:|
+| 成功 | 8/12 | 8/12 |
+| 误确认 | 3 | **2** |
+| 成功架次位置误差中位 | 0.64 m | 0.54 m |
+
+r18 在 w0034 不再把红色加油站招牌认成停车牌；w0039 把站立行人认错的两次仍在（r12 同样）；其余世界一致。离线召回下降集中在计数场地的极小背包，而这 6 个测试世界都是“找”任务，所以再跑一轮计数/巡检任务（`monitor-backpacks`、`patrol-fence-backpacks`、`count-cones`，各 2 架次）对比 r12 与 r18，再决定是否替换。
+
 产物：`artifacts/r16-round/`、`artifacts/r17-round/`、`artifacts/r18-round/`（合并数据集 `r15-sft`、适配器 `adapter`、`merged-gguf/slow-system-Q5_K_M.gguf`、`eval-v1.json`、`eval-v3.json`）。
