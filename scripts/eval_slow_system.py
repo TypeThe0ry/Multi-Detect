@@ -269,6 +269,10 @@ def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+class ServerDiedError(RuntimeError):
+    """The inference server is gone; every later row would fail the same way."""
+
+
 def evaluate_predictor(
     rows: list[dict[str, Any]], predictor: Callable[[dict[str, Any]], tuple[str, float]]
 ) -> dict[str, Any]:
@@ -304,6 +308,10 @@ def evaluate_predictor(
                     getattr(predictor, "last_usage", None), "completion_tokens"
                 ),
             }
+        except ServerDiedError:
+            # Not a model answer: recording the rest as invalid rows would turn a
+            # crashed server into silently wrong metrics (or hours of timeouts).
+            raise
         except Exception as exc:
             result = {
                 "sample_id": row["sample_id"],
@@ -565,7 +573,7 @@ class LlamaServerRunner:
         if not getattr(self, "cache_prompt", True):
             body["cache_prompt"] = False
         started = time.perf_counter()
-        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        response = self._completion(body)
         elapsed = time.perf_counter() - started
         self.last_usage = response.get("usage")
         try:
@@ -642,11 +650,35 @@ class LlamaServerRunner:
         if not self.cache_prompt:
             body["cache_prompt"] = False
         started = time.perf_counter()
-        response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        response = self._completion(body)
         elapsed = time.perf_counter() - started
         self.last_logprobs = (response["choices"][0].get("logprobs") or {}).get("content")
         self.last_usage = response.get("usage")
         return response["choices"][0]["message"].get("content", ""), elapsed
+
+    def _completion(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+        except (OSError, ValueError, urllib.error.URLError):
+            # On Windows a crashed server can linger (error reporting) and only
+            # time out; three connection failures in a row mean it is gone too.
+            self._connection_failures = getattr(self, "_connection_failures", 0) + 1
+            process = getattr(self, "process", None)
+            exited = process is not None and process.poll() is not None
+            if exited or self._connection_failures >= 3:
+                log = getattr(self, "server_log", None)
+                tail = ""
+                if log is not None:
+                    try:
+                        log.flush()
+                        tail = Path(log.name).read_text(encoding="utf-8", errors="replace")[-1500:]
+                    except (OSError, ValueError):
+                        tail = "(server log unavailable)"
+                state = f"exited with {process.returncode}" if exited else "stopped answering"
+                raise ServerDiedError(f"llama-server {state} mid-evaluation: {tail}") from None
+            raise
+        self._connection_failures = 0
+        return response
 
     def probe_health(self, timeout_s: float = 0.5) -> bool:
         """Cheap synchronous health probe used by the onboard state machine.

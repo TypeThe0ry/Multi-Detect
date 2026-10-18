@@ -71,10 +71,14 @@ def test_fast_identity_matches_token_text_when_ids_are_missing(monkeypatch):
 def test_fast_identity_unexpected_response_shape_falls_back(monkeypatch):
     runner, _ = _runner(monkeypatch, [])
     monkeypatch.setattr(
-        slow, "_http_json",
+        slow,
+        "_http_json",
         lambda url, body=None, timeout=None: (
-            {"tokens": [1, 2, 3, 10 + len(body["content"]) % 3]} if url.endswith("/tokenize")
-            else {"content": "x"} if url.endswith("/detokenize") else {"choices": [{}]}
+            {"tokens": [1, 2, 3, 10 + len(body["content"]) % 3]}
+            if url.endswith("/tokenize")
+            else {"content": "x"}
+            if url.endswith("/detokenize")
+            else {"choices": [{}]}
         ),
     )
     prefix = '{"args":{"duration_s":null,"region":null,"track_id":"t"},"decision":"'
@@ -98,3 +102,38 @@ def test_fast_identity_honours_prompt_cache_setting_and_records_usage(monkeypatc
     runner._fast_identity({"focus_track_id": "t"}, [])
     assert calls[-1][1]["cache_prompt"] is False
     assert runner.last_usage == {"prompt_tokens": 470, "completion_tokens": 1}
+
+
+def test_a_dead_server_stops_the_evaluation_instead_of_failing_every_row(monkeypatch, tmp_path):
+    """r18: llama-server died of CUDA OOM mid-run and the evaluation hung on
+    timeouts; otherwise every later row would have counted as an invalid answer."""
+    from types import SimpleNamespace
+
+    log = tmp_path / "server.log"
+    log.write_text("E CUDA error: out of memory\n", encoding="utf-8")
+
+    def refused(url, body=None, timeout=None):
+        raise ConnectionRefusedError("refused")
+
+    monkeypatch.setattr(slow, "_http_json", refused)
+    exited = make_llama_runner(
+        process=SimpleNamespace(poll=lambda: 1, returncode=1),
+        server_log=SimpleNamespace(name=str(log), flush=lambda: None),
+    )
+    with pytest.raises(slow.ServerDiedError, match="exited with 1.*out of memory"):
+        exited._completion({})
+
+    lingering = make_llama_runner(process=SimpleNamespace(poll=lambda: None, returncode=None))
+    for _ in range(2):
+        with pytest.raises(ConnectionRefusedError):
+            lingering._completion({})
+    with pytest.raises(slow.ServerDiedError, match="stopped answering"):
+        lingering._completion({})
+
+    rows = [{"sample_id": "a", "world": "w", "assistant_target": {"decision": "reject_track"}}]
+
+    def predictor(row):
+        raise slow.ServerDiedError("gone")
+
+    with pytest.raises(slow.ServerDiedError):
+        slow.evaluate_predictor(rows, predictor)
