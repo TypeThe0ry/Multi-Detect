@@ -101,8 +101,18 @@ class ExecutorConfig:
     deliver_position_tolerance_m: float = 1.0
     deliver_hold_s: float = 2.0
     deliver_ack_timeout_s: float = 10.0
+    # Before area_search/count end their search, each lost place whose last
+    # identity verdict was positive but unresolved is revisited this many times.
+    # Zero keeps the historical behaviour of ending immediately.
+    unresolved_revisit_attempts: int = 1
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.unresolved_revisit_attempts, bool)
+            or not isinstance(self.unresolved_revisit_attempts, int)
+            or self.unresolved_revisit_attempts < 0
+        ):
+            raise ValueError("unresolved revisit attempts must be a non-negative integer")
         values = (
             self.deliver_min_altitude_m,
             self.deliver_max_altitude_m,
@@ -224,6 +234,8 @@ class _StepRun:
     detour_index: int = 0
     detour_planned: bool = False
     detour_replan_failures: int = 0
+    # Places of lost positive-but-unresolved tracks already revisited by this step.
+    revisited_places: list[tuple[float, float]] = field(default_factory=list)
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -1022,6 +1034,9 @@ class MissionExecutor:
             self._finish("succeeded", "confirmed")
             return ActionPrimitive.hold(self.config.hold_s), info
         if run.loop.state not in {"searching", "approaching"}:
+            revisit = self._revisit_unresolved(run, pose, yaw, info)
+            if revisit is not None:
+                return revisit
             # The loop's own budget ended its search; flying home is the plan's job.
             self._finish("failed", "search_exhausted")
             return None
@@ -1036,6 +1051,9 @@ class MissionExecutor:
         # The count so far is reported live, so an interrupted mission still says it.
         self._report_count(run)
         if run.loop.state not in {"searching", "approaching"}:
+            revisit = self._revisit_unresolved(run, pose, yaw, info)
+            if revisit is not None:
+                return revisit
             self._report_count(run)
             self._finish("succeeded", "search_exhausted")
             return None
@@ -1045,6 +1063,61 @@ class MissionExecutor:
             self._finish("succeeded", "max_count")
             return ActionPrimitive.hold(self.config.hold_s), info
         return action, info
+
+    def _revisit_unresolved(self, run, pose, yaw, info):
+        """Before a search ends, look again at a lost positive place that was never resolved.
+
+        A small candidate judged "approach" can be dropped by the tracker before it
+        is ever confirmed.  Nearest first, each such place gets at most
+        ``unresolved_revisit_attempts`` looks, and only when the place and the
+        viewpoint lie in the step region and operating area, the leg avoids
+        no-fly zones, and the remaining step budget pays for the flight.  The
+        loop then judges the place with its normal identity and confirm rules.
+        """
+        loop = run.loop
+        limit = self.config.unresolved_revisit_attempts
+        if loop is None or limit < 1:
+            return None
+        here = (pose[0], pose[1])
+        region = self.region_of(run.step)
+        area = self.operating_area if isinstance(self.operating_area, Mapping) else None
+
+        def allowed(point: tuple[float, float]) -> bool:
+            return (region is None or math.dist(point, region[:2]) <= region[2]) and (
+                area is None or self._point_inside_area(point, area)
+            )
+
+        remaining = self._budget(run.step) - run.primitives
+        candidates = sorted(
+            loop.unresolved_positive_tracks(),
+            key=lambda track: math.dist(loop.target_position(track), here),
+        )
+        for track in candidates:
+            centre = loop.target_position(track)
+            radius = max(loop.place_radius(track), loop.config.count_dedupe_m)
+            attempts = sum(math.dist(centre, place) <= radius for place in run.revisited_places)
+            if attempts >= limit or not allowed(centre):
+                continue
+            look = loop.plan_place_revisit(track, pose)
+            if look is None or not allowed(look["goal"]):
+                continue
+            if self._leg_enters_no_fly(here, look["goal"]):
+                continue
+            # Turn, legs, face and look; the confirmation itself runs on the remainder.
+            legs = math.ceil(math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6))
+            if legs + 3 > remaining:
+                continue
+            run.revisited_places.append(centre)
+            action = loop.begin_place_revisit(look, pose, yaw, info)
+            if action is None:
+                continue
+            record = {"track_id": track.track_id, "centre": list(look["centre"])}
+            info["unresolved_revisit"] = record
+            self.mission_log.append(
+                {"event": "unresolved_place_revisit", "step_id": run.step.id, **record}
+            )
+            return action, info
+        return None
 
     def _report_count(self, run: _StepRun) -> None:
         self.counts[run.step.id] = len(run.loop.confirmations) if run.loop else 0

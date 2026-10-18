@@ -1522,3 +1522,151 @@ def test_inspect_fails_when_no_view_contains_the_target():
         if executor.done:
             break
     assert executor.history[0]["reason"] == "target_not_seen"
+
+
+def _see_small_candidate_then_lose_it(executor, sim, place, verdict="approach_track"):
+    """A small far box judged positive once, then dropped by the tracker."""
+    small = [Detection(_box(640, 700, 13), 0.5)]
+    _cycle(executor, sim, small, ground=lambda u, v: place, verdicts=lambda t: verdict)
+    lost = executor.active_loop.tracks["t1"]
+    assert lost.identity_verdict_history == [verdict.split("_")[0]]
+    for _ in range(8):
+        _cycle(executor, sim)
+    assert not lost.exhausted and executor.history == []
+    return lost
+
+
+def _search_ends(executor):
+    # An obstacle-limited search pattern ends the loop's search the same way.
+    executor.active_loop.state = "blocked"
+
+
+@pytest.mark.parametrize("skill", ["count", "area_search"])
+def test_search_end_revisits_a_lost_unconfirmed_positive_place(skill):
+    place = (-22.0, 28.6)
+    plan = _count_plan(3) if skill == "count" else plan_for_find_task("traffic cone")
+    executor = MissionExecutor(
+        plan,
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 60.0)},
+        config=ExecutorConfig(step_budget=140),
+    )
+    sim = Sim(altitude=8.0)
+    lost = _see_small_candidate_then_lose_it(executor, sim, place)
+    _search_ends(executor)
+    action, info = _cycle(executor, sim)
+    assert executor.history == []
+    assert info["unresolved_revisit"] == {"track_id": lost.track_id, "centre": list(place)}
+    assert info["second_look"]["kind"] == "place_revisit"
+    assert action.kind in {"turn", "translate"}
+    near = [Detection(_box(640, 700, 40), 0.5)]
+    for _ in range(40):
+        seen = math.dist(sim.ned[:2], place) <= 16.0 and executor.active_loop._revisit is None
+        _cycle(
+            executor,
+            sim,
+            near if seen or executor.active_loop.state == "approaching" else (),
+            ground=lambda u, v: place,
+            verdicts=lambda t: "confirm_target",
+        )
+        if executor.findings:
+            break
+    assert [finding["position_ne"] for finding in executor.findings] == [place]
+    if skill == "count":
+        assert executor.counts == {"count": 1}
+        for _ in range(6):
+            _cycle(executor, sim)
+        _search_ends(executor)
+        _cycle(executor, sim)
+        assert executor.history[0]["reason"] == "search_exhausted"
+        assert executor.counts == {"count": 1}
+    else:
+        assert executor.history[0]["reason"] == "confirmed"
+    revisits = [e for e in executor.mission_log if e["event"] == "unresolved_place_revisit"]
+    assert len(revisits) == 1
+
+
+@pytest.mark.parametrize("reid_steps", [None, 0])
+def test_search_end_does_not_revisit_a_place_rejected_later(reid_steps):
+    place = (30.0, 20.0)
+    make = _factory()
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=lambda text, **o: make(text, **{**o, "ground_reid_max_steps": reid_steps}),
+        refs={"zone:lot": (0.0, 0.0, 100.0)},
+        config=ExecutorConfig(step_budget=140),
+    )
+    sim = Sim(altitude=8.0)
+    _see_small_candidate_then_lose_it(executor, sim, place)
+    # The same place is seen again and the slow model now rejects it.
+    _cycle(
+        executor,
+        sim,
+        [Detection(_box(640, 700, 30), 0.5)],
+        ground=lambda u, v: place,
+        verdicts=lambda t: "reject_track",
+    )
+    for _ in range(6):
+        _cycle(executor, sim)
+    loop = executor.active_loop
+    assert loop.unresolved_positive_tracks() == []
+    _search_ends(executor)
+    _cycle(executor, sim)
+    assert executor.history[0]["reason"] == "search_exhausted"
+    assert not any(e["event"] == "unresolved_place_revisit" for e in executor.mission_log)
+
+
+def test_search_end_revisits_each_unresolved_place_a_bounded_number_of_times():
+    place = (30.0, 20.0)
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 100.0)},
+        config=ExecutorConfig(step_budget=140),
+    )
+    sim = Sim(altitude=8.0)
+    _see_small_candidate_then_lose_it(executor, sim, place)
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert "unresolved_revisit" in info
+    # The object is never seen again: the look runs out and the search resumes.
+    for _ in range(30):
+        _cycle(executor, sim)
+        if executor.active_loop._revisit is None:
+            break
+    assert executor.active_loop._revisit is None and executor.history == []
+    # Still unresolved, but its one revisit is spent.
+    assert [t.track_id for t in executor.active_loop.unresolved_positive_tracks()] == ["t1"]
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert "unresolved_revisit" not in info
+    assert executor.history[0]["reason"] == "search_exhausted"
+    assert len([e for e in executor.mission_log if e["event"] == "unresolved_place_revisit"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("config", "refs"),
+    [
+        (ExecutorConfig(step_budget=140, unresolved_revisit_attempts=0), (0.0, 0.0, 100.0)),
+        # Too few primitives remain to fly there.
+        (ExecutorConfig(step_budget=12), (0.0, 0.0, 100.0)),
+        # The candidate's place lies outside the step's zone.
+        (ExecutorConfig(step_budget=140), (0.0, 0.0, 20.0)),
+    ],
+)
+def test_search_end_skips_revisits_that_are_disabled_unaffordable_or_out_of_zone(config, refs):
+    executor = MissionExecutor(
+        _count_plan(3), loop_factory=_factory(), refs={"zone:lot": refs}, config=config
+    )
+    sim = Sim(altitude=8.0)
+    _see_small_candidate_then_lose_it(executor, sim, (60.0, 60.0))
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert "unresolved_revisit" not in info
+    assert executor.history[0]["reason"] == "search_exhausted"
+
+
+def test_unresolved_revisit_attempts_must_be_a_non_negative_integer():
+    for value in (-1, True, 1.5):
+        with pytest.raises(ValueError):
+            ExecutorConfig(unresolved_revisit_attempts=value)

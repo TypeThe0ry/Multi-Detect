@@ -1280,6 +1280,8 @@ class OnboardLoop:
         look = self._revisit
         look["steps"] += 1
         info["second_look"] = {"centre": list(look["centre"]), "phase": look["phase"]}
+        if look.get("kind"):
+            info["second_look"]["kind"] = look["kind"]
         if look["steps"] > 2 * self.config.max_approach_steps:
             if look["phase"] == "fly":
                 look["rejection"]["revisited"] = False
@@ -1331,12 +1333,138 @@ class OnboardLoop:
                     )
                 )
                 if compatible and math.dist(track.ground, look["centre"]) <= radius:
-                    track.verdict, track.confirm_steps, track.exhausted = None, [], False
+                    track.verdict, track.confirm_steps = None, []
+                    # A place revisit asks again but never re-opens a counted
+                    # or approach-exhausted track.
+                    if look.get("kind") != "place_revisit":
+                        track.exhausted = False
             look["phase"] = "look"
             return ActionPrimitive.hold(1.0)
-        self._revisits_done += 1
+        if look.get("kind") != "place_revisit":
+            # Host-requested place revisits do not spend the second-look budget.
+            self._revisits_done += 1
         self._revisit = None
         return None
+
+    def place_radius(self, track: Track) -> float:
+        """Object-sized place radius, as used by rejection memory and count dedupe."""
+        footprint = getattr(track.appearance, "footprint_m", None)
+        if footprint:
+            return max(1.5, self.config.memory_footprint_factor * footprint)
+        return self.config.count_dedupe_m
+
+    def unresolved_positive_tracks(self) -> list[Track]:
+        """Tracks last judged to be the task's object whose place was never resolved.
+
+        A small candidate can be dropped by the tracker before it is ever the
+        focus, and a ground revival clears its verdict; ``identity_verdict_history``
+        still records what the slow model said.  A place stays unresolved while
+        it was neither counted nor exhausted by an approach, and no later real
+        rejection (track verdict or place memory) exists at that place.  Nothing
+        here changes a verdict: the host only flies back so the loop can judge
+        the place again.
+        """
+        positive = {"approach", "confirm", "pending_near"}
+        found: list[Track] = []
+        for track in self._tracks.values():
+            place = self.target_position(track)
+            history = track.identity_verdict_history
+            if (
+                place is None
+                or track.exhausted
+                or not history
+                or history[-1] not in positive
+                or track.verdict == "no_match"
+            ):
+                continue
+            radius = self.place_radius(track)
+            if any(
+                record.get("position_estimate_ne") is not None
+                and math.dist(place, record["position_estimate_ne"][:2])
+                <= max(radius, self.config.count_dedupe_m)
+                for record in self.confirmations
+            ):
+                continue
+            since = track.verdict_step if track.verdict in positive else track.first_step
+            if any(
+                other is not track
+                and other.verdict == "no_match"
+                and other.verdict_step >= since
+                and other.ground is not None
+                and other.track_id not in track.co_visible_with
+                and track.track_id not in other.co_visible_with
+                and (
+                    other.appearance is None
+                    or track.appearance is None
+                    or appearances_consistent(other.appearance, track.appearance, self.config)
+                )
+                and math.dist(other.ground, place) <= radius
+                for other in self._tracks.values()
+            ):
+                continue
+            remembered = (
+                self._place_memory._nearest(place, track.appearance, self.config)
+                if self.config.memory_enabled
+                else None
+            )
+            if remembered is not None and remembered.verdicts[-1:] == ["reject_track"]:
+                continue
+            found.append(track)
+        return found
+
+    def plan_place_revisit(self, track: Track, pose_ned) -> dict[str, Any] | None:
+        """A near-side look at ``track``'s place, or None when the leg is not clear.
+
+        The look reuses the second-look state machine: fly to a standoff from
+        which the object is in frame, face it, clear verdicts there, then look.
+        """
+        centre = self.target_position(track)
+        if centre is None:
+            return None
+        standoff = max(
+            self.config.second_look_standoff_m,
+            self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
+        )
+        dn, de = pose_ned[0] - centre[0], pose_ned[1] - centre[1]
+        distance = math.hypot(dn, de)
+        if distance < 1e-6:
+            dn, de, distance = 1.0, 0.0, 1.0
+        goal = (centre[0] + standoff * dn / distance, centre[1] + standoff * de / distance)
+        if not self._segment_clear(pose_ned, goal[0], goal[1]):
+            return None
+        place = (float(centre[0]), float(centre[1]))
+        return {
+            "goal": goal,
+            "centre": place,
+            "phase": "fly",
+            "steps": 0,
+            "kind": "place_revisit",
+            # The second-look state machine reads the place's identity from here.
+            "rejection": {
+                "ground": place,
+                "views": [],
+                "revisited": True,
+                "confidence": None,
+                "track_id": track.track_id,
+                "co_visible_with": set(track.co_visible_with),
+                "appearance": track.appearance,
+                "footprint_m": getattr(track.appearance, "footprint_m", None),
+            },
+        }
+
+    def begin_place_revisit(
+        self, look: dict[str, Any], pose_ned, yaw_deg: float, info: dict[str, Any]
+    ) -> ActionPrimitive | None:
+        """Resume the search with ``look`` and return its first primitive."""
+        previous = self.state
+        self._revisit = look
+        self.state, self._focus = "searching", None
+        self._approach_sizes.clear()
+        self._at_closest = False
+        action = self._second_look_action(pose_ned, yaw_deg, info)
+        if action is None:
+            self.state = previous
+        return action
 
     def _touches_border(self, box: Box) -> bool:
         margin = self.config.border_margin_px
