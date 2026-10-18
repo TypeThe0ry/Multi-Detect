@@ -21,6 +21,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 TEST_WORLDS = [f"gen_v2_w{i:04d}" for i in range(34, 40)]
+# Assumed ground height above the true (flat) ground in the slope approximation.
+GROUND_BIAS_M = 2.0
 HISTORY = {
     "test_worlds_success": "6-8/12 (CHANGELOG.md historical baseline)",
     "suite_r8": "13/16 (CHANGELOG.md historical baseline)",
@@ -319,15 +321,21 @@ def main(argv: list[str] | None = None) -> int:
                     "metrics": _result_metrics(_json(marker.parent / "suite-report.json")),
                 }
             )
-        # Existing held-out worlds are flat.  This replay approximation raises the
-        # ground-height uncertainty and records a deterministic height bias; it is
-        # intentionally reported separately from the normal acceptance score.
+        # Existing held-out worlds are flat.  This approximation raises the
+        # ground-height uncertainty and makes the aircraft believe the ground is
+        # 2 m higher than it is (a flat ground model, which the policy really
+        # uses); it is reported separately from the normal acceptance score.
         special_dir = args.out / variant / "ground-height-approximation"
         special_config = special_dir / "onboard.json"
         special_config.parent.mkdir(parents=True, exist_ok=True)
         if not args.dry_run and not special_config.exists():
             value = _json(config)
-            value.update({"ground_height_sigma_m": 5.0, "ground_height_bias_m": 2.0})
+            value.update(
+                {
+                    "ground_height_sigma_m": 5.0,
+                    "ground_model": {"type": "flat", "ground_up_m": GROUND_BIAS_M},
+                }
+            )
             special_config.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
         special_world = TEST_WORLDS[0]
         special_report = special_dir / "report.json"

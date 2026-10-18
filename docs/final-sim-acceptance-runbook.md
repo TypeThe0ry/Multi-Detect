@@ -42,7 +42,7 @@ python scripts/run_final_sim_acceptance.py --out output/final-sim-acceptance
 
 ## 坡地近似专项
 
-现有 held-out 测试世界按平地生成。专项复制三角化配置，将 `ground_height_sigma_m` 调为 5 m，并注入 `ground_height_bias_m=2 m`，在回放中评估地面高度未知带来的退化。该方法是仿真近似，不等价于真实坡地或真实地形传感器误差；报告单独列出，不混入正常成功率。
+现有 held-out 测试世界按平地生成。专项复制三角化配置，将 `ground_height_sigma_m` 调为 5 m，并把机上地面模型设成比真实地面高 2 m 的平面（`ground_model: {type: flat, ground_up_m: 2}`；早期版本写的 `ground_height_bias_m` 没有任何代码读取，等于没注入），评估地面高度未知带来的退化。该方法是仿真近似，不等价于真实坡地或真实地形传感器误差；报告单独列出，不混入正常成功率。
 
 ## 报告和判定
 
