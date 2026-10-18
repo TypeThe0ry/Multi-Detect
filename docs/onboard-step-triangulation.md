@@ -1,25 +1,25 @@
 # 步间三角化与地面不确定度融合
 
-这是方案 B2 的几何部分。默认关闭，不加载模型，不使用 GPU，也不包含单目深度推理。
+这是方案 B2 的几何部分。**机上策略自 2026-10-18 起默认开启**（地面高度 sigma 默认 5 m），不加载模型，不使用 GPU，也不包含单目深度推理。依据见文末“地面偏 2 m 闭环对比”。
 
 飞机从不同位置看同一静止目标时，可以把几条视线交会成一个位置。地面高度越不确定，地面相交位置的权重越低；多视角条件不足时，直接退回原来的框底边地面相交位置。
 
-## 如何打开
+## 如何配置
 
-在传给 `scripts/onboard_policy.py` 的现有 onboard JSON 配置中加入：
+`scripts/onboard_policy.py` 不传配置时等价于：
 
 ```json
 {
   "step_triangulation": true,
   "step_triangulation_max_views": 8,
-  "ground_height_sigma_m": 1.0,
+  "ground_height_sigma_m": 5.0,
   "step_triangulation_sigma_scale": 2.5
 }
 ```
 
-这四项也是默认值，只有 `step_triangulation` 默认是 `false`。开关必须是 JSON 布尔值；视线数必须是 2～64 的整数；地面高度 sigma 必须是有限正数；三角化 sigma 系数必须有限且至少为 1。字符串 `"false"`、`true` 充当数字、非整数窗口和 NaN 都会被拒绝。
+机上策略的默认值（`POSITION_DEFAULTS`）就是这四项；直接构造 `LoopConfig` 时 `step_triangulation` 仍默认 `false`、`ground_height_sigma_m` 默认 1.0，供旧回放与测试使用。要关掉就显式写 `"step_triangulation": false`。开关必须是 JSON 布尔值；视线数必须是 2～64 的整数；地面高度 sigma 必须是有限正数；三角化 sigma 系数必须有限且至少为 1。字符串 `"false"`、`true` 充当数字、非整数窗口和 NaN 都会被拒绝。
 
-适合先在静止目标、相机标定与位姿时间对齐可靠的 SIM 回放或受控测试中开启，特别是接近、侧移、绕飞时。只有转头、原地悬停，不能产生测距基线。没有高程图、地形未知或地面高度误差明显大于一米时，使用者应调大 `ground_height_sigma_m`，不能把默认一米当作地形已测准。
+适合先在静止目标、相机标定与位姿时间对齐可靠的 SIM 回放或受控测试中开启，特别是接近、侧移、绕飞时。只有转头、原地悬停，不能产生测距基线。只有任务提供了可信的地面模型（高程图或测距）时才应把 `ground_height_sigma_m` 调小。
 
 ## 位置在闭环中用在哪里
 
@@ -203,3 +203,16 @@ python scripts/validate_step_triangulation_replay.py --fusion-gate-replay "$d/ev
 修复后 3–13 m 的大误差全部消失。成功率差的那一架次在停车牌世界 w0034，是搜索没看到目标，与测距无关；w0039 的两次 ~69 m 误确认是身份判断错，两组都有。
 
 但要更正一点：修复后的“三角化组”和不开三角化几乎一样，不是因为三角化有效，而是 10/17 的门控让它在有地面模型时只能偏离地面交点 0.1 m——等于关掉了。上一节的新门控才让它在地面不确定时真正起作用。平地上地面交点本来就准，三角化在这里不会有明显收益；它的价值要看“地面高度不对”的场景，闭环对比（地面被当成高 2 m，`configs/onboard/sim-loop-v3-r12id-r14plan-*-ground2.json`）已排队。在那之前 `step_triangulation` 仍默认关闭。
+
+## 地面偏 2 m 闭环对比与默认开启（2026-10-18）
+
+同 4 个测试世界（w0035–w0038）× 2 架次，机上地面模型故意设成比真实地面高 2 m（`ground_model: {type: flat, ground_up_m: 2}`，`ground_height_sigma_m: 5`），新门控（`4ce3715`）：
+
+| 组 | 成功 | 误确认 | 位置误差中位 / 平均 |
+|---|---:|---:|---:|
+| 三角化（`eval-v3-test-triangulation-ground2`） | 8/8 | 0 | **2.05 / 2.77 m** |
+| 不开三角化（`eval-v3-test-no-triangulation-ground2`） | 8/8 | 0 | 3.83 / 4.08 m |
+
+逐世界：w0035 2.0 vs 4.2 m，w0036 0.3–0.9 vs 2.3 m，w0038 0.35/3.45 vs 3.49/2.81 m；w0037（车辆世界）两组都约 6.6 m，三角化没帮上（平地时两组也都约 0.9 m）。平地上两组相当（同 4 个世界成功架次平均 0.55 vs 0.64 m）。
+
+按终验判定规则（成功率不降、误确认不升、定位误差改善），机上策略默认开启步间三角化，地面高度 sigma 默认 5 m。平地 + sigma 5 + 新门控的闭环复验已排队。

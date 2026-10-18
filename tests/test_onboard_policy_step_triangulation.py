@@ -367,3 +367,16 @@ def test_follow_ignores_static_estimate_inherited_from_completed_search(tmp_path
     )
     assert old_loop.target_position(track) == track.ground
     subject.close()
+
+
+def test_step_triangulation_is_on_by_default_with_an_honest_ground_prior(tmp_path):
+    """Default since 2026-10-18 (closed loop, ground believed 2 m high: median
+    position error 3.8 -> 2.0 m); explicit config still turns it off."""
+    default = policy(tmp_path / "default", {})
+    assert default.loop.config.step_triangulation is True
+    assert default.loop.config.ground_height_sigma_m == 5.0
+    default.close()
+    off = policy(tmp_path / "off", {"step_triangulation": False, "ground_height_sigma_m": 1.0})
+    assert off.loop.config.step_triangulation is False
+    assert off.loop.config.ground_height_sigma_m == 1.0
+    off.close()

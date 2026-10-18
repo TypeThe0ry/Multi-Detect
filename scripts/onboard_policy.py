@@ -72,7 +72,10 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
-from multidetect.autonomy.onboard_policy_parts.config import DEFAULTS  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.config import (  # noqa: E402
+    DEFAULTS,
+    POSITION_DEFAULTS,
+)
 from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
 from multidetect.autonomy.onboard_policy_parts.vocabulary import VOCABULARY  # noqa: E402
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
@@ -598,6 +601,7 @@ class OnboardPolicy:
             "confirm_min_side_px": confirm_min_side_px,
             "search_altitude_m": self.search_altitude_m,
             "near_depth": near_depth_enabled,
+            **POSITION_DEFAULTS,
         }
         # Keep the original types: LoopConfig strictly rejects strings, bools
         # masquerading as integers, fractional view counts and non-finite sigma.
