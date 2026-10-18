@@ -189,3 +189,17 @@ $env:CUDA_VISIBLE_DEVICES="-1"; $env:PYTHONPATH="src;."; $env:PYTHONUTF8="1"
 $d="D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop"
 python scripts/validate_step_triangulation_replay.py --fusion-gate-replay "$d/eval-v3-test-r12id-r14plan-tri-fallback" "$d/eval-v3-test-r12id-r14plan-tri" "$d/eval-v3-test-r12id-r14plan-notri" --loop-configs '{\"old_gate\": {\"step_triangulation_ground_gate_sigma\": 0}, \"new_s1\": {}, \"new_s5\": {\"ground_height_sigma_m\": 5}}' --output tmp/tri-gate-replay.json
 ```
+
+## 平地闭环验收与结论修正（2026-10-18）
+
+6 个测试世界 × 2 架次，真实 PX4/Gazebo 闭环，身份 r12、规划 r14、候选框 YOLOE v3：
+
+| 组 | 成功率 | 误确认率 | 位置误差中位（全部 / 成功架次） |
+|---|---:|---:|---:|
+| 三角化，10/17 修复前（`eval-v3-test-r12id-r14plan-tri`） | 7/12 | 3/12 | 3.66 / 0.69 m |
+| 三角化，10/17 修复后（`...-tri-fallback`） | 8/12 | 2/12 | 0.74 / 0.56 m |
+| 不开三角化（`...-notri`） | 9/12 | 2/12 | 0.65 / 0.40 m |
+
+修复后 3–13 m 的大误差全部消失。成功率差的那一架次在停车牌世界 w0034，是搜索没看到目标，与测距无关；w0039 的两次 ~69 m 误确认是身份判断错，两组都有。
+
+但要更正一点：修复后的“三角化组”和不开三角化几乎一样，不是因为三角化有效，而是 10/17 的门控让它在有地面模型时只能偏离地面交点 0.1 m——等于关掉了。上一节的新门控才让它在地面不确定时真正起作用。平地上地面交点本来就准，三角化在这里不会有明显收益；它的价值要看“地面高度不对”的场景，闭环对比（地面被当成高 2 m，`configs/onboard/sim-loop-v3-r12id-r14plan-*-ground2.json`）已排队。在那之前 `step_triangulation` 仍默认关闭。
