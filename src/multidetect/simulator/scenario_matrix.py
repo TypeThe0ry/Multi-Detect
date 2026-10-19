@@ -48,7 +48,19 @@ def discover_scenario_manifests(directory: str | Path) -> tuple[Path, ...]:
     root = Path(directory).expanduser().resolve()
     if not root.is_dir():
         raise SimulatorScenarioMatrixError(f"scenario directory not found: {root}")
-    manifests = tuple(sorted(root.glob("*.scenario.json"), key=lambda item: item.name))
+    # Only canonical manifests (``<scenario_id>.scenario.json``) form the matrix;
+    # derived variants such as ``<id>.teacher_spawn_probe_r1.scenario.json`` reuse
+    # the scenario id for a one-off tool and are not separate scenarios.
+    manifests = tuple(
+        sorted(
+            (
+                path
+                for path in root.glob("*.scenario.json")
+                if "." not in path.name[: -len(".scenario.json")]
+            ),
+            key=lambda item: item.name,
+        )
+    )
     if not manifests:
         raise SimulatorScenarioMatrixError(f"no *.scenario.json manifests found in {root}")
     return manifests
@@ -729,9 +741,7 @@ def verify_scenario_matrix_document(
                 if not isinstance(recovery, Mapping):
                     reasons.append(f"scenarios[{index}]: fault recovery summary is missing")
                 elif recovery.get("all_finite_faults_recovered") is not True:
-                    reasons.append(
-                        f"scenarios[{index}]: finite fault recovery is incomplete"
-                    )
+                    reasons.append(f"scenarios[{index}]: finite fault recovery is incomplete")
             if summary.get("gate_passed") is not True:
                 reasons.append(f"scenarios[{index}].gate_passed must be true")
             if isinstance(scenario_ids, list) and summary_id not in scenario_ids:

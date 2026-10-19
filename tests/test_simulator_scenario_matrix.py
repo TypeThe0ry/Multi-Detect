@@ -312,3 +312,13 @@ def test_matrix_cli_writes_same_json_as_stdout(tmp_path: Path) -> None:
     file_document = json.loads(output.read_text(encoding="utf-8"))
     assert stdout_document == file_document
     assert stdout_document["gate_passed"] is True
+
+
+def test_discovery_skips_derived_variants_of_a_scenario(tmp_path):
+    """``<id>.teacher_spawn_probe_r1.scenario.json`` reuses the scenario id for a
+    one-off probe; counting it made the matrix fail on a duplicate scenario_id."""
+    from multidetect.simulator.scenario_matrix import discover_scenario_manifests
+
+    (tmp_path / "urban_001.scenario.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "urban_001.teacher_spawn_probe_r1.scenario.json").write_text("{}", encoding="utf-8")
+    assert [p.name for p in discover_scenario_manifests(tmp_path)] == ["urban_001.scenario.json"]

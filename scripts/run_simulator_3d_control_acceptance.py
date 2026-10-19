@@ -136,11 +136,20 @@ def _validate_3d_assets(
         raise ValueError(
             f"runtime vehicle does not match {profile.mode} asset profile: {vehicle_haystack}"
         )
-    # World files are self-contained primitives.  Model composition may refer
-    # only to the two pinned PX4/Gazebo model names used by the profile.
-    world_text = profile.world.read_text(encoding="utf-8").lower()
-    if any(token in world_text for token in ("http://", "https://", "fuel://", "model://")):
+    # World files are self-contained: no network or Fuel resources, and model://
+    # only for models this repository ships under simulation/gazebo/models.
+    world_text = profile.world.read_text(encoding="utf-8")
+    if any(token in world_text.lower() for token in ("http://", "https://", "fuel://")):
         raise ValueError("Gazebo world must not pull network or external model resources")
+    models_root = ROOT / "simulation" / "gazebo" / "models"
+    world_model_refs = {
+        ref.split("</uri>", 1)[0].strip() for ref in world_text.split("<uri>model://")[1:]
+    }
+    missing = sorted(name for name in world_model_refs if not (models_root / name).is_dir())
+    if missing:
+        raise ValueError(
+            f"Gazebo world must not pull network or external model resources: {missing}"
+        )
     if any(token in model_text.lower() for token in ("http://", "https://", "fuel://")):
         raise ValueError("Gazebo model must not pull network resources")
     allowed_model_refs = {
