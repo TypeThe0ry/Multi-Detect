@@ -105,6 +105,8 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Ignored scratch/temp roots (pytest basetemp lives in .tmp during releases).
+extend-exclude = [".tmp", "tmp"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
