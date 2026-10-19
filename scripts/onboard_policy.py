@@ -58,6 +58,7 @@ from multidetect.autonomy.motion_intent import (  # noqa: E402
     AirframeMotionAdapter,
     MotionCommand,
     camera_ray_from_profile,
+    profile_mount_pitch_down_rad,
 )
 from multidetect.autonomy.near_depth import NearDepthConfig, NearDepthController  # noqa: E402
 from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource  # noqa: E402
@@ -525,7 +526,19 @@ class OnboardPolicy:
         self.frame_format = frame_format
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
-        mount_pitch = float(options.get("camera_pitch_down_rad", 0.18))
+        # The x500 camera is pitched 0.18 rad down; other airframes carry their
+        # own mount (the rc_cessna camera looks straight ahead).  Projecting a
+        # fixed-wing frame with the x500 pitch puts every ground point ~10 deg
+        # too steep, i.e. tens of metres short at 30 m altitude.
+        mount_pitch = float(
+            options.get(
+                "camera_pitch_down_rad",
+                0.18
+                if self.motion_adapter.is_multirotor
+                else profile_mount_pitch_down_rad(self.airframe_profile, 0.18),
+            )
+        )
+        self.camera_pitch_down_rad = mount_pitch
         search_pattern = str(options.get("search_pattern", "current"))
         if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
             raise ValueError(
@@ -1498,6 +1511,7 @@ class OnboardPolicy:
                 camera_info=camera_info,
                 image_size=self.image_size,
                 ground_model=ground_model,
+                camera_pitch_rad=self.camera_pitch_down_rad,
             )
 
         def camera_ray(u: float, v: float):
@@ -1513,6 +1527,7 @@ class OnboardPolicy:
                 pose=observation,
                 camera_info=camera_info,
                 image_size=self.image_size,
+                camera_pitch_rad=self.camera_pitch_down_rad,
             )
             if base is None or not self.airframe_profile.camera.attitude_rotations:
                 return base

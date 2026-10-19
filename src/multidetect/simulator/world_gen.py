@@ -841,3 +841,125 @@ def generate_mover_worlds(
 
 
 
+
+
+FIXED_WING_SENSORS = (
+    ("front-camera", "rgb_camera", "front-camera", "gazebo-fixed-wing-front-camera-v1"),
+    ("forward-depth", "depth_camera", "forward-depth", "gazebo-fixed-wing-depth-v1"),
+    ("airspeed", "airspeed", "airspeed", "gazebo-fixed-wing-airspeed-v1"),
+)
+
+
+def runway_corridor_clearance(
+    footprints: Sequence[tuple[float, float, float]], heading_deg: float
+) -> float:
+    """Smallest gap between a straight runway line through home and any footprint.
+
+    ``footprints`` are ``(north_m, east_m, radius_m)``; the line runs through the
+    origin along ``heading_deg`` (NED, degrees) in both directions, because a
+    runway takeoff climbs out ahead of home and the straight-in landing glides in
+    from behind it.
+    """
+    h = math.radians(float(heading_deg))
+    dn, de = math.cos(h), math.sin(h)
+    return min((abs(-n * de + e * dn) - r for n, e, r in footprints), default=math.inf)
+
+
+def derive_fixed_wing_scenario(
+    scenario_path: str | Path,
+    out_dir: str | Path,
+    *,
+    worlds_dir: str | Path = "simulation/gazebo/worlds",
+    runway_heading_deg: float | None = None,
+    corridor_half_width_m: float = 15.0,
+) -> dict[str, Any]:
+    """Re-target a generated (multirotor) scenario at a runway fixed-wing.
+
+    Generated worlds only emit an x500 runtime.  The same world, truth and task
+    serve a fixed-wing when the runtime spawns ``px4_fixed_wing_standard`` with
+    the fixed-wing sensor set, pointed along a runway line through home that no
+    obstacle, target or distractor footprint comes within
+    ``corridor_half_width_m`` of (takeoff roll and climb-out ahead, landing glide
+    behind).  Without ``runway_heading_deg`` the clearest heading (5 degree
+    steps) is chosen.  The world SDF and truth are reused unchanged; only the
+    runtime channel differs, so the scenario id still names the same world.
+    """
+    from multidetect.sim_teacher.policies import load_sdf_obstacles
+
+    scenario_path = Path(scenario_path)
+    source = json.loads(scenario_path.read_text(encoding="utf-8"))
+    channels = {
+        name: json.loads((scenario_path.parent / source["channels"][name]["path"]).read_text(encoding="utf-8"))
+        for name in ("runtime_input", "truth", "expectations")
+    }
+    runtime, truth = channels["runtime_input"], channels["truth"]
+    world_id = str(runtime["scenario_id"])
+    world_path = Path(worlds_dir) / f"{world_id}.sdf"
+    footprints = [
+        (o.north_m, o.east_m, math.hypot(o.size_north_m, o.size_east_m) / 2.0)
+        for o in load_sdf_obstacles(world_path)
+    ]
+    for row in truth.get("targets", []):
+        size = row.get("size_m") or row.get("measured_size_m") or (1.0, 1.0)
+        footprints.append(
+            (float(row["pose"]["y_north_m"]), float(row["pose"]["x_east_m"]), math.hypot(float(size[0]), float(size[1])) / 2.0)
+        )
+    if runway_heading_deg is None:
+        heading = max(range(0, 180, 5), key=lambda h: (runway_corridor_clearance(footprints, h), -h))
+    else:
+        heading = float(runway_heading_deg) % 360.0
+    clearance = runway_corridor_clearance(footprints, heading)
+    if clearance < float(corridor_half_width_m):
+        raise ValueError(
+            f"{world_id}: runway heading {heading:g} deg clears objects by {clearance:.1f} m "
+            f"< {corridor_half_width_m:g} m"
+        )
+    # Gazebo ENU yaw is measured from east; a NED heading from north.
+    yaw = math.radians(90.0 - float(heading))
+    yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+    vehicle = {
+        "model": "px4_fixed_wing_standard",
+        "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+        "spawn_id": f"{world_id}_runway",
+        "spawn_pose": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.2, "roll_rad": 0.0, "pitch_rad": 0.0, "yaw_rad": round(yaw, 6)},
+    }
+    telemetry = [s for s in runtime.get("sensors", []) if s.get("kind") == "mavlink_telemetry"]
+    sensors = [
+        {"sensor_id": sid, "kind": kind, "stream_uri": f"gazebo://{world_id}/{stream}", "calibration_id": cal}
+        for sid, kind, stream, cal in FIXED_WING_SENSORS
+    ]
+    channels["runtime_input"] = {**runtime, "vehicle": vehicle, "sensors": sensors[:2] + telemetry + sensors[2:]}
+    out = Path(out_dir)
+    for name, value in channels.items():
+        _write(out / f"{world_id}.{name}.json", value)
+    scenario = {
+        **source,
+        "channels": {
+            name: {"path": f"{world_id}.{name}.json", "sha256": canonical_sha256(value)}
+            for name, value in channels.items()
+        },
+    }
+    _write(out / f"{world_id}.scenario.json", scenario)
+    entry: dict[str, Any] = {"world_id": world_id}
+    source_index = scenario_path.parent / "index.json"
+    if source_index.is_file():
+        for world in json.loads(source_index.read_text(encoding="utf-8")).get("worlds", []):
+            if world.get("world_id") == world_id:
+                entry = dict(world)
+    entry.update(
+        {
+            "airframe": "fixed_wing",
+            "runway_heading_deg": float(heading),
+            "runway_clearance_m": round(clearance, 3),
+            "source_scenario": scenario_path.name,
+        }
+    )
+    index_path = out / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8")) if index_path.is_file() else {
+        "schema_version": 1,
+        "generator": "multidetect.simulator.world_gen.derive_fixed_wing_scenario",
+        "worlds": [],
+    }
+    index["worlds"] = [w for w in index["worlds"] if w.get("world_id") != world_id] + [entry]
+    _write(index_path, index)
+    return entry
