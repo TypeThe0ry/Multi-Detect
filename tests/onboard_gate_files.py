@@ -41,6 +41,8 @@ _EXACT = {
     "test_supervisor_evidence.py",
     "test_score_onboard_loop.py",
     "test_sim_world_gen.py",
+    "test_fixed_wing_scenario_derivation.py",
+    "test_airframe_camera_mount_pitch.py",
     "test_replay.py",
     "test_replay_ground_projection.py",
     "test_replay_onboard_visual_clips.py",

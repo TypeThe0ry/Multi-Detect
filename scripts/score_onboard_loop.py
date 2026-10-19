@@ -69,7 +69,12 @@ def truth_for_episode(
     return world_id, None
 
 
-from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
+from multidetect.autonomy.airframe_profile import AirframeProfile, AirframeProfileError  # noqa: E402
+from multidetect.autonomy.motion_intent import profile_mount_pitch_down_rad  # noqa: E402
+from multidetect.simulator.camera_projection import (  # noqa: E402
+    CAMERA_MOUNT_PITCH_RAD,
+    project_target_bbox,
+)
 from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 from multidetect.simulator.world_gen import trajectory_position  # noqa: E402
 
@@ -594,6 +599,22 @@ def _supervisor_evidence(episode: Path) -> dict[str, Any]:
     return evidence
 
 
+def episode_camera_pitch_rad(episode: Path) -> float:
+    """Camera mount pitch of the recorded airframe (the x500's 0.18 rad by default).
+
+    Projecting a fixed-wing frame with the x500 mount puts the true box ~10 deg
+    off, so a correct confirmation would score as a miss.
+    """
+    try:
+        meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+        profile = AirframeProfile.from_mapping(meta["airframe_profile"])
+    except (OSError, KeyError, TypeError, ValueError, AirframeProfileError):
+        return CAMERA_MOUNT_PITCH_RAD
+    if profile.category == "multirotor":
+        return CAMERA_MOUNT_PITCH_RAD
+    return profile_mount_pitch_down_rad(profile, CAMERA_MOUNT_PITCH_RAD)
+
+
 def _true_box(
     episode: Path, observation: dict[str, Any], truth: dict[str, Any], time_s: float | None = None
 ):
@@ -614,6 +635,7 @@ def _true_box(
         camera_info=info,
         image_size=(int(info["width"]), int(info["height"])),
         target_size_m=tuple(target.get("size_m", (3.0, 1.8, 1.5))),
+        camera_pitch_rad=episode_camera_pitch_rad(episode),
         target_yaw_rad=pose.get("yaw_rad", 0.0),
         target_bottom_offset_m=target.get("bottom_offset_m"),
     )

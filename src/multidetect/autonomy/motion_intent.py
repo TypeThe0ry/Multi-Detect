@@ -49,6 +49,22 @@ def _mat_transpose(matrix: Sequence[float]) -> tuple[float, ...]:
     return tuple(float(matrix[col * 3 + row]) for row in range(3) for col in range(3))
 
 
+def profile_mount_pitch_down_rad(profile: AirframeProfile, default: float) -> float:
+    """Camera pitch below the body x-axis encoded in ``body_to_camera_rotation``.
+
+    The row-major matrix stores a pitch-down mount as ``[c,0,-s, 0,1,0, s,0,c]``
+    (the x500 profile's 0.18 rad matches its Gazebo camera pose).  Mounts that
+    also roll or yaw, and tailsitters with per-mode matrices, are not a single
+    pitch angle and return ``default``.
+    """
+    if profile.camera.attitude_rotations:
+        return float(default)
+    r = [float(value) for value in profile.camera.body_to_camera_rotation]
+    if abs(r[4] - 1.0) > 1e-6 or any(abs(r[i]) > 1e-6 for i in (1, 3, 5, 7)):
+        return float(default)
+    return math.atan2(r[6], r[0])
+
+
 def camera_ray_from_profile(
     u: float,
     v: float,
@@ -694,4 +710,5 @@ __all__ = [
     "energy_params_from_profile",
     "dynamics_from_profile",
     "camera_ray_from_profile",
+    "profile_mount_pitch_down_rad",
 ]
