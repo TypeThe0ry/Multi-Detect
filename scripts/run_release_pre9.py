@@ -239,9 +239,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _resolve_command(
-    command: Sequence[str], root: Path, run_dir: Path | None = None
-) -> list[str]:
+def _resolve_command(command: Sequence[str], root: Path, run_dir: Path | None = None) -> list[str]:
     # The displayed command uses ``&&`` as a readable separator.  Runtime
     # execution handles the two commands independently so failure stops cleanly.
     run_text = str(run_dir) if run_dir is not None else "artifacts/release-pre9-runs/<run-id>"
@@ -447,24 +445,25 @@ def _execute_stage(stage: Stage, root: Path, run_dir: Path) -> None:
         if report.get("release_allowed") is not False:
             raise RuntimeError("pre-release gate report must remain release_allowed=false")
         return
-    if "&&" in stage.command:
-        split = stage.command.index("&&")
+    # Every "&&" separates a fail-closed subprocess (static_checks has three).
+    for index, part in enumerate(_split_commands(stage.command)):
         _run(
-            _resolve_command(stage.command[:split], root, run_dir),
+            _resolve_command(part, root, run_dir),
             root,
-            run_dir / f"{stage.name}.log",
+            run_dir / (f"{stage.name}.log" if index == 0 else f"{stage.name}-{index + 1}.log"),
         )
-        _run(
-            _resolve_command(stage.command[split + 1 :], root, run_dir),
-            root,
-            run_dir / f"{stage.name}-2.log",
-        )
-    else:
-        _run(
-            _resolve_command(stage.command, root, run_dir),
-            root,
-            run_dir / f"{stage.name}.log",
-        )
+
+
+def _split_commands(command: Sequence[str]) -> list[list[str]]:
+    parts: list[list[str]] = [[]]
+    for token in command:
+        if token == "&&":
+            parts.append([])
+        else:
+            parts[-1].append(token)
+    if any(not part for part in parts):
+        raise ValueError(f"empty command around '&&': {list(command)}")
+    return parts
 
 
 def _print_plan(stages: Sequence[Stage]) -> None:

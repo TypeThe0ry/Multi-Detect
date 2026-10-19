@@ -53,3 +53,16 @@ def test_failure_stops_and_records_failure(tmp_path: Path, monkeypatch: pytest.M
     marker = tmp_path / "run" / "version_bump.status.json"
     assert json.loads(marker.read_text(encoding="utf-8"))["status"] == "failed"
     assert not (tmp_path / "run" / "parity.status.json").exists()
+
+
+def test_every_and_separator_runs_its_own_subprocess():
+    """static_checks joins three commands; only the first '&&' used to be split,
+    so pytest received '&&' as a path and the stage failed with exit 4."""
+    import pytest
+
+    from scripts.run_release_pre9 import _split_commands
+
+    assert _split_commands(["a", "1", "&&", "b", "&&", "c", "2"]) == [["a", "1"], ["b"], ["c", "2"]]
+    assert _split_commands(["only"]) == [["only"]]
+    with pytest.raises(ValueError):
+        _split_commands(["a", "&&", "&&", "b"])
