@@ -71,7 +71,7 @@ IMAGE_SERVER_CONFIG = "/opt/px4-gazebo/share/gz/server.config"
 CONTAINER_SERVER_CONFIG = "/tmp/multidetect-gz-server.config"
 _DROP_GAZEBO_MAGNETOMETER = (
     f"sed '/gz-sim-magnetometer-system/d' {IMAGE_SERVER_CONFIG} > {CONTAINER_SERVER_CONFIG}; "
-    f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG}; "
+    f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG} || exit 71; "
     f"if grep -q gz-sim-magnetometer-system {CONTAINER_SERVER_CONFIG}; then exit 70; fi; "
     f"export GZ_SIM_SERVER_CONFIG_PATH={CONTAINER_SERVER_CONFIG}; "
 )
