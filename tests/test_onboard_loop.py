@@ -4,6 +4,8 @@ import ast
 import math
 from pathlib import Path
 
+import pytest
+
 from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
@@ -650,3 +652,199 @@ def test_co_visibility_geometry_is_pruned_with_its_relation():
     for track in loop.tracks.values():
         assert set(track.co_visible_geometry) <= track.co_visible_with
     assert first[0].co_visible_geometry == {} and first[1].co_visible_geometry == {}
+
+
+# -- fixed-wing fly-by passes ----------------------------------------------------
+# rc_cessna: 640x480 level forward camera, 15 m/s cruise, 50 deg bank, 30 m altitude.
+FW_CAMERA = CameraModel(
+    fx=269.968, fy=269.968, cx=320.0, cy=240.0, width=640, height=480, pitch_down_rad=0.0
+)
+
+
+def _fw_loop(segment_clear=lambda pose, n, e: True, **config) -> OnboardLoop:
+    return OnboardLoop(
+        camera=FW_CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(28.0, 0.0, 0.0),
+        segment_clear=segment_clear,
+        config=LoopConfig(
+            fixed_wing_pass=True, fw_min_turn_radius_m=21.2, autopilot_return=True, **config
+        ),
+    )
+
+
+class _Plane:
+    """Kinematic plane: straight on, or converging onto a clockwise guided orbit."""
+
+    def __init__(self, north: float, east: float, yaw_deg: float, altitude: float = 30.0):
+        self.north, self.east = north, east
+        self.psi, self.altitude = math.radians(yaw_deg), altitude
+        self.orbit: tuple[float, float, float] | None = None
+
+    def fly(self, seconds: float, speed: float = 15.0) -> None:
+        rate = 9.81 * math.tan(math.radians(50.0)) / speed
+        for _ in range(int(round(seconds / 0.1))):
+            desired = self.psi
+            if self.orbit is not None:
+                cn, ce, radius = self.orbit
+                azimuth = math.atan2(self.east - ce, self.north - cn)
+                error = math.hypot(self.north - cn, self.east - ce) - radius
+                desired = azimuth + math.pi / 2 + math.atan2(error, 30.0)
+            delta = (desired - self.psi + math.pi) % (2 * math.pi) - math.pi
+            self.psi += max(-rate * 0.1, min(rate * 0.1, delta))
+            self.north += speed * 0.1 * math.cos(self.psi)
+            self.east += speed * 0.1 * math.sin(self.psi)
+
+    @property
+    def pose(self) -> tuple[float, float, float]:
+        return (self.north, self.east, -self.altitude)
+
+    @property
+    def yaw_deg(self) -> float:
+        return math.degrees(self.psi)
+
+    def box(self, target, size_m: float = 4.0):
+        """Image box of a ``size_m`` object standing at ``target``, if the camera sees it."""
+        dn, de = target[0] - self.north, target[1] - self.east
+        forward = dn * math.cos(self.psi) + de * math.sin(self.psi)
+        right = -dn * math.sin(self.psi) + de * math.cos(self.psi)
+        if forward <= 1.0:
+            return None
+        u = FW_CAMERA.cx + FW_CAMERA.fx * right / forward
+        v = FW_CAMERA.cy + FW_CAMERA.fy * self.altitude / forward
+        side = FW_CAMERA.fx * size_m / math.hypot(forward, self.altitude)
+        box = (u - side / 2, v - side, u + side / 2, v)
+        inside = box[0] > 0 and box[1] > 0 and box[2] < 640 and box[3] < 480
+        return box if inside and side >= 6.0 else None
+
+    def ground_point(self, u: float, v: float):
+        return FW_CAMERA.ground_point(
+            u, v, north=self.north, east=self.east, height_m=self.altitude, yaw_deg=self.yaw_deg
+        )
+
+
+def _fw_step(loop: OnboardLoop, plane: _Plane, target, verdict):
+    box = plane.box(target) if target is not None else None
+    tracks = loop.update_tracks(
+        [Detection(box, 0.5)] if box else [],
+        pose_ned=plane.pose,
+        yaw_deg=plane.yaw_deg,
+        ground_point=plane.ground_point,
+    )
+    for track in loop.tracks_needing_verdict(tracks):
+        loop.apply_verdict(track.track_id, verdict(track, plane))
+    action, info = loop.next_action(
+        tracks, pose_ned=plane.pose, yaw_deg=plane.yaw_deg, ground_point=plane.ground_point
+    )
+    orbit = info.get("fw_orbit")
+    if orbit is not None:
+        plane.orbit = (orbit["centre_ne"][0], orbit["centre_ne"][1], orbit["radius_m"])
+    elif action.kind == "translate":
+        plane.orbit = None
+    return action, info, box is not None
+
+
+def _approach(track, plane) -> str:
+    return "approach_track"
+
+
+def test_fixed_wing_candidate_gets_a_fly_by_orbit_through_it_not_a_turn() -> None:
+    loop = _fw_loop()
+    plane = _Plane(0.0, 0.0, 10.0)
+    target = (100.0, 10.0)
+    _fw_step(loop, plane, target, _approach)
+    action, info, seen = _fw_step(loop, plane, target, _approach)
+    assert seen and loop.state == "approaching"
+    # A multirotor would turn toward it; a plane holds a guided orbit instead.
+    assert action.kind == "hold" and info["focus"] == "t1"
+    orbit = info["fw_orbit"]
+    centre, radius = orbit["centre_ne"], orbit["radius_m"]
+    assert radius == pytest.approx(89.9, abs=0.5)
+    assert orbit["view_range_m"] == [pytest.approx(45.1, abs=0.3), pytest.approx(120.0)]
+    # The target is on the rim and the centre to the right of the line of sight:
+    # the clockwise orbit reaches the target along the current line of sight.
+    assert math.dist(centre, target) == pytest.approx(radius, abs=1.0)
+    los = (target[0] - plane.north, target[1] - plane.east)
+    to_centre = (centre[0] - target[0], centre[1] - target[1])
+    assert los[0] * to_centre[1] - los[1] * to_centre[0] > 0
+
+
+def test_fixed_wing_passes_keep_the_focus_through_blind_laps_then_hand_home_over() -> None:
+    loop = _fw_loop()
+    plane = _Plane(40.0, 30.0, -150.0)
+    target = (-40.0, 14.0)
+
+    def verdict(track, plane) -> str:
+        near = math.dist(track.ground, (plane.north, plane.east)) < 70.0
+        return "confirm_target" if near else "approach_track"
+
+    reasons, seen_steps = [], []
+    for step in range(40):
+        action, info, seen = _fw_step(loop, plane, target, verdict)
+        reasons.append(info.get("reason"))
+        if seen:
+            seen_steps.append(step)
+        if action.kind == "stop":
+            break
+        plane.fly(2.0)
+    # Confirmed and handed straight to the autopilot (no turn/translate legs home).
+    assert action.kind == "stop" and loop.state == "done" and info["return"] == "autopilot"
+    assert loop.confirmed is not None and loop.confirmed["track_id"] == "t1"
+    assert list(loop.tracks) == ["t1"]
+    # The target was out of view for most of a lap, far longer than lost_after_steps,
+    # and the same track picked it up again by its ground position.
+    assert "fw_pass_out_of_view" in reasons
+    gaps = [b - a for a, b in zip(seen_steps, seen_steps[1:], strict=False)]
+    assert max(gaps) > loop.config.lost_after_steps
+    assert math.dist(loop.confirmed["position_estimate_ne"], target) < 3.0
+
+
+def test_fixed_wing_pass_gives_up_after_its_lap_budget() -> None:
+    loop = _fw_loop(fw_pass_max_laps=1.5)
+    plane = _Plane(0.0, 0.0, 0.0)
+    target = (90.0, 0.0)
+    _fw_step(loop, plane, target, _approach)
+    _fw_step(loop, plane, target, _approach)
+    assert loop.state == "approaching"
+    reasons = []
+    for _ in range(60):
+        plane.fly(3.0)
+        # The candidate vanished (e.g. a false detection): nothing is seen again.
+        _, info, _ = _fw_step(loop, plane, None, _approach)
+        reasons.append(info.get("reason"))
+        if loop.state == "searching":
+            break
+    assert reasons[-1] == "fw_pass_exhausted" and loop.tracks["t1"].exhausted
+    assert reasons.count("fw_pass_out_of_view") >= 10  # about 1.5 laps of 38 s at 3 s
+
+
+def test_fixed_wing_pass_shrinks_the_orbit_around_a_blocked_area_or_drops_the_focus() -> None:
+    target = (100.0, 10.0)
+    # Nothing may be flown more than 120 m east: the 90 m orbit does not fit.
+    loop = _fw_loop(segment_clear=lambda pose, n, e: e < 120.0)
+    plane = _Plane(0.0, 0.0, 10.0)
+    _fw_step(loop, plane, target, _approach)
+    _, info, _ = _fw_step(loop, plane, target, _approach)
+    assert info["fw_orbit"]["radius_m"] < 89.0
+    assert info["fw_orbit"]["centre_ne"][1] + info["fw_orbit"]["radius_m"] < 120.0
+    # A fence the smallest pass cannot fit: a plain hold, then the focus is dropped.
+    blocked = _fw_loop(segment_clear=lambda pose, n, e: e < 25.0)
+    plane = _Plane(0.0, 0.0, 10.0)
+    _fw_step(blocked, plane, target, _approach)
+    action, info, _ = _fw_step(blocked, plane, target, _approach)
+    assert action.kind == "hold" and info["reason"] == "fw_pass_blocked"
+    assert "fw_orbit" not in info
+    for _ in range(3):
+        _fw_step(blocked, plane, target, _approach)
+    assert blocked.state == "searching" and blocked.tracks["t1"].exhausted
+
+
+def test_autopilot_return_stops_instead_of_flying_legs_home() -> None:
+    loop = _fw_loop()
+    loop.home = (0.0, 0.0)
+    loop.state = "returning"
+    action, info = loop.next_action([], pose_ned=(80.0, 40.0, -30.0), yaw_deg=90.0)
+    assert action.kind == "stop" and loop.state == "done" and info["return"] == "autopilot"
+    budget = _fw_loop(max_steps=1)
+    budget.next_action([], pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    action, info = budget.next_action([], pose_ned=(30.0, 0.0, -30.0), yaw_deg=0.0)
+    assert action.kind == "stop" and info["reason"] == "step_budget"

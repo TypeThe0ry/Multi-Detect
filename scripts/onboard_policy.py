@@ -682,6 +682,23 @@ class OnboardPolicy:
         if "ground_reid_max_steps" in options:
             value = options["ground_reid_max_steps"]
             loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
+        if not self.motion_adapter.is_multirotor:
+            # An aircraft that cannot hover never settles on home: the autopilot's
+            # RTL flies it home and lands once the loop has nothing left to do.
+            loop_defaults["autopilot_return"] = True
+        if self.airframe_profile.category == "fixed_wing":
+            # A plane cannot turn toward a candidate in place: it flies fly-by
+            # passes sized from its turn radius and the forward camera's FOV.
+            loop_defaults["fixed_wing_pass"] = True
+            loop_defaults["fw_min_turn_radius_m"] = self.airframe_profile.loiter_radius_m()
+            for key, convert in (
+                ("fw_pass_view_range_m", float),
+                ("fw_pass_fov_margin_deg", float),
+                ("fw_pass_max_laps", float),
+                ("fw_pass_max_steps", int),
+            ):
+                if key in options:
+                    loop_defaults[key] = convert(options[key])
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
@@ -720,6 +737,10 @@ class OnboardPolicy:
             if home_ned is not None:
                 loop.home = home_ned[:2]
                 loop.cruise_altitude_m = altitude_m
+            if loop.config.fixed_wing_pass:
+                # Plan fly-by orbits inside the same fences the final arbiter
+                # enforces, so a pass is shrunk instead of refused into a loiter.
+                loop.pass_clear = self.safety_envelope.leg_allowed
             return loop
 
         self.loop = make_loop(task_text)

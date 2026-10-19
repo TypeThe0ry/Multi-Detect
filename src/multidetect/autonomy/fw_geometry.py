@@ -708,6 +708,106 @@ def thinking_loiter(
     return LoiterPlan(center, radius, "none", (PathPoint(*pos[:2], yaw, 0.0),), pos, False)
 
 
+@dataclass(frozen=True, slots=True)
+class PassOrbit:
+    """A clockwise orbit whose rim passes through the target along the line of sight.
+
+    ``centre_ne`` is to the right of ``approach_heading_rad`` at the target, so an
+    aircraft on that heading reaches the target tangentially and every lap ends with
+    the same inbound arc into it.  ``far_range_m``/``near_range_m`` bound the part of
+    that arc on which a forward camera sees the target.
+    """
+
+    centre_ne: tuple[float, float]
+    radius_m: float
+    target_ne: tuple[float, float]
+    approach_heading_rad: float
+    near_range_m: float
+    far_range_m: float
+    in_view_arc_m: float
+
+
+def pass_orbit_radius(
+    *, view_range_m: float, half_hfov_rad: float, min_turn_radius_m: float, near_range_m: float
+) -> float:
+    """Radius at which the target enters the horizontal FOV at ``view_range_m``.
+
+    On a circle through the target, the target's bearing from the nose is half the
+    remaining central angle and its range is the chord ``2 R sin(bearing)``.  The
+    radius never drops below the turn radius, nor so low that the target leaves the
+    bottom of the image (``near_range_m``) before it enters from the side.
+    """
+    half = min(max(_f(half_hfov_rad), math.radians(5.0)), math.pi / 2)
+    radius = _f(view_range_m) / (2.0 * math.sin(half))
+    floor = 1.2 * max(_f(near_range_m), 0.0) / (2.0 * math.sin(half))
+    return max(radius, floor, _f(min_turn_radius_m, 1.0), 1.0)
+
+
+def forward_camera_pass_orbit(
+    target_ne: Sequence[float],
+    aircraft_ne: Sequence[float],
+    *,
+    altitude_m: float,
+    half_hfov_rad: float,
+    half_vfov_rad: float,
+    camera_pitch_down_rad: float,
+    min_turn_radius_m: float,
+    view_range_m: float,
+    fov_margin_rad: float = math.radians(8.0),
+    heading_rad: float | None = None,
+    radius_m: float | None = None,
+) -> PassOrbit:
+    """Plan a fly-by orbit that keeps re-presenting the target to a forward camera.
+
+    An orbit centred on the target holds it 90 deg off the nose, outside any forward
+    camera.  Moving the centre one radius to the right of the line of sight puts the
+    target on the rim: the aircraft flies straight at it now, passes over it, and comes
+    back along the same inbound arc once per lap.  The target is in view while its
+    bearing (half the remaining arc) is inside the horizontal FOV and its depression
+    is above the bottom of the image.
+    """
+    tn, te = _pos2(target_ne)
+    pn, pe = _pos2(aircraft_ne)
+    dn, de = tn - pn, te - pe
+    if math.hypot(dn, de) > 1.0 or heading_rad is None:
+        heading = math.atan2(de, dn)
+    else:
+        heading = _f(heading_rad)
+    margin = max(_f(fov_margin_rad), 0.0)
+    half_h = max(_f(half_hfov_rad) - margin, math.radians(5.0))
+    lowest = _f(camera_pitch_down_rad) + _f(half_vfov_rad) - margin
+    altitude = max(_f(altitude_m), 0.0)
+    near = 0.0 if lowest >= math.pi / 2 - 1e-6 else altitude / math.tan(max(lowest, 1e-3))
+    radius = (
+        max(_f(radius_m), _f(min_turn_radius_m, 1.0), 1.0)
+        if radius_m is not None
+        else pass_orbit_radius(
+            view_range_m=view_range_m,
+            half_hfov_rad=half_h,
+            min_turn_radius_m=min_turn_radius_m,
+            near_range_m=near,
+        )
+    )
+    centre = (tn - radius * math.sin(heading), te + radius * math.cos(heading))
+    far = 2.0 * radius * math.sin(half_h)
+    near_arc = 2.0 * math.asin(min(1.0, near / (2.0 * radius)))
+    arc = max(0.0, radius * (2.0 * half_h - near_arc)) if far > near else 0.0
+    return PassOrbit(centre, radius, (tn, te), heading, near, far, arc)
+
+
+def circle_points(
+    centre_ne: Sequence[float], radius_m: float, count: int = 24
+) -> tuple[tuple[float, float], ...]:
+    """Closed polygon (first point repeated) approximating a circle, for clearance checks."""
+    cn, ce = _pos2(centre_ne)
+    radius = abs(_f(radius_m))
+    n = max(8, int(count))
+    return tuple(
+        (cn + radius * math.cos(PI2 * i / n), ce + radius * math.sin(PI2 * i / n))
+        for i in range(n + 1)
+    )
+
+
 # Readable aliases for callers that prefer verb-noun names.
 plan_dubins_path = dubins_path
 plan_lawnmower_search = lawnmower_search

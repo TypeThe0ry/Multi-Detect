@@ -415,7 +415,16 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
-        return self._make_loop(self.task_text(step), **overrides)
+        loop = self._make_loop(self.task_text(step), **overrides)
+        if self._inflated_no_fly_zones:
+            # Fly-by orbits leave the per-step legs this executor checks; their
+            # whole circle must stay out of the package no-fly zones too.
+            previous = loop.pass_clear
+            loop.pass_clear = lambda start, end: (
+                (previous is None or previous(start, end))
+                and not self._leg_enters_no_fly(start, end)
+            )
+        return loop
 
     def _start(self, step: MissionStep) -> _StepRun:
         run = _StepRun(step=step)
@@ -2107,6 +2116,9 @@ class MissionExecutor:
             run.goal_ne = self.home
             altitude = run.step.params.get("altitude_m", self.cruise_altitude_m)
             run.goal_altitude_m = None if altitude is None else float(altitude)
+        handoff = self._autopilot_return(run, pose)
+        if handoff is not None:
+            return handoff
         moved = self._move_to(run, pose, yaw, run.goal_ne, run.goal_altitude_m)
         if moved == "land_fallback":
             return self._land(run, pose, yaw, ground_point, frame_id)
@@ -2119,6 +2131,28 @@ class MissionExecutor:
             self._finish("succeeded", "arrived")
             return None
         return moved, {}
+
+    def _autopilot_return(self, run, pose):
+        """Hand the flight home to the autopilot for an aircraft that cannot hover.
+
+        ``_move_to`` turns and steps until within ``arrive_tolerance_m``; a plane
+        turns each step into a reposition plus an autopilot loiter and circles home
+        instead (SITL: 30-57 extra steps).  return_home is a terminal step, so when
+        the direct leg home is clear of no-fly zones a stop hands over to RTL, which
+        flies straight home and runs the landing.  A leg that needs a no-fly detour
+        keeps the waypoint path.
+        """
+        adapter = self.airframe_adapter
+        if adapter is None or adapter.is_multirotor or run.goal_ne is None:
+            return None
+        if self._leg_enters_no_fly((pose[0], pose[1]), run.goal_ne):
+            return None
+        self._finish("succeeded", "autopilot_return")
+        return ActionPrimitive.stop(), {
+            "phase": "autopilot_return",
+            "home_ne": [float(run.goal_ne[0]), float(run.goal_ne[1])],
+            "requested_altitude_m": run.goal_altitude_m,
+        }
 
     def _hover(self, run, pose, yaw, ground_point, frame_id):
         if run.goal_ne is None and "region" in run.step.params:

@@ -75,3 +75,17 @@ def test_scorer_projects_truth_with_the_recorded_airframe_camera(tmp_path: Path)
     legacy.mkdir()
     (legacy / "episode.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")
     assert episode_camera_pitch_rad(legacy) == 0.18
+
+
+def test_fixed_wing_policy_flies_passes_and_hands_the_return_to_the_autopilot(
+    tmp_path: Path,
+) -> None:
+    cessna = make_policy(work_dir=tmp_path / "fw", config={"airframe": "rc_cessna_runway"})
+    config = cessna.loop.config
+    assert config.fixed_wing_pass and config.autopilot_return
+    assert config.fw_min_turn_radius_m == pytest.approx(cessna.airframe_profile.loiter_radius_m())
+    # Pass orbits are planned inside the final arbiter's fences.
+    assert cessna.loop.pass_clear == cessna.safety_envelope.leg_allowed
+    x500 = make_policy(work_dir=tmp_path / "x500").loop
+    assert not x500.config.fixed_wing_pass and not x500.config.autopilot_return
+    assert x500.pass_clear is None

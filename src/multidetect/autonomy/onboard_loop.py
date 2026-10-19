@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from multidetect.autonomy.fw_geometry import circle_points, forward_camera_pass_orbit
 from multidetect.autonomy.ground_model import GroundModel
 from multidetect.autonomy.obstacle_source import ObstacleSource
 from multidetect.autonomy.step_triangulation import (
@@ -436,8 +437,54 @@ class LoopConfig:
     step_triangulation_min_ray_angle_deg: float = 10.0
     # Near monocular depth is an opt-in supplement to the geometric estimate.
     near_depth: bool = False
+    # Aircraft that cannot hover (fixed-wing): instead of turning toward a candidate
+    # and stepping at it, fly guided fly-by passes over it.  The loop emits a hold
+    # with info["fw_orbit"] (a clockwise orbit whose rim passes through the target
+    # along the line of sight); the airframe adapter turns it into an orbit command.
+    fixed_wing_pass: bool = False
+    fw_min_turn_radius_m: float = 20.0
+    # The target enters the horizontal FOV at about this range on each pass.
+    fw_pass_view_range_m: float = 120.0
+    fw_pass_fov_margin_deg: float = 8.0
+    # A focus is dropped after this many laps without a confirmation (or after
+    # fw_pass_max_steps decisions on one plan, whichever comes first).
+    fw_pass_max_laps: float = 3.0
+    fw_pass_max_steps: int = 60
+    # A target estimate that moves farther than this shifts the orbit with it.
+    fw_pass_replan_m: float = 12.0
+    # Views within this multiple of the closest in-frame ground range count as the
+    # closest view a pass can give (the multirotor's "closest_view").
+    fw_pass_near_factor: float = 1.5
+    # Aircraft that cannot hover hand the flight home to the autopilot (RTL and
+    # its landing) with a stop, instead of flying turn/translate legs at home.
+    autopilot_return: bool = False
 
     def __post_init__(self) -> None:
+        for name in (
+            "fw_min_turn_radius_m",
+            "fw_pass_view_range_m",
+            "fw_pass_max_laps",
+            "fw_pass_replan_m",
+            "fw_pass_near_factor",
+        ):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be finite and positive")
+        if not math.isfinite(self.fw_pass_fov_margin_deg) or not (
+            0 <= self.fw_pass_fov_margin_deg < 45
+        ):
+            raise ValueError("fw_pass_fov_margin_deg must be in [0, 45)")
+        if (
+            isinstance(self.fw_pass_max_steps, bool)
+            or not isinstance(self.fw_pass_max_steps, int)
+            or self.fw_pass_max_steps < 1
+        ):
+            raise ValueError("fw_pass_max_steps must be a positive integer")
         if not isinstance(self.step_triangulation, bool):
             raise ValueError("step_triangulation must be a boolean")
         if not isinstance(self.near_depth, bool):
@@ -670,6 +717,12 @@ class OnboardLoop:
     _co_visibility_pairs: dict[tuple[str, str], int] = field(default_factory=dict)
     co_visibility_max_pairs: int = 4096
     _blocked_search_legs: int = 0
+    # Active fly-by pass plan (fixed_wing_pass) and its blocked-plan count.
+    _fw_pass: dict[str, Any] | None = None
+    _fw_pass_blocked: int = 0
+    # Extra horizontal clearance for fly-by orbits, e.g. a mission's no-fly zones:
+    # (start_ne, end_ne) -> clear.
+    pass_clear: Callable[[tuple[float, float], tuple[float, float]], bool] | None = None
 
     def _segment_clear(
         self, pose_ned: tuple[float, float, float], north: float, east: float
@@ -720,10 +773,14 @@ class OnboardLoop:
         verdict age and evidence, so revival does not manufacture a fresh look.
         """
         current: list[Track] = []
+        # A fly-by pass is blind for most of a lap; its focus stays associable (by
+        # ground position only, below) until the pass is given up.
+        pass_focus = self._focus if self._fw_pass is not None else None
         free = {
             tid: t
             for tid, t in self._tracks.items()
-            if self.step_index - t.last_step <= self.config.lost_after_steps and not t.exhausted
+            if (self.step_index - t.last_step <= self.config.lost_after_steps or tid == pass_focus)
+            and not t.exhausted
         }
         # Count-confirmed tracks are never candidates for ordinary active
         # association: a nearby new object must receive its own track/verdict.
@@ -795,6 +852,8 @@ class OnboardLoop:
                 scale = max(40.0, _min_side(track.bbox) * 4.0)
                 near = max(0.0, 1.0 - math.hypot(cx - tx, cy - ty) / scale)
                 score = overlap if overlap >= 0.1 else 0.5 * near
+                if self.step_index - track.last_step > self.config.lost_after_steps:
+                    score = 0.0  # stale pixels after a blind lap say nothing
                 if ground is not None and track.ground is not None:
                     distance = math.hypot(ground[0] - track.ground[0], ground[1] - track.ground[1])
                     reach = math.hypot(ground[0] - pose_ned[0], ground[1] - pose_ned[1])
@@ -1589,6 +1648,7 @@ class OnboardLoop:
         info: dict[str, Any],
     ) -> tuple[ActionPrimitive, dict[str, Any]]:
         """Counting mode: keep the confirmation (unless already counted) and search on."""
+        self._end_fw_pass()
         position = record["position_estimate_ne"]
 
         def dedupe_radius(prior: dict[str, Any]) -> float:
@@ -1720,6 +1780,140 @@ class OnboardLoop:
         self._last_translated = action.kind == "translate"
         return action
 
+    # -- fixed-wing fly-by passes -------------------------------------------------
+    def _lowest_ray_rad(self) -> float:
+        """Depression of the bottom image row below the horizon."""
+        bottom = max(self.camera.height - self.camera.cy, 1.0)
+        return self.camera.pitch_down_rad + math.atan2(bottom, self.camera.fy)
+
+    def _fw_near_range(self, altitude_m: float) -> float:
+        """Horizontal range of the closest view a pass gives (target near the image bottom)."""
+        lowest = self._lowest_ray_rad()
+        if lowest >= math.pi / 2:
+            return self.config.overhead_range_m
+        return self.config.fw_pass_near_factor * altitude_m / math.tan(lowest)
+
+    def _fw_orbit_clear(self, pose_ned, centre: tuple[float, float], radius: float) -> bool:
+        """The static map is clear along the whole circle and the leg onto it."""
+        here = (pose_ned[0], pose_ned[1])
+        offset = math.hypot(here[0] - centre[0], here[1] - centre[1])
+        rim = circle_points(centre, radius)
+        legs = list(zip(rim, rim[1:], strict=False))
+        if offset > 1e-6:
+            legs.append(
+                (
+                    here,
+                    (
+                        centre[0] + radius * (here[0] - centre[0]) / offset,
+                        centre[1] + radius * (here[1] - centre[1]) / offset,
+                    ),
+                )
+            )
+        return all(
+            self._segment_clear((a[0], a[1], pose_ned[2]), b[0], b[1])
+            and (self.pass_clear is None or self.pass_clear(a, b))
+            for a, b in legs
+        )
+
+    def _plan_fw_pass(self, pose_ned, target: tuple[float, float]) -> dict[str, Any] | None:
+        """A clear clockwise orbit through ``target``, largest radius first."""
+        half_h = math.atan2(min(self.camera.cx, self.camera.width - self.camera.cx), self.camera.fx)
+        half_v = math.atan2(max(self.camera.height - self.camera.cy, 1.0), self.camera.fy)
+        common = {
+            "altitude_m": max(0.0, -pose_ned[2]),
+            "half_hfov_rad": half_h,
+            "half_vfov_rad": half_v,
+            "camera_pitch_down_rad": self.camera.pitch_down_rad,
+            "min_turn_radius_m": self.config.fw_min_turn_radius_m,
+            "view_range_m": self.config.fw_pass_view_range_m,
+            "fov_margin_rad": math.radians(self.config.fw_pass_fov_margin_deg),
+        }
+        preferred = forward_camera_pass_orbit(target, pose_ned[:2], **common)
+        for scale in (1.0, 0.8, 0.65, 0.5):
+            radius = preferred.radius_m * scale
+            if scale < 1.0 and radius < 1.05 * self.config.fw_min_turn_radius_m:
+                break
+            orbit = (
+                preferred
+                if scale == 1.0
+                else forward_camera_pass_orbit(target, pose_ned[:2], radius_m=radius, **common)
+            )
+            if self._fw_orbit_clear(pose_ned, orbit.centre_ne, orbit.radius_m):
+                return {
+                    "centre": orbit.centre_ne,
+                    "radius": orbit.radius_m,
+                    "target": tuple(target),
+                    "view_range": (orbit.near_range_m, orbit.far_range_m),
+                    "azimuth": None,
+                    "swept": 0.0,
+                    "steps": 0,
+                }
+        return None
+
+    def _fw_pass_spent(self) -> bool:
+        plan = self._fw_pass
+        if plan is None:
+            return False
+        return (
+            plan["swept"] >= 2 * math.pi * self.config.fw_pass_max_laps
+            or plan["steps"] >= self.config.fw_pass_max_steps
+        )
+
+    def _fw_pass_action(
+        self,
+        pose_ned: tuple[float, float, float],
+        target: tuple[float, float] | None,
+        info: dict[str, Any],
+    ) -> ActionPrimitive:
+        """Keep flying the fly-by orbit through ``target`` (re-planned if it moved).
+
+        A plane with a fixed forward camera only sees what is ahead of it: an orbit
+        centred on the target keeps it 90 deg off the nose, and a short step at it
+        ends in an autopilot loiter that swings the camera away.  The pass orbit
+        flies straight at the target now and returns along the same inbound arc on
+        every lap, so the loop gets repeated head-on views between blind turns.
+        """
+        plan = self._fw_pass
+        if plan is not None and target is not None:
+            moved = math.dist(plan["target"], target)
+            if moved > 0.5 * plan["radius"]:
+                plan = None  # a different place: plan afresh from here
+            elif moved > self.config.fw_pass_replan_m:
+                dn, de = target[0] - plan["target"][0], target[1] - plan["target"][1]
+                centre = (plan["centre"][0] + dn, plan["centre"][1] + de)
+                if self._fw_orbit_clear(pose_ned, centre, plan["radius"]):
+                    plan["centre"], plan["target"] = centre, tuple(target)
+        if plan is None and target is not None:
+            plan = self._plan_fw_pass(pose_ned, target)
+            if plan is None:
+                self._fw_pass_blocked += 1
+                self._fw_pass = None
+                info["reason"] = "fw_pass_blocked"
+                return ActionPrimitive.hold(1.0)
+            self._fw_pass_blocked = 0
+        self._fw_pass = plan
+        if plan is None:
+            return ActionPrimitive.hold(1.0)
+        azimuth = math.atan2(pose_ned[1] - plan["centre"][1], pose_ned[0] - plan["centre"][0])
+        if plan["azimuth"] is not None:
+            # Clockwise (north -> east) is increasing azimuth.
+            plan["swept"] += math.radians(_wrap(math.degrees(azimuth - plan["azimuth"])))
+        plan["azimuth"] = azimuth
+        plan["steps"] += 1
+        info["fw_orbit"] = {
+            "centre_ne": [plan["centre"][0], plan["centre"][1]],
+            "radius_m": plan["radius"],
+            "target_ne": [plan["target"][0], plan["target"][1]],
+            "view_range_m": [plan["view_range"][0], plan["view_range"][1]],
+            "laps": plan["swept"] / (2 * math.pi),
+            "steps": plan["steps"],
+        }
+        return ActionPrimitive.hold(1.0)
+
+    def _end_fw_pass(self) -> None:
+        self._fw_pass = None
+        self._fw_pass_blocked = 0
+
     def next_action(
         self,
         current: Sequence[Track],
@@ -1766,7 +1960,16 @@ class OnboardLoop:
                         and not focus.exhausted
                         and all(t.track_id != focus.track_id for t in current)
                     )
-                    if focus.approach_steps >= self.config.max_approach_steps and (
+                    if self.config.fixed_wing_pass:
+                        # A pass is blind for most of each lap: the focus stays wanted
+                        # until the lap budget is spent, not for lost_after_steps.
+                        if wanted and self._fw_pass is not None and not self._fw_pass_spent():
+                            info.update(reason="fw_pass_out_of_view", focus=focus.track_id)
+                            return self._fw_pass_action(pose_ned, None, info), info
+                        if wanted:
+                            focus.exhausted, wanted = True, False
+                            info.update(reason="fw_pass_exhausted", dropped=focus.track_id)
+                    elif focus.approach_steps >= self.config.max_approach_steps and (
                         not focus.confirm_steps
                     ):
                         focus.exhausted, wanted = True, False
@@ -1790,6 +1993,7 @@ class OnboardLoop:
                         return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
                 self.state, self._focus = "searching", None
                 self._approach_sizes.clear()
+                self._end_fw_pass()
                 info["state"] = self.state
                 after = self.config.second_look_after_steps
                 if self._revisit is None and (
@@ -1808,13 +2012,26 @@ class OnboardLoop:
             if best.track_id != self._focus:
                 self._approach_sizes.clear()
                 self._at_closest = False
+                plan = self._fw_pass
+                if plan is not None and (
+                    best.ground is None
+                    or math.dist(best.ground, plan["target"]) > 0.5 * plan["radius"]
+                ):
+                    # A candidate elsewhere gets its own passes and lap budget; a new
+                    # track at the same place keeps the running plan and budget.
+                    self._end_fw_pass()
             self.state, self._focus = "approaching", best.track_id
             best.approach_steps += 1
-            if best.approach_steps > self.config.max_approach_steps and not best.confirm_steps:
+            if (
+                self._fw_pass_spent()
+                if self.config.fixed_wing_pass
+                else best.approach_steps > self.config.max_approach_steps
+            ) and not best.confirm_steps:
                 # Never confirmed from any view: stop chasing it and resume the search.
                 best.exhausted = True
                 self.state, self._focus = "searching", None
                 self._approach_sizes.clear()
+                self._end_fw_pass()
                 info.update(reason="approach_exhausted", dropped=best.track_id)
                 action = self._search_step(pose_ned, yaw_deg)
                 self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
@@ -1854,6 +2071,14 @@ class OnboardLoop:
             near = self._at_closest or (
                 horizontal is not None and horizontal <= self.config.overhead_range_m
             )
+            # A fly-by pass cannot get closer than the range at which the focus
+            # drops out of the bottom of the image: that is its closest view.
+            pass_near = (
+                self.config.fixed_wing_pass
+                and horizontal is not None
+                and horizontal <= self._fw_near_range(max(0.0, -pose_ned[2]))
+            )
+            near = near or pass_near
             info["confirm_views"] = votes
             # At the closest view the host cannot improve the picture: identity is all
             # that is left to judge, so "approach" answers count as matching views too.
@@ -1885,7 +2110,7 @@ class OnboardLoop:
                     else (
                         "stalled"
                         if stalled
-                        else ("closest_view" if self._at_closest else "overhead")
+                        else ("closest_view" if self._at_closest or pass_near else "overhead")
                     ),
                     "confirm_views": votes,
                     "step": self.step_index - 1,
@@ -1893,11 +2118,41 @@ class OnboardLoop:
                 record.update(self.position_metadata(best))
                 if not self.config.stop_on_confirm:
                     return self._count_confirmation(best, record, pose_ned, yaw_deg, info)
+                self._end_fw_pass()
                 self.state = "returning"
                 self.confirmed = record
                 info["confirmed"] = self.confirmed
+                if self.config.autopilot_return:
+                    # Nothing is left to do here: hand the flight home to the autopilot.
+                    self.state = "done"
+                    info["return"] = "autopilot"
+                    return ActionPrimitive.stop(), info
                 return ActionPrimitive.hold(2.0), info
+            if self.config.fixed_wing_pass:
+                if ground is None and self._fw_pass is None:
+                    # No ground anchor to pass over (e.g. above the horizon): keep the
+                    # existing bounded approach until one is available.
+                    return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
+                if self._fw_pass_blocked >= self.config.max_blocked_legs:
+                    best.exhausted = True
+                    self.state, self._focus = "searching", None
+                    self._approach_sizes.clear()
+                    self._end_fw_pass()
+                    info.update(reason="fw_pass_blocked", dropped=best.track_id)
+                    action = self._search_step(pose_ned, yaw_deg)
+                    self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
+                    return action, info
+                return self._fw_pass_action(pose_ned, ground, info), info
             return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
+        if self.state == "returning" and self.config.autopilot_return:
+            # An aircraft that cannot hover never settles within home_tolerance_m of
+            # home: turn/translate legs there end in loiters around points next to
+            # it (SITL circled home for 30-57 steps).  The autopilot's RTL flies
+            # straight home and lands; the stop hands the flight to it.
+            self._end_fw_pass()
+            self.state = "done"
+            info["return"] = "autopilot"
+            return ActionPrimitive.stop(), info
         if self.state == "returning":
             altitude = max(0.0, -pose_ned[2])
             if self.cruise_altitude_m is not None and altitude < self.cruise_altitude_m - 1.0:

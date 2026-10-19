@@ -1704,3 +1704,60 @@ def test_unresolved_revisit_attempts_must_be_a_non_negative_integer():
     for value in (-1, True, 1.5):
         with pytest.raises(ValueError):
             ExecutorConfig(unresolved_revisit_attempts=value)
+
+
+def _return_plan():
+    step = {"id": "home", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}
+    return validate_mission_plan({"plan_version": 1, "goal": "g", "steps": [step], "report": []})
+
+
+def test_fixed_wing_return_home_hands_the_flight_to_the_autopilot():
+    from multidetect.autonomy.motion_intent import AirframeMotionAdapter
+
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    executor = MissionExecutor(
+        plan_for_find_task("red truck"), loop_factory=_factory(), airframe_adapter=adapter
+    )
+    executor.home = (0.0, 0.0)
+    executor._finish("succeeded", "confirmed")  # the search found it
+    action, info = executor.next_action(pose_ned=(-60.0, 10.0, -30.0), yaw_deg=120.0)
+    # One stop, straight away: no turn/translate legs that circle home (SITL: 30+ steps).
+    assert action.kind == "stop" and info["phase"] == "autopilot_return"
+    assert executor.done and executor.history[-1]["reason"] == "autopilot_return"
+
+
+def test_fixed_wing_return_home_keeps_the_no_fly_detour_and_multirotor_is_unchanged():
+    from multidetect.autonomy.motion_intent import AirframeMotionAdapter
+
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    executor = MissionExecutor(
+        _return_plan(),
+        loop_factory=_factory(),
+        no_fly_zones=(((-30.0, 5.0), 5.0),),
+        airframe_adapter=adapter,
+    )
+    executor.home = (0.0, 0.0)
+    executor.operating_area = {
+        "north_min_m": -100.0,
+        "north_max_m": 100.0,
+        "east_min_m": -100.0,
+        "east_max_m": 100.0,
+    }
+    action, info = executor.next_action(pose_ned=(-60.0, 10.0, -30.0), yaw_deg=0.0)
+    assert action.kind != "stop" and info.get("phase") != "autopilot_return"
+    multirotor = MissionExecutor(_return_plan(), loop_factory=_factory())
+    multirotor.home = (0.0, 0.0)
+    action, _ = multirotor.next_action(pose_ned=(-60.0, 10.0, -20.0), yaw_deg=90.0)
+    assert action.kind == "turn" and not multirotor.done
+
+
+def test_fixed_wing_search_loops_plan_passes_outside_package_no_fly_zones():
+    executor = MissionExecutor(
+        plan_for_find_task("red truck"),
+        loop_factory=_factory(),
+        no_fly_zones=(((50.0, 50.0), 10.0),),
+    )
+    loop = executor._run.loop
+    assert loop.pass_clear is not None
+    assert not loop.pass_clear((0.0, 50.0), (100.0, 50.0))
+    assert loop.pass_clear((0.0, 0.0), (0.0, 30.0))
