@@ -202,6 +202,48 @@ def test_hover_mode_vtol_search_settles_back_to_the_mission_altitude(tmp_path: P
     assert make_policy(work_dir=tmp_path / "x500").loop.config.search_altitude_m is None
 
 
+def test_tailsitter_hover_frames_project_onto_the_ground(tmp_path: Path, monkeypatch) -> None:
+    """The full-attitude ray path hands the ground model an N/E/up origin.
+
+    SITL tailsitter ep2 confirmed the fire truck with position None: the origin's
+    NED down value (negative) was taken for the height above ground.
+    """
+    from multidetect.autonomy.onboard_loop import OnboardLoop
+
+    camera = {"fx": 270.0, "fy": 270.0, "cx": 320.0, "cy": 240.0}
+    policy = make_policy(
+        work_dir=tmp_path,
+        config={"airframe": "quadtailsitter"},
+        camera_info=camera,
+        image_size=(640, 480),
+    )
+    seen = []
+
+    def capture(self, detections, **kwargs):
+        seen.append(kwargs)
+        return []
+
+    monkeypatch.setattr(OnboardLoop, "update_tracks", capture)
+    payload = io.BytesIO()
+    Image.new("RGB", (640, 480)).save(payload, format="PNG")
+    observation = {
+        "rgb": payload.getvalue(),
+        "camera_info": camera,
+        "pose": {"local_ned_m": [0.0, 0.0, -30.0]},
+        "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0},
+        "flight_state": {"vtol_state": 3},
+    }
+    policy.act(observation, pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    ground_point = seen[0]["ground_point"]
+    # The camera looks 20 deg up: a pixel 50 deg below the axis is 30 deg below the
+    # horizon, 30 / tan(30 deg) = 52 m ahead (camera offset of the x500 mount aside).
+    north, east = ground_point(320.0, 240.0 + 270.0 * math.tan(math.radians(50.0)))
+    assert north == pytest.approx(30.0 / math.tan(math.radians(30.0)), abs=1.0)
+    assert east == pytest.approx(0.0, abs=1e-6)
+    # Above the horizon there is no ground.
+    assert ground_point(320.0, 240.0) is None
+
+
 def test_tailsitter_camera_looks_above_the_horizon_in_hover_and_down_ahead_in_cruise() -> None:
     from multidetect.autonomy.motion_intent import camera_ray_from_profile
 

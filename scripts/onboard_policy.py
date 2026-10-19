@@ -1553,11 +1553,16 @@ class OnboardPolicy:
                 if ray_data is None:
                     return None
                 origin, direction = ray_data
+                # camera_ray's origin is N/E/down; ground models (and the flat
+                # ground) intersect from N/E/up.  Passing the down value made every
+                # tailsitter ground point None in SITL (a confirmation without a
+                # position).
+                origin_neu = (origin[0], origin[1], -origin[2])
                 if ground_model is not None:
-                    return ground_model.intersect_ray(origin, direction)
-                if direction[2] <= 1e-6 or origin[2] <= 0:
+                    return ground_model.intersect_ray(origin_neu, direction)
+                if direction[2] <= 1e-6 or origin_neu[2] <= 0:
                     return None
-                scale = origin[2] / direction[2]
+                scale = origin_neu[2] / direction[2]
                 return origin[0] + direction[0] * scale, origin[1] + direction[1] * scale
             return pixel_ground_point(
                 u,
