@@ -159,6 +159,20 @@ def _wrap(degrees: float) -> float:
     return (degrees + 180.0) % 360.0 - 180.0
 
 
+# Two boxes in one frame whose intersection covers at least this fraction of the
+# smaller box are one object detected twice (or an object and a part of it), not
+# evidence of two separate objects.
+_COVIS_NESTED_FRACTION = 0.5
+
+
+def _boxes_nested(a: Box, b: Box) -> bool:
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return smaller > 0 and intersection >= _COVIS_NESTED_FRACTION * smaller
+
+
 @dataclass(frozen=True, slots=True)
 class Detection:
     bbox: Box
@@ -275,9 +289,17 @@ class Track:
     ground: tuple[float, float] | None = None
     verdict_remembered: bool = False
     appearance: AppearanceSignature | None = None
-    # Track ids observed as separate detections in one frame are permanently
-    # distinct, even when later ground projections are close.
+    # Track ids observed as separate detections in one frame.  Memory and
+    # revisit bookkeeping treat them as distinct even when later ground
+    # projections are close; count/alert de-duplication additionally requires
+    # co_visibility_proves_distinct, since a track can later switch identity.
     co_visible_with: set[str] = field(default_factory=set)
+    # For each co-visible track whose box was separate from this one's (not
+    # nested), the latest such frame: (step, this track's ground then, the
+    # other's ground then).  Keys are always a subset of co_visible_with.
+    co_visible_geometry: dict[
+        str, tuple[int, tuple[float, float] | None, tuple[float, float] | None]
+    ] = field(default_factory=dict)
     # True once bounded co-visibility history has been truncated.  The
     # remaining history is incomplete, so this track must not be ground-reid.
     covis_truncated: bool = False
@@ -287,6 +309,43 @@ class Track:
     # Independent of the bottom-pixel ground anchor used by tracking and memory.
     position_views: list[ViewObservation] = field(default_factory=list)
     position_estimate: PositionEstimate | None = None
+
+
+def co_visibility_proves_distinct(
+    track: Track,
+    other_id: str | None,
+    other_geometry: Mapping[str, Any] | None,
+    position: Sequence[float] | None,
+    other_position: Sequence[float] | None,
+    radius_m: float,
+) -> bool:
+    """Whether a shared frame still proves ``track`` and a counted object differ.
+
+    Separate (non-nested) boxes in one frame are two objects *at the ground
+    places they had in that frame*.  The proof carries over to the current
+    positions only while neither track has since moved more than ``radius_m``
+    (the de-duplication radius) from its place in the latest such frame: a
+    track that did is no longer known to follow the same object (identity
+    switch).  ``other_geometry`` is the counted object's snapshot of its own
+    ``co_visible_geometry``; the newer of the two records is used.  Unknown
+    ground positions cannot be checked and keep the frame's evidence.
+    """
+    evidence = []
+    geometry = getattr(track, "co_visible_geometry", None) or {}
+    entry = geometry.get(other_id) if other_id is not None else None
+    if entry is not None:
+        evidence.append(entry)
+    entry = (other_geometry or {}).get(track.track_id)
+    if entry is not None:
+        step, other_then, mine_then = entry
+        evidence.append((step, mine_then, other_then))
+    if not evidence:
+        return False
+    _, mine_then, other_then = max(evidence, key=lambda item: item[0])
+    for now, then in ((position, mine_then), (other_position, other_then)):
+        if now is not None and then is not None and math.dist(now[:2], then[:2]) > radius_m:
+            return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -806,6 +865,7 @@ class OnboardLoop:
                 revived[index] = self._tracks[track_id]
                 used.add(track_id)
 
+        frame_ground: dict[str, tuple[float, float] | None] = {}
         for index, (detection, ground, best, appearance) in enumerate(pending):
             was_revived = best is None and index in revived
             best = best or revived.get(index)
@@ -841,8 +901,10 @@ class OnboardLoop:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
             current.append(best)
-        # Separate detections in one frame are distinct objects forever. Prune
-        # stale relations so long monitor missions stay bounded.
+            frame_ground[best.track_id] = ground
+        # Separate detections in one frame are distinct objects at their places
+        # in that frame. Prune stale relations so long monitor missions stay
+        # bounded.
         reid_window = self.config.ground_reid_max_steps
         if reid_window is None:
             reid_window = 0 if self.config.stop_on_confirm else 60
@@ -860,6 +922,19 @@ class OnboardLoop:
                     right.co_visible_with.add(left.track_id)
                     key = tuple(sorted((left.track_id, right.track_id)))
                     self._co_visibility_pairs[key] = self.step_index
+                    if not _boxes_nested(left.bbox, right.bbox):
+                        left_ground = frame_ground.get(left.track_id)
+                        right_ground = frame_ground.get(right.track_id)
+                        left.co_visible_geometry[right.track_id] = (
+                            self.step_index,
+                            left_ground,
+                            right_ground,
+                        )
+                        right.co_visible_geometry[left.track_id] = (
+                            self.step_index,
+                            right_ground,
+                            left_ground,
+                        )
         for key in list(self._co_visibility_pairs):
             if key[0] not in live_ids or key[1] not in live_ids:
                 self._co_visibility_pairs.pop(key, None)
@@ -883,6 +958,10 @@ class OnboardLoop:
                     other = self._tracks.get(other_id)
                     if other is not None:
                         other.covis_truncated = True
+        for track in self._tracks.values():
+            stale = [k for k in track.co_visible_geometry if k not in track.co_visible_with]
+            for other_id in stale:
+                del track.co_visible_geometry[other_id]
         return current
 
     def _update_position(
@@ -1511,32 +1590,36 @@ class OnboardLoop:
     ) -> tuple[ActionPrimitive, dict[str, Any]]:
         """Counting mode: keep the confirmation (unless already counted) and search on."""
         position = record["position_estimate_ne"]
-        duplicate = position is not None and any(
-            prior["position_estimate_ne"] is not None
-            and not (
-                prior.get("track_id") in track.co_visible_with
-                or track.track_id in prior.get("co_visible_with", ())
-            )
-            and (
+
+        def dedupe_radius(prior: dict[str, Any]) -> float:
+            footprint = prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None)
+            if footprint:
+                return max(1.5, self.config.memory_footprint_factor * footprint)
+            return self.config.count_dedupe_m
+
+        def same_object(prior: dict[str, Any]) -> bool:
+            prior_position = prior["position_estimate_ne"]
+            if prior_position is None or not (
                 prior.get("appearance") is None
                 or track.appearance is None
                 or appearances_consistent(prior["appearance"], track.appearance, self.config)
+            ):
+                return False
+            radius = dedupe_radius(prior)
+            if math.dist(position[:2], prior_position[:2]) > radius:
+                return False
+            # A shared frame proves two objects only while both tracks still
+            # sit where they were seen together (no identity switch since).
+            return not co_visibility_proves_distinct(
+                track,
+                prior.get("track_id"),
+                prior.get("co_visible_geometry"),
+                position,
+                prior_position,
+                radius,
             )
-            and math.hypot(
-                position[0] - prior["position_estimate_ne"][0],
-                position[1] - prior["position_estimate_ne"][1],
-            )
-            <= (
-                max(
-                    1.5,
-                    self.config.memory_footprint_factor
-                    * (prior.get("footprint_m") or getattr(track.appearance, "footprint_m", 0.0)),
-                )
-                if (prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None))
-                else self.config.count_dedupe_m
-            )
-            for prior in self.confirmations
-        )
+
+        duplicate = position is not None and any(same_object(prior) for prior in self.confirmations)
         if track.needs_fresh_verdict:
             info["count_blocked"] = "fresh_verdict_required"
             self.state, self._focus = "searching", None
@@ -1547,6 +1630,7 @@ class OnboardLoop:
         else:
             record["track_id"] = track.track_id
             record["co_visible_with"] = set(track.co_visible_with)
+            record["co_visible_geometry"] = dict(track.co_visible_geometry)
             record["appearance"] = track.appearance
             record["footprint_m"] = getattr(track.appearance, "footprint_m", None)
             self.confirmations.append(record)

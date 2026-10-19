@@ -547,3 +547,106 @@ def test_place_revisit_flies_to_a_near_side_view_without_spending_second_looks()
         if loop._revisit is None:
             break
     assert loop._revisit is None and loop._revisits_done == 0
+
+
+def _count(loop: OnboardLoop, track, position) -> dict:
+    record = {"track_id": track.track_id, "position_estimate_ne": list(position)}
+    _, info = loop._count_confirmation(track, record, (0.0, 0.0, -8.0), 0.0, {})
+    return info
+
+
+def _observe(loop: OnboardLoop, step: int, boxes: dict) -> list:
+    """``boxes`` maps an image box to the ground point under its bottom centre."""
+    loop.step_index = step
+    by_u = {(box[0] + box[2]) / 2: point for box, point in boxes.items()}
+    return loop.update_tracks(
+        [Detection(box, 0.5) for box in boxes],
+        pose_ned=(0.0, 0.0, -8.0),
+        yaw_deg=0.0,
+        ground_point=lambda u, _v: by_u[min(by_u, key=lambda x: abs(x - u))],
+    )
+
+
+def test_count_dedupe_ignores_co_visibility_after_a_track_migrates_onto_a_counted_object():
+    # 2026-10-19 SIM count (gen_cnt2_w0000): t2 (another object, 6 m away) and
+    # t3 (a cone) shared step 0; t3 was counted, then t2 re-associated onto the
+    # cone and was confirmed there.  The shared frame proved t2 differed from the
+    # cone at t2's old place only, so its confirmation is the same cone again.
+    loop = _loop(stop_on_confirm=False)
+    cone, other = _box(400, 700, 13), _box(900, 700, 13)
+    counted, mover = _observe(loop, 0, {cone: (30.0, 0.0), other: (30.0, 6.0)})
+    assert mover.track_id in counted.co_visible_with
+    assert "counted" in _count(loop, counted, (30.0, 0.0))
+    (migrated,) = _observe(loop, 1, {other: (30.0, 0.3)})
+    assert migrated is mover and migrated.ground == (30.0, 0.3)
+    info = _count(loop, migrated, (30.0, 0.3))
+    assert info["duplicate_of_counted"] == mover.track_id
+    assert len(loop.confirmations) == 1
+
+
+def test_count_keeps_co_visible_objects_distinct_while_they_stay_apart():
+    # Two cones 1 m apart (inside the 1.5 m object radius) in one frame as
+    # separate boxes are two objects, also after small projection drift.
+    loop = _loop(stop_on_confirm=False)
+    left, right = _box(400, 700, 13), _box(900, 700, 13)
+    first, second = _observe(loop, 0, {left: (30.0, 0.0), right: (30.0, 1.0)})
+    assert "counted" in _count(loop, first, (30.0, 0.0))
+    (second_again,) = _observe(loop, 1, {right: (30.0, 0.7)})
+    assert second_again is second
+    assert "counted" in _count(loop, second, (30.0, 0.7))
+    assert len(loop.confirmations) == 2
+
+
+def test_count_treats_nested_co_visible_boxes_as_one_object():
+    # Chosen behaviour: a box (mostly) inside another one in the same frame is
+    # one object detected twice (or an object and a part of it), not proof of
+    # two objects.  If both are later confirmed within the de-duplication
+    # radius they count once; separate boxes at the same spot still count twice.
+    loop = _loop(stop_on_confirm=False)
+    small, large = _box(640, 700, 13), (610.0, 660.0, 675.0, 707.0)
+    inner, outer = _observe(loop, 0, {small: (30.0, 0.0), large: (30.0, 0.5)})
+    assert outer.track_id in inner.co_visible_with
+    assert inner.co_visible_geometry == {} and outer.co_visible_geometry == {}
+    assert "counted" in _count(loop, inner, (30.0, 0.0))
+    # As at steps 23-24 of that SIM run, the outer track then takes the cone's box.
+    (outer_again,) = _observe(loop, 1, {_box(645, 700, 13): (30.0, 0.4)})
+    assert outer_again is outer
+    assert "duplicate_of_counted" in _count(loop, outer, (30.0, 0.4))
+    assert len(loop.confirmations) == 1
+
+    apart = _loop(stop_on_confirm=False)
+    left, right = _observe(
+        apart, 0, {_box(600, 700, 13): (30.0, 0.0), _box(680, 700, 13): (30.0, 0.5)}
+    )
+    assert left.co_visible_geometry[right.track_id] == (0, (30.0, 0.0), (30.0, 0.5))
+    assert "counted" in _count(apart, left, (30.0, 0.0))
+    assert "counted" in _count(apart, right, (30.0, 0.5))
+
+
+def test_count_dedupe_uses_the_counted_objects_snapshot_and_latest_shared_frame():
+    cone, other = _box(400, 700, 13), _box(900, 700, 13)
+    # The live relation can be pruned; the counted record keeps its snapshot.
+    loop = _loop(stop_on_confirm=False)
+    counted, neighbour = _observe(loop, 0, {cone: (30.0, 0.0), other: (30.0, 1.0)})
+    assert "counted" in _count(loop, counted, (30.0, 0.0))
+    neighbour.co_visible_with.clear()
+    neighbour.co_visible_geometry.clear()
+    assert "counted" in _count(loop, neighbour, (30.0, 1.0))
+    # A later shared frame with separate boxes supersedes an earlier one: the
+    # mover has really been seen as a second object 1 m beside the cone.
+    loop = _loop(stop_on_confirm=False)
+    counted, mover = _observe(loop, 0, {cone: (30.0, 0.0), other: (30.0, 6.0)})
+    assert "counted" in _count(loop, counted, (30.0, 0.0))
+    _observe(loop, 1, {cone: (30.0, 0.0), other: (30.0, 1.0)})
+    assert mover.co_visible_geometry[counted.track_id] == (1, (30.0, 1.0), (30.0, 0.0))
+    assert "counted" in _count(loop, mover, (30.0, 1.0))
+
+
+def test_co_visibility_geometry_is_pruned_with_its_relation():
+    loop = _loop(stop_on_confirm=False)
+    loop.co_visibility_max_pairs = 1
+    first = _observe(loop, 0, {_box(400, 700, 13): (30.0, 0.0), _box(900, 700, 13): (30.0, 8.0)})
+    _observe(loop, 8, {_box(100, 300, 13): (60.0, 20.0), _box(300, 300, 13): (60.0, 28.0)})
+    for track in loop.tracks.values():
+        assert set(track.co_visible_geometry) <= track.co_visible_with
+    assert first[0].co_visible_geometry == {} and first[1].co_visible_geometry == {}
