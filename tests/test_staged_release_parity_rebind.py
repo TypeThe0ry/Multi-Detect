@@ -21,6 +21,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setattr(rebind, "ROOT", tmp_path)
     monkeypatch.setattr(rebind, "PARITY_PATH", tmp_path / "configs/release-parity.json")
     monkeypatch.setattr(rebind, "PROGRESS_PATH", tmp_path / "docs/current-progress.json")
+    monkeypatch.setattr(rebind, "PRODUCT_VERSION_PATH", tmp_path / "configs/product-version.json")
     monkeypatch.setattr(finisher, "ROOT", tmp_path)
     source = tmp_path / "src/core.py"
     source.parent.mkdir()
@@ -33,7 +34,24 @@ def repo(tmp_path, monkeypatch):
             "release_label": "development",
         },
     )
-    put(rebind.PROGRESS_PATH, {"release_parity": {"hashes": {"core_algorithm_hash": "old"}}})
+    put(
+        rebind.PRODUCT_VERSION_PATH,
+        {
+            "schema_version": 1,
+            "product": "Multi-Detect",
+            "release_label": "development",
+            "numeric": "0.0.0",
+            "python": "0.0.0rc0",
+            "channel": "prerelease",
+        },
+    )
+    put(
+        rebind.PROGRESS_PATH,
+        {
+            "product_version": {"release_label": "old-label"},
+            "release_parity": {"hashes": {"core_algorithm_hash": "old"}},
+        },
+    )
     return tmp_path
 
 
@@ -62,6 +80,26 @@ def test_top_level_hash_update_is_old_identity_limited():
     assert rebind.rebind_value(old, parity, old_hashes=old)["core_algorithm_hash"] == "new"
     unrelated = {"core_algorithm_hash": "model-identity", "source_sha256": "old"}
     assert rebind.rebind_value(unrelated, parity, old_hashes=old) == unrelated
+
+
+def test_parity_block_label_follows_parity_but_evidence_label_is_retained():
+    parity = {
+        "hashes": {"core_algorithm_hash": "new"},
+        "bytes": 3,
+        "file_sha256": "file",
+        "release_label": "new-label",
+    }
+    value = {
+        "release_label": "old-label",
+        "release_parity": {"release_label": "old-label", "file_sha256": "old"},
+        "parity_file": {"release_label": "old-label", "sha256": "old"},
+        "release_parity_snapshot": {"end": {"release_label": "old-label"}},
+    }
+    rebound = rebind.rebind_value(value, parity)
+    assert rebound["release_label"] == "old-label"
+    assert rebound["release_parity"]["release_label"] == "new-label"
+    assert rebound["parity_file"]["release_label"] == "new-label"
+    assert rebound["release_parity_snapshot"]["end"]["release_label"] == "old-label"
 
 
 def test_generate_is_scoped_child_first_and_retains_sources(repo):
@@ -93,6 +131,27 @@ def test_generate_is_scoped_child_first_and_retains_sources(repo):
     assert staged["evidence"] == progress["evidence"]
     assert all(p.read_bytes() == b for p, b in before.items())
     assert len(list((repo / "artifacts/audit").glob("*.json"))) == 2
+
+
+def test_generate_carries_product_version_manifest_into_index(repo):
+    staged = generate(repo)
+    assert staged["product_version"] == {
+        "release_label": "development",
+        "numeric": "0.0.0",
+        "python": "0.0.0rc0",
+        "channel": "prerelease",
+    }
+    sealed = {item["path"] for item in staged["parity_rebind_audit"]["source_files"]}
+    assert "configs/product-version.json" in sealed
+
+
+def test_generate_rejects_version_label_that_differs_from_parity(repo):
+    manifest = rebind.load(rebind.PRODUCT_VERSION_PATH)
+    manifest["release_label"] = "other"
+    put(rebind.PRODUCT_VERSION_PATH, manifest)
+    with pytest.raises(ValueError, match="labels differ"):
+        generate(repo)
+    assert not (repo / "docs/staged.json").exists()
 
 
 def test_cycle_rejected_before_any_copy_is_written(repo):
@@ -415,6 +474,8 @@ def test_finisher_rebuilds_staged_only_skips_r90_and_preserves_raw_modes(repo, m
         "shared_policy_vehicle_matrix_20260927_r2": {"evidence": vehicle},
         "external_docker_ai_flight_parity_receipt_20260927_r2": {"receipt": ai},
         "external_docker_ai_flight_acceptance_20260927_r1": {},
+        finisher.FOUNDATION_KEY: {"release_label": "old-label", "clock_contract_passed": False},
+        finisher.AIRFRAME_TRANSACTION_KEY: {"release_label": "old-label", "vehicle_classes": []},
         "evidence": {
             "release_gate_report": {"local_path": raw_report, "audit_summary_path": old_audit}
         },
@@ -451,6 +512,29 @@ def test_finisher_rebuilds_staged_only_skips_r90_and_preserves_raw_modes(repo, m
         }
 
     monkeypatch.setattr(finisher, "create_audit", gate_builder)
+    foundation_calls = []
+
+    def foundation_builder(**kwargs):
+        foundation_calls.append(kwargs)
+        return {
+            "current_release_label": "development",
+            "gate_passed": True,
+            "checks": {name: {"passed": True} for name in finisher.FOUNDATION_CHECK_FLAGS},
+            "sha256": "foundation-canonical",
+        }
+
+    monkeypatch.setattr(finisher, "build_foundation_evidence", foundation_builder)
+    airframe_calls = []
+
+    def airframe_runner(**kwargs):
+        airframe_calls.append(kwargs)
+        return {
+            "release_label": "development",
+            "gate_passed": True,
+            "entries": [{"gate_passed": True}, {"gate_passed": True}, {"gate_passed": True}],
+        }
+
+    monkeypatch.setattr(finisher, "run_airframe_transaction", airframe_runner)
     args = ["--progress", "docs/staged.json", "--tag", "history-r1"]
     if drift:
         with pytest.raises(ValueError, match="source changed"):
@@ -463,5 +547,21 @@ def test_finisher_rebuilds_staged_only_skips_r90_and_preserves_raw_modes(repo, m
         assert finalized["evidence"]["release_gate_report"]["local_path"] == raw_report
         assert finalized["external_mission_matrix_20260927_r6"]["receipt_sha256"] == "matrix-new"
         assert seen == [raw_before]
+        assert foundation_calls == [
+            {"root": repo, "parity_path": repo / "configs/release-parity.json"}
+        ]
+        foundation = finalized[finisher.FOUNDATION_KEY]
+        assert foundation["release_label"] == "development"
+        assert foundation["evidence_sha256"] == "foundation-canonical"
+        assert foundation["evidence_file_sha256"] == rebind.sha256(repo / foundation["evidence"])
+        assert all(foundation[flag] is True for flag in finisher.FOUNDATION_CHECK_FLAGS.values())
+        assert finalized["parity_rebind_audit"]["software_foundation_reexecuted"] is True
+        assert len(airframe_calls) == 1
+        assert airframe_calls[0]["run_id"].endswith("-history-r1")
+        airframe = finalized[finisher.AIRFRAME_TRANSACTION_KEY]
+        assert airframe["release_label"] == "development"
+        assert airframe["evidence_sha256"] == rebind.sha256(repo / airframe["evidence"])
+        assert airframe["gate_passed"] is True and airframe["all_entries_passed"] is True
+        assert airframe["vehicle_classes"] == []
     assert rebind.PROGRESS_PATH.read_bytes() == current_before
     assert (repo / raw_report).read_bytes() == raw_before

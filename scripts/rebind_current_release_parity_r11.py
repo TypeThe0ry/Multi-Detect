@@ -29,6 +29,8 @@ from multidetect.autonomy.serialization import strict_json_loads  # noqa: E402
 
 PARITY_PATH = ROOT / "configs" / "release-parity.json"
 PROGRESS_PATH = ROOT / "docs" / "current-progress.json"
+PRODUCT_VERSION_PATH = ROOT / "configs" / "product-version.json"
+PRODUCT_VERSION_KEYS = ("release_label", "numeric", "python", "channel")
 ACTIVE_EVIDENCE_KEYS = (
     "replay_set_positive_fixture_20260924",
     "field_link_read_only_current_probe",
@@ -104,6 +106,16 @@ def parity_binding() -> dict[str, Any]:
     }
 
 
+def product_version_binding(document: Any, parity: dict[str, Any]) -> dict[str, Any]:
+    """Carry the canonical version manifest into the index, never a guessed label."""
+
+    if not isinstance(document, dict) or any(key not in document for key in PRODUCT_VERSION_KEYS):
+        raise ValueError("product version manifest is incomplete")
+    if document["release_label"] != parity["release_label"]:
+        raise ValueError("product version and release parity labels differ")
+    return {key: document[key] for key in PRODUCT_VERSION_KEYS}
+
+
 def rebind_value(
     value: Any,
     parity: dict[str, Any],
@@ -144,6 +156,10 @@ def rebind_value(
             result[key] = parity["file_sha256"]
         elif parity_context and key == "bytes":
             result[key] = parity["bytes"]
+        elif parity_context and key == "release_label" and "release_label" in parity:
+            # The label is part of the parity file identity bound above; the
+            # evidence's own top-level release label is never rewritten.
+            result[key] = parity["release_label"]
         elif key in hashes and (
             parity_context or (old_hashes is not None and child == old_hashes.get(key))
         ):
@@ -547,9 +563,16 @@ def main(argv: list[str] | None = None) -> int:
     if output in {PARITY_PATH, PROGRESS_PATH} or output.exists():
         raise FileExistsError(f"staged output must be new: {output}")
 
-    snapshots = {PROGRESS_PATH: PROGRESS_PATH.read_bytes(), PARITY_PATH: PARITY_PATH.read_bytes()}
+    snapshots = {
+        PROGRESS_PATH: PROGRESS_PATH.read_bytes(),
+        PARITY_PATH: PARITY_PATH.read_bytes(),
+        PRODUCT_VERSION_PATH: PRODUCT_VERSION_PATH.read_bytes(),
+    }
     progress = decode(snapshots[PROGRESS_PATH], PROGRESS_PATH)
     parity_document = decode(snapshots[PARITY_PATH], PARITY_PATH)
+    product_version = product_version_binding(
+        decode(snapshots[PRODUCT_VERSION_PATH], PRODUCT_VERSION_PATH), parity_document
+    )
     for paths in parity_document["source_files"].values():
         for relative in paths:
             source = repo_path(Path(relative))
@@ -647,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             rebound_progress[key] = rebound_current[key]
     if "evidence" in rebound_current:
         rebound_progress["evidence"].update(rebound_current["evidence"])
+    rebound_progress["product_version"] = product_version
     rebound_progress["release_parity"] = parity
     rebound_progress["parity_rebind_audit"] = {
         "scope": "retained_files_audit",

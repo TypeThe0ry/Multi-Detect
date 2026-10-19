@@ -37,7 +37,8 @@ def test_release_parity_sources_reject_recomputed_document_drift(monkeypatch) ->
 def test_current_progress_index_is_bound() -> None:
     result = verify(ROOT)
     assert result["status"] == "passed"
-    assert result["release_label"] == "0.3.0-pre.8"
+    manifest = json.loads((ROOT / "configs/product-version.json").read_text(encoding="utf-8"))
+    assert result["release_label"] == manifest["release_label"]
     assert result["release_allowed"] is False
     assert result["canonical_external_repeat_bound"] is True
     assert result["release_gate_report_bound"] is True

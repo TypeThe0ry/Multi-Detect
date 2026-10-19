@@ -26,6 +26,24 @@ from scripts.rebind_current_release_parity_r11 import (  # noqa: E402
     check_snapshots,
     decode,
 )
+from scripts.run_px4_airframe_transaction_acceptance import (  # noqa: E402
+    run as run_airframe_transaction,
+)
+from scripts.verify_v030_pre1_foundation import (  # noqa: E402
+    build_evidence as build_foundation_evidence,
+)
+
+FOUNDATION_KEY = "v030_pre1_foundation_acceptance_20261003_r5"
+AIRFRAME_TRANSACTION_KEY = "px4_airframe_transaction_acceptance_20260927_r2"
+FOUNDATION_CHECK_FLAGS = {
+    "clock": "clock_contract_passed",
+    "runtime_backend": "runtime_backend_contract_passed",
+    "scenario_manifest_runtime_channel": "scenario_manifest_runtime_channel_passed",
+    "core_task_contract": "core_task_contract_passed",
+    "runtime_profile_isolation": "runtime_profile_isolation_passed",
+    "deterministic_replay": "deterministic_replay_passed",
+    "deterministic_simulator": "deterministic_simulator_passed",
+}
 
 
 def load(path: Path) -> dict:
@@ -105,11 +123,64 @@ def main(argv: list[str] | None = None) -> int:
         "matrix": directory / "external-mission-matrix.json",
         "vehicle": directory / "shared-policy-vehicle-matrix.json",
         "ai": directory / "simulator-ai-flight-parity.json",
+        "foundation": directory / "v030-pre1-foundation.json",
+        "airframe": directory / "px4-airframe-transaction.json",
+        "airframe_journals": directory / "px4-airframe-transaction.journals",
         "gate": ROOT / f"docs/evidence/release-parity-{date}-{args.tag}.json",
     }
     for path in paths.values():
         if path.exists():
             raise FileExistsError(f"final audit target already exists: {path}")
+
+    # The pre.1 software foundation receipt binds the current release label and
+    # source hashes, so it is re-executed (CPU contracts and deterministic
+    # Replay/Simulator only) instead of relabelling a retained receipt.
+    foundation_entry = progress[FOUNDATION_KEY]
+    foundation = build_foundation_evidence(root=ROOT, parity_path=parity_path)
+    if foundation.get("gate_passed") is not True:
+        raise ValueError("software foundation re-execution did not pass")
+    write_new(paths["foundation"], foundation)
+    foundation_identity = identity(paths["foundation"])
+    foundation_entry.update(
+        {
+            "status": "current_source_software_foundation_reexecuted",
+            "evidence": foundation_identity["path"],
+            "evidence_bytes": foundation_identity["bytes"],
+            "evidence_file_sha256": foundation_identity["sha256"],
+            "evidence_sha256": foundation["sha256"],
+            "release_label": foundation["current_release_label"],
+            **{
+                flag: foundation["checks"][check]["passed"] is True
+                for check, flag in FOUNDATION_CHECK_FLAGS.items()
+            },
+        }
+    )
+    progress["parity_rebind_audit"]["software_foundation_reexecuted"] = True
+
+    # The deterministic in-process three-airframe Mission transaction gate is
+    # labelled by the product version, so it is re-executed as well (no MAVLink
+    # socket, PX4, Gazebo or physical output).
+    airframe_entry = progress[AIRFRAME_TRANSACTION_KEY]
+    airframe = run_airframe_transaction(
+        journal_directory=paths["airframe_journals"], run_id=f"{date}-{args.tag}"
+    )
+    if airframe.get("gate_passed") is not True:
+        raise ValueError("three-airframe transaction re-execution did not pass")
+    write_new(paths["airframe"], airframe)
+    airframe_identity = identity(paths["airframe"])
+    airframe_entry.update(
+        {
+            "evidence": airframe_identity["path"],
+            "evidence_bytes": airframe_identity["bytes"],
+            "evidence_sha256": airframe_identity["sha256"],
+            "release_label": airframe["release_label"],
+            "gate_passed": True,
+            "all_entries_passed": all(
+                isinstance(item, dict) and item.get("gate_passed") is True
+                for item in airframe["entries"]
+            ),
+        }
+    )
 
     # Cross-file identity is computed after the rebound raw files exist. This
     # is an audit copy, not a claim that old QGC/PX4 runtimes used today's code.
@@ -295,6 +366,8 @@ def main(argv: list[str] | None = None) -> int:
                 "training_summary": training["path"] if training is not None else None,
                 "current_parity_sha256": parity["sha256"],
                 "audit": audit_identity["path"],
+                "foundation": foundation_identity["path"],
+                "airframe_transaction": airframe_identity["path"],
                 "external_sim_rerun_performed": False,
                 "candidate_promoted": False,
             }
