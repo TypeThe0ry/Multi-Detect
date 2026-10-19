@@ -100,3 +100,18 @@ def test_expert_search_stays_in_its_zone_after_someone_else_turns_the_vehicle() 
         yaw = _fly(pose, yaw, policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw))
         farthest = max(farthest, math.hypot(pose[0], pose[1]))
     assert farthest <= 60.0 + 1e-6
+
+
+def test_a_vehicle_inside_a_clearance_ring_may_climb_or_leave_but_not_approach() -> None:
+    from multidetect.sim_teacher.policies import SDFObstacle, segment_clear_of_obstacles
+
+    house = SDFObstacle(
+        north_m=28.8, east_m=-2.3, height_m=7.2, size_north_m=9.8, size_east_m=12.7, yaw_rad=0.0
+    )
+    start = (20.0, 4.0, -8.0)  # 10.8 m from the house centre: inside its 11 m ring
+    assert segment_clear_of_obstacles(start, (20.0, 4.0, -12.0), 8.0, (house,))  # climb
+    assert segment_clear_of_obstacles(start, (10.0, 10.0, -8.0), 8.0, (house,))  # leave
+    assert not segment_clear_of_obstacles(start, (27.0, 0.0, -8.0), 8.0, (house,))  # approach
+    assert not segment_clear_of_obstacles(start, (20.0, 4.0, -4.0), 8.0, (house,))  # descend
+    outside = (5.0, 4.0, -8.0)
+    assert not segment_clear_of_obstacles(outside, (20.0, 4.0, -8.0), 8.0, (house,))  # enter

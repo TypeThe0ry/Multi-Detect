@@ -919,3 +919,35 @@ def test_fixed_wing_single_view_counts_once_confirms_outnumber_rejections() -> N
     assert info["focus"] != "t1"
     # Two confirms against one rejection at this place: the single view counts.
     assert loop.confirmed is not None and info["confirmed"]["confirm_views"] == 1
+
+
+def test_search_climbs_back_to_the_search_altitude_after_an_approach() -> None:
+    loop = _loop(search_altitude_m=11.3)
+    action, _ = loop.next_action([], pose_ned=(20.0, 4.0, -8.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.forward_m == 0.0
+    assert action.up_m == pytest.approx(3.3)
+
+
+def test_count_dedupe_widens_with_the_position_uncertainty_of_both_estimates():
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+
+    cone = AppearanceSignature(size_range=0.02, aspect_ratio=0.5, footprint_m=0.5)
+
+    def count_twice(first_sigma, second_sigma) -> int:
+        loop = _loop(stop_on_confirm=False)
+        (first,) = _observe(loop, 0, {_box(400, 700, 13): (-20.8, 28.2)})
+        first.appearance = cone
+        record = {"track_id": first.track_id, "position_estimate_ne": [-20.8, 28.2]}
+        record["position_sigma_m"] = first_sigma
+        loop._count_confirmation(first, record, (0.0, 0.0, -8.0), 0.0, {})
+        (second,) = _observe(loop, 90, {_box(900, 300, 13): (-22.4, 28.7)})
+        second.appearance = cone
+        record = {"track_id": second.track_id, "position_estimate_ne": [-22.4, 28.7]}
+        record["position_sigma_m"] = second_sigma
+        loop._count_confirmation(second, record, (0.0, 0.0, -8.0), 0.0, {})
+        return len(loop.confirmations)
+
+    # SITL: one cone, estimates 1.7 m apart with sigmas 3.6 m and 1.2 m.
+    assert count_twice(3.6, 1.2) == 1
+    # Precise estimates that far apart are two objects (1.5 m footprint radius).
+    assert count_twice(0.3, 0.3) == 2

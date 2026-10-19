@@ -1708,9 +1708,21 @@ class OnboardLoop:
 
         def dedupe_radius(prior: dict[str, Any]) -> float:
             footprint = prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None)
-            if footprint:
-                return max(1.5, self.config.memory_footprint_factor * footprint)
-            return self.config.count_dedupe_m
+            if not footprint:
+                return self.config.count_dedupe_m
+            # Two estimates of one small object differ by about their combined
+            # uncertainty, not its footprint (SITL: one cone counted twice from
+            # estimates 1.7 m apart with sigmas 3.6 m and 1.2 m against a 1.5 m
+            # footprint radius).  count_dedupe_m still bounds the merge.
+            sigma = math.hypot(
+                float(prior.get("position_sigma_m") or 0.0),
+                float(record.get("position_sigma_m") or 0.0),
+            )
+            return max(
+                1.5,
+                self.config.memory_footprint_factor * footprint,
+                min(self.config.count_dedupe_m, sigma),
+            )
 
         def same_object(prior: dict[str, Any]) -> bool:
             prior_position = prior["position_estimate_ne"]
@@ -1768,6 +1780,12 @@ class OnboardLoop:
             lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
             if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
+        if target is not None and altitude < target - 1.0:
+            # An approach may have descended below the search altitude (which
+            # clears the known obstacles): climb back before searching on.
+            return ActionPrimitive.translate(
+                0.0, 0.0, min(target - altitude, 2.0 * self.config.descent_step_m)
+            )
         action = self.search_action(pose_ned, yaw_deg)
         if self.obstacle_source is None:
             return action
