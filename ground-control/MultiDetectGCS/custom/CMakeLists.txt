@@ -72,6 +72,17 @@ if(MULTIDETECT_OPENSSL_USABLE)
     message(STATUS "Multi-Detect mission security: using OpenSSL Crypto Ed25519 backend")
     target_compile_definitions(MultiDetectOperatorProtocol PRIVATE MULTIDETECT_HAVE_OPENSSL=1)
     target_link_libraries(MultiDetectOperatorProtocol PRIVATE OpenSSL::Crypto)
+    # A shared OpenSSL (e.g. vcpkg x64-windows) must ship next to the portable exe.
+    get_target_property(MULTIDETECT_OPENSSL_CRYPTO_TYPE OpenSSL::Crypto TYPE)
+    if(WIN32 AND MULTIDETECT_OPENSSL_CRYPTO_TYPE STREQUAL "SHARED_LIBRARY")
+        install(IMPORTED_RUNTIME_ARTIFACTS OpenSSL::Crypto RUNTIME DESTINATION bin COMPONENT Runtime)
+    elseif(WIN32 AND MULTIDETECT_OPENSSL_ROOT)
+        # FindOpenSSL's UNKNOWN target carries no runtime; ship the root's DLL.
+        file(GLOB MULTIDETECT_OPENSSL_CRYPTO_DLLS "${MULTIDETECT_OPENSSL_ROOT}/bin/libcrypto-*.dll")
+        if(MULTIDETECT_OPENSSL_CRYPTO_DLLS)
+            install(FILES ${MULTIDETECT_OPENSSL_CRYPTO_DLLS} DESTINATION bin COMPONENT Runtime)
+        endif()
+    endif()
 endif()
 
 add_executable(MultiDetectOperatorProtocolSelfTest EXCLUDE_FROM_ALL tests/MultiDetectOperatorProtocolSelfTest.cc)

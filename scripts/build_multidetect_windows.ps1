@@ -15,7 +15,12 @@ param(
     [string]$ReleaseGateManifest = '',
     [switch]$RequireReleaseGate,
 
-    [string]$PortablePath = ''
+    [string]$PortablePath = '',
+
+    # MSVC OpenSSL (lib/cmake or share/openssl config) for the Ed25519 mission
+    # signing backend; defaults to $env:MULTIDETECT_OPENSSL_ROOT.  Without it the
+    # backend is unavailable and REAL signed upload fails closed.
+    [string]$OpenSSLRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -349,6 +354,24 @@ Write-Host "MSVC shell : $vsDevCmd"
 Write-Host "Parallel   : $Parallel"
 
 $cmdFile = Join-Path $env:TEMP ("multidetect-build-{0}.cmd" -f $PID)
+if (-not $OpenSSLRoot -and $env:MULTIDETECT_OPENSSL_ROOT) {
+    $OpenSSLRoot = $env:MULTIDETECT_OPENSSL_ROOT
+}
+$openSSLArguments = ''
+$openSSLPath = ''
+if ($OpenSSLRoot) {
+    $OpenSSLRoot = (Resolve-Path -LiteralPath $OpenSSLRoot).Path
+    $openSSLConfigDir = @('share\openssl', 'lib\cmake\OpenSSL') |
+        ForEach-Object { Join-Path $OpenSSLRoot $_ } |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_ 'OpenSSLConfig.cmake') } |
+        Select-Object -First 1
+    $openSSLArguments = "`"-DMULTIDETECT_OPENSSL_ROOT=$OpenSSLRoot`""
+    if ($openSSLConfigDir) {
+        $openSSLArguments += " `"-DOpenSSL_DIR=$openSSLConfigDir`""
+    }
+    $openSSLPath = "$OpenSSLRoot\bin;"
+    Write-Host "OpenSSL    : $OpenSSLRoot"
+}
 $configureBlock = if ($SkipConfigure) {
     $cachePath = Join-Path $buildDir 'CMakeCache.txt'
     if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
@@ -363,7 +386,7 @@ $configureBlock = if ($SkipConfigure) {
     "rem configure skipped by -SkipConfigure"
 } else {
     @"
-call "$qtCmake" -S "$sourceDir" -B "$buildDir" -G Ninja -DCMAKE_BUILD_TYPE=$Configuration "-DCMAKE_INSTALL_PREFIX=$buildDir\staging" "-DMULTIDETECT_PRODUCT_VERSION_MANIFEST=$versionManifestPath" "-DQGC_APP_VERSION_OVERRIDE=$numericVersion" "-DQGC_APP_RELEASE_LABEL=$Version" "-DQGC_BUILD_INSTALLER=OFF" "-DGIT_EXECUTABLE=$git" "-DPATCH_EXECUTABLE=$patchExe" "-DCMAKE_ASM_COMPILER=ml64.exe"
+call "$qtCmake" -S "$sourceDir" -B "$buildDir" -G Ninja -DCMAKE_BUILD_TYPE=$Configuration "-DCMAKE_INSTALL_PREFIX=$buildDir\staging" "-DMULTIDETECT_PRODUCT_VERSION_MANIFEST=$versionManifestPath" "-DQGC_APP_VERSION_OVERRIDE=$numericVersion" "-DQGC_APP_RELEASE_LABEL=$Version" "-DQGC_BUILD_INSTALLER=OFF" "-DGIT_EXECUTABLE=$git" "-DPATCH_EXECUTABLE=$patchExe" "-DCMAKE_ASM_COMPILER=ml64.exe" $openSSLArguments
 if errorlevel 1 exit /b %errorlevel%
 "@
 }
@@ -409,7 +432,7 @@ $cmdContents = @"
 setlocal
 call "$vsDevCmd" -arch=amd64 >nul
 if errorlevel 1 exit /b %errorlevel%
-set "PATH=$gitDir;$cmakeDir;$venvDir;$qtRoot\bin;$gstRoot\bin;%PATH%"
+set "PATH=$openSSLPath$gitDir;$cmakeDir;$venvDir;$qtRoot\bin;$gstRoot\bin;%PATH%"
 set "QT_ROOT_DIR=$qtRoot"
 set "GStreamer_ROOT_DIR=$gstRoot"
 set "GSTREAMER_1_0_ROOT_MSVC_X86_64=$gstRoot"
