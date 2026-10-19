@@ -16,9 +16,9 @@
   "takeoff": {"methods": ["vtol", "multirotor"]},
   "landing": {"methods": ["vtol", "multirotor", "belly"]},
   "transition": {"mc_to_fw_param1": 4.0, "fw_to_mc_param1": 3.0, "minimum_height_m": 15.0, "minimum_airspeed_mps": 15.0, "timeout_s": 15.0, "parameters": {"airspeed": {"value": 15.0, "px4_name": "VT_ARSP_TRANS", "unverified": false}, "front_duration": {"value": 1.5, "px4_name": "VT_F_TRANS_DUR", "unverified": false}, "back_duration": {"value": 5.0, "px4_name": "VT_B_TRANS_DUR", "unverified": false}}},
-  "camera": {"mount": "forward", "body_to_camera_rotation": [0.939692620786, 0.0, -0.342020143326, 0.0, 1.0, 0.0, 0.342020143326, 0.0, 0.939692620786], "attitude_rotations": {"mc": [0.939692620786, 0.0, -0.342020143326, 0.0, 1.0, 0.0, 0.342020143326, 0.0, 0.939692620786], "fw": [0.939692620786, 0.0, -0.342020143326, 0.0, 1.0, 0.0, 0.342020143326, 0.0, 0.939692620786]}},
+  "camera": {"mount": "forward", "body_to_camera_rotation": [0.939692620786, 0.0, 0.342020143326, 0.0, 1.0, 0.0, -0.342020143326, 0.0, 0.939692620786], "attitude_rotations": {"mc": [0.939692620786, 0.0, 0.342020143326, 0.0, 1.0, 0.0, -0.342020143326, 0.0, 0.939692620786], "fw": [0.939692620786, 0.0, 0.342020143326, 0.0, 1.0, 0.0, -0.342020143326, 0.0, 0.939692620786]}},
   "endurance": {"battery_wh": 180.0, "reserve_fraction": 0.25, "hover_power_w": 650.0, "cruise_power_w": 350.0, "loiter_power_w": 330.0, "climb_power_w": 700.0, "descent_power_w": 450.0, "transition_energy_wh": 10.0, "glide_sink_rate_mps": 2.0, "wind_margin_mps": 5.0},
   "limits": {"max_step_distance_m": 25.0, "max_acceleration_mps2": 3.0, "max_angular_rate_dps": 80.0},
   "notes": ["四旋翼 tailsitter；空速和功率由 4018 脚本与工程估计组成；相机安装矩阵按渲染与真实 SITL 姿态核对。"],
-  "provenance": {"px4": "4018_gz_quadtailsitter airframe 脚本", "camera": "相机固定在机身上（SDF 位姿 0.15 0 0.30，俯仰 -20°）；PX4 对 tailsitter 始终按多旋翼机体系报告姿态，前飞时俯仰接近 -90°，因此 MC/FW 使用同一个固定安装矩阵"}
+  "provenance": {"px4": "4018_gz_quadtailsitter airframe 脚本", "camera": "相机固定在机身上（SDF 位姿 0.15 0 0.30，俯仰 -20°）；PX4 对 tailsitter 始终按多旋翼机体系报告姿态，前飞时俯仰接近 -90°，因此 MC/FW 使用同一个固定安装矩阵：矩阵各列是相机光轴/像面右/像面下在 MC 机体系 FRD 中的方向（与 x500 等档案同一约定），光轴比机体 x 轴抬高 20°：悬停时看地平线上方 20°，前飞时朝下偏前。2026-10-19 用悬停实拍帧核对（此前按投影函数的转置读法写成了相反符号，悬停俯仰被读成下俯 20°）"}
 }

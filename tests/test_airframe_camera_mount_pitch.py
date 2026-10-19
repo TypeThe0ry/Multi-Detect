@@ -47,6 +47,34 @@ def test_tailsitter_per_mode_mounts_fall_back_to_the_default() -> None:
     assert profile_mount_pitch_down_rad(profile, 0.25) == 0.25
 
 
+def test_tailsitter_mc_mount_matches_the_simulated_camera_in_hover() -> None:
+    """The tailsitter model stands on its tail: model +X is the MC body x, model +Z
+    the nose (MC -z), so the SDF pitch -20 deg about +Y lifts the axis 20 deg in hover.
+    The pitch read from the MC matrix and the full-attitude ray must agree on it."""
+    from multidetect.autonomy.motion_intent import camera_ray_from_profile
+
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/quadtailsitter.json")
+    pitch = profile_mount_pitch_down_rad(profile, 0.0, mode="mc")
+    assert pitch == pytest.approx(_sdf_camera_pitch("quadtailsitter_mono_cam"), abs=2e-3)
+    ray = camera_ray_from_profile(
+        320, 240, fx=270, fy=270, cx=320, cy=240, attitude_deg=(0, 0, 0), profile=profile
+    )
+    assert math.asin(ray[2]) == pytest.approx(pitch, abs=1e-9)
+    # Same convention on a pitch-down mount (x500 values) through the same function.
+    from types import SimpleNamespace
+
+    x500 = AirframeProfile.from_json(ROOT / "configs/airframes/x500_mono_cam.json")
+    shaped = SimpleNamespace(
+        camera=SimpleNamespace(
+            attitude_rotations={}, body_to_camera_rotation=x500.camera.body_to_camera_rotation
+        )
+    )
+    down = camera_ray_from_profile(
+        320, 240, fx=270, fy=270, cx=320, cy=240, attitude_deg=(0, 0, 0), profile=shaped
+    )
+    assert math.asin(down[2]) == pytest.approx(0.18, abs=2e-3)
+
+
 def test_policy_projects_fixed_wing_frames_with_its_level_camera(tmp_path: Path) -> None:
     assert make_policy(work_dir=tmp_path / "x500").camera_pitch_down_rad == 0.18
     cessna = make_policy(work_dir=tmp_path / "fw", config={"airframe": "rc_cessna_runway"})

@@ -133,6 +133,13 @@ MOTION_ARRIVAL_TOLERANCE_M = 8.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
+# Hover-mode (MC) VTOL legs settle on their target and heading before the next frame.
+MC_ARRIVAL_TOLERANCE_M = 1.5
+MC_YAW_TOLERANCE_DEG = 6.0
+MC_SETTLED_SPEED_MPS = 0.6
+MC_SETTLE_S = 0.5
+MC_SPEED_FLOOR_MPS = 3.0
+MOTION_TRANSITION_TIMEOUT_S = 90.0
 RTL_MODE_CONFIRM_S = 10.0
 FIXED_WING_MIN_OPERATING_ALT_M = 30.0
 VTOL_TRANSITION_MARGIN_M = 10.0
@@ -1145,6 +1152,75 @@ def _wait_motion_command(
     """
     started = time.monotonic()
     kind = str(command.kind)
+    if kind in {"mc_reposition", "mc_hold"} and command.target_ned is not None:
+        # A hovering VTOL stops on its target like a multirotor: the next frame must
+        # come from the settled pose and heading, not from mid-leg or mid-turn.
+        try:
+            start = _state_position(reader.state)
+        except RuntimeError:
+            return {"waited": "no_position", "elapsed_s": 0.0}
+        leg = math.hypot(command.target_ned[0] - start[0], command.target_ned[1] - start[1])
+        timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(MC_SPEED_FLOOR_MPS, 1.0) * 1.5 + 20.0)
+        if kind == "mc_hold":
+            timeout = max(timeout, min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S))
+        distance = yaw_error = speed = float("inf")
+        settled_since: float | None = None
+        # Timed on PX4's lockstep clock: on a loaded host the simulation runs well
+        # below real time and a wall-clock budget would cut turns short.
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < timeout
+            and time.monotonic() - started < PRIMITIVE_MAX_WALL_S
+        ):
+            reader.raise_if_failed()
+            pose = _state_position(reader.state)
+            distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
+            yaw_error = (
+                abs((float(command.yaw_deg) - _state_yaw(reader.state) + 180.0) % 360.0 - 180.0)
+                if command.yaw_deg is not None
+                else 0.0
+            )
+            speed = _state_speed(reader.state)
+            settled = (
+                distance <= MC_ARRIVAL_TOLERANCE_M
+                and yaw_error <= MC_YAW_TOLERANCE_DEG
+                and speed <= MC_SETTLED_SPEED_MPS
+            )
+            now = sim_clock()
+            settled_since = (settled_since or now) if settled else None
+            held = now - sim_started >= float(command.duration_s or 0.0)
+            if settled_since is not None and now - settled_since >= MC_SETTLE_S and held:
+                return {
+                    "waited": "settled",
+                    "distance_m": distance,
+                    "yaw_error_deg": yaw_error,
+                    "leg_m": leg,
+                    "elapsed_s": time.monotonic() - started,
+                    "sim_elapsed_s": now - sim_started,
+                }
+            time.sleep(0.1)
+        return {
+            "waited": "timeout",
+            "distance_m": distance,
+            "yaw_error_deg": yaw_error,
+            "speed_mps": speed,
+            "leg_m": leg,
+            "elapsed_s": time.monotonic() - started,
+        }
+    if kind == "transition":
+        target_states = {"MC": {3}, "FW": {4}}.get(str(command.mode or "FW").upper(), {4})
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < MOTION_TRANSITION_TIMEOUT_S
+            and time.monotonic() - started < PRIMITIVE_MAX_WALL_S
+        ):
+            reader.raise_if_failed()
+            if _flight_state_snapshot(reader.state)["vtol_state"] in target_states:
+                return {"waited": "transitioned", "elapsed_s": time.monotonic() - started}
+            time.sleep(0.1)
+        return {"waited": "timeout", "elapsed_s": time.monotonic() - started}
     if kind in {"reposition", "mc_reposition"} and command.target_ned is not None:
         try:
             start = _state_position(reader.state)
@@ -2924,6 +3000,12 @@ def run_episode(
                     else plan.takeoff_method or profile.takeoff.methods[0]
                 )
                 landing_method = profile.landing.methods[0]
+                # A VTOL whose onboard loop flies in hover takes off as a multicopter
+                # and stays in MC (a forward transition would be undone at step 0,
+                # and the SITL tailsitter climbed 30 m and drifted 80 m doing so).
+                hover_mission = bool(
+                    getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
+                )
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader),
                     airframe=profile.id,
@@ -2948,8 +3030,10 @@ def run_episode(
                         if profile.category == "fixed_wing"
                         else None
                     ),
+                    transition_after_takeoff=not hover_mission,
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
+                recorder.meta["vtol_hover_mission"] = hover_mission
                 recorder.meta["takeoff_method"] = takeoff_method
                 recorder.meta["landing_method"] = landing_method
                 if takeoff_method in {"hand", "catapult"}:

@@ -45,21 +45,22 @@ def _mat_vec(matrix: Sequence[float], vector: Sequence[float]) -> tuple[float, f
     )
 
 
-def _mat_transpose(matrix: Sequence[float]) -> tuple[float, ...]:
-    return tuple(float(matrix[col * 3 + row]) for row in range(3) for col in range(3))
-
-
-def profile_mount_pitch_down_rad(profile: AirframeProfile, default: float) -> float:
+def profile_mount_pitch_down_rad(
+    profile: AirframeProfile, default: float, *, mode: str | None = None
+) -> float:
     """Camera pitch below the body x-axis encoded in ``body_to_camera_rotation``.
 
     The row-major matrix stores a pitch-down mount as ``[c,0,-s, 0,1,0, s,0,c]``
-    (the x500 profile's 0.18 rad matches its Gazebo camera pose).  Mounts that
-    also roll or yaw, and tailsitters with per-mode matrices, are not a single
-    pitch angle and return ``default``.
+    (the x500 profile's 0.18 rad matches its Gazebo camera pose).  A tailsitter
+    with per-mode matrices is read for ``mode`` ("mc"/"fw"); without a mode it is
+    not a single pitch angle and returns ``default``.  Mounts that also roll or
+    yaw return ``default``.
     """
-    if profile.camera.attitude_rotations:
+    rotations = profile.camera.attitude_rotations
+    if rotations and (mode is None or mode.lower() not in rotations):
         return float(default)
-    r = [float(value) for value in profile.camera.body_to_camera_rotation]
+    matrix = rotations[mode.lower()] if rotations else profile.camera.body_to_camera_rotation
+    r = [float(value) for value in matrix]
     if abs(r[4] - 1.0) > 1e-6 or any(abs(r[i]) > 1e-6 for i in (1, 3, 5, 7)):
         return float(default)
     return math.atan2(r[6], r[0])
@@ -79,14 +80,17 @@ def camera_ray_from_profile(
 ) -> tuple[float, float, float]:
     """Return a world-NED optical ray using the profile's full mount attitude.
 
-    ``body_to_camera_rotation`` is stored row-major.  Tailsitters may provide
+    ``body_to_camera_rotation`` is stored row-major and its columns are the
+    camera's optical axes (forward, image right, image down) in body FRD, the
+    same convention :func:`profile_mount_pitch_down_rad` reads and the profile
+    tests check against the Gazebo camera poses.  Tailsitters may provide
     separate MC/FW matrices; the selected matrix is applied before vehicle
     roll/pitch/yaw, so a 180-degree FW attitude cannot silently reuse MC rays.
     """
     selected = (mode or "mc").lower()
     mount = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
     camera = (1.0, (float(u) - cx) / fx, (float(v) - cy) / fy)
-    body = _mat_vec(_mat_transpose(mount), camera)
+    body = _mat_vec(mount, camera)
     roll, pitch, yaw = (math.radians(float(value)) for value in attitude_deg)
     cr, sr = math.cos(roll), math.sin(roll)
     y1, z1 = cr * body[1] - sr * body[2], sr * body[1] + cr * body[2]
@@ -258,6 +262,10 @@ def dynamics_from_profile(profile: AirframeProfile) -> VehicleDynamics:
 class AirframeMotionAdapter:
     """Map :class:`MotionIntent` (and legacy primitives) to vehicle commands."""
 
+    # Ground speed of hover-mode (MC) VTOL legs: the multirotor loop's 3-15 m steps
+    # are sized for a multirotor, not for the profile's fixed-wing cruise airspeed.
+    MC_SPEED_MPS = 5.0
+
     def __init__(
         self,
         profile: AirframeProfile | str | Path | None = None,
@@ -265,11 +273,19 @@ class AirframeMotionAdapter:
         base_dir: str | Path | None = None,
         mode: str | None = None,
         safety: SafetyEnvelope | None = None,
+        preferred_mode: str | None = None,
     ) -> None:
         self.profile = resolve_airframe_profile(profile, base_dir=base_dir)
         self.mode = (mode or ("MC" if self.profile.category == "multirotor" else "FW")).upper()
         if self.mode not in {"MC", "FW"}:
             raise MotionIntentError("mode must be MC or FW")
+        # A VTOL flown by the hover (multirotor) loop: every loop step happens in
+        # MC, so telemetry reporting FW first asks for a back-transition.
+        self.preferred_mode = None if preferred_mode is None else str(preferred_mode).upper()
+        if self.preferred_mode is not None and (
+            self.profile.category != "vtol" or self.preferred_mode not in {"MC", "FW"}
+        ):
+            raise MotionIntentError("preferred_mode needs a VTOL profile and MC or FW")
         self.energy = energy_params_from_profile(self.profile)
         # Fixed-wing altitude reference for primitive bridging (NED down, metres).
         self._held_down: float | None = None
@@ -307,6 +323,21 @@ class AirframeMotionAdapter:
     @property
     def is_multirotor(self) -> bool:
         return self.profile.category == "multirotor"
+
+    @property
+    def hover_ops(self) -> bool:
+        """A VTOL whose loop steps (search, approach, confirmation) are flown in MC."""
+        return self.preferred_mode == "MC"
+
+    def mode_change_command(self) -> MotionCommand | None:
+        """A transition to ``preferred_mode`` while telemetry reports the other mode."""
+        if self.preferred_mode is None or self.mode == self.preferred_mode:
+            return None
+        return MotionCommand(
+            "transition",
+            mode=self.preferred_mode,
+            reason=f"VTOL loop steps fly in {self.preferred_mode}",
+        )
 
     def _recovery(self, reason: str, pose: Sequence[float]) -> MotionCommand:
         if self.profile.category == "multirotor":
@@ -492,15 +523,25 @@ class AirframeMotionAdapter:
         if self.profile.category == "vtol" and self.mode == "MC":
             if action.kind == "hold":
                 return MotionCommand(
-                    "mc_hold", target_ned=pose, duration_s=action.seconds, mode="MC", metadata=meta
+                    "mc_hold",
+                    target_ned=pose,
+                    yaw_deg=float(yaw_deg),
+                    duration_s=action.seconds,
+                    mode="MC",
+                    metadata=meta,
                 )
             if action.kind == "stop":
-                return MotionCommand("mc_land", target_ned=pose, mode="MC", metadata=meta)
+                if isinstance(onboard, Mapping) and onboard.get("supervisor_action") == "land_now":
+                    return MotionCommand("mc_land", target_ned=pose, mode="MC", metadata=meta)
+                # The loop is done (as for a multirotor): hand the flight to the
+                # autopilot's return/landing instead of landing at the target.
+                return MotionCommand("stop", target_ned=pose, mode="MC", metadata=meta)
             if action.kind == "turn":
                 return MotionCommand(
                     "mc_reposition",
                     target_ned=pose,
                     yaw_deg=float(yaw_deg) + action.yaw_delta_deg,
+                    speed_mps=self.MC_SPEED_MPS,
                     mode="MC",
                     metadata=meta,
                 )
@@ -509,6 +550,7 @@ class AirframeMotionAdapter:
                 "mc_reposition",
                 target_ned=(pose[0] + north, pose[1] + east, pose[2] + down),
                 yaw_deg=float(yaw_deg),
+                speed_mps=self.MC_SPEED_MPS,
                 mode="MC",
                 metadata=meta,
             )

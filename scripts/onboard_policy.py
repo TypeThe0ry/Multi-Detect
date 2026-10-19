@@ -369,6 +369,25 @@ class OnboardPolicy:
             options.get("airframe", "x500_mono_cam"), base_dir=ROOT
         )
         self.airframe_profile = self.motion_adapter.profile
+        # A VTOL can hover: search, approach and confirmation fly the multirotor
+        # loop in MC (the loop's level-camera model, turn/step approach and
+        # closest view), and the confirmed stop hands the return to the autopilot.
+        raw_hover_ops = options.get("vtol_hover_ops", True)
+        if isinstance(raw_hover_ops, str):
+            if raw_hover_ops.strip().lower() not in {"true", "false"}:
+                raise ValueError("vtol_hover_ops must be true or false")
+            raw_hover_ops = raw_hover_ops.strip().lower() == "true"
+        elif type(raw_hover_ops) is not bool:
+            raise ValueError("vtol_hover_ops must be a boolean")
+        if (
+            raw_hover_ops
+            and self.airframe_profile.category == "vtol"
+            and self.airframe_profile.can_hover
+        ):
+            self.motion_adapter.preferred_mode = "MC"
+        hover_ops = self.motion_adapter.hover_ops
+        # Hover-mode VTOLs plan like a multirotor; only their commands differ.
+        plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
@@ -530,12 +549,15 @@ class OnboardPolicy:
         # own mount (the rc_cessna camera looks straight ahead).  Projecting a
         # fixed-wing frame with the x500 pitch puts every ground point ~10 deg
         # too steep, i.e. tens of metres short at 30 m altitude.
+        # A hover-mode VTOL's loop sees the world through its MC (level) attitude.
         mount_pitch = float(
             options.get(
                 "camera_pitch_down_rad",
                 0.18
                 if self.motion_adapter.is_multirotor
-                else profile_mount_pitch_down_rad(self.airframe_profile, 0.18),
+                else profile_mount_pitch_down_rad(
+                    self.airframe_profile, 0.18, mode="mc" if hover_ops else None
+                ),
             )
         )
         self.camera_pitch_down_rad = mount_pitch
@@ -604,7 +626,7 @@ class OnboardPolicy:
                 max_leg_m=profile.limits.max_step_distance_m,
             )
 
-        if not self.motion_adapter.is_multirotor:
+        if not plans_like_multirotor:
             self._search = fixed_wing_search(
                 home_ned or (0.0, 0.0, 0.0), self._search.search_radius_m
             )
@@ -621,7 +643,13 @@ class OnboardPolicy:
         second_look = options.get("second_look_after_steps")
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
-            "search_altitude_m": self.search_altitude_m,
+            # A VTOL's back-transition climbs (the SITL tailsitter rose from 30 m to
+            # 60 m): a hover-mode search first settles back to the mission altitude.
+            "search_altitude_m": (
+                float(altitude_m)
+                if hover_ops and self.search_altitude_m is None
+                else self.search_altitude_m
+            ),
             "near_depth": near_depth_enabled,
             **POSITION_DEFAULTS,
         }
@@ -684,7 +712,9 @@ class OnboardPolicy:
             loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
         if not self.motion_adapter.is_multirotor:
             # An aircraft that cannot hover never settles on home: the autopilot's
-            # RTL flies it home and lands once the loop has nothing left to do.
+            # RTL flies it home and lands once the loop has nothing left to do.  A
+            # VTOL hands it over too: PX4's VTOL RTL transitions, flies home and
+            # lands vertically, which the 15 m multirotor home legs would not.
             loop_defaults["autopilot_return"] = True
         if self.airframe_profile.category == "fixed_wing":
             # A plane cannot turn toward a candidate in place: it flies fly-by
@@ -703,7 +733,7 @@ class OnboardPolicy:
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
             obstacle_source = StaticMapSource(obstacles)
-            if region is not None and not self.motion_adapter.is_multirotor:
+            if region is not None and not plans_like_multirotor:
                 search = fixed_wing_search(
                     (float(region[0]), float(region[1]), 0.0), float(region[2])
                 )
@@ -1387,18 +1417,22 @@ class OnboardPolicy:
             step_token=step_token,
         )
 
+    def _sync_vehicle_mode(self, observation: dict[str, Any]) -> None:
+        if getattr(self, "motion_adapter", None) is None:
+            return
+        # SIM observations carry EXTENDED_SYS_STATE.vtol_state (3 MC, 4 FW) under
+        # flight_state; the real runtime passes a mode string.
+        flight_state = observation.get("flight_state") or {}
+        telemetry_mode = observation.get("vtol_state")
+        if telemetry_mode is None and isinstance(flight_state, dict):
+            telemetry_mode = flight_state.get("vtol_state")
+        if telemetry_mode is None:
+            telemetry_mode = observation.get("mode")
+        if telemetry_mode is not None:
+            self.motion_adapter.set_mode(telemetry_mode)
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
-        if getattr(self, "motion_adapter", None) is not None:
-            # SIM observations carry EXTENDED_SYS_STATE.vtol_state (3 MC, 4 FW) under
-            # flight_state; the real runtime passes a mode string.
-            flight_state = observation.get("flight_state") or {}
-            telemetry_mode = observation.get("vtol_state")
-            if telemetry_mode is None and isinstance(flight_state, dict):
-                telemetry_mode = flight_state.get("vtol_state")
-            if telemetry_mode is None:
-                telemetry_mode = observation.get("mode")
-            if telemetry_mode is not None:
-                self.motion_adapter.set_mode(telemetry_mode)
+        self._sync_vehicle_mode(observation)
         self._slow_failed_current = False
         self._slow_skipped_current = False
         # Process external safety inputs first. A latched supervisor decision and
@@ -1519,11 +1553,16 @@ class OnboardPolicy:
                 if ray_data is None:
                     return None
                 origin, direction = ray_data
+                # camera_ray's origin is N/E/down; ground models (and the flat
+                # ground) intersect from N/E/up.  Passing the down value made every
+                # tailsitter ground point None in SITL (a confirmation without a
+                # position).
+                origin_neu = (origin[0], origin[1], -origin[2])
                 if ground_model is not None:
-                    return ground_model.intersect_ray(origin, direction)
-                if direction[2] <= 1e-6 or origin[2] <= 0:
+                    return ground_model.intersect_ray(origin_neu, direction)
+                if direction[2] <= 1e-6 or origin_neu[2] <= 0:
                     return None
-                scale = origin[2] / direction[2]
+                scale = origin_neu[2] / direction[2]
                 return origin[0] + direction[0] * scale, origin[1] + direction[1] * scale
             return pixel_ground_point(
                 u,
@@ -1692,6 +1731,31 @@ class OnboardPolicy:
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         """Single return point: every policy primitive crosses the envelope."""
+        self._sync_vehicle_mode(observation)
+        adapter = getattr(self, "motion_adapter", None)
+        transition = adapter.mode_change_command() if adapter is not None else None
+        if transition is not None:
+            # A hover-mode VTOL reported in FW (e.g. right after a VTOL takeoff and
+            # transition): convert first; the loop's next step runs in MC.
+            command, safety_info = adapter.guard_command(
+                transition, pose_ned=pose_ned, yaw_deg=yaw_deg
+            )
+            onboard = {
+                "state": "transition",
+                "detections": 0,
+                "tracks": [],
+                "slow_calls": [],
+                "confirmed": getattr(getattr(self, "loop", None), "confirmed", None),
+                "vtol_mode": adapter.mode,
+            }
+            labels = {
+                "onboard": onboard,
+                "motion": command.to_dict(),
+                "airframe": adapter.profile.id,
+            }
+            if safety_info:
+                labels["safety"] = safety_info
+            return command, labels
         action, labels = self._act_impl(observation, pose_ned=pose_ned, yaw_deg=yaw_deg)
         # Some lightweight test/integration adapters use ``None`` to indicate
         # that no motion was requested this frame; there is no outgoing
