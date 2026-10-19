@@ -20,6 +20,25 @@
       "true_target_id": "target_true_gen_v2_w0031",
       "world_file": "gen_v2_w0031.sdf",
       "world_id": "gen_v2_w0031"
+    },
+    {
+      "airframe": "fixed_wing",
+      "asset_mode": "fuel_v1",
+      "runway_clearance_m": 15.753,
+      "runway_heading_deg": 45.0,
+      "seed": 20261027,
+      "source_scenario": "gen_v2_w0016.scenario.json",
+      "split": "train",
+      "target_combo": {
+        "category": "ambulance",
+        "color": "white",
+        "slug": "ambulance"
+      },
+      "task_text": "找到白色救护车并记录位置",
+      "task_text_en": "Find the white ambulance and record its position.",
+      "true_target_id": "target_true_gen_v2_w0016",
+      "world_file": "gen_v2_w0016.sdf",
+      "world_id": "gen_v2_w0016"
     }
   ]
 }
