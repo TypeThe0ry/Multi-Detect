@@ -412,7 +412,20 @@ def _internal_log(run_dir: Path, stage: Stage, detail: object) -> None:
     )
 
 
+def _ensure_replay_fixture(root: Path, run_dir: Path) -> None:
+    """The combined acceptance replays a versioned synthetic fixture; make it once."""
+    fixture = root / "build" / f"qgc-replay-fixture-v{TARGET_VERSION}"
+    if (fixture / "fixture.json").is_file():
+        return
+    if fixture.exists():
+        raise RuntimeError(f"incomplete replay fixture, remove it and rerun: {fixture}")
+    creator = root / "scripts" / "create_qgc_replay_acceptance_fixture.py"
+    _run([_python(), str(creator), str(fixture)], root, run_dir / "replay_fixture.log")
+
+
 def _execute_stage(stage: Stage, root: Path, run_dir: Path) -> None:
+    if stage.name == "combined_px4_gazebo_qgc_acceptance":
+        _ensure_replay_fixture(root, run_dir)
     if stage.name == "preflight":
         report = preflight_report(root)
         _write_json(run_dir / "preflight.json", report)
