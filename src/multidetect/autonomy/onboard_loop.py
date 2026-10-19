@@ -408,6 +408,12 @@ class LoopConfig:
     # At the closest view, this many views whose verdict says "this is the task's
     # object" (approach or confirm) confirm it; None requires confirm_target votes.
     closest_view_identity_matches: int | None = 2
+    # Holds at the closest view without a confirmation before the focus is dropped.
+    # A box clipped by the image bottom there never confirms (an overshoot on a
+    # stale range estimate): the host backs off instead of holding (SITL count run
+    # hovered 100 steps over a cone whose base was below the frame).
+    closest_view_max_holds: int = 6
+    closest_view_backoff_m: float = 3.0
     # A confirm verdict for a candidate farther than this counts only as a match
     # ("it is the object, keep closing in"): the host decides proximity.
     confirm_max_range_m: float | None = None
@@ -561,6 +567,14 @@ class LoopConfig:
             raise ValueError("memory_max_range_ratio must be in (0, 1]")
         if self.max_blocked_legs < 1:
             raise ValueError("max_blocked_legs must be positive")
+        if (
+            isinstance(self.closest_view_max_holds, bool)
+            or not isinstance(self.closest_view_max_holds, int)
+            or self.closest_view_max_holds < 1
+        ):
+            raise ValueError("closest_view_max_holds must be a positive integer")
+        if not math.isfinite(self.closest_view_backoff_m) or self.closest_view_backoff_m <= 0:
+            raise ValueError("closest_view_backoff_m must be finite and positive")
 
 
 @dataclass(slots=True)
@@ -708,6 +722,8 @@ class OnboardLoop:
     _last_turn_deg: float = 0.0
     _last_yaw_deg: float | None = None
     _at_closest: bool = False
+    # Closest-view holds/back-offs spent on the current focus.
+    _closest_holds: int = 0
     _last_pose: tuple[float, float, float] | None = None
     # Rejected candidates: ground point and where they were seen from.
     _rejections: list[dict[str, Any]] = field(default_factory=list)
@@ -2012,6 +2028,7 @@ class OnboardLoop:
             if best.track_id != self._focus:
                 self._approach_sizes.clear()
                 self._at_closest = False
+                self._closest_holds = 0
                 plan = self._fw_pass
                 if plan is not None and (
                     best.ground is None
@@ -2143,7 +2160,32 @@ class OnboardLoop:
                     self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
                     return action, info
                 return self._fw_pass_action(pose_ned, ground, info), info
-            return self._close_in(pose_ned, yaw_deg, bearing, horizontal, info), info
+            action = self._close_in(pose_ned, yaw_deg, bearing, horizontal, info)
+            if info.get("reason") != "closest_view":
+                return action, info
+            self._closest_holds += 1
+            if self._closest_holds > self.config.closest_view_max_holds:
+                # The view cannot get any better and still does not confirm.
+                best.exhausted = True
+                self.state, self._focus = "searching", None
+                self._approach_sizes.clear()
+                self._at_closest = False
+                self._closest_holds = 0
+                info.update(reason="closest_view_exhausted", dropped=best.track_id)
+                action = self._search_step(pose_ned, yaw_deg)
+                self._last_turn_deg = action.yaw_delta_deg if action.kind == "turn" else 0.0
+                return action, info
+            if best.bbox[3] >= self.camera.height - self.config.border_margin_px:
+                # The base is cut off by the image bottom: too close, step back.
+                back = self._safe(
+                    pose_ned,
+                    ActionPrimitive.translate(-self.config.closest_view_backoff_m, 0.0, 0.0),
+                    yaw_deg,
+                )
+                if back.kind == "translate":
+                    info["reason"] = "closest_view_backoff"
+                    return back, info
+            return action, info
         if self.state == "returning" and self.config.autopilot_return:
             # An aircraft that cannot hover never settles within home_tolerance_m of
             # home: turn/translate legs there end in loiters around points next to

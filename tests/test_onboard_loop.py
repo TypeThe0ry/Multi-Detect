@@ -848,3 +848,34 @@ def test_autopilot_return_stops_instead_of_flying_legs_home() -> None:
     budget.next_action([], pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
     action, info = budget.next_action([], pose_ned=(30.0, 0.0, -30.0), yaw_deg=0.0)
     assert action.kind == "stop" and info["reason"] == "step_budget"
+
+
+def test_a_closest_view_clipped_by_the_image_bottom_backs_off() -> None:
+    loop = _loop(approach_min_altitude_m=11.0, stop_on_confirm=False)
+    pose = (0.0, 0.0, -11.0)
+
+    def ground_point(u: float, v: float) -> tuple[float, float]:
+        return (7.0, 0.0)
+
+    # The base is below the frame: a confirm verdict alone can never count it.
+    clipped = (620.0, 900.0, 660.0, float(CAMERA.height))
+    tracks = loop.update_tracks([Detection(clipped, 0.3)])
+    loop.apply_verdict("t1", "confirm_target")
+    action, info = loop.next_action(tracks, pose_ned=pose, yaw_deg=0.0, ground_point=ground_point)
+    assert info["reason"] == "closest_view_backoff"
+    assert action.kind == "translate" and action.forward_m < 0
+
+
+def test_a_closest_view_that_never_confirms_is_dropped() -> None:
+    loop = _loop(approach_min_altitude_m=11.0, stop_on_confirm=False, closest_view_max_holds=3)
+    pose = (0.0, 0.0, -11.0)
+    reasons = []
+    for _ in range(6):
+        tracks = loop.update_tracks([Detection(_box(640, 800, 18), 0.3)])
+        loop.apply_verdict("t1", "reject_track")
+        loop.tracks["t1"].verdict = "approach"
+        _, info = loop.next_action(
+            tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda u, v: (9.0, 0.0)
+        )
+        reasons.append(info.get("reason"))
+    assert "closest_view_exhausted" in reasons and loop.tracks["t1"].exhausted

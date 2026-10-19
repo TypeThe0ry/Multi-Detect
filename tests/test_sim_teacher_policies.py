@@ -69,3 +69,34 @@ def test_expert_search_advances_when_target_not_visible() -> None:
     action = policy.next_action(pose_ned=(0.0, 0.0, 0.0), yaw_deg=0.0)
     assert policy.state in {"scan", "search"}
     assert action.kind in {"turn", "translate"}
+
+
+def _fly(pose: list[float], yaw: float, action) -> float:
+    import math
+
+    if action.kind == "turn":
+        return (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+    if action.kind == "translate":
+        heading = math.radians(yaw)
+        pose[0] += action.forward_m * math.cos(heading) - action.right_m * math.sin(heading)
+        pose[1] += action.forward_m * math.sin(heading) + action.right_m * math.cos(heading)
+    return yaw
+
+
+def test_expert_search_stays_in_its_zone_after_someone_else_turns_the_vehicle() -> None:
+    import math
+
+    policy = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=8.0,
+        search_radius_m=60.0,
+    )
+    pose, yaw = [0.0, 0.0, -8.0], 0.0
+    farthest = 0.0
+    for step in range(200):
+        if step in (20, 45, 90):
+            yaw = (yaw + 140.0 + 180.0) % 360.0 - 180.0  # a host approach turned it
+        yaw = _fly(pose, yaw, policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw))
+        farthest = max(farthest, math.hypot(pose[0], pose[1]))
+    assert farthest <= 60.0 + 1e-6

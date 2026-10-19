@@ -330,6 +330,9 @@ class ExpertSearchPolicy:
     max_altitude_step_m: float = 8.0
     max_blocked_attempts: int = 3
     max_blocked_consecutive: int = 10
+    # Re-adopt the measured yaw when it differs from the last commanded heading by
+    # more than this (small differences are tracking noise and are ignored).
+    resync_yaw_deg: float = 5.0
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -485,13 +488,25 @@ class ExpertSearchPolicy:
         self._blocked_consecutive = 0
         self._blocked = False
 
-    def _search_leg_action(self, pose_ned, waypoint) -> ActionPrimitive:
+    def _search_leg_action(
+        self, pose_ned, waypoint, yaw_deg: float | None = None
+    ) -> ActionPrimitive:
         """Turn onto a spiral leg, then fly it body-forward."""
         dn = waypoint[0] - pose_ned[0]
         de = waypoint[1] - pose_ned[1]
         distance = math.hypot(dn, de)
         if distance <= 1e-6:
             return ActionPrimitive.hold(0.0)
+        if (
+            yaw_deg is not None
+            and self._commanded_yaw_deg is not None
+            and abs(self._wrap(yaw_deg - self._commanded_yaw_deg)) > self.resync_yaw_deg
+        ):
+            # Someone else turned the vehicle (e.g. a host approaching a candidate).
+            # Legs are flown body-forward, so a stale heading flies every leg off
+            # course and clips the boundary on the wrong line: a count run left
+            # its 150 m zone and flew 395 m out.
+            self._commanded_yaw_deg = yaw_deg
         desired = math.degrees(math.atan2(de, dn))
         delta = self._wrap(desired - float(self._commanded_yaw_deg or 0.0))
         if abs(delta) >= self.approach_turn_min_deg:
@@ -775,7 +790,7 @@ class ExpertSearchPolicy:
             if self._waypoint_index >= len(waypoints):
                 self._waypoint_index = 0
             waypoint = waypoints[self._waypoint_index]
-        return self._search_leg_action(pose_ned, waypoint)
+        return self._search_leg_action(pose_ned, waypoint, yaw_deg)
 
     def labels(self, *, pose_ned, yaw_deg: float = 0.0) -> dict[str, Any]:
         inside, bearing, rng = target_in_fov(
