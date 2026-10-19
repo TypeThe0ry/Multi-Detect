@@ -27,17 +27,24 @@ def test_injected_backends_run_the_actual_policy_and_mission_executor(tmp_path, 
     slow = LatencySlowRunner(0)
     calibration = CameraCalibration(100, 80, 90, 90, 50, 40)
     policy = OnboardPolicy(
-        task_text="Find a car", world_path=None, altitude_m=10,
-        camera_info=calibration.camera_info, image_size=(100, 80), work_dir=tmp_path,
+        task_text="Find a car",
+        world_path=None,
+        altitude_m=10,
+        camera_info=calibration.camera_info,
+        image_size=(100, 80),
+        work_dir=tmp_path,
         config={"mission": "find", "camera_pitch_down_rad": 0.5},
-        proposer=lambda bgr: [Detection((45, 45, 55, 55), 0.9)], slow_runner=slow,
-        ground_projector=lambda u, v, obs: (30, 20), home_ned=(10, 20, 0),
+        proposer=lambda bgr: [Detection((45, 45, 55, 55), 0.9)],
+        slow_runner=slow,
+        ground_projector=lambda u, v, obs: (30, 20),
+        home_ned=(10, 20, 0),
     )
     buffer = io.BytesIO()
     Image.new("RGB", (100, 80)).save(buffer, format="PNG")
     action, labels = policy.act(
         {"rgb": buffer.getvalue(), "camera_info": calibration.camera_info},
-        pose_ned=(10, 20, -10), yaw_deg=0,
+        pose_ned=(10, 20, -10),
+        yaw_deg=0,
     )
     assert isinstance(policy.executor, MissionExecutor)
     assert isinstance(action, ActionPrimitive)
@@ -66,9 +73,12 @@ def test_default_policy_still_constructs_legacy_model_backends(tmp_path, monkeyp
     monkeypatch.setattr("scripts.onboard_policy.YoloeProposer", proposer)
     monkeypatch.setattr("scripts.eval_slow_system.LlamaServerRunner", slow)
     policy = OnboardPolicy(
-        task_text="Find a car", world_path=None, altitude_m=10,
+        task_text="Find a car",
+        world_path=None,
+        altitude_m=10,
         camera_info=CameraCalibration(100, 80, 90, 90, 50, 40).camera_info,
-        image_size=(100, 80), work_dir=tmp_path,
+        image_size=(100, 80),
+        work_dir=tmp_path,
     )
     assert [item[0] for item in calls] == ["proposer", "slow"]
     assert calls[1][2]["identity_only"] is True
@@ -82,9 +92,14 @@ def test_default_policy_still_constructs_legacy_model_backends(tmp_path, monkeyp
 def test_current_size_aware_keeps_integration_search_constructor_and_actions(tmp_path):
     camera = CameraCalibration(1280, 960, 540, 540, 640, 480).camera_info
     common = dict(
-        task_text="Find a cone", world_path=None, altitude_m=35,
-        camera_info=camera, image_size=(1280, 960), work_dir=tmp_path,
-        proposer=lambda bgr: [], slow_runner=SimpleNamespace(close=lambda: None),
+        task_text="Find a cone",
+        world_path=None,
+        altitude_m=35,
+        camera_info=camera,
+        image_size=(1280, 960),
+        work_dir=tmp_path,
+        proposer=lambda bgr: [],
+        slow_runner=SimpleNamespace(close=lambda: None),
         config={"mission": "find", "size_aware_search": True},
     )
     sized = OnboardPolicy(**common)
@@ -102,11 +117,17 @@ def test_current_size_aware_keeps_integration_search_constructor_and_actions(tmp
 def test_two_altitude_low_search_altitude_clamps_to_effective_size_aware_altitude(tmp_path):
     camera = CameraCalibration(1280, 960, 540, 540, 640, 480).camera_info
     policy = OnboardPolicy(
-        task_text="Find a cone", world_path=None, altitude_m=35,
-        camera_info=camera, image_size=(1280, 960), work_dir=tmp_path,
-        proposer=lambda bgr: [], slow_runner=SimpleNamespace(close=lambda: None),
+        task_text="Find a cone",
+        world_path=None,
+        altitude_m=35,
+        camera_info=camera,
+        image_size=(1280, 960),
+        work_dir=tmp_path,
+        proposer=lambda bgr: [],
+        slow_runner=SimpleNamespace(close=lambda: None),
         config={
-            "mission": "find", "size_aware_search": True,
+            "mission": "find",
+            "size_aware_search": True,
             "low_search_altitude_m": 30,
             "search_pattern": "two_altitude",
         },
@@ -117,16 +138,30 @@ def test_two_altitude_low_search_altitude_clamps_to_effective_size_aware_altitud
 
 
 def calibration(**mount):
-    return CameraCalibration(100, 80, 90, 90, 50, 40, extrinsics={
-        "mount_pitch_down_deg": 45, "mount_yaw_right_deg": 0,
-        "mount_roll_clockwise_deg": 0, "camera_offset_forward_m": 0,
-        "camera_offset_right_m": 0, "camera_offset_down_m": 0, **mount,
-    })
+    return CameraCalibration(
+        100,
+        80,
+        90,
+        90,
+        50,
+        40,
+        extrinsics={
+            "mount_pitch_down_deg": 45,
+            "mount_yaw_right_deg": 0,
+            "mount_roll_clockwise_deg": 0,
+            "camera_offset_forward_m": 0,
+            "camera_offset_right_m": 0,
+            "camera_offset_down_m": 0,
+            **mount,
+        },
+    )
 
 
 def observation(yaw=0):
-    return {"pose": {"local_ned_m": (0, 0, -10)},
-            "attitude": {"roll_deg": 0, "pitch_deg": 0, "yaw_deg": yaw}}
+    return {
+        "pose": {"local_ned_m": (0, 0, -10)},
+        "attitude": {"roll_deg": 0, "pitch_deg": 0, "yaw_deg": yaw},
+    }
 
 
 def test_ground_projector_uses_mount_and_vehicle_attitude_and_lever_arm():
@@ -161,3 +196,41 @@ def test_home_relative_policy_only_changes_down_origin():
     assert source["pose"]["local_ned_m"] == (10, 20, -3)
     wrapped.close()
     assert stopped == [True]
+
+
+def test_size_aware_search_stays_above_known_obstacles(tmp_path):
+    """Counting-site regression: a size-aware 8 m search under a 7.2 m house had
+    its forward legs blocked and ended the search early."""
+    camera = CameraCalibration(1280, 960, 540, 540, 640, 480).camera_info
+    world = tmp_path / "world.sdf"
+    world.write_text(
+        "<sdf version='1.9'><world name='default'>"
+        "<model name='obstacle_house'><pose>10 20 4.75 0 0 0</pose><link name='l'>"
+        "<collision name='c'><geometry><box><size>8 8 9.5</size></box></geometry></collision>"
+        "</link></model></world></sdf>",
+        encoding="utf-8",
+    )
+    common = dict(
+        task_text="Find a cone",
+        altitude_m=35,
+        camera_info=camera,
+        image_size=(1280, 960),
+        proposer=lambda bgr: [],
+        slow_runner=SimpleNamespace(close=lambda: None),
+    )
+    open_field = OnboardPolicy(
+        world_path=None,
+        work_dir=tmp_path / "a",
+        config={"mission": "find", "size_aware_search": True},
+        **common,
+    )
+    housed = OnboardPolicy(
+        world_path=world,
+        work_dir=tmp_path / "b",
+        config={"mission": "find", "size_aware_search": True},
+        **common,
+    )
+    assert open_field.search_altitude_m < 11.5
+    assert housed.search_altitude_m == pytest.approx(11.5)
+    open_field.close()
+    housed.close()

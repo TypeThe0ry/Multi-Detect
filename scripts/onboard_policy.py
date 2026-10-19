@@ -548,6 +548,15 @@ class OnboardPolicy:
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
+            # Never search below the known obstacles: at 7.9 m over a counting
+            # site with a 7.2 m house the forward legs were blocked twice, the
+            # loop stopped searching and a cone was never seen again.
+            if obstacles:
+                clearance = float(options.get("search_obstacle_clearance_m", 2.0))
+                if not math.isfinite(clearance) or clearance < 0:
+                    raise ValueError("search_obstacle_clearance_m must be finite and >= 0")
+                floor = max(obstacle.height_m for obstacle in obstacles) + clearance
+                self.search_altitude_m = max(self.search_altitude_m, min(float(altitude_m), floor))
         if search_pattern == "two_altitude":
             low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
             if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
