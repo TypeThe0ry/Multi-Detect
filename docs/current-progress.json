@@ -7684,13 +7684,13 @@
     "claims_boundary": "Fresh pinned PX4/Gazebo software SIM sensor transport with RGB/Depth payload persistence and digest-bound pairing; no metric-depth model calibration, outdoor distance accuracy, HIL, REAL, hardware, visual acceptance or final release claim."
   },
   "v030_pre1_foundation_acceptance_20261003_r5": {
-    "status": "current_source_software_foundation_reexecuted_after_teacher_admission_20261008",
+    "status": "current_source_software_foundation_reexecuted",
     "foundation_baseline": "0.3.0-pre.1",
-    "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/foundation.json",
-    "evidence_bytes": 6442,
-    "evidence_file_sha256": "856eb8a1ede8f40c646b3fe96503687a90a517b6345c6cf973f01c60f8d47606",
-    "evidence_sha256": "c25f2c1748dd8e5d3ceb694bceb9f218f5bf18291a16dcf5842b3876f9f552d8",
+    "release_label": "0.3.0-pre.9",
+    "evidence": "artifacts/evaluation/parity-final-20261019-pre9-r3/v030-pre1-foundation.json",
+    "evidence_bytes": 7877,
+    "evidence_file_sha256": "a2da79e29f771c643b8bb5925b7b473a64d186dcd3a6f8a196cb10319bfd71b3",
+    "evidence_sha256": "d5ecb3e17a0692ff619c37f82e99abfa238cc388d16ee58608cd83a2fdcb1256",
     "runtime_mode_values": [
       "replay",
       "sim",
@@ -7720,16 +7720,16 @@
     "runtime_mode": "sim",
     "run_id": "20261003T164242Z-46048",
     "run_directory": "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048",
-    "source_evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/combined-evidence-parity-r14-parity-r11--079a56ad95f3.json",
-    "source_evidence_bytes": 6635040,
-    "source_evidence_sha256": "3b88e30a58da69e2c7378ee9ddffcb8ca528d8f02fe055ce8d1eeadd8af7a664",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/combined-sim-qgc-67fb0d269d42-2860d1637497.json",
-    "evidence_bytes": 2707,
-    "evidence_sha256": "6ced6bbea08976b60732b860b9bbcfe53ed66650fa783b41d56891d6ac8e6021",
+    "source_evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/combined-evidence-parity-r14-parity-r11--f7c25db19117.json",
+    "source_evidence_bytes": 6635054,
+    "source_evidence_sha256": "48567f96b0d9a6f869a3e898ce509af3f5a899e5e69e3664a17b0f8806b342a4",
+    "evidence": "artifacts/evaluation/parity-final-20261019-pre9-r3/combined-sim-qgc.json",
+    "evidence_bytes": 2739,
+    "evidence_sha256": "974a2348266e68bad36c31f0892feffa48ef9f9d9f537527a1d34bb4dea9fe57",
     "qgc_executable": "build/windows-v0.3.0-pre.8-release/portable-current-20261003-qml-hitfix-abs/bin/MultiDetectGCS.exe",
     "qgc_executable_sha256": "6f0403cfb29ec6b13d0b5b684a1787327c85db6d91bc5b4662fde867581af37f",
     "release_parity": "configs/release-parity.json",
-    "release_parity_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "release_parity_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
     "combined_gate_passed": true,
     "integrated_sim_qgc_gate_passed": true,
     "vtol_attached_gate_passed": true,
@@ -7850,12 +7850,12 @@
   "shared_policy_external_vtol_sensor_campaign_20261003_r14": {
     "status": "retained_file_audit_current_parity_onboard_model_teacher_rebind",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/continuation-shared-policy-vtol-prompt-o-dae55d99c0d2.json",
-    "evidence_bytes": 6585445,
-    "evidence_sha256": "52274dd715ce1b6c8ba4d726cab728f2a4c171ae4ff73672c287ca1bfd3fc58e",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/continuation-shared-policy-vtol-prompt-o-e61c7b686517.json",
+    "evidence_bytes": 6585469,
+    "evidence_sha256": "6dea0a298bcc2c4565c71ba17f6f88c159decf61b61de64913d8b88d4731fc3e",
     "campaign_input": "configs/scenarios/vtol-shared-policy-routes-prompt-v1.synthetic-campaign.json",
     "campaign_input_sha256": "6f1d810a2d5ebc73530526fceea6887a2e4f114b0ae20db9a41f3417e2b51b4e",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
     "release_parity_snapshot_stable": true,
     "policy_artifact_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
@@ -8392,10 +8392,10 @@
     "campaign_summary": "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261001-r2-run/vtol-mission-acceptance.json",
     "campaign_summary_bytes": 2285,
     "campaign_summary_sha256": "562a36f6a2aeec426f61a2d9568f4cc42a10bd4f8112ac203cc372a1f6b5f3eb",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-trained-vtol-two-task-2026-0c43e28bbc6f.json",
-    "receipt_bytes": 6226,
-    "receipt_file_sha256": "fc74d0f27024c429fb051f71eaa9ab40b8afbb4480cdc243773dd781a0ac7cb3",
-    "receipt_canonical_sha256": "473c6c56e34953c198684e2a44d2130796ef56ecfabaf9a6eb9ff8e9e9752c00",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-trained-vtol-two-task-2026-33407f72287f.json",
+    "receipt_bytes": 6240,
+    "receipt_file_sha256": "49fa20dc2e1593ea7121471e9d0d3dadfb3b6bbda25db99310bfe198a16df05f",
+    "receipt_canonical_sha256": "5c214cefb8856562853540ebe72448a53714915e9c09d7859a01195f96e1b710",
     "verified_task_order": [
       "synthetic-east",
       "synthetic-west"
@@ -8417,7 +8417,7 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "receipt_sha256": "473c6c56e34953c198684e2a44d2130796ef56ecfabaf9a6eb9ff8e9e9752c00"
+    "receipt_sha256": "5c214cefb8856562853540ebe72448a53714915e9c09d7859a01195f96e1b710"
   },
   "shared_policy_training_holdout_20261001_r1": {
     "status": "passed_synthetic_training_and_independent_holdout_no_gain",
@@ -8826,9 +8826,9 @@
     "scenario": "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
     "scenario_runtime_depth_sensor": "forward-depth",
     "scenario_runtime_channel_canonical_sha256": "6935904651ec6948608d942b3868f2c448e3d03d10a91a8f1caf267d0cd03c82",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-fixed-wing-depth-shared-policy--815e1bdd663f.json",
-    "evidence_bytes": 66496,
-    "evidence_sha256": "0e42e3f88882e25fe8fb555ce739c780736b92cb6798481a78d154563ce0d227",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-fixed-wing-depth-shared-policy--500c1cef2642.json",
+    "evidence_bytes": 66510,
+    "evidence_sha256": "7acf67d0ca09ec98833179951b68dd83cde9384a44bb3b0457e516a5ec87aa2d",
     "current_release_parity_bound": true,
     "policy_artifact": "configs/evaluation/external-shared-policy-fixed-wing-profile-v1.json",
     "policy_artifact_file_sha256": "7b33c599fc728ea588418bb9ba9aece6d4b2140748ee3ee367ec782eda75f1ea",
@@ -8867,7 +8867,7 @@
     "superseded": true,
     "superseded_by": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
     "superseded_reason": "Historical depth evidence referenced the legacy billboard asset; it is retained for provenance only and is not current 3D-model or RGB/Depth training evidence.",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07"
   },
   "combined_target_card_reconstruction_20260930_r2": {
     "status": "passed_historical_read_only_card_reconstruction",
@@ -8961,10 +8961,10 @@
     "scope": "One disposable external PX4/Gazebo multirotor runtime using the current SharedTaskPolicy, planner revalidation, existing Mission upload/readback/commit/permit lifecycle, and repository-owned Gazebo depth transport",
     "script": "scripts/run_external_vehicle_mission_campaign.py",
     "scenario": "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-depth-shared-policy--a554552e8103.json",
-    "evidence_bytes": 66474,
-    "evidence_sha256": "02462e6ad9cc1b604e02ecf8a71f1e47d4be192fad2ef9763d5afe347c96b290",
-    "supersedes_evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-depth-shared-policy--af4d3bf10b8d.json",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-multirotor-depth-shared-policy--d48e5f0a982b.json",
+    "evidence_bytes": 66488,
+    "evidence_sha256": "5ec7e5e152bd9b28da49f8d6e3d731c951a1f117ad0ae63873244e033ca62dd8",
+    "supersedes_evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-multirotor-depth-shared-policy--2aea225808bc.json",
     "superseded_reason": "Historical depth evidence referenced the legacy billboard asset; it is retained for provenance only and is not current 3D-model or RGB/Depth training evidence.",
     "current_release_parity_bound": true,
     "policy_artifact": "configs/evaluation/external-shared-policy-multirotor-profile-v1.json",
@@ -9001,7 +9001,7 @@
     "sensor_binding_hash": "0a12344a3feef3b10ee37d836b8bbc084d4274e3d4667122c261f2727f3388f5",
     "superseded": true,
     "superseded_by": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07"
   },
   "shared_policy_independent_sim_20260930": {
     "status": "passed_current_shared_policy_independent_holdout",
@@ -9081,10 +9081,10 @@
     "evidence_sha256": "e17ef607541b7e2b51168d83650b1e65c0669b4f7f11c4c71405017f484597df",
     "summary": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31-run/vtol-mission-acceptance.json",
     "summary_sha256": "7d4074b3ab86e5b2166f2595d54eae9acd92171cbb347fa0a0bd20a67c253f34",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-2c4e951302e9.json",
-    "receipt_bytes": 6234,
-    "receipt_file_sha256": "d21e390f4c621c46ec4b5d8135266f42d7fbf9556378f4e42fd06bf6a3e90f0e",
-    "receipt_canonical_sha256": "942fc6f6a269d77bac07dac58b58e2c7c4472386f180bf489f20c3bd3ebb1e9d",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-current-vtol-campaign-2026-1437504efe4b.json",
+    "receipt_bytes": 6248,
+    "receipt_file_sha256": "b0a0859fe105ce02ebb8c0f4e4e54cb012f8ce222296b122f609457e0c7af40e",
+    "receipt_canonical_sha256": "7bbc836426cbe38ecfbf6fc4a7e74d113a1e93eb8f75dd8649de8370e4ad02c5",
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
@@ -9119,10 +9119,10 @@
     "hil_real_evidence": false,
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
-    "release_parity_bytes": 14343,
-    "release_parity_core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
-    "receipt_sha256": "942fc6f6a269d77bac07dac58b58e2c7c4472386f180bf489f20c3bd3ebb1e9d",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
+    "release_parity_bytes": 18099,
+    "release_parity_core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
+    "receipt_sha256": "7bbc836426cbe38ecfbf6fc4a7e74d113a1e93eb8f75dd8649de8370e4ad02c5",
     "current_runtime_parity_proven": false
   },
   "external_docker_policy_helper_20260928": {
@@ -9253,12 +9253,12 @@
     "status": "retained_file_audit_external_mission_matrix_current_parity_rebind",
     "scope": "fixed_wing_multirotor_vtol_shared_external_mission_path",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/external-mission-matrix.json",
-    "evidence_bytes": 7518,
-    "evidence_sha256": "e9b596706bca76c7b4fb81da2d7c2f78c2042c8bc7da5f9bb5d7271933c8ee40",
-    "receipt_sha256": "c80d0c3b65fc16509328f7530d82ffc9434859009ff64125bd7b30b2b954775e",
-    "vtol_campaign_receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-2c4e951302e9.json",
-    "vtol_campaign_receipt_sha256": "d21e390f4c621c46ec4b5d8135266f42d7fbf9556378f4e42fd06bf6a3e90f0e",
+    "evidence": "artifacts/evaluation/parity-final-20261019-pre9-r3/external-mission-matrix.json",
+    "evidence_bytes": 7375,
+    "evidence_sha256": "0336bbed7ddd3e19dececaf2f54c320a99c670fc7d42ea0ee020075c135e9e81",
+    "receipt_sha256": "5f2da51a226cb0e016fd4e4d5f23b01941c58b9947329fff612e716e8c95bf45",
+    "vtol_campaign_receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-current-vtol-campaign-2026-1437504efe4b.json",
+    "vtol_campaign_receipt_sha256": "b0a0859fe105ce02ebb8c0f4e4e54cb012f8ce222296b122f609457e0c7af40e",
     "vehicles": [
       "fixed-wing",
       "multirotor",
@@ -9290,18 +9290,18 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "fixed-wing_evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-fixed-wing-depth-shared-policy--815e1bdd663f.json",
-    "multirotor_evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-depth-shared-policy--a554552e8103.json",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
-    "release_parity_bytes": 14343
+    "fixed-wing_evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-fixed-wing-depth-shared-policy--500c1cef2642.json",
+    "multirotor_evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-multirotor-depth-shared-policy--d48e5f0a982b.json",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
+    "release_parity_bytes": 18099
   },
   "external_shared_policy_pair_20260927_r1": {
     "status": "retained_file_audit_fixed_wing_multirotor_shared_policy_external_sim_current_runtime_unproven",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-shared-policy-pair-20261003-qml-0f41451a6ddc.json",
-    "evidence_bytes": 3019,
-    "evidence_sha256": "7077ec9b0493afa0580046ec8332ce901fb0f2336188a7353fb2a826e380d266",
-    "receipt_sha256": "e6c64f2bdfe8be7d271ab6fc3d908f7ce0cc0d78c9d9153e573d151ae61d3322",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/external-shared-policy-pair-20261003-qml-8840491c30fd.json",
+    "evidence_bytes": 3043,
+    "evidence_sha256": "0a59f44b82bbcddcd939c0a2d366223029f5cd26de790c3af9f9bc34de3ae87a",
+    "receipt_sha256": "cb0f596ebf05319f707071b9c10ea8d30031b396bb3bc0f5a42f01a7a893308c",
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
     "policy_artifact_sha256": "41895895cdf8780cb117667e011dab975e1c4878807a3b6b234a8a5a0c5ad285",
     "vehicles": [
@@ -9324,14 +9324,14 @@
   "shared_policy_vehicle_matrix_20260927_r2": {
     "status": "retained_file_audit_current_parity_legacy_asset_matrix_rebind",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/shared-policy-vehicle-matrix.json",
-    "evidence_bytes": 8304,
-    "evidence_sha256": "95c1d0bb36255d30af7ed8b14dbda4883f871de13a904867e00cf15c2cf618f2",
-    "receipt_sha256": "1d075a45f4edeb67343040ce140108a6aa837403f725298091e481a1caba483b",
-    "vtol_receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-2c4e951302e9.json",
-    "vtol_receipt_sha256": "d21e390f4c621c46ec4b5d8135266f42d7fbf9556378f4e42fd06bf6a3e90f0e",
-    "vtol_runtime_evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-101111f0cf70.json",
-    "vtol_runtime_evidence_sha256": "e6fd59c31a680bbd494221af79aa15ee28c5a7d9d8749b69c16eea7f2accf730",
+    "evidence": "artifacts/evaluation/parity-final-20261019-pre9-r3/shared-policy-vehicle-matrix.json",
+    "evidence_bytes": 8147,
+    "evidence_sha256": "c822c71fdd3de38652f4e60e90d3d8fe46938d5f97efdee77a9683c66381c080",
+    "receipt_sha256": "c2c9ad37289be7242f0d51d85816724dbc0d62d639cd93b5d80ea4bf047d9ed9",
+    "vtol_receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-current-vtol-campaign-2026-1437504efe4b.json",
+    "vtol_receipt_sha256": "b0a0859fe105ce02ebb8c0f4e4e54cb012f8ce222296b122f609457e0c7af40e",
+    "vtol_runtime_evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-current-vtol-campaign-2026-e71264ac777d.json",
+    "vtol_runtime_evidence_sha256": "1e9ea8d3a3a4e5e7418286d11bee5bea0b56bf9791e6b8b3a156f5df1411800f",
     "vehicles": [
       "fixed-wing",
       "multirotor",
@@ -9362,22 +9362,22 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07"
   },
   "shared_policy_observed_session_20260927_r17": {
     "status": "retained_file_audit_observed_session_current_parity_rebind",
     "release_label": "0.3.0-pre.8",
     "script": "scripts/run_shared_policy_observed_session.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-observed-session-20261007--d466604a6296.json",
-    "evidence_bytes": 5352,
-    "evidence_sha256": "7b3fd19e34a53dc6ed8a0e4f802bca56367d336802885e9d019555239adea0f3",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-observed-session-20261007--4813f97c22d8.json",
+    "evidence_bytes": 5366,
+    "evidence_sha256": "d9a4d1e03a6164c73bd5d86521738925edc2e619e870ae12bffab3d218cccd05",
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
     "policy_artifact_canonical_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
     "selected_task_ids": [
       "synthetic-east",
       "synthetic-west"
@@ -9393,8 +9393,8 @@
     "hil_real_evidence": false,
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
-    "release_parity_bytes": 14343,
-    "release_parity_core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
+    "release_parity_bytes": 18099,
+    "release_parity_core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
     "remaining_task_ids": []
   },
   "external_fixed_wing_mission_20260927_r8": {
@@ -9620,10 +9620,10 @@
     "status": "passed_deterministic_shared_px4_mission_transaction_for_three_airframes",
     "script": "scripts/run_px4_airframe_transaction_acceptance.py",
     "verifier": "scripts/verify_px4_airframe_transaction_acceptance.py",
-    "evidence": "artifacts/evaluation/px4-airframe-transaction-20260927-r2.json",
-    "evidence_bytes": 11929,
-    "evidence_sha256": "6f6e484fb8f76e633be39651654fc4086526047c15811161c8cd48124a35b1a5",
-    "release_label": "0.3.0-pre.8",
+    "evidence": "artifacts/evaluation/parity-final-20261019-pre9-r3/px4-airframe-transaction.json",
+    "evidence_bytes": 11543,
+    "evidence_sha256": "ae3ae08820c07dccafb1f6f1ac35df94022799dc298f04576e1b0541f037bc6b",
+    "release_label": "0.3.0-pre.9",
     "vehicle_classes": [
       "vtol",
       "fixed-wing",
@@ -9653,17 +9653,17 @@
     "campaign_summary": "artifacts/evaluation/shared-policy-external-parent-20260927-r14/vtol-mission-acceptance.json",
     "campaign_summary_bytes": 2252,
     "campaign_summary_sha256": "b848f5282dad4b5a79bbb3f78340433a0d5b07eb22972fde888c0990cc80bea2",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-external-parent-20260927-r-b0d37deeaeac.json",
-    "receipt_bytes": 6151,
-    "receipt_file_sha256": "4a8081203e2ba7a0dda9b1126adc41a08ffe9e727bb40ee473c344317e989740",
-    "receipt_canonical_sha256": "f5c8a41c84fe2cccd5d696b5a671dd6f956e3e606fe0fecdb84f61cce7194386",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-external-parent-20260927-r-670790f11d14.json",
+    "receipt_bytes": 6165,
+    "receipt_file_sha256": "068c54e91ba455fb20fa9a1cfe78431438fc994d41d33d8ed3b94d5ed3d9b431",
+    "receipt_canonical_sha256": "c75e23f682b2423ae85c645f626946396f09cfc27212a64b3dcf2876feaeef7b",
     "evidence_scope": "retained_files_audit",
     "audit_release_parity_bound": true,
     "release_parity_bound": false,
     "current_runtime_parity_proven": false,
     "external_sim_rerun_performed": false,
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
-    "release_parity_core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
+    "release_parity_core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
     "policy_artifact_canonical_sha256": "98b1474912ec031a53818d84c7190f415e68a965901bf91ffd6d92dc98dcadc2",
     "policy_artifact_file_sha256": "b38036c414f8520da01927d5f70a0f94a4d537db6837b4d1ae6d831284507206",
     "sortie_count": 2,
@@ -9679,7 +9679,7 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "receipt_sha256": "f5c8a41c84fe2cccd5d696b5a671dd6f956e3e606fe0fecdb84f61cce7194386"
+    "receipt_sha256": "c75e23f682b2423ae85c645f626946396f09cfc27212a64b3dcf2876feaeef7b"
   },
   "vehicle_neutral_selection_compiler_seam_20260927_r1": {
     "status": "deterministic_three_vehicle_classes_passed",
@@ -10389,9 +10389,9 @@
   },
   "external_docker_ai_flight_acceptance_20260927_r1": {
     "status": "retained_file_audit_current_parity_truth_free_external_px4_gazebo_ai_flight_response_runtime_unproven",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/simulator-docker-ai-flight-20261006-geom-39a5dc0221db.json",
-    "evidence_sha256": "57a86f3c3267497683850bc8ad33d7d64e099200c50b6bca15081015b4e80158",
-    "evidence_bytes": 645402,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/simulator-docker-ai-flight-20261006-geom-a24cc0d40491.json",
+    "evidence_sha256": "6116df3c2d650b6bbef0cd5fa209668364cd5ed8665e0f74b7733139b69cbccd",
+    "evidence_bytes": 645416,
     "scenario_id": "river_rescue_vtol_001",
     "image_digest": "sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
     "runtime_gate_passed": true,
@@ -10399,7 +10399,7 @@
     "target_policy_gate_passed": true,
     "flight_response_gate_passed": true,
     "flight_response_status": "passed",
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
     "release_parity_snapshot_stable": true,
     "flight_response_duration_s": 4.39,
     "global_position_sample_count": 122,
@@ -10425,14 +10425,14 @@
   },
   "external_docker_ai_flight_parity_receipt_20260927_r2": {
     "status": "retained_layers_file_audit_current_parity_runtime_unproven",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/simulator-ai-flight-parity.json",
+    "receipt": "artifacts/evaluation/parity-final-20261019-pre9-r3/simulator-ai-flight-parity.json",
     "schema": "configs/schemas/simulator-ai-flight-parity-receipt.schema.json",
     "schema_validation_test": "tests/test_simulator_ai_flight_parity_receipt_schema.py",
     "schema_bytes": 8591,
     "schema_sha256": "b5d13385a54df95bc873b90971594f2372b48a81a5046b77b3c704fccbf0d0c1",
-    "receipt_file_sha256": "9fbeda5abf215d68532b1a4f40f867bf5df33ce1c9d2ac18be7be41f38077fa8",
-    "receipt_sha256": "407e42f98846621707e4769d11d88c8cd8cd1fc2a59b0119885b9328372b4201",
-    "receipt_bytes": 4547,
+    "receipt_file_sha256": "99308345859ee01473042f0c41149970ea4caf2c7f157a5d7e7aa7513ef361c4",
+    "receipt_sha256": "2220cf86493615b17f9a0df03b5fe7aae61bbb80a96e0f8b64fa48dd3ebbf1d6",
+    "receipt_bytes": 4468,
     "evidence_scope": "retained_layers_file_audit",
     "same_release_parity": false,
     "same_audit_reference_parity": true,
@@ -10441,9 +10441,9 @@
     "same_scenario_manifest": true,
     "same_airframe_profile_identity": true,
     "airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
-    "shared_policy_mission_layer": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-2c4e951302e9.json",
-    "shared_policy_receipt_sha256": "942fc6f6a269d77bac07dac58b58e2c7c4472386f180bf489f20c3bd3ebb1e9d",
-    "simulator_ai_flight_layer": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/simulator-docker-ai-flight-20261006-geom-39a5dc0221db.json",
+    "shared_policy_mission_layer": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-current-vtol-campaign-2026-1437504efe4b.json",
+    "shared_policy_receipt_sha256": "7bbc836426cbe38ecfbf6fc4a7e74d113a1e93eb8f75dd8649de8370e4ad02c5",
+    "simulator_ai_flight_layer": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/simulator-docker-ai-flight-20261006-geom-a24cc0d40491.json",
     "simulator_ai_flight_evidence_sha256": "e6240d4cc927df2d4914aea2b40e981ae43a5f36716294d2d9da1e04ed93ed68",
     "planner_revalidated": true,
     "policy_applied_to_actuator": false,
@@ -10457,7 +10457,7 @@
     "real_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
     "final_release_allowed": false,
-    "receipt_canonical_sha256": "407e42f98846621707e4769d11d88c8cd8cd1fc2a59b0119885b9328372b4201"
+    "receipt_canonical_sha256": "545806e68cdf43e823aa3d90a2b96afbc85a8e4f9ce779f485bd7fac839b0415"
   },
   "external_docker_sensor_transport_20260926_r3": {
     "status": "passed_truth_free_external_sim_sensor_transport",
@@ -10732,9 +10732,9 @@
     "status": "retained_file_audit_observed_session_current_parity_rebind",
     "release_label": "0.3.0-pre.8",
     "script": "scripts/run_shared_policy_observed_session.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-observed-session-20261007--d466604a6296.json",
-    "evidence_sha256": "7b3fd19e34a53dc6ed8a0e4f802bca56367d336802885e9d019555239adea0f3",
-    "evidence_bytes": 5352,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-observed-session-20261007--4813f97c22d8.json",
+    "evidence_sha256": "d9a4d1e03a6164c73bd5d86521738925edc2e619e870ae12bffab3d218cccd05",
+    "evidence_bytes": 5366,
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
@@ -10742,9 +10742,9 @@
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
     "release_parity_path": "configs/release-parity.json",
-    "release_parity_bytes": 14343,
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
-    "release_parity_core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
+    "release_parity_bytes": 18099,
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
+    "release_parity_core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
     "selected_task_ids": [
       "synthetic-east",
       "synthetic-west"
@@ -10766,14 +10766,14 @@
     "status": "retained_file_audit_shared_policy_campaign_receipts_current_parity_rebind",
     "script": "scripts/create_shared_policy_campaign_receipt.py",
     "campaign": "configs/scenarios/vtol-ranked-routes.synthetic-campaign.json",
-    "parent_receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-external-parent-20260927-r-b0d37deeaeac.json",
-    "parent_receipt_sha256": "4a8081203e2ba7a0dda9b1126adc41a08ffe9e727bb40ee473c344317e989740",
-    "parent_receipt_bytes": 6151,
-    "parent_receipt_canonical_sha256": "f5c8a41c84fe2cccd5d696b5a671dd6f956e3e606fe0fecdb84f61cce7194386",
-    "candidate_receipt": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-external-candidate-2026092-a20b6a1af357.json",
-    "candidate_receipt_sha256": "a3d818d2b166d47cc0c1d2e551f59de10c0de50cfbce8532b6081b4abd543bd7",
-    "candidate_receipt_bytes": 6175,
-    "candidate_receipt_canonical_sha256": "ec24893b4633bbeafc2f5d693d21a270d6bfdb73b4af37bfd6effd5ad129e9c1",
+    "parent_receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-external-parent-20260927-r-670790f11d14.json",
+    "parent_receipt_sha256": "068c54e91ba455fb20fa9a1cfe78431438fc994d41d33d8ed3b94d5ed3d9b431",
+    "parent_receipt_bytes": 6165,
+    "parent_receipt_canonical_sha256": "c75e23f682b2423ae85c645f626946396f09cfc27212a64b3dcf2876feaeef7b",
+    "candidate_receipt": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-external-candidate-2026092-bd9feb4d8576.json",
+    "candidate_receipt_sha256": "249aca13264db0225784a4ed6906e9b81ebddbf573bbae582122a31a2d164130",
+    "candidate_receipt_bytes": 6189,
+    "candidate_receipt_canonical_sha256": "6091111dd16b21ecb8d82616599716495ae9fa05515586ceba5359b20d14b813",
     "sorties_per_receipt": 2,
     "mission_journal_and_policy_hashes_bound": true,
     "planner_revalidated": true,
@@ -10848,9 +10848,9 @@
     "status": "retained_file_audit_four_mode_shared_policy_contract_matrix_current_parity_rebind",
     "script": "scripts/verify_shared_policy_runtime_matrix.py",
     "tests": "tests/test_shared_policy_runtime_matrix.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-runtime-matrix-20261007-cu-7d8ea4f5d6ab.json",
-    "evidence_sha256": "6a829e65ba025137de6be0368ec0b2dc1bedb11d2d6e744f1a1c986873c31e10",
-    "evidence_bytes": 6538,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/shared-policy-runtime-matrix-20261007-cu-91206514f04e.json",
+    "evidence_sha256": "24a854860d0b5ee78df8d2d090e22a4a11176102aa41d7fc573bd6ef684d2df8",
+    "evidence_bytes": 6552,
     "policy_artifact_file": "configs/evaluation/vtol-shared-policy-v1.json",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
     "policy_artifact_canonical_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
@@ -10874,8 +10874,8 @@
     "real_acceptance": "not_claimed",
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
-    "release_parity_bytes": 14343,
+    "release_parity_file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
+    "release_parity_bytes": 18099,
     "core_algorithm_hash": "eba7774c8ffcd2d46b46277a78a2b85577ec7bd1db99cd6fb27717f8a76dc1dc"
   },
   "timestamp_semantics_update": {
@@ -12151,7 +12151,7 @@
     "full_mission_energy_coverage_claimed": false,
     "strategy_training_completed": false
   },
-  "updated_at_utc": "2026-10-08T11:40:00Z",
+  "updated_at_utc": "2026-10-19T02:13:53.126478Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -12166,9 +12166,9 @@
     "commits_ahead_of_origin_main": 279
   },
   "product_version": {
-    "release_label": "0.3.0-pre.8",
+    "release_label": "0.3.0-pre.9",
     "numeric": "0.3.0",
-    "python": "0.3.0rc8",
+    "python": "0.3.0rc9",
     "channel": "prerelease"
   },
   "working_iteration": "v206",
@@ -13694,16 +13694,16 @@
   "release_parity": {
     "verified": true,
     "path": "configs/release-parity.json",
-    "bytes": 14343,
-    "file_sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "bytes": 18099,
+    "file_sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07",
     "hashes": {
-      "core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
-      "px4_mission_path_hash": "a3f40f93b912b427e5d6bb20c1828f1edaaeddc8b0f70d0a2c1119d16751d4d3",
-      "safety_policy_hash": "df15ef2e2dc1492d5fdae2a4a1b814fa12542b5d2c65f663a868385f17e3f5a5",
-      "task_contract_hash": "c7628b1f34411814add4d245c87b301706310e3a2e23ec3c84aec39a705cc0f9",
-      "ui_contract_hash": "ddb3b9088cfbd411c963baea376e9de69b6c6f0a8064eeff8959c7b1fe745896"
+      "core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
+      "px4_mission_path_hash": "dff7bca3a6eead113e58748a34c385e2bde19cbaedaea7b7a2835e7ef55b191d",
+      "safety_policy_hash": "70709162e6f3aaff226ffe75f6efc83a4483071466d3c33b912a47a216a1aa86",
+      "task_contract_hash": "17a3445e09cd3c655cd57db8467f29062e19893c9ecb04dbde8b2ba0914145cc",
+      "ui_contract_hash": "03def3e44aa98ceef89fa43e6c30071e07e9040a76cbec025067fc1d10169604"
     },
-    "release_label": "0.3.0-pre.8"
+    "release_label": "0.3.0-pre.9"
   },
   "evidence": {
     "onboard_ai_preflight_20261003_r2": {
@@ -16804,9 +16804,9 @@
       "release_allowed": false
     },
     "release_gate_report": {
-      "audit_summary_path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/release-gate-audit.json",
-      "audit_summary_bytes": 5918,
-      "audit_summary_sha256": "a60893c5760e8111497bbb2627aa083b2706ade25093388eb10b2892eaf25a18",
+      "audit_summary_path": "docs/evidence/release-parity-20261019-pre9-r3.json",
+      "audit_summary_bytes": 6025,
+      "audit_summary_sha256": "635c3ac1da90072747bcd28af2f7b9894bca7e72e5345cd7d393c47473ad53e5",
       "manifest_local_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound.json",
       "local_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound-report-parity-r17-parity-r12-parity-r14-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12-parity-r14-parity-r11.json",
       "distributed_in_git": false,
@@ -16831,7 +16831,7 @@
         "flight_acceptance": false
       },
       "status": "retained_historical_release_gate_checked_against_teacher_admission_parity; no_new_release_runtime_evaluation; hardware_visual_hil_real_and_replay_gates_remain_fail_closed",
-      "audit_summary_path_bytes": 5918
+      "audit_summary_path_bytes": 6025
     },
     "replay_set_positive_fixture_20260924": {
       "manifest_path": "artifacts/evaluation/replay-set-positive-fixture-20260924/replay-set.manifest.json",
@@ -18067,11 +18067,6 @@
         "sha256": "5b5b2117454fa3cc205ddc26197d9d8be0f872ed687f298e0473a79ab5d520e9"
       },
       {
-        "path": "artifacts/evaluation/parity-context-v2-20261008-r1/external-mission-matrix.json",
-        "bytes": 7462,
-        "sha256": "b8cb82ba620ac8a1f9fb3d014a60ebc61af86dc529123ddd262886c44bd90a51"
-      },
-      {
         "path": "artifacts/evaluation/parity-context-v2-20261008-r1/external-multirotor-depth-shared-policy--47f6e7701312.json",
         "bytes": 66477,
         "sha256": "901ecf28a23f80935f4456fe47d28351aec6d0ecf15e48cd9a1cea43ff5d8634"
@@ -18132,16 +18127,6 @@
         "sha256": "893140f6a123e5c1f19d8cd12d7f8f7538fc220a91867c135fd36e9d23d5e573"
       },
       {
-        "path": "artifacts/evaluation/parity-context-v2-20261008-r1/shared-policy-vehicle-matrix.json",
-        "bytes": 8248,
-        "sha256": "ee626f9d04c45dd1f542a9bf4c811733622ee0076f791670cc3cc5d560eee19b"
-      },
-      {
-        "path": "artifacts/evaluation/parity-context-v2-20261008-r1/simulator-ai-flight-parity.json",
-        "bytes": 4517,
-        "sha256": "ffda242228bf294fcfff352bb12da6dbe11eba25d9d495749b680ca57f913bff"
-      },
-      {
         "path": "artifacts/evaluation/parity-context-v2-20261008-r1/simulator-docker-ai-flight-20261006-geom-68c014e77cd7.json",
         "bytes": 645405,
         "sha256": "e6240d4cc927df2d4914aea2b40e981ae43a5f36716294d2d9da1e04ed93ed68"
@@ -18160,6 +18145,131 @@
         "path": "artifacts/evaluation/parity-final-20261007-history-r1/combined-sim-qgc.json",
         "bytes": 2672,
         "sha256": "517641c0f06ec1aeba695f01d56b2afe42f0a3b0bd8c5d0bb99a7ba1b950f854"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/combined-evidence-parity-r14-parity-r11--079a56ad95f3.json",
+        "bytes": 6635040,
+        "sha256": "3b88e30a58da69e2c7378ee9ddffcb8ca528d8f02fe055ce8d1eeadd8af7a664"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/combined-sim-qgc-67fb0d269d42-2860d1637497.json",
+        "bytes": 2707,
+        "sha256": "6ced6bbea08976b60732b860b9bbcfe53ed66650fa783b41d56891d6ac8e6021"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/continuation-shared-policy-vtol-prompt-o-9af94bd4eb38.json",
+        "bytes": 6584242,
+        "sha256": "e45e93845ebeb546a3ff4657df0c8a12fc748580de68aa7d491504bac4a5edca"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/continuation-shared-policy-vtol-prompt-o-dae55d99c0d2.json",
+        "bytes": 6585445,
+        "sha256": "52274dd715ce1b6c8ba4d726cab728f2a4c171ae4ff73672c287ca1bfd3fc58e"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-fixed-wing-depth-shared-policy--815e1bdd663f.json",
+        "bytes": 66496,
+        "sha256": "0e42e3f88882e25fe8fb555ce739c780736b92cb6798481a78d154563ce0d227"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-fixed-wing-mission-20260927-r12-10d18e068920.json",
+        "bytes": 34613,
+        "sha256": "92a5be2e83b7d7a834d41cf26273d342193ec8dd3c40558af10d344be0430dca"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-depth-shared-policy--a554552e8103.json",
+        "bytes": 66474,
+        "sha256": "02462e6ad9cc1b604e02ecf8a71f1e47d4be192fad2ef9763d5afe347c96b290"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-depth-shared-policy--af4d3bf10b8d.json",
+        "bytes": 58475,
+        "sha256": "489eef8e525b881d9fc3c107ed4677bb4c57796c5a19218565b6a2448a7f5def"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-multirotor-mission-20260927-r6--94ab19c460f5.json",
+        "bytes": 34625,
+        "sha256": "ec8273dc35d314293d2692f3c59a4b6856a5ea566e19745b6e0f5bcc15941c05"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/external-shared-policy-pair-20261003-qml-0f41451a6ddc.json",
+        "bytes": 3019,
+        "sha256": "7077ec9b0493afa0580046ec8332ce901fb0f2336188a7353fb2a826e380d266"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-101111f0cf70.json",
+        "bytes": 6227,
+        "sha256": "e6fd59c31a680bbd494221af79aa15ee28c5a7d9d8749b69c16eea7f2accf730"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-196bf50fc4c3.json",
+        "bytes": 32880,
+        "sha256": "9d4703686a3d45ee818e0551c60813211dc7dd61c7c64d81e7929e58e0bb2307"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-current-vtol-campaign-2026-2c4e951302e9.json",
+        "bytes": 6234,
+        "sha256": "d21e390f4c621c46ec4b5d8135266f42d7fbf9556378f4e42fd06bf6a3e90f0e"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-external-candidate-2026092-a20b6a1af357.json",
+        "bytes": 6175,
+        "sha256": "a3d818d2b166d47cc0c1d2e551f59de10c0de50cfbce8532b6081b4abd543bd7"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-external-parent-20260927-r-b0d37deeaeac.json",
+        "bytes": 6151,
+        "sha256": "4a8081203e2ba7a0dda9b1126adc41a08ffe9e727bb40ee473c344317e989740"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-observed-session-20261007--d466604a6296.json",
+        "bytes": 5352,
+        "sha256": "7b3fd19e34a53dc6ed8a0e4f802bca56367d336802885e9d019555239adea0f3"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-runtime-matrix-20261007-cu-7d8ea4f5d6ab.json",
+        "bytes": 6538,
+        "sha256": "6a829e65ba025137de6be0368ec0b2dc1bedb11d2d6e744f1a1c986873c31e10"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/shared-policy-trained-vtol-two-task-2026-0c43e28bbc6f.json",
+        "bytes": 6226,
+        "sha256": "fc74d0f27024c429fb051f71eaa9ab40b8afbb4480cdc243773dd781a0ac7cb3"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/simulator-docker-ai-flight-20261006-geom-39a5dc0221db.json",
+        "bytes": 645402,
+        "sha256": "57a86f3c3267497683850bc8ad33d7d64e099200c50b6bca15081015b4e80158"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/vtol-mission-acceptance-364baca54884-4a1-ef44faf9409f.json",
+        "bytes": 11167,
+        "sha256": "500e066bfc41bee3fe9a3fd4879e1962f039823fdd174397bc5e1b43e98498f0"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/vtol-mission-acceptance-b42e262c456b-dd3-703fc404f966.json",
+        "bytes": 4412,
+        "sha256": "34a3c38b1764e9ee8953adee665a7328b68bc16b3b0de8573faf17d4dd431496"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/external-mission-matrix.json",
+        "bytes": 7518,
+        "sha256": "e9b596706bca76c7b4fb81da2d7c2f78c2042c8bc7da5f9bb5d7271933c8ee40"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/foundation.json",
+        "bytes": 6442,
+        "sha256": "856eb8a1ede8f40c646b3fe96503687a90a517b6345c6cf973f01c60f8d47606"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/shared-policy-vehicle-matrix.json",
+        "bytes": 8304,
+        "sha256": "95c1d0bb36255d30af7ed8b14dbda4883f871de13a904867e00cf15c2cf618f2"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/simulator-ai-flight-parity.json",
+        "bytes": 4547,
+        "sha256": "9fbeda5abf215d68532b1a4f40f867bf5df33ce1c9d2ac18be7be41f38077fa8"
       },
       {
         "path": "artifacts/evaluation/policy-artifacts-refresh-20260920-campaign-ranker/candidate-policy-artifact.json",
@@ -18417,9 +18527,24 @@
         "sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9"
       },
       {
+        "path": "configs/onboard/mission-package-count-cones-example.json",
+        "bytes": 1468,
+        "sha256": "a78ea762f95cd522a0dc05e4996885d2616ff14e4524150513600b8f0e87b5fd"
+      },
+      {
+        "path": "configs/onboard/mission-package-example.json",
+        "bytes": 1465,
+        "sha256": "24de04dcc8cc07659d0ce0076892bf2d1fabf6db51775f928cfcc14424938fb1"
+      },
+      {
+        "path": "configs/product-version.json",
+        "bytes": 170,
+        "sha256": "330c0279ec70c03e3f3a66b81501e2462b2066b44a5ebb28591b35e4bc77f39b"
+      },
+      {
         "path": "configs/release-parity.json",
-        "bytes": 14343,
-        "sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+        "bytes": 18099,
+        "sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07"
       },
       {
         "path": "configs/scenarios/coastal_patrol_fixed_wing_001.runtime.json",
@@ -18768,8 +18893,8 @@
       },
       {
         "path": "docs/current-progress.json",
-        "bytes": 912925,
-        "sha256": "181262934275b76b4f4f2a40b3ab976272e9ec5009a3aa9a283033872ce088dc"
+        "bytes": 940407,
+        "sha256": "91540e0e4037ace42ca0af4df49c5a6d99b6cf05f692356aeb0a48654bb1091d"
       },
       {
         "path": "docs/evidence/combined-sim-qgc-20261007-current-parity-r3.json",
@@ -18782,19 +18907,14 @@
         "sha256": "3dde5484ec05363eac0ed174ea3507fe2f9944b9b975b42d3c6e4e9ef3327a5a"
       },
       {
-        "path": "docs/evidence/v030-pre1-foundation-context-v2-20261008-r1.json",
-        "bytes": 6442,
-        "sha256": "fdd95a8a0e6af074b0bdbdcaefdf92e5b66da6359e62d26e6c7a3df5aca499f8"
-      },
-      {
         "path": "ground-control/MultiDetectGCS/custom/CMakeLists.txt",
-        "bytes": 9684,
-        "sha256": "eb61e15b17479fbae0a94e5faf433edb1bf4570991e202848a9306ceb87742d2"
+        "bytes": 12095,
+        "sha256": "e742351807a1e91c5ad2818c4a6bb5f1add2b6b866201a9757c78c3bc907101a"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/custom.qrc",
-        "bytes": 890,
-        "sha256": "6119106a82fbb44200075f7f4138de4d997fd43fa1900074e97becc511bbce92"
+        "bytes": 980,
+        "sha256": "64f9475d963daf024464da2025b94a9961bf0cb4fdc1de9e6e9b9851c6f2696f"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/res/Custom/MultiDetect/MultiDetectState.qml",
@@ -18813,18 +18933,18 @@
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/CustomPlugin.cc",
-        "bytes": 14626,
-        "sha256": "046c426da2b7d9bdce46c5fb5166624ce070b58bc51bcf7c1326f3f37da49c95"
+        "bytes": 15979,
+        "sha256": "36c5775cab1924fc76914ff87f46b11c3f5e5a7b5b3287a65db3771879c40f7b"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/CustomPlugin.h",
-        "bytes": 1111,
-        "sha256": "0c87466c62fd30841ee1a66084f56bf08dea9806d6f7c41965180996956914de"
+        "bytes": 1226,
+        "sha256": "2a060d100f09c2df272f47af8285e94721a77f3dcb3520d871128f1c1b85935b"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/FlyViewCustomLayer.qml",
-        "bytes": 141969,
-        "sha256": "2965f8102f8158a9bef9d35ee1ae903fcc4e7a77c5df99046826d4ddce31f927"
+        "bytes": 144753,
+        "sha256": "e9f14f56aeaef93c069b8956fbf6b69e7f48f651dca0824f68c3b312a00e57f8"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/FlyViewVideo.qml",
@@ -18837,29 +18957,74 @@
         "sha256": "fe3fbc0b01a931a852882b87b67ff74d2b694b2c541f365097e67ae3b5e10afa"
       },
       {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionController.cc",
+        "bytes": 19685,
+        "sha256": "bb12c9e98feeb7cc619bc8fc38a9287f0aa14343be115ab7079a4208d60939f2"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionController.h",
+        "bytes": 4756,
+        "sha256": "6ca22eead0eeffc4be9e20b98daeddb3d1b271faa5f67f6e20ea272e5cfc6476"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPackage.cc",
+        "bytes": 21182,
+        "sha256": "8fef3fe6ba2a3bf2a0cf339da47f50746b15808a3895ab90bfdc859acf3718ce"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPackage.h",
+        "bytes": 774,
+        "sha256": "7813526939ef932aba8aec56d5208b2e053e92dad2f935d0d947fbbafbf70101"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionPanel.qml",
+        "bytes": 38901,
+        "sha256": "61b6bbadbea9ad40cc98db3611e659b3161f1102231cee9c6ce4173aba22cf6c"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionSecurity.cc",
+        "bytes": 10909,
+        "sha256": "45696fef677df57dfc682c6d59bb9af0db5c0082b391338e25c080ab5d5b5fae"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionSecurity.h",
+        "bytes": 1121,
+        "sha256": "9471bf3e7d75911313df1b1b71a3fd9ccfc4107009aabb0902f38c62913a1738"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionWire.cc",
+        "bytes": 5279,
+        "sha256": "05829e95dd12fa47242b38d1ed9bf72703f8ac098dd6b6d585d3fc99937469eb"
+      },
+      {
+        "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectMissionWire.h",
+        "bytes": 680,
+        "sha256": "c7be1c5dffdc143fca289793b062f6712a6c52fc4f2b007933d2792e26148830"
+      },
+      {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectObservationEpoch.h",
         "bytes": 1678,
         "sha256": "1e3b567291e8fb1da8870c1c5a78a39015740ed089ca273d50be866274e453e6"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.cc",
-        "bytes": 100233,
-        "sha256": "da8dfea5830f91ac242c60e1de7a62be638ac122c5b2f47cf81eae8570204ab1"
+        "bytes": 103956,
+        "sha256": "c479fbbd47550cf7db456e85728db257dd28b56ba490c823c23093e96500944b"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.h",
-        "bytes": 21490,
-        "sha256": "b5cd1b39c40f25323d3ff001377124009bab53e23b85092038307ee8695d4ed7"
+        "bytes": 22107,
+        "sha256": "b4ae40f53d1cac8cfaa502b867622c50aeceb20294c197ca54565990e6238a4a"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorProtocol.cc",
-        "bytes": 130306,
-        "sha256": "0acf1cc4c4c1d26b42355882d3eeffc9ee6080bc6e3320ab1347d8adc0993aa0"
+        "bytes": 133442,
+        "sha256": "1ee37ab2e3c58323d120b33f69a6774faa1d7d6b96b61be018d5fcb7a4ad140b"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorProtocol.h",
-        "bytes": 5593,
-        "sha256": "d332133de60b9e1747d5c08db4f2ea3fa467537fb93f4823c92ebbf199bd8f52"
+        "bytes": 6197,
+        "sha256": "be3ad0c64e281542402f1556d08ed457683dd3995381d664779c3a05b717379b"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/MultiDetectProducerEpochDiagnostics.cc",
@@ -18913,8 +19078,8 @@
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/PlanViewRightPanel.qml",
-        "bytes": 3108,
-        "sha256": "6887ccb5e72b9fe4f85d1730a424b5f05b0913985cd8062f7c7c89b30eb24791"
+        "bytes": 4034,
+        "sha256": "67b89f56335debfcef871942bcf8ea605ad62afb07cec0acaa98a0cfe6688a62"
       },
       {
         "path": "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
@@ -18938,8 +19103,8 @@
       },
       {
         "path": "scripts/gazebo_sensor_stream.py",
-        "bytes": 99132,
-        "sha256": "4b1e36c71d622c85e1fc9643c4179fd702f407ca67740d208cdcb06ba88447d8"
+        "bytes": 99299,
+        "sha256": "d2e1bb72421343c2d32db2e9c6568f3d139affb6f0f6c8afac6ae2741192c02d"
       },
       {
         "path": "scripts/generate_live_runtime_observation_mission_binding_evidence.py",
@@ -18955,6 +19120,16 @@
         "path": "scripts/inspect_field_link_interfaces.ps1",
         "bytes": 9519,
         "sha256": "8aa9d1aab7999c6755a7ab2819e9805e167e6898b0b7fe9d459a1fef788d1956"
+      },
+      {
+        "path": "scripts/onboard_main.py",
+        "bytes": 20771,
+        "sha256": "068a38b2dd091e1dfc46d04b4e65d0f046ff43cc7d1fb7bc6fbbf0a6b7b23904"
+      },
+      {
+        "path": "scripts/onboard_policy.py",
+        "bytes": 88465,
+        "sha256": "20691159f2b050f37a8c9c897b08fbdb2f7f92970dfe6589a761aca396c8bbbb"
       },
       {
         "path": "scripts/onboard_sequence_windows.py",
@@ -19008,8 +19183,8 @@
       },
       {
         "path": "scripts/run_simulator_docker_acceptance.py",
-        "bytes": 120016,
-        "sha256": "6607b4addb0281d583a394255fda69af8d2646a4000302153b5a9f1f540568ef"
+        "bytes": 120370,
+        "sha256": "f77d45c0a12419702e365b9995cbdbfb939b184c71b20fdd77ee3089aec22aee"
       },
       {
         "path": "scripts/run_vtol_mission_sensor_capture.py",
@@ -19122,6 +19297,11 @@
         "sha256": "855ce4cc77812b8ff35095ac57b8f9bb1eab58b2130ee75ccaeb77bf29f3c7ff"
       },
       {
+        "path": "src/multidetect/acceptance.py",
+        "bytes": 16172,
+        "sha256": "ac551e52009bec0fc6d794ec2ceb24176bbc5994d7262f74d741df96ce5d8f57"
+      },
+      {
         "path": "src/multidetect/adaptive_ranging.py",
         "bytes": 17970,
         "sha256": "8e511a515ef143cd96f04b303c5f405f5800d1493e5a68ec4741e062bb211f16"
@@ -19142,6 +19322,11 @@
         "sha256": "2619ce9030ac27d75d2b9b26d61dfac4c288d0cd743b2818f329850b87b138c5"
       },
       {
+        "path": "src/multidetect/approach_acceptance.py",
+        "bytes": 18622,
+        "sha256": "938bbf09633e64d01dc1cae855435998f81411a41309b7b36ff3f53be973a602"
+      },
+      {
         "path": "src/multidetect/approach_live.py",
         "bytes": 10873,
         "sha256": "2549fb915a1d3dc526fc164d00c98fed050a3177882eed5371cc8a0c7269815a"
@@ -19155,6 +19340,16 @@
         "path": "src/multidetect/autonomy/contracts.py",
         "bytes": 64428,
         "sha256": "eb76ecf186b72024d21a1fb0e0decffb0547b56bbc02f38e57e7a6f11569db1b"
+      },
+      {
+        "path": "src/multidetect/autonomy/energy_estimator.py",
+        "bytes": 23969,
+        "sha256": "42aa0dd604e50d995255aa4201dcafb178a08bb29200d7828a5b1e2f6bff67a3"
+      },
+      {
+        "path": "src/multidetect/autonomy/ground_model.py",
+        "bytes": 8362,
+        "sha256": "309786f863c171588840b50c0125ef3fe700eb50cf90225676b916241e478c08"
       },
       {
         "path": "src/multidetect/autonomy/mission_adapter.py",
@@ -19172,9 +19367,64 @@
         "sha256": "d2a4033eb8a97717c73b9f3d7b0143fbe748a5c6bff3968d716deb82e99eeb4d"
       },
       {
+        "path": "src/multidetect/autonomy/mission_executor.py",
+        "bytes": 101809,
+        "sha256": "62ee0e1d9dcca5614743e07b33f7df5007822062fa08a2f531aa9d4e28941180"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_operator.py",
+        "bytes": 25983,
+        "sha256": "e3301df56b77e02bfec8ed022f0b380f151801b3f8585c36eb4ec3be1c994a79"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_operator_protocol.py",
+        "bytes": 4317,
+        "sha256": "a44e7be07f4508af74c8d0ebd6468d31b8a2f78a82a001d6340bb9723af1b998"
+      },
+      {
         "path": "src/multidetect/autonomy/mission_outcome.py",
         "bytes": 12697,
         "sha256": "8dc87940f03bc6fb9daeb203d9ade6c423c989277bd12c0372ed7e27d82cfcdb"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_package.py",
+        "bytes": 41068,
+        "sha256": "c5b8804ca06f4d782fdcea8ed76f5aa69fe47216966c7b72e83809c39cda45ce"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_plan.py",
+        "bytes": 13305,
+        "sha256": "6c61617ed476cb84887b9f9e726c76d4cc5c9fd2246e8e7293d41ae07fe37362"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_planner.py",
+        "bytes": 22648,
+        "sha256": "0c00b27a5a342cadbeae569a209a4821190175183f418c337b0e5796126d238e"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_security.py",
+        "bytes": 13610,
+        "sha256": "064cd1f9dfefb7aa08afbb22d584fa27a468f1bd2437c5ba755c7a10ef171c6d"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_summary.py",
+        "bytes": 12872,
+        "sha256": "f46e82934924de576bf0c832c0d7631ab3a38582fa7f6d0359faed9e1d4028fe"
+      },
+      {
+        "path": "src/multidetect/autonomy/mission_supervisor.py",
+        "bytes": 41666,
+        "sha256": "b6191ff41fbe72e88e4fa98b870c4ebf2f47eeaf8ddd3b78ac334342f4fda120"
+      },
+      {
+        "path": "src/multidetect/autonomy/near_depth.py",
+        "bytes": 9668,
+        "sha256": "063f107b89fb18f91f17ac96c55ae1534111f0bd69ddb883d2ab4fefe66c2baa"
+      },
+      {
+        "path": "src/multidetect/autonomy/obstacle_source.py",
+        "bytes": 23690,
+        "sha256": "044709c51d45259059c28b51a1485262d1172065add708abcd742c8573cca540"
       },
       {
         "path": "src/multidetect/autonomy/onboard_adapter.py",
@@ -19187,6 +19437,11 @@
         "sha256": "75c9902869d443cd31f2b4272716b418398c7f2223aee8755e6e0a9d00ce1bcf"
       },
       {
+        "path": "src/multidetect/autonomy/onboard_decision.py",
+        "bytes": 6381,
+        "sha256": "b79ba58c4287dce722d01ed398be9109ca6a751d892e437c294e9aecf11d26e3"
+      },
+      {
         "path": "src/multidetect/autonomy/onboard_history.py",
         "bytes": 12216,
         "sha256": "76d9c780306e773f8f32a1c528c031b1614773d4773885d2c335d854e2706dbb"
@@ -19195,6 +19450,16 @@
         "path": "src/multidetect/autonomy/onboard_history_onnx.py",
         "bytes": 8335,
         "sha256": "e9ec028ad7e2c7c3f936c12915e42b1fcce66ec2b5a728b505062feffd40b87f"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_loop.py",
+        "bytes": 82574,
+        "sha256": "ced53cd3609f41466e31385bb3490ead6f206312a6d2de8fb90c0ca481764082"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_mission_log.py",
+        "bytes": 8214,
+        "sha256": "5b187665909a6e4068521888179a5538d532b7b072641753a4a0539e31d9133e"
       },
       {
         "path": "src/multidetect/autonomy/onboard_model_reference.py",
@@ -19210,6 +19475,26 @@
         "path": "src/multidetect/autonomy/onboard_onnx.py",
         "bytes": 16220,
         "sha256": "fae9113ba25da1e88cd17f0176fa726e4d986f1baae5510dd561e7ff699e704a"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_policy_parts/__init__.py",
+        "bytes": 69,
+        "sha256": "3817df36b5cbcd1293978df25db245e0fcaace9f3ddf3ba56a9915acc0e87be3"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_policy_parts/config.py",
+        "bytes": 1562,
+        "sha256": "3e74a7ddd2a7c71c49f6a9fd470a42a86091eaf92491f6ef8209ee9c89cf0463"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_policy_parts/proposer.py",
+        "bytes": 4484,
+        "sha256": "fbc07c43ba8693d4c0a19bb2fc765b64b5f70dbc2c240d134d737e24fbe22a2c"
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_policy_parts/vocabulary.py",
+        "bytes": 493,
+        "sha256": "eee8ffb77fa6b3925cd07e711a9f6ea0fc448512a7b77957641c393ed0bfa555"
       },
       {
         "path": "src/multidetect/autonomy/onboard_task_state.py",
@@ -19237,9 +19522,54 @@
         "sha256": "afd7235f0422c6be73b7859f73510fb3832cbdb1b464852a2a65f0ec4d7f7486"
       },
       {
+        "path": "src/multidetect/autonomy/policy_v2/__init__.py",
+        "bytes": 1923,
+        "sha256": "951a56346888e6af0fcb05cf54d14a4a533f9180620400d0dd12c17c5d693bb3"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/contracts.py",
+        "bytes": 20633,
+        "sha256": "93aefe67db37e3e4cdc0abab1347a43196c12d249adb4d2d4fcd16a5d4ecad26"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/model.py",
+        "bytes": 18419,
+        "sha256": "284ab6d9f8d2577d03dd20f91d19d13bef947f70b2b8babbd8f617ab83287cd1"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/perception_bridge.py",
+        "bytes": 12306,
+        "sha256": "fa42e7cbf21a93b10e034904c426f35ec611ed1471dcfd9d7a5001e752e0fb24"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/rollout.py",
+        "bytes": 17129,
+        "sha256": "12bc9cc56b4ff17b7b31bce851c5dcd5b391d356c36a606aefdc72832b16415a"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/search_memory.py",
+        "bytes": 7209,
+        "sha256": "ceb8898d3a4ee6f3edcc758061decf9b57bb425fd175fd62f4b90f28903df183"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/state_builder.py",
+        "bytes": 22473,
+        "sha256": "b38450eccd0ff18a7f4a34b85224c318ab41dfc31f183748f58af8e193b53b5f"
+      },
+      {
+        "path": "src/multidetect/autonomy/policy_v2/vlm_grounding.py",
+        "bytes": 19485,
+        "sha256": "0a74ba76aa62dc4de69a95e5da012e58c9dee7575a2ac07df8703a9ee98e33c0"
+      },
+      {
         "path": "src/multidetect/autonomy/prompt_resolution.py",
         "bytes": 8253,
         "sha256": "f67e476b08c1a8dafeb756f2061a49342c1117a3e275d7198c150122d42dd6b2"
+      },
+      {
+        "path": "src/multidetect/autonomy/safety_envelope.py",
+        "bytes": 27588,
+        "sha256": "e4b5a1f93af9fbcfbd65e488abe8b35fae0b00b2eeda3a47829ef587add2d3f4"
       },
       {
         "path": "src/multidetect/autonomy/serialization.py",
@@ -19255,6 +19585,11 @@
         "path": "src/multidetect/autonomy/sim_teacher_compilation.py",
         "bytes": 4176,
         "sha256": "886e836c5095fa6067326da644d0d0c4296f5bf2eaf9880719d15428fcfae858"
+      },
+      {
+        "path": "src/multidetect/autonomy/step_triangulation.py",
+        "bytes": 12245,
+        "sha256": "26daee549e74d33a12170d859ccbfcd536314ca5ebf71d8e2a8a9e4bdafb94de"
       },
       {
         "path": "src/multidetect/autonomy/task_policy.py",
@@ -19292,14 +19627,19 @@
         "sha256": "d92a83cca95c3c15619a7eaba83229d956ff91964fd3c521773065b3845fa58c"
       },
       {
+        "path": "src/multidetect/camera_defaults.py",
+        "bytes": 266,
+        "sha256": "0d88d604564e4a1b44ceb42dbe7cf5849b4f8908370551b794f91eb5abc0608c"
+      },
+      {
         "path": "src/multidetect/camera_mount_survey.py",
         "bytes": 40496,
         "sha256": "8a57a6105aab5b277e51bb6a2d1e2820a55839caf30ee6d6d0769444ab2a9d1a"
       },
       {
         "path": "src/multidetect/cli.py",
-        "bytes": 363051,
-        "sha256": "bbb708f3d5bf359c35c3bd83ed533db4611f90d610ea244bc5e60a782c823ce2"
+        "bytes": 368021,
+        "sha256": "1a7b8fbf443e8bd52d2b6920cb95e83329f632d891c1d18c5143cbc43a9b7360"
       },
       {
         "path": "src/multidetect/clock.py",
@@ -19418,8 +19758,8 @@
       },
       {
         "path": "src/multidetect/live.py",
-        "bytes": 307906,
-        "sha256": "2c8741ee2b49bf325d2fb79bb8ccf5fc5cb9a7b0c8cc4bbe9ff958f4169f9e5c"
+        "bytes": 308279,
+        "sha256": "fec62f5c06c864ddb3f751e57d4bb92cc34862d77e708cd3ff8023d7abddffe5"
       },
       {
         "path": "src/multidetect/live_runtime_observation_mission_binding.py",
@@ -19433,8 +19773,8 @@
       },
       {
         "path": "src/multidetect/metric_depth.py",
-        "bytes": 27998,
-        "sha256": "f337af4482e903acaa682691b952695f5f32a052af066274c7bdcb12d7e3e97e"
+        "bytes": 29866,
+        "sha256": "345d917e15f9a18ca025ced0f2ad92e5c62b0f19bbb748ea5a13e6c2bc6fcd79"
       },
       {
         "path": "src/multidetect/mission.py",
@@ -19472,6 +19812,56 @@
         "sha256": "749de487b40b3434a0455dbb1d837b2694f7211fd722df5490361b57b4df8bd3"
       },
       {
+        "path": "src/multidetect/onboard_runtime/__init__.py",
+        "bytes": 79,
+        "sha256": "e544a950db46ad47134da82a5c8d7f2cd41ab9cd47273ba283a39c7d0a7d4177"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/bench.py",
+        "bytes": 4053,
+        "sha256": "0240fdd6b182f188c6666f673d300cd88507fa7d2a9ac41e109d115bfb6b15c0"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/camera.py",
+        "bytes": 9369,
+        "sha256": "c0f392e131039164c5e0157293dd3c417846c96569bd3dfba2226ffb3fd1c880"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/health.py",
+        "bytes": 13890,
+        "sha256": "d20376af727a8a38ce39bb1f78fccf20fa28774c4fc55e36984f8b395d6a9c33"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/policy.py",
+        "bytes": 1011,
+        "sha256": "87a1d88c2609cdba3e5f7772c4dcd558e8a472985208b1f5cb5b644bde9522ca"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/preflight.py",
+        "bytes": 16079,
+        "sha256": "a62e5ba8b9cf56da62f61e1ec4b410d4ed1f204a8252302da1dbf86964d1dd88"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/projection.py",
+        "bytes": 3073,
+        "sha256": "ff029f500939230965378fac846aaec28a996bf6ca5fe0e34670387e1c01ef99"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/replay.py",
+        "bytes": 10705,
+        "sha256": "26f4a1387e1c5171c97d8209e946556620a839a6816fa058e0d2bb3a8d4a23da"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/runtime.py",
+        "bytes": 50339,
+        "sha256": "ab48fd4a7a88dfdc27a284ee98b93a56ad478fc117b293870d4fcc2dcc7d0aeb"
+      },
+      {
+        "path": "src/multidetect/onboard_runtime/vehicle.py",
+        "bytes": 36226,
+        "sha256": "ed707e0229effdd868959f208875c99e938b03acbec8a12ef70f1873e7da72e8"
+      },
+      {
         "path": "src/multidetect/online_covariance_preflight.py",
         "bytes": 21333,
         "sha256": "7083081ccb3b274ede60ee191ccb870a7f66aabc9c12c010492fb6135759cfe1"
@@ -19483,18 +19873,18 @@
       },
       {
         "path": "src/multidetect/operator_link.py",
-        "bytes": 110757,
-        "sha256": "4c0961bee0bdb8f2dc866163f9f261cd575961a244f1a5cf1921ea31f3ea235f"
+        "bytes": 122263,
+        "sha256": "6a2ca45e38d1946ad0c3111c7ba0df5386527949ab6d03303a9c142e2cd9e1d5"
       },
       {
         "path": "src/multidetect/operator_mavlink.py",
-        "bytes": 16086,
-        "sha256": "b3edf2d24fa4f1ae01aaf78dfc8d122a9f382542d087fd36a8e56380eaa92bdb"
+        "bytes": 18119,
+        "sha256": "6816024bc6ea354c601d2a5c830a95174dc93be5ed88ae33c9c8c48a71c85d15"
       },
       {
         "path": "src/multidetect/operator_protocol.py",
-        "bytes": 131912,
-        "sha256": "66285be97052aa734f50cb429420fe5ba2a06aca8b1cdec532c0733ae0e676f1"
+        "bytes": 133195,
+        "sha256": "3aaef60e9679b2abbb17b0675b0991af3de95ac163e214799728d7b733563263"
       },
       {
         "path": "src/multidetect/operator_status.py",
@@ -19508,13 +19898,18 @@
       },
       {
         "path": "src/multidetect/operator_udp.py",
-        "bytes": 74840,
-        "sha256": "e939ef3532e11a69919916f9f6b0d6c9917343af928ae7dfd57a50864f01dfae"
+        "bytes": 100192,
+        "sha256": "1d0b5c84ac97c6b9f4a606ef4b409a400c9c49a8b8d30504b220b8055e57c235"
       },
       {
         "path": "src/multidetect/payload_hil_mission.py",
         "bytes": 8429,
         "sha256": "212f268582efefcef1751ca76796c1c3e17b0e7db62d2f9aa19a84b1a8eb0c45"
+      },
+      {
+        "path": "src/multidetect/payload_target_acceptance.py",
+        "bytes": 21765,
+        "sha256": "db813a230e690fabc79f1f0e2de3c035ed514bca0e5cd610574fff684340b68a"
       },
       {
         "path": "src/multidetect/payload_target_gate.py",
@@ -19602,9 +19997,44 @@
         "sha256": "50c6305ad23e4652a01a1e34bfdc481ff76f930a7c6c2bceee3612e84b46a413"
       },
       {
+        "path": "src/multidetect/search_coverage.py",
+        "bytes": 19453,
+        "sha256": "e0fdd593bc978e67bac9dda023d9242341ff77d1b1f91abf7f8aabb199d25784"
+      },
+      {
         "path": "src/multidetect/sensor_transport_binding.py",
         "bytes": 11675,
         "sha256": "cb83be694f4baa119ec84a102967958c81e39c3e493630068e84299ec3e7c069"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/executor.py",
+        "bytes": 11571,
+        "sha256": "4e95e5487469bfb96dd5ffdf1383ad8b2a89830069f194fc7a4bdcb19bacee06"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/isolation.py",
+        "bytes": 908,
+        "sha256": "8179f1afeb0935de8d6b19abfd536f78b7f81a01847fd79ce9f7fcccd38e62e0"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/policies.py",
+        "bytes": 35503,
+        "sha256": "438ee249b5097e2813411088b29f539c79e92c7e31aad391d7f80cfe495788a3"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/primitives.py",
+        "bytes": 4075,
+        "sha256": "11ff8a0418d23e1160c2de21042a1816e006132e1255ff0bf8ff034dbaf5ffb7"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/segmentation.py",
+        "bytes": 2771,
+        "sha256": "3cf9410cc7dc1ab2ed9dd1b7e4ff5246ebdde20b00e545517fd7cd070d3a5d6c"
+      },
+      {
+        "path": "src/multidetect/sim_teacher/streams.py",
+        "bytes": 38246,
+        "sha256": "b874fe48c624fa06b9ee6c48844904197084221e7e6930661da0d8ba468380c8"
       },
       {
         "path": "src/multidetect/simulation/energy_replay.py",
@@ -19630,6 +20060,11 @@
         "path": "src/multidetect/simulator/ai_executor.py",
         "bytes": 52566,
         "sha256": "b7a22cbba14467bbcfab890ef1fee84d6a44b2959cb45a1f10feea7b273f7684"
+      },
+      {
+        "path": "src/multidetect/simulator/camera_projection.py",
+        "bytes": 15869,
+        "sha256": "63889b31d37acb025d7e926f1fca17acb22c3338f1338c263c2ff0ae9d81c204"
       },
       {
         "path": "src/multidetect/simulator/closed_loop.py",
@@ -19668,8 +20103,13 @@
       },
       {
         "path": "src/multidetect/simulator/stack.py",
-        "bytes": 67553,
-        "sha256": "ddba6bf8cd42df58b77f560da2544405dee9fc5f9117c22d81f0e5cdc264439f"
+        "bytes": 69054,
+        "sha256": "619c5adb8788d8d2cd0bffb2eadd97f382e0b75521ea74bee53b2a563839dbf8"
+      },
+      {
+        "path": "src/multidetect/simulator/task_semantics.py",
+        "bytes": 5040,
+        "sha256": "67562921c094a9b4b7494b82848ad2dd7468d49b2f211bb36fa8fe4c7ed41659"
       },
       {
         "path": "src/multidetect/state_machine.py",
@@ -19725,37 +20165,6 @@
         "path": "tmp/field-link-address-whatif-v102-final.json",
         "bytes": 848,
         "sha256": "02754788e034a440fe0b98cfffc157683de69a65ae43e88ab3fdf945dd05ed1b"
-      }
-    ],
-    "rebuilt_artifacts": [
-      {
-        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/external-mission-matrix.json",
-        "bytes": 7518,
-        "sha256": "e9b596706bca76c7b4fb81da2d7c2f78c2042c8bc7da5f9bb5d7271933c8ee40",
-        "canonical_sha256": "c80d0c3b65fc16509328f7530d82ffc9434859009ff64125bd7b30b2b954775e"
-      },
-      {
-        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/shared-policy-vehicle-matrix.json",
-        "bytes": 8304,
-        "sha256": "95c1d0bb36255d30af7ed8b14dbda4883f871de13a904867e00cf15c2cf618f2",
-        "canonical_sha256": "1d075a45f4edeb67343040ce140108a6aa837403f725298091e481a1caba483b"
-      },
-      {
-        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/simulator-ai-flight-parity.json",
-        "bytes": 4547,
-        "sha256": "9fbeda5abf215d68532b1a4f40f867bf5df33ce1c9d2ac18be7be41f38077fa8",
-        "canonical_sha256": "407e42f98846621707e4769d11d88c8cd8cd1fc2a59b0119885b9328372b4201"
-      },
-      {
-        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/foundation.json",
-        "bytes": 6442,
-        "sha256": "856eb8a1ede8f40c646b3fe96503687a90a517b6345c6cf973f01c60f8d47606",
-        "canonical_sha256": "c25f2c1748dd8e5d3ceb694bceb9f218f5bf18291a16dcf5842b3876f9f552d8"
-      },
-      {
-        "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/release-gate-audit.json",
-        "bytes": 5918,
-        "sha256": "a60893c5760e8111497bbb2627aa083b2706ade25093388eb10b2892eaf25a18"
       }
     ],
     "software_foundation_reexecuted": true

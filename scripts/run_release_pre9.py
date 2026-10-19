@@ -219,7 +219,11 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
             "current_progress_rebind",
             "1-3 min",
             "<50 MB",
-            (_python(), "scripts/rebind_current_release_parity_index.py"),
+            # Staged r11 rebind -> finalize (re-runs the CPU foundation and
+            # airframe transaction gates) -> verify -> promote; see
+            # _rebind_current_progress.  The older rebind_current_release_parity_index
+            # script targets evidence the index no longer references.
+            (_python(), "scripts/rebind_current_release_parity_r11.py", "--promote", "<staged>"),
             owner_required=True,
         ),
         Stage(
@@ -423,9 +427,40 @@ def _ensure_replay_fixture(root: Path, run_dir: Path) -> None:
     _run([_python(), str(creator), str(fixture)], root, run_dir / "replay_fixture.log")
 
 
+def _rebind_current_progress(root: Path, run_dir: Path) -> None:
+    """Bind docs/current-progress.json to the new version and parity via generators."""
+    tag = "pre" + TARGET_VERSION.rsplit(".", 1)[-1] + "-" + run_dir.name
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    staging = root / "artifacts" / "evaluation" / f"parity-teacher-admission-{date}-{tag}"
+    if staging.exists():
+        raise RuntimeError(f"rebind staging already exists (use a fresh run directory): {staging}")
+    staged = staging / "staged-current-progress.json"
+    verify = str(root / "scripts" / "verify_current_progress_index.py")
+    rebind = str(root / "scripts" / "rebind_current_release_parity_r11.py")
+    finalize = str(root / "scripts" / "finalize_onboard_training_progress.py")
+    steps = (
+        ("rebind-0-sources", [verify, "--check-sources-only"]),
+        (
+            "rebind-1-stage",
+            [rebind, "--output", str(staged), "--artifact-directory", str(staging / "copies")],
+        ),
+        (
+            "rebind-2-finalize",
+            [finalize, "--progress", str(staged), "--tag", tag, "--skip-training-summary"],
+        ),
+        ("rebind-3-verify", [verify, "--check-sources", "--progress", str(staged)]),
+        ("rebind-4-promote", [rebind, "--promote", str(staged)]),
+    )
+    for name, argv in steps:
+        _run([_python(), *argv], root, run_dir / f"{name}.log")
+
+
 def _execute_stage(stage: Stage, root: Path, run_dir: Path) -> None:
     if stage.name == "combined_px4_gazebo_qgc_acceptance":
         _ensure_replay_fixture(root, run_dir)
+    if stage.name == "current_progress_rebind":
+        _rebind_current_progress(root, run_dir)
+        return
     if stage.name == "preflight":
         report = preflight_report(root)
         _write_json(run_dir / "preflight.json", report)

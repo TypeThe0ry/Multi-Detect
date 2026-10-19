@@ -16,7 +16,8 @@ def test_pre1_foundation_acceptance_is_current_and_deterministic(tmp_path: Path)
 
     assert first == second
     assert first["foundation_baseline"] == "0.3.0-pre.1"
-    assert first["current_release_label"] == "0.3.0-pre.8"
+    manifest = json.loads((ROOT / "configs/product-version.json").read_text(encoding="utf-8"))
+    assert first["current_release_label"] == manifest["release_label"]
     assert first["gate_passed"] is True
     assert first["truth_free"] is True
     assert first["policy_applied_to_actuator"] is False

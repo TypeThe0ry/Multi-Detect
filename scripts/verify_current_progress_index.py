@@ -821,7 +821,8 @@ def _verify_current_shared_policy_vehicle_matrix(root: Path, progress: dict[str,
     unsigned = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
     if (
         receipt.get("receipt_sha256") != _canonical_sha256(unsigned)
-        or receipt.get("release_label") != "0.3.0-pre.8"
+        # The matrix is regenerated from the canonical version manifest.
+        or receipt.get("release_label") != progress.get("product_version", {}).get("release_label")
         or receipt.get("same_external_mission_path") is not True
         or receipt.get("same_core_compiler_and_transaction") is not True
         or receipt.get("same_high_level_ranker") is not True
@@ -921,7 +922,7 @@ def _verify_current_shared_policy_vtol_campaign(
         or release.get("bytes") != parity_path.stat().st_size
         or release.get("file_sha256") != _sha256(parity_path)
         or release.get("hashes") != parity.get("parity")
-        or release.get("release_label") != "0.3.0-pre.8"
+        or release.get("release_label") != parity.get("release_label")
     ):
         raise ValueError("current shared-policy VTOL release parity binding drift")
     if (
