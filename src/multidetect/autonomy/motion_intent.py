@@ -273,6 +273,8 @@ class AirframeMotionAdapter:
         if self.mode not in {"MC", "FW"}:
             raise MotionIntentError("mode must be MC or FW")
         self.energy = energy_params_from_profile(self.profile)
+        # Fixed-wing altitude reference for primitive bridging (NED down, metres).
+        self._held_down: float | None = None
         self.safety = safety or SafetyEnvelope(
             SafetyEnvelopeConfig(
                 vehicle=dynamics_from_profile(self.profile),
@@ -294,6 +296,8 @@ class AirframeMotionAdapter:
         else:
             value = str(mode).upper()
         if value in {"MC", "FW"}:
+            if value != self.mode:
+                self._held_down = None
             self.mode = value
 
     @classmethod
@@ -493,6 +497,13 @@ class AirframeMotionAdapter:
                 mode="MC",
                 metadata=meta,
             )
+        # A plane loses a little height in every banked turn.  Commanding the
+        # current altitude each step ratchets it down: in SITL a 30 m search
+        # sank to 18 m over 25 steps, below a 23 m water tower.  Hold the last
+        # commanded altitude and apply only the loop's requested climb/descent.
+        if self._held_down is None:
+            self._held_down = pose[2]
+        pose = (pose[0], pose[1], self._held_down)
         if (
             not self._safe_legacy(
                 ActionPrimitive.translate(action.forward_m, action.right_m, action.up_m),
@@ -529,6 +540,7 @@ class AirframeMotionAdapter:
                 metadata=metadata or {},
             )
         north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw_deg)
+        self._held_down = pose[2] + down
         return MotionCommand(
             "reposition",
             target_ned=(pose[0] + north, pose[1] + east, pose[2] + down),

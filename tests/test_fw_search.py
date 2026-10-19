@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import pytest
+
 from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m
 from multidetect.autonomy.motion_intent import AirframeMotionAdapter
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
@@ -74,3 +76,27 @@ def test_fixed_wing_search_legs_pass_the_adapter_envelope() -> None:
     command = adapter.from_primitive(leg, pose_ned=pose, yaw_deg=0.0)
     command, safety = adapter.guard_command(command, pose_ned=pose, yaw_deg=0.0)
     assert command.kind == "reposition", safety
+
+
+def test_fixed_wing_steps_hold_the_commanded_altitude_while_the_plane_sinks() -> None:
+    # SITL: commanding the current altitude every step let banked-turn losses
+    # accumulate (30 m -> 18 m).  The bridge keeps the commanded altitude.
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    first = adapter.from_primitive(
+        ActionPrimitive.translate(25.0, 0.0, 0.0), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0
+    )
+    assert first.target_ned[2] == pytest.approx(-30.0)
+    sunk = adapter.from_primitive(
+        ActionPrimitive.translate(25.0, 0.0, 0.0), pose_ned=(25.0, 0.0, -27.5), yaw_deg=0.0
+    )
+    assert sunk.target_ned[2] == pytest.approx(-30.0)
+    loiter = adapter.from_primitive(ActionPrimitive.hold(2.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0)
+    assert loiter.target_ned[2] == pytest.approx(-30.0)
+    descend = adapter.from_primitive(
+        ActionPrimitive.translate(20.0, 0.0, -4.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0
+    )
+    assert descend.target_ned[2] == pytest.approx(-26.0)
+    after = adapter.from_primitive(
+        ActionPrimitive.translate(20.0, 0.0, 0.0), pose_ned=(70.0, 0.0, -24.0), yaw_deg=0.0
+    )
+    assert after.target_ned[2] == pytest.approx(-26.0)
