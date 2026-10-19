@@ -1342,25 +1342,23 @@ class OnboardLoop:
             "latency_s": 0.0,
         }
 
-    def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
-        if track.ground is None or self._last_pose is None:
-            return
-        seen_from = (self._last_pose[0], self._last_pose[1])
+    def _rejection_at(self, track: Track) -> dict[str, Any] | None:
+        """An earlier rejection that may be the same object as ``track`` (same place, look)."""
+        if track.ground is None:
+            return None
         footprint = getattr(track.appearance, "footprint_m", None)
-
-        def compatible(item: dict[str, Any]) -> bool:
+        for item in self._rejections:
             if item.get("track_id") in track.co_visible_with or track.track_id in item.get(
                 "co_visible_with", ()
             ):
-                return False
+                continue
             prior = item.get("appearance")
-            return (
+            if not (
                 prior is None
                 or track.appearance is None
                 or appearances_consistent(prior, track.appearance, self.config)
-            )
-
-        for item in self._rejections:
+            ):
+                continue
             radius = (
                 max(
                     1.5,
@@ -1370,12 +1368,22 @@ class OnboardLoop:
                 if (item.get("footprint_m") or footprint)
                 else self.config.count_dedupe_m
             )
-            if compatible(item) and math.dist(item["ground"], track.ground) <= radius:
-                item["ground"] = track.ground
-                item["views"].append(seen_from)
-                if confidence is not None:
-                    item["confidence"] = max(item.get("confidence") or 0.0, confidence)
-                return
+            if math.dist(item["ground"], track.ground) <= radius:
+                return item
+        return None
+
+    def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
+        if track.ground is None or self._last_pose is None:
+            return
+        seen_from = (self._last_pose[0], self._last_pose[1])
+        footprint = getattr(track.appearance, "footprint_m", None)
+        item = self._rejection_at(track)
+        if item is not None:
+            item["ground"] = track.ground
+            item["views"].append(seen_from)
+            if confidence is not None:
+                item["confidence"] = max(item.get("confidence") or 0.0, confidence)
+            return
         self._rejections.append(
             {
                 "ground": track.ground,
@@ -2101,8 +2109,20 @@ class OnboardLoop:
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
             info["match_views"] = matches
+            # A fly-by pass gets one view per lap and cannot cheaply look again
+            # after a wrong confirmation: a single view never overrules an earlier
+            # rejection at the same place (SITL: a bus rejected on one lap got a new
+            # track id and was confirmed as the ambulance from one rolled frame).
+            contradicted = (
+                self.config.fixed_wing_pass
+                and votes < self.config.confirm_matches
+                and self._rejection_at(best) is not None
+            )
+            if contradicted:
+                info["contradicted_by_rejection"] = True
             if (
                 unclipped
+                and not contradicted
                 and not best.needs_fresh_verdict
                 and not best.verdict_remembered
                 and (

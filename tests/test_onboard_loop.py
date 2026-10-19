@@ -879,3 +879,27 @@ def test_a_closest_view_that_never_confirms_is_dropped() -> None:
         )
         reasons.append(info.get("reason"))
     assert "closest_view_exhausted" in reasons and loop.tracks["t1"].exhausted
+
+
+def _fw_single_view_confirm(reject_first: bool):
+    loop = _fw_loop()
+    plane = _Plane(0.0, 0.0, 0.0)
+    target = (40.0, 0.0)
+    if reject_first:
+        _fw_step(loop, plane, target, lambda track, plane: "reject_track")
+        for _ in range(loop.config.lost_after_steps + 2):
+            _fw_step(loop, plane, None, _approach)
+    _, info, seen = _fw_step(loop, plane, target, lambda track, plane: "confirm_target")
+    assert seen
+    return loop, info
+
+
+def test_fixed_wing_single_view_confirms_an_unrejected_place() -> None:
+    loop, info = _fw_single_view_confirm(reject_first=False)
+    assert loop.confirmed is not None and info["confirmed"]["confirm_views"] == 1
+
+
+def test_fixed_wing_single_view_does_not_overrule_a_rejection_at_the_same_place() -> None:
+    loop, info = _fw_single_view_confirm(reject_first=True)
+    assert info["focus"] != "t1"  # a new track id at the rejected place
+    assert loop.confirmed is None and info["contradicted_by_rejection"]
