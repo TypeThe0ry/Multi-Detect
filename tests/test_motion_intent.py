@@ -248,3 +248,71 @@ def test_fixed_wing_guard_accepts_the_mode_names_vehicle_state_reports():
     for main, sub in ((4, 3), (3, 1), (4, 4), (4, 5), (4, 6), (6, 0)):
         assert _mode_name(custom(main, sub)) in FIXED_WING_GUIDED_MODES
     assert _mode_name(custom(3, 0)) not in FIXED_WING_GUIDED_MODES  # manual POSCTL
+
+
+def _fw_pass_labels(centre, radius):
+    return {
+        "onboard": {"state": "approaching", "fw_orbit": {"centre_ne": centre, "radius_m": radius}}
+    }
+
+
+def test_fixed_wing_pass_hold_becomes_a_guided_orbit_at_the_held_altitude():
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    adapter.from_primitive(ActionPrimitive.translate(20, 0), pose_ned=(0, 0, -30), yaw_deg=0)
+    # The plane sagged 2 m in a turn; the pass orbit keeps the commanded altitude.
+    command = adapter.from_primitive(
+        ActionPrimitive.hold(1.0),
+        pose_ned=(20, 0, -28),
+        yaw_deg=0,
+        metadata=_fw_pass_labels([100.0, 90.0], 90.0),
+    )
+    assert command.kind == "orbit" and command.target_ned == (100.0, 90.0, -30.0)
+    assert command.radius_m == 90.0 and command.speed_mps == adapter.profile.cruise_airspeed_mps
+    assert command.action == ActionPrimitive.hold(1.0)
+    # Without the pass, a hold stays the profile loiter around the aircraft.
+    plain = adapter.from_primitive(ActionPrimitive.hold(1.0), pose_ned=(20, 0, -28), yaw_deg=0)
+    assert plain.kind == "loiter" and plain.radius_m == adapter.profile.orbit_radius()
+
+
+class _Wall:
+    """Static obstacle: nothing may be flown north of ``north_m``."""
+
+    def __init__(self, north_m):
+        self.north_m = north_m
+
+    def segment_clear(self, start, end):
+        return max(start[0], end[0]) < self.north_m
+
+
+def _guard_pass(adapter, centre, radius=90.0):
+    return adapter.guard_command(
+        MotionCommand(
+            "orbit",
+            target_ned=(centre[0], centre[1], -30.0),
+            radius_m=radius,
+            duration_s=1.0,
+            speed_mps=adapter.profile.cruise_airspeed_mps,
+            mode="FW",
+        ),
+        pose_ned=(0.0, 0.0, -30.0),
+        yaw_deg=0.0,
+    )
+
+
+def test_fixed_wing_pass_orbit_is_checked_along_the_whole_circle():
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    fence = ((-300.0, -300.0), (300.0, -300.0), (300.0, 300.0), (-300.0, 300.0))
+    adapter.safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(operating_polygon=fence, vehicle=adapter.safety.vehicle),
+        home_ned=(0.0, 0.0, 0.0),
+        obstacle_source=_Wall(250.0),
+    )
+    command, safety = _guard_pass(adapter, (100.0, 90.0))
+    assert command.kind == "orbit" and not safety.get("rejected")
+    # The same hold probe at the aircraft would pass; the far rim leaves the area.
+    command, safety = _guard_pass(adapter, (100.0, 250.0))
+    assert command.kind == "loiter" and "geofence" in safety["reasons"]
+    command, safety = _guard_pass(adapter, (200.0, 0.0))
+    assert command.kind == "loiter" and "obstacle" in safety["reasons"]
+    command, safety = _guard_pass(adapter, (100.0, 90.0), radius=10.0)
+    assert command.kind == "loiter" and "turn_radius" in safety["reasons"]

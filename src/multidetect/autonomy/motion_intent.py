@@ -396,18 +396,35 @@ class AirframeMotionAdapter:
             # A transition has no displacement, but still needs altitude and
             # airspeed validation under the transition branch of the envelope.
             speed = self.profile.cruise_airspeed_mps
-        decision = self.safety.apply(
-            probe,
-            pose_ned=pose,
-            yaw_deg=float(yaw_deg),
-            current_agl_m=current_agl_m,
-            phase=phase,
-            skill=skill,
-            airspeed_mps=speed,
-            turn_radius_m=radius,
-            mode=mode,
-            duration_s=duration,
-        )
+        if kind == "orbit" and command.target_ned is not None and radius:
+            # An orbit about a distant centre (a fly-by pass) is a long path, not a
+            # hold: the whole circle and its entry leg must pass the envelope.
+            decision = self.safety.apply_orbit(
+                command.target_ned[:2],
+                radius,
+                pose_ned=pose,
+                down_m=command.target_ned[2],
+                yaw_deg=float(yaw_deg),
+                current_agl_m=current_agl_m,
+                phase=phase,
+                skill=skill,
+                airspeed_mps=speed,
+                mode=mode,
+                duration_s=duration,
+            )
+        else:
+            decision = self.safety.apply(
+                probe,
+                pose_ned=pose,
+                yaw_deg=float(yaw_deg),
+                current_agl_m=current_agl_m,
+                phase=phase,
+                skill=skill,
+                airspeed_mps=speed,
+                turn_radius_m=radius,
+                mode=mode,
+                duration_s=duration,
+            )
         safety = decision.info().get("safety", {})
         # A high-level command cannot carry the envelope's clipped primitive
         # back to PX4.  Treat clipping as a refusal too, otherwise a long
@@ -511,6 +528,23 @@ class AirframeMotionAdapter:
             and action.kind == "translate"
         ):
             return self._recovery("safety envelope rejected motion", pose)
+        pass_orbit = onboard.get("fw_orbit") if isinstance(onboard, Mapping) else None
+        if action.kind == "hold" and isinstance(pass_orbit, Mapping):
+            # The loop's fly-by pass: a guided orbit through the target, held at
+            # the commanded altitude.  The guard checks the whole circle.
+            centre = pass_orbit.get("centre_ne") or ()
+            radius = pass_orbit.get("radius_m")
+            if len(centre) >= 2 and isinstance(radius, (int, float)) and radius > 0:
+                return MotionCommand(
+                    "orbit",
+                    target_ned=(float(centre[0]), float(centre[1]), pose[2]),
+                    radius_m=max(float(radius), self.profile.loiter_radius_m()),
+                    duration_s=action.seconds,
+                    speed_mps=self.profile.cruise_airspeed_mps,
+                    mode=self.mode,
+                    reason="fixed-wing fly-by pass",
+                    metadata=meta,
+                )
         if action.kind == "hold":
             return MotionCommand(
                 "loiter",

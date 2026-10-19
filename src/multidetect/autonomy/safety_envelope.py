@@ -413,6 +413,12 @@ class SafetyEnvelope:
                 reasons.append("no_fly")
         return reasons
 
+    def leg_allowed(self, start: Sequence[float], end: Sequence[float]) -> bool:
+        """Horizontal leg inside the operating area, home radius and outside no-fly zones."""
+        return not self._spatial_reasons(
+            (float(start[0]), float(start[1])), (float(end[0]), float(end[1]))
+        )
+
     def _segment_clear(self, start: Pose, end: Pose) -> bool:
         if self.obstacle_source is None:
             return True
@@ -442,6 +448,54 @@ class SafetyEnvelope:
                 reasons.append("obstacle")
             previous = current
         return not reasons, list(dict.fromkeys(reasons))
+
+    def apply_orbit(
+        self,
+        centre_ne: Sequence[float],
+        radius_m: float,
+        *,
+        pose_ned: Pose,
+        down_m: float | None = None,
+        points: int = 24,
+        **kwargs: Any,
+    ) -> SafetyDecision:
+        """Check an autopilot orbit: the hold probe, then the whole circle and its entry.
+
+        A guided orbit flies far beyond the per-step bound of a primitive, so every
+        sampled rim segment (and the leg from the aircraft to the nearest rim point)
+        must pass the same fence, no-fly and obstacle checks as a translation.
+        """
+        pose = tuple(float(v) for v in pose_ned)
+        duration = kwargs.pop("duration_s", None)
+        decision = self.apply(
+            ActionPrimitive.hold(max(float(duration or 0.0), 0.01)),
+            pose_ned=pose,
+            turn_radius_m=float(radius_m),
+            duration_s=duration,
+            **kwargs,
+        )
+        if decision.rejected or len(pose) != 3:
+            return decision
+        cn, ce = float(centre_ne[0]), float(centre_ne[1])
+        radius = abs(float(radius_m))
+        down = pose[2] if down_m is None else float(down_m)
+        count = max(8, int(points))
+        angles = [2 * math.pi * i / count for i in range(count + 1)]
+        rim = [(cn + radius * math.cos(a), ce + radius * math.sin(a)) for a in angles]
+        offset = math.hypot(pose[0] - cn, pose[1] - ce)
+        if offset > 1e-6:
+            entry = (cn + radius * (pose[0] - cn) / offset, ce + radius * (pose[1] - ce) / offset)
+        else:
+            entry = rim[0]
+        legs = [((pose[0], pose[1]), entry), *zip(rim, rim[1:], strict=False)]
+        reasons: list[str] = []
+        for start, end in legs:
+            reasons.extend(self._spatial_reasons(start, end))
+            if not self._segment_clear((start[0], start[1], down), (end[0], end[1], down)):
+                reasons.append("obstacle")
+        if reasons:
+            return self._reject(list(dict.fromkeys(reasons)))
+        return decision
 
     def split_vertical(self, action: ActionPrimitive) -> tuple[ActionPrimitive, ...]:
         """Compatibility helper: return the single bounded action for this frame."""
