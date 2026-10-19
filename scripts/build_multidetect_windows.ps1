@@ -378,8 +378,20 @@ if ($BuildSelfTests) {
         'MultiDetectTargetObservationDiagnosticsSelfTest',
         'MultiDetectTargetObservationRecorderSelfTest',
         'MultiDetectDepthGridProtocolSelfTest',
-        'MultiDetectReplayRtspWireSelfTest'
+        'MultiDetectReplayRtspWireSelfTest',
+        'MultiDetectMissionSecuritySelfTest'
     )
+}
+# The mission-security (Ed25519) self-test runs inside the MSVC/Qt shell below:
+# outside it the Qt DLLs are not on PATH.  Without an MSVC OpenSSL it reports
+# "signing backend unavailable" and still checks canonical encoding.
+$selfTestBlock = if ($BuildSelfTests) {
+    @"
+"$buildDir\$Configuration\MultiDetectMissionSecuritySelfTest.exe"
+if errorlevel 1 exit /b %errorlevel%
+"@
+} else {
+    'rem self-tests not requested'
 }
 $buildTargetArguments = $buildTargets -join ' '
 $installBlock = if ($InstallPortable) {
@@ -406,6 +418,7 @@ set "CPM_SOURCE_CACHE=$cpmCache"
 $configureBlock
 "$cmake" --build "$buildDir" --config $Configuration --target $buildTargetArguments --parallel $Parallel
 if errorlevel 1 exit /b %errorlevel%
+$selfTestBlock
 $installBlock
 echo BUILD_OUTPUT=$buildDir\$Configuration\MultiDetectGCS.exe
 exit /b 0

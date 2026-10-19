@@ -163,16 +163,9 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
                 "4",
                 "-Version",
                 TARGET_VERSION,
-                "&&",
-                "powershell.exe",
-                "-NoProfile",
-                "-Command",
-                "$ErrorActionPreference='Stop'; "
-                "& cmake --build 'build/windows-v0.3.0-pre.9-release' "
-                "--config Release --target MultiDetectMissionSecuritySelfTest --parallel 4; "
-                "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; "
-                "& 'build/windows-v0.3.0-pre.9-release/Release/"
-                "MultiDetectMissionSecuritySelfTest.exe'; exit $LASTEXITCODE",
+                # -BuildSelfTests also builds and runs the Ed25519 mission-security
+                # self-test inside the MSVC/Qt shell (a bare cmake --build here had
+                # no MSVC include path).
             ),
         ),
         Stage(
