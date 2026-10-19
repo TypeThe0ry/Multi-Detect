@@ -212,6 +212,8 @@ class CollectionPlan:
     teacher_target: str = "true"
     smoke_flight: bool = False
     takeoff_method: str | None = None
+    # Copy PX4's .ulg flight logs out of the container before it is removed.
+    keep_px4_ulog: bool = False
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -716,7 +718,39 @@ class DockerSimEnvironment:
             time.sleep(0.25)
         raise TimeoutError(f"SIM container did not become running within {timeout_s:.1f}s")
 
+    def copy_px4_ulogs(self) -> list[str]:
+        """Copy every PX4 ``.ulg`` in the container into ``<out>/jobs/<name>/px4-ulog``."""
+        executable = _docker_executable(self.plan)
+        listing = subprocess.run(
+            [executable, "exec", self.name, "find", "/", "-xdev", "-name", "*.ulg", "-type", "f"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        destination = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
+        copied: list[str] = []
+        for remote in sorted(line.strip() for line in listing.stdout.splitlines() if line.strip()):
+            destination.mkdir(parents=True, exist_ok=True)
+            local = destination / remote.strip("/").replace("/", "__")
+            result = subprocess.run(
+                [executable, "cp", f"{self.name}:{remote}", str(local)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode == 0:
+                copied.append(str(local))
+        self._progress("px4_ulog_copied", container=self.name, files=copied)
+        return copied
+
     def __exit__(self, exc_type, exc, tb) -> bool:
+        if self.started and self.plan.keep_px4_ulog:
+            try:
+                self.copy_px4_ulogs()
+            except (OSError, subprocess.SubprocessError) as error:
+                self._progress("px4_ulog_copy_failed", container=self.name, error=str(error))
         if self.started and not (
             exc_type is not None
             and self.plan.keep_container_on_failure
@@ -3444,6 +3478,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-episode-s", type=float, default=None)
     parser.add_argument("--heartbeat-timeout-s", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_S)
     parser.add_argument("--keep-container-on-failure", action="store_true")
+    parser.add_argument(
+        "--keep-px4-ulog",
+        action="store_true",
+        help="copy PX4 .ulg flight logs to <out>/jobs/<container>/px4-ulog before cleanup",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)
     parser.add_argument("--depth-size", type=_parse_size, default=DEFAULT_DEPTH_SIZE)
@@ -3526,6 +3565,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
+        keep_px4_ulog=args.keep_px4_ulog,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

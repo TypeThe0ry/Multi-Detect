@@ -42,6 +42,39 @@ CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+# SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
+# px4-rc.gzsim starts the simulated sensors.  Without them EKF2's attitude
+# drifted from Gazebo's ground truth in banked flight (fixed-wing loiters:
+# yaw +3..7 deg, pitch/roll biases absorbed into accel bias):
+#
+# * The pinned image's Gazebo Harmonic magnetometer applies the vehicle's tilt
+#   about the wrong axes (roll and pitch exchanged, i.e. the attitude
+#   conjugated by a 90 deg yaw; see PX4's model.sdf note on gz-sim PR #2460).
+#   Level it is right; at 15-40 deg of tilt it is 20-40 deg off, and EKF2's
+#   3D mag fusion absorbs that into its earth-field and mag-bias states.
+#   PX4's own SIM magnetometer (``sensor_mag_sim``: WMM at the ground-truth
+#   position rotated by the ground-truth attitude) replaces it.  Both report
+#   device id 197388, so the Gazebo one cannot be disabled by calibration
+#   priority; Gazebo instead starts from a copy of the image's server.config
+#   without the magnetometer system, so the model's sensor never publishes.
+# * Gazebo's GNSS and PX4's SIM airspeed have no latency, but the defaults tell
+#   EKF2 to expect 110 ms (GNSS) and 100 ms (airspeed).  In a 20+ deg/s turn
+#   that mismatch rotates the velocity innovations by a few degrees, which
+#   EKF2 turns into a yaw error that outlives the turn.  Real airframes keep
+#   their measured delays; these values only describe the simulator.
+SIM_SENSOR_PARAMETERS = (
+    ("SENS_EN_MAGSIM", "1"),
+    ("SENS_GPS0_DELAY", "0"),
+    ("EKF2_ASP_DELAY", "0"),
+)
+IMAGE_SERVER_CONFIG = "/opt/px4-gazebo/share/gz/server.config"
+CONTAINER_SERVER_CONFIG = "/tmp/multidetect-gz-server.config"
+_DROP_GAZEBO_MAGNETOMETER = (
+    f"sed '/gz-sim-magnetometer-system/d' {IMAGE_SERVER_CONFIG} > {CONTAINER_SERVER_CONFIG}; "
+    f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG}; "
+    f"if grep -q gz-sim-magnetometer-system {CONTAINER_SERVER_CONFIG}; then exit 70; fi; "
+    f"export GZ_SIM_SERVER_CONFIG_PATH={CONTAINER_SERVER_CONFIG}; "
+)
 
 
 class DockerSimulatorPlanError(RuntimeError):
@@ -395,6 +428,7 @@ def build_docker_simulator_plan(
         "MD_SIM_SCENARIO_SHA256": stack.scenario_manifest_hash,
         "MD_SIM_SEED": str(stack.seed),
         "GZ_VERBOSE": "0",
+        **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
     for key in (
         "PX4_HOME_LAT",
@@ -438,6 +472,7 @@ def build_docker_simulator_plan(
             "export PX4_NET_INTERFACE=; ",
             "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
+            _DROP_GAZEBO_MAGNETOMETER,
             "export GZ_SIM_RESOURCE_PATH=",
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",

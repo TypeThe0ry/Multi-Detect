@@ -208,3 +208,38 @@ def test_airframe_profile_identity_excludes_per_run_stack_wiring(tmp_path):
     second = airframe_profile_hash({**base, "stack_plan_sha256": "b" * 64})
     assert first == second
     assert len(first) == 64
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    (
+        SCENARIO,
+        ROOT / "configs" / "scenarios" / "coastal_patrol_fixed_wing_001.scenario.json",
+        ROOT / "configs" / "scenarios" / "fixed-wing-v2" / "gen_v2_w0031.scenario.json",
+    ),
+)
+def test_docker_plan_sets_sim_sensor_parameters_for_every_vehicle_class(
+    scenario: Path, tmp_path: Path
+) -> None:
+    # Gazebo Harmonic's magnetometer exchanges roll and pitch; PX4's own SIM
+    # magnetometer must be the only one EKF2 sees, for every vehicle class, and
+    # EKF2 must not expect real-hardware sensor latency.
+    plan = build_docker_simulator_plan(scenario, repository_root=ROOT, job_dir=tmp_path / "job")
+    environment = dict(plan.environment)
+    assert environment["PX4_PARAM_SENS_EN_MAGSIM"] == "1"
+    # The simulated GNSS and airspeed arrive without latency.
+    assert environment["PX4_PARAM_SENS_GPS0_DELAY"] == "0"
+    assert environment["PX4_PARAM_EKF2_ASP_DELAY"] == "0"
+    assert "PX4_PARAM_SENS_EN_MAGSIM=1" in plan.command
+    assert plan.to_mapping()["environment"]["PX4_PARAM_SENS_EN_MAGSIM"] == "1"
+    # Both magnetometers share device id 197388, so the Gazebo one is removed at
+    # the source: Gazebo runs without its magnetometer system.
+    assert not any(key.startswith("PX4_PARAM_CAL_MAG") for key in environment)
+    startup = plan.command[-1]
+    drop = (
+        "sed '/gz-sim-magnetometer-system/d' /opt/px4-gazebo/share/gz/server.config "
+        "> /tmp/multidetect-gz-server.config; "
+    )
+    assert drop in startup
+    assert "export GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config; " in startup
+    assert startup.index(drop) < startup.index("exec /opt/px4-gazebo/bin/px4")
