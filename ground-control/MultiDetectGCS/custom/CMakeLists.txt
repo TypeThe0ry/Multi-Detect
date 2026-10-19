@@ -57,7 +57,18 @@ target_include_directories(MultiDetectOperatorProtocol PUBLIC ${CMAKE_CURRENT_SO
 set(MULTIDETECT_OPENSSL_ROOT "" CACHE PATH "OpenSSL root containing lib/cmake/OpenSSL or include + lib")
 find_package(OpenSSL QUIET COMPONENTS Crypto
     HINTS "${MULTIDETECT_OPENSSL_ROOT}" "$ENV{OPENSSL_ROOT_DIR}")
+# A MinGW/MSYS2 OpenSSL found on PATH is ABI-incompatible with MSVC: its CRT
+# headers clash with the MSVC ones and break the build.  Treat it as absent
+# (backend unavailable, REAL upload fails closed) and say so.
+set(MULTIDETECT_OPENSSL_USABLE OFF)
 if(TARGET OpenSSL::Crypto)
+    set(MULTIDETECT_OPENSSL_USABLE ON)
+    if(MSVC AND OPENSSL_INCLUDE_DIR MATCHES "[Mm][Ss][Yy][Ss]|[Mm][Ii][Nn][Gg][Ww]")
+        message(WARNING "Multi-Detect mission security: ignoring MinGW OpenSSL at ${OPENSSL_INCLUDE_DIR} for an MSVC build; set MULTIDETECT_OPENSSL_ROOT to an MSVC OpenSSL to enable Ed25519 signing")
+        set(MULTIDETECT_OPENSSL_USABLE OFF)
+    endif()
+endif()
+if(MULTIDETECT_OPENSSL_USABLE)
     message(STATUS "Multi-Detect mission security: using OpenSSL Crypto Ed25519 backend")
     target_compile_definitions(MultiDetectOperatorProtocol PRIVATE MULTIDETECT_HAVE_OPENSSL=1)
     target_link_libraries(MultiDetectOperatorProtocol PRIVATE OpenSSL::Crypto)
