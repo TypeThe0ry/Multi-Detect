@@ -413,6 +413,8 @@ class LoopConfig:
     # stale range estimate): the host backs off instead of holding (SITL count run
     # hovered 100 steps over a cone whose base was below the frame).
     closest_view_max_holds: int = 6
+    # Bounded history of real verdict places used by fixed-wing single-view checks.
+    place_votes_max: int = 512
     closest_view_backoff_m: float = 3.0
     # A confirm verdict for a candidate farther than this counts only as a match
     # ("it is the object, keep closing in"): the host decides proximity.
@@ -575,6 +577,12 @@ class LoopConfig:
             raise ValueError("closest_view_max_holds must be a positive integer")
         if not math.isfinite(self.closest_view_backoff_m) or self.closest_view_backoff_m <= 0:
             raise ValueError("closest_view_backoff_m must be finite and positive")
+        if (
+            isinstance(self.place_votes_max, bool)
+            or not isinstance(self.place_votes_max, int)
+            or self.place_votes_max < 1
+        ):
+            raise ValueError("place_votes_max must be a positive integer")
 
 
 @dataclass(slots=True)
@@ -732,6 +740,8 @@ class OnboardLoop:
     _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
     _co_visibility_pairs: dict[tuple[str, str], int] = field(default_factory=dict)
     co_visibility_max_pairs: int = 4096
+    # Real confirm/reject verdicts with their ground place (fixed-wing passes).
+    _place_votes: list[dict[str, Any]] = field(default_factory=list)
     _blocked_search_legs: int = 0
     # Active fly-by pass plan (fixed_wing_pass) and its blocked-plan count.
     _fw_pass: dict[str, Any] | None = None
@@ -1297,6 +1307,18 @@ class OnboardLoop:
             track.match_steps.clear()
             if not remembered:
                 self._remember_rejection(track, confidence)
+        if not remembered and verdict in {"confirm", "no_match"} and track.ground is not None:
+            self._place_votes.append(
+                {
+                    "ground": track.ground,
+                    "verdict": verdict,
+                    "track_id": track.track_id,
+                    "co_visible_with": set(track.co_visible_with),
+                    "appearance": track.appearance,
+                    "footprint_m": getattr(track.appearance, "footprint_m", None),
+                }
+            )
+            del self._place_votes[: -self.config.place_votes_max]
 
     def _track_range(self, track: Track) -> float | None:
         if track.ground is None or self._last_pose is None:
@@ -1342,35 +1364,44 @@ class OnboardLoop:
             "latency_s": 0.0,
         }
 
+    def _same_place(self, item: Mapping[str, Any], track: Track) -> bool:
+        """Whether a recorded look (ground, track, appearance) may be ``track``'s object."""
+        if track.ground is None:
+            return False
+        if item.get("track_id") in track.co_visible_with or track.track_id in item.get(
+            "co_visible_with", ()
+        ):
+            return False
+        prior = item.get("appearance")
+        if not (
+            prior is None
+            or track.appearance is None
+            or appearances_consistent(prior, track.appearance, self.config)
+        ):
+            return False
+        footprint = item.get("footprint_m") or getattr(track.appearance, "footprint_m", None)
+        radius = (
+            max(1.5, self.config.memory_footprint_factor * footprint)
+            if footprint
+            else self.config.count_dedupe_m
+        )
+        return math.dist(item["ground"], track.ground) <= radius
+
     def _rejection_at(self, track: Track) -> dict[str, Any] | None:
         """An earlier rejection that may be the same object as ``track`` (same place, look)."""
-        if track.ground is None:
-            return None
-        footprint = getattr(track.appearance, "footprint_m", None)
-        for item in self._rejections:
-            if item.get("track_id") in track.co_visible_with or track.track_id in item.get(
-                "co_visible_with", ()
-            ):
-                continue
-            prior = item.get("appearance")
-            if not (
-                prior is None
-                or track.appearance is None
-                or appearances_consistent(prior, track.appearance, self.config)
-            ):
-                continue
-            radius = (
-                max(
-                    1.5,
-                    self.config.memory_footprint_factor
-                    * (item.get("footprint_m") or footprint or 0.0),
-                )
-                if (item.get("footprint_m") or footprint)
-                else self.config.count_dedupe_m
-            )
-            if math.dist(item["ground"], track.ground) <= radius:
-                return item
-        return None
+        return next((item for item in self._rejections if self._same_place(item, track)), None)
+
+    def _place_vote_counts(self, track: Track) -> tuple[int, int]:
+        """Real confirm and reject verdicts, from any track, at ``track``'s place."""
+        same = [
+            v
+            for v in self._place_votes
+            if v["track_id"] == track.track_id or self._same_place(v, track)
+        ]
+        return (
+            sum(v["verdict"] == "confirm" for v in same),
+            sum(v["verdict"] == "no_match" for v in same),
+        )
 
     def _remember_rejection(self, track: Track, confidence: float | None = None) -> None:
         if track.ground is None or self._last_pose is None:
@@ -2110,14 +2141,15 @@ class OnboardLoop:
             matches = len(best.match_steps)
             info["match_views"] = matches
             # A fly-by pass gets one view per lap and cannot cheaply look again
-            # after a wrong confirmation: a single view never overrules an earlier
-            # rejection at the same place (SITL: a bus rejected on one lap got a new
-            # track id and was confirmed as the ambulance from one rolled frame).
-            contradicted = (
-                self.config.fixed_wing_pass
-                and votes < self.config.confirm_matches
-                and self._rejection_at(best) is not None
-            )
+            # after a wrong confirmation.  A single confirm view only counts while
+            # confirms outnumber rejections at that place across track ids (SITL
+            # w0016: a bus rejected on one lap got a new track id and was confirmed
+            # as the ambulance from one banked frame, 1 vs 1; the real ambulance
+            # drew mixed verdicts, 2 confirms vs 1 rejection).
+            contradicted = False
+            if self.config.fixed_wing_pass and votes < self.config.confirm_matches:
+                yes, no = self._place_vote_counts(best)
+                contradicted = no > 0 and yes <= no
             if contradicted:
                 info["contradicted_by_rejection"] = True
             if (
