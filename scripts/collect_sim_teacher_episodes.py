@@ -1165,7 +1165,14 @@ def _wait_motion_command(
             timeout = max(timeout, min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S))
         distance = yaw_error = speed = float("inf")
         settled_since: float | None = None
-        while time.monotonic() - started < timeout:
+        # Timed on PX4's lockstep clock: on a loaded host the simulation runs well
+        # below real time and a wall-clock budget would cut turns short.
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < timeout
+            and time.monotonic() - started < PRIMITIVE_MAX_WALL_S
+        ):
             reader.raise_if_failed()
             pose = _state_position(reader.state)
             distance = math.hypot(command.target_ned[0] - pose[0], command.target_ned[1] - pose[1])
@@ -1180,16 +1187,17 @@ def _wait_motion_command(
                 and yaw_error <= MC_YAW_TOLERANCE_DEG
                 and speed <= MC_SETTLED_SPEED_MPS
             )
-            now = time.monotonic()
+            now = sim_clock()
             settled_since = (settled_since or now) if settled else None
-            held = now - started >= float(command.duration_s or 0.0)
+            held = now - sim_started >= float(command.duration_s or 0.0)
             if settled_since is not None and now - settled_since >= MC_SETTLE_S and held:
                 return {
                     "waited": "settled",
                     "distance_m": distance,
                     "yaw_error_deg": yaw_error,
                     "leg_m": leg,
-                    "elapsed_s": now - started,
+                    "elapsed_s": time.monotonic() - started,
+                    "sim_elapsed_s": now - sim_started,
                 }
             time.sleep(0.1)
         return {
@@ -1202,7 +1210,12 @@ def _wait_motion_command(
         }
     if kind == "transition":
         target_states = {"MC": {3}, "FW": {4}}.get(str(command.mode or "FW").upper(), {4})
-        while time.monotonic() - started < MOTION_TRANSITION_TIMEOUT_S:
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < MOTION_TRANSITION_TIMEOUT_S
+            and time.monotonic() - started < PRIMITIVE_MAX_WALL_S
+        ):
             reader.raise_if_failed()
             if _flight_state_snapshot(reader.state)["vtol_state"] in target_states:
                 return {"waited": "transitioned", "elapsed_s": time.monotonic() - started}

@@ -228,6 +228,8 @@ def test_hover_vtol_commands_wait_until_settled_on_position_and_heading(monkeypa
 
     monkeypatch.setattr(collector.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(collector.time, "sleep", tick)
+    # The wait runs on PX4's lockstep clock; here it advances with the fake sleep.
+    monkeypatch.setattr(collector, "_SimClock", lambda reader: lambda: clock[0])
     # Reaches the point first, then finishes turning, then stops drifting.
     samples = [
         ((0.0, 0.0, -30.0), 0.0, 4.0),

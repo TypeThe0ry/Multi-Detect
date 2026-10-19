@@ -6,7 +6,7 @@
 
 - **多旋翼（默认 `x500_mono_cam`）**：继续使用原来的 `translate`、`turn`、`hold`、`stop` 原语。搜索、接近、确认、返航的逐步动作和输出字段保持原样，可以用原有回归轨迹逐步比对。
 - **固定翼**：不能悬停。等待、思考、健康降级和安全拒绝都转换为按 `profile.orbit_radius()` 盘旋；不会发送零速 `hold` 或原地 `turn`。搜索和测绘使用满足最小转弯半径的割草机航线，窄区域自动使用 skip-lane。检查目标使用 observation orbit；确认应使用不同航向的 fly-by，通过地面投影一致性和三角化 sigma 门限确认。`hover` 在计划语义上等价为盘旋，`deliver` 没有经过验证的飞掠投放窗口时直接拒绝。
-- **VTOL（`standard_vtol`、`quadtailsitter`、`tiltrotor`）**：巡航、搜索、测绘默认 FW。遥测报告 MC 时，近距观察、等待和降落使用 MC 位置 setpoint；切换模式通过 `vtol_transition`。低能量或安全拒绝先按档案盘旋，再由 supervisor 执行返航/转换/降落策略。
+- **VTOL（`standard_vtol`、`quadtailsitter`、`tiltrotor`）**：能悬停的 VTOL 默认按“悬停作业”（`vtol_hover_ops`，默认 true）飞：搜索、接近、确认都用多旋翼那套机上循环，在 MC 下执行（`mc_reposition`/`mc_hold`）；遥测报告 FW 时先发 `transition` 转回 MC；确认后发 `stop`，由 PX4 RTL 返航并垂直降落。`vtol_hover_ops: false` 时回到原来的 FW 行为（割草机搜索、盘旋）。低能量或安全拒绝先按档案盘旋（MC 下为原地悬停），再由 supervisor 执行返航/转换/降落策略。详见 [fixed-wing-vtol-sim-flight.md](fixed-wing-vtol-sim-flight.md) 的 VTOL 一节。
 - **相机**：投影使用完整 roll/pitch/yaw。tailsitter 档案可分别提供 `camera.attitude_rotations.mc` 与 `camera.attitude_rotations.fw`，运行时按当前 VTOL 模式选择，避免把 FW 倒置姿态当成 MC 姿态。
 
 ## 配置
