@@ -703,6 +703,40 @@ def test_monitor_keeps_three_metre_co_visible_objects_as_two_alerts():
     assert len(executor.findings) == 2
 
 
+
+def test_monitor_does_not_realert_when_a_co_visible_track_migrates_onto_an_alerted_object():
+    executor = MissionExecutor(
+        _skill_plan(
+            "monitor",
+            {"region": "zone:watch", "query": "truck", "duration_s": 30.0, "altitude_m": 25.0},
+        ),
+        loop_factory=_factory(),
+        refs={"zone:watch": (0.0, 0.0, 100.0)},
+    )
+    sim = Sim(altitude=20.0)
+    truck, other = _box(620, 700, 40), _box(900, 700, 40)
+    _cycle(
+        executor,
+        sim,
+        [Detection(truck, 0.5), Detection(other, 0.5)],
+        ground=lambda u, v: (0.0, 0.0) if u < 800 else (0.0, 8.0),
+        verdicts=lambda t: "confirm_target" if t.bbox == truck else "reject_track",
+    )
+    assert executor.alerts == ["s:alert:truck@0.0,0.0"]
+    # The other track re-associates onto the alerted truck (identity switch):
+    # the frame they shared proved nothing about the truck's place.
+    executor.observe(
+        [Detection(other, 0.5)],
+        pose_ned=sim.ned,
+        yaw_deg=sim.yaw,
+        ground_point=lambda u, v: (0.0, 0.5),
+    )
+    (mover,) = [t for t in executor.active_loop.tracks.values() if t.bbox == other]
+    assert mover.verdict == "no_match" and mover.ground == (0.0, 0.5) and mover.co_visible_with
+    executor.apply_verdict(mover.track_id, "confirm_target")
+    assert executor.alerts == ["s:alert:truck@0.0,0.0"]
+    assert len(executor.findings) == 1
+
 def _alert_vote_fixture(config=None):
     executor = MissionExecutor(
         _skill_plan("patrol", {"route_ref": "route:a", "query": "backpack", "loops": 1}),

@@ -38,6 +38,7 @@ from multidetect.autonomy.onboard_loop import (
     PlaceVerdictMemory,
     Track,
     appearances_consistent,
+    co_visibility_proves_distinct,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
@@ -667,12 +668,22 @@ class MissionExecutor:
             else lambda item: max(cluster_radius(item), self.config.alert_cluster_radius_m)
         )
 
+        def co_visible_elsewhere(item: _AlertCluster) -> bool:
+            # A member seen beside this track proves a different object only
+            # while both still sit where that frame saw them.
+            return any(
+                co_visibility_proves_distinct(
+                    track, member, None, track.ground, item.centre, membership_radius(item)
+                )
+                for member in item.track_ids.intersection(track.co_visible_with)
+            )
+
         cluster = min(
             (
                 item
                 for item in run.alert_clusters
-                if not (item.track_ids.intersection(track.co_visible_with))
-                and math.dist(track.ground, item.centre) <= membership_radius(item)
+                if math.dist(track.ground, item.centre) <= membership_radius(item)
+                and not co_visible_elsewhere(item)
                 and (
                     appearance is None
                     or item.appearance is None
@@ -695,16 +706,20 @@ class MissionExecutor:
             # near an existing alert and later moved away.
             if not positive:
                 return
+
+            def alert_radius(item: dict[str, Any]) -> float:
+                size = item.get("footprint_m") or footprint
+                return max(1.5, 1.5 * size) if size else self.config.alert_cluster_radius_m
+
             if any(
-                math.dist(track.ground, item["position"])
-                <= (
-                    max(1.5, 1.5 * (item.get("footprint_m") or footprint))
-                    if (item.get("footprint_m") or footprint)
-                    else self.config.alert_cluster_radius_m
-                )
-                and not (
-                    item.get("track_id") in track.co_visible_with
-                    or track.track_id in item.get("co_visible_with", ())
+                math.dist(track.ground, item["position"]) <= alert_radius(item)
+                and not co_visibility_proves_distinct(
+                    track,
+                    item.get("track_id"),
+                    item.get("co_visible_geometry"),
+                    track.ground,
+                    item["position"],
+                    alert_radius(item),
                 )
                 and (
                     item.get("appearance") is None
@@ -741,6 +756,7 @@ class MissionExecutor:
                 "position": point,
                 "track_id": track.track_id,
                 "co_visible_with": set(track.co_visible_with),
+                "co_visible_geometry": dict(getattr(track, "co_visible_geometry", {})),
                 "appearance": getattr(track, "appearance", None),
                 "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
             }
