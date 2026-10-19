@@ -187,10 +187,18 @@ quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId,
     QMutexLocker locker(&processMutex);
     const QByteArray digest = QCryptographicHash::hash(missionId.toUtf8(), QCryptographicHash::Sha256).toHex();
     QSettings settingsForPath;
-    QString settingsDirectory = QFileInfo(settingsForPath.fileName()).absolutePath();
-    if (settingsDirectory.isEmpty() || settingsDirectory == QStringLiteral("."))
+    // On Windows the native QSettings "file" is a registry key
+    // (\HKEY_CURRENT_USER\Software\...), whose parent is not a directory: a lock
+    // file there can never be created, so every sequence request timed out.
+    // Use the settings file's directory only when it really is one.
+    QString settingsDirectory;
+    const QFileInfo settingsFile(settingsForPath.fileName());
+    if (settingsForPath.format() != QSettings::NativeFormat || settingsFile.absoluteDir().exists())
+        settingsDirectory = settingsFile.absolutePath();
+    if (settingsDirectory.isEmpty() || settingsDirectory == QStringLiteral(".") ||
+        !QDir(settingsDirectory).exists())
         settingsDirectory = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-    if (settingsDirectory.isEmpty()) {
+    if (settingsDirectory.isEmpty() || !QDir().mkpath(settingsDirectory)) {
         if (error)
             *error = QStringLiteral("unable to determine GCS settings directory for sequence lock");
         return 0;
