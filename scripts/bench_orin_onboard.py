@@ -33,8 +33,8 @@ sys.path.insert(0, str(ROOT / "src"))
 DEFAULT_WEIGHTS = ROOT / "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt"
 DEFAULT_GGUF = (
     ROOT
-    / "artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf"
-    / "slow-system-v2r12multi-merged-Q5_K_M.gguf"
+    / "artifacts/models/slow-system-lora-v2-r18-multi-merged-gguf"
+    / "slow-system-v2r18multi-merged-Q5_K_M.gguf"
 )
 DEFAULT_MMPROJ = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -1528,8 +1528,8 @@ def _write_markdown_chinese(report: dict[str, Any], path: Path) -> None:
     labels_by_phase = {
         "yoloe_tensorrt_imgsz_960": "YOLOE TensorRT 960",
         "yoloe_tensorrt_imgsz_1280": "YOLOE TensorRT 1280",
-        "r12_full_identity": "r12 完整身份判断",
-        "r12_fast_identity": "r12 fast_identity",
+        "r12_full_identity": "身份模型完整判断（阶段名沿用 r12，默认模型 r18）",
+        "r12_fast_identity": "身份模型 fast_identity（阶段名沿用 r12）",
         "planning": "r12 规划（兼容阶段）",
         "r14_planning": "r14 规划",
         "r14_model_switch": "r14 模型切换",

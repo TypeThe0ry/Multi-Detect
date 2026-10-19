@@ -173,7 +173,7 @@ if [[ ${run_benchmark} == true ]]; then
     --depth-engine tmp/orin-v3/depth-anything-v2-small-fp16.engine \
     --frames-dir artifacts/recordings/orin-bench/png \
     --identity-jsonl artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl \
-    --gguf-model artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf \
+    --gguf-model artifacts/models/slow-system-lora-v2-r18-multi-merged-gguf/slow-system-v2r18multi-merged-Q5_K_M.gguf \
     --r14-gguf-model artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf \
     --mmproj artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf \
     --frame-limit 20 --identity-limit 8 --repetitions 5 --warmup 1 \

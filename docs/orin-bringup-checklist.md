@@ -10,7 +10,7 @@
 |---|---:|---|
 | `proposer-960.onnx` | 38,128,198 | `6f54d3fa397ff82d4d21edefbf4780c46319010a44cf31ce6a68758678ca374c` |
 | `proposer-1280.onnx` | 38,422,200 | `09609336c91ae1b93287e7449aa876b84e03a2b9d846cbe237e1282c3dcf6864` |
-| `slow-system-v2r12multi-merged-Q5_K_M.gguf` | 1,257,880,736 | `9724205a50e1fe87fdfe374d1f970fdbc420f564d420791da3b9fe74ce39abfd` |
+| `slow-system-v2r18multi-merged-Q5_K_M.gguf`（2026-10-19 起机上身份模型） | 1,257,880,576 | `0326614baf72947f76c1c23ad038d9a15221d5d58c6f29cdc38bb257c924ba6e` |
 | `slow-system-v2r14multi-merged-Q5_K_M.gguf` | 1,257,880,736 | `70cffdea752ce264bcccbace4d20b537b510091432e6823ef445393fb26f94ca` |
 | `mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf` | 445,053,216 | `f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82` |
 | `depth-anything-v2-metric-outdoor-small.onnx` | 99,156,661 | `36b38a0b34f5431a9bbcbedca7d72b440006204910d13227bc844641b0b23e52` |
@@ -22,7 +22,7 @@ Get-FileHash tmp/orin-v3/proposer-960.onnx -Algorithm SHA256
 Get-FileHash tmp/orin-v3/proposer-1280.onnx -Algorithm SHA256
 ```
 
-目标目录建议为 `/home/<user>/Multi-Detect`，目录内至少包含 `src/`、`scripts/`、`tmp/orin-v3/`（ONNX）、`artifacts/models/`（r12/r14）、`artifacts/cache/`（mmproj）、`artifacts/evaluation/`（depth ONNX）和 `artifacts/recordings/orin-bench/png/`。身份 JSONL 若使用现有样本，复制到 `artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl`，并保持其中 `image_path` 指向板上的相对路径。
+目标目录建议为 `/home/<user>/Multi-Detect`，目录内至少包含 `src/`、`scripts/`、`tmp/orin-v3/`（ONNX）、`artifacts/models/`（r18 身份 / r14 规划）、`artifacts/cache/`（mmproj）、`artifacts/evaluation/`（depth ONNX）和 `artifacts/recordings/orin-bench/png/`。身份 JSONL 若使用现有样本，复制到 `artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl`，并保持其中 `image_path` 指向板上的相对路径。
 
 ## 1. 刷机和系统设置（预计 30--60 分钟）
 
@@ -58,7 +58,7 @@ command -v trtexec || test -x /usr/src/tensorrt/bin/trtexec
 command -v llama-server
 command -v tegrastats
 sha256sum tmp/orin-v3/proposer-960.onnx tmp/orin-v3/proposer-1280.onnx \
-  artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf \
+  artifacts/models/slow-system-lora-v2-r18-multi-merged-gguf/slow-system-v2r18multi-merged-Q5_K_M.gguf \
   artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf \
   artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf \
   artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx
@@ -68,7 +68,7 @@ sha256sum tmp/orin-v3/proposer-960.onnx tmp/orin-v3/proposer-1280.onnx \
 
 ## 3. 一条命令构建并测量（预计 15--40 分钟）
 
-下面的命令串行完成 960/1280 proposer engine 和 Depth Anything TensorRT engine 构建，然后测快系统、r12 full/fast identity、r14 planning、模型切换、步间三角化、近距深度、tegrastats 内存和温度，并写 JSON + 中文 Markdown：
+下面的命令串行完成 960/1280 proposer engine 和 Depth Anything TensorRT engine 构建，然后测快系统、r18 full/fast identity、r14 planning、模型切换、步间三角化、近距深度、tegrastats 内存和温度，并写 JSON + 中文 Markdown：
 
 ```bash
 cd /home/<user>/Multi-Detect
@@ -83,7 +83,7 @@ python scripts/bench_orin_onboard.py \
   --depth-engine tmp/orin-v3/depth-anything-v2-small-fp16.engine \
   --frames-dir artifacts/recordings/orin-bench/png \
   --identity-jsonl artifacts/datasets/slow-system-sft-v2-r4-prop/test.jsonl \
-  --gguf-model artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf \
+  --gguf-model artifacts/models/slow-system-lora-v2-r18-multi-merged-gguf/slow-system-v2r18multi-merged-Q5_K_M.gguf \
   --r14-gguf-model artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf \
   --mmproj artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf \
   --frame-limit 20 --identity-limit 8 --repetitions 5 --warmup 1 \
@@ -92,13 +92,13 @@ python scripts/bench_orin_onboard.py \
   --markdown artifacts/benchmarks/orin-v3.md
 ```
 
-`--concurrent-yolo-hz 10` 是预算验证目标；若实测 p95 低于 100 ms 才能通过快系统 10 Hz 门槛。报告中的门槛是：快系统至少 10 Hz、r12 fast identity p95 不超过 1 秒、整机 `tegrastats` 峰值 RAM 不超过 6199 MiB（约 6.5 GB 十进制）。报告会把缺失阶段标为 `not_measured`，不会把开发机时间当作 Orin 通过。
+`--concurrent-yolo-hz 10` 是预算验证目标；若实测 p95 低于 100 ms 才能通过快系统 10 Hz 门槛。报告中的门槛是：快系统至少 10 Hz、r18 fast identity p95 不超过 1 秒、整机 `tegrastats` 峰值 RAM 不超过 6199 MiB（约 6.5 GB 十进制）。报告会把缺失阶段标为 `not_measured`，不会把开发机时间当作 Orin 通过。
 
 ## 4. 失败处理和复测
 
 - engine 构建失败：保存 `engine_build` 中的命令和 stderr，先执行 `trtexec --help` 核对参数，再单独重跑对应 ONNX；不要复制其他 Jetson 型号生成的 engine。
 - 内存超预算：先停止相机/桌面服务，确认只有一个 llama-server；再把 FAST 并发尺寸从 1280 改为 960，重跑同一组帧。不要通过减少 tegrastats 采样来掩盖峰值。
-- r12/r14 模型切换失败：检查两个 GGUF hash、`llama-server` 架构和端口是否被占用；确保 r12 server 已退出后再重试。
+- r18/r14 模型切换失败：检查两个 GGUF hash、`llama-server` 架构和端口是否被占用；确保身份模型 server 已退出后再重试。
 - 深度阶段失败：保留 ONNX provenance 和 TensorRT 日志，使用 `--skip-depth` 只做 B1 几何基线；B2 不能宣称通过，直到 Depth Anything engine 在板上成功加载并有耗时样本。
 - 温度持续接近热限制或频率下降：检查散热和电源，记录 `tegrastats` 原始日志，冷却后在相同功耗模式复测。
 

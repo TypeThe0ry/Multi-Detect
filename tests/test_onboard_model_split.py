@@ -11,7 +11,7 @@ from scripts import onboard_policy
 
 
 def test_default_identity_model_is_r12_without_planning_fallback():
-    assert onboard_policy.DEFAULTS["gguf"].name == "slow-system-v2r12multi-merged-Q5_K_M.gguf"
+    assert onboard_policy.DEFAULTS["gguf"].name == "slow-system-v2r18multi-merged-Q5_K_M.gguf"
     assert "planning_model" not in onboard_policy.DEFAULTS
 
 
