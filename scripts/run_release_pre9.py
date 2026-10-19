@@ -31,8 +31,9 @@ STAGE_NAMES = (
     "static_checks",
     "sim_safety_acceptance",
     "docker_sim_acceptance",
-    "combined_px4_gazebo_qgc_acceptance",
+    # The combined acceptance launches the portable GCS this build produces.
     "windows_gcs_build",
+    "combined_px4_gazebo_qgc_acceptance",
     "release_gate_manifest",
     "current_progress_rebind",
     "evidence_checks",
@@ -144,21 +145,6 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
             ),
         ),
         Stage(
-            "combined_px4_gazebo_qgc_acceptance",
-            "15-45 min",
-            "5-20 GB",
-            (
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "scripts/run_px4_gazebo_qgc_combined_sim_acceptance.ps1",
-                "-EvidencePath",
-                f"{run_root}/combined-px4-gazebo-qgc-evidence.json",
-            ),
-        ),
-        Stage(
             "windows_gcs_build",
             "20-60 min",
             "10-30 GB",
@@ -187,6 +173,21 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
                 "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; "
                 "& 'build/windows-v0.3.0-pre.9-release/Release/"
                 "MultiDetectMissionSecuritySelfTest.exe'; exit $LASTEXITCODE",
+            ),
+        ),
+        Stage(
+            "combined_px4_gazebo_qgc_acceptance",
+            "15-45 min",
+            "5-20 GB",
+            (
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts/run_px4_gazebo_qgc_combined_sim_acceptance.ps1",
+                "-EvidencePath",
+                f"{run_root}/combined-px4-gazebo-qgc-evidence.json",
             ),
         ),
         Stage(
