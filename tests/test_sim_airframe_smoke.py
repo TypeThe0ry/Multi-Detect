@@ -196,12 +196,65 @@ def test_closed_loop_motion_commands_wait_like_primitives(monkeypatch) -> None:
     assert not collector._is_motion_command(ActionPrimitive.hold(1.0))
     waited = collector._wait_motion_command(reposition, reader, cruise_mps=15.0)
     assert waited["waited"] == "arrived" and waited["distance_m"] <= 25.0
-    assert (
-        collector._wait_motion_command(
-            MotionCommand("transition", mode="FW"), reader, cruise_mps=15.0
-        )["waited"]
-        == "none"
+    # A transition waits for EXTENDED_SYS_STATE to report the requested mode.
+    vtol_states = iter([4, 2, 2, 3])
+    state_reader = type(
+        "R",
+        (),
+        {
+            "state": {"EXTENDED_SYS_STATE": None},
+            "raise_if_failed": lambda self: None,
+        },
+    )()
+    monkeypatch.setattr(
+        collector,
+        "_flight_state_snapshot",
+        lambda state: {"vtol_state": next(vtol_states), "landed_state": 2, "airspeed_mps": 0.0},
     )
+    to_mc = collector._wait_motion_command(
+        MotionCommand("transition", mode="MC"), state_reader, cruise_mps=15.0
+    )
+    assert to_mc["waited"] == "transitioned"
+    assert next(vtol_states, None) is None
+
+
+def test_hover_vtol_commands_wait_until_settled_on_position_and_heading(monkeypatch) -> None:
+    from multidetect.autonomy.motion_intent import MotionCommand
+
+    clock = [0.0]
+
+    def tick(seconds: float) -> None:
+        clock[0] += seconds
+
+    monkeypatch.setattr(collector.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(collector.time, "sleep", tick)
+    # Reaches the point first, then finishes turning, then stops drifting.
+    samples = [
+        ((0.0, 0.0, -30.0), 0.0, 4.0),
+        ((9.5, 0.0, -30.0), 0.0, 2.0),
+        ((10.0, 0.0, -30.0), 40.0, 0.2),
+        ((10.0, 0.0, -30.0), 88.0, 0.1),
+    ]
+    index = [0]
+
+    def sample():
+        return samples[min(index[0], len(samples) - 1)]
+
+    def position(state):
+        index[0] += 1
+        return sample()[0]
+
+    monkeypatch.setattr(collector, "_state_position", position)
+    monkeypatch.setattr(collector, "_state_yaw", lambda state: sample()[1])
+    monkeypatch.setattr(collector, "_state_speed", lambda state: sample()[2])
+    reader = type("R", (), {"state": {}, "raise_if_failed": lambda self: None})()
+    turn_and_step = MotionCommand("mc_reposition", target_ned=(10.0, 0.0, -30.0), yaw_deg=90.0)
+    waited = collector._wait_motion_command(turn_and_step, reader, cruise_mps=15.0)
+    # A fixed-wing reposition would have returned at the first sample within 8 m;
+    # a hovering VTOL waits for the heading too before the next frame is taken.
+    assert waited["waited"] == "settled"
+    assert waited["yaw_error_deg"] <= collector.MC_YAW_TOLERANCE_DEG
+    assert index[0] >= 4
 
 
 def test_onboard_policy_flies_the_collector_airframe() -> None:

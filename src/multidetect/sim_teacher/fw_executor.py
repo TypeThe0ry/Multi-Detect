@@ -325,6 +325,8 @@ class FixedWingVtolExecutor:
 
     # A runway roll and climb, a VTOL transition or a full approach take far longer
     # than a command ACK; physical state waits get their own bounded budgets.
+    MC_HOLD_SPEED_MPS = 5.0
+
     STATE_TIMEOUT_S = {
         "takeoff": 180.0,
         "takeoff_state": 180.0,
@@ -492,7 +494,26 @@ class FixedWingVtolExecutor:
             centre = command.target_ned or self._commanded
             altitude = -centre[2]
             speed = command.speed_mps or self.ground_speed_mps
-            if command.kind in {"loiter", "orbit", "mc_hold"}:
+            if command.kind == "mc_hold":
+                # A hovering VTOL holds the point and heading; an orbit of the
+                # fixed-wing loiter radius would fly it around a 50 m circle.
+                result = self._invoke(
+                    "reposition",
+                    centre[:2],
+                    altitude,
+                    command.speed_mps or self.MC_HOLD_SPEED_MPS,
+                    yaw_deg=(
+                        command.yaw_deg if command.yaw_deg is not None else self._commanded_yaw
+                    ),
+                    timeout_s=self._timeout(),
+                )
+                self._commanded = centre
+                return ExecutionResult(
+                    "success" if self._ok(result) else "failed",
+                    self._clock() - started,
+                    ack={"hold": result},
+                )
+            if command.kind in {"loiter", "orbit"}:
                 radius = command.radius_m or self.loiter_radius_m
                 orbit_method = getattr(self.vehicle, "orbit", None)
                 loiter_method = getattr(self.vehicle, "loiter_at", None)

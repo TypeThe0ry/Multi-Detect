@@ -1610,3 +1610,100 @@ def derive_fixed_wing_scenario(
     index["worlds"] = [w for w in index["worlds"] if w.get("world_id") != world_id] + [entry]
     _write(index_path, index)
     return entry
+
+
+# Gazebo model, stack profile id and spawn height per VTOL airframe profile.  A
+# VTOL takes off vertically from home, so it needs no runway corridor.
+VTOL_VEHICLES = {
+    "standard_vtol": ("standard_vtol_mono_cam", "px4_standard_vtol_gazebo_v1", 0.2),
+    "quadtailsitter": ("quadtailsitter_mono_cam", "px4_quadtailsitter_gazebo_v1", 0.35),
+}
+
+
+def derive_vtol_scenario(
+    scenario_path: str | Path, out_dir: str | Path, *, airframe: str
+) -> dict[str, Any]:
+    """Re-target a generated scenario at a VTOL airframe (same world, truth and task).
+
+    Only the runtime channel changes: the VTOL spawns at home with the source
+    heading and the fixed-wing sensor set (front camera, depth, airspeed).
+    """
+    if airframe not in VTOL_VEHICLES:
+        raise ValueError(f"unsupported VTOL airframe {airframe!r}; use {sorted(VTOL_VEHICLES)}")
+    model, profile_id, spawn_up = VTOL_VEHICLES[airframe]
+    scenario_path = Path(scenario_path)
+    source = json.loads(scenario_path.read_text(encoding="utf-8"))
+    channels = {
+        name: json.loads(
+            (scenario_path.parent / source["channels"][name]["path"]).read_text(encoding="utf-8")
+        )
+        for name in ("runtime_input", "truth", "expectations")
+    }
+    runtime = channels["runtime_input"]
+    world_id = str(runtime["scenario_id"])
+    spawn = dict((runtime.get("vehicle") or {}).get("spawn_pose") or {})
+    vehicle = {
+        "model": model,
+        "airframe_profile_id": profile_id,
+        "spawn_id": f"{world_id}_vtol",
+        "spawn_pose": {
+            "x_east_m": float(spawn.get("x_east_m", 0.0)),
+            "y_north_m": float(spawn.get("y_north_m", 0.0)),
+            "z_up_m": spawn_up,
+            "roll_rad": 0.0,
+            "pitch_rad": 0.0,
+            "yaw_rad": float(spawn.get("yaw_rad", 0.0)),
+        },
+    }
+    telemetry = [s for s in runtime.get("sensors", []) if s.get("kind") == "mavlink_telemetry"]
+    sensors = [
+        {
+            "sensor_id": sid,
+            "kind": kind,
+            "stream_uri": f"gazebo://{world_id}/{stream}",
+            "calibration_id": cal,
+        }
+        for sid, kind, stream, cal in FIXED_WING_SENSORS
+    ]
+    channels["runtime_input"] = {
+        **runtime,
+        "vehicle": vehicle,
+        "sensors": sensors[:2] + telemetry + sensors[2:],
+    }
+    out = Path(out_dir)
+    for name, value in channels.items():
+        _write(out / f"{world_id}.{name}.json", value)
+    _write(
+        out / f"{world_id}.scenario.json",
+        {
+            **source,
+            "channels": {
+                name: {"path": f"{world_id}.{name}.json", "sha256": canonical_sha256(value)}
+                for name, value in channels.items()
+            },
+        },
+    )
+    entry: dict[str, Any] = {"world_id": world_id}
+    source_index = scenario_path.parent / "index.json"
+    if source_index.is_file():
+        for world in json.loads(source_index.read_text(encoding="utf-8")).get("worlds", []):
+            if world.get("world_id") == world_id:
+                entry = {
+                    key: value
+                    for key, value in world.items()
+                    if key not in {"runway_heading_deg", "runway_clearance_m"}
+                }
+    entry.update({"airframe": airframe, "source_scenario": scenario_path.name})
+    index_path = out / "index.json"
+    index = (
+        json.loads(index_path.read_text(encoding="utf-8"))
+        if index_path.is_file()
+        else {
+            "schema_version": 1,
+            "generator": "multidetect.simulator.world_gen.derive_vtol_scenario",
+            "worlds": [],
+        }
+    )
+    index["worlds"] = [w for w in index["worlds"] if w.get("world_id") != world_id] + [entry]
+    _write(index_path, index)
+    return entry
