@@ -36,11 +36,20 @@ def segment_clear_of_obstacles(
     obstacles: tuple[SDFObstacle, ...] | list[SDFObstacle],
     margin_m: float = 3.0,
 ) -> bool:
-    """Return whether a horizontal segment clears tall obstacle footprints."""
+    """Return whether a horizontal segment clears tall obstacle footprints.
+
+    A segment that starts inside an obstacle's clearance ring is allowed when no
+    point of it is closer to that obstacle than the start (climbing in place or
+    moving away): otherwise a vehicle that ended up inside the ring, e.g. after
+    descending toward a candidate next to a house, could never leave it (a SITL
+    count run hovered 120 steps 10.8 m from a 7.2 m house at 8 m altitude).
+    """
     ax, ay = start_ned[:2]
     bx, by = end_ned[:2]
     vx, vy = bx - ax, by - ay
     denom = vx * vx + vy * vy
+    # Descending inside a ring is never an escape: the start may be above a roof.
+    not_descending = len(start_ned) < 3 or len(end_ned) < 3 or end_ned[2] <= start_ned[2] + 1e-6
     for obstacle in obstacles:
         if obstacle.top_m <= float(altitude_m) - 2.0:
             continue
@@ -58,6 +67,9 @@ def segment_clear_of_obstacles(
         distance = math.hypot(obstacle.north_m - (ax + t * vx), obstacle.east_m - (ay + t * vy))
         footprint_radius = math.hypot(obstacle.size_north_m, obstacle.size_east_m) / 2.0
         if distance < footprint_radius + float(margin_m):
+            start_distance = math.hypot(obstacle.north_m - ax, obstacle.east_m - ay)
+            if not_descending and distance >= start_distance - 1e-6:
+                continue  # leaving (or rising inside) the clearance ring
             return False
     return True
 

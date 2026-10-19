@@ -1768,6 +1768,12 @@ class OnboardLoop:
             lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
             if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
+        if target is not None and altitude < target - 1.0:
+            # An approach may have descended below the search altitude (which
+            # clears the known obstacles): climb back before searching on.
+            return ActionPrimitive.translate(
+                0.0, 0.0, min(target - altitude, 2.0 * self.config.descent_step_m)
+            )
         action = self.search_action(pose_ned, yaw_deg)
         if self.obstacle_source is None:
             return action

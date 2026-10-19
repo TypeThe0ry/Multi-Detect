@@ -919,3 +919,10 @@ def test_fixed_wing_single_view_counts_once_confirms_outnumber_rejections() -> N
     assert info["focus"] != "t1"
     # Two confirms against one rejection at this place: the single view counts.
     assert loop.confirmed is not None and info["confirmed"]["confirm_views"] == 1
+
+
+def test_search_climbs_back_to_the_search_altitude_after_an_approach() -> None:
+    loop = _loop(search_altitude_m=11.3)
+    action, _ = loop.next_action([], pose_ned=(20.0, 4.0, -8.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.forward_m == 0.0
+    assert action.up_m == pytest.approx(3.3)
