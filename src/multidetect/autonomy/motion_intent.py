@@ -45,10 +45,6 @@ def _mat_vec(matrix: Sequence[float], vector: Sequence[float]) -> tuple[float, f
     )
 
 
-def _mat_transpose(matrix: Sequence[float]) -> tuple[float, ...]:
-    return tuple(float(matrix[col * 3 + row]) for row in range(3) for col in range(3))
-
-
 def profile_mount_pitch_down_rad(
     profile: AirframeProfile, default: float, *, mode: str | None = None
 ) -> float:
@@ -84,14 +80,17 @@ def camera_ray_from_profile(
 ) -> tuple[float, float, float]:
     """Return a world-NED optical ray using the profile's full mount attitude.
 
-    ``body_to_camera_rotation`` is stored row-major.  Tailsitters may provide
+    ``body_to_camera_rotation`` is stored row-major and its columns are the
+    camera's optical axes (forward, image right, image down) in body FRD, the
+    same convention :func:`profile_mount_pitch_down_rad` reads and the profile
+    tests check against the Gazebo camera poses.  Tailsitters may provide
     separate MC/FW matrices; the selected matrix is applied before vehicle
     roll/pitch/yaw, so a 180-degree FW attitude cannot silently reuse MC rays.
     """
     selected = (mode or "mc").lower()
     mount = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
     camera = (1.0, (float(u) - cx) / fx, (float(v) - cy) / fy)
-    body = _mat_vec(_mat_transpose(mount), camera)
+    body = _mat_vec(mount, camera)
     roll, pitch, yaw = (math.radians(float(value)) for value in attitude_deg)
     cr, sr = math.cos(roll), math.sin(roll)
     y1, z1 = cr * body[1] - sr * body[2], sr * body[1] + cr * body[2]

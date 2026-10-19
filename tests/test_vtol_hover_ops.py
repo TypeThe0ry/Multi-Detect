@@ -87,12 +87,13 @@ def test_vtol_in_forward_flight_first_transitions_to_mc_without_stepping_the_loo
 
 def test_vtol_in_mc_flies_the_loop_with_hover_commands(tmp_path: Path) -> None:
     policy = make_policy(work_dir=tmp_path, config={"airframe": "standard_vtol"})
-    command, labels = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=10.0)
+    # At the mission altitude (20 m in the factory) the search starts at once.
+    command, labels = policy.act(_frame(3), pose_ned=(0.0, 0.0, -20.0), yaw_deg=10.0)
     assert policy.loop.step_index == 1
     # The multirotor search opens with an in-place scan turn: a hover yaw, not a
     # 22 m fixed-wing leg on the new bearing.
     assert command.kind == "mc_reposition" and command.mode == "MC"
-    assert command.target_ned == pytest.approx((0.0, 0.0, -30.0))
+    assert command.target_ned == pytest.approx((0.0, 0.0, -20.0))
     assert command.yaw_deg == pytest.approx(100.0)
     assert command.speed_mps == AirframeMotionAdapter.MC_SPEED_MPS
     assert labels["motion"]["kind"] == "mc_reposition"
@@ -176,3 +177,45 @@ def test_sim_executor_holds_a_hovering_vtol_in_place_instead_of_orbiting() -> No
     assert tuple(args[0]) == (5.0, 6.0) and args[1] == pytest.approx(30.0)
     assert args[2] == FixedWingVtolExecutor.MC_HOLD_SPEED_MPS and kwargs["yaw_deg"] == 45.0
     assert all(call[0] != "orbit" for call in vehicle.calls)
+
+
+def test_hover_mission_vtol_takes_off_as_a_multicopter_and_stays_in_mc() -> None:
+    vehicle = _Vehicle()
+    executor = FixedWingVtolExecutor(vehicle, airframe="vtol", transition_after_takeoff=False)
+    assert executor.arm_and_takeoff(30.0).status == "success"
+    # NAV_VTOL_TAKEOFF would transition to FW by itself after the climb.
+    assert [name for name, _, _ in vehicle.calls] == ["arm", "fw_takeoff"]
+    assert vehicle.calls[1][1][0] == "multirotor"
+    assert executor.mode == "MC"
+    default = _Vehicle()
+    FixedWingVtolExecutor(default, airframe="vtol").arm_and_takeoff(30.0)
+    assert [name for name, _, _ in default.calls] == ["arm", "fw_takeoff", "vtol_transition"]
+    assert default.calls[1][1][0] == "vtol"
+
+
+def test_hover_mode_vtol_search_settles_back_to_the_mission_altitude(tmp_path: Path) -> None:
+    vtol = make_policy(work_dir=tmp_path / "vtol", config={"airframe": "standard_vtol"})
+    assert vtol.loop.config.search_altitude_m == pytest.approx(20.0)
+    # After a back-transition climb the first search step descends.
+    action, _ = vtol.loop.next_action([], pose_ned=(0.0, 0.0, -45.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m < 0
+    assert make_policy(work_dir=tmp_path / "x500").loop.config.search_altitude_m is None
+
+
+def test_tailsitter_camera_looks_above_the_horizon_in_hover_and_down_ahead_in_cruise() -> None:
+    from multidetect.autonomy.motion_intent import camera_ray_from_profile
+
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/quadtailsitter.json")
+    centre = {"fx": 270.0, "fy": 270.0, "cx": 320.0, "cy": 240.0}
+    hover = camera_ray_from_profile(
+        320.0, 240.0, attitude_deg=(0, 0, 0), profile=profile, mode="mc", **centre
+    )
+    # SITL hover frames show the horizon below the image centre: 20 deg up.
+    assert math.degrees(math.asin(-hover[2])) == pytest.approx(20.0, abs=1e-6)
+    assert hover[0] > 0.9
+    # Forward flight: PX4 reports the MC frame pitched -90 deg, nose (-z) ahead (north).
+    cruise = camera_ray_from_profile(
+        320.0, 240.0, attitude_deg=(0, -90, 0), profile=profile, mode="fw", **centre
+    )
+    assert cruise[2] == pytest.approx(math.cos(math.radians(20.0)), abs=1e-6)
+    assert cruise[0] == pytest.approx(math.sin(math.radians(20.0)), abs=1e-6)

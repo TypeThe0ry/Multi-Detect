@@ -2955,6 +2955,12 @@ def run_episode(
                     else plan.takeoff_method or profile.takeoff.methods[0]
                 )
                 landing_method = profile.landing.methods[0]
+                # A VTOL whose onboard loop flies in hover takes off as a multicopter
+                # and stays in MC (a forward transition would be undone at step 0,
+                # and the SITL tailsitter climbed 30 m and drifted 80 m doing so).
+                hover_mission = bool(
+                    getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
+                )
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader),
                     airframe=profile.id,
@@ -2979,8 +2985,10 @@ def run_episode(
                         if profile.category == "fixed_wing"
                         else None
                     ),
+                    transition_after_takeoff=not hover_mission,
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
+                recorder.meta["vtol_hover_mission"] = hover_mission
                 recorder.meta["takeoff_method"] = takeoff_method
                 recorder.meta["landing_method"] = landing_method
                 if takeoff_method in {"hand", "catapult"}:

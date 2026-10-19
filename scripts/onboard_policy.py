@@ -643,7 +643,13 @@ class OnboardPolicy:
         second_look = options.get("second_look_after_steps")
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
-            "search_altitude_m": self.search_altitude_m,
+            # A VTOL's back-transition climbs (the SITL tailsitter rose from 30 m to
+            # 60 m): a hover-mode search first settles back to the mission altitude.
+            "search_altitude_m": (
+                float(altitude_m)
+                if hover_ops and self.search_altitude_m is None
+                else self.search_altitude_m
+            ),
             "near_depth": near_depth_enabled,
             **POSITION_DEFAULTS,
         }

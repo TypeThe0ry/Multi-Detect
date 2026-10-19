@@ -53,6 +53,7 @@ class FixedWingVtolExecutor:
         land_mission: Callable[..., Any] | None = None,
         geo_reference: Callable[[], tuple[Any, Any]] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        transition_after_takeoff: bool = True,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
         # Profile IDs are intentionally accepted here so the collector can
@@ -75,6 +76,9 @@ class FixedWingVtolExecutor:
             else "fixed_wing"
         )
         self.mode = "FW"
+        # A VTOL whose mission flies in hover (MC) stays there after the climb
+        # instead of a forward transition the mission would immediately undo.
+        self.transition_after_takeoff = bool(transition_after_takeoff)
         self.takeoff_method = takeoff_method
         self.landing_method = landing_method
         self.altitude_m = float(altitude_m)
@@ -387,6 +391,10 @@ class FixedWingVtolExecutor:
                 if not self._ok(arm_result):
                     return self._failure(started, phase="arm", result=arm_result)
             method = "vtol" if self.airframe == "vtol" else self.takeoff_method
+            if self.airframe == "vtol" and not self.transition_after_takeoff:
+                # PX4's NAV_VTOL_TAKEOFF transitions to FW on its own after the
+                # climb; NAV_TAKEOFF on a VTOL in MC is a multicopter takeoff.
+                method = "multirotor"
             result = self._invoke(
                 "fw_takeoff",
                 method,
@@ -401,7 +409,9 @@ class FixedWingVtolExecutor:
             ok, state = self._wait_state("takeoff")
             if not ok:
                 return self._failure(started, phase="takeoff_state", result=state, reason="timeout")
-            if self.airframe == "vtol":
+            if self.airframe == "vtol" and not self.transition_after_takeoff:
+                self.mode = "MC"
+            elif self.airframe == "vtol":
                 transition = self._invoke("vtol_transition", "FW", timeout_s=self._timeout())
                 if not self._ok(transition):
                     return self._failure(started, phase="transition_fw", result=transition)
