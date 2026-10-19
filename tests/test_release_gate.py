@@ -9,6 +9,8 @@ from multidetect.simulator.safety_evidence import run_acceptance
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_MANIFEST = REPO_ROOT / "configs" / "product-version.json"
+# Fixtures carry whatever prerelease the canonical version manifest declares.
+CURRENT_RELEASE_LABEL = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))["release_label"]
 
 
 def _write_artifact(path: Path, mode: str) -> str:
@@ -84,7 +86,7 @@ def _manifest(
     document: dict[str, object] = {
         "schema_version": 1,
         "product": "Multi-Detect",
-        "release_label": "0.3.0-pre.8",
+        "release_label": CURRENT_RELEASE_LABEL,
         "modes": modes,
     }
     if simulator_safety is not None:

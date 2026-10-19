@@ -74,7 +74,9 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     document = build_release_parity_document(REPO_ROOT, version_manifest_path=VERSION_MANIFEST)
     assert document["schema_version"] == 1
     assert document["product"] == "Multi-Detect"
-    assert document["release_label"] == "0.3.0-pre.8"
+    # The parity document carries whatever the canonical version manifest says.
+    manifest = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
+    assert document["release_label"] == manifest["release_label"]
     assert set(document["source_files"]) == set(CONTRACT_GROUPS)
     assert set(document["parity"]) == set(PARITY_FIELDS)
     assert {

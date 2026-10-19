@@ -22,6 +22,8 @@ python .\scripts\run_release_pre9.py --dry-run
 
 失败后使用同一个运行目录断点续跑，例如 `--from-stage docker_sim_acceptance --run-dir artifacts\release-pre9-runs\20261017T000000Z`。只运行一个阶段使用 `--only-stage`。每个阶段有独立 `.log`、`.status.json`；日志和所有生成文件都在运行目录，文件会记录 SHA-256 或由验收器提供绑定摘要。
 
+断点续跑会跳过同一运行目录里已经通过的阶段（包括 parity）。**只要改过源码，就换一个新的运行目录从头跑**，否则 parity 和前面的验收结果绑定的是旧源码。
+
 ## 阶段与资源预算
 
 | 阶段 | 预计耗时 | 预计额外磁盘 | 说明 |

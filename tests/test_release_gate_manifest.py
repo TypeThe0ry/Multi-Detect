@@ -50,6 +50,8 @@ from scripts.run_simulator_3d_control_acceptance import run_acceptance as run_3d
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_MANIFEST = REPO_ROOT / "configs" / "product-version.json"
+# Fixtures carry whatever prerelease the canonical version manifest declares.
+CURRENT_RELEASE_LABEL = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))["release_label"]
 RELEASE_GATE_SCHEMA = REPO_ROOT / "configs" / "schemas" / "release-gate-manifest.schema.json"
 MODES = ("replay", "sim", "hil", "real")
 PARITY = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
@@ -603,7 +605,7 @@ def test_build_hashes_evidence_and_uses_manifest_relative_paths(tmp_path: Path) 
     )
 
     assert document["schema_version"] == 1
-    assert document["release_label"] == "0.3.0-pre.8"
+    assert document["release_label"] == CURRENT_RELEASE_LABEL
     assert all(record["gate_passed"] is True for record in document["modes"].values())
     for mode in MODES:
         record = document["modes"][mode]
@@ -622,7 +624,7 @@ def test_shared_policy_runtime_handoff_is_hash_bound_in_manifest(tmp_path: Path)
         "schema": "multidetect.shared-policy-runtime-handoff",
         "schema_version": 1,
         "source": {"runtime_mode": "SIM", "release_parity": {
-            "release_label": "0.3.0-pre.8", "hashes": PARITY
+            "release_label": CURRENT_RELEASE_LABEL, "hashes": PARITY
         }},
         "target": {"runtime_mode": "hil"},
         "claims": {
@@ -1449,7 +1451,7 @@ def test_simulator_safety_binding_is_hash_bound_and_reverified(tmp_path: Path) -
     assert binding["evidence_sha256"] == sha256_file(safety)
     assert binding["event"] == "simulator_safety_acceptance_finished"
     assert binding["runtime_mode"] == "sim"
-    assert binding["release_label"] == "0.3.0-pre.8"
+    assert binding["release_label"] == CURRENT_RELEASE_LABEL
     assert binding["gate_passed"] is True
     assert binding["verifier_event"] == "simulator_safety_evidence_verified"
     assert binding["verifier_exit_code"] == 0
@@ -1513,7 +1515,7 @@ def test_actuator_safety_binding_is_hash_bound_and_reverified(tmp_path: Path) ->
     assert binding["evidence_sha256"] == sha256_file(safety)
     assert binding["event"] == "actuator_safety_software_acceptance_finished"
     assert binding["runtime_mode"] == "HIL"
-    assert binding["release_label"] == "0.3.0-pre.8"
+    assert binding["release_label"] == CURRENT_RELEASE_LABEL
     assert binding["gate_passed"] is True
     assert binding["software_only"] is True
     assert binding["physical_outputs_present"] is False
@@ -1758,7 +1760,7 @@ def test_simulator_scene_stream_set_binding_is_hash_bound_and_reverified(
     binding = document["simulator_scene_stream_set"]
     assert binding["event"] == "simulator_scene_stream_set_verified"
     assert binding["runtime_mode"] == "sim"
-    assert binding["release_label"] == "0.3.0-pre.8"
+    assert binding["release_label"] == CURRENT_RELEASE_LABEL
     assert binding["modes"] == ["fixed-wing", "multirotor", "vtol"]
     assert len(binding["evidence"]) == 3
     assert all(item["gate_passed"] is True for item in binding["evidence"])
