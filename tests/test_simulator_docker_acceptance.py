@@ -9,6 +9,7 @@ import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -33,7 +34,7 @@ def _inspect_record(plan: object, *, running: bool = True) -> dict[str, object]:
         f"{key}={value}"
         for key, value in plan.environment  # type: ignore[attr-defined]
     ]
-    return {
+    record: dict[str, Any] = {
         "Id": "container-id-123",
         "Name": f"/{plan.container_name}",  # type: ignore[attr-defined]
         "Config": {
@@ -92,6 +93,17 @@ def _inspect_record(plan: object, *, running: bool = True) -> dict[str, object]:
         ],
         "State": {"Running": running},
     }
+    fuel_root = getattr(plan, "fuel_resolved_root", None)
+    if fuel_root is not None:
+        source = str(Path(fuel_root).resolve())
+        target = "/opt/multidetect-gz-fuel-resolved"
+        record["HostConfig"]["Mounts"].append(
+            {"Type": "bind", "Source": source, "Target": target, "ReadOnly": True}
+        )
+        record["Mounts"].append(
+            {"Type": "bind", "Source": source, "Destination": target, "RW": False}
+        )
+    return record
 
 
 class _Message:

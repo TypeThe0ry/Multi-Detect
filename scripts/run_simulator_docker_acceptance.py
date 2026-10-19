@@ -1792,11 +1792,17 @@ def _env_map(values: object) -> dict[str, str]:
 
 
 def _expected_mounts(plan: DockerSimulatorPlan) -> dict[str, tuple[str, bool]]:
-    return {
+    expected = {
         "/opt/multidetect-gazebo-models": (_norm_path(plan.model_root), True),
         "/opt/px4-gazebo/share/gz/worlds/default.sdf": (_norm_path(plan.world_path), True),
         "/workspace/scripts": (_norm_path(plan.scripts_root), True),
     }
+    # The planner bind-mounts the resolved Fuel model cache (real-appearance
+    # worlds) read-only when the checkout has one, and records it on the plan.
+    fuel_root = getattr(plan, "fuel_resolved_root", None)
+    if fuel_root is not None:
+        expected["/opt/multidetect-gz-fuel-resolved"] = (_norm_path(fuel_root), True)
+    return expected
 
 
 def _validate_owned_container(

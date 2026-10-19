@@ -135,6 +135,8 @@ class DockerSimulatorPlan:
     vehicle_config_sha256: str = ""
     stack_assets_sha256: str = ""
     model_root_assets_sha256: str = ""
+    # Resolved Fuel model cache bind-mounted read-only, or None when absent.
+    fuel_resolved_root: Path | None = None
 
     @property
     def command_text(self) -> str:
@@ -511,6 +513,7 @@ def build_docker_simulator_plan(
         vehicle_config_sha256=stack.assets.model_config.sha256,
         stack_assets_sha256=stack.assets.aggregate_sha256,
         model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
+        fuel_resolved_root=resolved_root if has_resolved_root else None,
     )
 
 
