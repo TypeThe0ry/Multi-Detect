@@ -35,6 +35,7 @@ STAGE_NAMES = (
     "windows_gcs_build",
     "release_gate_manifest",
     "current_progress_rebind",
+    "evidence_checks",
 )
 
 
@@ -108,12 +109,11 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
                 "-m",
                 "pytest",
                 "-q",
+                # Source-only checks; the progress index and release gate are
+                # bound to the new version/parity only by current_progress_rebind,
+                # so their tests run in evidence_checks at the end.
                 "tests/test_release_parity.py",
-                "tests/test_current_progress_index.py",
                 "tests/test_product_version.py",
-                "tests/test_release_gate.py",
-                "tests/test_release_gate_manifest.py",
-                "tests/test_current_release_gate_wrapper.py",
             ),
         ),
         Stage(
@@ -227,6 +227,21 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
             "<50 MB",
             (_python(), "scripts/rebind_current_release_parity_index.py"),
             owner_required=True,
+        ),
+        Stage(
+            "evidence_checks",
+            "2-5 min",
+            "<100 MB",
+            (
+                _python(),
+                "-m",
+                "pytest",
+                "-q",
+                "tests/test_current_progress_index.py",
+                "tests/test_release_gate.py",
+                "tests/test_release_gate_manifest.py",
+                "tests/test_current_release_gate_wrapper.py",
+            ),
         ),
     )
 

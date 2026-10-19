@@ -29,13 +29,14 @@ python .\scripts\run_release_pre9.py --dry-run
 | preflight | 1–3 分钟 | 只读 | 磁盘、Docker daemon、Qt/MSVC/GStreamer、Python 工具链 |
 | version_bump | <1 分钟 | <1 MB | 运行时才把 canonical manifest 改为 `0.3.0-pre.9` |
 | parity | <1 分钟 | <5 MB | 生成器重建 parity，再做 source-only 校验 |
-| static_checks | 5–20 分钟 | <2 GB | ruff、onboard gate、release 相关 pytest |
+| static_checks | 5–20 分钟 | <2 GB | ruff、onboard gate、parity 与版本清单测试（只依赖源码） |
 | sim_safety_acceptance | 2–10 分钟 | <1 GB | software/SIM fail-closed 安全门 |
 | docker_sim_acceptance | 10–30 分钟 | 5–15 GB | `--execute` 才启动 pinned PX4/Gazebo 容器 |
 | combined_px4_gazebo_qgc_acceptance | 15–45 分钟 | 5–20 GB | 需要 Docker、PX4/Gazebo/QGC 环境 |
 | windows_gcs_build | 20–60 分钟 | 10–30 GB | Release、portable、C++ self-tests，含 Ed25519 self-test target |
 | release_gate_manifest | 1–3 分钟 | <50 MB | 新鲜诊断 manifest/report，缺失 owner 证据必为 false |
 | current_progress_rebind | 1–3 分钟 | <50 MB | 仅在真实运行完成后使用受控 rebind 脚本 |
+| evidence_checks | 2–5 分钟 | <100 MB | 进度索引与发布门测试；它们绑定新版本和 parity，只能在 rebind 之后通过 |
 
 正常总耗时约 56–176 分钟，取决于 Docker 镜像缓存、PX4/QGC 场景和 Windows 编译速度；首次拉取镜像或依赖还会增加时间和磁盘。
 
