@@ -52,3 +52,35 @@ def test_executor_streams_local_ned_and_completes_with_fake_vehicle():
 def test_executor_rejects_remote_endpoint():
     with pytest.raises(SimulationIsolationError):
         PymavlinkPrimitiveExecutor(FakeVehicle(), endpoint="udp://192.168.1.2:14540")
+
+
+def test_primitive_timeout_runs_on_the_given_clock_with_a_wall_bound() -> None:
+    sim = {"t": 0.0}
+    wall = {"t": 0.0}
+
+    def sleep(seconds: float) -> None:
+        wall["t"] += seconds
+        sim["t"] += 0.2 * seconds  # the simulation runs at 0.2x real time
+
+    executor = PymavlinkPrimitiveExecutor(
+        FakeVehicle(),
+        position=lambda: (0.0, 0.0, -10.0),  # never reaches the target
+        clock=lambda: sim["t"],
+        wall_clock=lambda: wall["t"],
+        sleep=sleep,
+    )
+    result = executor.execute(ActionPrimitive.translate(15.0, 0.0, 0.0))
+    # 20 s of simulation time took 100 s of wall time.
+    assert result.status == "timeout" and result.elapsed_s >= 20.0 and wall["t"] >= 99.0
+
+    sim["t"] = wall["t"] = 0.0
+    bounded = PymavlinkPrimitiveExecutor(
+        FakeVehicle(),
+        position=lambda: (0.0, 0.0, -10.0),
+        clock=lambda: sim["t"],
+        wall_clock=lambda: wall["t"],
+        sleep=lambda seconds: wall.__setitem__("t", wall["t"] + seconds),  # sim stalled
+        max_wall_s=30.0,
+    )
+    result = bounded.execute(ActionPrimitive.translate(15.0, 0.0, 0.0))
+    assert result.status == "timeout" and 30.0 <= wall["t"] < 31.0

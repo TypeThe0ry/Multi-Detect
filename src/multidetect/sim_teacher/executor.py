@@ -180,6 +180,8 @@ class PymavlinkPrimitiveExecutor:
         sleep: callable = time.sleep,
         stream_hz: float = 10.0,
         streamer: SetpointStreamer | None = None,
+        wall_clock: callable = time.monotonic,
+        max_wall_s: float | None = None,
     ) -> None:
         validate_local_endpoint(endpoint)
         if stream_hz <= 2.0 or not math.isfinite(stream_hz):
@@ -189,7 +191,15 @@ class PymavlinkPrimitiveExecutor:
         self._position = position or (lambda: (0.0, 0.0, 0.0))
         self._yaw = yaw_deg or (lambda: 0.0)
         self._speed = speed_mps or (lambda: 0.0)
+        # ``clock`` measures primitive durations and timeouts.  A simulator's own
+        # clock keeps them meaningful when the simulation runs slower than real
+        # time; ``max_wall_s`` then bounds each primitive in wall time in case the
+        # simulation stalls.
         self._clock = clock
+        self._wall_clock = wall_clock
+        if max_wall_s is not None and (not math.isfinite(max_wall_s) or max_wall_s <= 0):
+            raise ValueError("max_wall_s must be finite and positive")
+        self.max_wall_s = max_wall_s
         self._sleep = sleep
         self.stream_hz = float(stream_hz)
         self._armed = False
@@ -253,6 +263,11 @@ class PymavlinkPrimitiveExecutor:
 
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
         start_time = self._clock()
+        wall_start = self._wall_clock()
+
+        def wall_left() -> bool:
+            return self.max_wall_s is None or self._wall_clock() - wall_start < self.max_wall_s
+
         measured_start = tuple(float(x) for x in self._position())
         measured_yaw = float(self._yaw())
         if self._commanded_position is None:
@@ -262,7 +277,7 @@ class PymavlinkPrimitiveExecutor:
         start_pos = self._commanded_position
         start_yaw = self._commanded_yaw
         if action.kind == "hold":
-            while self._clock() - start_time < action.seconds:
+            while self._clock() - start_time < action.seconds and wall_left():
                 self._send_setpoint(*start_pos, start_yaw)
                 self._sleep(1.0 / self.stream_hz)
             return ExecutionResult(
@@ -277,7 +292,8 @@ class PymavlinkPrimitiveExecutor:
         self._commanded_position = target
         self._commanded_yaw = target_yaw
         result = "pending"
-        while self._clock() - start_time < self.criterion.timeout_s:
+        current = measured_start
+        while self._clock() - start_time < self.criterion.timeout_s and wall_left():
             self._send_setpoint(*target, target_yaw)
             current = tuple(float(x) for x in self._position())
             error = math.sqrt(sum((current[i] - target[i]) ** 2 for i in range(3)))
@@ -316,5 +332,3 @@ class PymavlinkPrimitiveExecutor:
 
 
 __all__ = ["ExecutionResult", "PrimitiveExecutor", "SetpointStreamer", "PymavlinkPrimitiveExecutor"]
-
-

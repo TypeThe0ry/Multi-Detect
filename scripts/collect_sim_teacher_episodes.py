@@ -1284,6 +1284,33 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
     }
 
 
+# Wall-clock bound on one primitive when it is timed on the simulation clock.
+PRIMITIVE_MAX_WALL_S = 180.0
+
+
+class _SimClock:
+    """Seconds on PX4's lockstep clock, falling back to wall time until it is known.
+
+    Once simulation stamps arrive the clock follows them from the wall time at
+    which the first one was seen, so it never jumps backwards.
+    """
+
+    def __init__(self, reader: Any, wall: Any = time.monotonic) -> None:
+        self._reader = reader
+        self._wall = wall
+        self._offset: float | None = None
+        self._last = float("-inf")
+
+    def __call__(self) -> float:
+        stamp = _pose_sim_stamp_ns(self._reader.state)
+        if stamp is None:
+            return self._wall() if self._offset is None else self._last
+        if self._offset is None:
+            self._offset = self._wall() - stamp / 1e9
+        self._last = max(self._last, self._offset + stamp / 1e9)
+        return self._last
+
+
 def _pose_sim_stamp_ns(state: Any) -> int | None:
     """Return PX4's simulation/boot timestamp in nanoseconds when available.
 
@@ -2811,6 +2838,11 @@ def run_episode(
                     speed_mps=lambda: _state_speed(mav_reader.state),
                     criterion=None,
                     streamer=setpoint_streamer,
+                    # Time primitives on PX4's lockstep clock: on a loaded host the
+                    # simulation ran at 0.22x real time and a third of the 15 m legs
+                    # hit the 20 s wall-clock timeout before settling.
+                    clock=_SimClock(mav_reader),
+                    max_wall_s=PRIMITIVE_MAX_WALL_S,
                 )
             # Let PX4's commander settle and report healthy before arming.
             # The normal arm command does not bypass these checks.
@@ -3059,12 +3091,14 @@ def run_episode(
                     labels = policy.labels(pose_ned=pose, yaw_deg=yaw)
                 elif plan.teacher == "onboard":
                     action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
+                    # Health holds and recoveries skip perception: no detections then.
+                    onboard_labels = labels.get("onboard") or {}
                     _progress(
                         "onboard_step",
                         step=index,
-                        state=labels["onboard"]["state"],
-                        detections=labels["onboard"]["detections"],
-                        slow_calls=len(labels["onboard"]["slow_calls"]),
+                        state=onboard_labels.get("state"),
+                        detections=onboard_labels.get("detections"),
+                        slow_calls=len(onboard_labels.get("slow_calls") or ()),
                     )
                 elif plan.teacher == "hover":
                     action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
