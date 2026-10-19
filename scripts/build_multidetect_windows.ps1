@@ -365,9 +365,21 @@ if ($OpenSSLRoot) {
         ForEach-Object { Join-Path $OpenSSLRoot $_ } |
         Where-Object { Test-Path -LiteralPath (Join-Path $_ 'OpenSSLConfig.cmake') } |
         Select-Object -First 1
-    $openSSLArguments = "`"-DMULTIDETECT_OPENSSL_ROOT=$OpenSSLRoot`""
+    $openSSLArguments = "`"-DMULTIDETECT_OPENSSL_ROOT=$OpenSSLRoot`" `"-DOPENSSL_ROOT_DIR=$OpenSSLRoot`""
     if ($openSSLConfigDir) {
         $openSSLArguments += " `"-DOpenSSL_DIR=$openSSLConfigDir`""
+    }
+    # find_package(OpenSSL) runs CMake's FindOpenSSL module, which ignores
+    # OpenSSL_DIR and keeps any include/library it cached earlier (e.g. an MSYS2
+    # MinGW OpenSSL found on PATH): pin them to this root.
+    $openSSLInclude = Join-Path $OpenSSLRoot 'include'
+    $openSSLCrypto = Join-Path $OpenSSLRoot 'lib\libcrypto.lib'
+    $openSSLSsl = Join-Path $OpenSSLRoot 'lib\libssl.lib'
+    if ((Test-Path -LiteralPath $openSSLInclude) -and (Test-Path -LiteralPath $openSSLCrypto)) {
+        $openSSLArguments += " `"-DOPENSSL_INCLUDE_DIR=$openSSLInclude`" `"-DOPENSSL_CRYPTO_LIBRARY=$openSSLCrypto`""
+        if (Test-Path -LiteralPath $openSSLSsl) {
+            $openSSLArguments += " `"-DOPENSSL_SSL_LIBRARY=$openSSLSsl`""
+        }
     }
     $openSSLPath = "$OpenSSLRoot\bin;"
     Write-Host "OpenSSL    : $OpenSSLRoot"
