@@ -11,6 +11,8 @@ New-Item -ItemType Directory -Force D:\Projects\mdwt\releasepipe\.tmp | Out-Null
 $env:TEMP=$env:TMP=$env:TMPDIR="D:\Projects\mdwt\releasepipe\.tmp"
 $env:CUDA_VISIBLE_DEVICES="-1"
 $env:PYTHONPATH="src"
+# Ed25519 任务签名需要 MSVC 版 OpenSSL（例如 vcpkg 的 x64-windows）；不设则地面站签名后端不可用、真机签名上传按设计拒绝
+$env:MULTIDETECT_OPENSSL_ROOT="D:\Projects\mdwt\vcpkg\installed\x64-windows"
 python .\scripts\run_release_pre9.py
 ```
 
