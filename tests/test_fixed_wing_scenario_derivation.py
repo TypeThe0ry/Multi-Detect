@@ -39,9 +39,7 @@ def test_corridor_clearance_measures_the_whole_line() -> None:
 def test_derived_runtime_spawns_a_fixed_wing_along_the_clearest_runway(tmp_path: Path) -> None:
     worlds, scenario = _world(tmp_path)
     out = tmp_path / "configs/scenarios/fw"
-    entry = derive_fixed_wing_scenario(
-        scenario, out, worlds_dir=worlds, corridor_half_width_m=0.0
-    )
+    entry = derive_fixed_wing_scenario(scenario, out, worlds_dir=worlds, corridor_half_width_m=0.0)
     world_id = "gen_w0000"
     runtime = json.loads((out / f"{world_id}.runtime_input.json").read_text(encoding="utf-8"))
     schema = json.loads(

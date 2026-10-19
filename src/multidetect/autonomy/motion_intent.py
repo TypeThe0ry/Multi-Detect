@@ -158,9 +158,7 @@ class MotionIntent:
         return cls("land", None if target_ned is None else tuple(float(v) for v in target_ned))
 
     @classmethod
-    def deliver(
-        cls, target_ned: Sequence[float], *, radius_m: float | None = None
-    ) -> MotionIntent:
+    def deliver(cls, target_ned: Sequence[float], *, radius_m: float | None = None) -> MotionIntent:
         return cls("deliver", tuple(float(v) for v in target_ned), radius_m=radius_m)
 
 

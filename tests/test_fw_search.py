@@ -90,7 +90,9 @@ def test_fixed_wing_steps_hold_the_commanded_altitude_while_the_plane_sinks() ->
         ActionPrimitive.translate(25.0, 0.0, 0.0), pose_ned=(25.0, 0.0, -27.5), yaw_deg=0.0
     )
     assert sunk.target_ned[2] == pytest.approx(-30.0)
-    loiter = adapter.from_primitive(ActionPrimitive.hold(2.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0)
+    loiter = adapter.from_primitive(
+        ActionPrimitive.hold(2.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0
+    )
     assert loiter.target_ned[2] == pytest.approx(-30.0)
     descend = adapter.from_primitive(
         ActionPrimitive.translate(20.0, 0.0, -4.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0

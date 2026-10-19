@@ -8,10 +8,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+from onboard_factories import make_policy
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
 from multidetect.autonomy.motion_intent import profile_mount_pitch_down_rad
-from onboard_factories import make_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 SIM_MODEL = {
@@ -24,7 +24,9 @@ SIM_MODEL = {
 
 
 def _sdf_camera_pitch(model: str) -> float:
-    root = ET.fromstring((ROOT / "simulation/gazebo/models" / model / "model.sdf").read_text("utf-8"))
+    root = ET.fromstring(
+        (ROOT / "simulation/gazebo/models" / model / "model.sdf").read_text("utf-8")
+    )
     for joint in root.iter("joint"):
         pose = joint.find("pose")
         if pose is not None and pose.get("relative_to") == "base_link":

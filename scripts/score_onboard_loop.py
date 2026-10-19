@@ -69,7 +69,10 @@ def truth_for_episode(
     return world_id, None
 
 
-from multidetect.autonomy.airframe_profile import AirframeProfile, AirframeProfileError  # noqa: E402
+from multidetect.autonomy.airframe_profile import (  # noqa: E402
+    AirframeProfile,
+    AirframeProfileError,
+)
 from multidetect.autonomy.motion_intent import profile_mount_pitch_down_rad  # noqa: E402
 from multidetect.simulator.camera_projection import (  # noqa: E402
     CAMERA_MOUNT_PITCH_RAD,
