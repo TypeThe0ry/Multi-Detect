@@ -903,3 +903,19 @@ def test_fixed_wing_single_view_does_not_overrule_a_rejection_at_the_same_place(
     loop, info = _fw_single_view_confirm(reject_first=True)
     assert info["focus"] != "t1"  # a new track id at the rejected place
     assert loop.confirmed is None and info["contradicted_by_rejection"]
+
+
+def test_fixed_wing_single_view_counts_once_confirms_outnumber_rejections() -> None:
+    loop = _fw_loop()
+    target = (40.0, 0.0)
+    far = _Plane(-60.0, 0.0, 0.0)  # 100 m out: a confirm there is only a vote
+    _fw_step(loop, far, target, lambda track, plane: "confirm_target")
+    assert loop.confirmed is None
+    _fw_step(loop, far, target, lambda track, plane: "reject_track")
+    for _ in range(loop.config.lost_after_steps + 2):
+        _fw_step(loop, far, None, _approach)
+    near = _Plane(0.0, 0.0, 0.0)
+    _, info, _ = _fw_step(loop, near, target, lambda track, plane: "confirm_target")
+    assert info["focus"] != "t1"
+    # Two confirms against one rejection at this place: the single view counts.
+    assert loop.confirmed is not None and info["confirmed"]["confirm_views"] == 1
