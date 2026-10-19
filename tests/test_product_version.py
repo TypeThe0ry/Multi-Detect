@@ -20,14 +20,14 @@ def test_product_version_manifest_is_the_prerelease_source_of_truth() -> None:
     assert raw == {
         "schema_version": 1,
         "product": "Multi-Detect",
-        "release_label": "0.3.0-pre.8",
+        "release_label": "0.3.0-pre.9",
         "numeric": "0.3.0",
-        "python": "0.3.0rc8",
+        "python": "0.3.0rc9",
         "channel": "prerelease",
     }
-    assert version.release_label == "0.3.0-pre.8"
+    assert version.release_label == "0.3.0-pre.9"
     assert version.numeric == "0.3.0"
-    assert version.python == "0.3.0rc8"
+    assert version.python == "0.3.0rc9"
     assert multidetect.__version__ == version.python
     assert multidetect.PRODUCT_VERSION == version
 
@@ -36,7 +36,7 @@ def test_product_version_manifest_is_the_prerelease_source_of_truth() -> None:
     ("updates", "message"),
     [
         ({"release_label": "0.3.0"}, "invalid prerelease label"),
-        ({"release_label": "0.3.0-pre.9"}, "prerelease sequences do not match"),
+        ({"release_label": "0.3.0-pre.10"}, "prerelease sequences do not match"),
         ({"python": "0.3.0"}, "invalid Python prerelease version"),
         ({"numeric": "0.3"}, "invalid numeric version"),
         ({"channel": "nightly"}, "invalid release channel"),

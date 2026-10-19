@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "product": "Multi-Detect",
-  "release_label": "0.3.0-pre.8",
+  "release_label": "0.3.0-pre.9",
   "numeric": "0.3.0",
-  "python": "0.3.0rc8",
+  "python": "0.3.0rc9",
   "channel": "prerelease"
 }

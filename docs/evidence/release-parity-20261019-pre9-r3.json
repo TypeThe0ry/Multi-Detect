@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "generated_at_utc": "2026-10-19T02:13:53Z",
+  "source_runtime_evaluated_at_utc": "2026-09-27T00:50:00.000000Z",
+  "runtime_reexecuted": false,
+  "parity_rebind_only": true,
+  "evidence_scope": "retained_files_audit",
+  "evaluated_at_utc": "2026-09-27T00:50:00.000000Z",
+  "gate_passed": false,
+  "release_allowed": false,
+  "blocker_count": 32,
+  "release_blocked_reasons": [
+    "replay_set: replay_set gate_passed is false",
+    "replay_set: replay_set accuracy evidence gate_passed is false",
+    "replay_set: replay_set accuracy evidence accuracy_validated is false",
+    "replay_set: replay_set accuracy evidence artifact gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact accuracy_validated is not true",
+    "replay_set: replay_set accuracy evidence artifact deployment_domain_evidence_complete is not true",
+    "replay_set: replay_set accuracy evidence artifact metrics_gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact reviewed is not true",
+    "replay_set: replay_set accuracy evidence artifact contains failure_reasons",
+    "replay_set: replay_set deployment coverage is incomplete",
+    "real_field_link: real_field_link gate_passed is false",
+    "real_field_link: real_field_link: field-link preflight report is stale: age 209885.349s exceeds max 900.000s",
+    "real_field_link: real_field_link: field-link preflight hardware_link_ready is false",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for HIL",
+    "real_control_acceptance is 'not_claimed', required for HIL",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for REAL",
+    "real_control_acceptance is 'not_claimed', required for REAL",
+    "referenced artifact gate_passed is not true",
+    "product channel is 'prerelease'; final release requires channel 'release'",
+    "final release version surfaces do not equal numeric version"
+  ],
+  "report_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound-report-parity-r17-parity-r12-parity-r14-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12-parity-r14-parity-r11.json",
+  "report_bytes": 70291,
+  "report_sha256": "4cb9d639f7045cdb232cdeeadbd7a8cdd643d2838001d7efbdce096464e892c0",
+  "manifest_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound.json",
+  "manifest_bytes": 23654,
+  "manifest_sha256": "522727d78b9ff97fc5ed5f5f2a0f05ae83fdf7bbea3d19024cee934b4627ced5",
+  "current_parity_file": {
+    "path": "configs/release-parity.json",
+    "bytes": 18099,
+    "sha256": "701928642f6f8339ec47af79675d549f3eefabbb7afac5d412e9ecb0188bad07"
+  },
+  "current_parity": {
+    "core_algorithm_hash": "b5137069ada1eec9ce9d1871856095c1c237725c2476270de020fb6621fefeda",
+    "px4_mission_path_hash": "dff7bca3a6eead113e58748a34c385e2bde19cbaedaea7b7a2835e7ef55b191d",
+    "safety_policy_hash": "70709162e6f3aaff226ffe75f6efc83a4483071466d3c33b912a47a216a1aa86",
+    "task_contract_hash": "17a3445e09cd3c655cd57db8467f29062e19893c9ecb04dbde8b2ba0914145cc",
+    "ui_contract_hash": "03def3e44aa98ceef89fa43e6c30071e07e9040a76cbec025067fc1d10169604"
+  },
+  "mode_parity_mismatches": {
+    "replay": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "sim": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "hil": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "real": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ]
+  },
+  "current_release_parity_bound": false,
+  "scope": "Retained historical release-gate report re-evaluated against current parity; no runtime re-execution. Old mode parity and external source drift remain release blockers.",
+  "field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-refresh-20260924-r4/preflight.json",
+    "preflight_bytes": 15758,
+    "preflight_sha256": "da0d9c235bc0150707b5ef743bdc51ed4a583be28ebd673931e32adcf766fe07",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-refresh-20260924-r4/interface-diagnostic.json",
+    "interface_diagnostic_bytes": 4383,
+    "interface_diagnostic_sha256": "f6d9e99e02fce0a122d4149fdd1452807e9ec3e12741f5f62b92beac0dcc0933",
+    "hardware_link_ready": false,
+    "read_only": true
+  },
+  "current_field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-preflight-current-20260928-r2.json",
+    "preflight_bytes": 18140,
+    "preflight_sha256": "437c8fff2bad4a6cab50f1b303446204c4ee9971c376c8fc72ceff0637238905",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-interface-diagnostic-current-20260928.json",
+    "interface_diagnostic_bytes": 4379,
+    "interface_diagnostic_sha256": "cb1d4f849067d3da7676e3da87ad4478560ed3d8c1c37d0654c7d4e81d44809d",
+    "hardware_link_ready": false,
+    "read_only": true
+  }
+}
