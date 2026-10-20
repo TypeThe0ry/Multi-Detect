@@ -36,7 +36,11 @@ from multidetect.clock import Clock, HighResolutionSystemClock, SystemClock
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
-from scripts.run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+
+try:  # run as a script (scripts/ on sys.path) or imported as scripts.<module>
+    from run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+except ImportError:  # pragma: no cover - package-style import
+    from scripts.run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
 
 try:
     from pymavlink import mavutil
