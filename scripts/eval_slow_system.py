@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 import json
 import math
 import socket
@@ -50,6 +51,135 @@ DEFAULT_CACHE = (
     ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
 )
 DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+
+
+def _windows_port_processes(port: int) -> list[dict[str, Any]]:
+    """Return listening process metadata for ``port`` without third-party APIs."""
+    if sys.platform != "win32":
+        return []
+    script = (
+        f"$owners = Get-NetTCPConnection -LocalPort {int(port)} -State Listen -ErrorAction SilentlyContinue "
+        "| Select-Object -ExpandProperty OwningProcess -Unique; "
+        "Get-CimInstance Win32_Process | Where-Object { $owners -contains $_.ProcessId } "
+        "| Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    ).format(int(port))
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(f"could not inspect port {port} owners: {result.stderr.strip()}")
+    if not result.stdout.strip():
+        return []
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"could not parse port {port} owner query") from exc
+    return value if isinstance(value, list) else [value]
+
+
+def _terminate_windows_process(pid: int) -> None:
+    result = subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], check=False)
+    if result.returncode:
+        raise RuntimeError(f"failed to terminate orphan llama-server PID {pid}")
+
+
+def _windows_process_exists(pid: int) -> bool | None:
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"(Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue) -ne $null",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    return result.stdout.strip().lower() == "true"
+
+
+def _cleanup_orphaned_windows_server(port: int, model: Path, repository_root: Path = ROOT) -> None:
+    """Clean a safe orphan, or reject any other listener on the requested port."""
+    if sys.platform != "win32":
+        return
+    owners = _windows_port_processes(port)
+    if not owners:
+        return
+    command = str(model.resolve()).lower()
+    artifacts_root = (repository_root / "artifacts").resolve()
+    pending_kill: list[int] = []
+    for owner in owners:
+        pid = int(owner["ProcessId"])
+        name = str(owner.get("Name") or "")
+        cmdline = str(owner.get("CommandLine") or "")
+        parent = int(owner.get("ParentProcessId") or 0)
+        parent_exists = _windows_process_exists(parent) if parent > 0 else None
+        is_llama = name.lower() == "llama-server.exe" and "llama-server.exe" in cmdline.lower()
+        safe_model = command.startswith(str(artifacts_root).lower() + "\\")
+        points_at_model = command in cmdline.lower()
+        if is_llama and safe_model and points_at_model and parent_exists is False:
+            pending_kill.append(pid)
+            continue
+        if is_llama and safe_model and points_at_model and parent_exists is None:
+            raise RuntimeError(
+                f"could not determine parent process for PID {pid}; command line: {cmdline}"
+            )
+        raise RuntimeError(
+            f"port {port} is held by PID {pid} ({name}); command line: {cmdline or '<unknown>'}"
+        )
+    for pid in pending_kill:
+        _terminate_windows_process(pid)
+
+
+def _attach_windows_job(process: subprocess.Popen[Any]) -> Any:
+    """Put a child in a kill-on-close Job Object; called only on Windows."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    try:
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    except AttributeError:
+        pass
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class _LimitInfo(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _Basic),
+            ("IoInfo", ctypes.c_byte * 48),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    info = _LimitInfo()
+    info.BasicLimitInformation.LimitFlags = 0x2000
+    if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        kernel32.CloseHandle(job)
+        raise ctypes.WinError(ctypes.get_last_error())
+    if not kernel32.AssignProcessToJobObject(job, ctypes.c_void_p(process._handle)):
+        kernel32.CloseHandle(job)
+        raise ctypes.WinError(ctypes.get_last_error())
+    return job
 
 
 def decision_confidence(tokens: list[dict[str, Any]] | None) -> float | None:
@@ -474,6 +604,7 @@ class LlamaServerRunner:
         executable, model = Path(executable).resolve(), Path(model).resolve()
         mmproj = Path(mmproj).resolve() if mmproj is not None else None
         adapter = Path(adapter).resolve() if adapter else None
+        _cleanup_orphaned_windows_server(port, model)
         command = [str(executable), "-m", str(model)]
         if mmproj is not None:
             command.extend(["-mm", str(mmproj)])
@@ -505,6 +636,7 @@ class LlamaServerRunner:
         self.process = subprocess.Popen(
             command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=self.server_log
         )
+        self._job_handle = _attach_windows_job(self.process) if sys.platform == "win32" else None
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
@@ -700,6 +832,10 @@ class LlamaServerRunner:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=10)
+        job = getattr(self, "_job_handle", None)
+        if job:
+            ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(job)
+            self._job_handle = None
         if not getattr(self, "wait_port_free", False):
             return
         # A planner and identity server may reuse one port.  A failed connect
