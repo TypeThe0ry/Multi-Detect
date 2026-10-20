@@ -468,8 +468,16 @@ class LoopConfig:
     # Aircraft that cannot hover hand the flight home to the autopilot (RTL and
     # its landing) with a stop, instead of flying turn/translate legs at home.
     autopilot_return: bool = False
+    # Hybrid hover-capable VTOLs dwell in MC after a rejected candidate before
+    # resuming the fixed-wing lawnmower. These are inert for the default MC mode.
+    vtol_fw_reentry_min_mc_steps: int = 3
+    vtol_fw_transition_budget: int = 3
 
     def __post_init__(self) -> None:
+        for name in ("vtol_fw_reentry_min_mc_steps", "vtol_fw_transition_budget"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
         for name in (
             "fw_min_turn_radius_m",
             "fw_pass_view_range_m",

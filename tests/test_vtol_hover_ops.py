@@ -122,6 +122,67 @@ def test_hybrid_vtol_uses_mc_approach_after_transition_and_does_not_step_pending
     assert policy.loop.step_index == before
 
 
+def test_hybrid_rejection_dwell_requests_fw_and_keeps_search_lane(
+    tmp_path: Path, monkeypatch
+) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid",
+        config={
+            "airframe": "standard_vtol",
+            "vtol_search_mode": "fw",
+            "vtol_fw_reentry_min_mc_steps": 2,
+        },
+    )
+    fw_search = policy._search_fw
+    fw_search.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    lane_index = fw_search._index
+    policy.motion_adapter.set_mode(3)
+    policy.loop.state = "searching"
+    policy._hybrid_rejections_seen = 1
+    policy._hybrid_candidate_visible = False
+    policy._act_impl = lambda *_args, **_kwargs: (
+        ActionPrimitive.hold(1.0),
+        {"onboard": {"state": "searching"}},
+    )
+    policy._hybrid_mc_search_steps = 2
+    command, labels = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "transition" and command.mode == "FW"
+    assert labels["onboard"]["state"] == "transition"
+    policy.motion_adapter.set_mode(4)
+    policy._set_active_camera_mode("FW")
+    policy._active_search(policy._search_fw, policy._search_mc).next_action(
+        pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0
+    )
+    assert fw_search._index >= lane_index
+
+
+def test_hybrid_reentry_is_suppressed_by_visible_candidate_and_budget(tmp_path: Path) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid",
+        config={
+            "airframe": "standard_vtol",
+            "vtol_search_mode": "fw",
+            "vtol_fw_reentry_min_mc_steps": 0,
+            "vtol_fw_transition_budget": 1,
+        },
+    )
+    policy.motion_adapter.set_mode(3)
+    policy.loop.state = "searching"
+    policy._hybrid_rejections_seen = 1
+    policy._hybrid_mc_search_steps = 1
+    policy._hybrid_candidate_visible = True
+    policy._act_impl = lambda *_args, **_kwargs: (
+        ActionPrimitive.hold(1.0),
+        {"onboard": {"state": "searching"}},
+    )
+    command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "mc_hold"
+    policy._hybrid_candidate_visible = False
+    policy._hybrid_transition_count = 1
+    command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "mc_hold"
+
+
 def test_multirotor_and_fixed_wing_are_not_hover_ops(tmp_path: Path) -> None:
     assert not make_policy(work_dir=tmp_path / "x500").motion_adapter.hover_ops
     cessna = make_policy(work_dir=tmp_path / "fw", config={"airframe": "rc_cessna_runway"})
