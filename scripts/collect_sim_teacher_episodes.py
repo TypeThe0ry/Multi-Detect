@@ -758,6 +758,25 @@ class DockerSimEnvironment:
                 self.copy_px4_ulogs()
             except (OSError, subprocess.SubprocessError) as error:
                 self._progress("px4_ulog_copy_failed", container=self.name, error=str(error))
+        if self.started and exc_type is not None:
+            # Keep the container's own last words: a PX4 that never sends a
+            # heartbeat leaves nothing else behind once the container is removed.
+            try:
+                logs = subprocess.run(
+                    [_docker_executable(self.plan), "logs", "--tail", "120", self.name],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                self._progress(
+                    "container_logs_on_failure",
+                    container=self.name,
+                    error=exc_type.__name__,
+                    tail=(logs.stdout + logs.stderr)[-12000:],
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                self._progress("container_logs_failed", container=self.name, error=str(error))
         if self.started and not (
             exc_type is not None
             and self.plan.keep_container_on_failure
