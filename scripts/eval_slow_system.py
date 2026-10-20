@@ -137,13 +137,28 @@ def _cleanup_orphaned_windows_server(port: int, model: Path, repository_root: Pa
         _terminate_windows_process(pid)
 
 
+def _kernel32() -> Any:
+    """kernel32 with HANDLE-sized signatures (64-bit handles must not be truncated)."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle, dword, boolean = ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int
+    signatures = {
+        "CreateJobObjectW": ([ctypes.c_void_p, ctypes.c_wchar_p], handle),
+        "SetInformationJobObject": ([handle, ctypes.c_int, ctypes.c_void_p, dword], boolean),
+        "AssignProcessToJobObject": ([handle, handle], boolean),
+        "CloseHandle": ([handle], boolean),
+    }
+    for name, (argtypes, restype) in signatures.items():
+        try:
+            function = getattr(kernel32, name)
+            function.argtypes, function.restype = argtypes, restype
+        except AttributeError:  # test doubles may not provide every function
+            pass
+    return kernel32
+
+
 def _attach_windows_job(process: subprocess.Popen[Any]) -> Any:
     """Put a child in a kill-on-close Job Object; called only on Windows."""
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    try:
-        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    except AttributeError:
-        pass
+    kernel32 = _kernel32()
     job = kernel32.CreateJobObjectW(None, None)
     if not job:
         raise ctypes.WinError(ctypes.get_last_error())
@@ -648,6 +663,7 @@ class LlamaServerRunner:
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
+                self._close_job()
                 self.server_log.flush()
                 tail = Path(self.server_log.name).read_text(encoding="utf-8", errors="replace")[
                     -2000:
@@ -832,6 +848,13 @@ class LlamaServerRunner:
         except (OSError, ValueError, urllib.error.URLError, TimeoutError):
             return False
 
+    def _close_job(self) -> None:
+        job = getattr(self, "_job_handle", None)
+        if job:
+            # Closing the kill-on-close job also ends a still-running server.
+            _kernel32().CloseHandle(job)
+            self._job_handle = None
+
     def close(self) -> None:
         if self.process.poll() is None:
             self.process.terminate()
@@ -840,10 +863,7 @@ class LlamaServerRunner:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=10)
-        job = getattr(self, "_job_handle", None)
-        if job:
-            ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(job)
-            self._job_handle = None
+        self._close_job()
         if not getattr(self, "wait_port_free", False):
             return
         # A planner and identity server may reuse one port.  A failed connect
