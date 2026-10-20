@@ -100,7 +100,11 @@ python scripts/bench_orin_onboard.py \
 $env:PYTHONPATH="src;."; python scripts/bringup_orin.py --host <板子IP> --user <用户名> --key $HOME/.ssh/id_ed25519
 ```
 
-它会复制源码和可用的 bundle，运行安装与 benchmark，并把结果放到 `artifacts/orin/<UTC时间>/`。先检查命令而不连接板子时，加 `--dry-run`。
+它会先把当前代码刷新进准备好的上板包 `D:\Projects\mdwt\orin-bundle\Multi-Detect`（模型、ONNX、llama.cpp 保持不变；换目录用 `--bundle`，不刷新代码用 `--no-refresh`），再用 `tar | ssh` 整包传到板子的 `~/Multi-Detect`，然后运行安装与 benchmark，把结果拉回 `artifacts/orin/<UTC时间>/`。先检查命令而不连接板子时，加 `--dry-run`。
+
+前提：
+- 开发机的公钥已经在板子的 `~/.ssh/authorized_keys` 里（只用密钥，不用密码）；第一次连接会自动记下板子的主机密钥。
+- 安装脚本用 `sudo -n` 运行，不会弹出密码提示：板子上这个用户需要能免密 sudo，否则安装这一步会直接失败，可以在板子上手动执行 `sudo bash scripts/bootstrap_jetson_orin.sh ...` 后再用 `--no-refresh` 重跑。
 
 ## 4. 失败处理和复测
 
