@@ -180,3 +180,20 @@ def test_incomplete_log_tail_is_preserved_and_rejected(tmp_path: Path):
     with pytest.raises(ValueError, match="incomplete tail"):
         OnboardMissionLog(tmp_path, "mission-1")
     assert log.path.read_bytes() == original
+
+
+def test_a_count_record_with_sets_and_dataclasses_is_logged() -> None:
+    # A supervised count crashed on its first counted cone: the record carries
+    # the co-visible track ids as a set and an appearance dataclass.
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+    from multidetect.autonomy.onboard_mission_log import _encoded
+
+    record = {
+        "co_visible_with": {"t3", "t1"},
+        "appearance": AppearanceSignature(size_range=0.02, aspect_ratio=0.5),
+    }
+    decoded = json.loads(_encoded({"counted": record}))
+    assert decoded["counted"]["co_visible_with"] == ["t1", "t3"]
+    assert decoded["counted"]["appearance"]["aspect_ratio"] == 0.5
+    with pytest.raises(TypeError):
+        _encoded({"bad": object()})

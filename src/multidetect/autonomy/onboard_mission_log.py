@@ -6,6 +6,7 @@ Delivery is at least once, so receivers should deduplicate by mission and sequen
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import threading
@@ -15,8 +16,22 @@ from pathlib import Path
 from typing import Any
 
 
+def _json_default(value: Any) -> Any:
+    """Encode the plain containers that loop records carry (sets, dataclasses).
+
+    A count record holds the co-visible track ids as a set and an appearance
+    dataclass; logging it raised TypeError and crashed every supervised count.
+    """
+    if isinstance(value, (set, frozenset)):
+        return sorted(value, key=str)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _encoded(document: Mapping[str, Any]) -> bytes:
-    return (json.dumps(document, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    text = json.dumps(document, ensure_ascii=False, allow_nan=False, default=_json_default)
+    return (text + "\n").encode("utf-8")
 
 
 def _atomic_json(path: Path, document: Mapping[str, Any]) -> None:
