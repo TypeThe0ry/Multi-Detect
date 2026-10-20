@@ -636,7 +636,15 @@ class LlamaServerRunner:
         self.process = subprocess.Popen(
             command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=self.server_log
         )
-        self._job_handle = _attach_windows_job(self.process) if sys.platform == "win32" else None
+        self._job_handle = None
+        if sys.platform == "win32":
+            try:
+                self._job_handle = _attach_windows_job(self.process)
+            except OSError as error:
+                # Best effort: without the job the server still runs; it just
+                # will not die with this process (the start-up orphan check
+                # still clears it next time).
+                print(f"warning: llama-server not bound to a kill-on-close job: {error}")
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
