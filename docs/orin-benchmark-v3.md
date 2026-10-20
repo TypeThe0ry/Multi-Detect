@@ -12,6 +12,6 @@ python3 scripts/bench_orin_onboard.py --build-engines \
   --depth-engine artifacts/exports/orin-depth/depth-anything-v2-small-fp16.engine
 ```
 
-脚本会记录 TensorRT 快系统、r12 完整身份判断与 `fast_identity`、r14 规划和模型切换、步间三角化 CPU、Depth Anything V2 Small、并行负载、tegrastats 内存和温度。`--build-engines` 按 960、1280、深度模型顺序运行 `trtexec --fp16 --memPoolSize=workspace:512 --skipInference`，engine 必须在目标 Jetson 的 TensorRT 环境中生成。
+脚本会记录 TensorRT 快系统、r18 完整身份判断与 `fast_identity`、r14 规划对比和模型切换、默认开启的步间三角化 CPU、Depth Anything V2 Small、并行负载、tegrastats 内存和温度。`--build-engines` 按 960、1280、深度模型顺序运行 `trtexec --fp16 --memPoolSize=workspace:512 --skipInference`，engine 必须在目标 Jetson 的 TensorRT 环境中生成。
 
-JSON 的 `budgets` 字段包含门槛、实测值、差距和结论：快系统 TensorRT P95 延迟对应频率至少 10 Hz；r12 `fast_identity` P95 不超过 1 秒；整机统一 RAM 峰值不超过 6199 MiB（约 6.5 GB 十进制）。缺少目标工具或模型时阶段为 `not measured`，不会伪造通过。同目录 Markdown 报告使用中文，列出每个阶段和预算结果。
+JSON 的 `budgets` 字段包含门槛、实测值、差距和结论：快系统 TensorRT P95 延迟对应频率至少 10 Hz；r18 `fast_identity` P95 不超过 1 秒；整机统一 RAM 峰值不超过 6199 MiB（约 6.5 GB 十进制）。缺少目标工具或模型时阶段为 `not measured`，不会伪造通过。同目录 Markdown 报告使用中文，列出每个阶段和预算结果。

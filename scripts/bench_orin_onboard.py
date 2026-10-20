@@ -36,6 +36,9 @@ DEFAULT_GGUF = (
     / "artifacts/models/slow-system-lora-v2-r18-multi-merged-gguf"
     / "slow-system-v2r18multi-merged-Q5_K_M.gguf"
 )
+DEFAULT_GGUF_SHA256 = "0326614baf72947f76c1c23ad038d9a15221d5d58c6f29cdc38bb257c924ba6e"
+DEFAULT_FAST_DETECTOR_SHA256 = "402d91abcaf924ab22971ac9b9130843109fa8821dfbfd88c0c52d574f9e89a4"
+POSITION_DEFAULTS = {"step_triangulation": True, "ground_height_sigma_m": 5.0}
 DEFAULT_MMPROJ = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/"
@@ -89,7 +92,10 @@ def evaluate_budgets(report: dict[str, Any]) -> dict[str, Any]:
     if fast_latency is None:
         fast_latency = latency("yoloe_tensorrt_imgsz_960")
     fast_hz = (1.0 / fast_latency) if fast_latency and fast_latency > 0 else None
-    identity_latency = latency("r12_fast_identity")
+    identity_latency = latency("fast_identity")
+    # Read the old phase key only for older archived reports.
+    if identity_latency is None:
+        identity_latency = latency("r12_fast_identity")
     if identity_latency is None:
         identity_latency = latency("identity_one_token")
     resources = []
@@ -138,7 +144,7 @@ def evaluate_budgets(report: dict[str, Any]) -> dict[str, Any]:
 
     measured_estimates = {
         "fast_latency_s": phase_p95("yoloe_tensorrt_imgsz_1280", "yoloe_tensorrt_imgsz_960"),
-        "fast_identity_s": phase_p95("r12_fast_identity", "identity_one_token"),
+        "fast_identity_s": phase_p95("fast_identity", "r12_fast_identity", "identity_one_token"),
         "planning_s": phase_p95("r14_planning", "planning"),
         "peak_memory_gb": peak_ram * (1024 * 1024) / 1e9 if peak_ram is not None else None,
     }
@@ -1528,9 +1534,9 @@ def _write_markdown_chinese(report: dict[str, Any], path: Path) -> None:
     labels_by_phase = {
         "yoloe_tensorrt_imgsz_960": "YOLOE TensorRT 960",
         "yoloe_tensorrt_imgsz_1280": "YOLOE TensorRT 1280",
-        "r12_full_identity": "身份模型完整判断（阶段名沿用 r12，默认模型 r18）",
-        "r12_fast_identity": "身份模型 fast_identity（阶段名沿用 r12）",
-        "planning": "r12 规划（兼容阶段）",
+        "full_identity": "当前身份模型完整判断（默认 r18）",
+        "fast_identity": "当前身份模型 fast_identity（默认 r18）",
+        "planning": "身份模型规划（兼容阶段）",
         "r14_planning": "r14 规划",
         "r14_model_switch": "r14 模型切换",
         "step_triangulation_cpu": "步间三角化 CPU",
@@ -1697,6 +1703,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "identity_max_tokens": args.identity_max_tokens,
             "planning_max_tokens": args.planning_max_tokens,
             "target": "Jetson Orin Nano 8GB",
+            "default_gguf_sha256": DEFAULT_GGUF_SHA256,
+            "fast_detector_sha256": DEFAULT_FAST_DETECTOR_SHA256,
+            "position_defaults": dict(POSITION_DEFAULTS),
             "pytorch_comparison": args.pytorch_comparison,
             "concurrent_backend": None,
             "concurrent_imgsz": args.concurrent_imgsz,
@@ -1708,7 +1717,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "1280": str(args.tensorrt_engine_1280) if args.tensorrt_engine_1280 else None,
             },
             "engine_build": engine_build,
-            "r12_gguf_model": str(args.gguf_model),
+            "identity_gguf_model": str(args.gguf_model),
             "r14_gguf_model": str(args.r14_gguf_model),
             "depth_onnx": str(args.depth_onnx) if args.depth_onnx else None,
             "depth_engine": str(args.depth_engine) if args.depth_engine else None,
@@ -1981,16 +1990,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     interval_ms=args.tegrastats_interval_ms,
                     gpu_index=gpu_index,
                 )
-            # Stable names make the r12 fast/full identity result explicit in
-            # the JSON while preserving the historical phase names.
+            # Stable names make the current identity results explicit in JSON.
             if "identity" in report["phases"]:
-                report["phases"]["r12_full_identity"] = report["phases"]["identity"]
+                report["phases"]["full_identity"] = report["phases"]["identity"]
             if "identity_one_token" in report["phases"]:
-                report["phases"]["r12_fast_identity"] = report["phases"]["identity_one_token"]
+                report["phases"]["fast_identity"] = report["phases"]["identity_one_token"]
 
             # r14 is used for planning.  It is intentionally a separate
             # llama-server process so the report includes the model switch and
-            # does not conflate caches from the r12 identity run.
+            # does not conflate caches from the identity run.
             if (
                 planning_prompts
                 and args.r14_gguf_model.is_file()
@@ -2074,12 +2082,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "latency": aggregate_latencies([]),
         }
     report["phases"].setdefault(
-        "r12_full_identity",
+        "full_identity",
         report["phases"].get(
             "identity", {"status": "not measured", "latency": aggregate_latencies([])}
         ),
     )
-    report["phases"].setdefault("r12_fast_identity", report["phases"]["identity_one_token"])
+    report["phases"].setdefault("fast_identity", report["phases"]["identity_one_token"])
     report["phases"].setdefault(
         "r14_planning",
         {
