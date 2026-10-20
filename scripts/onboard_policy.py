@@ -386,6 +386,27 @@ class OnboardPolicy:
         ):
             self.motion_adapter.preferred_mode = "MC"
         hover_ops = self.motion_adapter.hover_ops
+        raw_search_mode = options.get("vtol_search_mode", "mc")
+        search_mode = str(raw_search_mode).strip().lower()
+        if search_mode not in {"mc", "fw"}:
+            raise ValueError("vtol_search_mode must be mc or fw")
+        if search_mode == "fw" and not (
+            raw_hover_ops
+            and self.airframe_profile.category == "vtol"
+            and self.airframe_profile.can_hover
+        ):
+            raise ValueError("vtol_search_mode=fw requires a hover-capable VTOL")
+        hybrid_vtol = (
+            search_mode == "fw"
+            and raw_hover_ops
+            and self.airframe_profile.category == "vtol"
+            and self.airframe_profile.can_hover
+        )
+        self.vtol_search_mode = search_mode
+        self._hybrid_vtol = hybrid_vtol
+        if hybrid_vtol:
+            self.motion_adapter.preferred_mode = "FW"
+        self._hybrid_mc_engaged = False
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
@@ -550,16 +571,29 @@ class OnboardPolicy:
         # fixed-wing frame with the x500 pitch puts every ground point ~10 deg
         # too steep, i.e. tens of metres short at 30 m altitude.
         # A hover-mode VTOL's loop sees the world through its MC (level) attitude.
-        mount_pitch = float(
+        mc_mount_pitch = float(
             options.get(
                 "camera_pitch_down_rad",
                 0.18
                 if self.motion_adapter.is_multirotor
                 else profile_mount_pitch_down_rad(
-                    self.airframe_profile, 0.18, mode="mc" if hover_ops else None
+                    self.airframe_profile,
+                    0.18,
+                    mode="mc" if (hover_ops or hybrid_vtol) else None,
                 ),
             )
         )
+        fw_mount_pitch = (
+            float(
+                options.get(
+                    "camera_pitch_down_rad",
+                    profile_mount_pitch_down_rad(self.airframe_profile, 0.18, mode="fw"),
+                )
+            )
+            if hybrid_vtol
+            else mc_mount_pitch
+        )
+        mount_pitch = fw_mount_pitch if hybrid_vtol else mc_mount_pitch
         self.camera_pitch_down_rad = mount_pitch
         search_pattern = str(options.get("search_pattern", "current"))
         if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
@@ -601,14 +635,14 @@ class OnboardPolicy:
             )
         # The search pattern is target-blind; a target placed far outside the
         # detection range keeps ExpertSearchPolicy in its search/scan states.
-        self._search = ExpertSearchPolicy(
+        self._search_mc = ExpertSearchPolicy(
             target_ned=(1.0e7, 1.0e7, 0.0),
             intrinsics=camera_info,
             image_size=image_size,
             altitude_m=self.search_altitude_m or altitude_m,
             obstacles=obstacles,
             home_ned=home_ned or (0.0, 0.0, 0.0),
-            camera_pitch_rad=mount_pitch,
+            camera_pitch_rad=mc_mount_pitch,
             search_pattern=search_pattern,
             **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
         )
@@ -620,16 +654,21 @@ class OnboardPolicy:
                 home_ned=home,
                 radius_m=radius_m,
                 footprint_width_m=camera_footprint_width_m(
-                    camera_info, self.search_altitude_m or altitude_m, mount_pitch
+                    camera_info, self.search_altitude_m or altitude_m, fw_mount_pitch
                 ),
                 turn_radius_m=profile.min_turn_radius_m or profile.orbit_radius(),
                 max_leg_m=profile.limits.max_step_distance_m,
             )
 
+        self._search_fw = fixed_wing_search(
+            home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
+        )
         if not plans_like_multirotor:
-            self._search = fixed_wing_search(
-                home_ned or (0.0, 0.0, 0.0), self._search.search_radius_m
-            )
+            self._search = self._search_fw
+        elif hybrid_vtol:
+            self._search = self._search_fw
+        else:
+            self._search = self._search_mc
         camera = CameraModel(
             fx=float(camera_info["fx"]),
             fy=float(camera_info["fy"]),
@@ -732,11 +771,29 @@ class OnboardPolicy:
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
             search = self._search
+            search_mc = self._search_mc
             obstacle_source = StaticMapSource(obstacles)
-            if region is not None and not plans_like_multirotor:
+            if region is not None and (not plans_like_multirotor or hybrid_vtol):
                 search = fixed_wing_search(
                     (float(region[0]), float(region[1]), 0.0), float(region[2])
                 )
+                if hybrid_vtol:
+                    search_mc = ExpertSearchPolicy(
+                        target_ned=(1.0e7, 1.0e7, 0.0),
+                        intrinsics=camera_info,
+                        image_size=image_size,
+                        altitude_m=self.search_altitude_m or altitude_m,
+                        obstacles=obstacles,
+                        home_ned=(float(region[0]), float(region[1]), 0.0),
+                        search_radius_m=float(region[2]),
+                        camera_pitch_rad=mc_mount_pitch,
+                        search_pattern=search_pattern,
+                        **(
+                            {"low_altitude_m": low_search_altitude}
+                            if low_search_altitude is not None
+                            else {}
+                        ),
+                    )
             elif region is not None:
                 # A bounded zone: the same target-blind pattern, centred on the zone.
                 search = ExpertSearchPolicy(
@@ -747,7 +804,7 @@ class OnboardPolicy:
                     obstacles=obstacles,
                     home_ned=(float(region[0]), float(region[1]), 0.0),
                     search_radius_m=float(region[2]),
-                    camera_pitch_rad=mount_pitch,
+                    camera_pitch_rad=mc_mount_pitch,
                     search_pattern=search_pattern,
                     **(
                         {"low_altitude_m": low_search_altitude}
@@ -757,7 +814,9 @@ class OnboardPolicy:
                 )
             loop = OnboardLoop(
                 camera=camera,
-                search_action=lambda pose, yaw: search.next_action(pose_ned=pose, yaw_deg=yaw),
+                search_action=lambda pose, yaw: self._active_search(search, search_mc).next_action(
+                    pose_ned=pose, yaw_deg=yaw
+                ),
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),
@@ -1431,8 +1490,35 @@ class OnboardPolicy:
         if telemetry_mode is not None:
             self.motion_adapter.set_mode(telemetry_mode)
 
+    def _set_active_camera_mode(self, mode: str) -> None:
+        """Keep the loop's scalar camera model aligned with the active VTOL mode."""
+        if not getattr(self, "_hybrid_vtol", False):
+            return
+        pitch = profile_mount_pitch_down_rad(self.airframe_profile, 0.18, mode=mode.lower())
+        self.camera_pitch_down_rad = pitch
+        self.loop.camera = CameraModel(
+            fx=self.loop.camera.fx,
+            fy=self.loop.camera.fy,
+            cx=self.loop.camera.cx,
+            cy=self.loop.camera.cy,
+            width=self.loop.camera.width,
+            height=self.loop.camera.height,
+            pitch_down_rad=pitch,
+        )
+
+    def _active_search(self, fallback, mc_fallback=None):
+        if not self._hybrid_vtol:
+            return fallback
+        # The first search is FW; once a candidate is rejected, the vehicle stays
+        # in MC and all re-searches use the normal ExpertSearchPolicy.
+        if self.motion_adapter.mode == "FW" and self.loop.state == "searching":
+            return fallback
+        return mc_fallback or self._search_mc
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._sync_vehicle_mode(observation)
+        if getattr(self, "motion_adapter", None) is not None:
+            self._set_active_camera_mode(self.motion_adapter.mode)
         self._slow_failed_current = False
         self._slow_skipped_current = False
         # Process external safety inputs first. A latched supervisor decision and
@@ -1733,6 +1819,26 @@ class OnboardPolicy:
         """Single return point: every policy primitive crosses the envelope."""
         self._sync_vehicle_mode(observation)
         adapter = getattr(self, "motion_adapter", None)
+        if adapter is not None and self._hybrid_vtol:
+            adapter.preferred_mode = (
+                "MC" if self._hybrid_mc_engaged or self.loop.state != "searching" else "FW"
+            )
+            self._set_active_camera_mode(adapter.mode)
+            if adapter.transitioning:
+                pending = adapter.from_primitive(
+                    ActionPrimitive.hold(1.0), pose_ned=pose_ned, yaw_deg=yaw_deg
+                )
+                pending, safety_info = adapter.guard_command(
+                    pending, pose_ned=pose_ned, yaw_deg=yaw_deg
+                )
+                return pending, {
+                    "onboard": {"state": "transition", "transition_pending": True},
+                    "motion": pending.to_dict()
+                    if isinstance(pending, MotionCommand)
+                    else {"kind": pending.kind},
+                    "airframe": adapter.profile.id,
+                    **({"safety": safety_info} if safety_info else {}),
+                }
         transition = adapter.mode_change_command() if adapter is not None else None
         if transition is not None:
             # A hover-mode VTOL reported in FW (e.g. right after a VTOL takeoff and
@@ -1757,6 +1863,28 @@ class OnboardPolicy:
                 labels["safety"] = safety_info
             return command, labels
         action, labels = self._act_impl(observation, pose_ned=pose_ned, yaw_deg=yaw_deg)
+        if (
+            adapter is not None
+            and self._hybrid_vtol
+            and adapter.mode == "FW"
+            and self.loop.state == "approaching"
+        ):
+            self._hybrid_mc_engaged = True
+            adapter.preferred_mode = "MC"
+            transition = adapter.mode_change_command()
+            if transition is not None:
+                command, safety_info = adapter.guard_command(
+                    transition, pose_ned=pose_ned, yaw_deg=yaw_deg
+                )
+                labels = {
+                    **labels,
+                    "onboard": {**labels.get("onboard", {}), "state": "transition"},
+                    "motion": command.to_dict(),
+                    "airframe": adapter.profile.id,
+                }
+                if safety_info:
+                    labels["safety"] = safety_info
+                return command, labels
         # Some lightweight test/integration adapters use ``None`` to indicate
         # that no motion was requested this frame; there is no outgoing
         # primitive to arbitrate in that case.
