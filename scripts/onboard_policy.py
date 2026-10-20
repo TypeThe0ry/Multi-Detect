@@ -731,7 +731,9 @@ class OnboardPolicy:
                     loop_defaults[key] = convert(options[key])
 
         def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
+            restart_route = bool(overrides.pop("restart_route", True))
             search = self._search
+            search.restart_route = restart_route
             obstacle_source = StaticMapSource(obstacles)
             if region is not None and not plans_like_multirotor:
                 search = fixed_wing_search(
@@ -749,6 +751,7 @@ class OnboardPolicy:
                     search_radius_m=float(region[2]),
                     camera_pitch_rad=mount_pitch,
                     search_pattern=search_pattern,
+                    restart_route=restart_route,
                     **(
                         {"low_altitude_m": low_search_altitude}
                         if low_search_altitude is not None
@@ -758,6 +761,7 @@ class OnboardPolicy:
             loop = OnboardLoop(
                 camera=camera,
                 search_action=lambda pose, yaw: search.next_action(pose_ned=pose, yaw_deg=yaw),
+                search_outcome=lambda: getattr(search, "search_outcome", None),
                 segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
                     pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
                 ),

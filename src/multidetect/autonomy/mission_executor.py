@@ -430,9 +430,9 @@ class MissionExecutor:
         run = _StepRun(step=step)
         # The step budget bounds a search; the loop's own step cap must not end it.
         if step.skill == "area_search":
-            run.loop = self._loop(step, max_steps=10**6)
+            run.loop = self._loop(step, max_steps=10**6, restart_route=False)
         elif step.skill == "count":
-            run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
+            run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6, restart_route=False)
         elif step.skill == "inspect":
             run.loop = self._make_loop(self.task_text(step))
         elif step.skill in {"patrol", "monitor"}:
@@ -479,7 +479,11 @@ class MissionExecutor:
         self._last_loop = run.loop
         status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         if run.step.skill == "count":
-            status["count_is_lower_bound"] = reason in {"budget_exhausted", "max_count"}
+            unresolved = bool(run.loop and run.loop.unresolved_positive_tracks())
+            status["count_is_lower_bound"] = reason in {
+                "budget_exhausted",
+                "max_count",
+            } or (reason == "coverage_complete" and unresolved)
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1063,7 +1067,8 @@ class MissionExecutor:
             if revisit is not None:
                 return revisit
             # The loop's own budget ended its search; flying home is the plan's job.
-            self._finish("failed", "search_exhausted")
+            reason = "coverage_complete" if run.loop.state == "completed" else "search_exhausted"
+            self._finish("succeeded" if reason == "coverage_complete" else "failed", reason)
             return None
         return action, info
 
@@ -1080,7 +1085,8 @@ class MissionExecutor:
             if revisit is not None:
                 return revisit
             self._report_count(run)
-            self._finish("succeeded", "search_exhausted")
+            reason = "coverage_complete" if run.loop.state == "completed" else "search_exhausted"
+            self._finish("succeeded", reason)
             return None
         limit = run.step.params.get("max_count")
         if limit is not None and len(run.loop.confirmations) >= int(limit):
