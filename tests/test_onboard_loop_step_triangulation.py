@@ -75,6 +75,75 @@ def test_disabled_is_identical_including_records_association_and_memory(count):
     assert disabled.tracks["t1"].position_views == []
 
 
+def test_large_ground_anchor_is_shifted_to_object_centre_without_moving_association():
+    camera = CameraModel(500, 500, 1000, 400, 2000, 800)
+    subject = OnboardLoop(
+        camera,
+        lambda p, y: ActionPrimitive.hold(1),
+        segment_clear=lambda *args: True,
+        config=LoopConfig(
+            step_triangulation=True,
+            ground_extent_size_m=12.0,
+            ground_height_sigma_m=5.0,
+        ),
+    )
+    box = Detection((500.0, 300.0, 1500.0, 500.0), 0.9)
+    pose = (0.0, 0.0, -10.0)
+    tracks = subject.update_tracks(
+        [box],
+        pose_ned=pose,
+        yaw_deg=0.0,
+        ground_point=lambda u, v: (10.0, 0.0),
+        camera_ray=lambda u, v: (pose, (0.8944271909999159, 0.0, 0.4472135954999579)),
+    )
+    track = tracks[0]
+    assert track.ground == (10.0, 0.0)
+    assert track.position_estimate is not None
+    assert track.position_estimate.source == "ground"
+    assert track.position_estimate.position_ned[:2] == pytest.approx((16.0, 0.0), abs=0.05)
+
+
+def test_cone_extent_correction_is_skipped():
+    subject = loop(step_triangulation=True, ground_extent_size_m=0.5)
+    track = subject.update_tracks(
+        [detection((0.0, 0.0, -10.0))],
+        pose_ned=(0.0, 0.0, -10.0),
+        yaw_deg=0.0,
+        ground_point=lambda u, v: GROUND,
+        camera_ray=lambda u, v: ((0.0, 0.0, -10.0), (0.8944271909999159, 0.0, 0.4472135954999579)),
+    )[0]
+    assert track.position_estimate is not None
+    assert track.position_estimate.position_ned[:2] == pytest.approx(GROUND)
+
+
+def test_fused_estimate_is_not_shifted_a_second_time(monkeypatch):
+    subject = loop(step_triangulation=True, ground_extent_size_m=12.0, ground_height_sigma_m=20.0)
+    fused = PositionEstimate(
+        (16.0, 0.0, -1.0),
+        0.2,
+        1.0,
+        "triangulation",
+        view_count=2,
+        baseline_m=8.0,
+        ray_angle_deg=20.0,
+    )
+    monkeypatch.setattr(onboard_loop_module, "triangulate_views", lambda *args, **kwargs: fused)
+    for step, pose in enumerate(((0.0, -4.0, -10.0), (0.0, 4.0, -10.0))):
+        subject.step_index = step
+        tracks = subject.update_tracks(
+            [detection(pose)],
+            pose_ned=pose,
+            yaw_deg=0.0,
+            ground_point=lambda u, v: GROUND,
+            camera_ray=lambda u, v, pose=pose: (pose, CAMERA.ray_ned(u, v, 0)),
+        )
+    estimate = tracks[0].position_estimate
+    assert estimate is not None and estimate.source == "fused"
+    # The triangulated centre is already corrected; applying the extent shift
+    # again would put the result near 22 m instead of the 16 m centre.
+    assert subject.target_position(tracks[0]) == pytest.approx((16.0, 0.0), abs=0.01)
+
+
 @pytest.mark.parametrize("count", [False, True])
 def test_multistep_estimate_is_reported_without_changing_tracking_ground(count):
     subject = loop(step_triangulation=True, ground_height_sigma_m=20, stop_on_confirm=not count)
@@ -121,8 +190,13 @@ def test_single_step_or_pure_turn_falls_back_to_exact_ground(pure_turn):
 def test_distance_aware_parallax_gate_rejects_far_near_collinear_update(monkeypatch):
     subject = loop(step_triangulation=True)
     fake = PositionEstimate(
-        (GROUND[0] + 1.0, GROUND[1], -1.0), 0.2, 1.0, "triangulation",
-        view_count=4, baseline_m=30.0, ray_angle_deg=5.0,
+        (GROUND[0] + 1.0, GROUND[1], -1.0),
+        0.2,
+        1.0,
+        "triangulation",
+        view_count=4,
+        baseline_m=30.0,
+        ray_angle_deg=5.0,
     )
     monkeypatch.setattr(onboard_loop_module, "triangulate_views", lambda *args, **kwargs: fake)
     for pose in ((0.0, -1.0, -10.0), (0.0, 1.0, -10.0)):
