@@ -452,6 +452,7 @@ class LoopConfig:
     ground_extent_correction: bool = True
     ground_extent_size_m: float | None = None
     ground_extent_min_m: float = 0.5
+    ground_extent_min_width_m: float = 1.5
     # Near monocular depth is an opt-in supplement to the geometric estimate.
     near_depth: bool = False
     # Aircraft that cannot hover (fixed-wing): instead of turning toward a candidate
@@ -1199,6 +1200,11 @@ class OnboardLoop:
                             0.5 * size_m,
                             max(size_m / math.pi, 0.5 * visible_width_m),
                         )
+                        # The typical size is the longest dimension, which for a
+                        # person, sign or pole is its height, not its footprint:
+                        # only an object that also looks wide on the ground moves.
+                        if visible_width_m < self.config.ground_extent_min_width_m:
+                            correction_m = 0.0
                         if correction_m < self.config.ground_extent_min_m:
                             correction_m = 0.0
                         if correction_m:

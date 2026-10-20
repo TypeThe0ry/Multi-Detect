@@ -397,3 +397,23 @@ def test_count_deduplicates_estimated_positions_even_when_ground_anchors_differ(
 def test_new_configuration_is_strict(options):
     with pytest.raises(ValueError):
         LoopConfig(**options)
+
+
+def test_a_tall_narrow_object_is_not_moved_by_its_height():
+    # "person" has a typical size of its height; its box is narrow on the ground.
+    camera = CameraModel(500, 500, 1000, 400, 2000, 800)
+    subject = OnboardLoop(
+        camera,
+        lambda p, y: ActionPrimitive.hold(1),
+        segment_clear=lambda *args: True,
+        config=LoopConfig(step_triangulation=True, ground_extent_size_m=1.8),
+    )
+    pose = (0.0, 0.0, -10.0)
+    track = subject.update_tracks(
+        [Detection((990.0, 300.0, 1010.0, 500.0), 0.9)],  # 20 px wide: about 0.4 m
+        pose_ned=pose,
+        yaw_deg=0.0,
+        ground_point=lambda u, v: (10.0, 0.0),
+        camera_ray=lambda u, v: (pose, (0.8944271909999159, 0.0, 0.4472135954999579)),
+    )[0]
+    assert track.position_estimate.position_ned[:2] == pytest.approx((10.0, 0.0))
