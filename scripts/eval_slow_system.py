@@ -62,7 +62,7 @@ def _windows_port_processes(port: int) -> list[dict[str, Any]]:
         "| Select-Object -ExpandProperty OwningProcess -Unique; "
         "Get-CimInstance Win32_Process | Where-Object { $owners -contains $_.ProcessId } "
         "| Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress"
-    ).format(int(port))
+    )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,

@@ -84,3 +84,23 @@ def test_windows_spawn_job_object_uses_kill_on_close(monkeypatch):
     assert calls[0] == "create"
     assert calls[1][0:3] == ("set", 77, 9)
     assert calls[2] == ("assign", 77, 42)
+
+
+def test_port_owner_query_builds_its_powershell_script(monkeypatch) -> None:
+    # The real query (not a fake) must build: a str.format() over the script's
+    # own braces raised KeyError and broke every onboard policy start-up in SITL.
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = '{"ProcessId": 7, "ParentProcessId": 1, "Name": "x.exe", "CommandLine": "x"}'
+        stderr = ""
+
+    monkeypatch.setattr(slow.sys, "platform", "win32")
+    monkeypatch.setattr(
+        slow.subprocess, "run", lambda argv, **kwargs: calls.append(argv) or Result()
+    )
+    owners = slow._windows_port_processes(9941)
+    assert owners == [{"ProcessId": 7, "ParentProcessId": 1, "Name": "x.exe", "CommandLine": "x"}]
+    script = calls[0][-1]
+    assert "-LocalPort 9941 " in script and "{ $owners -contains $_.ProcessId }" in script
