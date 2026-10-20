@@ -1727,7 +1727,7 @@ class OnboardLoop:
                 for t in visible
                 if t.track_id == self._focus
                 or t.ground is None
-                or not self._counted_at(t, t.ground)
+                or not self._counted_at(t, t.ground, check_appearance=False)
             ]
         if self._focus is not None:
             focus = next((t for t in visible if t.track_id == self._focus), None)
@@ -1750,9 +1750,18 @@ class OnboardLoop:
         return action if self._segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
 
     def _counted_at(
-        self, track: Track, position: Sequence[float], sigma_m: float | None = None
+        self,
+        track: Track,
+        position: Sequence[float],
+        sigma_m: float | None = None,
+        *,
+        check_appearance: bool = True,
     ) -> bool:
-        """Whether ``track`` at ``position`` is an object this count already holds."""
+        """Whether ``track`` at ``position`` is an object this count already holds.
+
+        Appearance is unreliable across ranges (a cone 45 m out does not match
+        its close-up signature), so the focus filter may compare places only.
+        """
 
         def dedupe_radius(prior: dict[str, Any]) -> float:
             footprint = prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None)
@@ -1771,10 +1780,13 @@ class OnboardLoop:
 
         def same_object(prior: dict[str, Any]) -> bool:
             prior_position = prior["position_estimate_ne"]
-            if prior_position is None or not (
-                prior.get("appearance") is None
-                or track.appearance is None
-                or appearances_consistent(prior["appearance"], track.appearance, self.config)
+            if prior_position is None or (
+                check_appearance
+                and not (
+                    prior.get("appearance") is None
+                    or track.appearance is None
+                    or appearances_consistent(prior["appearance"], track.appearance, self.config)
+                )
             ):
                 return False
             radius = dedupe_radius(prior)

@@ -1029,6 +1029,12 @@ def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:
         ground_point=lambda u, v: (30.4, 0.2),
     )
     assert fresh.track_id != counted.track_id
+    # Seen from far away its appearance does not match the close-up one.
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+
+    counted_record = loop.confirmations[0]
+    counted_record["appearance"] = AppearanceSignature(size_range=0.05, aspect_ratio=0.5)
+    fresh.appearance = AppearanceSignature(size_range=0.01, aspect_ratio=2.0)
     loop.apply_verdict(fresh.track_id, "confirm_target")
     _, info = loop.next_action([fresh], pose_ned=(0.0, 0.0, -8.0), yaw_deg=0.0)
     assert info.get("focus") is None and loop.state == "searching"
