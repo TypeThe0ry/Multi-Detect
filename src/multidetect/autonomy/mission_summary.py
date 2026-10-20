@@ -52,18 +52,17 @@ def summarize_mission(
             undone.append({"step": step.id, "reason": reason or "no_recorded_completion"})
         elif reason in {"budget_reached", "search_exhausted", "max_count"}:
             undone.append({"step": step.id, "reason": f"full_search_not_established:{reason}"})
-    landing_unconfirmed = any(
-        step["reason"] == "landing_commanded_unconfirmed" for step in steps
-    )
+    landing_unconfirmed = any(step["reason"] == "landing_commanded_unconfirmed" for step in steps)
     counts = []
     for sid, value in raw.get("counts", {}).items():
         outcome = next((s for s in steps if s["id"] == sid), {})
         reason = outcome.get("reason")
+        history_outcome = next((h for h in reversed(history) if h.get("step") == sid), {})
         counts.append(
             {
                 "step": sid,
                 "value": value,
-                "lower_bound": True,
+                "lower_bound": bool(history_outcome.get("count_is_lower_bound", True)),
                 "reason": reason or "full_search_not_established",
             }
         )
@@ -88,10 +87,13 @@ def summarize_mission(
                     "frame_id": finding.get("frame_id"),
                 }
             )
-            findings[-1].update({
-                key: value for key, value in finding.items()
-                if key.startswith("position_") and key != "position_ne"
-            })
+            findings[-1].update(
+                {
+                    key: value
+                    for key, value in finding.items()
+                    if key.startswith("position_") and key != "position_ne"
+                }
+            )
         else:
             findings.append(
                 {
@@ -189,6 +191,7 @@ def _reason_zh(reason: str) -> str:
         "budget_reached": "搜索预算耗尽",
         "step_budget": "步骤预算耗尽",
         "search_exhausted": "搜索已结束，未证实完整覆盖",
+        "coverage_complete": "已完成一次完整覆盖",
         "max_count": "达到计数上限",
         "no_recorded_completion": "未记录完成，状态未知",
         "full_search_not_established": "未证实完整搜索",

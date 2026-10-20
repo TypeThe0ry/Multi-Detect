@@ -334,6 +334,9 @@ class ExpertSearchPolicy:
     # historical expanding-square behaviour; alternate routes are useful for
     # zone search/count experiments and remain target independent.
     search_pattern: str = "current"
+    # Historical callers keep looping; onboard coverage/count runs can opt into
+    # a single pass and receive a terminal route-finished outcome.
+    restart_route: bool = True
     # ``two_altitude`` flies its configured route at ``altitude_m`` first, then
     # descends in place and repeats a close-in route.  Keeping the lower height
     # on the policy (rather than in the host) makes the transition one bounded
@@ -499,6 +502,12 @@ class ExpertSearchPolicy:
         self._blocked_attempts = 0
         self._blocked_consecutive = 0
         self._blocked = False
+        self._search_outcome = "running"
+
+    @property
+    def search_outcome(self) -> str:
+        """Outcome of the target-blind search pass (for host state machines)."""
+        return self._search_outcome
 
     def _search_leg_action(
         self, pose_ned, waypoint, yaw_deg: float | None = None
@@ -787,9 +796,12 @@ class ExpertSearchPolicy:
                 self._waypoint_index = 0
         waypoints = self._low_waypoints if self._search_phase == "low" else self._waypoints
         if self._waypoint_index >= len(waypoints):
-            # A completed low pass is restarted for counting, just like the
-            # historical route restarts after its final waypoint.
-            self._waypoint_index = 0
+            if self.restart_route:
+                self._waypoint_index = 0
+            else:
+                self.state = "done"
+                self._search_outcome = "coverage_complete"
+                return ActionPrimitive.stop()
         waypoint = waypoints[self._waypoint_index]
         if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 0.5:
             self._waypoint_index += 1
@@ -800,7 +812,12 @@ class ExpertSearchPolicy:
             ):
                 return ActionPrimitive.hold(0.0)
             if self._waypoint_index >= len(waypoints):
-                self._waypoint_index = 0
+                if self.restart_route:
+                    self._waypoint_index = 0
+                else:
+                    self.state = "done"
+                    self._search_outcome = "coverage_complete"
+                    return ActionPrimitive.stop()
             waypoint = waypoints[self._waypoint_index]
         return self._search_leg_action(pose_ned, waypoint, yaw_deg)
 

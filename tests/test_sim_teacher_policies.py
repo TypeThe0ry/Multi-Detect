@@ -71,6 +71,41 @@ def test_expert_search_advances_when_target_not_visible() -> None:
     assert action.kind in {"turn", "translate"}
 
 
+def test_expert_search_can_finish_one_route_without_changing_default_restart() -> None:
+    import math
+
+    def run(policy: ExpertSearchPolicy) -> tuple[int, str]:
+        pose = [0.0, 0.0, -10.0]
+        yaw = 0.0
+        for step in range(200):
+            action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+            if action.kind == "stop":
+                return step, policy.search_outcome
+            if action.kind == "turn":
+                yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+            elif action.kind == "translate":
+                heading = math.radians(yaw)
+                pose[0] += action.forward_m * math.cos(heading) - action.right_m * math.sin(heading)
+                pose[1] += action.forward_m * math.sin(heading) + action.right_m * math.cos(heading)
+        return 200, policy.search_outcome
+
+    kwargs = {
+        "target_ned": (1.0e7, 1.0e7, 0.0),
+        "intrinsics": {"fx": 540.0, "fy": 540.0},
+        "image_size": (1280, 960),
+        "altitude_m": 10.0,
+        "search_radius_m": 8.0,
+    }
+    single_pass = ExpertSearchPolicy(**kwargs, restart_route=False)
+    steps, outcome = run(single_pass)
+    assert steps < 200 and outcome == "coverage_complete"
+
+    looping = ExpertSearchPolicy(**kwargs)
+    steps, outcome = run(looping)
+    assert steps == 200 and outcome == "running"
+    assert looping.restart_route is True
+
+
 def _fly(pose: list[float], yaw: float, action) -> float:
     import math
 

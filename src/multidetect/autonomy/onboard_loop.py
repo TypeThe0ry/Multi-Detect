@@ -393,6 +393,8 @@ class LoopConfig:
     # False keeps searching after a confirmation (counting); confirmations within
     # count_dedupe_m of an earlier one are the same object seen again.
     stop_on_confirm: bool = True
+    # Passed through mission loop factories to the target-blind search policy.
+    restart_route: bool = True
     count_dedupe_m: float = 4.0
     # Second look: after this many steps without a confirmation, fly to the far side
     # of candidates that were rejected from one side only and ask again (an object
@@ -713,6 +715,7 @@ class OnboardLoop:
     search_action: Callable[[tuple[float, float, float], float], ActionPrimitive]
     segment_clear: Callable[[tuple[float, float, float], float, float], bool] = _clear_default
     config: LoopConfig = field(default_factory=LoopConfig)
+    search_outcome: Callable[[], str | None] | None = None
     # Optional typed source.  ``segment_clear`` remains accepted for backwards
     # compatibility; when a source is provided it is authoritative.
     obstacle_source: ObstacleSource | None = None
@@ -1828,6 +1831,10 @@ class OnboardLoop:
                 0.0, 0.0, min(target - altitude, 2.0 * self.config.descent_step_m)
             )
         action = self.search_action(pose_ned, yaw_deg)
+        if action.kind == "stop":
+            outcome = self.search_outcome() if self.search_outcome is not None else None
+            self.state = "blocked" if outcome == "blocked" else "completed"
+            return action
         if self.obstacle_source is None:
             return action
         safe = self._safe(pose_ned, action, yaw_deg)
