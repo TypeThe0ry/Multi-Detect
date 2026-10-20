@@ -409,6 +409,17 @@ class OnboardPolicy:
             and self.airframe_profile.category == "vtol"
             and self.airframe_profile.can_hover
         )
+        if hybrid_vtol and (
+            options.get("mission") is not None
+            or options.get("mission_package") is not None
+            or mission_package is not None
+        ):
+            # The hybrid state machine reads the single find loop; a mission
+            # executor runs its own per-step loops, which it never tracks (it
+            # would never leave FW to approach).  Fall back to hover ops there.
+            print("warning: vtol_search_mode=fw applies to single find tasks; using mc")
+            hybrid_vtol = False
+            search_mode = "mc"
         self.vtol_search_mode = search_mode
         self._hybrid_vtol = hybrid_vtol
         if hybrid_vtol:
