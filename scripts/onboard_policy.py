@@ -219,7 +219,12 @@ class SimGroundTimeline:
         self.index = 0
         self.link_up = bool(events)
 
-    def advance(self, observation: Mapping[str, Any], supervisor: MissionSupervisor) -> None:
+    def advance(
+        self,
+        observation: Mapping[str, Any],
+        supervisor: MissionSupervisor,
+        pose_ned: Sequence[float] | None = None,
+    ) -> None:
         stamp = observation.get("frame_sensor_stamp_ns")
         if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0:
             raise ValueError("SIM timeline requires frame_sensor_stamp_ns")
@@ -239,8 +244,10 @@ class SimGroundTimeline:
             self.now = float(entry["t_s"])
             if self.link_up:
                 heartbeat()
-            # Latch an expired silence/pause before a later resume/reconnect.
-            supervisor.evaluate()
+            # Latch an expired silence/pause before a later resume/reconnect.  The
+            # vehicle's pose goes with it: without one the energy model has no return
+            # geometry and orders an immediate return (every SIM safety mission did).
+            supervisor.evaluate(pose_ned=pose_ned)
             kind = entry["event"]
             supervisor.log.append("sim_ground_event", self.now, event=kind, t_s=self.now)
             if kind == "link_lost":
@@ -1572,7 +1579,7 @@ class OnboardPolicy:
         # one-shot ground event must never be hidden by a health hold.
         if self.supervisor is not None:
             if self.sim_timeline is not None:
-                self.sim_timeline.advance(observation, self.supervisor)
+                self.sim_timeline.advance(observation, self.supervisor, pose_ned=pose_ned)
             for sample in observation.get("energy_telemetry", []):
                 received_at = float(sample["received_monotonic_s"])
                 received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
