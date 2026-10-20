@@ -411,6 +411,7 @@ class OnboardPolicy:
         self._hybrid_rejections_seen = 0
         self._hybrid_transition_count = 0
         self._hybrid_candidate_visible = False
+        self._hybrid_fw_reentry_backoff_until = -1
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
@@ -752,6 +753,9 @@ class OnboardPolicy:
             )
             loop_defaults["vtol_fw_transition_budget"] = int(
                 options.get("vtol_fw_transition_budget", 3)
+            )
+            loop_defaults["vtol_fw_reentry_candidate_max_steps"] = int(
+                options.get("vtol_fw_reentry_candidate_max_steps", 3)
             )
         for key, convert in (
             ("ground_reid_radius_m", float),
@@ -1541,6 +1545,23 @@ class OnboardPolicy:
             return fallback
         return mc_fallback or self._search_mc
 
+    def _hybrid_candidate_blocks_reentry(self, current) -> bool:
+        """Whether a live track can still justify staying in MC."""
+        eligible = {track.track_id for track in self.loop.tracks_needing_verdict(current)}
+        max_age = self.loop.config.vtol_fw_reentry_candidate_max_steps
+        for track in current:
+            if track.exhausted:
+                continue
+            if track.verdict in {"approach", "pending_near", "confirm"}:
+                return True
+            if (
+                track.verdict is None
+                and track.track_id in eligible
+                and self.loop.step_index - track.first_step <= max_age
+            ):
+                return True
+        return False
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
@@ -1782,9 +1803,7 @@ class OnboardPolicy:
                 )
                 slow.append(verdict)
         new_rejection = len(getattr(self.loop, "_rejections", ())) > rejection_count_before
-        self._hybrid_candidate_visible = any(
-            track.verdict in {None, "approach", "pending_near"} for track in current
-        )
+        self._hybrid_candidate_visible = self._hybrid_candidate_blocks_reentry(current)
         if (
             new_rejection
             and self.loop.state == "searching"
@@ -1959,6 +1978,7 @@ class OnboardPolicy:
             and getattr(self.loop, "_revisit", None) is None
             and not self.loop.unresolved_positive_tracks()
             and self._hybrid_transition_count < self.loop.config.vtol_fw_transition_budget
+            and self.loop.step_index >= self._hybrid_fw_reentry_backoff_until
         ):
             adapter.preferred_mode = "FW"
             transition = adapter.mode_change_command()
@@ -1969,6 +1989,10 @@ class OnboardPolicy:
                 if isinstance(command, MotionCommand) and command.kind == "transition":
                     self._hybrid_transition_count += 1
                     self._hybrid_mc_search_steps = 0
+                elif safety_info.get("rejected") and "transition_altitude" in safety_info.get(
+                    "reasons", ()
+                ):
+                    self._hybrid_fw_reentry_backoff_until = self.loop.step_index + 3
                 labels = {
                     **labels,
                     "onboard": {**labels.get("onboard", {}), "state": "transition"},
