@@ -75,6 +75,18 @@ _DROP_GAZEBO_MAGNETOMETER = (
     f"if grep -q gz-sim-magnetometer-system {CONTAINER_SERVER_CONFIG}; then exit 70; fi; "
     f"export GZ_SIM_SERVER_CONFIG_PATH={CONTAINER_SERVER_CONFIG}; "
 )
+# PX4's px4-rc.gzsim gives Gazebo 30 one-second attempts to load the world.  On
+# a loaded host the generated worlds took longer and PX4 exited before sending
+# a heartbeat ("Timed out waiting for Gazebo world", six launches on
+# 2026-10-19/20).  Allow 180 attempts; fail loudly if the script changed.
+PX4_GZSIM_RC = "/opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim"
+GAZEBO_WORLD_ATTEMPTS = 180
+_WAIT_LONGER_FOR_GAZEBO = (
+    f"sed -i 's/^ATTEMPTS=30$/ATTEMPTS={GAZEBO_WORLD_ATTEMPTS}/' {PX4_GZSIM_RC}; "
+    f"grep -q '^ATTEMPTS={GAZEBO_WORLD_ATTEMPTS}$' {PX4_GZSIM_RC} || exit 72; "
+)
+# Shell prefix every PX4/Gazebo SITL container runs before PX4 starts.
+SIM_STARTUP_PATCHES = _DROP_GAZEBO_MAGNETOMETER + _WAIT_LONGER_FOR_GAZEBO
 
 
 class DockerSimulatorPlanError(RuntimeError):
@@ -472,7 +484,7 @@ def build_docker_simulator_plan(
             "export PX4_NET_INTERFACE=; ",
             "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
-            _DROP_GAZEBO_MAGNETOMETER,
+            SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",

@@ -38,9 +38,9 @@ from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
 
 try:  # run as a script (scripts/ on sys.path) or imported as scripts.<module>
-    from run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+    from run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
 except ImportError:  # pragma: no cover - package-style import
-    from scripts.run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+    from scripts.run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
 
 try:
     from pymavlink import mavutil
@@ -86,7 +86,7 @@ def _startup_command(mavlink_port: int) -> str:
         f"mavlink start -x -t $DOCKER_HOST_IP -u \\$udp_gcs_port_local -o {mavlink_port} "
         '-r 4000000 -f \\$mavlink_network_interface_arg/" '
         "/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; "
-        + _DROP_GAZEBO_MAGNETOMETER
+        + SIM_STARTUP_PATCHES
         + "exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS"
     )
 

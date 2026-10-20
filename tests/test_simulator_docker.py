@@ -243,3 +243,7 @@ def test_docker_plan_sets_sim_sensor_parameters_for_every_vehicle_class(
     assert drop in startup
     assert "export GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config; " in startup
     assert startup.index(drop) < startup.index("exec /opt/px4-gazebo/bin/px4")
+    # Gazebo gets 180 s to load a generated world before PX4 gives up on it.
+    wait = "sed -i 's/^ATTEMPTS=30$/ATTEMPTS=180/' /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim; "
+    assert wait in startup and "|| exit 72; " in startup
+    assert startup.index(wait) < startup.index("exec /opt/px4-gazebo/bin/px4")

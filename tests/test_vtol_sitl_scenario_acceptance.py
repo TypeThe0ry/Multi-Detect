@@ -167,6 +167,7 @@ def test_vtol_docker_command_uses_shared_sim_sensor_fix() -> None:
     assert "GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config" in startup
     assert "gz-sim-magnetometer-system/d" in startup
     assert "exit 70" in startup and "exit 71" in startup
+    assert "ATTEMPTS=180" in startup and "exit 72" in startup
 
 
 def test_container_inspect_rejects_writable_or_additional_mounts() -> None:
