@@ -409,4 +409,6 @@ def test_count_search_completion_is_distinct_from_budget_exhaustion():
     executor.active_loop.state = "done"
     Flight().tick(executor)
     assert executor.history[0]["reason"] == "search_exhausted"
-    assert executor.history[0]["count_is_lower_bound"] is False
+    # A search that ended without a reported full pass (coverage_complete) can
+    # have missed objects: the count is a lower bound, as the summary says.
+    assert executor.history[0]["count_is_lower_bound"] is True

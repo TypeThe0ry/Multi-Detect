@@ -480,10 +480,10 @@ class MissionExecutor:
         status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         if run.step.skill == "count":
             unresolved = bool(run.loop and run.loop.unresolved_positive_tracks())
-            status["count_is_lower_bound"] = reason in {
-                "budget_exhausted",
-                "max_count",
-            } or (reason == "coverage_complete" and unresolved)
+            # Only a full coverage pass with nothing left unresolved is a complete
+            # count; any other ending (budget, max_count, a blocked or exhausted
+            # search, an interruption) can have missed objects.
+            status["count_is_lower_bound"] = reason != "coverage_complete" or unresolved
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
