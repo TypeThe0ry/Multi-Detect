@@ -1718,6 +1718,17 @@ class OnboardLoop:
             for t in current
             if t.verdict in {"approach", "confirm", "pending_near"} and not t.exhausted
         ]
+        if not self.config.stop_on_confirm and self.confirmations:
+            # Counting: a fresh track id on an object already counted is not a new
+            # candidate.  Approaching it again (descend, confirm, de-duplicate, climb
+            # back, new id, repeat) spent a whole SITL count budget on one cone.
+            visible = [
+                t
+                for t in visible
+                if t.track_id == self._focus
+                or t.ground is None
+                or not self._counted_at(t, t.ground)
+            ]
         if self._focus is not None:
             focus = next((t for t in visible if t.track_id == self._focus), None)
             if focus is not None:
@@ -1738,17 +1749,10 @@ class OnboardLoop:
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
         return action if self._segment_clear(pose_ned, end_n, end_e) else ActionPrimitive.hold(1.0)
 
-    def _count_confirmation(
-        self,
-        track: Track,
-        record: dict[str, Any],
-        pose_ned: tuple[float, float, float],
-        yaw_deg: float,
-        info: dict[str, Any],
-    ) -> tuple[ActionPrimitive, dict[str, Any]]:
-        """Counting mode: keep the confirmation (unless already counted) and search on."""
-        self._end_fw_pass()
-        position = record["position_estimate_ne"]
+    def _counted_at(
+        self, track: Track, position: Sequence[float], sigma_m: float | None = None
+    ) -> bool:
+        """Whether ``track`` at ``position`` is an object this count already holds."""
 
         def dedupe_radius(prior: dict[str, Any]) -> float:
             footprint = prior.get("footprint_m") or getattr(track.appearance, "footprint_m", None)
@@ -1758,10 +1762,7 @@ class OnboardLoop:
             # uncertainty, not its footprint (SITL: one cone counted twice from
             # estimates 1.7 m apart with sigmas 3.6 m and 1.2 m against a 1.5 m
             # footprint radius).  count_dedupe_m still bounds the merge.
-            sigma = math.hypot(
-                float(prior.get("position_sigma_m") or 0.0),
-                float(record.get("position_sigma_m") or 0.0),
-            )
+            sigma = math.hypot(float(prior.get("position_sigma_m") or 0.0), float(sigma_m or 0.0))
             return max(
                 1.5,
                 self.config.memory_footprint_factor * footprint,
@@ -1790,7 +1791,22 @@ class OnboardLoop:
                 radius,
             )
 
-        duplicate = position is not None and any(same_object(prior) for prior in self.confirmations)
+        return any(same_object(prior) for prior in self.confirmations)
+
+    def _count_confirmation(
+        self,
+        track: Track,
+        record: dict[str, Any],
+        pose_ned: tuple[float, float, float],
+        yaw_deg: float,
+        info: dict[str, Any],
+    ) -> tuple[ActionPrimitive, dict[str, Any]]:
+        """Counting mode: keep the confirmation (unless already counted) and search on."""
+        self._end_fw_pass()
+        position = record["position_estimate_ne"]
+        duplicate = position is not None and self._counted_at(
+            track, position, record.get("position_sigma_m")
+        )
         if track.needs_fresh_verdict:
             info["count_blocked"] = "fresh_verdict_required"
             self.state, self._focus = "searching", None

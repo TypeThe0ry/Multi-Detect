@@ -1012,3 +1012,23 @@ def test_count_dedupe_widens_with_the_position_uncertainty_of_both_estimates():
     assert count_twice(3.6, 1.2) == 1
     # Precise estimates that far apart are two objects (1.5 m footprint radius).
     assert count_twice(0.3, 0.3) == 2
+
+
+def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:
+    # SITL 2026-10-20: each frame re-detected a counted cone under a new id; every
+    # one was approached, confirmed and de-duplicated in turn until the budget ran out.
+    loop = _loop(stop_on_confirm=False, ground_reid_max_steps=0)
+    (counted,) = _observe(loop, 0, {_box(640, 700, 13): (30.0, 0.0)})
+    assert "counted" in _count(loop, counted, (30.0, 0.0))
+    loop._focus = None
+    loop.step_index = 40  # long after: no association with the counted track
+    (fresh,) = loop.update_tracks(
+        [Detection(_box(200, 300, 13), 0.5)],
+        pose_ned=(0.0, 0.0, -8.0),
+        yaw_deg=0.0,
+        ground_point=lambda u, v: (30.4, 0.2),
+    )
+    assert fresh.track_id != counted.track_id
+    loop.apply_verdict(fresh.track_id, "confirm_target")
+    _, info = loop.next_action([fresh], pose_ned=(0.0, 0.0, -8.0), yaw_deg=0.0)
+    assert info.get("focus") is None and loop.state == "searching"
