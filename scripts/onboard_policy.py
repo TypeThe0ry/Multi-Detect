@@ -804,8 +804,11 @@ class OnboardPolicy:
             search = self._search
             search_mc = self._search_mc
             for policy in (search, search_mc):
-                # Only the multirotor search policy restarts its route.
-                if hasattr(policy, "restart_route"):
+                if isinstance(policy, ExpertSearchPolicy):
+                    # One shared policy serves every mission step: start each
+                    # step's route afresh (a finished count left its waypoint
+                    # index and coverage_complete outcome for the next step).
+                    policy.reset()
                     policy.restart_route = restart_route
             obstacle_source = StaticMapSource(obstacles)
             if region is not None and (not plans_like_multirotor or hybrid_vtol):
@@ -2172,7 +2175,9 @@ class OnboardPolicy:
                 executor.apply_verdict(
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
-                record_error = getattr(self.supervisor, "record_perception_error", None)
+                record_error = getattr(
+                    getattr(self, "supervisor", None), "record_perception_error", None
+                )
                 if verdict.get("decision") is None and callable(record_error):
                     record_error(track.track_id, verdict.get("error") or "no decision")
             slow.append(verdict)

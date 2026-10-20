@@ -284,3 +284,17 @@ def test_act_reads_landed_from_policy_observation(tmp_path, monkeypatch):
     )
 
     assert forwarded == [True]
+
+
+def test_each_mission_step_starts_the_shared_search_route_afresh(tmp_path) -> None:
+    # A finished count left the shared search policy at the end of its route with
+    # a coverage_complete outcome; the next search step then ended at once.
+    from onboard_factories import make_policy
+
+    policy = make_policy(work_dir=tmp_path, config={"mission": "count"})
+    search = policy._search
+    search._waypoint_index = len(search._waypoints)
+    search._search_outcome = "coverage_complete"
+    policy.executor.loop_factory("count the cones", restart_route=False)
+    assert search._waypoint_index == 0 and search.search_outcome == "running"
+    assert search.restart_route is False

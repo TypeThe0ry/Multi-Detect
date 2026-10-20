@@ -1931,7 +1931,9 @@ class OnboardLoop:
         action = self.search_action(pose_ned, yaw_deg)
         if action.kind == "stop":
             outcome = self.search_outcome() if self.search_outcome is not None else None
-            self.state = "blocked" if outcome == "blocked" else "completed"
+            # Only a reported full pass is a completed coverage; any other stop
+            # ends the search without claiming it (search_exhausted downstream).
+            self.state = "completed" if outcome == "coverage_complete" else "blocked"
             return action
         if self.obstacle_source is None:
             return action
