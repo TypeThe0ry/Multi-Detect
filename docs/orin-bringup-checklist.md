@@ -15,7 +15,7 @@
 | `mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf` | 445,053,216 | `f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82` |
 | `depth-anything-v2-metric-outdoor-small.onnx` | 99,156,661 | `36b38a0b34f5431a9bbcbedca7d72b440006204910d13227bc844641b0b23e52` |
 
-实际 hash 必须是无空格的 64 个十六进制字符。建议在 Windows 端用：
+默认身份模型是 r18，SHA-256 必须为上表值；r14 只用于明确的规划/对比阶段。步间三角化默认开启，`ground_height_sigma_m=5.0`。实际 hash 必须是无空格的 64 个十六进制字符。建议在 Windows 端用：
 
 ```powershell
 Get-FileHash tmp/orin-v3/proposer-960.onnx -Algorithm SHA256
@@ -68,7 +68,7 @@ sha256sum tmp/orin-v3/proposer-960.onnx tmp/orin-v3/proposer-1280.onnx \
 
 ## 3. 一条命令构建并测量（预计 15--40 分钟）
 
-下面的命令串行完成 960/1280 proposer engine 和 Depth Anything TensorRT engine 构建，然后测快系统、r18 full/fast identity、r14 planning、模型切换、步间三角化、近距深度、tegrastats 内存和温度，并写 JSON + 中文 Markdown：
+下面的命令串行完成 960/1280 proposer engine 和 Depth Anything TensorRT engine 构建，然后测快系统、r18 full/fast identity、r14 planning 对比、模型切换、默认开启的步间三角化、近距深度、tegrastats 内存和温度，并写 JSON + 中文 Markdown：
 
 ```bash
 cd /home/<user>/Multi-Detect
@@ -93,6 +93,18 @@ python scripts/bench_orin_onboard.py \
 ```
 
 `--concurrent-yolo-hz 10` 是预算验证目标；若实测 p95 低于 100 ms 才能通过快系统 10 Hz 门槛。报告中的门槛是：快系统至少 10 Hz、r18 fast identity p95 不超过 1 秒、整机 `tegrastats` 峰值 RAM 不超过 6199 MiB（约 6.5 GB 十进制）。报告会把缺失阶段标为 `not_measured`，不会把开发机时间当作 Orin 通过。
+
+拿到板子的 IP 和用户名后，Windows 开发机只需执行这一条命令（默认使用 SSH 公钥）：
+
+```powershell
+$env:PYTHONPATH="src;."; python scripts/bringup_orin.py --host <板子IP> --user <用户名> --key $HOME/.ssh/id_ed25519
+```
+
+它会先把当前代码刷新进准备好的上板包 `D:\Projects\mdwt\orin-bundle\Multi-Detect`（模型、ONNX、llama.cpp 保持不变；换目录用 `--bundle`，不刷新代码用 `--no-refresh`），再用 `tar | ssh` 整包传到板子的 `~/Multi-Detect`，然后运行安装与 benchmark，把结果拉回 `artifacts/orin/<UTC时间>/`。先检查命令而不连接板子时，加 `--dry-run`。
+
+前提：
+- 开发机的公钥已经在板子的 `~/.ssh/authorized_keys` 里（只用密钥，不用密码）；第一次连接会自动记下板子的主机密钥。
+- 安装脚本用 `sudo -n` 运行，不会弹出密码提示：板子上这个用户需要能免密 sudo，否则安装这一步会直接失败，可以在板子上手动执行 `sudo bash scripts/bootstrap_jetson_orin.sh ...` 后再用 `--no-refresh` 重跑。
 
 ## 4. 失败处理和复测
 

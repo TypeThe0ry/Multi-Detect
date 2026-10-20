@@ -10,7 +10,7 @@
 
 ## 一次身份判断的成本
 
-开发机（RTX 4060，与仿真共用 GPU）用 v2-r12-multi Q5_K_M 实测 12 次：
+开发机（RTX 4060，与仿真共用 GPU）用当前 v2-r18-multi Q5_K_M 实测 12 次（旧 r12 结果只作历史基线）：
 
 | 项目 | 开发机实测 | Orin Nano 估算 | 依据 |
 | --- | --- | --- | --- |
@@ -71,6 +71,6 @@ server 并等待端口释放，再加载 identity 模型。额外启动/卸载�
 模型进程常驻，因此稳态内存仍按上文约 4.7–6.7 GB 预算；planner 因为请求不含图片可以省略
 `mmproj`（配置 mapping 显式提供时才启用），identity 继续使用现有视觉 projector。planner 启动或校验失败会计入初始化规划失败并
 回退到 identity；只有通过 schema 和 mission-package 检查的计划才允许起飞。split eval 配置使用
-v2-r14-multi 规划、v2-r12-multi 身份判断。摘要记录 `swap_duration_s`（planner 关闭开始到
+v2-r14-multi 规划（显式对比项）、v2-r18-multi 身份判断。摘要记录 `swap_duration_s`（planner 关闭开始到
 identity ready）和 `swap_completed_monotonic_s`；模型 hash 使用按文件 size/mtime_ns 缓存，hash
 失败记录为 `unknown`，不阻断起飞。
