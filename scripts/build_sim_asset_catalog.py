@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -395,9 +396,7 @@ def _dae_images_resolve(asset, mesh_uri):
     except (OSError, ET.ParseError):
         return False
     images = [
-        e.text.strip()
-        for e in root.iter()
-        if tag(e) == "init_from" and e.text and e.text.strip()
+        e.text.strip() for e in root.iter() if tag(e) == "init_from" and e.text and e.text.strip()
     ]
     if not images:
         return False
@@ -421,9 +420,7 @@ def _convert_resolved_materials(asset, root, slug):
         mesh = next((e for e in visual.iter() if tag(e) == "mesh"), None)
         uri = next((e.text or "" for e in mesh if tag(e) == "uri"), "") if mesh is not None else ""
         rel_uri = (
-            uri.split("model://", 1)[-1].split("/", 1)[-1]
-            if uri.startswith("model://")
-            else uri
+            uri.split("model://", 1)[-1].split("/", 1)[-1] if uri.startswith("model://") else uri
         )
         if _dae_images_resolve(asset, rel_uri):
             visual.remove(material)
@@ -441,7 +438,9 @@ def _convert_resolved_materials(asset, root, slug):
             ET.SubElement(material, "specular").text = "0.1 0.1 0.1 1"
             pbr = ET.SubElement(material, "pbr")
             metal = ET.SubElement(pbr, "metal")
-            ET.SubElement(metal, "albedo_map").text = f"model://{slug}/materials/textures/{info['texture']}"
+            ET.SubElement(
+                metal, "albedo_map"
+            ).text = f"model://{slug}/materials/textures/{info['texture']}"
             ET.SubElement(metal, "roughness").text = "0.8"
             ET.SubElement(metal, "metalness").text = "0"
         elif info["color"]:
@@ -489,6 +488,38 @@ def build():
     }
 
 
+_FUEL_FILE_URL = re.compile(r"https?://fuel\.[^\s/]+/[^\s]*?/models/[^\s/]+/[^\s/]+/files/(\S+)")
+
+
+def _localize_mtl_textures(model_dir, slug):
+    """Point OBJ material textures at the model's own files instead of Fuel URLs.
+
+    Some OpenRobotics meshes (hatchback, ambulance) reference their textures by
+    https://fuel.gazebosim.org/... URL; Gazebo then downloads the model while
+    loading the world and, offline or with a slow Fuel server, never finishes
+    (PX4 timed out waiting for the world in SITL).  A URL whose file exists in
+    the model is replaced by a path relative to the .mtl file; a texture the
+    model does not ship (the wheels) loses its map line and renders untextured.
+    """
+    for mtl in model_dir.rglob("*.mtl"):
+        text = mtl.read_text(encoding="utf-8", errors="surrogateescape")
+        lines = []
+        for line in text.splitlines(keepends=True):
+            match = _FUEL_FILE_URL.search(line)
+            if match is None:
+                lines.append(line)
+                continue
+            target = model_dir / match.group(1)
+            if not target.is_file():
+                print(f"warning: {slug} {mtl.name} drops a texture it does not ship: {target.name}")
+                continue
+            local = os.path.relpath(target, mtl.parent).replace(os.sep, "/")
+            lines.append(line[: match.start()] + local + line[match.end() :])
+        rewritten = "".join(lines)
+        if rewritten != text:
+            mtl.write_text(rewritten, encoding="utf-8", errors="surrogateescape", newline="")
+
+
 def build_resolved(root=ASSET_ROOT, output=None):
     output = output or root.parent / "resolved"
     output.mkdir(parents=True, exist_ok=True)
@@ -505,6 +536,7 @@ def build_resolved(root=ASSET_ROOT, output=None):
         root_xml = ET.fromstring(t.lstrip())
         unsupported = _convert_resolved_materials(d, root_xml, slug)
         ET.ElementTree(root_xml).write(f, encoding="utf-8", xml_declaration=True)
+        _localize_mtl_textures(d, slug)
         if unsupported:
             print(f"warning: {slug} contains unsupported texture formats: {', '.join(unsupported)}")
     return output
