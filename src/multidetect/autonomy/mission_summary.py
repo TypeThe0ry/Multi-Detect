@@ -50,7 +50,7 @@ def summarize_mission(
         steps.append({"id": step.id, "skill": step.skill, "state": state, "reason": reason})
         if state != "succeeded":
             undone.append({"step": step.id, "reason": reason or "no_recorded_completion"})
-        elif reason in {"budget_reached", "search_exhausted", "max_count"}:
+        elif reason in {"budget_reached", "budget_exhausted", "search_exhausted", "max_count"}:
             undone.append({"step": step.id, "reason": f"full_search_not_established:{reason}"})
     landing_unconfirmed = any(step["reason"] == "landing_commanded_unconfirmed" for step in steps)
     counts = []
@@ -189,6 +189,7 @@ def _bound(result: dict[str, Any]) -> None:
 def _reason_zh(reason: str) -> str:
     meanings = {
         "budget_reached": "搜索预算耗尽",
+        "budget_exhausted": "步数预算用完，未证实完整覆盖",
         "step_budget": "步骤预算耗尽",
         "search_exhausted": "搜索已结束，未证实完整覆盖",
         "coverage_complete": "已完成一次完整覆盖",

@@ -130,12 +130,21 @@ def test_partial_coverage_and_lost_target_are_not_hidden():
 
 def test_landing_commanded_unconfirmed_is_not_reported_as_plain_success():
     plan = MissionPlan(
-        1, "land", (MissionStep("land", "land", {}, None, None),), (),
+        1,
+        "land",
+        (MissionStep("land", "land", {}, None, None),),
+        (),
     )
-    report = {"history": [{
-        "step": "land", "skill": "land", "state": "succeeded",
-        "reason": "landing_commanded_unconfirmed",
-    }]}
+    report = {
+        "history": [
+            {
+                "step": "land",
+                "skill": "land",
+                "state": "succeeded",
+                "reason": "landing_commanded_unconfirmed",
+            }
+        ]
+    }
     summary, zh, en = summarize_mission(report, plan, "land")
     assert summary["status"] == "landing_commanded_unconfirmed"
     assert "landing commanded but not confirmed" in en
@@ -193,3 +202,24 @@ def test_summary_io_failure_does_not_break_cleanup(tmp_path):
     (tmp_path / "episodes").write_text("blocked", encoding="utf-8")
     with pytest.warns(UserWarning, match="Could not write mission summary"):
         policy.close()
+
+
+def test_a_count_ended_by_its_step_budget_is_not_a_full_search() -> None:
+    # The executor reports "budget_exhausted"; the summary only listed
+    # "budget_reached" and so called such a count a completed search.
+    plan = plan_for_count_task("count the cones")
+    step = plan.steps[0].id
+    report = {
+        "history": [
+            {
+                "step": step,
+                "skill": "count",
+                "state": "succeeded",
+                "reason": "budget_exhausted",
+                "count_is_lower_bound": True,
+            }
+        ],
+        "counts": {step: 2},
+    }
+    summary, _, _ = summarize_mission(report, plan, "count the cones")
+    assert "full_search_not_established:budget_exhausted" in json.dumps(summary)
