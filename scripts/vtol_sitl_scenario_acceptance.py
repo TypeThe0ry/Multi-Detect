@@ -37,6 +37,11 @@ from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
 
+try:  # run as a script (scripts/ on sys.path) or imported as scripts.<module>
+    from run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+except ImportError:  # pragma: no cover - package-style import
+    from scripts.run_simulator_docker import _DROP_GAZEBO_MAGNETOMETER, SIM_SENSOR_PARAMETERS
+
 try:
     from pymavlink import mavutil
 except ImportError as exc:  # pragma: no cover - exercised by the CLI environment
@@ -69,6 +74,61 @@ RELEASE_STATUS = (
 
 class VtolAcceptanceError(RuntimeError):
     """A bounded VTOL gate failed."""
+
+
+def _startup_command(mavlink_port: int) -> str:
+    return (
+        "set -eu; "
+        'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal '
+        "| awk '/STREAM/ {print $1; exit}')\"; "
+        'test -n "$DOCKER_HOST_IP"; '
+        'sed -i "s/mavlink start -x -u \\$udp_gcs_port_local.*/'
+        f"mavlink start -x -t $DOCKER_HOST_IP -u \\$udp_gcs_port_local -o {mavlink_port} "
+        '-r 4000000 -f \\$mavlink_network_interface_arg/" '
+        "/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; "
+        + _DROP_GAZEBO_MAGNETOMETER
+        + "exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS"
+    )
+
+
+def _docker_run_command(
+    *,
+    container_name: str,
+    mavlink_port: int,
+    model_root: Path,
+    image: str,
+) -> list[str]:
+    startup = _startup_command(mavlink_port)
+    environment = [
+        "HEADLESS=1",
+        f"PX4_SYS_AUTOSTART={PX4_SYS_AUTOSTART}",
+        f"PX4_SIM_MODEL={PX4_SIM_MODEL}",
+        f"PX4_GZ_MODELS={PX4_GZ_MODELS}",
+        "PX4_GZ_WORLD=default",
+        "GZ_VERBOSE=0",
+        f"GZ_SIM_RESOURCE_PATH={GZ_SIM_RESOURCE_PATH}",
+        *(f"PX4_PARAM_{name}={value}" for name, value in SIM_SENSOR_PARAMETERS),
+    ]
+    return [
+        "run",
+        "-d",
+        "--name",
+        container_name,
+        "--label",
+        "multidetect.purpose=vtol-sitl-scenario-acceptance",
+        "--publish",
+        f"{mavlink_port}:{mavlink_port}/udp",
+        "--mount",
+        f"type=bind,source={model_root},target={CONTAINER_MODEL_ROOT},readonly",
+        "--workdir",
+        "/opt/px4-gazebo",
+        "--entrypoint",
+        "/bin/sh",
+        *sum((["--env", value] for value in environment), []),
+        image,
+        "-c",
+        startup,
+    ]
 
 
 def _sha256_path(path: Path) -> str:
@@ -179,6 +239,10 @@ def _assert_owned_container(
         "standard_vtol_autostart": f"PX4_SYS_AUTOSTART={PX4_SYS_AUTOSTART}" in env,
         "exact_gazebo_resource_path": f"GZ_SIM_RESOURCE_PATH={GZ_SIM_RESOURCE_PATH}" in env,
         "exact_px4_gz_models_path": f"PX4_GZ_MODELS={PX4_GZ_MODELS}" in env,
+        **{
+            f"exact_px4_param_{name.lower()}": f"PX4_PARAM_{name}={value}" in env
+            for name, value in SIM_SENSOR_PARAMETERS
+        },
         "bridge_network": host_config.get("NetworkMode") in {"default", "bridge"},
         "not_privileged": host_config.get("Privileged") is not True,
         "model_root_mount_whitelisted": mount_whitelisted,
@@ -401,7 +465,8 @@ class TelemetryCollector:
         encoded = getattr(message, "get_msgbuf", lambda: None)()
         encoded_hash = (
             hashlib.sha256(encoded).hexdigest()
-            if isinstance(encoded, (bytes, bytearray)) and 0 < len(encoded) <= 300 else None
+            if isinstance(encoded, (bytes, bytearray)) and 0 < len(encoded) <= 300
+            else None
         )
         self.energy_input_samples.append(
             {
@@ -757,52 +822,14 @@ def run_acceptance(
     command_events: list[dict[str, Any]] = []
     failure: str | None = None
     try:
-        startup = (
-            "set -eu; "
-            'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal '
-            "| awk '/STREAM/ {print $1; exit}')\"; "
-            'test -n "$DOCKER_HOST_IP"; '
-            'sed -i "s/mavlink start -x -u \\$udp_gcs_port_local.*/'
-            f"mavlink start -x -t $DOCKER_HOST_IP -u \\$udp_gcs_port_local -o {mavlink_port} "
-            '-r 4000000 -f \\$mavlink_network_interface_arg/" '
-            "/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; "
-            "exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS"
-        )
         run = _run(
             docker,
-            [
-                "run",
-                "-d",
-                "--name",
-                container_name,
-                "--label",
-                "multidetect.purpose=vtol-sitl-scenario-acceptance",
-                "--publish",
-                f"{mavlink_port}:{mavlink_port}/udp",
-                "--mount",
-                (f"type=bind,source={model_root},target={CONTAINER_MODEL_ROOT},readonly"),
-                "--workdir",
-                "/opt/px4-gazebo",
-                "--entrypoint",
-                "/bin/sh",
-                "--env",
-                "HEADLESS=1",
-                "--env",
-                f"PX4_SYS_AUTOSTART={PX4_SYS_AUTOSTART}",
-                "--env",
-                f"PX4_SIM_MODEL={PX4_SIM_MODEL}",
-                "--env",
-                f"PX4_GZ_MODELS={PX4_GZ_MODELS}",
-                "--env",
-                "PX4_GZ_WORLD=default",
-                "--env",
-                "GZ_VERBOSE=0",
-                "--env",
-                f"GZ_SIM_RESOURCE_PATH={GZ_SIM_RESOURCE_PATH}",
-                image,
-                "-c",
-                startup,
-            ],
+            _docker_run_command(
+                container_name=container_name,
+                mavlink_port=mavlink_port,
+                model_root=model_root,
+                image=image,
+            ),
             check=True,
         )
         container_id = run.stdout.strip().splitlines()[-1]

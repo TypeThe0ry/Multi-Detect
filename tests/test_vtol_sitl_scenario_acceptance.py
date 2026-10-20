@@ -102,6 +102,7 @@ def _valid_container_inspect(module: object) -> dict[str, object]:
                 f"PX4_SYS_AUTOSTART={module.PX4_SYS_AUTOSTART}",
                 f"PX4_GZ_MODELS={module.PX4_GZ_MODELS}",
                 f"GZ_SIM_RESOURCE_PATH={module.GZ_SIM_RESOURCE_PATH}",
+                *(f"PX4_PARAM_{name}={value}" for name, value in module.SIM_SENSOR_PARAMETERS),
             ],
         },
         "HostConfig": {
@@ -146,6 +147,26 @@ def test_container_inspect_allows_only_exact_readonly_model_root() -> None:
     assert checks["no_additional_mounts"] is True
     assert checks["exact_px4_gz_models_path"] is True
     assert all(checks.values())
+
+
+def test_vtol_docker_command_uses_shared_sim_sensor_fix() -> None:
+    module = _module()
+    command = module._docker_run_command(
+        container_name="owned-vtol",
+        mavlink_port=18570,
+        model_root=MODEL_ROOT.resolve(),
+        image=module.PINNED_IMAGE,
+    )
+    env_values = [
+        command[index + 1] for index, value in enumerate(command[:-1]) if value == "--env"
+    ]
+    assert all(
+        f"PX4_PARAM_{name}={value}" in env_values for name, value in module.SIM_SENSOR_PARAMETERS
+    )
+    startup = command[-1]
+    assert "GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config" in startup
+    assert "gz-sim-magnetometer-system/d" in startup
+    assert "exit 70" in startup and "exit 71" in startup
 
 
 def test_container_inspect_rejects_writable_or_additional_mounts() -> None:
