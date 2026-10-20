@@ -802,6 +802,15 @@ class MissionSupervisor:
             report=asdict(self.executor.report()),
         )
 
+    def record_perception_error(self, track_id, error) -> None:
+        """Log why a slow identity call produced no decision.
+
+        A missing decision counts toward the repeated-low-confidence return;
+        without the cause a log cannot tell a server fault from an
+        unparseable model answer.
+        """
+        self._record("perception_error", track_id=track_id, error=str(error))
+
     def _recover(self, pose_ned) -> MissionExecutor:
         skill = "land" if self.action == "land_now" else "return_home"
         if self._recovery is None or self._recovery_kind != skill:

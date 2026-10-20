@@ -2172,6 +2172,9 @@ class OnboardPolicy:
                 executor.apply_verdict(
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
+                record_error = getattr(self.supervisor, "record_perception_error", None)
+                if verdict.get("decision") is None and callable(record_error):
+                    record_error(track.track_id, verdict.get("error") or "no decision")
             slow.append(verdict)
         mission_loop = getattr(executor, "active_loop", None)
         run_near_depth = getattr(self, "_run_near_depth", None)

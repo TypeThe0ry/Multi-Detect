@@ -598,3 +598,11 @@ def test_repeated_bad_verdicts_escalate_and_persist_before_next_action(tmp_path)
     assert all("recorded_at" in r for r in records)
     assert s.evaluate() == "return_now"
     assert "perception" in s.reason
+
+
+def test_a_slow_call_without_a_decision_logs_its_cause(tmp_path):
+    supervisor, _, log = build(tmp_path)
+    supervisor.record_perception_error("t3", "unparseable model output")
+    rows = [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
+    assert rows[-1]["kind"] == "perception_error"
+    assert rows[-1]["track_id"] == "t3" and rows[-1]["error"] == "unparseable model output"
