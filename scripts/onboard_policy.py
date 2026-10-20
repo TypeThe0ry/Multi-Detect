@@ -692,6 +692,11 @@ class OnboardPolicy:
             "near_depth": near_depth_enabled,
             **POSITION_DEFAULTS,
         }
+        # The task semantics table is onboard-available and already drives the
+        # size-aware search.  Reuse it for the large-object ground-anchor
+        # correction; an unknown task leaves the correction disabled.
+        typical_size = typical_object_size(self.task_text, default=0.0)
+        loop_defaults["ground_extent_size_m"] = typical_size or None
         # Keep the original types: LoopConfig strictly rejects strings, bools
         # masquerading as integers, fractional view counts and non-finite sigma.
         for key in (
@@ -703,6 +708,9 @@ class OnboardPolicy:
             "step_triangulation_ground_gate_sigma",
             "step_triangulation_parallax_deg_per_m",
             "step_triangulation_min_ray_angle_deg",
+            "ground_extent_correction",
+            "ground_extent_size_m",
+            "ground_extent_min_m",
         ):
             if key in options:
                 loop_defaults[key] = options[key]

@@ -445,6 +445,14 @@ class LoopConfig:
     # into a larger along-ray position error at distance.
     step_triangulation_parallax_deg_per_m: float = 0.3
     step_triangulation_min_ray_angle_deg: float = 10.0
+    # A bottom-centre ground hit is the near edge of a large object.  When the
+    # task supplies a known typical footprint, move the reporting estimate
+    # along the bottom ray by the expected projected half-depth.  ``None`` is
+    # the safe unknown-object default; the association anchor is never moved.
+    ground_extent_correction: bool = True
+    ground_extent_size_m: float | None = None
+    ground_extent_min_m: float = 0.5
+    ground_extent_min_width_m: float = 1.5
     # Near monocular depth is an opt-in supplement to the geometric estimate.
     near_depth: bool = False
     # Aircraft that cannot hover (fixed-wing): instead of turning toward a candidate
@@ -499,6 +507,22 @@ class LoopConfig:
             raise ValueError("step_triangulation must be a boolean")
         if not isinstance(self.near_depth, bool):
             raise ValueError("near_depth must be a boolean")
+        if not isinstance(self.ground_extent_correction, bool):
+            raise ValueError("ground_extent_correction must be a boolean")
+        if self.ground_extent_size_m is not None and (
+            isinstance(self.ground_extent_size_m, bool)
+            or not isinstance(self.ground_extent_size_m, (int, float))
+            or not math.isfinite(self.ground_extent_size_m)
+            or self.ground_extent_size_m <= 0
+        ):
+            raise ValueError("ground_extent_size_m must be finite and positive or None")
+        if (
+            isinstance(self.ground_extent_min_m, bool)
+            or not isinstance(self.ground_extent_min_m, (int, float))
+            or not math.isfinite(self.ground_extent_min_m)
+            or self.ground_extent_min_m <= 0
+        ):
+            raise ValueError("ground_extent_min_m must be finite and positive")
         if (
             isinstance(self.step_triangulation_max_views, bool)
             or not isinstance(self.step_triangulation_max_views, int)
@@ -1155,6 +1179,39 @@ class OnboardLoop:
             bottom_ray = camera_ray(_center(track.bbox)[0], track.bbox[3])
             if ground is not None and bottom_ray is not None:
                 origin, ray = bottom_ray
+                # The box bottom is normally the near ground contact.  Estimate
+                # the centre only for a known, sufficiently large footprint:
+                # for an unknown-yaw rectangle the mean projected half-depth is
+                # size/pi, while the visible box width can justify a larger
+                # value, capped at half the typical footprint.  This correction
+                # is deliberately local to the reporting estimate; ``ground``
+                # remains the tracking/association anchor.  A triangulated ray
+                # intersection is already centre-like and is never shifted.
+                correction_m = 0.0
+                size_m = self.config.ground_extent_size_m
+                if self.config.ground_extent_correction and size_m is not None:
+                    horizontal_norm = math.hypot(ray[0], ray[1])
+                    if horizontal_norm > 1e-12:
+                        range_m = math.dist(origin[:2], ground)
+                        visible_width_m = (
+                            range_m * max(0.0, track.bbox[2] - track.bbox[0]) / self.camera.fx
+                        )
+                        correction_m = min(
+                            0.5 * size_m,
+                            max(size_m / math.pi, 0.5 * visible_width_m),
+                        )
+                        # The typical size is the longest dimension, which for a
+                        # person, sign or pole is its height, not its footprint:
+                        # only an object that also looks wide on the ground moves.
+                        if visible_width_m < self.config.ground_extent_min_width_m:
+                            correction_m = 0.0
+                        if correction_m < self.config.ground_extent_min_m:
+                            correction_m = 0.0
+                        if correction_m:
+                            ground = (
+                                ground[0] + correction_m * ray[0] / horizontal_norm,
+                                ground[1] + correction_m * ray[1] / horizontal_norm,
+                            )
                 horizontal_norm2 = ray[0] ** 2 + ray[1] ** 2
                 # NE alone cannot recover height from a vertical ray.
                 if horizontal_norm2 > 1e-12:

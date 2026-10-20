@@ -51,6 +51,12 @@ def observation():
     }
 
 
+def test_policy_passes_task_typical_size_to_ground_extent_correction(tmp_path):
+    subject = policy(tmp_path, {"step_triangulation": True})
+    assert subject.loop.config.ground_extent_size_m == pytest.approx(4.5)
+    subject.close()
+
+
 @pytest.mark.parametrize("mission", [None, "find"])
 @pytest.mark.parametrize("enabled", [False, True])
 def test_matching_camera_ray_and_sensor_timestamp_reach_all_loops(
