@@ -407,6 +407,10 @@ class OnboardPolicy:
         if hybrid_vtol:
             self.motion_adapter.preferred_mode = "FW"
         self._hybrid_mc_engaged = False
+        self._hybrid_mc_search_steps = 0
+        self._hybrid_rejections_seen = 0
+        self._hybrid_transition_count = 0
+        self._hybrid_candidate_visible = False
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
@@ -741,6 +745,13 @@ class OnboardPolicy:
                 value.strip().lower() in {"1", "true", "yes", "on"}
                 if isinstance(value, str)
                 else bool(value)
+            )
+        if hybrid_vtol:
+            loop_defaults["vtol_fw_reentry_min_mc_steps"] = int(
+                options.get("vtol_fw_reentry_min_mc_steps", 3)
+            )
+            loop_defaults["vtol_fw_transition_budget"] = int(
+                options.get("vtol_fw_transition_budget", 3)
             )
         for key, convert in (
             ("ground_reid_radius_m", float),
@@ -1526,8 +1537,6 @@ class OnboardPolicy:
     def _active_search(self, fallback, mc_fallback=None):
         if not self._hybrid_vtol:
             return fallback
-        # The first search is FW; once a candidate is rejected, the vehicle stays
-        # in MC and all re-searches use the normal ExpertSearchPolicy.
         if self.motion_adapter.mode == "FW" and self.loop.state == "searching":
             return fallback
         return mc_fallback or self._search_mc
@@ -1758,6 +1767,7 @@ class OnboardPolicy:
             frame_rgb=rgb,
             **ranging_kwargs,
         )
+        rejection_count_before = len(getattr(self.loop, "_rejections", ()))
         slow = []
         if self.loop.state in {"searching", "approaching"}:
             for track in self.loop.tracks_needing_verdict(current):
@@ -1771,6 +1781,18 @@ class OnboardPolicy:
                     remembered=verdict.get("remembered", False),
                 )
                 slow.append(verdict)
+        new_rejection = len(getattr(self.loop, "_rejections", ())) > rejection_count_before
+        self._hybrid_candidate_visible = any(
+            track.verdict in {None, "approach", "pending_near"} for track in current
+        )
+        if (
+            new_rejection
+            and self.loop.state == "searching"
+            and getattr(self.loop, "_focus", None) is None
+        ):
+            self._hybrid_rejections_seen = len(getattr(self.loop, "_rejections", ()))
+            self._hybrid_mc_search_steps = 0
+            self._hybrid_mc_engaged = False
         run_near_depth = getattr(self, "_run_near_depth", None)
         if callable(run_near_depth):
             run_near_depth(
@@ -1790,6 +1812,16 @@ class OnboardPolicy:
         action, info = self.loop.next_action(
             current, pose_ned=tuple(pose_ned), yaw_deg=yaw_deg, ground_point=ground_point
         )
+        if (
+            self._hybrid_vtol
+            and self.motion_adapter.mode == "MC"
+            and self.loop.state == "searching"
+            and getattr(self.loop, "_focus", None) is None
+            and not self._hybrid_candidate_visible
+            and getattr(self.loop, "_revisit", None) is None
+            and not self.loop.unresolved_positive_tracks()
+        ):
+            self._hybrid_mc_search_steps += 1
         labels = {
             "onboard": {
                 **info,
@@ -1837,8 +1869,21 @@ class OnboardPolicy:
         self._sync_vehicle_mode(observation)
         adapter = getattr(self, "motion_adapter", None)
         if adapter is not None and self._hybrid_vtol:
+            recovering_after_rejection = bool(
+                adapter.mode == "MC"
+                and self._hybrid_rejections_seen
+                and self._hybrid_transition_count < self.loop.config.vtol_fw_transition_budget
+            )
             adapter.preferred_mode = (
-                "MC" if self._hybrid_mc_engaged or self.loop.state != "searching" else "FW"
+                "MC"
+                if self._hybrid_mc_engaged
+                or self.loop.state != "searching"
+                or recovering_after_rejection
+                or (
+                    adapter.mode == "MC"
+                    and self._hybrid_transition_count >= self.loop.config.vtol_fw_transition_budget
+                )
+                else "FW"
             )
             self._set_active_camera_mode(adapter.mode)
             if adapter.transitioning:
@@ -1898,6 +1943,37 @@ class OnboardPolicy:
                     "onboard": {**labels.get("onboard", {}), "state": "transition"},
                     "motion": command.to_dict(),
                     "airframe": adapter.profile.id,
+                }
+                if safety_info:
+                    labels["safety"] = safety_info
+                return command, labels
+        if (
+            adapter is not None
+            and self._hybrid_vtol
+            and adapter.mode == "MC"
+            and self.loop.state == "searching"
+            and getattr(self.loop, "_focus", None) is None
+            and self._hybrid_rejections_seen
+            and self._hybrid_mc_search_steps >= self.loop.config.vtol_fw_reentry_min_mc_steps
+            and not self._hybrid_candidate_visible
+            and getattr(self.loop, "_revisit", None) is None
+            and not self.loop.unresolved_positive_tracks()
+            and self._hybrid_transition_count < self.loop.config.vtol_fw_transition_budget
+        ):
+            adapter.preferred_mode = "FW"
+            transition = adapter.mode_change_command()
+            if transition is not None:
+                command, safety_info = adapter.guard_command(
+                    transition, pose_ned=pose_ned, yaw_deg=yaw_deg
+                )
+                if isinstance(command, MotionCommand) and command.kind == "transition":
+                    self._hybrid_transition_count += 1
+                    self._hybrid_mc_search_steps = 0
+                labels = {
+                    **labels,
+                    "onboard": {**labels.get("onboard", {}), "state": "transition"},
+                    "motion": command.to_dict(),
+                    "airframe": self.airframe_profile.id,
                 }
                 if safety_info:
                     labels["safety"] = safety_info
