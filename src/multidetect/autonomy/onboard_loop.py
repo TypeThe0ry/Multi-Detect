@@ -972,6 +972,13 @@ class OnboardLoop:
                     best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
+            if self.config.fixed_wing_pass and appearance is not None:
+                best.appearance = appearance
+            if self.config.fixed_wing_pass:
+                self._inherit_position_views(
+                    best,
+                    exclude_track_ids={track.track_id for track in current},
+                )
             if self.config.step_triangulation or self.config.near_depth:
                 self._update_position(
                     best,
@@ -1048,6 +1055,40 @@ class OnboardLoop:
             for other_id in stale:
                 del track.co_visible_geometry[other_id]
         return current
+
+    def _inherit_position_views(self, track: Track, *, exclude_track_ids: set[str]) -> None:
+        """Carry fixed-wing lap history into a new same-place track."""
+        if track.ground is None:
+            return
+        merged = list(track.position_views)
+        for prior in self._tracks.values():
+            if (
+                prior is track
+                or prior.track_id in exclude_track_ids
+                or not prior.position_views
+                or prior.ground is None
+                or not self._same_place(
+                    {
+                        "track_id": prior.track_id,
+                        "ground": prior.ground,
+                        "appearance": prior.appearance,
+                        "footprint_m": getattr(prior.appearance, "footprint_m", None),
+                        "co_visible_with": prior.co_visible_with,
+                    },
+                    track,
+                )
+            ):
+                continue
+            merged.extend(prior.position_views)
+        if not merged:
+            return
+        unique = {
+            (view.step, view.timestamp_s, view.camera_ned, view.direction_ned): view
+            for view in merged
+        }
+        track.position_views[:] = sorted(
+            unique.values(), key=lambda view: (view.step, view.timestamp_s)
+        )[-self.config.step_triangulation_max_views :]
 
     def _update_position(
         self, track, ground, pose_ned, yaw_deg, camera_ray, timestamp_s, *, allow_level_ray: bool

@@ -729,6 +729,7 @@ def _fw_step(loop: OnboardLoop, plane: _Plane, target, verdict):
         pose_ned=plane.pose,
         yaw_deg=plane.yaw_deg,
         ground_point=plane.ground_point,
+        camera_ray=lambda u, v: (plane.pose, FW_CAMERA.ray_ned(u, v, plane.yaw_deg)),
     )
     for track in loop.tracks_needing_verdict(tracks):
         loop.apply_verdict(track.track_id, verdict(track, plane))
@@ -745,6 +746,66 @@ def _fw_step(loop: OnboardLoop, plane: _Plane, target, verdict):
 
 def _approach(track, plane) -> str:
     return "approach_track"
+
+
+def test_fixed_wing_co_visible_tracks_do_not_inherit_position_views() -> None:
+    loop = _fw_loop(
+        step_triangulation=True,
+        ground_height_sigma_m=20.0,
+        step_triangulation_parallax_deg_per_m=0.001,
+        step_triangulation_min_ray_angle_deg=5.0,
+        stop_on_confirm=False,
+        ground_reid_max_steps=0,
+    )
+    plane = _Plane(0.0, -10.0, 0.0)
+    target = (100.0, 0.0)
+    _fw_step(loop, plane, target, _approach)
+    first = loop.tracks["t1"]
+    box = plane.box(target)
+    assert box is not None
+    shifted = (box[0] + 90.0, box[1], box[2] + 90.0, box[3])
+    current = loop.update_tracks(
+        [Detection(box, 0.5), Detection(shifted, 0.5)],
+        pose_ned=plane.pose,
+        yaw_deg=plane.yaw_deg,
+        ground_point=lambda u, v: (100.0, 0.0),
+        camera_ray=lambda u, v: (plane.pose, FW_CAMERA.ray_ned(u, v, plane.yaw_deg)),
+    )
+
+    second = loop.tracks["t2"]
+    assert first in current and second in current
+    assert second.track_id in first.co_visible_with
+    assert len(second.position_views) == 1
+
+
+def test_fixed_wing_new_track_inherits_views_from_an_earlier_lap() -> None:
+    loop = _fw_loop(
+        step_triangulation=True,
+        ground_height_sigma_m=20.0,
+        step_triangulation_parallax_deg_per_m=0.001,
+        step_triangulation_min_ray_angle_deg=5.0,
+        stop_on_confirm=False,
+        ground_reid_max_steps=0,
+    )
+    plane = _Plane(0.0, -10.0, 0.0)
+    target = (100.0, 0.0)
+    _fw_step(loop, plane, target, _approach)
+    assert len(loop.tracks["t1"].position_views) == 1
+
+    for _ in range(loop.config.lost_after_steps + 2):
+        _fw_step(loop, plane, None, _approach)
+    loop.tracks["t1"].exhausted = True
+    loop._focus = None
+    loop._end_fw_pass()
+    plane.north, plane.east = 0.0, 10.0
+    _fw_step(loop, plane, target, _approach)
+
+    assert set(loop.tracks) == {"t1", "t2"}
+    second = loop.tracks["t2"]
+    assert len(second.position_views) == 2
+    assert second.position_estimate is not None
+    assert second.position_estimate.source == "fused"
+    assert second.position_estimate.view_count == 2
 
 
 def test_fixed_wing_candidate_gets_a_fly_by_orbit_through_it_not_a_turn() -> None:
