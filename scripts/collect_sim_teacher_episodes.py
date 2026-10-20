@@ -1376,14 +1376,30 @@ class _SimClock:
         self._wall = wall
         self._offset: float | None = None
         self._last = float("-inf")
+        self._last_at = float("-inf")
+        self._last_wall = float("-inf")
+        self._missing = False
 
     def __call__(self) -> float:
         stamp = _pose_sim_stamp_ns(self._reader.state)
+        wall = self._wall()
         if stamp is None:
-            return self._wall() if self._offset is None else self._last
+            if self._offset is None:
+                return wall
+            # Stamps went missing: advance on wall time instead of freezing, so
+            # primitive timeouts still expire.
+            self._last = max(self._last, self._last_at + (wall - self._last_wall))
+            self._last_at, self._last_wall = self._last, wall
+            self._missing = True
+            return self._last
         if self._offset is None:
-            self._offset = self._wall() - stamp / 1e9
+            self._offset = wall - stamp / 1e9
+        elif self._missing:
+            # Stamps are back: continue from the wall-advanced value.
+            self._offset = self._last - stamp / 1e9
+            self._missing = False
         self._last = max(self._last, self._offset + stamp / 1e9)
+        self._last_at, self._last_wall = self._last, wall
         return self._last
 
 

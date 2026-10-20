@@ -287,6 +287,8 @@ class AirframeMotionAdapter:
         ):
             raise MotionIntentError("preferred_mode needs a VTOL profile and MC or FW")
         self.energy = energy_params_from_profile(self.profile)
+        # True while telemetry reports a VTOL transition in progress.
+        self.transitioning = False
         # Fixed-wing altitude reference for primitive bridging (NED down, metres).
         self._held_down: float | None = None
         self.safety = safety or SafetyEnvelope(
@@ -306,10 +308,19 @@ class AirframeMotionAdapter:
         if self.profile.category != "vtol" or mode is None:
             return
         if isinstance(mode, (int, float)) and not isinstance(mode, bool):
-            value = {3: "MC", 4: "FW"}.get(int(mode), str(mode).upper())
+            # MAV_VTOL_STATE: 3 MC, 4 FW, 5 transition to FW, 6 transition to MC.
+            value = {3: "MC", 4: "FW", 5: "TRANSITION_TO_FW", 6: "TRANSITION_TO_MC"}.get(
+                int(mode), str(mode).upper()
+            )
         else:
             value = str(mode).upper()
+        if value.startswith("TRANSITION"):
+            # The vehicle is converting: the mode is neither yet, and a repeated
+            # transition command could restart or abort the conversion.
+            self.transitioning = True
+            return
         if value in {"MC", "FW"}:
+            self.transitioning = False
             if value != self.mode:
                 self._held_down = None
             self.mode = value
@@ -331,7 +342,7 @@ class AirframeMotionAdapter:
 
     def mode_change_command(self) -> MotionCommand | None:
         """A transition to ``preferred_mode`` while telemetry reports the other mode."""
-        if self.preferred_mode is None or self.mode == self.preferred_mode:
+        if self.preferred_mode is None or self.mode == self.preferred_mode or self.transitioning:
             return None
         return MotionCommand(
             "transition",
@@ -404,7 +415,9 @@ class AirframeMotionAdapter:
             # benign-looking loiter would hide the mission contract failure.
             return command, {"rejected": True, "reasons": ["command_rejected"]}
         pose = tuple(float(v) for v in pose_ned)
-        mode = (command.mode or self.mode).upper()
+        # A transition is checked under the envelope's transition branch
+        # (altitude, airspeed), not the target mode it converts to.
+        mode = "TRANSITION" if command.kind == "transition" else (command.mode or self.mode).upper()
         probe = ActionPrimitive.hold(max(command.duration_s, 0.01))
         speed: float | None = None
         radius: float | None = None

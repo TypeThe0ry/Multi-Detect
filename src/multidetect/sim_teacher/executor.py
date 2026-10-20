@@ -280,9 +280,13 @@ class PymavlinkPrimitiveExecutor:
             while self._clock() - start_time < action.seconds and wall_left():
                 self._send_setpoint(*start_pos, start_yaw)
                 self._sleep(1.0 / self.stream_hz)
-            return ExecutionResult(
-                "success", self._clock() - start_time, ack={"stream_hz": self.stream_hz}
-            )
+            held = self._clock() - start_time
+            # A hold cut short by the wall bound (a stalled simulation) did not happen.
+            status = "success" if held >= action.seconds else "timeout"
+            ack = {"stream_hz": self.stream_hz}
+            if status == "timeout":
+                ack["wall_timeout"] = True
+            return ExecutionResult(status, held, ack=ack)
         if action.kind == "stop":
             self._send_setpoint(*start_pos, start_yaw)
             return ExecutionResult("success", self._clock() - start_time)

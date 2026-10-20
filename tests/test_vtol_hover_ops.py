@@ -261,3 +261,22 @@ def test_tailsitter_camera_looks_above_the_horizon_in_hover_and_down_ahead_in_cr
     )
     assert cruise[2] == pytest.approx(math.cos(math.radians(20.0)), abs=1e-6)
     assert cruise[0] == pytest.approx(math.sin(math.radians(20.0)), abs=1e-6)
+
+
+def test_back_transition_is_not_repeated_while_px4_is_converting() -> None:
+    adapter = AirframeMotionAdapter("standard_vtol", base_dir=ROOT, mode="FW", preferred_mode="MC")
+    assert adapter.mode_change_command().mode == "MC"
+    adapter.set_mode(6)  # MAV_VTOL_STATE_TRANSITION_TO_MC
+    assert adapter.transitioning and adapter.mode_change_command() is None
+    adapter.set_mode(3)
+    assert adapter.mode == "MC" and not adapter.transitioning
+
+
+def test_back_transition_is_checked_as_a_transition_not_as_hover() -> None:
+    adapter = AirframeMotionAdapter("standard_vtol", base_dir=ROOT, mode="FW", preferred_mode="MC")
+    command = adapter.mode_change_command()
+    low, info = adapter.guard_command(command, pose_ned=(0.0, 0.0, -1.0), yaw_deg=0.0)
+    assert info.get("rejected") and "transition_altitude" in info.get("reasons", [])
+    assert low.kind != "transition"
+    high, info = adapter.guard_command(command, pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert high.kind == "transition" and not info.get("rejected")
