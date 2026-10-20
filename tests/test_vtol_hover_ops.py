@@ -18,6 +18,7 @@ from multidetect.autonomy.motion_intent import (
     MotionIntentError,
     profile_mount_pitch_down_rad,
 )
+from multidetect.autonomy.onboard_loop import Detection
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.sim_teacher.policies import ExpertSearchPolicy
 from multidetect.sim_teacher.primitives import ActionPrimitive
@@ -68,6 +69,7 @@ def test_vtol_hover_ops_can_be_disabled_back_to_fixed_wing_search(tmp_path: Path
 def test_vtol_search_mode_defaults_to_mc_and_rejects_invalid_values(tmp_path: Path) -> None:
     policy = make_policy(work_dir=tmp_path / "default", config={"airframe": "standard_vtol"})
     assert policy.vtol_search_mode == "mc"
+    assert not policy._hybrid_vtol
     assert isinstance(policy._search, ExpertSearchPolicy)
     with pytest.raises(ValueError, match="vtol_search_mode"):
         make_policy(
@@ -181,6 +183,71 @@ def test_hybrid_reentry_is_suppressed_by_visible_candidate_and_budget(tmp_path: 
     policy._hybrid_transition_count = 1
     command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
     assert command.kind == "mc_hold"
+
+
+def test_hybrid_reentry_candidate_gate_uses_verdict_eligibility_and_age(tmp_path: Path) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid",
+        config={"airframe": "standard_vtol", "vtol_search_mode": "fw"},
+    )
+    loop = policy.loop
+    tiny = loop.update_tracks([Detection((10, 10, 17, 17))])[0]
+    loop.step_index = tiny.first_step + loop.config.vtol_fw_reentry_candidate_max_steps + 1
+    assert not policy._hybrid_candidate_blocks_reentry([tiny])
+
+    eligible = loop.update_tracks([Detection((30, 10, 50, 30))])[0]
+    assert eligible.verdict is None
+    assert eligible in loop.tracks_needing_verdict([eligible])
+    assert policy._hybrid_candidate_blocks_reentry([eligible])
+
+    eligible.verdict = "approach"
+    assert policy._hybrid_candidate_blocks_reentry([eligible])
+    eligible.exhausted = True
+    assert not policy._hybrid_candidate_blocks_reentry([eligible])
+
+
+def test_hybrid_reentry_low_altitude_refusal_backs_off_without_spending_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid",
+        config={
+            "airframe": "standard_vtol",
+            "vtol_search_mode": "fw",
+            "vtol_fw_reentry_min_mc_steps": 0,
+        },
+    )
+    policy.motion_adapter.set_mode(3)
+    policy.loop.state = "searching"
+    policy._hybrid_rejections_seen = 1
+    policy._hybrid_mc_search_steps = 1
+    policy._act_impl = lambda *_args, **_kwargs: (
+        ActionPrimitive.hold(1.0),
+        {"onboard": {"state": "searching"}},
+    )
+    calls = 0
+    original = policy.motion_adapter.mode_change_command
+
+    def counted_mode_change():
+        nonlocal calls
+        calls += 1
+        return original()
+
+    monkeypatch.setattr(policy.motion_adapter, "mode_change_command", counted_mode_change)
+    command, labels = policy.act(_frame(3), pose_ned=(0.0, 0.0, -1.0), yaw_deg=0.0)
+    assert command.kind == "mc_hold"
+    assert labels["safety"]["rejected"]
+    assert policy._hybrid_transition_count == 0
+    assert calls == 2  # Initial mode check plus the refused re-entry attempt.
+
+    policy.loop.step_index = policy._hybrid_fw_reentry_backoff_until - 1
+    policy.act(_frame(3), pose_ned=(0.0, 0.0, -1.0), yaw_deg=0.0)
+    assert calls == 3  # Only the initial mode check; re-entry is cooling down.
+
+    policy.loop.step_index = policy._hybrid_fw_reentry_backoff_until
+    policy.act(_frame(3), pose_ned=(0.0, 0.0, -1.0), yaw_deg=0.0)
+    assert calls == 5
+    assert policy._hybrid_transition_count == 0
 
 
 def test_multirotor_and_fixed_wing_are_not_hover_ops(tmp_path: Path) -> None:

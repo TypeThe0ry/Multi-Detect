@@ -244,7 +244,7 @@ server.config 的结构如果变了，容器启动会直接报错退出，不会
 - 尾座式前飞（FW）模式的相机几何没有用前飞实拍帧重新核对：ep1 第 0 步（遥测已是 FW 姿态）的画面像悬停视角，原因未查。
 - 真机运行时（`OnboardRuntime`）的 `transition`/`stop` 分派与 MC setpoint 泵只有单元测试；MC 起飞方式（`NAV_TAKEOFF`）目前只在仿真采集器里切换。
 
-**混合搜索选项（尚未 SITL 验证）**：能悬停的 VTOL 可设置 `vtol_search_mode: "fw"`，先用固定翼割草机搜索，发现焦点后请求回切 MC，再用多旋翼接近和确认；候选被拒后在 MC 至少搜索 3 步，且没有可见候选、待回访或未解决的正向目标时，最多再回切 FW 3 次，继续原割草机航线。可用 `vtol_fw_reentry_min_mc_steps` 和 `vtol_fw_transition_budget` 调整驻留步数与回切次数。转换仍由高度、空速安全门把关，转换进行中不推进机上 loop；相机俯仰和搜索对象按当前 MC/FW 模式切换。默认值 `vtol_search_mode: "mc"` 保持现有行为。
+**混合搜索选项（尚未 SITL 验证）**：能悬停的 VTOL 可设置 `vtol_search_mode: "fw"`，先用固定翼割草机搜索，发现焦点后请求回切 MC，再用多旋翼接近和确认；候选被拒后在 MC 至少搜索 3 步，且没有待回访或未解决的正向目标时，最多再回切 FW 3 次，继续原割草机航线。未判决框只有在 loop 的 `tracks_needing_verdict()` 当前认为其可判决且首次出现不超过 `vtol_fw_reentry_candidate_max_steps` 步（默认 3）时才阻塞回切；未耗尽的 `approach`、`pending_near`、`confirm` verdict 会持续阻塞。可用 `vtol_fw_reentry_min_mc_steps`、`vtol_fw_transition_budget` 和 `vtol_fw_reentry_candidate_max_steps` 调整驻留步数、回切次数和新候选观察窗口。高度或空速安全门拒绝回切时不消耗预算，并退避 3 步后重试；转换进行中不推进机上 loop。默认值 `vtol_search_mode: "mc"` 保持现有行为。
 
 ### 2026-10-20 复测汇总
 
