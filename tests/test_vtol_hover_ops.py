@@ -65,6 +65,63 @@ def test_vtol_hover_ops_can_be_disabled_back_to_fixed_wing_search(tmp_path: Path
         )
 
 
+def test_vtol_search_mode_defaults_to_mc_and_rejects_invalid_values(tmp_path: Path) -> None:
+    policy = make_policy(work_dir=tmp_path / "default", config={"airframe": "standard_vtol"})
+    assert policy.vtol_search_mode == "mc"
+    assert isinstance(policy._search, ExpertSearchPolicy)
+    with pytest.raises(ValueError, match="vtol_search_mode"):
+        make_policy(
+            work_dir=tmp_path / "bad-mode",
+            config={"airframe": "standard_vtol", "vtol_search_mode": "hover"},
+        )
+
+
+def test_hybrid_vtol_searches_in_fw_and_back_transitions_on_focus(
+    tmp_path: Path, monkeypatch
+) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid", config={"airframe": "standard_vtol", "vtol_search_mode": "fw"}
+    )
+    command, _ = policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "reposition" and command.mode == "FW"
+
+    def focus(*_args, **_kwargs):
+        policy.loop.state = "approaching"
+        return ActionPrimitive.translate(1.0, 0.0, 0.0), {"onboard": {"state": "approaching"}}
+
+    monkeypatch.setattr(policy, "_act_impl", focus)
+    command, labels = policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "transition" and command.mode == "MC"
+    assert labels["onboard"]["state"] == "transition"
+
+
+def test_hybrid_vtol_uses_mc_approach_after_transition_and_does_not_step_pending(
+    tmp_path: Path, monkeypatch
+) -> None:
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid", config={"airframe": "standard_vtol", "vtol_search_mode": "fw"}
+    )
+    policy.loop.state = "approaching"
+    policy.motion_adapter.set_mode(3)
+
+    monkeypatch.setattr(
+        policy,
+        "_act_impl",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.translate(2.0, 0.0, 0.0),
+            {"onboard": {"state": "approaching"}},
+        ),
+    )
+    command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "mc_reposition" and command.mode == "MC"
+
+    before = policy.loop.step_index
+    policy.motion_adapter.set_mode(6)
+    command, labels = policy.act(_frame(6), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "mc_hold" and labels["onboard"]["transition_pending"]
+    assert policy.loop.step_index == before
+
+
 def test_multirotor_and_fixed_wing_are_not_hover_ops(tmp_path: Path) -> None:
     assert not make_policy(work_dir=tmp_path / "x500").motion_adapter.hover_ops
     cessna = make_policy(work_dir=tmp_path / "fw", config={"airframe": "rc_cessna_runway"})
