@@ -92,6 +92,11 @@ class ExecutorConfig:
     # positions are within this radius.  This is also the historical alert
     # de-duplication radius.
     alert_cluster_radius_m: float = 4.0
+    # A new positive this close to an earlier alert is that object again even
+    # when the range-scaled appearance disagrees (a far and a near look at one
+    # backpack, 0.3 m apart, raised two SITL alerts); only co-visibility can
+    # still prove two objects.  0 keeps the appearance check at any distance.
+    alert_same_place_m: float = 1.5
     # A commanded landing remains pending while the host reports that the
     # vehicle is still airborne.  The bound prevents a stale telemetry stream
     # from leaving a mission in an unbounded terminal state.
@@ -123,6 +128,12 @@ class ExecutorConfig:
             or self.count_rejection_revisit_attempts < 0
         ):
             raise ValueError("count rejection revisit attempts must be a non-negative integer")
+        if (
+            isinstance(self.alert_same_place_m, bool)
+            or not math.isfinite(self.alert_same_place_m)
+            or self.alert_same_place_m < 0
+        ):
+            raise ValueError("alert same place distance must be finite and non-negative")
         if (
             isinstance(self.count_rejection_revisit_range_m, bool)
             or not math.isfinite(self.count_rejection_revisit_range_m)
@@ -764,6 +775,7 @@ class MissionExecutor:
                 and (
                     item.get("appearance") is None
                     or appearance is None
+                    or math.dist(track.ground, item["position"]) <= self.config.alert_same_place_m
                     or appearances_consistent(item["appearance"], appearance, run.loop.config)
                 )
                 for item in run.alert_observations

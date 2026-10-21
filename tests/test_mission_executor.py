@@ -737,6 +737,46 @@ def test_monitor_does_not_realert_when_a_co_visible_track_migrates_onto_an_alert
     assert executor.alerts == ["s:alert:truck@0.0,0.0"]
     assert len(executor.findings) == 1
 
+
+@pytest.mark.parametrize(("same_place_m", "alerts"), [(1.5, 1), (0.0, 2)])
+def test_monitor_does_not_realert_one_object_seen_far_then_near(same_place_m, alerts):
+    executor = MissionExecutor(
+        _skill_plan(
+            "monitor",
+            {"region": "zone:watch", "query": "backpack", "duration_s": 600.0, "altitude_m": 25.0},
+        ),
+        loop_factory=_factory(),
+        refs={"zone:watch": (0.0, 0.0, 100.0)},
+        config=ExecutorConfig(alert_same_place_m=same_place_m, step_budget=200),
+    )
+    sim = Sim(altitude=20.0)
+    # One look first; 65 steps later (past the ground re-id window) a new track
+    # id 0.3 m away whose shape no longer matches (SITL: a backpack seen 12x22
+    # then 14x18 px raised two alerts).
+    _cycle(
+        executor,
+        sim,
+        [Detection((633.0, 689.0, 645.0, 711.0), 0.5)],
+        ground=lambda u, v: (15.0, 5.0),
+        verdicts=lambda t: "confirm_target",
+    )
+    for _ in range(65):
+        _cycle(executor, sim)
+    _cycle(
+        executor,
+        sim,
+        [Detection((300.0, 400.0, 340.0, 410.0), 0.5)],
+        ground=lambda u, v: (15.3, 5.0),
+        verdicts=lambda t: "confirm_target",
+    )
+    assert len(executor.alerts) == alerts
+
+
+def test_alert_same_place_distance_must_be_non_negative():
+    with pytest.raises(ValueError):
+        ExecutorConfig(alert_same_place_m=-1.0)
+
+
 def _alert_vote_fixture(config=None):
     executor = MissionExecutor(
         _skill_plan("patrol", {"route_ref": "route:a", "query": "backpack", "loops": 1}),
