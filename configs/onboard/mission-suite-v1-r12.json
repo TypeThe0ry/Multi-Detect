@@ -160,6 +160,12 @@
             "area_search",
             "record",
             "land"
+          ],
+          [
+            "area_search",
+            "record",
+            "land",
+            "return_home"
           ]
         ]
       },
