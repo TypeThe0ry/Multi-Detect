@@ -253,6 +253,7 @@ class _StepRun:
     # Places of lost positive-but-unresolved tracks already revisited by this step.
     revisited_places: list[tuple[float, float]] = field(default_factory=list)
     rejection_revisit_places: list[tuple[float, float]] = field(default_factory=list)
+    rejection_revisit_skipped: list[dict[str, Any]] = field(default_factory=list)
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -508,6 +509,8 @@ class MissionExecutor:
             status["count_is_lower_bound"] = (
                 reason != "coverage_complete" or unresolved or pending_rejections
             )
+            if run.rejection_revisit_skipped:
+                status["rejection_revisit_skipped"] = run.rejection_revisit_skipped
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1116,28 +1119,46 @@ class MissionExecutor:
             loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m),
             key=lambda item: math.dist(item["ground"], here),
         )
+        # Why each pending place was passed over: a SITL count missed a hydrant
+        # that qualified for a revisit with looks to spare, and nothing said why.
+        skipped = []
+
+        def skip(centre, reason):
+            skipped.append(
+                {"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason}
+            )
+
         for rejection in candidates:
             centre = tuple(rejection["ground"])
             if not allowed(centre):
+                skip(centre, "outside_region")
                 continue
             if any(
                 math.dist(centre, place) <= loop.config.count_dedupe_m
                 for place in run.rejection_revisit_places
             ):
+                skip(centre, "already_revisited")
                 continue
             if any(
                 rejection.get("track_id") in record.get("co_visible_with", ())
                 or record.get("track_id") in rejection.get("co_visible_with", ())
                 for record in loop.confirmations
             ):
+                skip(centre, "co_visible_with_counted")
                 continue
             look = loop.plan_rejection_revisit(rejection, pose)
-            if look is None or not allowed(look["goal"]):
+            if look is None:
+                skip(centre, "no_clear_viewpoint")
+                continue
+            if not allowed(look["goal"]):
+                skip(centre, "viewpoint_outside_region")
                 continue
             if self._leg_enters_no_fly(here, look["goal"]):
+                skip(centre, "leg_enters_no_fly")
                 continue
             legs = math.ceil(math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6))
             if legs + 3 > self._budget(run.step) - run.primitives:
+                skip(centre, "budget")
                 continue
             rejection["revisited"] = True
             run.rejection_revisit_places.append(centre)
@@ -1145,6 +1166,7 @@ class MissionExecutor:
             if action is None:
                 rejection["revisited"] = False
                 run.rejection_revisit_places.pop()
+                skip(centre, "revisit_not_started")
                 continue
             record = {"centre": list(look["centre"]), "track_id": rejection.get("track_id")}
             info["count_rejection_revisit"] = record
@@ -1152,6 +1174,16 @@ class MissionExecutor:
                 {"event": "count_rejection_revisit", "step_id": run.step.id, **record}
             )
             return action, info
+        run.rejection_revisit_skipped = skipped
+        if skipped:
+            info["count_rejection_revisit_skipped"] = skipped
+            self.mission_log.append(
+                {
+                    "event": "count_rejection_revisit_skipped",
+                    "step_id": run.step.id,
+                    "skipped": skipped,
+                }
+            )
         return None
 
     def _count(self, run, pose, yaw, ground_point, frame_id):

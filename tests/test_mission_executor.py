@@ -1678,6 +1678,34 @@ def test_count_search_end_revisits_far_small_rejection_with_cap() -> None:
     assert executor.history == []
 
 
+def test_count_search_end_records_why_a_far_small_rejection_was_not_revisited() -> None:
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 40.0)},
+        config=ExecutorConfig(step_budget=140),
+    )
+    loop = executor.active_loop
+    loop._rejections.append(
+        {
+            "ground": (60.0, 0.0),
+            "min_side_px": [12.0],
+            "range_m": [25.0],
+            "revisited": False,
+            "track_id": "reject-0",
+            "co_visible_with": set(),
+        }
+    )
+    loop.state = "blocked"
+    _cycle(executor, Sim(altitude=8.0))
+    # The finished step's history says why the pending place got no look.
+    assert executor.history[0]["rejection_revisit_skipped"] == [
+        {"centre": [60.0, 0.0], "reason": "outside_region"}
+    ]
+    assert executor.history[0]["count_is_lower_bound"] is True
+    assert any(e["event"] == "count_rejection_revisit_skipped" for e in executor.mission_log)
+
+
 def test_search_end_revisits_each_unresolved_place_a_bounded_number_of_times():
     place = (30.0, 20.0)
     executor = MissionExecutor(
