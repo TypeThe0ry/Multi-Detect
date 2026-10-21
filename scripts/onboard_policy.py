@@ -1554,7 +1554,11 @@ class OnboardPolicy:
 
     def _hybrid_active_loop(self):
         executor = getattr(self, "executor", None)
-        return getattr(executor, "active_loop", None) if executor is not None else self.loop
+        return (
+            getattr(executor, "active_loop", None)
+            if executor is not None
+            else getattr(self, "loop", None)
+        )
 
     @staticmethod
     def _hybrid_search_skill(step) -> bool:
