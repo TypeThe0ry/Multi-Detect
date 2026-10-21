@@ -7687,10 +7687,10 @@
     "status": "current_source_software_foundation_reexecuted",
     "foundation_baseline": "0.3.0-pre.1",
     "release_label": "0.3.0-pre.9",
-    "evidence": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/v030-pre1-foundation.json",
+    "evidence": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/v030-pre1-foundation.json",
     "evidence_bytes": 7877,
-    "evidence_file_sha256": "353108d5dfa3e1b99206063c8f5f1a247b67ced3c746214660ed1d53f2b31553",
-    "evidence_sha256": "f75d55d76e2f5163d53659302a8eb48ca5d42152d6690cf9025c37acb6623bcb",
+    "evidence_file_sha256": "e4abfb81119a350d7744c71231fd0c36e9d0513f7402ff6b44dc18c772f9e084",
+    "evidence_sha256": "9b0c84c05b9c963d2a31849c0bb2ce8a6cc8575c2b2609de538767e45c66acf2",
     "runtime_mode_values": [
       "replay",
       "sim",
@@ -7720,16 +7720,16 @@
     "runtime_mode": "sim",
     "run_id": "20261003T164242Z-46048",
     "run_directory": "artifacts/evaluation/combined-sim-qgc-20261003T164242Z-46048",
-    "source_evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/combined-evidence-parity-r14-parity-r11--54d2613020a6.json",
-    "source_evidence_bytes": 6635059,
-    "source_evidence_sha256": "07eab345224fb4f0d396436a38330af27d41a2f9d44964bcd52f2f1a9f3169a5",
-    "evidence": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/combined-sim-qgc.json",
-    "evidence_bytes": 2711,
-    "evidence_sha256": "e8a6e0709c34febd7620626d895b9470c555e602dab4da9c3ad18f7bdc31c676",
+    "source_evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/combined-evidence-parity-r14-parity-r11--c46392abc2cf.json",
+    "source_evidence_bytes": 6635071,
+    "source_evidence_sha256": "322d73aac501b9cfd4df09fe5cd60bad4d3fe37b260b1c2deadac8995ab8728c",
+    "evidence": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/combined-sim-qgc.json",
+    "evidence_bytes": 2724,
+    "evidence_sha256": "daf10b9aceb51e7ece1d53e762143e11be5eaf9a24d3c25b31ed58de18cc796c",
     "qgc_executable": "build/windows-v0.3.0-pre.8-release/portable-current-20261003-qml-hitfix-abs/bin/MultiDetectGCS.exe",
     "qgc_executable_sha256": "6f0403cfb29ec6b13d0b5b684a1787327c85db6d91bc5b4662fde867581af37f",
     "release_parity": "configs/release-parity.json",
-    "release_parity_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "combined_gate_passed": true,
     "integrated_sim_qgc_gate_passed": true,
     "vtol_attached_gate_passed": true,
@@ -7850,12 +7850,12 @@
   "shared_policy_external_vtol_sensor_campaign_20261003_r14": {
     "status": "retained_file_audit_current_parity_onboard_model_teacher_rebind",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/continuation-shared-policy-vtol-prompt-o-0391265425e8.json",
-    "evidence_bytes": 6585498,
-    "evidence_sha256": "983b0eec6f7d6ae08997a7cfd5a9d3bd546d1a43b102f8878df5b9ccf74cefcb",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/continuation-shared-policy-vtol-prompt-o-9136c38f52d1.json",
+    "evidence_bytes": 6585512,
+    "evidence_sha256": "746b4d1d51b8038cedd8bf0abba64b5b8522fefdbe4ef6d433e7bd9ac6f677a3",
     "campaign_input": "configs/scenarios/vtol-shared-policy-routes-prompt-v1.synthetic-campaign.json",
     "campaign_input_sha256": "6f1d810a2d5ebc73530526fceea6887a2e4f114b0ae20db9a41f3417e2b51b4e",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "release_parity_snapshot_stable": true,
     "policy_artifact_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
@@ -8392,10 +8392,10 @@
     "campaign_summary": "artifacts/evaluation/shared-policy-trained-vtol-two-task-20261001-r2-run/vtol-mission-acceptance.json",
     "campaign_summary_bytes": 2285,
     "campaign_summary_sha256": "562a36f6a2aeec426f61a2d9568f4cc42a10bd4f8112ac203cc372a1f6b5f3eb",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-trained-vtol-two-task-2026-43edae933b1a.json",
-    "receipt_bytes": 6245,
-    "receipt_file_sha256": "304d66e1337bdca53b7e937ab1e40a6e05dd23c0161ea1e4273af5882d318b62",
-    "receipt_canonical_sha256": "62d5d795c26fc36fa82df7c4c12173324277e22c8331ce774dfbc1eea7e56be4",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-trained-vtol-two-task-2026-96f332691fc2.json",
+    "receipt_bytes": 6257,
+    "receipt_file_sha256": "a706b2e555d03fe6332425f52545e479934a4eac1f91e5490c3690008a237d0b",
+    "receipt_canonical_sha256": "7e0972b9c6fe1f038fb59dabefc648d6c1d2acc1860fdf7c9d213150155afed1",
     "verified_task_order": [
       "synthetic-east",
       "synthetic-west"
@@ -8417,7 +8417,7 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "receipt_sha256": "62d5d795c26fc36fa82df7c4c12173324277e22c8331ce774dfbc1eea7e56be4"
+    "receipt_sha256": "7e0972b9c6fe1f038fb59dabefc648d6c1d2acc1860fdf7c9d213150155afed1"
   },
   "shared_policy_training_holdout_20261001_r1": {
     "status": "passed_synthetic_training_and_independent_holdout_no_gain",
@@ -8826,9 +8826,9 @@
     "scenario": "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
     "scenario_runtime_depth_sensor": "forward-depth",
     "scenario_runtime_channel_canonical_sha256": "6935904651ec6948608d942b3868f2c448e3d03d10a91a8f1caf267d0cd03c82",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-fixed-wing-depth-shared-policy--3e60de3a593a.json",
-    "evidence_bytes": 66515,
-    "evidence_sha256": "ac5d55707f175d265f46a346f38e363831cccdefb89febd980b7e798939a7f04",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-fixed-wing-depth-shared-policy--27f1641dd414.json",
+    "evidence_bytes": 66527,
+    "evidence_sha256": "9a59a72940a76d7c99dc7d79bc35e0208c6310f7ec2a1f0796a86046bd7ff237",
     "current_release_parity_bound": true,
     "policy_artifact": "configs/evaluation/external-shared-policy-fixed-wing-profile-v1.json",
     "policy_artifact_file_sha256": "7b33c599fc728ea588418bb9ba9aece6d4b2140748ee3ee367ec782eda75f1ea",
@@ -8867,7 +8867,7 @@
     "superseded": true,
     "superseded_by": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
     "superseded_reason": "Historical depth evidence referenced the legacy billboard asset; it is retained for provenance only and is not current 3D-model or RGB/Depth training evidence.",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21"
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c"
   },
   "combined_target_card_reconstruction_20260930_r2": {
     "status": "passed_historical_read_only_card_reconstruction",
@@ -8961,10 +8961,10 @@
     "scope": "One disposable external PX4/Gazebo multirotor runtime using the current SharedTaskPolicy, planner revalidation, existing Mission upload/readback/commit/permit lifecycle, and repository-owned Gazebo depth transport",
     "script": "scripts/run_external_vehicle_mission_campaign.py",
     "scenario": "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-depth-shared-policy--41155b95437d.json",
-    "evidence_bytes": 66493,
-    "evidence_sha256": "303e0820b339f3b7111d0f3197ef0379188270c1b420afed6b86b578ea48777a",
-    "supersedes_evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-depth-shared-policy--a87b1cb344da.json",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-multirotor-depth-shared-policy--84ffee544277.json",
+    "evidence_bytes": 66505,
+    "evidence_sha256": "af83d755f1bb1fdb1849a20fd6bf6cd1b2a8d5a1f70d6615534e57f4ccf8ed0a",
+    "supersedes_evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-multirotor-depth-shared-policy--91f6958429cf.json",
     "superseded_reason": "Historical depth evidence referenced the legacy billboard asset; it is retained for provenance only and is not current 3D-model or RGB/Depth training evidence.",
     "current_release_parity_bound": true,
     "policy_artifact": "configs/evaluation/external-shared-policy-multirotor-profile-v1.json",
@@ -9001,7 +9001,7 @@
     "sensor_binding_hash": "0a12344a3feef3b10ee37d836b8bbc084d4274e3d4667122c261f2727f3388f5",
     "superseded": true,
     "superseded_by": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21"
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c"
   },
   "shared_policy_independent_sim_20260930": {
     "status": "passed_current_shared_policy_independent_holdout",
@@ -9081,10 +9081,10 @@
     "evidence_sha256": "e17ef607541b7e2b51168d83650b1e65c0669b4f7f11c4c71405017f484597df",
     "summary": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31-run/vtol-mission-acceptance.json",
     "summary_sha256": "7d4074b3ab86e5b2166f2595d54eae9acd92171cbb347fa0a0bd20a67c253f34",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-8118d8867fdd.json",
-    "receipt_bytes": 6253,
-    "receipt_file_sha256": "16159f43e03c0d882625d97134aa160900a9dfdd1877f12b761aece7a3c58433",
-    "receipt_canonical_sha256": "b6d7ecddbe0f24572a8c8a504b1950bdfd1cd86fdfc9e9f16f4f63b97b8a84ab",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-current-vtol-campaign-2026-f8526547db73.json",
+    "receipt_bytes": 6265,
+    "receipt_file_sha256": "a8dac5f10c1409311cc347638c06441bf8c6996929baaf6eb25bb7c852bcb450",
+    "receipt_canonical_sha256": "d0558e667289ee3b11d2671ec0276ca1e853bc0e6f37dfec75a3c7a63cd93cf8",
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
@@ -9119,10 +9119,10 @@
     "hil_real_evidence": false,
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "release_parity_bytes": 18099,
-    "release_parity_core_algorithm_hash": "9efaa014e35fea0a60ef4cccba65d76a5b9f2a6476fe4bd83b3f0b87102c91f7",
-    "receipt_sha256": "b6d7ecddbe0f24572a8c8a504b1950bdfd1cd86fdfc9e9f16f4f63b97b8a84ab",
+    "release_parity_core_algorithm_hash": "d13af8b71ad8eb0475dece2cfb4088df98eaacfba0f25d31828ca79ab3215aaa",
+    "receipt_sha256": "d0558e667289ee3b11d2671ec0276ca1e853bc0e6f37dfec75a3c7a63cd93cf8",
     "current_runtime_parity_proven": false
   },
   "external_docker_policy_helper_20260928": {
@@ -9253,12 +9253,12 @@
     "status": "retained_file_audit_external_mission_matrix_current_parity_rebind",
     "scope": "fixed_wing_multirotor_vtol_shared_external_mission_path",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/external-mission-matrix.json",
-    "evidence_bytes": 7423,
-    "evidence_sha256": "c6fee8223bb3410216133c747d1b599093713678289239be4d98cd2826ed288b",
-    "receipt_sha256": "57eb374fc6009f04e0951b8cafac889a4562ebf791503303f00b30a598348573",
-    "vtol_campaign_receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-8118d8867fdd.json",
-    "vtol_campaign_receipt_sha256": "16159f43e03c0d882625d97134aa160900a9dfdd1877f12b761aece7a3c58433",
+    "evidence": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/external-mission-matrix.json",
+    "evidence_bytes": 7427,
+    "evidence_sha256": "1bb95baca85e8a971451be50bf1187cee0cca7803565cc8b911cf8963c633812",
+    "receipt_sha256": "cd2e5e369cf92defa89876cd63727210f57f1ae8d3c1dac6d66188f8760ba905",
+    "vtol_campaign_receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-current-vtol-campaign-2026-f8526547db73.json",
+    "vtol_campaign_receipt_sha256": "a8dac5f10c1409311cc347638c06441bf8c6996929baaf6eb25bb7c852bcb450",
     "vehicles": [
       "fixed-wing",
       "multirotor",
@@ -9290,18 +9290,18 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "fixed-wing_evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-fixed-wing-depth-shared-policy--3e60de3a593a.json",
-    "multirotor_evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-depth-shared-policy--41155b95437d.json",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "fixed-wing_evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-fixed-wing-depth-shared-policy--27f1641dd414.json",
+    "multirotor_evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-multirotor-depth-shared-policy--84ffee544277.json",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "release_parity_bytes": 18099
   },
   "external_shared_policy_pair_20260927_r1": {
     "status": "retained_file_audit_fixed_wing_multirotor_shared_policy_external_sim_current_runtime_unproven",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-shared-policy-pair-20261003-qml-dd03369f5671.json",
-    "evidence_bytes": 3072,
-    "evidence_sha256": "471f4c0c1d2206829a20b92f61e6b81251da686f156d68760432683af056d668",
-    "receipt_sha256": "91d953a4a6ca6f56c4ea77cdf266bd3895d2ea743e00f4a66fa8e82c05e67a89",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/external-shared-policy-pair-20261003-qml-e279e2cd56b5.json",
+    "evidence_bytes": 3086,
+    "evidence_sha256": "e8c469aa4200a88e54af721035568789198470d9d3d7db964ad9f70cadd6ed5f",
+    "receipt_sha256": "1e26326be35952fff4aea45c8e8bbc1a7ba7f40701f69ae68837a64c9bba0851",
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
     "policy_artifact_sha256": "41895895cdf8780cb117667e011dab975e1c4878807a3b6b234a8a5a0c5ad285",
     "vehicles": [
@@ -9324,14 +9324,14 @@
   "shared_policy_vehicle_matrix_20260927_r2": {
     "status": "retained_file_audit_current_parity_legacy_asset_matrix_rebind",
     "release_label": "0.3.0-pre.8",
-    "evidence": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/shared-policy-vehicle-matrix.json",
-    "evidence_bytes": 8195,
-    "evidence_sha256": "ac7fdc6b3612505fe32e26f89f78413b05f302f6be0d094f4570175fdb24cb8f",
-    "receipt_sha256": "accfd555d92d8a90a5edb1a6d60fc5dd3277858351c2ba78d7509560172d6a2a",
-    "vtol_receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-8118d8867fdd.json",
-    "vtol_receipt_sha256": "16159f43e03c0d882625d97134aa160900a9dfdd1877f12b761aece7a3c58433",
-    "vtol_runtime_evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-a12e133256c8.json",
-    "vtol_runtime_evidence_sha256": "d50212d9e12aee128335b89b01d2ef11b6e3abc03f4b505425de1305d8ce4a78",
+    "evidence": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/shared-policy-vehicle-matrix.json",
+    "evidence_bytes": 8199,
+    "evidence_sha256": "49dcc82ae310f00352440dcddf708313a2f8741d84ba685fa7e2d21d429c8e18",
+    "receipt_sha256": "9ca9ba28afdb27f0745cb61f1a9b064bfc78df849ab3fbe85e2f0f8918650613",
+    "vtol_receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-current-vtol-campaign-2026-f8526547db73.json",
+    "vtol_receipt_sha256": "a8dac5f10c1409311cc347638c06441bf8c6996929baaf6eb25bb7c852bcb450",
+    "vtol_runtime_evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-current-vtol-campaign-2026-2ba787679081.json",
+    "vtol_runtime_evidence_sha256": "4d5c3e944995fb8f0dbb25dd73bdd575fc1206e81d71d7d18b9c9a844a1aac86",
     "vehicles": [
       "fixed-wing",
       "multirotor",
@@ -9362,22 +9362,22 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21"
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c"
   },
   "shared_policy_observed_session_20260927_r17": {
     "status": "retained_file_audit_observed_session_current_parity_rebind",
     "release_label": "0.3.0-pre.8",
     "script": "scripts/run_shared_policy_observed_session.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-observed-session-20261007--65f9d90266a9.json",
-    "evidence_bytes": 5371,
-    "evidence_sha256": "3eafe7a5fe7feea19278b14a3e791c04fe0f2d8ef1dcadd950acbbddac824457",
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-observed-session-20261007--02b892f75afc.json",
+    "evidence_bytes": 5383,
+    "evidence_sha256": "da36bba5fc528119bdb97b7f5b39bbe66effca5c01b071a8424a7b5fba1af66d",
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
     "policy_artifact_canonical_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "selected_task_ids": [
       "synthetic-east",
       "synthetic-west"
@@ -9394,7 +9394,7 @@
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
     "release_parity_bytes": 18099,
-    "release_parity_core_algorithm_hash": "9efaa014e35fea0a60ef4cccba65d76a5b9f2a6476fe4bd83b3f0b87102c91f7",
+    "release_parity_core_algorithm_hash": "d13af8b71ad8eb0475dece2cfb4088df98eaacfba0f25d31828ca79ab3215aaa",
     "remaining_task_ids": []
   },
   "external_fixed_wing_mission_20260927_r8": {
@@ -9620,9 +9620,9 @@
     "status": "passed_deterministic_shared_px4_mission_transaction_for_three_airframes",
     "script": "scripts/run_px4_airframe_transaction_acceptance.py",
     "verifier": "scripts/verify_px4_airframe_transaction_acceptance.py",
-    "evidence": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/px4-airframe-transaction.json",
-    "evidence_bytes": 11663,
-    "evidence_sha256": "b889d80b4e2a33e16934e81919ff15207eac20127de5e87c08556bf6bb0c685e",
+    "evidence": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/px4-airframe-transaction.json",
+    "evidence_bytes": 11673,
+    "evidence_sha256": "2439e6915c3207816ddaaa70a26fc00e16f5edcf6d5c5e73e5a481f2273a85af",
     "release_label": "0.3.0-pre.9",
     "vehicle_classes": [
       "vtol",
@@ -9653,17 +9653,17 @@
     "campaign_summary": "artifacts/evaluation/shared-policy-external-parent-20260927-r14/vtol-mission-acceptance.json",
     "campaign_summary_bytes": 2252,
     "campaign_summary_sha256": "b848f5282dad4b5a79bbb3f78340433a0d5b07eb22972fde888c0990cc80bea2",
-    "receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-external-parent-20260927-r-b6c9bf52bf56.json",
-    "receipt_bytes": 6170,
-    "receipt_file_sha256": "60c71714e46355e564ba66f4cdcaeffe4ad8665a7b35e2b716c4e965166f9fff",
-    "receipt_canonical_sha256": "1a5a9422728a0761e44ec878b1466c73df96cd2eac1cbe445fe06ee15d21447f",
+    "receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-external-parent-20260927-r-36fc84845fc1.json",
+    "receipt_bytes": 6182,
+    "receipt_file_sha256": "091f1dfc874f25c5e1aecf42fb3da090ead2d248ffb1916d6d4a9305279b0f70",
+    "receipt_canonical_sha256": "aa73a8e9ac2518ff5b7d93bff589f3bf0fc6c6d683092b9fd662740c9f025477",
     "evidence_scope": "retained_files_audit",
     "audit_release_parity_bound": true,
     "release_parity_bound": false,
     "current_runtime_parity_proven": false,
     "external_sim_rerun_performed": false,
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
-    "release_parity_core_algorithm_hash": "9efaa014e35fea0a60ef4cccba65d76a5b9f2a6476fe4bd83b3f0b87102c91f7",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
+    "release_parity_core_algorithm_hash": "d13af8b71ad8eb0475dece2cfb4088df98eaacfba0f25d31828ca79ab3215aaa",
     "policy_artifact_canonical_sha256": "98b1474912ec031a53818d84c7190f415e68a965901bf91ffd6d92dc98dcadc2",
     "policy_artifact_file_sha256": "b38036c414f8520da01927d5f70a0f94a4d537db6837b4d1ae6d831284507206",
     "sortie_count": 2,
@@ -9679,7 +9679,7 @@
     "outdoor_gnss_evidence": false,
     "candidate_promoted": false,
     "final_release_allowed": false,
-    "receipt_sha256": "1a5a9422728a0761e44ec878b1466c73df96cd2eac1cbe445fe06ee15d21447f"
+    "receipt_sha256": "aa73a8e9ac2518ff5b7d93bff589f3bf0fc6c6d683092b9fd662740c9f025477"
   },
   "vehicle_neutral_selection_compiler_seam_20260927_r1": {
     "status": "deterministic_three_vehicle_classes_passed",
@@ -10389,9 +10389,9 @@
   },
   "external_docker_ai_flight_acceptance_20260927_r1": {
     "status": "retained_file_audit_current_parity_truth_free_external_px4_gazebo_ai_flight_response_runtime_unproven",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/simulator-docker-ai-flight-20261006-geom-94536329aabd.json",
-    "evidence_sha256": "efa93c84bbe7c9af291dddd95a94c2d9eebb17056257b1f4cb86e7984425fcf3",
-    "evidence_bytes": 645421,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/simulator-docker-ai-flight-20261006-geom-4eed28930953.json",
+    "evidence_sha256": "e25f0c220cf54c34920a7b6272ed37d6914a56e21ba3f16461651d90b4ae9dde",
+    "evidence_bytes": 645433,
     "scenario_id": "river_rescue_vtol_001",
     "image_digest": "sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
     "runtime_gate_passed": true,
@@ -10399,7 +10399,7 @@
     "target_policy_gate_passed": true,
     "flight_response_gate_passed": true,
     "flight_response_status": "passed",
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "release_parity_snapshot_stable": true,
     "flight_response_duration_s": 4.39,
     "global_position_sample_count": 122,
@@ -10425,14 +10425,14 @@
   },
   "external_docker_ai_flight_parity_receipt_20260927_r2": {
     "status": "retained_layers_file_audit_current_parity_runtime_unproven",
-    "receipt": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/simulator-ai-flight-parity.json",
+    "receipt": "artifacts/evaluation/parity-final-20261021-pre9-20261021-final2/simulator-ai-flight-parity.json",
     "schema": "configs/schemas/simulator-ai-flight-parity-receipt.schema.json",
     "schema_validation_test": "tests/test_simulator_ai_flight_parity_receipt_schema.py",
     "schema_bytes": 8591,
     "schema_sha256": "b5d13385a54df95bc873b90971594f2372b48a81a5046b77b3c704fccbf0d0c1",
-    "receipt_file_sha256": "fa5bcc1ac22d947a72ec3df48dccc2ed6e9155673860a32e9cca4082c21fd3d1",
-    "receipt_sha256": "62e4f4a374b5d8e6cb8d4e4007841100c205b1cb7e75450e9d66487304906bea",
-    "receipt_bytes": 4492,
+    "receipt_file_sha256": "f28c99e9577f624227d5e3d7dc523d4ed3d600004c4bd4c583e0ccda8c719778",
+    "receipt_sha256": "24b0eaf34959155967907fb3c1e4313241879b3dd4bec09ae37a71468daf0e1e",
+    "receipt_bytes": 4494,
     "evidence_scope": "retained_layers_file_audit",
     "same_release_parity": false,
     "same_audit_reference_parity": true,
@@ -10441,9 +10441,9 @@
     "same_scenario_manifest": true,
     "same_airframe_profile_identity": true,
     "airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
-    "shared_policy_mission_layer": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-8118d8867fdd.json",
-    "shared_policy_receipt_sha256": "b6d7ecddbe0f24572a8c8a504b1950bdfd1cd86fdfc9e9f16f4f63b97b8a84ab",
-    "simulator_ai_flight_layer": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/simulator-docker-ai-flight-20261006-geom-94536329aabd.json",
+    "shared_policy_mission_layer": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-current-vtol-campaign-2026-f8526547db73.json",
+    "shared_policy_receipt_sha256": "d0558e667289ee3b11d2671ec0276ca1e853bc0e6f37dfec75a3c7a63cd93cf8",
+    "simulator_ai_flight_layer": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/simulator-docker-ai-flight-20261006-geom-4eed28930953.json",
     "simulator_ai_flight_evidence_sha256": "e6240d4cc927df2d4914aea2b40e981ae43a5f36716294d2d9da1e04ed93ed68",
     "planner_revalidated": true,
     "policy_applied_to_actuator": false,
@@ -10457,7 +10457,7 @@
     "real_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
     "final_release_allowed": false,
-    "receipt_canonical_sha256": "c80c5b7be5efff01b6dd48464f7bf36c06a08c42175a0a4e8da0b39bd61f0e92"
+    "receipt_canonical_sha256": "87d533adc5f7043581243b6a5ff4b2ed5cf89eadaf19a1c49b0aca6b9e7e6230"
   },
   "external_docker_sensor_transport_20260926_r3": {
     "status": "passed_truth_free_external_sim_sensor_transport",
@@ -10732,9 +10732,9 @@
     "status": "retained_file_audit_observed_session_current_parity_rebind",
     "release_label": "0.3.0-pre.8",
     "script": "scripts/run_shared_policy_observed_session.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-observed-session-20261007--65f9d90266a9.json",
-    "evidence_sha256": "3eafe7a5fe7feea19278b14a3e791c04fe0f2d8ef1dcadd950acbbddac824457",
-    "evidence_bytes": 5371,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-observed-session-20261007--02b892f75afc.json",
+    "evidence_sha256": "da36bba5fc528119bdb97b7f5b39bbe66effca5c01b071a8424a7b5fba1af66d",
+    "evidence_bytes": 5383,
     "campaign": "configs/scenarios/vtol-shared-policy-routes.synthetic-campaign.json",
     "campaign_sha256": "c4941ea10aeffef7ac3c54463b7ec66def02b3ab92d4b7be1a0b14e7041a67d9",
     "policy_artifact": "configs/evaluation/vtol-shared-policy-v1.json",
@@ -10743,8 +10743,8 @@
     "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
     "release_parity_path": "configs/release-parity.json",
     "release_parity_bytes": 18099,
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
-    "release_parity_core_algorithm_hash": "9efaa014e35fea0a60ef4cccba65d76a5b9f2a6476fe4bd83b3f0b87102c91f7",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
+    "release_parity_core_algorithm_hash": "d13af8b71ad8eb0475dece2cfb4088df98eaacfba0f25d31828ca79ab3215aaa",
     "selected_task_ids": [
       "synthetic-east",
       "synthetic-west"
@@ -10766,14 +10766,14 @@
     "status": "retained_file_audit_shared_policy_campaign_receipts_current_parity_rebind",
     "script": "scripts/create_shared_policy_campaign_receipt.py",
     "campaign": "configs/scenarios/vtol-ranked-routes.synthetic-campaign.json",
-    "parent_receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-external-parent-20260927-r-b6c9bf52bf56.json",
-    "parent_receipt_sha256": "60c71714e46355e564ba66f4cdcaeffe4ad8665a7b35e2b716c4e965166f9fff",
-    "parent_receipt_bytes": 6170,
-    "parent_receipt_canonical_sha256": "1a5a9422728a0761e44ec878b1466c73df96cd2eac1cbe445fe06ee15d21447f",
-    "candidate_receipt": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-external-candidate-2026092-984c9f86fd9b.json",
-    "candidate_receipt_sha256": "fd917ea3be7b5abd0479d981435ea3187044438c2877717be3791e0b0c324946",
-    "candidate_receipt_bytes": 6194,
-    "candidate_receipt_canonical_sha256": "77c333d28c86defe815225c8b83b7b124189c8a2f369965759670e10e300e988",
+    "parent_receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-external-parent-20260927-r-36fc84845fc1.json",
+    "parent_receipt_sha256": "091f1dfc874f25c5e1aecf42fb3da090ead2d248ffb1916d6d4a9305279b0f70",
+    "parent_receipt_bytes": 6182,
+    "parent_receipt_canonical_sha256": "aa73a8e9ac2518ff5b7d93bff589f3bf0fc6c6d683092b9fd662740c9f025477",
+    "candidate_receipt": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-external-candidate-2026092-4d6f8559009b.json",
+    "candidate_receipt_sha256": "29ff707f24e598fe105315694c3c0b00802c30adfb3f1932ba59cef01eacef83",
+    "candidate_receipt_bytes": 6206,
+    "candidate_receipt_canonical_sha256": "6854cf27f6a72545e131cb1f66ab7d04c05e11e790320d2f8176feea1e31da8c",
     "sorties_per_receipt": 2,
     "mission_journal_and_policy_hashes_bound": true,
     "planner_revalidated": true,
@@ -10848,9 +10848,9 @@
     "status": "retained_file_audit_four_mode_shared_policy_contract_matrix_current_parity_rebind",
     "script": "scripts/verify_shared_policy_runtime_matrix.py",
     "tests": "tests/test_shared_policy_runtime_matrix.py",
-    "evidence": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-runtime-matrix-20261007-cu-53355d502d0a.json",
-    "evidence_sha256": "086709671c233a7280a053a492934c1b0ec506720fd0d97b1f66d2d846ac2695",
-    "evidence_bytes": 6557,
+    "evidence": "artifacts/evaluation/parity-teacher-admission-20261021-pre9-20261021-final2/copies/shared-policy-runtime-matrix-20261007-cu-98d6dad2d852.json",
+    "evidence_sha256": "208a97318dbfa654bc1b2c0eb63cad2e731ca732128669ad1c53c73c9215fd43",
+    "evidence_bytes": 6569,
     "policy_artifact_file": "configs/evaluation/vtol-shared-policy-v1.json",
     "policy_artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
     "policy_artifact_canonical_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
@@ -10874,7 +10874,7 @@
     "real_acceptance": "not_claimed",
     "outdoor_gnss_evidence": false,
     "final_release_allowed": false,
-    "release_parity_file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "release_parity_file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "release_parity_bytes": 18099,
     "core_algorithm_hash": "eba7774c8ffcd2d46b46277a78a2b85577ec7bd1db99cd6fb27717f8a76dc1dc"
   },
@@ -12151,7 +12151,7 @@
     "full_mission_energy_coverage_claimed": false,
     "strategy_training_completed": false
   },
-  "updated_at_utc": "2026-10-20T05:37:24.835445Z",
+  "updated_at_utc": "2026-10-21T10:43:10.233144Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -13695,12 +13695,12 @@
     "verified": true,
     "path": "configs/release-parity.json",
     "bytes": 18099,
-    "file_sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21",
+    "file_sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c",
     "hashes": {
-      "core_algorithm_hash": "9efaa014e35fea0a60ef4cccba65d76a5b9f2a6476fe4bd83b3f0b87102c91f7",
-      "px4_mission_path_hash": "c405a68e5c53d6989586a8da03e0fb35efbd488c2e746e2fd95d06742c45790b",
-      "safety_policy_hash": "e589b445d4436e79459014cda7306fde0ba47f2dafda5646ef9aeaa481850ec7",
-      "task_contract_hash": "879f9126de47cfc6d9b80593557fb23c8a808c16d979dd02a7cd699e63ad3da7",
+      "core_algorithm_hash": "d13af8b71ad8eb0475dece2cfb4088df98eaacfba0f25d31828ca79ab3215aaa",
+      "px4_mission_path_hash": "f5d84373d0e03b0aef34366a2735d88146972e89bc869c85debd3893d87befaf",
+      "safety_policy_hash": "dd231a223f84b1b0fd11f5f258641284683d941ea11016ebcfdb070699715a20",
+      "task_contract_hash": "55944b5e0462fe9ea628c5540496c733c81fe390de2331723d0d4dc71f592baa",
       "ui_contract_hash": "7e0127bff2eb30f54943375069233b86cda8bfe87511fd3fe94c82f451b476f4"
     },
     "release_label": "0.3.0-pre.9"
@@ -16804,9 +16804,9 @@
       "release_allowed": false
     },
     "release_gate_report": {
-      "audit_summary_path": "docs/evidence/release-parity-20261020-pre9-20261020-final.json",
+      "audit_summary_path": "docs/evidence/release-parity-20261021-pre9-20261021-final2.json",
       "audit_summary_bytes": 6025,
-      "audit_summary_sha256": "aec8a88c3fc134b15eb0b29f7f1c6a40d77ed093f684bea5814b0ff30de2ec04",
+      "audit_summary_sha256": "cf01987a82fa6195ada3f75551c701b0bdce5de62501f53635a34266489cca71",
       "manifest_local_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound.json",
       "local_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound-report-parity-r17-parity-r12-parity-r14-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12-parity-r14-parity-r11.json",
       "distributed_in_git": false,
@@ -18152,24 +18152,29 @@
         "sha256": "974a2348266e68bad36c31f0892feffa48ef9f9d9f537527a1d34bb4dea9fe57"
       },
       {
-        "path": "artifacts/evaluation/parity-final-20261019-pre9-r3/external-mission-matrix.json",
-        "bytes": 7375,
-        "sha256": "0336bbed7ddd3e19dececaf2f54c320a99c670fc7d42ea0ee020075c135e9e81"
+        "path": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/combined-sim-qgc.json",
+        "bytes": 2711,
+        "sha256": "e8a6e0709c34febd7620626d895b9470c555e602dab4da9c3ad18f7bdc31c676"
       },
       {
-        "path": "artifacts/evaluation/parity-final-20261019-pre9-r3/shared-policy-vehicle-matrix.json",
-        "bytes": 8147,
-        "sha256": "c822c71fdd3de38652f4e60e90d3d8fe46938d5f97efdee77a9683c66381c080"
+        "path": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/external-mission-matrix.json",
+        "bytes": 7423,
+        "sha256": "c6fee8223bb3410216133c747d1b599093713678289239be4d98cd2826ed288b"
       },
       {
-        "path": "artifacts/evaluation/parity-final-20261019-pre9-r3/simulator-ai-flight-parity.json",
-        "bytes": 4468,
-        "sha256": "99308345859ee01473042f0c41149970ea4caf2c7f157a5d7e7aa7513ef361c4"
+        "path": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/shared-policy-vehicle-matrix.json",
+        "bytes": 8195,
+        "sha256": "ac7fdc6b3612505fe32e26f89f78413b05f302f6be0d094f4570175fdb24cb8f"
       },
       {
-        "path": "artifacts/evaluation/parity-final-20261019-pre9-r3/v030-pre1-foundation.json",
+        "path": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/simulator-ai-flight-parity.json",
+        "bytes": 4492,
+        "sha256": "fa5bcc1ac22d947a72ec3df48dccc2ed6e9155673860a32e9cca4082c21fd3d1"
+      },
+      {
+        "path": "artifacts/evaluation/parity-final-20261020-pre9-20261020-final/v030-pre1-foundation.json",
         "bytes": 7877,
-        "sha256": "a2da79e29f771c643b8bb5925b7b473a64d186dcd3a6f8a196cb10319bfd71b3"
+        "sha256": "353108d5dfa3e1b99206063c8f5f1a247b67ced3c746214660ed1d53f2b31553"
       },
       {
         "path": "artifacts/evaluation/parity-teacher-admission-20261008-r2/copies/combined-evidence-parity-r14-parity-r11--079a56ad95f3.json",
@@ -18375,6 +18380,106 @@
         "path": "artifacts/evaluation/parity-teacher-admission-20261019-pre9-r3/copies/vtol-mission-acceptance-b42e262c456b-dd3-b2cf1dc48900.json",
         "bytes": 4430,
         "sha256": "cbbc02d32a3eada00becfd3123bb181405728cb29973673e482a27e846d58225"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/combined-evidence-parity-r14-parity-r11--54d2613020a6.json",
+        "bytes": 6635059,
+        "sha256": "07eab345224fb4f0d396436a38330af27d41a2f9d44964bcd52f2f1a9f3169a5"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/continuation-shared-policy-vtol-prompt-o-0391265425e8.json",
+        "bytes": 6585498,
+        "sha256": "983b0eec6f7d6ae08997a7cfd5a9d3bd546d1a43b102f8878df5b9ccf74cefcb"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/continuation-shared-policy-vtol-prompt-o-99f2c55d15c2.json",
+        "bytes": 6584295,
+        "sha256": "d9f9df7915e6833a44a20fdaa554d9df3944a8c662491e64faa4917a5567901a"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-fixed-wing-depth-shared-policy--3e60de3a593a.json",
+        "bytes": 66515,
+        "sha256": "ac5d55707f175d265f46a346f38e363831cccdefb89febd980b7e798939a7f04"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-fixed-wing-mission-20260927-r12-5f62dcfe0d0f.json",
+        "bytes": 34632,
+        "sha256": "b94127f656de9844a9ec00cafb68ae89b77e07d1dc781da5790feea01a746edd"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-depth-shared-policy--41155b95437d.json",
+        "bytes": 66493,
+        "sha256": "303e0820b339f3b7111d0f3197ef0379188270c1b420afed6b86b578ea48777a"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-depth-shared-policy--a87b1cb344da.json",
+        "bytes": 58494,
+        "sha256": "d0c681e1590af1f07f87b3a576374768331cbad57dbc2b654f7e1c03a6e16efc"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-multirotor-mission-20260927-r6--6bd23aa2b39d.json",
+        "bytes": 34644,
+        "sha256": "9ef8b165f0613e368292df2d332a6cc56cd9f0be1c301a6a37826a3dcdcb9ca2"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/external-shared-policy-pair-20261003-qml-dd03369f5671.json",
+        "bytes": 3072,
+        "sha256": "471f4c0c1d2206829a20b92f61e6b81251da686f156d68760432683af056d668"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-53ebc37e1254.json",
+        "bytes": 32933,
+        "sha256": "0827eb6879345ef1f21684712d9ca76322303501182c65745577d4981a7d3639"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-8118d8867fdd.json",
+        "bytes": 6253,
+        "sha256": "16159f43e03c0d882625d97134aa160900a9dfdd1877f12b761aece7a3c58433"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-current-vtol-campaign-2026-a12e133256c8.json",
+        "bytes": 6280,
+        "sha256": "d50212d9e12aee128335b89b01d2ef11b6e3abc03f4b505425de1305d8ce4a78"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-external-candidate-2026092-984c9f86fd9b.json",
+        "bytes": 6194,
+        "sha256": "fd917ea3be7b5abd0479d981435ea3187044438c2877717be3791e0b0c324946"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-external-parent-20260927-r-b6c9bf52bf56.json",
+        "bytes": 6170,
+        "sha256": "60c71714e46355e564ba66f4cdcaeffe4ad8665a7b35e2b716c4e965166f9fff"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-observed-session-20261007--65f9d90266a9.json",
+        "bytes": 5371,
+        "sha256": "3eafe7a5fe7feea19278b14a3e791c04fe0f2d8ef1dcadd950acbbddac824457"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-runtime-matrix-20261007-cu-53355d502d0a.json",
+        "bytes": 6557,
+        "sha256": "086709671c233a7280a053a492934c1b0ec506720fd0d97b1f66d2d846ac2695"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/shared-policy-trained-vtol-two-task-2026-43edae933b1a.json",
+        "bytes": 6245,
+        "sha256": "304d66e1337bdca53b7e937ab1e40a6e05dd23c0161ea1e4273af5882d318b62"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/simulator-docker-ai-flight-20261006-geom-94536329aabd.json",
+        "bytes": 645421,
+        "sha256": "efa93c84bbe7c9af291dddd95a94c2d9eebb17056257b1f4cb86e7984425fcf3"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/vtol-mission-acceptance-364baca54884-4a1-3a8a6ba1737e.json",
+        "bytes": 11190,
+        "sha256": "a5f1e72718e25787acae7758e93010ceee86f3bd4cee0360721a110e508928dc"
+      },
+      {
+        "path": "artifacts/evaluation/parity-teacher-admission-20261020-pre9-20261020-final/copies/vtol-mission-acceptance-b42e262c456b-dd3-43acf38b869d.json",
+        "bytes": 4435,
+        "sha256": "73b303fc1b51a41e12b78bbdda2190aed1bc0c6ad7fce0f00112e4f2ea38ea23"
       },
       {
         "path": "artifacts/evaluation/policy-artifacts-refresh-20260920-campaign-ranker/candidate-policy-artifact.json",
@@ -18649,7 +18754,7 @@
       {
         "path": "configs/release-parity.json",
         "bytes": 18099,
-        "sha256": "fa39e7a5d736b20bbadfdfcf116b53be24e9a666a3722c4eb3d6b0ceb1a89f21"
+        "sha256": "049878bf1cc4851cf1c45c6f6f4b46c23b39d8a5c2058a9fc88e1d4338c8ac1c"
       },
       {
         "path": "configs/scenarios/coastal_patrol_fixed_wing_001.runtime.json",
@@ -18998,8 +19103,8 @@
       },
       {
         "path": "docs/current-progress.json",
-        "bytes": 957395,
-        "sha256": "f3c6ec3529d10ac4706435e17aea5ccf266c7206afaec806ef4ceee8f650ce93"
+        "bytes": 963422,
+        "sha256": "f311e45325a3324559e8ebbf4964bfae8c46d80726c845da9c1e38efc41ed4dc"
       },
       {
         "path": "docs/evidence/combined-sim-qgc-20261007-current-parity-r3.json",
@@ -19233,8 +19338,8 @@
       },
       {
         "path": "scripts/onboard_policy.py",
-        "bytes": 100401,
-        "sha256": "8d68b17c10635ca215b57b39b5faa5a441088b2b1947261be3095122202aade8"
+        "bytes": 109577,
+        "sha256": "4b82140263414f47d8530c7542c61e8f3a56d232a5938ae06ef0ef4766187cf5"
       },
       {
         "path": "scripts/onboard_sequence_windows.py",
@@ -19473,8 +19578,8 @@
       },
       {
         "path": "src/multidetect/autonomy/mission_executor.py",
-        "bytes": 104602,
-        "sha256": "51cc370a73f5fcaa8342d5b10d92a4d85b8b18313c18948fe08217c02f8d4627"
+        "bytes": 110688,
+        "sha256": "6b8f8c919aeaf695901e102c689788cbd65294c3ab479a532e7aade597f56cd9"
       },
       {
         "path": "src/multidetect/autonomy/mission_operator.py",
@@ -19513,13 +19618,13 @@
       },
       {
         "path": "src/multidetect/autonomy/mission_summary.py",
-        "bytes": 13122,
-        "sha256": "7de6330662d775ac1bdab8fd1f287c7725e58b350416d6904c162cc0da70d7da"
+        "bytes": 13216,
+        "sha256": "0553b4411cde83a3041c887630506937191f440e0b519a6d17724b996c553c68"
       },
       {
         "path": "src/multidetect/autonomy/mission_supervisor.py",
-        "bytes": 41666,
-        "sha256": "b6191ff41fbe72e88e4fa98b870c4ebf2f47eeaf8ddd3b78ac334342f4fda120"
+        "bytes": 42062,
+        "sha256": "94b6bc2faef95521dff67eaf15ad5f1bd7116efac535d70419ddb295d58c06df"
       },
       {
         "path": "src/multidetect/autonomy/near_depth.py",
@@ -19558,13 +19663,13 @@
       },
       {
         "path": "src/multidetect/autonomy/onboard_loop.py",
-        "bytes": 108798,
-        "sha256": "cd1f6bf539afce24f53de482e64ee1386128498cb5729bfa373bc63198d7ae08"
+        "bytes": 116783,
+        "sha256": "92c70c77c8c9d641607fc4824cb574dedde057d94d54ca1a67f6956a13d09a47"
       },
       {
         "path": "src/multidetect/autonomy/onboard_mission_log.py",
-        "bytes": 8214,
-        "sha256": "5b187665909a6e4068521888179a5538d532b7b072641753a4a0539e31d9133e"
+        "bytes": 8839,
+        "sha256": "cf8f32bf02be1289bdaf76bea067f286938e75a3185f607e67752668bb35a9db"
       },
       {
         "path": "src/multidetect/autonomy/onboard_model_reference.py",
