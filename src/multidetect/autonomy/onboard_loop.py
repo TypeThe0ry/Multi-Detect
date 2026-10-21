@@ -380,6 +380,13 @@ class LoopConfig:
     # Ground association gate: max(min, fraction * range to the candidate).
     ground_gate_min_m: float = 4.0
     ground_gate_range_fraction: float = 0.15
+    # A detection whose ground point lies beyond this many ground gates from a
+    # track and that does not look like it never continues that track, however
+    # close the pixels are.  The pixel gate grows with the old box (4x its short
+    # side), so in SITL a 15 px hydrant 46 m away took over the id of a 135 px
+    # object at the same image edge and inherited its "no" verdict unasked.
+    # 0 disables the veto.
+    ground_veto_gates: float = 3.0
     # None enables 60-step ground re-identification for continuing (count,
     # patrol, monitor) loops only. Zero disables it, including for those loops.
     ground_reid_max_steps: int | None = None
@@ -591,6 +598,8 @@ class LoopConfig:
             raise ValueError("ground_reid_footprint_factor must be finite and non-negative")
         if not math.isfinite(self.memory_radius_m) or self.memory_radius_m <= 0:
             raise ValueError("memory_radius_m must be finite and positive")
+        if not math.isfinite(self.ground_veto_gates) or self.ground_veto_gates < 0:
+            raise ValueError("ground_veto_gates must be finite and non-negative")
         if not math.isfinite(self.memory_footprint_factor) or self.memory_footprint_factor < 0:
             raise ValueError("memory_footprint_factor must be finite and non-negative")
         for name in ("appearance_size_ratio", "appearance_aspect_ratio"):
@@ -928,6 +937,12 @@ class OnboardLoop:
                         self.config.ground_gate_range_fraction * reach,
                     )
                     score = max(score, 1.0 - distance / gate)
+                    if (
+                        self.config.ground_veto_gates > 0
+                        and distance > self.config.ground_veto_gates * gate
+                        and not appearances_consistent(track.appearance, appearance, self.config)
+                    ):
+                        score = 0.0
                 if score > best_score:
                     best, best_score = track, score
             if best is None or best_score < 0.2:

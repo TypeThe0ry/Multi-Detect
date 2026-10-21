@@ -91,6 +91,43 @@ def test_tracks_keep_ids_across_small_motion_and_filter_tiny_boxes() -> None:
     assert [t.track_id for t in second] == ["t1"]
 
 
+def _jump_scene(**config):
+    """A large box at one ground place, then a small box at the same image edge 46 m away."""
+    loop = _loop(**config)
+    pose = (0.0, 0.0, -17.0)
+    places = iter([(-39.0, 14.0), (-35.5, -31.6)])
+    place = next(places)
+    big = loop.update_tracks(
+        [Detection(_box(400, 860, 135), 0.5)],
+        pose_ned=pose,
+        yaw_deg=0.0,
+        ground_point=lambda u, v: place,
+    )
+    place = next(places)
+    loop.step_index += 3
+    small = loop.update_tracks(
+        [Detection(_box(347, 944, 15), 0.5)],
+        pose_ned=pose,
+        yaw_deg=0.0,
+        ground_point=lambda u, v: place,
+    )
+    return big, small
+
+
+def test_a_far_unlike_detection_never_continues_a_track_through_the_pixel_gate() -> None:
+    big, small = _jump_scene()
+    assert [t.track_id for t in big] == ["t1"]
+    assert [t.track_id for t in small] == ["t2"]
+    assert small[0].verdict is None
+
+
+def test_ground_veto_can_be_disabled() -> None:
+    _, small = _jump_scene(ground_veto_gates=0.0)
+    assert [t.track_id for t in small] == ["t1"]  # the old pixel-only continuation
+    with pytest.raises(ValueError):
+        LoopConfig(ground_veto_gates=-1.0)
+
+
 def test_approach_verdict_steers_but_only_two_confirm_views_confirm() -> None:
     loop = _loop()
     pose = (0.0, 0.0, -20.0)
