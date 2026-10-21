@@ -409,17 +409,6 @@ class OnboardPolicy:
             and self.airframe_profile.category == "vtol"
             and self.airframe_profile.can_hover
         )
-        if hybrid_vtol and (
-            options.get("mission") is not None
-            or options.get("mission_package") is not None
-            or mission_package is not None
-        ):
-            # The hybrid state machine reads the single find loop; a mission
-            # executor runs its own per-step loops, which it never tracks (it
-            # would never leave FW to approach).  Fall back to hover ops there.
-            print("warning: vtol_search_mode=fw applies to single find tasks; using mc")
-            hybrid_vtol = False
-            search_mode = "mc"
         self.vtol_search_mode = search_mode
         self._hybrid_vtol = hybrid_vtol
         if hybrid_vtol:
@@ -430,6 +419,7 @@ class OnboardPolicy:
         self._hybrid_transition_count = 0
         self._hybrid_candidate_visible = False
         self._hybrid_fw_reentry_backoff_until = -1
+        self._hybrid_step_token = None
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
@@ -1549,27 +1539,64 @@ class OnboardPolicy:
             return
         pitch = profile_mount_pitch_down_rad(self.airframe_profile, 0.18, mode=mode.lower())
         self.camera_pitch_down_rad = pitch
-        self.loop.camera = CameraModel(
-            fx=self.loop.camera.fx,
-            fy=self.loop.camera.fy,
-            cx=self.loop.camera.cx,
-            cy=self.loop.camera.cy,
-            width=self.loop.camera.width,
-            height=self.loop.camera.height,
+        loop = self._hybrid_active_loop()
+        if loop is None:
+            return
+        loop.camera = CameraModel(
+            fx=loop.camera.fx,
+            fy=loop.camera.fy,
+            cx=loop.camera.cx,
+            cy=loop.camera.cy,
+            width=loop.camera.width,
+            height=loop.camera.height,
             pitch_down_rad=pitch,
         )
+
+    def _hybrid_active_loop(self):
+        executor = getattr(self, "executor", None)
+        return getattr(executor, "active_loop", None) if executor is not None else self.loop
+
+    @staticmethod
+    def _hybrid_search_skill(step) -> bool:
+        return step is None or getattr(step, "skill", None) in {
+            "area_search",
+            "count",
+            "survey",
+            "patrol",
+            "monitor",
+        }
+
+    def _hybrid_sync_step(self) -> None:
+        executor = getattr(self, "executor", None)
+        if executor is None:
+            return
+        step = getattr(executor, "current_step", None)
+        token = getattr(step, "id", None) if step is not None else None
+        if token == getattr(self, "_hybrid_step_token", None):
+            return
+        self._hybrid_step_token = token
+        self._hybrid_mc_engaged = False
+        self._hybrid_mc_search_steps = 0
+        self._hybrid_rejections_seen = 0
+        self._hybrid_transition_count = 0
+        self._hybrid_candidate_visible = False
+        self._hybrid_fw_reentry_backoff_until = -1
 
     def _active_search(self, fallback, mc_fallback=None):
         if not self._hybrid_vtol:
             return fallback
-        if self.motion_adapter.mode == "FW" and self.loop.state == "searching":
+        loop = self._hybrid_active_loop()
+        if loop is not None and self.motion_adapter.mode == "FW" and loop.state == "searching":
             return fallback
         return mc_fallback or self._search_mc
 
     def _hybrid_candidate_blocks_reentry(self, current) -> bool:
         """Whether a live track can still justify staying in MC."""
-        eligible = {track.track_id for track in self.loop.tracks_needing_verdict(current)}
-        max_age = self.loop.config.vtol_fw_reentry_candidate_max_steps
+        loop = self._hybrid_active_loop()
+        if loop is None:
+            return False
+        eligible = {track.track_id for track in loop.tracks_needing_verdict(current)}
+        max_age = loop.config.vtol_fw_reentry_candidate_max_steps
         for track in current:
             if track.exhausted:
                 continue
@@ -1578,7 +1605,7 @@ class OnboardPolicy:
             if (
                 track.verdict is None
                 and track.track_id in eligible
-                and self.loop.step_index - track.first_step <= max_age
+                and loop.step_index - track.first_step <= max_age
             ):
                 return True
         return False
@@ -1907,21 +1934,31 @@ class OnboardPolicy:
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         """Single return point: every policy primitive crosses the envelope."""
         self._sync_vehicle_mode(observation)
+        self._hybrid_sync_step()
         adapter = getattr(self, "motion_adapter", None)
+        hybrid_loop = self._hybrid_active_loop()
+        hybrid_search = self._hybrid_search_skill(
+            getattr(getattr(self, "executor", None), "current_step", None)
+        )
         if adapter is not None and self._hybrid_vtol:
             recovering_after_rejection = bool(
                 adapter.mode == "MC"
+                and hybrid_search
                 and self._hybrid_rejections_seen
-                and self._hybrid_transition_count < self.loop.config.vtol_fw_transition_budget
+                and hybrid_loop is not None
+                and self._hybrid_transition_count < hybrid_loop.config.vtol_fw_transition_budget
             )
             adapter.preferred_mode = (
                 "MC"
                 if self._hybrid_mc_engaged
-                or self.loop.state != "searching"
+                or not hybrid_search
+                or hybrid_loop is None
+                or hybrid_loop.state != "searching"
                 or recovering_after_rejection
                 or (
                     adapter.mode == "MC"
-                    and self._hybrid_transition_count >= self.loop.config.vtol_fw_transition_budget
+                    and self._hybrid_transition_count
+                    >= hybrid_loop.config.vtol_fw_transition_budget
                 )
                 else "FW"
             )
@@ -1968,8 +2005,10 @@ class OnboardPolicy:
         if (
             adapter is not None
             and self._hybrid_vtol
+            and hybrid_search
+            and hybrid_loop is not None
             and adapter.mode == "FW"
-            and self.loop.state == "approaching"
+            and hybrid_loop.state == "approaching"
         ):
             self._hybrid_mc_engaged = True
             adapter.preferred_mode = "MC"
@@ -1990,16 +2029,18 @@ class OnboardPolicy:
         if (
             adapter is not None
             and self._hybrid_vtol
+            and hybrid_search
+            and hybrid_loop is not None
             and adapter.mode == "MC"
-            and self.loop.state == "searching"
-            and getattr(self.loop, "_focus", None) is None
+            and hybrid_loop.state == "searching"
+            and getattr(hybrid_loop, "_focus", None) is None
             and self._hybrid_rejections_seen
-            and self._hybrid_mc_search_steps >= self.loop.config.vtol_fw_reentry_min_mc_steps
+            and self._hybrid_mc_search_steps >= hybrid_loop.config.vtol_fw_reentry_min_mc_steps
             and not self._hybrid_candidate_visible
-            and getattr(self.loop, "_revisit", None) is None
-            and not self.loop.unresolved_positive_tracks()
-            and self._hybrid_transition_count < self.loop.config.vtol_fw_transition_budget
-            and self.loop.step_index >= self._hybrid_fw_reentry_backoff_until
+            and getattr(hybrid_loop, "_revisit", None) is None
+            and not hybrid_loop.unresolved_positive_tracks()
+            and self._hybrid_transition_count < hybrid_loop.config.vtol_fw_transition_budget
+            and hybrid_loop.step_index >= self._hybrid_fw_reentry_backoff_until
         ):
             adapter.preferred_mode = "FW"
             transition = adapter.mode_change_command()
@@ -2013,7 +2054,7 @@ class OnboardPolicy:
                 elif safety_info.get("rejected") and "transition_altitude" in safety_info.get(
                     "reasons", ()
                 ):
-                    self._hybrid_fw_reentry_backoff_until = self.loop.step_index + 3
+                    self._hybrid_fw_reentry_backoff_until = hybrid_loop.step_index + 3
                 labels = {
                     **labels,
                     "onboard": {**labels.get("onboard", {}), "state": "transition"},
@@ -2154,6 +2195,10 @@ class OnboardPolicy:
         step = executor.current_step
         perception_text = executor.current_task_text or self.task_text
         findings_before = len(executor.findings)
+        mission_loop = getattr(executor, "active_loop", None)
+        rejection_count_before = (
+            len(getattr(mission_loop, "_rejections", ())) if mission_loop else 0
+        )
         needing = executor.observe(
             detections,
             pose_ned=tuple(pose_ned),
@@ -2193,6 +2238,31 @@ class OnboardPolicy:
                     record_error(track.track_id, verdict.get("error") or "no decision")
             slow.append(verdict)
         mission_loop = getattr(executor, "active_loop", None)
+        new_rejection = len(getattr(mission_loop, "_rejections", ())) > rejection_count_before
+        candidate_gate = getattr(self, "_hybrid_candidate_blocks_reentry", None)
+        self._hybrid_candidate_visible = (
+            candidate_gate(current) if callable(candidate_gate) else False
+        )
+        if (
+            new_rejection
+            and mission_loop is not None
+            and mission_loop.state == "searching"
+            and getattr(mission_loop, "_focus", None) is None
+        ):
+            self._hybrid_rejections_seen = len(getattr(mission_loop, "_rejections", ()))
+            self._hybrid_mc_search_steps = 0
+            self._hybrid_mc_engaged = False
+        if (
+            getattr(self, "_hybrid_vtol", False)
+            and mission_loop is not None
+            and self.motion_adapter.mode == "MC"
+            and mission_loop.state == "searching"
+            and getattr(mission_loop, "_focus", None) is None
+            and not self._hybrid_candidate_visible
+            and getattr(mission_loop, "_revisit", None) is None
+            and not mission_loop.unresolved_positive_tracks()
+        ):
+            self._hybrid_mc_search_steps += 1
         run_near_depth = getattr(self, "_run_near_depth", None)
         if callable(run_near_depth):
             mission_run = getattr(executor, "_run", None)
