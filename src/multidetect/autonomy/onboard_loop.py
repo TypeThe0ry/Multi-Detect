@@ -1526,6 +1526,12 @@ class OnboardLoop:
         if item is not None:
             item["ground"] = track.ground
             item["views"].append(seen_from)
+            item.setdefault("min_side_px", []).append(_min_side(track.bbox))
+            item.setdefault("range_m", []).append(self._track_range(track))
+            item["usable_seen"] = (
+                item.get("usable_seen", False)
+                or _min_side(track.bbox) >= self.config.confirm_min_side_px
+            )
             if confidence is not None:
                 item["confidence"] = max(item.get("confidence") or 0.0, confidence)
             return
@@ -1533,6 +1539,9 @@ class OnboardLoop:
             {
                 "ground": track.ground,
                 "views": [seen_from],
+                "min_side_px": [_min_side(track.bbox)],
+                "range_m": [self._track_range(track)],
+                "usable_seen": _min_side(track.bbox) >= self.config.confirm_min_side_px,
                 "revisited": False,
                 "confidence": confidence,
                 "track_id": track.track_id,
@@ -1541,6 +1550,62 @@ class OnboardLoop:
                 "footprint_m": footprint,
             }
         )
+
+    def rejected_far_small_places(self, range_m: float) -> list[dict[str, Any]]:
+        """Rejected places whose every recorded view was small or beyond ``range_m``."""
+        result = []
+        for item in self._rejections:
+            if item.get("usable_seen"):
+                continue
+            sides = item.get("min_side_px", ())
+            ranges = item.get("range_m", ())
+            if not sides:
+                continue
+            small_only = all(side < self.config.confirm_min_side_px for side in sides)
+            far_only = bool(ranges) and all(
+                value is not None and value >= range_m for value in ranges
+            )
+            if small_only or far_only:
+                result.append(item)
+        return result
+
+    def has_pending_far_small_rejections(self, range_m: float) -> bool:
+        for item in self.rejected_far_small_places(range_m):
+            centre = item.get("ground")
+            if centre is None or not any(
+                record.get("position_estimate_ne") is not None
+                and math.dist(centre, record["position_estimate_ne"][:2])
+                <= self.config.count_dedupe_m
+                for record in self.confirmations
+            ):
+                return True
+        return False
+
+    def plan_rejection_revisit(
+        self, rejection: Mapping[str, Any], pose_ned
+    ) -> dict[str, Any] | None:
+        centre = rejection.get("ground")
+        if centre is None:
+            return None
+        standoff = max(
+            self.config.second_look_standoff_m,
+            self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
+        )
+        dn, de = pose_ned[0] - centre[0], pose_ned[1] - centre[1]
+        distance = math.hypot(dn, de)
+        if distance < 1e-6:
+            dn, de, distance = 1.0, 0.0, 1.0
+        goal = (centre[0] + standoff * dn / distance, centre[1] + standoff * de / distance)
+        if not self._segment_clear(pose_ned, goal[0], goal[1]):
+            return None
+        return {
+            "goal": goal,
+            "centre": (float(centre[0]), float(centre[1])),
+            "phase": "fly",
+            "steps": 0,
+            "kind": "count_rejection_revisit",
+            "rejection": rejection,
+        }
 
     def _one_sided(self, item: dict[str, Any]) -> bool:
         """Every rejection so far came from within 60 deg of the first view direction."""

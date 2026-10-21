@@ -1650,6 +1650,34 @@ def test_search_end_does_not_revisit_a_place_rejected_later(reid_steps):
     assert not any(e["event"] == "unresolved_place_revisit" for e in executor.mission_log)
 
 
+def test_count_search_end_revisits_far_small_rejection_with_cap() -> None:
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 100.0)},
+        config=ExecutorConfig(step_budget=140, count_rejection_revisit_attempts=1),
+    )
+    loop = executor.active_loop
+    loop._rejections.extend(
+        {
+            "ground": centre,
+            "min_side_px": [12.0],
+            "range_m": [25.0],
+            "revisited": False,
+            "track_id": f"reject-{index}",
+            "co_visible_with": set(),
+        }
+        for index, centre in enumerate(((20.0, 0.0), (30.0, 0.0)))
+    )
+    loop.state = "blocked"
+    sim = Sim(altitude=8.0)
+    action, info = _cycle(executor, sim)
+    assert action.kind in {"turn", "translate"}
+    assert info["count_rejection_revisit"]["centre"] == [20.0, 0.0]
+    assert len(executor.mission_log) == 2  # visibility graph + the bounded look
+    assert executor.history == []
+
+
 def test_search_end_revisits_each_unresolved_place_a_bounded_number_of_times():
     place = (30.0, 20.0)
     executor = MissionExecutor(

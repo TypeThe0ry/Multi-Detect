@@ -106,6 +106,9 @@ class ExecutorConfig:
     # identity verdict was positive but unresolved is revisited this many times.
     # Zero keeps the historical behaviour of ending immediately.
     unresolved_revisit_attempts: int = 1
+    # Count-only looks for places rejected before a usable-size or near view.
+    count_rejection_revisit_attempts: int = 3
+    count_rejection_revisit_range_m: float = 15.0
 
     def __post_init__(self) -> None:
         if (
@@ -114,6 +117,18 @@ class ExecutorConfig:
             or self.unresolved_revisit_attempts < 0
         ):
             raise ValueError("unresolved revisit attempts must be a non-negative integer")
+        if (
+            isinstance(self.count_rejection_revisit_attempts, bool)
+            or not isinstance(self.count_rejection_revisit_attempts, int)
+            or self.count_rejection_revisit_attempts < 0
+        ):
+            raise ValueError("count rejection revisit attempts must be a non-negative integer")
+        if (
+            isinstance(self.count_rejection_revisit_range_m, bool)
+            or not math.isfinite(self.count_rejection_revisit_range_m)
+            or self.count_rejection_revisit_range_m <= 0
+        ):
+            raise ValueError("count rejection revisit range must be finite and positive")
         values = (
             self.deliver_min_altitude_m,
             self.deliver_max_altitude_m,
@@ -237,6 +252,7 @@ class _StepRun:
     detour_replan_failures: int = 0
     # Places of lost positive-but-unresolved tracks already revisited by this step.
     revisited_places: list[tuple[float, float]] = field(default_factory=list)
+    rejection_revisit_places: list[tuple[float, float]] = field(default_factory=list)
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -480,10 +496,18 @@ class MissionExecutor:
         status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         if run.step.skill == "count":
             unresolved = bool(run.loop and run.loop.unresolved_positive_tracks())
+            pending_rejections = bool(
+                run.loop
+                and run.loop.has_pending_far_small_rejections(
+                    self.config.count_rejection_revisit_range_m
+                )
+            )
             # Only a full coverage pass with nothing left unresolved is a complete
             # count; any other ending (budget, max_count, a blocked or exhausted
             # search, an interruption) can have missed objects.
-            status["count_is_lower_bound"] = reason != "coverage_complete" or unresolved
+            status["count_is_lower_bound"] = (
+                reason != "coverage_complete" or unresolved or pending_rejections
+            )
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1072,6 +1096,64 @@ class MissionExecutor:
             return None
         return action, info
 
+    def _revisit_far_small_rejection(self, run, pose, yaw, info):
+        loop = run.loop
+        limit = self.config.count_rejection_revisit_attempts
+        if loop is None or run.step.skill != "count" or limit < 1:
+            return None
+        if len(run.rejection_revisit_places) >= limit:
+            return None
+        here = (pose[0], pose[1])
+        region = self.region_of(run.step)
+        area = self.operating_area if isinstance(self.operating_area, Mapping) else None
+
+        def allowed(point):
+            return (region is None or math.dist(point, region[:2]) <= region[2]) and (
+                area is None or self._point_inside_area(point, area)
+            )
+
+        candidates = sorted(
+            loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m),
+            key=lambda item: math.dist(item["ground"], here),
+        )
+        for rejection in candidates:
+            centre = tuple(rejection["ground"])
+            if not allowed(centre):
+                continue
+            if any(
+                math.dist(centre, place) <= loop.config.count_dedupe_m
+                for place in run.rejection_revisit_places
+            ):
+                continue
+            if any(
+                rejection.get("track_id") in record.get("co_visible_with", ())
+                or record.get("track_id") in rejection.get("co_visible_with", ())
+                for record in loop.confirmations
+            ):
+                continue
+            look = loop.plan_rejection_revisit(rejection, pose)
+            if look is None or not allowed(look["goal"]):
+                continue
+            if self._leg_enters_no_fly(here, look["goal"]):
+                continue
+            legs = math.ceil(math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6))
+            if legs + 3 > self._budget(run.step) - run.primitives:
+                continue
+            rejection["revisited"] = True
+            run.rejection_revisit_places.append(centre)
+            action = loop.begin_place_revisit(look, pose, yaw, info)
+            if action is None:
+                rejection["revisited"] = False
+                run.rejection_revisit_places.pop()
+                continue
+            record = {"centre": list(look["centre"]), "track_id": rejection.get("track_id")}
+            info["count_rejection_revisit"] = record
+            self.mission_log.append(
+                {"event": "count_rejection_revisit", "step_id": run.step.id, **record}
+            )
+            return action, info
+        return None
+
     def _count(self, run, pose, yaw, ground_point, frame_id):
         action, info = run.loop.next_action(
             self._current, pose_ned=pose, yaw_deg=yaw, ground_point=ground_point
@@ -1082,6 +1164,9 @@ class MissionExecutor:
         self._report_count(run)
         if run.loop.state not in {"searching", "approaching"}:
             revisit = self._revisit_unresolved(run, pose, yaw, info)
+            if revisit is not None:
+                return revisit
+            revisit = self._revisit_far_small_rejection(run, pose, yaw, info)
             if revisit is not None:
                 return revisit
             self._report_count(run)

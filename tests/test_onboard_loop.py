@@ -551,6 +551,28 @@ def test_place_revisit_flies_to_a_near_side_view_without_spending_second_looks()
     assert loop._revisit is None and loop._revisits_done == 0
 
 
+def test_rejected_far_small_places_exclude_any_usable_view() -> None:
+    loop = _loop(stop_on_confirm=False, confirm_min_side_px=20.0)
+    loop._rejections.extend(
+        [
+            {
+                "ground": (30.0, 0.0),
+                "min_side_px": [12.0, 15.0],
+                "range_m": [18.0, 22.0],
+                "revisited": False,
+            },
+            {
+                "ground": (40.0, 0.0),
+                "min_side_px": [24.0],
+                "range_m": [40.0],
+                "revisited": False,
+                "usable_seen": True,
+            },
+        ]
+    )
+    assert [item["ground"] for item in loop.rejected_far_small_places(15.0)] == [(30.0, 0.0)]
+
+
 def _count(loop: OnboardLoop, track, position) -> dict:
     record = {"track_id": track.track_id, "position_estimate_ne": list(position)}
     _, info = loop._count_confirmation(track, record, (0.0, 0.0, -8.0), 0.0, {})
