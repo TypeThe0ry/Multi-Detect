@@ -467,12 +467,11 @@ def test_back_transition_is_checked_as_a_transition_not_as_hover() -> None:
     assert high.kind == "transition" and not info.get("rejected")
 
 
-def test_hybrid_search_falls_back_to_hover_ops_under_a_mission_executor(tmp_path) -> None:
-    # The hybrid state machine reads the single find loop; under a mission executor
-    # it would never leave FW to approach, so those runs fly the MC hover loop.
+def test_hybrid_search_remains_enabled_under_a_mission_executor(tmp_path) -> None:
+    # Mission steps own their loops, so hybrid mode follows the executor's active loop.
     policy = make_policy(
         work_dir=tmp_path,
         config={"airframe": "standard_vtol", "vtol_search_mode": "fw", "mission": "count"},
     )
-    assert policy._hybrid_vtol is False and policy.vtol_search_mode == "mc"
-    assert policy.motion_adapter.preferred_mode == "MC"
+    assert policy._hybrid_vtol is True and policy.vtol_search_mode == "fw"
+    assert policy.motion_adapter.preferred_mode == "FW"

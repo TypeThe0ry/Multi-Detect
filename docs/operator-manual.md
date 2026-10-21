@@ -28,9 +28,9 @@
 | 多旋翼 | 原地转向、前进、最近视角确认；确认后按任务计划返航 | 使用多旋翼搜索和接近流程 |
 | 固定翼 | 按相机覆盖和转弯半径飞割草机搜索；发现候选后飞过目标边缘的顺时针过顶盘旋，每圈在目标前方取得一次视角 | 支持跑道、手抛、弹射起飞；确认后停止机上接近，由 PX4 RTL 返航并降落 |
 | eVTOL 4+1、尾座式 | 默认 `vtol_hover_ops: true`，全程留在多旋翼（MC）模式，用多旋翼流程搜索、接近和确认 | 确认后由 PX4 RTL 返航并垂直降落 |
-| 能悬停的 VTOL（可选混合） | `vtol_search_mode: "fw"` 先用固定翼割草机搜索，发现候选后回切 MC 接近和确认；候选被拒后在 MC 至少停留 3 步，条件满足时继续原固定翼航线 | 每个任务最多回切固定翼 3 次；默认 `vtol_search_mode: "mc"` 不变 |
+| 能悬停的 VTOL（可选混合） | `vtol_search_mode: "fw"` 先用固定翼割草机搜索，发现候选后回切 MC 接近和确认；候选被拒后在 MC 至少停留 3 步，条件满足时继续原固定翼航线。MissionExecutor 按当前步骤使用对应的区域搜索器；area_search/count/survey/patrol/monitor 可用 FW，inspect/land/return_home/deliver 始终用 MC | 每个任务最多回切固定翼 3 次；默认 `vtol_search_mode: "mc"` 不变 |
 
-混合模式下，`vtol_fw_reentry_min_mc_steps` 调整被拒后的 MC 最少驻留步数，`vtol_fw_transition_budget` 调整允许回切 FW 的次数。`vtol_search_mode: "fw"` 只适用于能悬停的 VTOL；转换期间不推进机上 AI 循环。
+混合模式下，`vtol_fw_reentry_min_mc_steps` 调整被拒后的 MC 最少驻留步数，`vtol_fw_transition_budget` 调整允许回切 FW 的次数。`vtol_search_mode: "fw"` 只适用于能悬停的 VTOL；转换期间不推进机上 AI 循环。MissionExecutor 切换步骤时会清空混合状态，拒绝回切会退避且不消耗预算。
 
 固定翼的单次确认不是“看到一次就算”：只有同一位置（跨航迹编号）的真实确认票多于拒绝票时，过顶的单次确认才算数；否则要等两次确认。尾座式在悬停时相机光轴比地平线抬高 20°，远处看得到、近处容易把目标放出画面，这是当前机型限制。
 
