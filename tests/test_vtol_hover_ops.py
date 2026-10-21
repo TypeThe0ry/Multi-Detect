@@ -12,6 +12,7 @@ from PIL import Image
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
 from multidetect.autonomy.fw_search import FixedWingSearch
+from multidetect.autonomy.mission_executor import MissionExecutor
 from multidetect.autonomy.motion_intent import (
     AirframeMotionAdapter,
     MotionCommand,
@@ -34,6 +35,54 @@ def _frame(vtol_state: int) -> dict:
         "camera_info": {},
         "flight_state": {"vtol_state": vtol_state, "landed_state": 2},
     }
+
+
+def _mission_executor(policy, skills=("count", "count")) -> MissionExecutor:
+    steps = []
+    for index, skill in enumerate(skills):
+        step_id = f"step{index + 1}"
+        next_id = f"step{index + 2}" if index + 1 < len(skills) else None
+        params = (
+            {"region": "zone:all", "query": "target"} if skill in {"count", "area_search"} else {}
+        )
+        if skill == "inspect":
+            params = {"target_ref": "finding:1", "query": "target", "views": 1, "standoff_m": 8.0}
+        steps.append(
+            {
+                "id": step_id,
+                "skill": skill,
+                "params": params,
+                "on_success": next_id,
+                "on_fail": next_id,
+            }
+        )
+    if skills[-1] not in {"return_home", "land"}:
+        steps.append(
+            {
+                "id": "home",
+                "skill": "return_home",
+                "params": {},
+                "on_success": None,
+                "on_fail": None,
+            }
+        )
+        steps[-2]["on_success"] = "home"
+        steps[-2]["on_fail"] = "home"
+    plan = {"plan_version": 1, "goal": "hybrid test", "steps": steps, "report": ["status"]}
+    return MissionExecutor(plan, loop_factory=policy.executor.loop_factory)
+
+
+def _hybrid_mission_policy(tmp_path: Path, skills=("count", "count")):
+    policy = make_policy(
+        work_dir=tmp_path / "hybrid-mission",
+        config={
+            "airframe": "standard_vtol",
+            "vtol_search_mode": "fw",
+            "mission": "count",
+        },
+    )
+    policy.executor = _mission_executor(policy, skills)
+    return policy
 
 
 @pytest.mark.parametrize("airframe", ["standard_vtol", "quadtailsitter"])
@@ -475,3 +524,140 @@ def test_hybrid_search_remains_enabled_under_a_mission_executor(tmp_path) -> Non
     )
     assert policy._hybrid_vtol is True and policy.vtol_search_mode == "fw"
     assert policy.motion_adapter.preferred_mode == "FW"
+
+
+def test_hybrid_mission_uses_active_step_loop_for_fw_and_focus_transition(
+    tmp_path, monkeypatch
+) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=("count", "count"))
+    active = policy.executor.active_loop
+    assert active is not policy.loop
+
+    command, _ = policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "reposition" and command.mode == "FW"
+
+    policy.loop.state = "searching"
+    active.state = "approaching"
+    monkeypatch.setattr(
+        policy,
+        "_act_mission",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.translate(1.0, 0.0, 0.0),
+            {"onboard": {"state": "approaching"}},
+        ),
+    )
+    command, _ = policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "transition" and command.mode == "MC"
+
+
+def test_hybrid_mission_reenters_fw_after_active_loop_rejection_dwell(
+    tmp_path, monkeypatch
+) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=("count", "count"))
+    active = policy.executor.active_loop
+    policy.motion_adapter.set_mode(3)
+    active.state = "searching"
+    policy.loop.state = "approaching"
+    policy._hybrid_step_token = policy.executor.current_step.id
+    policy._hybrid_rejections_seen = 1
+    policy._hybrid_mc_search_steps = active.config.vtol_fw_reentry_min_mc_steps
+    policy._hybrid_candidate_visible = False
+    monkeypatch.setattr(
+        policy,
+        "_act_mission",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.hold(1.0),
+            {"onboard": {"state": "searching"}},
+        ),
+    )
+    command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "transition" and command.mode == "FW"
+
+
+def test_hybrid_mission_resets_state_when_executor_changes_step(tmp_path, monkeypatch) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=("count", "count"))
+    first = policy.executor.active_loop
+    policy._hybrid_transition_count = 2
+    policy._hybrid_fw_reentry_backoff_until = 9
+    policy._hybrid_rejections_seen = 3
+    policy._hybrid_mc_search_steps = 4
+    policy._hybrid_candidate_visible = True
+    policy._hybrid_mc_engaged = True
+    policy.executor._finish("succeeded")
+    second = policy.executor.active_loop
+    assert second is not None and second is not first
+    monkeypatch.setattr(
+        policy,
+        "_act_mission",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.hold(1.0),
+            {"onboard": {"state": "searching"}},
+        ),
+    )
+    policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert policy._hybrid_transition_count == 0
+    assert policy._hybrid_fw_reentry_backoff_until == -1
+    assert policy._hybrid_rejections_seen == 0
+    assert policy._hybrid_mc_search_steps == 0
+    assert policy._hybrid_candidate_visible is False
+    assert policy._hybrid_mc_engaged is False
+
+
+@pytest.mark.parametrize("skill", ["inspect", "return_home", "land"])
+def test_hybrid_mission_non_search_steps_force_mc(tmp_path, monkeypatch, skill) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=(skill,))
+    assert policy._hybrid_vtol
+    active = policy.executor.active_loop
+    if active is not None:
+        active.state = "searching"
+    monkeypatch.setattr(
+        policy,
+        "_act_mission",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.hold(1.0),
+            {"onboard": {"state": skill}},
+        ),
+    )
+    command, _ = policy.act(_frame(4), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind == "transition" and command.mode == "MC"
+
+    policy.motion_adapter.set_mode(3)
+    command, _ = policy.act(_frame(3), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.mode == "MC"
+
+
+def test_hybrid_mission_transition_pending_does_not_step_active_loop(tmp_path, monkeypatch) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=("count", "count"))
+    assert policy._hybrid_vtol
+    active = policy.executor.active_loop
+    policy.motion_adapter.set_mode(6)
+    before = active.step_index
+    monkeypatch.setattr(policy, "_act_mission", lambda *_args, **_kwargs: pytest.fail("loop ran"))
+    command, labels = policy.act(_frame(6), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert command.kind in {"mc_hold", "loiter"} and labels["onboard"]["transition_pending"]
+    assert active.step_index == before
+
+
+def test_hybrid_mission_refused_reentry_backs_off_without_budget(tmp_path, monkeypatch) -> None:
+    policy = _hybrid_mission_policy(tmp_path, skills=("count", "count"))
+    assert policy._hybrid_vtol
+    active = policy.executor.active_loop
+    policy.motion_adapter.set_mode(3)
+    active.state = "searching"
+    policy._hybrid_step_token = policy.executor.current_step.id
+    policy._hybrid_rejections_seen = 1
+    policy._hybrid_mc_search_steps = active.config.vtol_fw_reentry_min_mc_steps
+    policy._hybrid_candidate_visible = False
+    monkeypatch.setattr(
+        policy,
+        "_act_mission",
+        lambda *_args, **_kwargs: (
+            ActionPrimitive.hold(1.0),
+            {"onboard": {"state": "searching"}},
+        ),
+    )
+    command, labels = policy.act(_frame(3), pose_ned=(0.0, 0.0, -1.0), yaw_deg=0.0)
+    assert command.kind == "mc_hold"
+    assert labels["safety"]["rejected"]
+    assert policy._hybrid_transition_count == 0
+    assert policy._hybrid_fw_reentry_backoff_until > active.step_index
