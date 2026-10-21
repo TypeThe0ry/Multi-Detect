@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from multidetect import PRODUCT_VERSION
 from multidetect.autonomy import AutonomyContractError
 from multidetect.autonomy.contracts import (
     ExecutableMission,
@@ -377,7 +378,7 @@ def test_scene_stream_verifier_reports_file_and_canonical_hashes(tmp_path: Path)
     assert stream is not None
     stream.write_json(source)
 
-    report = verify_file(source, expected_release_label="0.3.0-pre.8")
+    report = verify_file(source, expected_release_label=PRODUCT_VERSION.release_label)
     assert report["gate_passed"] is True
     assert report["file_bytes"] == source.stat().st_size
     assert report["file_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()

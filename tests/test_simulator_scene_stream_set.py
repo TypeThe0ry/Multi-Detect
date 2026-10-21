@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from multidetect import PRODUCT_VERSION
 from multidetect.simulator import (
     SimulatorScenarioRunner,
     SimulatorScenarioRunnerConfig,
@@ -66,7 +67,7 @@ def test_scene_stream_set_binds_all_airframes_and_revalidates(tmp_path: Path) ->
     binding = build_scene_stream_set_binding(
         sources,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
 
     assert binding["event"] == EVENT
@@ -81,7 +82,7 @@ def test_scene_stream_set_binds_all_airframes_and_revalidates(tmp_path: Path) ->
     report = verify_binding(
         binding,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     assert report["gate_passed"] is True
     assert report["modes"] == binding["modes"]
@@ -89,7 +90,9 @@ def test_scene_stream_set_binds_all_airframes_and_revalidates(tmp_path: Path) ->
 
     output = tmp_path / "scene-stream-set.json"
     output.write_text(json.dumps(binding, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    persisted = verify_scene_stream_set_file(output, expected_release_label="0.3.0-pre.8")
+    persisted = verify_scene_stream_set_file(
+        output, expected_release_label=PRODUCT_VERSION.release_label
+    )
     assert persisted["gate_passed"] is True
     assert persisted["event"] == "simulator_scene_stream_set_revalidated"
 
@@ -101,12 +104,12 @@ def test_scene_stream_set_binding_is_order_independent_and_deterministic(
     first = build_scene_stream_set_binding(
         sources,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     second = build_scene_stream_set_binding(
         list(reversed(sources)),
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
 
     first_payload = json.dumps(first, ensure_ascii=False, indent=2, sort_keys=True)
@@ -124,7 +127,7 @@ def test_scene_stream_set_cli_binds_and_schema_validates(
             [
                 "--bind",
                 "--expected-release-label",
-                "0.3.0-pre.8",
+                PRODUCT_VERSION.release_label,
                 "--manifest-directory",
                 str(tmp_path),
                 "--out",
@@ -153,20 +156,20 @@ def test_scene_stream_set_rejects_duplicate_mode_and_tampering(tmp_path: Path) -
         build_scene_stream_set_binding(
             [sources[0], sources[1], duplicate],
             manifest_directory=tmp_path,
-            expected_release_label="0.3.0-pre.8",
+            expected_release_label=PRODUCT_VERSION.release_label,
         )
 
     binding = build_scene_stream_set_binding(
         sources,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     raw = json.loads(json.dumps(binding))
     raw["evidence"][0]["snapshot_count"] += 1
     report = verify_binding(
         raw,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     assert report["gate_passed"] is False
     assert any("snapshot_count does not match source" in reason for reason in report["reasons"])
@@ -179,7 +182,7 @@ def test_scene_stream_set_rejects_duplicate_mode_and_tampering(tmp_path: Path) -
     tampered = verify_binding(
         binding,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     assert tampered["gate_passed"] is False
     assert any("verifier failed" in reason for reason in tampered["reasons"])
@@ -190,7 +193,7 @@ def test_scene_stream_set_rejects_release_mismatch_and_unknown_scenario(tmp_path
     binding = build_scene_stream_set_binding(
         sources,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     mismatch = verify_binding(
         binding,
@@ -205,7 +208,7 @@ def test_scene_stream_set_rejects_release_mismatch_and_unknown_scenario(tmp_path
     unknown_report = verify_binding(
         unknown,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     assert unknown_report["gate_passed"] is False
     assert any("scenario_id" in reason for reason in unknown_report["reasons"])
@@ -226,7 +229,7 @@ def test_scene_stream_set_rejects_release_mismatch_and_unknown_scenario(tmp_path
     path_report = verify_binding(
         path_tampered,
         manifest_directory=tmp_path,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
     )
     assert path_report["gate_passed"] is False
     assert any("path does not match source" in reason for reason in path_report["reasons"])

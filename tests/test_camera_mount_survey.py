@@ -8,6 +8,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
+from multidetect import PRODUCT_VERSION
 from multidetect.camera_mount_survey import (
     CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE,
     CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE,
@@ -157,7 +158,7 @@ def test_physical_mount_survey_passes_and_reverifies(tmp_path: Path) -> None:
     write_camera_mount_survey(output, report)
     verification = verify_camera_mount_survey(
         output,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
         require_gate_passed=True,
     )
     assert verification == {"passed": True, "gate_passed": True, "reasons": []}

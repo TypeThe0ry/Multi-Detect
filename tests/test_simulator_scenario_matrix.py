@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from multidetect import PRODUCT_VERSION
 from multidetect.simulator.scenario_matrix import (
     SimulatorScenarioMatrixError,
     discover_scenario_manifests,
@@ -260,7 +261,7 @@ def test_matrix_verifier_wrapper_runs_without_pythonpath(tmp_path: Path) -> None
             str(ROOT / "scripts" / "verify_simulator_scenario_matrix.py"),
             str(evidence),
             "--expected-release-label",
-            "0.3.0-pre.8",
+            PRODUCT_VERSION.release_label,
         ],
         cwd=ROOT,
         env=environment,

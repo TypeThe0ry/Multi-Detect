@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator
 
 import multidetect.field_evidence_bundle as bundle_module
 import multidetect.field_session_capture as session_module
+from multidetect import PRODUCT_VERSION
 from multidetect.backends.raw_replay import (
     RawReplayFrame,
     RawReplayImageReference,
@@ -682,7 +683,7 @@ def test_serialized_report_is_recomputed_and_summary_tampering_is_detected(
 
     verified = bundle_module.verify_field_evidence_bundle_report(
         destination,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
         require_real_domain=True,
     )
     assert verified["passed"] is True
@@ -697,7 +698,7 @@ def test_serialized_report_is_recomputed_and_summary_tampering_is_detected(
     )
     changed = bundle_module.verify_field_evidence_bundle_report(
         destination,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
         require_real_domain=True,
     )
     assert changed["passed"] is False
@@ -723,7 +724,7 @@ def test_serialized_pending_paths_recompute_without_false_tamper_failure(
 
     verified = bundle_module.verify_field_evidence_bundle_report(
         destination,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=PRODUCT_VERSION.release_label,
         require_real_domain=True,
     )
     assert verified["passed"] is True

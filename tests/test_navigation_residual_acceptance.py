@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from multidetect import PRODUCT_VERSION
 from scripts.create_navigation_residual_acceptance import build_record
 
 
@@ -13,7 +14,7 @@ def test_navigation_residual_acceptance_record_is_deterministically_qualified() 
     # Keep the acceptance artifact tied to the implementation and parity
     # manifest; this prevents a copied fixture from silently outliving the
     # navigation fusion source it describes.
-    assert record["release_label"] == "0.3.0-pre.8"
+    assert record["release_label"] == PRODUCT_VERSION.release_label
     assert record["software_status"] == "pass_with_environment_gap"
     assert record["hardware_status"] == "offline_pending"
     assert record["release_allowed"] is False

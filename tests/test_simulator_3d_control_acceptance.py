@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import scripts.run_simulator_3d_control_acceptance as acceptance_module
+from multidetect import PRODUCT_VERSION
 from scripts.run_simulator_3d_control_acceptance import main, run_acceptance
 from scripts.verify_simulator_3d_control_evidence import main as verify_3d_main
 
@@ -226,7 +227,7 @@ def test_simulator_3d_control_verifier_cli_binds_three_airframes(
         [
             "--bind",
             "--expected-release-label",
-            "0.3.0-pre.8",
+            PRODUCT_VERSION.release_label,
             "--manifest-directory",
             str(tmp_path),
             "--out",
