@@ -131,3 +131,36 @@ def test_energy_snapshot_preserves_pymavlink_source_identity() -> None:
     rows = build_observation(_sensor(), state)["energy_telemetry"]
     assert rows[0]["message"]["source_system"] == 2
     assert rows[0]["message"]["source_component"] == 7
+
+
+def test_reader_stamps_energy_samples_with_the_vehicle_boot_clock() -> None:
+    """SITL's lockstep clock, not host time, is the vehicle's own receipt clock."""
+    host = iter(range(1_000_000_000, 100_000_000_000, 1_000_000_000))
+    wire = [
+        {"type": "BATTERY_STATUS", "battery_remaining": 90},  # before any boot time
+        {"type": "ATTITUDE", "time_boot_ms": 200_000},
+        {"type": "BATTERY_STATUS", "battery_remaining": 89},
+        {"type": "LOCAL_POSITION_NED", "time_boot_ms": 200_250, "x": 0, "y": 0, "z": -5},
+        {"type": "SYS_STATUS", "battery_remaining": 89},
+    ]
+
+    class Connection:
+        def recv_msg(self):
+            if wire:
+                return wire.pop(0)
+            reader._stop.set()
+            return None
+
+    reader = MavlinkReader(Connection(), clock=lambda: next(host))
+    reader._run()
+    assert reader.error is None
+    assert reader.state.vehicle_time_boot_ms == 200_250
+    rows = {
+        row["message"]["mavpackettype"]: row
+        for row in reader.aligned_state(200_250_000_000, timeout_s=0).energy_telemetry
+    }
+    # Host receipts are 1 s apart; on the vehicle clock only 0.25 s passed.
+    assert rows["BATTERY_STATUS"]["received_monotonic_s"] == 3.0
+    assert rows["BATTERY_STATUS"]["received_vehicle_s"] == 200.0
+    assert rows["SYS_STATUS"]["received_vehicle_s"] == 200.25
+    assert rows["LOCAL_POSITION_NED"]["received_vehicle_s"] == 200.25

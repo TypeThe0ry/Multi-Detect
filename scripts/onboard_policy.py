@@ -281,6 +281,15 @@ def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _vehicle_receipt_s(sample: Mapping[str, Any]) -> float | None:
+    """Vehicle (PX4 boot) clock at a telemetry sample's receipt, if stamped."""
+    value = sample.get("received_vehicle_s")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value >= 0 else None
+
+
 def _enabled(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -1299,9 +1308,10 @@ class OnboardPolicy:
                         else time.monotonic(),
                         model_runtime=dict(self._model_runtime),
                     )
-                # Telemetry readers stamp receipts with host monotonic time,
-                # while SIM supervisors run on the simulation clock. Keep a
-                # fixed affine offset so both values are compared in one domain.
+                # Fallback for telemetry without a vehicle-clock stamp: readers
+                # stamp receipts with host monotonic time, while SIM timelines run
+                # on the simulation clock. Stamped SIM samples bypass this offset
+                # (see _energy_vehicle_estimator); it drifts when the sim is slow.
                 self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
@@ -1724,6 +1734,37 @@ class OnboardPolicy:
                 return True
         return False
 
+    def _energy_vehicle_estimator(
+        self, observation: Mapping[str, Any], samples: Sequence[Mapping[str, Any]]
+    ):
+        """Return the energy model when SIM telemetry is judged on the vehicle clock.
+
+        The collector stamps each sample with PX4's boot clock at receipt.  In
+        SITL that is the lockstep simulation clock, which on a loaded host runs
+        at a fraction of host time; host-clock ages then grow with primitive and
+        inference wall time and a fresh battery reading looks stale.  Measuring
+        both receipt and "now" on the vehicle clock gives each sample its true
+        age.  Flight keeps host receipt time: there, a stall really ages data.
+        """
+        estimator = getattr(self.supervisor, "energy_estimator", None)
+        if estimator is None or getattr(self.supervisor, "_flight_mode", False):
+            return None
+        stamps = [_vehicle_receipt_s(sample) for sample in samples]
+        stamps = [stamp for stamp in stamps if stamp is not None]
+        if not estimator.clock_bound and not stamps:
+            return None
+        boot_ms = observation.get("pose_time_boot_ms")
+        if isinstance(boot_ms, (int, float)) and not isinstance(boot_ms, bool):
+            if math.isfinite(boot_ms) and boot_ms >= 0:
+                stamps.append(boot_ms / 1000.0)
+        previous = getattr(self, "_energy_vehicle_now_s", None)
+        self._energy_vehicle_now_s = max(stamps + ([previous] if previous is not None else []))
+        if not estimator.clock_bound and not estimator.use_clock(
+            lambda: self._energy_vehicle_now_s
+        ):
+            return None
+        return estimator
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
@@ -1735,7 +1776,19 @@ class OnboardPolicy:
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor, pose_ned=pose_ned)
-            for sample in observation.get("energy_telemetry", []):
+            samples = observation.get("energy_telemetry") or []
+            vehicle_estimator = self._energy_vehicle_estimator(observation, samples)
+            if samples and vehicle_estimator is None:
+                # Clamp host receipts against the current clock, not the last
+                # evaluation's: a stale ``_now`` would backdate fresh samples.
+                self.supervisor._time()
+            for sample in samples:
+                if vehicle_estimator is not None:
+                    # One domain: receipt and "now" are both on the vehicle clock.
+                    received_at = _vehicle_receipt_s(sample)
+                    if received_at is not None:
+                        vehicle_estimator.ingest(sample["message"], received_at_s=received_at)
+                    continue
                 received_at = float(sample["received_monotonic_s"])
                 received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
                 received_at = min(received_at, self.supervisor._now)

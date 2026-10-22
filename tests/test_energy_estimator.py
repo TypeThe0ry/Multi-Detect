@@ -247,3 +247,24 @@ def test_supervisor_no_battery_keeps_package_deadline_and_reports_fallback(tmp_p
     assert supervisor.energy_estimate["source"] == "mission_time_budget_only"
     now[0] += 86400 - 60
     assert supervisor.evaluate(pose_ned=(50, 0, -20)) == "return_now"
+
+
+def test_bound_vehicle_clock_judges_freshness_in_one_domain():
+    vehicle = [100.0]
+    model = OnboardEnergyEstimator(config())
+    assert model.use_clock(lambda: vehicle[0])
+    model.ingest(battery(), received_at_s=99.5)
+    # The caller's host clock has run 40 s ahead; the vehicle clock has not.
+    assert estimate(model, now=5_000)["battery_age_s"] == pytest.approx(0.5)
+    assert estimate(model, now=5_000)["action"] == "continue"
+    vehicle[0] = 105.6
+    stale = estimate(model, now=5_001)
+    assert stale["battery_age_s"] == pytest.approx(6.1)
+    assert stale["action"] == "return_now"
+
+
+def test_clock_domain_cannot_change_after_telemetry_was_accepted():
+    model = OnboardEnergyEstimator(config())
+    model.ingest(battery(), received_at_s=10)
+    assert not model.use_clock(lambda: 0.0)
+    assert not model.clock_bound
