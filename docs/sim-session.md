@@ -64,3 +64,21 @@ exit $status
 当前 Windows `netsh int ipv4 show excludedportrange protocol=udp` 输出没有覆盖
 14560；脚本因此默认使用 14560。若本地策略或其他进程仍占用端口，用 `--gcs-port`
 换一个空闲端口，并在终端看到 `PX4 heartbeat: received` 后再连接 GCS。
+
+## 本机实测结果（2026-10-22）
+
+派生镜像已成功构建并缓存为 `multidetect/px4-gazebo-viewer:bcf8278e3321`
+（本地 image digest 以 Docker inspect 为准）。rich world
+`urban_inspection_multirotor_001.sdf` 的容器运行、noVNC HTTP `200` 和 X display
+截图均通过；截图为非均匀图像（`rich.png`，131504 bytes，RGB channel spread 765）。
+证据在 `D:/Projects/mdwt/_scratch/simgui/shots/rich.png` 和
+`D:/Projects/mdwt/_scratch/simgui/rich-docker.log`。
+
+`gen_cnt2_w0000.sdf` 也能启动 PX4/Gazebo server，noVNC 返回 `200`，但在 75 秒检查点
+仍处于 `Waiting for Gazebo world`，截图只有 250 bytes 的空白图像；证据在
+`shots/count-late.png`、`count-late-docker.log` 和 `count-late-verification.json`。
+
+Windows Docker UDP publish 会占用宿主 `14560` socket，pymavlink 在宿主绑定该 GCS
+端口返回 `WinError 10013`，所以本轮没有伪造 HEARTBEAT 成功结论。attach onboard 任务
+真实启动过，但在起飞前因缺少本机 `llama-server` 可执行文件失败（`WinError 2`），没有
+mission summary 或飞行截图；完整 stderr 在 `onboard2/stderr.log`。
