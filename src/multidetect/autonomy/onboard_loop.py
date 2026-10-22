@@ -370,11 +370,13 @@ class Track:
     contradiction_same_side: int = 0
     contradiction_altitude_m: float | None = None
     contradiction_range_m: float | None = None
-    # Largest query-relevant view that was too small to judge, as
-    # (min side px, slant range m, step), with its detector label and score.
+    # Largest query-relevant view, as (min side px, slant range m, step), with
+    # its detector label and score.  Used while the track has no verdict.
     small_relevant_view: tuple[float, float, int] | None = None
     small_relevant_label: str | None = None
     small_relevant_score: float = 0.0
+    # Detector class label of the latest detection.
+    label: str | None = None
 
 
 def co_visibility_proves_distinct(
@@ -493,10 +495,12 @@ class LoopConfig:
     contradiction_relook_bearing_deg: float = 60.0
     # Small unjudged revisit (count/area_search).  The executor sets the step's
     # query; None disables the bookkeeping.  A detection whose class label names
-    # the query (label_matches_query) with at least this proposal score, but
-    # whose box stays below min_verdict_side_px, marks its track for a closer
-    # look before the search ends (SITL gen_cnt2_w0001: a 7.1 px hydrant seen
-    # once was never judged and never counted).
+    # the query (label_matches_query) with at least this proposal score marks
+    # its track; if the track is never judged (its box stayed below
+    # min_verdict_side_px, or the slow-call cap went to other boxes) it gets a
+    # closer look before the search ends (SITL gen_cnt2_w0001: a 7.1 px hydrant
+    # seen once was never judged and never counted).  The query also puts boxes
+    # labelled as the queried class first in the per-step slow-call order.
     small_unjudged_query: str | None = None
     small_unjudged_min_score: float = 0.05
     # The revisit viewpoint is sized so the box reaches this many pixels.
@@ -1228,6 +1232,7 @@ class OnboardLoop:
             if appearance is not None:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
+            best.label = detection.label
             if ground is not None and pose_ned is not None:
                 self._note_small_relevant(best, detection, ground, pose_ned)
             current.append(best)
@@ -1528,7 +1533,19 @@ class OnboardLoop:
                 )
             )
         ]
-        stale.sort(key=lambda t: (t.bbox[2] - t.bbox[0]) * (t.bbox[3] - t.bbox[1]), reverse=True)
+        query = self.config.small_unjudged_query
+
+        def priority(track: Track) -> tuple[bool, float]:
+            area = (track.bbox[2] - track.bbox[0]) * (track.bbox[3] - track.bbox[1])
+            # count/area_search: boxes the detector labels as the queried class
+            # are asked first, then by size.  SITL gen_cnt2_w0001 episode
+            # 9d8bbe13 step 50: three large low-score "fire truck" boxes clipped
+            # at the image bottom took every slow call, and a 15.4 px "fire
+            # hydrant" (score 0.94) seen only in that frame was never judged.
+            relevant = bool(query) and label_matches_query(track.label, query)
+            return (not relevant, -area)
+
+        stale.sort(key=priority)
         return stale[: self.config.max_slow_per_step]
 
     def apply_verdict(
@@ -2301,12 +2318,16 @@ class OnboardLoop:
         ground: tuple[float, float],
         pose_ned: tuple[float, float, float],
     ) -> None:
-        """Remember the largest query-relevant view of ``track`` too small to judge."""
+        """Remember the largest query-relevant view of ``track``.
+
+        Views at or above ``min_verdict_side_px`` count too: such a box can still
+        go unjudged when the per-step slow-call cap goes to other boxes and the
+        object leaves the view before the next step.
+        """
         query = self.config.small_unjudged_query
         side = _min_side(detection.bbox)
         if (
             not query
-            or side >= self.config.min_verdict_side_px
             or detection.score < self.config.small_unjudged_min_score
             or not label_matches_query(detection.label, query)
         ):
@@ -2342,12 +2363,14 @@ class OnboardLoop:
         return False
 
     def small_unjudged_places(self) -> list[dict[str, Any]]:
-        """Places of query-relevant tracks that were only ever too small to judge.
+        """Places of query-relevant tracks that were never judged.
 
-        A track qualifies while it has a relevant small view, a ground place, no
-        verdict of its own (no identity history, not exhausted), never grew to
-        ``min_verdict_side_px``, is not an object this count already holds, and
-        nothing else was judged at its place.  Tracks within the de-duplication
+        Usually the object stayed below ``min_verdict_side_px`` in every frame,
+        but a judgeable box can also miss the per-step slow-call cap and leave
+        the view.  A track qualifies while it has a relevant view, a ground
+        place, no verdict of its own (no identity history, not exhausted), is
+        not an object this count already holds, and nothing else was judged at
+        its place.  Tracks within the de-duplication
         radius of each other (and never seen as two boxes in one frame) are one
         place, described by its largest view.
         """
@@ -2363,7 +2386,6 @@ class OnboardLoop:
                 or track.exhausted
                 or track.verdict is not None
                 or track.identity_verdict_history
-                or track.max_min_side >= self.config.min_verdict_side_px
             ):
                 continue
             radius = max(self.place_radius(track), self.config.count_dedupe_m)

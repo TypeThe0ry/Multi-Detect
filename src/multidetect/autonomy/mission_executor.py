@@ -1447,7 +1447,9 @@ class MissionExecutor:
 
         A far object of the queried class can stay below the judging size for
         every frame it is in (SITL gen_cnt2_w0001: a hydrant seen once at
-        7.1 px was never judged, and the coverage pass turned away).  Nearest
+        7.1 px was never judged, and the coverage pass turned away), and a
+        judgeable box can lose the per-step slow-call cap to larger boxes and
+        leave the view (episode 9d8bbe13: a 15.4 px hydrant, once).  Nearest
         first, each such place gets one look from a viewpoint where its box
         reaches the judging size, while the step's attempts, the cap shared
         with far/small rejection looks, the step budget and any supervisor

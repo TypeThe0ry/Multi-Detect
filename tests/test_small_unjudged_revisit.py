@@ -328,3 +328,95 @@ def test_count_lower_bound_tells_a_looked_at_small_place_from_an_unvisited_one()
         "outside_region"
     ]
     assert status["count_is_lower_bound"] is False
+
+
+# SITL gen_cnt2_w0001 episode 9d8bbe13 step 50: from (-27.3, -16.9) at 17.2 m the
+# count saw the same hydrant once as a judgeable 15.4 px "fire hydrant" (score
+# 0.94) next to three larger low-score "fire truck" boxes clipped at the image
+# bottom.  The three slow calls went to the trucks by box area, the drone flew
+# on, and the coverage pass ended at 2/3 with count_is_lower_bound false.
+STARVED_FROM = (-27.3, -16.9, 17.2)
+STARVED_BOX = (348.3, 920.6, 363.7, 949.5)
+TRUCK_BOXES = (
+    ((676.5, 919.4, 1270.8, 959.6), 0.189, (-16.3, -30.6)),
+    ((874.6, 888.1, 1279.0, 960.0), 0.069, (-13.1, -30.5)),
+    ((647.5, 915.4, 1116.3, 959.8), 0.065, (-19.1, -30.7)),
+)
+
+
+def _starved_yaw():
+    bearing = math.degrees(math.atan2(HYDRANT[1] - STARVED_FROM[1], HYDRANT[0] - STARVED_FROM[0]))
+    return bearing - CAMERA.bearing_deg((STARVED_BOX[0] + STARVED_BOX[2]) / 2)
+
+
+def _starved_frame():
+    detections = [Detection(STARVED_BOX, 0.936, "fire hydrant")]
+    detections += [Detection(box, score, "fire truck") for box, score, _ in TRUCK_BOXES]
+    return detections
+
+
+def _starved_ground(u, v):
+    if u < 400:
+        return HYDRANT
+    return min(TRUCK_BOXES, key=lambda item: abs((item[0][0] + item[0][2]) / 2 - u))[2]
+
+
+def _is_hydrant(loop, track):
+    position = loop.target_position(track)
+    return position is not None and math.dist(position, HYDRANT) < 0.5
+
+
+def _observe_starved_frame(executor, sim):
+    return executor.observe(
+        _starved_frame(), pose_ned=sim.ned, yaw_deg=sim.yaw, ground_point=_starved_ground
+    )
+
+
+def test_query_labelled_box_gets_a_slow_call_before_larger_unrelated_boxes():
+    executor = _executor()
+    sim = Sim(*STARVED_FROM, yaw=_starved_yaw())
+    asked = _observe_starved_frame(executor, sim)
+    assert len(asked) == LoopConfig().max_slow_per_step
+    loop = executor.active_loop
+    hydrant = [t for t in asked if _is_hydrant(loop, t)]
+    assert len(hydrant) == 1, "the 15.4 px hydrant lost every slow call to the trucks"
+    # Without a query the order stays by box size.
+    loop = _make_loop("find")
+    current = loop.update_tracks(
+        _starved_frame(),
+        pose_ned=sim.ned,
+        yaw_deg=sim.yaw,
+        ground_point=_starved_ground,
+    )
+    assert not any(_is_hydrant(loop, t) for t in loop.tracks_needing_verdict(current))
+
+
+@pytest.mark.parametrize("budget", [140, 12])
+def test_judgeable_hydrant_that_got_no_verdict_is_revisited_or_left_open(budget):
+    executor = _executor(ExecutorConfig(step_budget=budget))
+    sim = Sim(*STARVED_FROM, yaw=_starved_yaw())
+    asked = _observe_starved_frame(executor, sim)
+    # The slow model answers the trucks; the hydrant's call never comes back.
+    for track in asked:
+        if not _is_hydrant(executor.active_loop, track):
+            executor.apply_verdict(track.track_id, "reject_track")
+    executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, ground_point=_starved_ground)
+    for _ in range(3):
+        _cycle(executor, sim)
+    loop = executor.active_loop
+    loop.state = "completed"  # the coverage pass ends
+    places = loop.small_unjudged_places()
+    assert [round(place["min_side_px"], 1) for place in places] == [15.4]
+    _, info, _ = _cycle(executor, sim)
+    if budget == 140:
+        record = info.get("small_unjudged_revisit")
+        assert record is not None, "coverage ended without looking at the unjudged hydrant"
+        assert math.dist(record["centre"], HYDRANT) < 0.5
+        assert record["seen_min_side_px"] == 15.4
+        assert record["predicted_min_side_px"] >= LoopConfig().min_verdict_side_px
+        assert executor.history == []
+    else:
+        status = executor.history[0]
+        assert status["reason"] == "coverage_complete"
+        assert [item["reason"] for item in status["small_unjudged_revisit_skipped"]] == ["budget"]
+        assert status["count_is_lower_bound"] is True
