@@ -269,15 +269,19 @@ def _round_args(tmp_path: Path, **overrides) -> Namespace:
 def test_low_disk_collect_command_adds_flags_and_keeps_target_last(tmp_path: Path, capsys):
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
-    for index in range(20):
-        (scenarios / f"gen_r15_w{index:04d}.scenario.json").write_text("{}")
-    runner = r15.Round(_round_args(tmp_path, min_free_gb=7))
+    worlds = [f"gen_r19_w{index:04d}" for index in range(20)]
+    for world in worlds:
+        (scenarios / f"{world}.scenario.json").write_text("{}")
+    index_path = scenarios / "index.json"
+    index_path.write_text(json.dumps({"worlds": [{"world_id": world} for world in worlds]}))
+    runner = r15.Round(_round_args(tmp_path, min_free_gb=7, r15_index=index_path))
     runner.collect()
     out = capsys.readouterr().out
     assert "--rgb-format jpeg --rgb-quality 90 --no-depth --compress-mavlink --out" in out
     assert "--depth-format png16 --segmentation" in out  # segmentation still recorded
     assert "--min-free-gb 7" in out  # collector gate defaults to --min-free-gb
-    normal = r15.Round(_round_args(tmp_path, low_disk=False))
+    assert "--scenario " + str(scenarios / "gen_r19_w0019.scenario.json") in out
+    normal = r15.Round(_round_args(tmp_path, low_disk=False, r15_index=index_path))
     normal.collect()
     assert "--no-depth" not in capsys.readouterr().out
 

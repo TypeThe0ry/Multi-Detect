@@ -122,3 +122,23 @@ def test_sft_candidates_prefer_segmentation(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert rows[0][6][0]["box"] == (15, 10, 36, 29)
     assert rows[0][6][0]["label_source"] == "segmentation"
+
+
+def test_sft_finds_truth_beside_the_round_index(tmp_path, monkeypatch):
+    # A fresh round (generated-r19) keeps its truth next to its own index, not in
+    # one of the historical generated-* directories.
+    campaign, _, truth_path, _, world = _episode(tmp_path)
+    root = tmp_path / "repo"
+    root.mkdir()
+    round_dir = tmp_path / "generated-r19"
+    round_dir.mkdir()
+    (round_dir / f"{world}.truth.json").write_text(truth_path.read_text())
+    monkeypatch.setattr(sft, "ROOT", root)
+    monkeypatch.setattr(sft, "_relative", lambda path: str(path))
+    monkeypatch.setattr(sft, "load_sdf_obstacles", lambda *args: ())
+    monkeypatch.setattr(sft, "_project", lambda *args, **kwargs: pytest.fail("projection called"))
+    assert list(sft._eligible_frames([campaign], {world: "train"}, {}, seed=1)) == []
+    rows = list(
+        sft._eligible_frames([campaign], {world: "train"}, {}, seed=1, truth_dirs=(round_dir,))
+    )
+    assert len(rows) == 1

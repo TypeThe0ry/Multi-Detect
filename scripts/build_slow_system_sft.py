@@ -354,7 +354,7 @@ def _row(
     return row
 
 
-def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3, world_metadata: dict[str, dict] | None = None):
+def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3, world_metadata: dict[str, dict] | None = None, truth_dirs: tuple[Path, ...] = ()):
     seen: dict[str, list[int]] = defaultdict(list)
     stats = Counter()
     for campaign in campaign_roots:
@@ -373,6 +373,9 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                 (
                     candidate
                     for candidate in (
+                        # The index's own directory first: a fresh round (e.g. generated-r19)
+                        # keeps its truth beside the index it was built from.
+                        *(directory / f"{world}.truth.json" for directory in truth_dirs),
                         ROOT / "configs/scenarios/generated" / f"{world}.truth.json",
                         ROOT / "configs/scenarios/generated-movers" / f"{world}.truth.json",
                         ROOT / "configs/scenarios/generated-v2" / f"{world}.truth.json",
@@ -698,7 +701,7 @@ def build_dataset(
     stats = Counter()
     if proposals is not None:
         source_hashes[_relative(proposals)] = _sha(proposals)
-    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats, scene in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction, world_metadata=world_metadata):
+    for campaign, world, split, frame, size, slug, projected, step, side, frame_stats, scene in _eligible_frames(campaigns, world_splits, source_hashes, seed=seed, min_visible_fraction=min_visible_fraction, world_metadata=world_metadata, truth_dirs=(Path(index).parent,)):
         stats.update(frame_stats)
         frame_stats.clear()
         variant = int(hashlib.sha256(f"{world}:{frame.name}:{seed}".encode()).hexdigest()[:8], 16)

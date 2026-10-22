@@ -14,7 +14,7 @@ $env:PYTHONPATH="src"
 python scripts/run_r15_round.py --stage all `
   --out D:/Projects/mdwt/r15pipe/artifacts/r15-round `
   --episodes D:/Projects/Multi-Detect/artifacts/r15-episodes `
-  --source-root D:/Projects/Multi-Detect/artifacts `
+  --source-root D:/Projects/Multi-Detect `
   --annotate-device cuda:0 `
   --r12-adapter D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter `
   --r12-dataset D:/Projects/Multi-Detect/artifacts/datasets/slow-system-sft-v2-r12-multi `
@@ -22,7 +22,7 @@ python scripts/run_r15_round.py --stage all `
   --r12-baseline D:/Projects/Multi-Detect/artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json
 ```
 
-实际运行时 `--source-root` 应显式指向采集数据根，例如 `D:/Projects/Multi-Detect/artifacts`，或 `D:/Projects/Multi-Detect/artifacts/r15-episodes`；不能指向本 worktree。默认候选框设备为 `cuda:0`，可用 `--annotate-device cuda:1` 覆盖。默认启用两个采集 worker、每个 world 两个 episode、每个 episode 400 步；可用 `--workers 1`、`--steps-per-episode N` 调整。
+`--source-root` 是 YOLOE 缓存键的根，必须等于保存 episodes 的仓库根（episodes 在 `D:/Projects/Multi-Detect/artifacts/...` 时就是 `D:/Projects/Multi-Detect`），这样缓存键才与 build_sft 查找的 `artifacts/<campaign>/...` 一致；省略时自动推断，填错（如 `.../artifacts` 或 episodes 根）会在 annotate 前直接报错，不能指向本 worktree。采集的场景、世界、地图和 DEM 必须位于运行用的 checkout 内（例如 `configs/scenarios/generated-r19` 与 `simulation/{gazebo/worlds,maps,terrain}`），collect 开始前会逐个构建 SIM stack 预检。默认候选框设备为 `cuda:0`，可用 `--annotate-device cuda:1` 覆盖。默认启用两个采集 worker、每个 world 两个 episode、每个 episode 400 步；可用 `--workers 1`、`--steps-per-episode N` 调整。
 
 仿真一可用就执行上述命令。当前约束下只允许先跑：
 
