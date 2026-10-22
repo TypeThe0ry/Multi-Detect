@@ -375,10 +375,15 @@ void UDPWorker::connectLink()
     // Windows reports ICMP port-unreachable for an unstarted peer as a UDP
     // connection reset.  This is normal during aircraft startup; suppress it
     // at the socket layer so the generic link error dialog is not raised.
+    // A synchronous WSAIoctl needs lpcbBytesReturned; with nullptr it fails
+    // with WSAEFAULT and the resets keep arriving as unreadable datagrams.
     DWORD disableUdpConnReset = 0;
+    DWORD bytesReturned = 0;
     const SOCKET nativeSocket = static_cast<SOCKET>(_socket->socketDescriptor());
-    (void) WSAIoctl(nativeSocket, SIO_UDP_CONNRESET, &disableUdpConnReset,
-                    sizeof(disableUdpConnReset), nullptr, 0, nullptr, nullptr, nullptr);
+    if (WSAIoctl(nativeSocket, SIO_UDP_CONNRESET, &disableUdpConnReset, sizeof(disableUdpConnReset), nullptr, 0,
+                 &bytesReturned, nullptr, nullptr) == SOCKET_ERROR) {
+        qCWarning(UDPLinkLog) << "Could not disable UDP connection-reset reports:" << WSAGetLastError();
+    }
 #endif
 
     qCDebug(UDPLinkLog) << "Attempting to join multicast group:" << _multicastGroup.toString();
@@ -463,8 +468,12 @@ void UDPWorker::_onSocketReadyRead()
         return;
     }
 
+    // A zero-size pending datagram (seen on Windows while the peer was not yet
+    // listening) must still be consumed below: an
+    // unbuffered QUdpSocket stops emitting readyRead until a datagram is read,
+    // so returning here left the link permanently deaf.
     const qint64 byteCount = _socket->pendingDatagramSize();
-    if (byteCount <= 0) {
+    if (byteCount <= 0 && !_socket->hasPendingDatagrams()) {
         if (_udpConfig->name().contains(QStringLiteral("MultiDetect Jetson metadata"))) {
             return;
         }
@@ -504,7 +513,7 @@ void UDPWorker::_onSocketReadyRead()
     }
 
     if (!received && buffer.isEmpty()) {
-        qCWarning(UDPLinkLog) << "No Data Available to Read!";
+        qCDebug(UDPLinkLog) << "No Data Available to Read!";
         return;
     }
 
