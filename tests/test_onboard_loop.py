@@ -207,6 +207,127 @@ def test_small_reject_recheck_is_opt_in_and_pending_until_confirm_size() -> None
     assert loop.tracks["t1"].identity_reject_matches == 1
 
 
+def test_static_ground_veto_rejects_far_jump_even_with_matching_appearance() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=3.0)
+    pose = (0.0, 0.0, -20.0)
+    loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.step_index += 1
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (30.0, 0.0),
+    )
+    assert [track.track_id for track in tracks] == ["t2"]
+
+
+def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
+    loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.step_index += 1
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (30.0, 0.0),
+    )
+    assert [track.track_id for track in tracks] == ["t1"]
+
+
+def _contradiction_loop() -> OnboardLoop:
+    return _loop(
+        stop_on_confirm=False,
+        contradiction_relook_enabled=True,
+        contradiction_relook_max=1,
+        contradiction_relook_views=3,
+        contradiction_relook_bearing_deg=60.0,
+    )
+
+
+def _start_contradiction(loop: OnboardLoop):
+    pose = (0.0, -30.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track")
+    return track
+
+
+def test_contradiction_relook_counts_target_after_two_of_three_fresh_bearings() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    assert track.contradiction_active and track.contradiction_relooks == 1
+    action, info = loop.next_action(
+        [track],
+        pose_ned=(0.0, -30.0, -20.0),
+        yaw_deg=0.0,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    assert action.kind in {"turn", "translate", "hold"}
+    assert info["second_look"]["kind"] == "contradiction_relook"
+    for pose, verdict in [
+        ((30.0, 0.0, -20.0), "confirm_target"),
+        ((0.0, 30.0, -20.0), "reject_track"),
+        ((-30.0, 0.0, -20.0), "confirm_target"),
+    ]:
+        loop._last_pose = pose
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "confirm" and track.confirm_steps
+
+
+def test_contradiction_relook_rejects_distractor_with_one_flip() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    for pose, verdict in [
+        ((30.0, 0.0, -20.0), "reject_track"),
+        ((0.0, 30.0, -20.0), "confirm_target"),
+        ((-30.0, 0.0, -20.0), "reject_track"),
+    ]:
+        loop._last_pose = pose
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "no_match" and not track.confirm_steps
+
+    loop = _loop(
+        small_reject_recheck_px=16.0,
+        small_reject_recheck_max=1,
+        confirm_min_side_px=20.0,
+    )
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    track = loop.tracks["t1"]
+    assert track.verdict == "pending_near"
+    assert track.identity_reject_matches == 0
+    assert track.small_reject_rechecks == 1
+    assert loop.tracks_needing_verdict(tracks) == []
+
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 20), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
+    loop.apply_verdict("t1", "reject_track")
+    assert loop.tracks["t1"].verdict == "no_match"
+    assert loop.tracks["t1"].identity_reject_matches == 1
+
+
 def test_small_reject_recheck_does_not_bypass_confirm_size_gate() -> None:
     loop = _loop(
         small_reject_recheck_px=16.0,

@@ -443,6 +443,10 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
+        if step.skill in {"area_search", "count", "inspect", "survey"}:
+            overrides["static_ground_veto"] = True
+        else:
+            overrides["static_ground_veto"] = False
         loop = self._make_loop(self.task_text(step), **overrides)
         if self._inflated_no_fly_zones:
             # Fly-by orbits leave the per-step legs this executor checks; their
@@ -462,7 +466,7 @@ class MissionExecutor:
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6, restart_route=False)
         elif step.skill == "inspect":
-            run.loop = self._make_loop(self.task_text(step))
+            run.loop = self._loop(step)
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "follow":
@@ -1136,9 +1140,7 @@ class MissionExecutor:
         skipped = []
 
         def skip(centre, reason):
-            skipped.append(
-                {"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason}
-            )
+            skipped.append({"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason})
 
         for rejection in candidates:
             centre = tuple(rejection["ground"])
