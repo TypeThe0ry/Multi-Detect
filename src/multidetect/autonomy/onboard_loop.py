@@ -825,6 +825,7 @@ class OnboardLoop:
     co_visibility_max_pairs: int = 4096
     # Real confirm/reject verdicts with their ground place (fixed-wing passes).
     _place_votes: list[dict[str, Any]] = field(default_factory=list)
+    _contradiction_relook_places: dict[tuple[float, float], int] = field(default_factory=dict)
     _blocked_search_legs: int = 0
     # Active fly-by pass plan (fixed_wing_pass) and its blocked-plan count.
     _fw_pass: dict[str, Any] | None = None
@@ -1501,8 +1502,10 @@ class OnboardLoop:
                 and not track.contradiction_active
                 and track.contradiction_relooks < self.config.contradiction_relook_max
             ):
+                place_key = self._contradiction_place_key(track)
+                place_used = self._contradiction_relook_places.get(place_key, 0) if place_key else 0
                 confirms, rejects = self._place_vote_counts(track)
-                if confirms and rejects:
+                if confirms and rejects and place_used < self.config.contradiction_relook_max:
                     track.contradiction_active = True
                     track.contradiction_votes.clear()
                     track.contradiction_relooks += 1
@@ -1511,6 +1514,8 @@ class OnboardLoop:
                     track.confirm_steps.clear()
                     track.match_steps.clear()
                     track.needs_fresh_verdict = True
+                    if place_key is not None:
+                        self._contradiction_relook_places[place_key] = place_used + 1
 
     def _view_bearing(self, track: Track) -> float | None:
         if track.ground is None or self._last_pose is None:
@@ -1518,6 +1523,12 @@ class OnboardLoop:
         return math.degrees(
             math.atan2(track.ground[1] - self._last_pose[1], track.ground[0] - self._last_pose[0])
         )
+
+    def _contradiction_place_key(self, track: Track) -> tuple[float, float] | None:
+        if track.ground is None:
+            return None
+        radius = max(self.config.count_dedupe_m, self.place_radius(track))
+        return (round(track.ground[0] / radius), round(track.ground[1] / radius))
 
     def _apply_contradiction_vote(self, track: Track, verdict: str) -> None:
         bearing = self._view_bearing(track)
