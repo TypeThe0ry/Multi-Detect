@@ -578,7 +578,11 @@ class Round:
         raise AssertionError("unreachable")
 
     def collect(self):
-        scenarios = sorted(self.a.scenarios.glob("gen_r15_w*.scenario.json"))
+        # Read IDs from the supplied index so fresh rounds can use an isolated
+        # prefix (for example ``gen_r19_w``) without touching r15 worlds.
+        index_doc = json.loads(self.a.r15_index.read_text(encoding="utf-8"))
+        world_ids = [str(item.get("world_id")) for item in index_doc.get("worlds", []) if item.get("world_id")]
+        scenarios = sorted(self.a.scenarios / f"{world_id}.scenario.json" for world_id in world_ids)
         if len(scenarios) != 20:
             raise RuntimeError(
                 f"collection plan 期望 20 个 world，实际 {len(scenarios)}：{self.a.scenarios}"

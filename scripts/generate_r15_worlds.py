@@ -20,6 +20,11 @@ def main(argv=None):
     )
     p.add_argument("--out-worlds", type=Path, default=ROOT / "simulation/gazebo/worlds")
     p.add_argument("--out-scenarios", type=Path, default=ROOT / "configs/scenarios/generated-r15")
+    p.add_argument("--world-prefix", help="override the generated world id prefix")
+    p.add_argument("--seed", type=int, help="override the configured generation seed")
+    p.add_argument("--count", type=int, help="override the configured world count")
+    p.add_argument("--catalog", type=Path, help="override asset catalog path")
+    p.add_argument("--resolved-root", type=Path, help="override resolved asset root")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args(argv)
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
@@ -39,6 +44,19 @@ def main(argv=None):
             )
         )
         return 0
+    if a.world_prefix:
+        cfg["world_prefix"] = a.world_prefix
+    if a.seed is not None:
+        cfg["seed"] = a.seed
+    if a.count is not None:
+        cfg["count"] = a.count
+        cfg["worlds"] = [
+            dict(
+                cfg["worlds"][i % len(cfg["worlds"])],
+                world_id=f"{cfg['world_prefix']}{i:04d}",
+            )
+            for i in range(a.count)
+        ]
     targets = tuple(w["target"] for w in cfg["worlds"])
     conf = {}
     forced = {}
@@ -56,8 +74,8 @@ def main(argv=None):
         split_ratios=tuple(cfg["split_ratios"]),
         out_worlds=a.out_worlds,
         out_scenarios=a.out_scenarios,
-        catalog_path=ROOT / cfg["catalog"],
-        resolved_root=ROOT / cfg["resolved_root"],
+        catalog_path=(a.catalog or (ROOT / cfg["catalog"])),
+        resolved_root=(a.resolved_root or (ROOT / cfg["resolved_root"])),
         segmentation_labels=cfg["segmentation_labels"],
         unambiguous_tasks=cfg["unambiguous_tasks"],
         world_prefix=cfg["world_prefix"],
