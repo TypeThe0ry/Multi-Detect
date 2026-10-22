@@ -2700,10 +2700,18 @@ class OnboardLoop:
                     best.needs_fresh_verdict = False
                     if best.verdict == "confirm":
                         best.confirm_steps = [self.step_index]
-                else:
-                    look = self._second_look_action(pose_ned, yaw_deg, info)
-                    if look is not None:
-                        return look, info
+            if (
+                best.contradiction_active
+                and self._revisit is not None
+                and self._revisit.get("kind") == "contradiction_relook"
+                and self._revisit["rejection"].get("track_id") == best.track_id
+            ):
+                # Every step of the relook (fly/face/look/collect) runs here, not
+                # only the first: the focus stays visible, so falling through
+                # would approach it instead and the relook would never advance.
+                look = self._second_look_action(pose_ned, yaw_deg, info)
+                if look is not None:
+                    return look, info
             self.state, self._focus = "approaching", best.track_id
             best.approach_steps += 1
             if (
