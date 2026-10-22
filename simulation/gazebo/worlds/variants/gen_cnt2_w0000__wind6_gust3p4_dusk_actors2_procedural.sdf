@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <sdf version="1.9">
   <world name="default">
-    <physics name="px4_ode" type="ode">
+    <!-- multidetect-wind-gust amplitude_percent=0.5 period=4 --><physics name="px4_ode" type="ode">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.000000</real_time_factor>
     </physics>
@@ -591,19 +591,6 @@
     <wind>
       <linear_velocity>6 0 0</linear_velocity>
     </wind>
-    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
-      <horizontal>
-        <velocity>6</velocity>
-        <direction>0</direction>
-      </horizontal>
-      <random>
-        <velocity_mean>0</velocity_mean>
-        <velocity_stddev>3</velocity_stddev>
-        <time_constant>4</time_constant>
-      </random>
-      <gust_velocity>3</gust_velocity>
-      <gust_period>4</gust_period>
-    </plugin>
     <actor name="variant_actor_00">
       <pose>-2.000 0.000 0 0 0 0</pose>
       <skin>

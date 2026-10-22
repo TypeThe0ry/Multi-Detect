@@ -3,8 +3,9 @@
 """为 Gazebo 世界生成可复现的风、光照、噪声、演员和地形变体。
 
 变体只写入 ``simulation/gazebo/worlds/variants``，不会改写输入世界。
-Harmonic 的 WindEffects 系统读取 world ``<wind>``，并用同一系统的 gust
-参数扰动风速；不同 PX4 镜像若没有该插件，会在 ``gz sdf -k``/启动时明确报错。
+风只写 world ``<wind>`` 和一条阵风注释；世界里一旦声明任何 ``<plugin>``，
+Gazebo 就不再加载默认系统、世界永远无法就绪。WindEffects 由容器启动补丁
+（``run_simulator_docker._ENABLE_WIND_EFFECTS``）按需加入 server config。
 """
 
 from __future__ import annotations
@@ -50,28 +51,26 @@ def _suffix(args: argparse.Namespace) -> str:
 
 
 def _add_wind(world: ET.Element, speed: float, gust: float | None, period: float) -> None:
+    # Only <wind> goes into the world: any world <plugin> replaces Gazebo's default
+    # systems and the world never becomes ready.  The container start-up patch
+    # (run_simulator_docker._ENABLE_WIND_EFFECTS) adds WindEffects to the server
+    # config and reads the gust amplitude/period from this comment.
+    for plugin in [p for p in world.findall("plugin") if "WindEffects" in (p.get("name") or "")]:
+        world.remove(plugin)
+    for comment in [
+        c for c in world if c.tag is ET.Comment and "multidetect-wind-gust" in (c.text or "")
+    ]:
+        world.remove(comment)
     wind = _child(world, "wind")
     _child(wind, "linear_velocity", f"{speed:.6g} 0 0")
-    plugin = next(
-        (p for p in world.findall("plugin") if p.get("name") == "gz::sim::systems::WindEffects"),
-        None,
-    )
-    if plugin is None:
-        plugin = ET.SubElement(
-            world,
-            "plugin",
-            {"filename": "gz-sim-wind-effects-system", "name": "gz::sim::systems::WindEffects"},
+    if gust is not None and speed > 0:
+        amplitude = min(1.0, gust / speed)
+        world.insert(
+            0,
+            ET.Comment(
+                f" multidetect-wind-gust amplitude_percent={amplitude:.4g} period={period:.6g} "
+            ),
         )
-    horizontal = _child(plugin, "horizontal")
-    _child(horizontal, "velocity", f"{speed:.6g}")
-    _child(horizontal, "direction", "0")
-    if gust is not None:
-        random = _child(plugin, "random")
-        _child(random, "velocity_mean", "0")
-        _child(random, "velocity_stddev", f"{gust:.6g}")
-        _child(random, "time_constant", f"{period:.6g}")
-        _child(plugin, "gust_velocity", f"{gust:.6g}")
-        _child(plugin, "gust_period", f"{period:.6g}")
 
 
 def _add_camera_noise(world: ET.Element, stddev: float) -> int:

@@ -34,7 +34,9 @@ def test_transform_adds_wind_gust_time_and_local_actors(tmp_path: Path) -> None:
     world = root.find("world")
     assert world is not None
     assert world.findtext("wind/linear_velocity") == "6 0 0"
-    assert world.find("plugin[@name='gz::sim::systems::WindEffects']/gust_period") is not None
+    # A world <plugin> would replace Gazebo's default systems (SITL: world never ready).
+    assert world.findall("plugin") == []
+    assert "multidetect-wind-gust amplitude_percent=" in output.read_text(encoding="utf-8")
     assert len(world.findall("actor")) == 2
     assert (tmp_path / "actor_box.dae").exists()
     assert report["camera_sensors_noised"] == 0
@@ -94,3 +96,39 @@ def test_wind_with_segmentation_mounts_one_x500_overlay(tmp_path) -> None:
     command = collector.docker_command(plan, name="md-test-wind")
     targets = [t for t in command if "target=/opt/multidetect-gazebo-models/x500_mono_cam," in t]
     assert len(targets) == 1 and "x500_mono_cam_seg_wind" in targets[0]
+
+
+def test_wind_startup_patch_adds_wind_effects_only_for_windy_worlds(tmp_path: Path) -> None:
+    import subprocess
+
+    from scripts import run_simulator_docker as docker_plan
+
+    config = tmp_path / "server.config"
+    plugins = "<server_config><plugins><plugin name='gz::sim::systems::Physics'/></plugins></server_config>"
+    for windy in (True, False):
+        config.write_text(plugins, encoding="utf-8")
+        world = tmp_path / "world.sdf"
+        body = (
+            "<!-- multidetect-wind-gust amplitude_percent=0.5 period=4 --><wind><linear_velocity>6 0 0</linear_velocity></wind>"
+            if windy
+            else ""
+        )
+        world.write_text(f"<sdf><world name='default'>{body}</world></sdf>", encoding="utf-8")
+        script = docker_plan._ENABLE_WIND_EFFECTS.replace(
+            docker_plan.CONTAINER_WORLD, world.as_posix()
+        ).replace(docker_plan.CONTAINER_SERVER_CONFIG, config.as_posix())
+        subprocess.run(["sh", "-c", script], check=True)
+        plugin = next(
+            (
+                p
+                for p in ET.parse(config).getroot().iter("plugin")
+                if "WindEffects" in p.get("name", "")
+            ),
+            None,
+        )
+        if windy:
+            assert plugin is not None
+            assert plugin.findtext("horizontal/magnitude/sin/amplitude_percent") == "0.5"
+            assert plugin.findtext("horizontal/magnitude/sin/period") == "4"
+        else:
+            assert plugin is None
