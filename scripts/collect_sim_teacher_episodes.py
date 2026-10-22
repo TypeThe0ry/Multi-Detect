@@ -12,6 +12,7 @@ import argparse
 import io
 import json
 import math
+import os
 import shutil
 import statistics
 import subprocess
@@ -1274,6 +1275,41 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
             _progress("operator_link_error", error=f"{type(error).__name__}: {error}")
 
     threading.Thread(target=report_link_errors, name="sim-operator-errors", daemon=True).start()
+    if os.environ.get("MULTIDETECT_SIM_LINK_DEBUG"):
+        _trace_operator_link(server)
+
+
+def _trace_operator_link(server) -> None:
+    """Debug-only: log the link filters that drop mission packets without an ACK."""
+    adapter = server.mission_adapter
+    handle, allow, replay = adapter.handle, server._allow_command, server._replay_state
+
+    def traced_handle(packet, *, peer=None):
+        kind = int(packet.message_type)
+        body = packet.message.body
+        index = int.from_bytes(body[8:10], "big") if kind in (28, 37) and len(body) > 10 else -1
+        _progress(
+            "operator_link_trace", stage="adapter", kind=kind, index=index, seq=packet.sequence
+        )
+        return handle(packet, peer=peer)
+
+    def traced_allow(peer, message_type, *, now_s):
+        allowed = allow(peer, message_type, now_s=now_s)
+        if not allowed:
+            _progress("operator_link_trace", stage="rate_limited", kind=int(message_type))
+        return allowed
+
+    original_accept = replay.accept_sequence
+
+    def traced_accept(key, sequence, **kwargs):
+        accepted = original_accept(key, sequence, **kwargs)
+        if not accepted:
+            _progress("operator_link_trace", stage="replay_rejected", key=key, seq=sequence)
+        return accepted
+
+    adapter.handle = traced_handle
+    server._allow_command = traced_allow
+    replay.accept_sequence = traced_accept
 
 
 def _onboard_airframe_id(plan: CollectionPlan) -> str | None:

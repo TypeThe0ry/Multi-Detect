@@ -78,6 +78,9 @@ def test_fake_gcs_console_uploads_prompt_and_approves_the_onboard_plan(tmp_path)
     )
     compiled = load_mission_package(example).plan
     prompt_only = {k: v for k, v in example.items() if k != "plan"}
+    # Over 20 chunks: onboard drops a burst beyond 20 per message type, which the
+    # SITL prompt package (21 chunks) hit while the 16-chunk example did not.
+    prompt_only["task_text"] += "；" + "沿场地边缘仔细搜索每一个角落。" * 12
     package_path = tmp_path / "prompt.json"
     package_path.write_text(json.dumps(prompt_only, ensure_ascii=False), encoding="utf-8")
     supervisors = []
@@ -124,7 +127,7 @@ def test_fake_gcs_console_uploads_prompt_and_approves_the_onboard_plan(tmp_path)
                     str(link_path),
                     "--auto-approve",
                     "--max-seconds",
-                    "8",
+                    "12",
                     "--log",
                     str(log),
                 ],

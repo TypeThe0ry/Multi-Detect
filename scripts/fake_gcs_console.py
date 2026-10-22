@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import secrets
 import socket
 import sys
 import time
@@ -112,8 +113,15 @@ def main(argv: list[str] | None = None) -> int:
                 frame = link.wrap_authenticated_operator_payload(payload)
                 sock.sendto(frame, (args.host, args.port))
                 sequence += 1
+                # Onboard rate-limits each message type to a burst of 20 and 20/s
+                # (operator_udp.DEFAULT_COMMAND_*) and drops excess chunks without
+                # an ACK; a ~1 KB prompt package is ~25 chunks, so pace below that.
+                time.sleep(0.06)
 
-        send(28, raw, 1)
+        # A fresh token per console run: onboard remembers completed transfers by
+        # token, so reusing one makes every later upload "expired or conflicting".
+        upload_token = secrets.randbits(62) | 1
+        send(28, raw, upload_token)
         last_upload = time.monotonic()
         heard = False
         last_heartbeat = 0.0
@@ -137,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                 sequence += 1
                 last_heartbeat = time.monotonic()
             if not heard and time.monotonic() - last_upload > 5.0:
-                send(28, raw, 1)
+                send(28, raw, upload_token)
                 last_upload = time.monotonic()
             try:
                 frame, _ = sock.recvfrom(4096)
@@ -151,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Onboard verdict on an upload/command chunk, with a reason text.
                 _token, kind, index, accepted = ACK.unpack_from(packet.message.body)
                 detail = packet.message.body[ACK.size :].decode("utf-8", "replace")
-                if not accepted or index == 0:
+                if not accepted or index == 0 or __import__("os").environ.get("GCS_ALL_ACKS"):
                     print(
                         f"onboard ack kind={kind} index={index} accepted={bool(accepted)} {detail}",
                         flush=True,
