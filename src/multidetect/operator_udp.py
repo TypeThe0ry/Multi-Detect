@@ -237,6 +237,9 @@ class UdpOperatorSelectionServer:
         mission_preflight_allowed: Callable[[], bool] | None = None,
         mission_requires_approval: bool | None = None,
         mission_package_verify_key_path: str | None = None,
+        mission_package_verify_key: Any = None,
+        mission_package_installer: Callable[[Any], Any] | None = None,
+        mission_runtime_mode: str | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -303,6 +306,9 @@ class UdpOperatorSelectionServer:
                 preflight_allowed=mission_preflight_allowed,
                 requires_approval=mission_requires_approval,
                 package_verify_key_path=mission_package_verify_key_path,
+                package_verify_key=mission_package_verify_key,
+                package_installer=mission_package_installer,
+                runtime_mode=mission_runtime_mode,
             )
         self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s

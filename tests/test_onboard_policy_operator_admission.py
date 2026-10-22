@@ -67,3 +67,23 @@ def test_operator_package_supervisor_uses_the_runtime_clock_and_command_limits(t
     assert supervisor.clock() == 123.0
     assert (supervisor.rate_limit, supervisor.rate_window_s) == (7, 3.0)
     assert (supervisor.timestamp_window_s, supervisor.clock_skew_s) == (12.0, 2.0)
+
+
+def test_operator_package_supervisor_gets_the_runtime_energy_model(tmp_path) -> None:
+    policy = _waiting_policy(tmp_path, energy_model={"hover_power_w": 777, "battery_id": 3})
+    supervisor = policy.admit_operator_package(load_mission_package(_example()))
+    config = supervisor.energy_estimator.config
+    assert (config.hover_power_w, config.battery_id) == (777, 3)
+
+
+def test_prepared_operator_package_is_installed_only_on_request(tmp_path) -> None:
+    policy = _waiting_policy(tmp_path)
+    previous = policy.executor
+    candidate = policy.prepare_operator_package(load_mission_package(_example()))
+    assert isinstance(candidate, MissionSupervisor)
+    # Preparing (the slow, worker-thread step) leaves the waiting mission alone.
+    assert policy.executor is previous and policy.supervisor is None
+    assert policy.operator_link_waiting is True
+    policy.install_operator_package(candidate)
+    assert policy.executor is candidate and policy.supervisor is candidate
+    assert policy.downlink is candidate.downlink and policy.operator_link_waiting is False
