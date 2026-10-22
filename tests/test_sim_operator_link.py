@@ -111,6 +111,7 @@ def test_fake_gcs_console_uploads_prompt_and_approves_the_onboard_plan(tmp_path)
         "operator_port": port,
         "operator_hmac_key_hex": "11" * 32,
         "operator_mavlink_signing_key_hex": "22" * 32,
+        "operator_package_key_hex": "33" * 32,
     }
     link_path = tmp_path / "operator-link.json"
     link_path.write_text(json.dumps(link), encoding="utf-8")
@@ -197,6 +198,7 @@ def test_console_gets_a_prompt_finding_and_full_summary_after_a_minute_of_heartb
         "operator_port": port,
         "operator_hmac_key_hex": "11" * 32,
         "operator_mavlink_signing_key_hex": "22" * 32,
+        "operator_package_key_hex": "33" * 32,
     }
     link_path = tmp_path / "operator-link.json"
     link_path.write_text(json.dumps(link), encoding="utf-8")
@@ -355,3 +357,68 @@ def test_drain_closes_the_server_when_no_mission_was_admitted() -> None:
     )
     collector._drain_sim_operator_link(policy, timeout_s=0.1)
     assert closed == [True] and policy.sim_operator_server is None
+
+
+def test_console_approvals_use_fresh_tokens_and_check_the_mission_id() -> None:
+    from scripts import fake_gcs_console
+
+    sent = []
+    decisions = fake_gcs_console.PlanDecisions(
+        "m-1", sent.append, auto_approve=True, prompt=lambda text: None
+    )
+    decisions.on_plan({"kind": "plan", "mission_id": "other", "plan_sha256": "a" * 64})
+    assert sent == []  # a plan for another mission is never approved
+    decisions.on_plan({"kind": "plan", "mission_id": "m-1", "plan_sha256": "b" * 64})
+    decisions.on_plan({"kind": "plan", "mission_id": "m-1", "plan_sha256": "b" * 64})
+    decisions.on_plan({"kind": "plan", "mission_id": "m-1", "plan_sha256": "c" * 64})
+    assert [(c["type"], c["plan_sha256"][0]) for c in sent] == [
+        ("approve_plan", "b"),
+        ("approve_plan", "c"),
+    ]
+    # The onboard adapter caches completed command transfers by token: a reused
+    # token (the console sent 2 every time) returned the cached verdict unexecuted.
+    tokens = {fake_gcs_console.new_token() for _ in range(64)}
+    assert len(tokens) == 64 and 0 not in tokens
+
+
+def test_console_waits_for_a_decision_without_blocking_and_signs_commands() -> None:
+    from multidetect.autonomy.mission_security import AuthenticationKey, verify_document
+    from scripts import fake_gcs_console
+
+    key = AuthenticationKey("hmac-sha256", b"c" * 32, "default")
+    sent = []
+    decisions = fake_gcs_console.PlanDecisions(
+        "m-1",
+        sent.append,
+        command_key=key,
+        command_sequence=7,
+        clock=lambda: 1234.5,
+        prompt=lambda text: None,
+    )
+    # on_plan returns at once (it used to block the receive loop in input()).
+    decisions.on_plan({"kind": "plan", "mission_id": "m-1", "plan_sha256": "d" * 64})
+    decisions.poll()
+    assert sent == []
+    decisions.inputs.put("r\n")
+    decisions.poll()
+    (command,) = sent
+    assert command["type"] == "reject_plan" and command["sequence"] == 7
+    assert command["timestamp_domain"] == "unix" and verify_document(command, key)
+
+
+def test_console_sequence_starts_from_the_clock_and_package_is_signed() -> None:
+    from multidetect.autonomy.mission_package import load_mission_package
+    from multidetect.autonomy.mission_security import AuthenticationKey
+    from scripts import fake_gcs_console
+
+    # A restarted console starting at 1 was behind the onboard high-water mark.
+    assert fake_gcs_console.initial_sequence(1_700_000_000.123) == (1_700_000_000_123 & 0xFFFFFFFF)
+    raw = Path("configs/onboard/mission-package-count-cones-example.json").read_bytes()
+    key = AuthenticationKey("hmac-sha256", b"p" * 32, "default")
+    signed, mission_id = fake_gcs_console.signed_package_bytes(raw, key)
+    package = load_mission_package(json.loads(signed), key=key, require_signature=True)
+    assert package.mission_id == mission_id
+    import pytest
+
+    with pytest.raises(ValueError, match="unsigned"):
+        fake_gcs_console.signed_package_bytes(raw, None)
