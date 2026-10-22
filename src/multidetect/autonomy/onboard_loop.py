@@ -316,6 +316,7 @@ class Track:
     contradiction_active: bool = False
     contradiction_votes: list[dict[str, Any]] = field(default_factory=list)
     contradiction_relooks: int = 0
+    contradiction_same_side: int = 0
     contradiction_altitude_m: float | None = None
     contradiction_range_m: float | None = None
 
@@ -1531,9 +1532,21 @@ class OnboardLoop:
                 place_key = self._contradiction_place_key(track)
                 place_used = self._contradiction_relook_places.get(place_key, 0) if place_key else 0
                 confirms, rejects = self._place_vote_counts(track, usable_only=True)
-                if confirms and rejects and place_used < self.config.contradiction_relook_max:
+                # A clear majority is not a contradiction: one stray reject among
+                # several confirms (SITL hydrant: 4 confirm, 1 reject at 8 m) started a
+                # relook that never moved and the hydrant was never counted.
+                clear_majority = max(confirms, rejects) >= 3 and max(confirms, rejects) >= 2 * min(
+                    confirms, rejects
+                )
+                if (
+                    confirms
+                    and rejects
+                    and not clear_majority
+                    and place_used < self.config.contradiction_relook_max
+                ):
                     track.contradiction_active = True
                     track.contradiction_votes.clear()
+                    track.contradiction_same_side = 0
                     track.contradiction_relooks += 1
                     track.verdict = None
                     track.verdict_step = -1
@@ -1577,6 +1590,27 @@ class OnboardLoop:
             if v.get("bearing") is not None
         ):
             # Same-side repeated frames do not buy a vote or a majority.
+            track.contradiction_same_side += 1
+            if track.contradiction_same_side >= 2 * self.config.contradiction_relook_views:
+                # The vehicle is not reaching another bearing (held at the closest
+                # view): give up the relook and let the normal confirm rules decide.
+                track.contradiction_active = False
+                track.contradiction_votes.clear()
+                track.contradiction_same_side = 0
+                track.contradiction_altitude_m = None
+                track.contradiction_range_m = None
+                if (
+                    self._revisit is not None
+                    and self._revisit.get("kind") == "contradiction_relook"
+                ):
+                    self._revisit = None
+                track.verdict = "confirm" if verdict == "confirm" else verdict
+                track.verdict_step = self.step_index
+                track.needs_fresh_verdict = False
+                if verdict == "confirm":
+                    track.confirm_steps.append(self.step_index)
+                    track.match_steps.append(self.step_index)
+                return
             track.verdict = None
             track.verdict_step = -1
             track.needs_fresh_verdict = True

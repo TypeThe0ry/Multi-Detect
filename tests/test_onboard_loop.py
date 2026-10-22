@@ -378,6 +378,45 @@ def _start_contradiction(loop: OnboardLoop):
     return track
 
 
+def _vote_at_close_view(loop: OnboardLoop, track, verdict: str) -> None:
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=(0.0, -30.0, -20.0),
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, verdict)
+
+
+def test_one_stray_reject_among_confirms_is_not_a_contradiction() -> None:
+    # SITL hydrant at 8 m: confirm, confirm, confirm, reject, confirm, confirm.
+    loop = _contradiction_loop()
+    pose = (0.0, -30.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)], pose_ned=pose, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    for verdict in ["confirm_target", "confirm_target", "confirm_target", "reject_track"]:
+        _vote_at_close_view(loop, track, verdict)
+    assert not track.contradiction_active
+    for verdict in ["confirm_target", "confirm_target"]:
+        _vote_at_close_view(loop, track, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "confirm" and len(track.confirm_steps) >= 2
+
+
+def test_contradiction_relook_gives_up_when_views_never_change_bearing() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    assert track.contradiction_active
+    loop._last_pose = (30.0, 0.0, -20.0)
+    loop.apply_verdict(track.track_id, "confirm_target")  # first fresh bearing
+    for _ in range(2 * loop.config.contradiction_relook_views):
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, "confirm_target")  # same side, held
+    assert not track.contradiction_active
+    assert track.verdict == "confirm"
+
+
 def test_contradiction_relook_counts_target_after_two_of_three_fresh_bearings() -> None:
     loop = _contradiction_loop()
     track = _start_contradiction(loop)
