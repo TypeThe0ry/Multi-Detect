@@ -91,12 +91,14 @@ _WAIT_LONGER_FOR_GAZEBO = (
 # therefore carry only <wind> plus a gust comment, and the WindEffects system is
 # added to the patched server config when the world has <wind>.  Parameters
 # follow the gz-sim 8 WindEffects schema (magnitude rise/sin/noise, direction).
+# With scaling 1 and a 5 s rise, 6 m/s slid the parked x500 (EKF "no heading
+# reference") and flipped it at arming; 0.3 and a 60 s rise let it take off first.
 _GUST_COMMENT = "multidetect-wind-gust"
 _WIND_EFFECTS_PLUGIN = (
     '<plugin entity_name="*" entity_type="world" filename="gz-sim-wind-effects-system"'
     ' name="gz::sim::systems::WindEffects">'
-    "<force_approximation_scaling_factor>1</force_approximation_scaling_factor>"
-    "<horizontal><magnitude><time_for_rise>5</time_for_rise>"
+    "<force_approximation_scaling_factor>0.3</force_approximation_scaling_factor>"
+    "<horizontal><magnitude><time_for_rise>60</time_for_rise>"
     "<sin><amplitude_percent>GUST_AMP</amplitude_percent><period>GUST_PERIOD</period></sin>"
     '<noise type="gaussian"><mean>0</mean><stddev>0.0002</stddev></noise></magnitude>'
     "<direction><time_for_rise>30</time_for_rise>"
