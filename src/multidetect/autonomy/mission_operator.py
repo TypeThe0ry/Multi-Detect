@@ -48,6 +48,107 @@ MAX_LOG_DOCUMENT_BYTES = 1536
 MAX_STATUS_DOCUMENT_BYTES = 1200
 
 
+def _compact(document: Any) -> bytes:
+    return json.dumps(document, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _byte_pages(body: str, mission_id: Any) -> list[str]:
+    """Split summary JSON text so every encoded page fits the log byte budget.
+
+    Pages were cut by characters, so a Chinese summary produced ~4 KB pages.
+    The budget counts each character as it is encoded inside the page JSON
+    (UTF-8 and string escaping) and never splits a character.
+    """
+    overhead = len(
+        _compact(
+            {
+                "kind": "final_summary_page",
+                "mission_id": mission_id,
+                "page": 999_999,
+                "pages": 999_999,
+                "body": "",
+            }
+        )
+    )
+    budget = MAX_LOG_DOCUMENT_BYTES - overhead
+    if budget < 16:
+        raise ValueError("mission id leaves no room for final summary pages")
+    pages: list[str] = []
+    start, used = 0, 0
+    for offset, char in enumerate(body):
+        size = len(_compact(char)) - 2
+        if used + size > budget:
+            pages.append(body[start:offset])
+            start, used = offset, 0
+        used += size
+    pages.append(body[start:])
+    return pages
+
+
+def _clip(value: Any, limit: int) -> Any:
+    if isinstance(value, str) and len(value.encode("utf-8")) > limit:
+        return value.encode("utf-8")[:limit].decode("utf-8", errors="ignore") + "…"
+    return value
+
+
+def _bounded_status(document: dict[str, Any]) -> bytes:
+    """Fit a status into the 1200-byte status bound instead of dropping it.
+
+    Long free text is clipped first, then per-step counts are replaced by a
+    total; identity, state, supervisor action and flight gate always remain.
+    """
+    status = deepcopy(document)
+    status["truncated"] = True
+    for key in ("reason", "action", "policy"):
+        status[key] = _clip(status.get(key), 96)
+    supervisor = status.get("supervisor")
+    if isinstance(supervisor, dict):
+        supervisor["reason"] = _clip(supervisor.get("reason"), 96)
+        supervisor["action"] = _clip(supervisor.get("action"), 32)
+    step = status.get("step")
+    if isinstance(step, dict):
+        for key in ("id", "skill", "query", "state"):
+            step[key] = _clip(step.get(key), 48)
+    payload = _compact(status)
+    if len(payload) <= MAX_STATUS_DOCUMENT_BYTES:
+        return payload
+    counts = status.pop("counts", {}) or {}
+    status["counts_total"] = sum(
+        int(item.get("n", 0)) for item in counts.values() if isinstance(item, dict)
+    )
+    status["counts_steps"] = len(counts)
+    payload = _compact(status)
+    if len(payload) <= MAX_STATUS_DOCUMENT_BYTES:
+        return payload
+    minimal = {
+        key: status.get(key)
+        for key in (
+            "v",
+            "kind",
+            "sequence",
+            "seq",
+            "t",
+            "state",
+            "action",
+            "reason",
+            "remaining_time_s",
+            "remaining_energy_wh",
+            "flight_active",
+            "findings_total",
+            "alerts_total",
+            "counts_total",
+            "truncated",
+        )
+    }
+    minimal["mission_id"] = _clip(status.get("mission_id"), 256)
+    payload = _compact(minimal)
+    if len(payload) > MAX_STATUS_DOCUMENT_BYTES:
+        raise ValueError("status identity exceeds the 1200-byte protocol bound")
+    return payload
+
+
 @dataclass
 class _Upload:
     token: int
@@ -645,10 +746,7 @@ class MissionOperatorAdapter:
             # pages have arrived, so no partial result is displayed.
             summary = document.get("summary", document)
             body = json.dumps(summary, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-            page_budget = MAX_LOG_DOCUMENT_BYTES - 180
-            chunks = [
-                body[offset : offset + page_budget] for offset in range(0, len(body), page_budget)
-            ]
+            chunks = _byte_pages(body, document.get("mission_id"))
             pages = len(chunks)
             page_docs = [
                 {
@@ -675,7 +773,8 @@ class MissionOperatorAdapter:
                 messages.extend(document_chunks(encoded, token, message_type=35))
             return _Telemetry(messages, token)
         if document.get("kind") == "status" and len(payload) > MAX_STATUS_DOCUMENT_BYTES:
-            raise ValueError("status document exceeds 1200-byte protocol bound")
+            # Raising here dropped every status for the rest of the mission.
+            payload = _bounded_status(document)
         if document.get("kind") != "status" and len(payload) > MAX_LOG_DOCUMENT_BYTES:
             # A <=35-chunk log yields to current status within about 3.5 seconds
             # at the endpoint's 100 ms tick. Full evidence remains in JSONL.

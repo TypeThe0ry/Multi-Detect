@@ -747,3 +747,41 @@ def test_planning_runs_off_the_receive_thread(tmp_path):
     assert verdicts == [(70, 28, len(messages) - 1, 1)]
     adapter.close()
 
+
+def test_oversized_status_is_bounded_not_dropped(tmp_path):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    active.reason = "原因" * 400
+    for index in range(80):
+        active.executor.counts[f"count_step_{index:03d}"] = index
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    sent = []
+    adapter.tick(sent.append)  # raised ValueError: status silently stopped
+    pending = adapter._telemetry
+    assert sent and pending is not None
+    payload = b"".join(message.body[CHUNK.size :] for message in pending.messages)
+    status = json.loads(payload)
+    assert len(payload) <= 1200
+    assert status["kind"] == "status" and status["truncated"] is True
+    assert status["mission_id"] == active.package.mission_id
+    adapter.close()
+
+
+def test_final_summary_pages_fit_the_byte_budget_for_chinese_text(tmp_path):
+    active = supervisor(tmp_path)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active)
+    summary = {"findings": ["发现一个橙色锥桶" * 200, 'quote " and \\ slash' * 50]}
+    pending = adapter._new_telemetry(
+        {"kind": "final_summary", "mission_id": active.package.mission_id, "summary": summary}
+    )
+    pages, offset = [], 0
+    while offset < len(pending.messages):
+        _token, _index, count, length, _digest = CHUNK.unpack_from(pending.messages[offset].body)
+        raw = b"".join(
+            message.body[CHUNK.size :] for message in pending.messages[offset : offset + count]
+        )
+        assert len(raw) == length <= MAX_LOG_DOCUMENT_BYTES
+        pages.append(json.loads(raw))
+        offset += count
+    assert len(pages) > 1 and {page["pages"] for page in pages} == {len(pages)}
+    assert json.loads("".join(page["body"] for page in pages)) == summary
