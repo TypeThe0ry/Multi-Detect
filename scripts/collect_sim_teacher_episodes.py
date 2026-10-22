@@ -222,6 +222,11 @@ class CollectionPlan:
     # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
     onboard_config: str | None = None
     depth_format: str = "npy"
+    # --no-depth: the frame server still streams depth (its wire contract requires
+    # it); only the recorder stops persisting it.
+    capture_depth: bool = True
+    rgb_format: str = "png"
+    rgb_quality: int = 90
     deduplicate_depth: bool = False
     compress_mavlink: bool = False
     onboard_frame_format: str = "png"
@@ -2914,6 +2919,9 @@ def run_episode(
         depth_format=plan.depth_format,
         deduplicate_depth=plan.deduplicate_depth,
         compress_mavlink=plan.compress_mavlink,
+        rgb_format=plan.rgb_format,
+        rgb_quality=plan.rgb_quality,
+        record_depth=plan.capture_depth,
     )
     video_writer = (
         ContinuousVideoWriter(
@@ -3527,6 +3535,8 @@ def run_episode(
                                     )
                                 )
                                 video_obs["flight_stage"] = "action"
+                                if not plan.capture_depth:
+                                    video_obs["depth"] = None
                                 video_writer.write(video_obs, action_index=index)
                         except Exception as exc:
                             recorder.record_mavlink(
@@ -3561,6 +3571,8 @@ def run_episode(
                                 )
                             )
                             final_obs["flight_stage"] = "action_end"
+                            if not plan.capture_depth:
+                                final_obs["depth"] = None
                             video_writer.write(final_obs, action_index=index)
                         except Exception:
                             pass
@@ -3819,6 +3831,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="expert_search flies to the true target or to a look-alike confuser (hard negatives)",
     )
     parser.add_argument("--depth-format", choices=("npy", "npz", "png16"), default="npy")
+    parser.add_argument(
+        "--no-depth",
+        action="store_true",
+        help="do not persist depth frames (the sensor stream still carries them)",
+    )
+    parser.add_argument(
+        "--rgb-format",
+        choices=("png", "jpeg"),
+        default="png",
+        help="recorded RGB encoding; segmentation stays lossless PNG either way",
+    )
+    parser.add_argument(
+        "--rgb-quality", type=int, default=90, help="JPEG quality for --rgb-format jpeg"
+    )
     parser.add_argument("--deduplicate-depth", action="store_true")
     parser.add_argument("--compress-mavlink", action="store_true")
     parser.add_argument("--onboard-frame-format", choices=("png", "jpeg"), default="png")
@@ -3914,6 +3940,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
         raise SystemExit("--video-hz must be non-negative and --video-max-gb positive")
+    if not 1 <= args.rgb_quality <= 100:
+        raise SystemExit("--rgb-quality must be between 1 and 100")
     if not 1.0 <= args.timeout_s <= 86400.0:
         raise SystemExit("--timeout-s must be between 1 and 86400 seconds")
     max_episode_s = args.timeout_s if args.max_episode_s is None else args.max_episode_s
@@ -3958,6 +3986,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
         depth_format=args.depth_format,
+        capture_depth=not args.no_depth,
+        rgb_format=args.rgb_format,
+        rgb_quality=args.rgb_quality,
         deduplicate_depth=args.deduplicate_depth,
         compress_mavlink=args.compress_mavlink,
         onboard_frame_format=args.onboard_frame_format,

@@ -36,6 +36,57 @@ R15_BASE_CONTROL_PORT = 14560
 R15_BASE_TELEMETRY_PORT = 14561
 
 
+GIB = 1024**3
+# Bytes per recorded step from the offline sample in docs/r19-low-disk.md: three r15
+# episodes (56 steps) re-recorded with the round's options.  Normal: PNG RGB, png16
+# depth, PNG segmentation, plain mavlink.jsonl.  Low-disk: JPEG q90 RGB, no depth,
+# PNG segmentation, mavlink.jsonl.gz.
+NORMAL_BYTES_PER_STEP = 833_069
+LOW_DISK_BYTES_PER_STEP = 150_469
+# r15-round/merged-gguf as measured: merged HF weights, F16 GGUF and Q5_K_M GGUF.
+MERGED_HF_BYTES = 4_255_140_312
+F16_GGUF_BYTES = 3_447_350_272
+Q5_GGUF_BYTES = 1_257_880_576
+# Proposal cache, SFT JSONL, adapter and eval JSON together stay well below this.
+SMALL_OUTPUTS_BYTES = GIB // 4
+LOW_DISK_COLLECTOR_ARGS = [
+    "--rgb-format",
+    "jpeg",
+    "--rgb-quality",
+    "90",
+    "--no-depth",
+    "--compress-mavlink",
+]
+LOW_DISK_LEDGER = "low-disk-cleanup.json"
+
+
+def estimate_round_disk_gib(
+    *,
+    low_disk: bool,
+    episodes: int = 20 * R15_EPISODES_PER_WORLD,
+    steps: int = R15_STEPS_PER_EPISODE,
+) -> dict[str, float]:
+    """Peak and after-round disk use of a round, from the measured constants above.
+
+    The export always needs merged HF weights and the F16 GGUF at the same time
+    (convert_hf_to_gguf reads one to write the other), so low-disk mode cannot
+    lower that peak; it drops both right after use instead of keeping them.
+    """
+    per_step = LOW_DISK_BYTES_PER_STEP if low_disk else NORMAL_BYTES_PER_STEP
+    media = episodes * steps * per_step
+    convert_peak = MERGED_HF_BYTES + F16_GGUF_BYTES
+    kept_export = (
+        Q5_GGUF_BYTES if low_disk else MERGED_HF_BYTES + F16_GGUF_BYTES + Q5_GGUF_BYTES
+    )
+    base = media + SMALL_OUTPUTS_BYTES
+    return {
+        "episodes_gib": round(media / GIB, 2),
+        "export_peak_gib": round(convert_peak / GIB, 2),
+        "peak_gib": round((base + max(convert_peak, kept_export)) / GIB, 2),
+        "after_round_gib": round((base + kept_export) / GIB, 2),
+    }
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -230,6 +281,136 @@ def _remove_worker_containers(prefix: str) -> None:
         print(f"[collect] 清理 {prefix} 残留容器失败：{exc}")
 
 
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def ledger_removed(ledger: Path) -> int:
+    """Number of ledger files already gone (removed, or deleted before an interruption)."""
+    if not ledger.is_file():
+        return 0
+    payload = json.loads(ledger.read_text(encoding="utf-8"))
+    root = Path(payload.get("episodes_root", "."))
+    return sum(
+        1
+        for episode in payload.get("episodes", {}).values()
+        for rel, item in episode.get("files", {}).items()
+        if item.get("removed") or not (root / rel).is_file()
+    )
+
+
+def cleanup_consumed_segmentation(
+    *, episodes_root: Path, collected: dict, sft_manifest: Path, ledger: Path
+) -> dict:
+    """Delete segmentation PNGs this round recorded and build_sft already consumed.
+
+    A file is removed only when all of these hold:
+
+    * its episode is one this round collected (``round-state.json`` episodes entry,
+      status complete), lies under ``episodes_root`` and its ``episode.json`` still
+      has the SHA-256 recorded at collection time;
+    * it is a ``seg/`` file that episode's own ``steps.jsonl`` references;
+    * the build_sft manifest lists it in ``source_sha256`` with the same SHA-256
+      (the labels were derived from exactly these bytes).
+
+    Each file's path, size and hash go into ``ledger`` (written atomically) before
+    anything is deleted.  RGB stays (SFT rows and training read it), and nothing
+    outside those episodes -- other runs, ``--extra-episodes``, existing data -- is
+    ever touched.
+    """
+    root = episodes_root.resolve()
+    manifest = json.loads(sft_manifest.read_text(encoding="utf-8"))
+    consumed: dict[tuple[str, ...], list[tuple[str, str]]] = {}
+    for key, digest in (manifest.get("source_sha256") or {}).items():
+        parts = tuple(Path(key.replace("\\", "/")).parts)
+        consumed.setdefault(parts[-3:], []).append(("/".join(parts), digest))
+    previous = json.loads(ledger.read_text(encoding="utf-8")) if ledger.is_file() else {}
+    record = {
+        "schema": 1,
+        "episodes_root": str(root),
+        "sft_manifest": str(sft_manifest),
+        "sft_manifest_sha256": sha256(sft_manifest),
+        "consumer": "build_slow_system_sft (source_sha256)",
+        "episodes": dict(previous.get("episodes", {})),
+    }
+    pending: list[tuple[str, str, Path]] = []
+    skipped: list[str] = []
+    kept = 0
+    for key, item in sorted(collected.items()):
+        if item.get("status") != "complete" or not item.get("path"):
+            continue
+        episode_json = Path(item["path"]).resolve()
+        if not episode_json.is_relative_to(root) or not episode_json.is_file():
+            skipped.append(key)
+            continue
+        if sha256(episode_json) != item.get("sha256"):
+            skipped.append(key)
+            continue
+        episode = episode_json.parent
+        seg_dir = (episode / "seg").resolve()
+        entry = record["episodes"].setdefault(
+            key,
+            {
+                "episode": episode.relative_to(root).as_posix(),
+                "episode_json_sha256": item["sha256"],
+                "files": {},
+            },
+        )
+        referenced: set[Path] = set()
+        steps = episode / "steps.jsonl"
+        for line in steps.read_text(encoding="utf-8").splitlines() if steps.is_file() else ():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            for side in ("obs_before", "obs_after"):
+                value = (row.get(side) or {}).get("segmentation_path")
+                if isinstance(value, str) and value:
+                    path = (episode / value.replace("\\", "/")).resolve()
+                    if path.parent == seg_dir:
+                        referenced.add(path)
+        for path in sorted(referenced):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root).as_posix()
+            digest = sha256(path)
+            matches = consumed.get(tuple(Path(rel).parts[-3:]), [])
+            if not any(
+                (source == rel or source.endswith("/" + rel)) and source_digest == digest
+                for source, source_digest in matches
+            ):
+                kept += 1
+                continue
+            entry["files"][rel] = {
+                "sha256": digest,
+                "bytes": path.stat().st_size,
+                "consumed_by": "build_sft",
+                "removed": False,
+            }
+            pending.append((key, rel, path))
+    _write_json_atomic(ledger, record)
+    removed_bytes = 0
+    for key, rel, path in pending:
+        size = record["episodes"][key]["files"][rel]["bytes"]
+        path.unlink()
+        record["episodes"][key]["files"][rel]["removed"] = True
+        removed_bytes += size
+    for _key, _rel, path in pending:
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+    _write_json_atomic(ledger, record)
+    return {
+        "removed_files": len(pending),
+        "removed_bytes": removed_bytes,
+        "kept_unconsumed": kept,
+        "skipped_episodes": skipped,
+    }
+
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -257,15 +438,7 @@ class Round:
 
     def run(self, name: str, command: list[str], *, estimate: str, disk: str, outputs=(), cwd=ROOT):
         self.out.mkdir(parents=True, exist_ok=True)
-        prior = self.state["stages"].get(name)
-        if (
-            prior
-            and prior.get("status") == "complete"
-            and all(
-                Path(p).is_file() and sha256(Path(p)) == prior["outputs"].get(str(p))
-                for p in outputs
-            )
-        ):
+        if self.stage_current(name, outputs):
             print(f"[skip] {name}: manifest 与输出 SHA-256 均匹配")
             return
         print(f"[{name}] 预计耗时 {estimate}；预计磁盘 {disk}")
@@ -326,6 +499,53 @@ class Round:
         print(
             f"[guard] {stage}: 可用磁盘 {free_gb:.1f} GB；可用内存 "
             f"{available_gb if available_gb is not None else 'unknown'} GB"
+        )
+        if not getattr(self.a, "low_disk", False):
+            return
+        # Low-disk runs go with a small --min-free-gb, so also require that the
+        # coming stage's own growth still leaves that margin.
+        need = self.stage_disk_need_gib(stage)
+        if need:
+            projected = usage.free / GIB - need
+            print(
+                f"[guard] {stage}: 本阶段新增峰值约 {need:.2f} GiB；预计余量 {projected:.2f} GiB"
+            )
+            if projected < self.a.min_free_gb and not self.a.dry_run:
+                raise RuntimeError(
+                    f"{stage} 预计峰值后磁盘余量 {projected:.1f} GiB < 门槛 "
+                    f"{self.a.min_free_gb:.1f} GiB"
+                )
+
+    def stage_disk_need_gib(self, stage: str) -> float:
+        """Disk the stage itself adds at its peak (GiB), from the measured constants."""
+        low_disk = getattr(self.a, "low_disk", False)
+        if stage == "collect":
+            done = sum(
+                1 for item in self.state["episodes"].values() if item.get("status") == "complete"
+            )
+            remaining = max(0, 20 * R15_EPISODES_PER_WORLD - done)
+            per_step = LOW_DISK_BYTES_PER_STEP if low_disk else NORMAL_BYTES_PER_STEP
+            return remaining * self.a.steps_per_episode * per_step / GIB
+        if stage == "export":
+            return (MERGED_HF_BYTES + F16_GGUF_BYTES) / GIB
+        if stage in {"annotate", "build_sft", "train", "eval", "report"}:
+            return SMALL_OUTPUTS_BYTES / GIB / 4
+        return 0.0
+
+    def collector_min_free_gb(self) -> float:
+        value = getattr(self.a, "collector_min_free_gb", None)
+        return self.a.min_free_gb if value is None else value
+
+    def stage_current(self, name: str, outputs) -> bool:
+        """True when a complete stage's recorded output hashes still match."""
+        prior = self.state["stages"].get(name)
+        return bool(
+            prior
+            and prior.get("status") == "complete"
+            and all(
+                Path(p).is_file() and sha256(Path(p)) == prior["outputs"].get(str(p))
+                for p in outputs
+            )
         )
 
     def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
@@ -397,7 +617,7 @@ class Round:
                     "--seed",
                     str(20261016 + idx),
                     "--min-free-gb",
-                    str(self.a.min_free_gb),
+                    str(self.collector_min_free_gb()),
                     "--timeout-s",
                     "900",
                     "--max-episode-s",
@@ -413,14 +633,21 @@ class Round:
                     "--out",
                     str(target),
                 ]
+                if getattr(self.a, "low_disk", False):
+                    # JPEG RGB (every reader decodes by content), no depth (nothing in
+                    # this round reads it), gzip MAVLink (replay/energy readers accept
+                    # .gz); segmentation stays lossless PNG.  "--out <target>" stays last.
+                    cmd[-2:-2] = LOW_DISK_COLLECTOR_ARGS
                 jobs.append((key, cmd, target))
                 print(
                     f"[collect] {key} -> worker {worker}; 失败最多重试 {self.a.retries} "
                     f"次；命令：\n  {subprocess.list2cmdline(cmd)}"
                 )
         print(
-            "[collect] 总预算：约 40-55 分钟（2 worker，40 episodes，400 steps/episode）；磁盘约 "
-            "7.5 GiB；总内存门控每个 worker 共用系统阈值"
+            f"[collect] 总预算：约 40-55 分钟（{len(jobs)} episodes，"
+            f"{self.a.steps_per_episode} steps/episode 上限）；磁盘上限约 "
+            f"{self.stage_disk_need_gib('collect'):.2f} GiB；"
+            f"低磁盘={getattr(self.a, 'low_disk', False)}"
         )
         if self.a.dry_run:
             return
@@ -489,6 +716,13 @@ class Round:
             )
         if self.a.stage in ("all", "build_sft"):
             self.guards("build_sft")
+            sft_manifest = self.out / "r15-additions" / "manifest.json"
+            ledger = self.out / LOW_DISK_LEDGER
+            if not self.stage_current("build_sft", (sft_manifest,)) and ledger_removed(ledger):
+                raise RuntimeError(
+                    f"低磁盘清理已删除被 build_sft 消费过的 segmentation（见 {ledger}），"
+                    "不能重建 SFT；请恢复原 r15-additions 或重新采集"
+                )
             extra = [arg for root in self.a.extra_episodes for arg in ("--campaign", str(root))]
             cmd = [
                 sys.executable,
@@ -518,6 +752,19 @@ class Round:
                 disk="新增 JSONL <2 GiB；复用图片",
                 outputs=(self.out / "r15-additions" / "manifest.json",),
             )
+            if getattr(self.a, "low_disk", False) and not self.a.dry_run:
+                summary = cleanup_consumed_segmentation(
+                    episodes_root=self.a.episodes,
+                    collected=self.state["episodes"],
+                    sft_manifest=sft_manifest,
+                    ledger=ledger,
+                )
+                print(
+                    f"[low-disk] 清理 {summary['removed_files']} 个已被 build_sft 消费的 "
+                    f"segmentation（{summary['removed_bytes'] / 1024**2:.1f} MiB，哈希见 "
+                    f"{ledger}）；未消费保留 {summary['kept_unconsumed']}，"
+                    f"跳过 episode {len(summary['skipped_episodes'])}"
+                )
             merge_cmd = [
                 sys.executable,
                 str(ROOT / "scripts" / "run_r15_round.py"),
@@ -598,6 +845,8 @@ class Round:
                 "--quantization",
                 "Q5_K_M",
             ]
+            if getattr(self.a, "low_disk", False):
+                cmd.append("--drop-intermediates")
             self.run(
                 "export",
                 cmd,
@@ -916,7 +1165,19 @@ def main():
     )
     p.add_argument("--llama-server", type=Path, default=ROOT / "tools/llama.cpp/llama-server.exe")
     p.add_argument("--min-free-gb", type=float, default=30)
+    p.add_argument(
+        "--collector-min-free-gb",
+        type=float,
+        default=None,
+        help="collector free-disk gate (GB); defaults to --min-free-gb",
+    )
     p.add_argument("--min-free-memory-gb", type=float, default=4)
+    p.add_argument(
+        "--low-disk",
+        action="store_true",
+        help="JPEG RGB, no depth, gzip MAVLink; drop consumed segmentation and export "
+        "intermediates",
+    )
     p.add_argument(
         "--r12-baseline",
         type=Path,
@@ -989,8 +1250,18 @@ def main():
         p.error("--workers must be 1 or 2")
     if a.steps_per_episode < 1:
         p.error("--steps-per-episode must be positive")
+    if (a.collector_min_free_gb is not None and a.collector_min_free_gb < 0) or a.min_free_gb < 0:
+        p.error("free disk thresholds must be non-negative")
     if not 0 < a.r12_replay_fraction <= 1:
         p.error("--r12-replay-fraction must be in (0, 1]")
+    if a.dry_run:
+        for label, low in (("normal", False), ("low-disk", True)):
+            est = estimate_round_disk_gib(low_disk=low, steps=a.steps_per_episode)
+            print(
+                f"[dry-run] {label}: 20 worlds x 4 episodes x {a.steps_per_episode} steps 上限 -> "
+                f"episodes {est['episodes_gib']:.2f} GiB，峰值 {est['peak_gib']:.2f} GiB，"
+                f"结束后 {est['after_round_gib']:.2f} GiB"
+            )
     Round(a).execute()
     return 0
 
