@@ -342,6 +342,10 @@ def _run_task(
         # mission suite gives the same task 2400 s.
         "--max-episode-s",
         str(timeout_s),
+        # One session episode writes ~1 GB; the collector's 15 GB default guard is
+        # sized for batch campaigns and aborted a session flight at 13 GB free.
+        "--min-free-gb",
+        "6",
         "--out",
         str(out / "collector"),
     ]
