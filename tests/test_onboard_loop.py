@@ -265,6 +265,91 @@ def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
     assert [track.track_id for track in tracks] == ["t1"]
 
 
+def test_blocked_approach_routes_around_obstacle_and_confirms() -> None:
+    target = (30.0, 0.0)
+
+    def clear(start, north, east):
+        # A building ring blocks the straight south-to-target leg, while either
+        # side of the footprint and the final diagonal are clear.
+        end = (north, east)
+        return not (abs(start[1]) < 3.0 and abs(end[1]) < 3.0 and end[0] > 10.0)
+
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=clear,
+        config=LoopConfig(
+            stop_on_confirm=False,
+            confirm_matches=1,
+            obstacle_relook_max=2,
+        ),
+    )
+    pose = [0.0, 0.0, -20.0]
+    yaw = 0.0
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 700, 16), 0.5)],
+        pose_ned=tuple(pose),
+        yaw_deg=yaw,
+        ground_point=lambda _u, _v: target,
+    )
+    loop.apply_verdict(track.track_id, "approach_track")
+    for _ in range(30):
+        tracks = loop.update_tracks(
+            [Detection(_box(640, 700, 16), 0.5)],
+            pose_ned=tuple(pose),
+            yaw_deg=yaw,
+            ground_point=lambda _u, _v: target,
+        )
+        action, info = loop.next_action(
+            tracks, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=lambda _u, _v: target
+        )
+        if action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+        elif action.kind == "translate":
+            heading = math.radians(yaw)
+            pose[0] += action.forward_m * math.cos(heading)
+            pose[1] += action.forward_m * math.sin(heading)
+        if info.get("obstacle_relook", {}).get("phase") == "complete":
+            break
+    assert track.obstacle_relook_attempts == 1
+    assert loop._obstacle_relook is None
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 700, 24), 0.5)],
+        pose_ned=tuple(pose),
+        yaw_deg=yaw,
+        ground_point=lambda _u, _v: target,
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.next_action(tracks, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=lambda _u, _v: target)
+    assert track.verdict == "confirm" and loop.confirmations
+
+
+def test_fully_enclosed_focus_gives_up_without_unsafe_leg() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: False,
+        config=LoopConfig(obstacle_relook_max=1, stop_on_confirm=False),
+    )
+    pose = (0.0, -20.0, -15.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 650, 16), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "approach_track")
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 650, 16), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    assert action.kind == "hold" or loop.state == "searching"
+    assert track.exhausted or info.get("reason") in {"obstacle_relook_exhausted", "closest_view"}
+
+
 def _contradiction_loop() -> OnboardLoop:
     return _loop(
         stop_on_confirm=False,
