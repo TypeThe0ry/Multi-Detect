@@ -26,6 +26,20 @@ from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
 
 
+def count_lower_bounds(executor: Any) -> dict[str, bool]:
+    """Per count step: True when the count may have missed objects.
+
+    A count step that has not finished (the mission ended early, or is still
+    searching) is always a lower bound; a finished one keeps the executor's
+    coverage verdict.
+    """
+    finished: dict[str, bool] = {}
+    for item in getattr(executor, "history", ()):
+        if isinstance(item, dict) and "count_is_lower_bound" in item:
+            finished[str(item.get("step"))] = bool(item["count_is_lower_bound"])
+    return {str(step): finished.get(str(step), True) for step in executor.counts}
+
+
 @dataclass(frozen=True, slots=True)
 class RecoveryPolicy:
     """Deterministic recovery action vocabulary for each airframe category."""
@@ -170,6 +184,7 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self._finish_lock = threading.Lock()
         self.requires_approval = bool(requires_approval)
         self.plan_sha256 = hashlib.sha256(
             json.dumps(
@@ -633,7 +648,6 @@ class MissionSupervisor:
     def _escalate(self, action: str, reason: str, *, record: bool = True) -> None:
         if self._terminal is None or POLICIES.index(action) > POLICIES.index(self._terminal):
             self._terminal = action
-            self._finished = False
             self._brake_pending = action == "return_now"
             self.reason = reason
             self.recovery_sequence = self.recovery_policy.sequence(
@@ -794,6 +808,11 @@ class MissionSupervisor:
             step=self.executor.current_step.id if self.executor.current_step else None,
             energy=self.energy_estimate,
         )
+        if self._terminal is not None and not self._finished:
+            # The search is over once a return/land latches: report the result
+            # now, while the link is likely still up, instead of after the
+            # recovery flight (which a host may stop before it completes).
+            self.finish("ended_early")
         return action
 
     def observe(self, *args, **kwargs):
@@ -918,23 +937,36 @@ class MissionSupervisor:
         return action, info
 
     def finish(self, status: str = "stopped") -> None:
-        if self._finished:
-            return
-        self._time()
-        self.log.finish(
-            self._now,
-            {
-                "status": status,
-                "action": self.action,
-                "reason": self.reason,
-                "report": asdict(self.executor.report()),
-                "findings": self.executor.findings,
-                "history": self.executor.history,
-                "counts": self.executor.counts,
-                "recovery_history": self._recovery.history if self._recovery else [],
-            },
-        )
-        self._finished = True
+        """Write the mission's one ``final_summary`` record (idempotent).
+
+        Called on completion, when a return/land latches (``ended_early``), on
+        plan rejection and by the host when it stops the mission (``stopped``).
+        """
+        with self._finish_lock:
+            if self._finished:
+                return
+            self._time()
+            executor = self.executor
+            lower_bounds = count_lower_bounds(executor)
+            self.log.finish(
+                self._now,
+                {
+                    "status": status,
+                    "action": self.action,
+                    "reason": self.reason,
+                    "terminal_action": self._terminal,
+                    "terminal_reason": self.reason if self._terminal is not None else None,
+                    "report": asdict(executor.report()),
+                    "findings": executor.findings,
+                    "alerts": list(executor.alerts),
+                    "history": executor.history,
+                    "counts": executor.counts,
+                    "count_lower_bounds": lower_bounds,
+                    "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
+                    "recovery_history": self._recovery.history if self._recovery else [],
+                },
+            )
+            self._finished = True
         if self.downlink is not None:
             self.downlink.notify()
 
@@ -956,4 +988,5 @@ class MissionSupervisor:
         self.action = "land_now"
         self.reason = "operator rejected mission plan"
         self._record("plan_rejected", plan_sha256=plan_sha256)
+        self.finish("plan_rejected")
         return True
