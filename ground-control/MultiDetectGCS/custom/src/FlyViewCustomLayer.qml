@@ -45,6 +45,75 @@ Item {
     property var _payloadActionDialog: null
     property var _approachActionDialog: null
     property var _authorizationDialog: null
+    // Mission monitoring is intentionally rendered on the Fly view.  The
+    // downlink schema is forward compatible, so these helpers tolerate both
+    // nested and legacy flat fields while keeping the card useful when a
+    // newer onboard sender adds fields.
+    readonly property var _missionController: typeof multiDetectMission !== "undefined" ? multiDetectMission : null
+    readonly property var _missionTelemetry: _missionController ? (_missionController.telemetry || ({})) : ({})
+    readonly property var _missionLogs: _missionController ? (_missionController.logEntries || []) : []
+    readonly property var _missionPlan: _missionController ? (_missionController.plan || {}) : ({})
+    readonly property var _missionFindings: _missionController ? (_missionController.findings || []) : []
+    readonly property var _missionAlerts: _missionController ? (_missionController.alerts || []) : []
+    readonly property bool _missionCardVisible: _missionController !== null &&
+                                                 String(_missionController.activeMissionId || "") !== ""
+    property bool _missionCardCollapsed: false
+    property int _missionPolicyCountdown: 0
+    readonly property string _missionPlanOriginText: {
+        const t = _missionTelemetry || {};
+        const p = root._missionPlan || t.plan || t.plan_preview || {};
+        const o = p.origin || t.origin || {};
+        const lat = o.latitude_deg !== undefined ? o.latitude_deg : o.lat;
+        const lon = o.longitude_deg !== undefined ? o.longitude_deg : o.lon;
+        return Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) ?
+                   Number(lat).toFixed(7) + "," + Number(lon).toFixed(7) : "";
+    }
+    function _missionField(names, fallback) {
+        const t = _missionTelemetry || {};
+        for (let i = 0; i < names.length; ++i) {
+            const path = names[i].split(".");
+            let v = t;
+            for (let j = 0; j < path.length && v !== null && v !== undefined; ++j)
+                v = v[path[j]];
+            if (v !== undefined && v !== null)
+                return v;
+        }
+        return fallback;
+    }
+    function _missionCount(value) {
+        if (value === undefined || value === null) return "0";
+        const lower = value.lower_bound === true || value.lowerBound === true;
+        const n = value.count !== undefined ? value.count : value.total !== undefined ? value.total : value;
+        return (lower ? qsTr("至少 ") : "") + String(n);
+    }
+    function _missionLinkText() {
+        const fresh = _missionController && _missionController.telemetryFresh;
+        const timeout = Number(_missionField(["timeout_s", "link_loss.timeout_s"], 0));
+        return fresh ? qsTr("链路正常") : qsTr("链路中断 · %1 秒后%2").arg(Math.max(0, _missionPolicyCountdown || timeout)).arg(
+            String(_missionField(["link_loss_action", "policy_action", "action"], "保守返航")));
+    }
+    function _missionRefreshCountdown() {
+        const timeout = Number(_missionField(["timeout_s", "link_loss.timeout_s"], 0));
+        _missionPolicyCountdown = Number.isFinite(timeout) ? Math.ceil(timeout) : 0;
+    }
+    function _missionPoint(entry) {
+        const e = entry || {};
+        const c = e.coordinate || e.gps || e.location || {};
+        let lat = Number(c.latitude_deg), lon = Number(c.longitude_deg);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            const n = Number(c.north_m !== undefined ? c.north_m : (e.north_m !== undefined ? e.north_m : e.n));
+            const east = Number(c.east_m !== undefined ? c.east_m : (e.east_m !== undefined ? e.east_m : e.e));
+            const o = (_missionPlan || {}).origin || _missionTelemetry.origin || {};
+            const olat = Number(o.latitude_deg !== undefined ? o.latitude_deg : o.lat), olon = Number(o.longitude_deg !== undefined ? o.longitude_deg : o.lon);
+            if (!Number.isFinite(n) || !Number.isFinite(east) || !Number.isFinite(olat) || !Number.isFinite(olon)) return null;
+            lat = olat + n / 111320.0; lon = olon + east / (111320.0 * Math.cos(olat * Math.PI / 180));
+        }
+        if (!mapControl || !mapControl.fromCoordinate) return null;
+        const p = mapControl.fromCoordinate(QtPositioning.coordinate(lat, lon), false);
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+        return root.mapFromItem(mapControl, p.x, p.y);
+    }
+    function _hasSummaryPages() { return _missionLogs.some(e => String(e.kind || "") === "final_summary_page"); }
     // Keep the map-only uncertainty projection on the same WGS-84 ellipsoid
     // as the Python geolocation backend.  These values are used solely to
     // convert metres to the two local degree offsets needed by QGC's map
@@ -996,6 +1065,149 @@ Item {
         colorGroupEnabled: true
     }
 
+    Timer {
+        id: missionCountdownTimer
+        interval: 1000
+        repeat: true
+        running: root._missionCardVisible
+        onTriggered: {
+            if (!root._missionController.telemetryFresh && root._missionPolicyCountdown > 0)
+                root._missionPolicyCountdown -= 1;
+        }
+    }
+
+    Rectangle {
+        id: missionMonitorCard
+        anchors.right: parent.right
+        anchors.rightMargin: root._margin
+        anchors.top: parent.top
+        anchors.topMargin: parentToolInsets.topEdgeRightInset + root._margin
+        width: Math.min(root.width * 0.36, ScreenTools.defaultFontPixelWidth * 49)
+        height: root._missionCardCollapsed ? collapseRow.implicitHeight + root._margin : monitorColumn.implicitHeight + root._margin * 1.2
+        visible: root._missionCardVisible
+        z: 30
+        radius: ScreenTools.defaultBorderRadius
+        color: qgcPal.window
+        border.color: root._missionController && root._missionController.telemetryFresh ? qgcPal.colorGreen : qgcPal.warningText
+        border.width: 1
+
+        ColumnLayout {
+            id: monitorColumn
+            anchors.fill: parent
+            anchors.margins: root._margin * 0.65
+            spacing: root._margin * 0.22
+            RowLayout {
+                id: collapseRow
+                Layout.fillWidth: true
+                QGCLabel { Layout.fillWidth: true; font.bold: true; text: qsTr("任务监控 · %1").arg(root._missionController.activeMissionId) }
+                QGCButton { text: root._missionCardCollapsed ? qsTr("展开") : qsTr("收起"); onClicked: root._missionCardCollapsed = !root._missionCardCollapsed }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: !root._missionCardCollapsed
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("状态：%1 · 步骤 %2/%3 · %4\n查询：%5")
+                        .arg(String(root._missionField(["state", "mission_state", "status"], "未知")))
+                        .arg(root._missionField(["step.index", "current_step", "step_index"], "--"))
+                        .arg(root._missionField(["step.total", "step_count", "total_steps"], "--"))
+                        .arg(String(root._missionField(["step.skill", "skill"], "--")))
+                        .arg(String(root._missionField(["query", "task_text"], "--")))
+                    wrapMode: Text.WordWrap
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0; to: 1
+                    value: Number(root._missionField(["progress", "step.progress"], 0))
+                }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("原语：%1 · 预算：%2\n剩余：%3 秒 · %4 瓦时\n发现：%5 · 告警：%6")
+                        .arg(root._missionField(["primitives_used", "usage.primitives"], "--"))
+                        .arg(root._missionField(["budget", "usage.budget"], "--"))
+                        .arg(root._missionField(["remaining_time_s"], "--"))
+                        .arg(root._missionField(["remaining_energy_wh"], "--"))
+                        .arg(root._missionCount(root._missionField(["findings_total", "findings", "counts.findings", "finding_count"], root._missionFindings.length)))
+                        .arg(root._missionCount(root._missionField(["alerts_total", "alerts", "counts.alerts", "alert_count"], root._missionAlerts.length)))
+                    wrapMode: Text.WordWrap
+                }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: root._missionController && root._missionController.telemetryFresh ? qgcPal.colorGreen : qgcPal.warningText
+                    text: qsTr("%1\n最近身份决策：%2").arg(root._missionLinkText()).arg(String(root._missionField(["identity_decision", "last_identity_decision", "decision"], "--")))
+                    wrapMode: Text.WordWrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    QGCButton { text: qsTr("中止"); enabled: root._missionController && root._missionController.activeMissionId !== ""; onClicked: root._missionController.abortMission() }
+                    QGCButton { text: qsTr("暂停"); enabled: root._missionController && root._missionController.telemetryFresh; onClicked: root._missionController.pauseMission() }
+                    QGCButton { text: qsTr("恢复"); enabled: root._missionController && root._missionController.telemetryFresh; onClicked: root._missionController.resumeMission() }
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    visible: root._missionPlan.requires_approval === true || root._missionField(["requires_approval", "plan.requires_approval"], false) === true
+                    text: qsTr("查看并审批计划")
+                    onClicked: missionApprovalDialog.open()
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    visible: root._hasSummaryPages()
+                    text: qsTr("查看任务最终摘要")
+                    onClicked: missionSummaryDialog.open()
+                }
+            }
+        }
+    }
+
+    QGCPopupDialog {
+        id: missionApprovalDialog
+        title: qsTr("任务计划审批")
+        buttons: Dialog.Close
+        ColumnLayout {
+            width: Math.min(root.width * 0.55, ScreenTools.defaultFontPixelWidth * 70)
+            QGCLabel { Layout.fillWidth: true; text: qsTr("任务 %1 请求执行以下计划：").arg(root._missionController ? root._missionController.activeMissionId : "--"); wrapMode: Text.WordWrap }
+            Repeater {
+                    model: root._missionPlan.steps || root._missionField(["plan.steps", "steps"], [])
+                delegate: QGCLabel {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    text: qsTr("%1. %2 · 参数：%3 · 区域：%4").arg(index + 1).arg(modelData.skill || "--").arg(JSON.stringify(modelData.params || {})).arg(JSON.stringify(modelData.region || {}))
+                    wrapMode: Text.WordWrap
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                QGCButton { text: qsTr("批准"); onClicked: { root._missionController.approvePlan(); missionApprovalDialog.close(); } }
+                QGCButton { text: qsTr("拒绝"); onClicked: { root._missionController.rejectPlan(); missionApprovalDialog.close(); } }
+            }
+        }
+    }
+
+    QGCPopupDialog {
+        id: missionSummaryDialog
+        title: qsTr("任务最终摘要")
+        buttons: Dialog.Close
+        ColumnLayout {
+            width: Math.min(root.width * 0.62, ScreenTools.defaultFontPixelWidth * 78)
+            QGCLabel { Layout.fillWidth: true; text: qsTr("完整结果（下界计数显示‘至少 N’）："); font.bold: true }
+            Repeater {
+                model: root._missionLogs.filter(e => String(e.kind || "") === "final_summary_page")
+                delegate: QGCLabel {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    text: String(modelData.text || modelData.summary || JSON.stringify(modelData))
+                    wrapMode: Text.WordWrap
+                }
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                color: qgcPal.warningText
+                text: qsTr("摘要不完整，等待重传")
+                visible: root._missionField(["summary_complete", "final_summary.complete"], true) !== true
+            }
+        }
+    }
+
     QGCToolInsets {
         id: toolInsets
 
@@ -1070,6 +1282,40 @@ Item {
             color: qgcPal.warningText
             font.bold: true
             text: qsTr("目标 ±%1 m (1σ)").arg(MultiDetectState.targetHorizontalSigmaM.toFixed(1))
+        }
+    }
+
+    Repeater {
+        id: missionFindingMarkers
+        model: root._missionFindings.concat(root._missionAlerts)
+        delegate: Item {
+            required property var modelData
+            readonly property var projected: root._missionPoint(modelData)
+            visible: projected !== null
+            x: projected ? projected.x - width / 2 : -100
+            y: projected ? projected.y - height / 2 : -100
+            width: ScreenTools.defaultFontPixelHeight * 1.15
+            height: width
+            z: 25
+            Rectangle { anchors.fill: parent; radius: width / 2; color: modelData.alert === true ? qgcPal.colorRed : qgcPal.colorOrange; border.color: qgcPal.text; border.width: 1 }
+            QGCLabel { anchors.bottom: parent.top; anchors.horizontalCenter: parent.horizontalCenter; color: qgcPal.text; text: String(modelData.label || modelData.finding_type || qsTr("发现")) + " · " + (modelData.confidence !== undefined ? Number(modelData.confidence).toFixed(2) : "--"); font.bold: true }
+        }
+    }
+
+    // Plan geometry uses the same local N/E projection as findings.  These
+    // lightweight items remain in the Fly layer and therefore follow map panning.
+    Repeater {
+        model: root._missionPlan.zones || []
+        delegate: Item {
+            required property var modelData
+            readonly property var point: root._missionPoint({north_m: modelData.n, east_m: modelData.e})
+            visible: point !== null
+            width: Math.max(8, Number(modelData.r || modelData.radius_m || 1) * 2)
+            height: width
+            x: point ? point.x - width / 2 : -100
+            y: point ? point.y - height / 2 : -100
+            z: 20
+            Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: qgcPal.colorGreen; border.width: 2 }
         }
     }
 

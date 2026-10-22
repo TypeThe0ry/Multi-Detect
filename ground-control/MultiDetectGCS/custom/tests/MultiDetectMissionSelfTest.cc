@@ -149,6 +149,19 @@ int main(int argc, char** argv)
         controller.receive(35, MultiDetectMissionWire::chunk(102, i, log));
     controller.receive(35, MultiDetectMissionWire::chunk(102, (log.size() - 1) / 44, log));
     check(controller.logEntries().size() == 1, "log retry deduplicated");
+    const QByteArray v2 = R"({"kind":"status","mission_id":"test-001","sequence":6,"v":2,"state":"running","supervisor":{"action":"continue","policy":"return_home","timeout_s":60,"link":"up"},"budget":{"time_left_s":90,"energy_left_wh":12},"step":{"skill":"count","query":"消防栓","index":0,"total":2,"progress":0.5,"primitives":4,"budget":10},"findings_total":2,"alerts_total":1})";
+    for (int i = 0; i < (v2.size() + 43) / 44; ++i)
+        controller.receive(35, MultiDetectMissionWire::chunk(103, i, v2));
+    check(controller.currentPolicy() == "return_home" && controller.telemetry().value("findings_total").toInt() == 2,
+          "v2 nested status normalized");
+    const QByteArray plan = R"({"kind":"plan","mission_id":"test-001","sequence":7,"requires_approval":true,"steps":[{"skill":"count"}],"zones":[{"n":0,"e":0,"r":5}],"origin":{"lat":47.0,"lon":8.0}})";
+    for (int i = 0; i < (plan.size() + 43) / 44; ++i)
+        controller.receive(35, MultiDetectMissionWire::chunk(104, i, plan));
+    check(!controller.plan().isEmpty(), "plan record exposed");
+    const QByteArray page = R"({"kind":"final_summary_page","mission_id":"test-001","sequence":8,"page":1,"pages":1,"body":"{\"counts\":{\"s1\":1}}"})";
+    for (int i = 0; i < (page.size() + 43) / 44; ++i)
+        controller.receive(35, MultiDetectMissionWire::chunk(105, i, page));
+    check(controller.finalSummaryComplete() && controller.finalSummary().value("counts").isValid(), "summary page reassembled");
     controller.shutdown();
     std::printf("MultiDetectMissionSelfTest: %d failures\n", failures);
     return failures == 0 ? 0 : 1;

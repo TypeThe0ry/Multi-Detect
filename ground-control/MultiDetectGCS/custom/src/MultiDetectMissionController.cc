@@ -15,7 +15,7 @@
 #include "MultiDetectOperatorProtocol.h"
 
 namespace {
-const QStringList policies = {"continue", "continue_then_return", "hold_then_return", "return_now", "land_now"};
+const QStringList policies = {"continue", "continue_then_return", "hold_then_return", "return_home", "return_now", "land_now"};
 constexpr qint64 kTelemetryAssemblyDeadlineMs = 30'000;
 constexpr qint64 kTelemetryAssemblyMemoryCap = 128 * 1024;
 
@@ -275,6 +275,43 @@ bool MultiDetectMissionController::tightenPolicy(const QString& policy, double t
     return _control(33, policy, timeout);
 }
 
+bool MultiDetectMissionController::_planDecision(bool approve)
+{
+    if (_activeMissionId.isEmpty() || _plan.isEmpty())
+        return _fail(QStringLiteral("尚未收到可审批的任务计划"));
+    if (busy())
+        return _fail(QStringLiteral("请等待当前请求确认"));
+    QString sequenceError;
+    const quint64 sequence = MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId, &sequenceError);
+    if (!sequence)
+        return _fail(sequenceError);
+    const QByteArray planBytes = QJsonDocument::fromVariant(_plan).toJson(QJsonDocument::Compact);
+    const QString sha = QString::fromLatin1(QCryptographicHash::hash(planBytes, QCryptographicHash::Sha256).toHex());
+    QJsonObject command{{QStringLiteral("mission_id"), _activeMissionId},
+                        {QStringLiteral("type"), approve ? QStringLiteral("approve_plan") : QStringLiteral("reject_plan")},
+                        {QStringLiteral("plan_sha256"), sha},
+                        {QStringLiteral("sequence"), static_cast<qint64>(sequence)},
+                        {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0},
+                        {QStringLiteral("timestamp_version"), 1},
+                        {QStringLiteral("timestamp_domain"), QStringLiteral("unix")}};
+    QString signingError;
+    if (!_missionPrivateSeed.isEmpty() && !MultiDetectMissionSecurity::signGroundCommand(&command, _missionPrivateSeed, _missionKeyId, &signingError))
+        return _fail(signingError);
+    if (_missionPrivateSeed.isEmpty() && _requireMissionSignature)
+        return _fail(QStringLiteral("REAL mode requires an Ed25519 ground-command key"));
+    _commandDocument = MultiDetectMissionSecurity::canonicalJson(command);
+    _pending = {};
+    _pending.type = 37;
+    _pending.commandType = approve ? 38 : 39;
+    _pending.token = token();
+    _beginChunk();
+    _state = approve ? QStringLiteral("已发送计划批准") : QStringLiteral("已发送计划拒绝");
+    return _sendPending();
+}
+
+bool MultiDetectMissionController::approvePlan() { return _planDecision(true); }
+bool MultiDetectMissionController::rejectPlan() { return _planDecision(false); }
+
 bool MultiDetectMissionController::telemetryFresh() const
 {
     return _lastStatusAt >= 0 && _clock.elapsed() - _lastStatusAt <= 5000;
@@ -344,6 +381,8 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
             if (_activeMissionId != missionId) {
                 _logs.clear();
                 _telemetry.clear();
+                _plan.clear(); _findings.clear(); _alerts.clear(); _finalSummary.clear();
+                _summaryPages.clear(); _summaryPageCount = 0; _finalSummaryComplete = false;
                 _lastStatusSequence = _lastLogSequence = 0;
                 _lastStatusAt = -1;
             }
@@ -444,20 +483,39 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
         return false;
     const quint64 sequence = static_cast<quint64>(seq);
     if (obj["kind"] == "status") {
-        if (!policies.contains(obj["policy"].toString()) ||
-            !QStringList({"continue", "hold", "return_now", "land_now"}).contains(obj["action"].toString()))
+        // v2 uses nested supervisor/budget/step objects; retain legacy flat aliases for existing QML.
+        QJsonObject normalized = obj;
+        const auto supervisor = obj.value("supervisor").toObject();
+        const auto budget = obj.value("budget").toObject();
+        normalized.insert("action", supervisor.value("action").toString(obj.value("action").toString()));
+        normalized.insert("reason", supervisor.value("reason").toString(obj.value("reason").toString()));
+        normalized.insert("policy", supervisor.value("policy").toString(obj.value("policy").toString()));
+        normalized.insert("timeout_s", supervisor.value("timeout_s").toDouble(obj.value("timeout_s").toDouble()));
+        normalized.insert("link", supervisor.value("link").toString());
+        normalized.insert("link_silent_s", supervisor.value("link_silent_s").toDouble());
+        normalized.insert("remaining_time_s", budget.value("time_left_s").toDouble(obj.value("remaining_time_s").toDouble()));
+        normalized.insert("remaining_energy_wh", budget.value("energy_left_wh").toDouble(obj.value("remaining_energy_wh").toDouble()));
+        const auto step = obj.value("step").toObject();
+        normalized.insert("progress", step.value("progress").toDouble(obj.value("progress").toDouble()));
+        normalized.insert("primitives_used", step.value("primitives").toInt(obj.value("primitives_used").toInt()));
+        normalized.insert("usage_budget", step.value("budget").toInt(obj.value("usage_budget").toInt()));
+        normalized.insert("query", step.value("query").toString(obj.value("query").toString()));
+        normalized.insert("findings_total", obj.value("findings_total").toInt());
+        normalized.insert("alerts_total", obj.value("alerts_total").toInt());
+        if (!policies.contains(normalized["policy"].toString()) ||
+            !QStringList({"continue", "hold", "return_now", "land_now"}).contains(normalized["action"].toString()))
             return false;
         for (const QString& key : {QString("remaining_time_s"), QString("remaining_energy_wh"), QString("timeout_s")})
-            if (!obj[key].isNull() &&
-                (!obj[key].isDouble() || !std::isfinite(obj[key].toDouble()) || obj[key].toDouble() < 0))
+            if (!normalized[key].isNull() &&
+                (!normalized[key].isDouble() || !std::isfinite(normalized[key].toDouble()) || normalized[key].toDouble() < 0))
                 return false;
         if (sequence <= _lastStatusSequence)
             return true;  // ACK duplicates without refreshing stale state.
         _lastStatusSequence = sequence;
-        _telemetry = obj.toVariantMap();
+        _telemetry = normalized.toVariantMap();
         _lastStatusAt = _clock.elapsed();
-        _currentPolicy = obj["policy"].toString();
-        _currentPolicyTimeout = obj["timeout_s"].toDouble();
+        _currentPolicy = normalized["policy"].toString();
+        _currentPolicyTimeout = normalized["timeout_s"].toDouble();
     } else {
         if (obj["kind"].toString().trimmed().isEmpty())
             return false;
@@ -465,6 +523,27 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
             return true;
         _lastLogSequence = sequence;
         _logs.append(obj.toVariantMap());
+        const QString kind = obj.value("kind").toString();
+        if (kind == QStringLiteral("plan")) {
+            _plan = obj.toVariantMap();
+        } else if (kind == QStringLiteral("finding") || kind == QStringLiteral("alert")) {
+            auto& list = kind == QStringLiteral("finding") ? _findings : _alerts;
+            list.append(obj.toVariantMap());
+        } else if (kind == QStringLiteral("final_summary_page")) {
+            const int page = obj.value("page").toInt();
+            _summaryPageCount = qMax(_summaryPageCount, obj.value("pages").toInt());
+            if (page > 0 && page <= 1000)
+                _summaryPages.insert(page, obj.value("body").toString().toUtf8());
+            _finalSummaryComplete = _summaryPageCount > 0 && _summaryPages.size() == _summaryPageCount;
+            if (_finalSummaryComplete) {
+                QByteArray body;
+                for (int i = 1; i <= _summaryPageCount; ++i) body += _summaryPages.value(i);
+                QJsonParseError parseError;
+                const auto summaryDoc = QJsonDocument::fromJson(body, &parseError);
+                if (parseError.error == QJsonParseError::NoError && summaryDoc.isObject())
+                    _finalSummary = summaryDoc.object().toVariantMap();
+            }
+        }
         while (_logs.size() > 50)
             _logs.removeFirst();
     }

@@ -24,6 +24,11 @@ class MultiDetectMissionController final : public QObject
     Q_PROPERTY(bool telemetryFresh READ telemetryFresh NOTIFY telemetryChanged)
     Q_PROPERTY(QString currentPolicy READ currentPolicy NOTIFY telemetryChanged)
     Q_PROPERTY(double currentPolicyTimeout READ currentPolicyTimeout NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantMap plan READ plan NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantList findings READ findings NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantList alerts READ alerts NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantMap finalSummary READ finalSummary NOTIFY telemetryChanged)
+    Q_PROPERTY(bool finalSummaryComplete READ finalSummaryComplete NOTIFY telemetryChanged)
 
 public:
     explicit MultiDetectMissionController(QObject* parent = nullptr);
@@ -54,6 +59,11 @@ public:
     QString currentPolicy() const { return _currentPolicy; }
 
     double currentPolicyTimeout() const { return _currentPolicyTimeout; }
+    QVariantMap plan() const { return _plan; }
+    QVariantList findings() const { return _findings; }
+    QVariantList alerts() const { return _alerts; }
+    QVariantMap finalSummary() const { return _finalSummary; }
+    bool finalSummaryComplete() const { return _finalSummaryComplete; }
 
     void setSender(std::function<bool(int, const QByteArray&)> sender) { _sender = std::move(sender); }
 
@@ -71,6 +81,8 @@ public:
     Q_INVOKABLE bool pauseMission();
     Q_INVOKABLE bool resumeMission();
     Q_INVOKABLE bool tightenPolicy(const QString& policy, double timeout);
+    Q_INVOKABLE bool approvePlan();
+    Q_INVOKABLE bool rejectPlan();
 
 signals:
     void packageChanged();
@@ -102,6 +114,7 @@ private:
     };
 
     bool _control(int type, const QString& policy = {}, double timeout = 0);
+    bool _planDecision(bool approve);
     bool _sendPending();
     bool _fail(const QString& message);
     bool _adopt(const QByteArray& json);
@@ -126,6 +139,13 @@ private:
     quint64 _uploadToken = 0;
     QVariantMap _telemetry;
     QVariantList _logs;
+    QVariantMap _plan;
+    QVariantList _findings;
+    QVariantList _alerts;
+    QVariantMap _finalSummary;
+    bool _finalSummaryComplete = false;
+    QHash<int, QByteArray> _summaryPages;
+    int _summaryPageCount = 0;
     quint64 _lastStatusSequence = 0;
     quint64 _lastLogSequence = 0;
     QHash<quint64, Assembly> _assemblies;
