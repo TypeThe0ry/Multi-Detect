@@ -499,6 +499,9 @@ class MissionExecutor:
                 # Step triangulation assumes a static target. A moving-target
                 # skill must also ignore estimates inherited from a finding.
                 step_triangulation=False,
+                # A search loop vetoes far ground jumps as a static-object rule; a
+                # followed object moves, so a brief loss must not split its track.
+                static_ground_veto=False,
                 # Following moving objects must not opt into static-place re-id.
                 ground_reid_max_steps=(
                     0
