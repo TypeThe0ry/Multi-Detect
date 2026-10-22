@@ -367,7 +367,11 @@ class MissionOperatorAdapter:
                 if replay_id in self._telemetry_ack_replay:
                     return []
                 pending = self._telemetry
-                if pending is None or token != pending.token or index != pending.index:
+                # Match the header of the chunk in flight: a paged summary
+                # carries one token per page with indexes restarting at 0.
+                if pending is None or (token, index) != tuple(
+                    CHUNK.unpack_from(pending.messages[pending.index].body)[0:2]
+                ):
                     return []
                 previous = self._telemetry_ack_highwater.get(token)
                 if previous is not None:
@@ -510,6 +514,12 @@ class MissionOperatorAdapter:
                     accepted, detail = self._receive_chunk(body, now)
                 elif kind == 37:
                     accepted, detail = self._receive_command_chunk(body, now)
+                elif kind == 34 and self.supervisor is None:
+                    # A console heartbeats before (and while) its package is
+                    # admitted.  Without a mission there is nothing to keep
+                    # alive: drop it unanswered and uncached, so it neither
+                    # counts as a mission heartbeat nor reads as a refusal.
+                    return []
                 else:
                     accepted, detail = self._ground_event(kind, body)
                     self._receipts[(kind, token)] = (body, accepted, detail)
@@ -758,20 +768,22 @@ class MissionOperatorAdapter:
                 }
                 for index, chunk in enumerate(chunks, 1)
             ]
-            payload = json.dumps(
-                page_docs[0], ensure_ascii=False, allow_nan=False, separators=(",", ":")
-            ).encode("utf-8")
-            # A telemetry transfer carries one JSON document.  Queue all page
-            # documents as one bounded transfer sequence.
-            self._transfer_token = (self._transfer_token + 1) & ((1 << 64) - 1) or 1
-            token = self._transfer_token
+            # A telemetry transfer carries one JSON document, so every page is
+            # its own transfer (own token, chunk indexes from 0) queued as one
+            # stop-and-wait sequence.  Sharing one token made the ground ACK
+            # page 2 chunk 0 as (token, 0) while the sequence waited for its
+            # global index, and a GCS that had completed that token ignored it:
+            # page 1 was resent forever and page 2 never arrived (e2e run9).
             messages: list[MissionWireMessage] = []
+            first_token = None
             for page in page_docs:
                 encoded = json.dumps(
                     page, ensure_ascii=False, allow_nan=False, separators=(",", ":")
                 ).encode("utf-8")
-                messages.extend(document_chunks(encoded, token, message_type=35))
-            return _Telemetry(messages, token)
+                self._transfer_token = (self._transfer_token + 1) & ((1 << 64) - 1) or 1
+                first_token = first_token or self._transfer_token
+                messages.extend(document_chunks(encoded, self._transfer_token, message_type=35))
+            return _Telemetry(messages, first_token)
         if document.get("kind") == "status" and len(payload) > MAX_STATUS_DOCUMENT_BYTES:
             # Raising here dropped every status for the rest of the mission.
             payload = _bounded_status(document)

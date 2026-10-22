@@ -787,6 +787,65 @@ def test_final_summary_pages_fit_the_byte_budget_for_chinese_text(tmp_path):
     assert json.loads("".join(page["body"] for page in pages)) == summary
 
 
+def test_paged_final_summary_completes_when_ground_acks_chunk_headers(tmp_path):
+    """Run9: the ground ACKs (token, index) from each chunk header; page 2 never came."""
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    adapter._next_status = float("inf")
+    adapter.tick(lambda frame: None)  # the link is up before the summary is queued
+    summary = {"status": "ended_early", "findings": ["orange traffic cone " * 8] * 12}
+    record = {"kind": "final_summary", "mission_id": active.package.mission_id, "summary": summary}
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(adapter.send_log(record)))
+    worker.start()
+    parts: dict[int, dict[int, bytes]] = {}
+    completed: dict[int, bytes] = {}  # MultiDetectMissionController: token -> digest
+    sequence = 1
+    for _ in range(2000):
+        if not worker.is_alive():
+            break
+        sent = []
+        adapter.tick(sent.append)
+        for frame in sent:
+            body = adapter.codec.decode(frame).message.body
+            token, index, count, length, digest = CHUNK.unpack_from(body)
+            if token in completed and completed[token] != digest:
+                continue  # the C++ ground station ignores a reused, completed token
+            chunks = parts.setdefault(token, {})
+            chunks[index] = body[CHUNK.size :]
+            if len(chunks) == count:
+                completed[token] = digest
+            sequence += 1
+            deliver(adapter, 36, TELEMETRY_ACK.pack(token, index), sequence)
+        now[0] += 1
+        worker.join(timeout=0.001)
+    worker.join(timeout=1)
+    assert outcome == [True]
+    pages = [json.loads(b"".join(chunks[i] for i in sorted(chunks))) for chunks in parts.values()]
+    assert len(pages) > 1 and sorted(page["page"] for page in pages) == list(
+        range(1, len(pages) + 1)
+    )
+    body = "".join(page["body"] for page in sorted(pages, key=lambda page: page["page"]))
+    assert json.loads(body) == summary
+    adapter.close()
+
+
+def test_heartbeat_before_admission_is_ignored_not_rejected(tmp_path):
+    adapter = MissionOperatorAdapter(codec())
+    mission = mission_token(load_mission_package(document()).mission_id)
+    # No onboard mission yet: no rejection noise, and nothing counted as a heartbeat.
+    assert deliver(adapter, 34, CONTROL.pack(mission, 1), 1) == []
+    active = supervisor(tmp_path)
+    adapter.bind_supervisor(active)
+    assert active.last_heartbeat is None
+    assert accepted(adapter, deliver(adapter, 34, CONTROL.pack(mission, 2), 2))
+    assert active.last_heartbeat is not None
+    # A heartbeat for another mission is still refused once a mission is installed.
+    assert not accepted(adapter, deliver(adapter, 34, CONTROL.pack(mission ^ 1, 3), 3))
+    adapter.close()
+
+
 def test_status_of_a_rejected_plan_is_not_awaiting_approval(tmp_path):
     active = supervisor(tmp_path)
     active.requires_approval, active.plan_approved = True, False
