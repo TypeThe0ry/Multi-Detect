@@ -458,6 +458,7 @@ class OnboardPolicy:
             or security.get("ground_command_verify_key")
             or legacy_key_setting
         )
+        self._ground_key_setting = ground_key_setting
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
             key_setting = key_path if key_path.is_absolute() else ROOT / key_path
@@ -1267,25 +1268,7 @@ class OnboardPolicy:
                     self.mission_package,
                     log=log,
                     downlink=self.downlink,
-                    **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=(
-                        str(ground_key_setting) if ground_key_setting is not None else None
-                    ),
-                    timestamp_window_s=float(
-                        options.get(
-                            "command_timestamp_window_s",
-                            security.get("timestamp_window_s", 30.0),
-                        )
-                    ),
-                    clock_skew_s=float(
-                        options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
-                    ),
-                    rate_limit=int(
-                        options.get("command_rate_limit", security.get("rate_limit", 20))
-                    ),
-                    rate_window_s=float(
-                        options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
-                    ),
+                    **self._supervisor_link_options(),
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
@@ -1308,13 +1291,47 @@ class OnboardPolicy:
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
 
-    def _refuse_package_plan(self, violations: Sequence[Mapping[str, Any]]) -> None:
-        """Persist a fail-closed admission decision before raising to the caller."""
-        if self.mission_package is None:
+    def _supervisor_link_options(self) -> dict[str, Any]:
+        """Clock and ground-command security settings shared by every MissionSupervisor."""
+        options = self.config
+        security = options.get("security") if isinstance(options.get("security"), dict) else {}
+        key = self._ground_key_setting
+        return {
+            **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
+            "security_key_path": str(key) if key is not None else None,
+            "timestamp_window_s": float(
+                options.get(
+                    "command_timestamp_window_s",
+                    security.get("timestamp_window_s", 30.0),
+                )
+            ),
+            "clock_skew_s": float(
+                options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
+            ),
+            "rate_limit": int(options.get("command_rate_limit", security.get("rate_limit", 20))),
+            "rate_window_s": float(
+                options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
+            ),
+        }
+
+    def _refuse_package_plan(
+        self,
+        violations: Sequence[Mapping[str, Any]],
+        package: MissionPackage | None = None,
+        *,
+        close_runner: bool = True,
+    ) -> None:
+        """Persist a fail-closed admission decision before raising to the caller.
+
+        An operator-link package is refused with ``close_runner=False``: the
+        running mission and its slow runner must stay untouched.
+        """
+        package = package if package is not None else self.mission_package
+        if package is None:
             raise ValueError("mission plan violates package policy")
         log = None
         try:
-            log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
             now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
             log.append(
                 "mission_refused",
@@ -1331,7 +1348,7 @@ class OnboardPolicy:
                 },
             )
         finally:
-            close = getattr(self.slow, "close", None)
+            close = getattr(self.slow, "close", None) if close_runner else None
             if close is not None:
                 close()
         details = "; ".join(
@@ -1386,6 +1403,13 @@ class OnboardPolicy:
             )
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
+        # The same package policy as a package loaded at start-up, whether the
+        # plan came with the package or was compiled here.
+        violations = check_plan_against_package(
+            plan, package, capabilities=capabilities, executor_config=self.executor.config
+        )
+        if violations:
+            self._refuse_package_plan(violations, package, close_runner=False)
         package.validate_plan(plan)
         executor = MissionExecutor(
             plan,
@@ -1410,6 +1434,7 @@ class OnboardPolicy:
             downlink=downlink,
             requires_approval=bool(self.config.get("operator_requires_approval", False)),
             runtime_mode=self.runtime_mode,
+            **self._supervisor_link_options(),
         )
         self.mission_package, self.mission_plan = package, plan
         self.mission_plan_report = report
