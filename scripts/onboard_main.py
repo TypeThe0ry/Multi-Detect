@@ -276,6 +276,29 @@ def _start_operator_link(args, policy, vehicle):
     return server
 
 
+def _shutdown(runtime, operator_server, policy, camera, vehicle) -> list[str]:
+    """Close everything exactly once; one failure never skips the rest.
+
+    The runtime owns and closes the policy, camera and vehicle; without a
+    runtime they are closed here.  The operator link is closed on every path.
+    """
+    errors: list[str] = []
+    if runtime is not None:
+        closers = (runtime.close,)
+    else:
+        closers = tuple(
+            getattr(item, "close", None) for item in (policy, camera, vehicle) if item is not None
+        )
+    for close in (*closers, getattr(operator_server, "close", None)):
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception as exc:
+            errors.append(str(exc))
+    return errors
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     package, package_options = _admit_package(args)
     if args.mode == "real":
@@ -350,6 +373,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("launch altitude outside mission package limits")
     runtime = None
     policy = None
+    raw_policy = None
     operator_server = None
     previous_signals = {}
     report: dict[str, Any] = {"mode": args.mode}
@@ -480,23 +504,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     except (Exception, KeyboardInterrupt) as exc:
         failure = f"{type(exc).__name__}: {exc}"
     finally:
-        try:
-            if runtime:
-                runtime.close()
-            if operator_server:
-                operator_server.close()
-            else:
-                cleanup_errors = []
-                for close in (policy.close if policy else None, camera.close, vehicle.close):
-                    if close:
-                        try:
-                            close()
-                        except Exception as exc:
-                            cleanup_errors.append(str(exc))
-                if cleanup_errors:
-                    raise RuntimeError("; ".join(cleanup_errors))
-        except Exception as exc:
-            failure = f"{failure + '; ' if failure else ''}shutdown: {exc}"
+        cleanup_errors = _shutdown(runtime, operator_server, policy or raw_policy, camera, vehicle)
+        if cleanup_errors:
+            failure = f"{failure + '; ' if failure else ''}shutdown: {'; '.join(cleanup_errors)}"
         for sig, handler in previous_signals.items():
             signal.signal(sig, handler)
     if runtime:
