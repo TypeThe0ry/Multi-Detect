@@ -245,7 +245,8 @@ def test_optional_transport_attaches_and_drains_on_heartbeat(tmp_path, model_stu
         while policy.downlink.acknowledged_sequence < target and time.monotonic() < deadline:
             time.sleep(0.005)
         assert policy.downlink.acknowledged_sequence == target
-        assert [record["sequence"] for record in received] == list(range(1, target + 1))
+        # The cursor passes every record; a routine heartbeat record stays local.
+        assert [record["kind"] for record in received] == ["mission_started"]
         assert all(record["mission_id"] == "sortie-1" for record in received)
         assert policy.supervisor.log.cursor_path.is_file()
     finally:
