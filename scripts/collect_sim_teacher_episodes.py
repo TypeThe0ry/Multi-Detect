@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Mapping
@@ -1192,7 +1193,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
     from scripts.onboard_policy import build_onboard_policy
 
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
-    return build_onboard_policy(
+    policy = build_onboard_policy(
         task_text=task_text,
         world_path=scenario_world_path(plan.runtime),
         altitude_m=altitude_m,
@@ -1204,6 +1205,44 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         frame_quality=plan.onboard_frame_quality,
         airframe=_onboard_airframe_id(plan),
     )
+    _start_sim_operator_link(plan, policy)
+    return policy
+
+
+class _SimHoverVehicle:
+    """Preflight view for a SIM operator link.
+
+    The collector takes off before the policy runs, so a package arrives while
+    the vehicle already hovers; the policy still holds until the plan is
+    approved.  The real runtime (scripts/onboard_main.py) keeps the landed and
+    disarmed preflight gate.
+    """
+
+    @staticmethod
+    def snapshot():
+        return types.SimpleNamespace(armed=False, landed=True)
+
+
+def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
+    """With ``mission: operator_link`` the SIM policy takes its mission from a GCS."""
+    if not plan.onboard_config:
+        return
+    config = json.loads(Path(plan.onboard_config).read_text(encoding="utf-8"))
+    if config.get("mission") != "operator_link":
+        return
+    from scripts.onboard_main import _start_operator_link
+
+    args = types.SimpleNamespace(
+        operator_bind_host=str(config.get("operator_bind_host", "127.0.0.1")),
+        operator_port=int(config.get("operator_port", 14580)),
+        operator_hmac_key_hex=config.get("operator_hmac_key_hex"),
+        operator_mavlink_signing_key_hex=config.get("operator_mavlink_signing_key_hex"),
+        operator_requires_approval=bool(config.get("operator_requires_approval", True)),
+        operator_package_verify_key=config.get("operator_package_verify_key"),
+    )
+    server = _start_operator_link(args, policy, _SimHoverVehicle())
+    policy.sim_operator_server = server
+    _progress("operator_link_listening", host=args.operator_bind_host, port=args.operator_port)
 
 
 def _onboard_airframe_id(plan: CollectionPlan) -> str | None:

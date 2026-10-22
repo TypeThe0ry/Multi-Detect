@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -292,6 +293,30 @@ def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
         )
 
 
+def _operator_link_config(args) -> dict:
+    """Session-local operator link keys, also written for the GCS console."""
+    import secrets
+
+    config = {
+        "operator_bind_host": "127.0.0.1",
+        "operator_port": args.operator_port,
+        "operator_hmac_key_hex": os.environ.get("MULTIDETECT_SESSION_HMAC_HEX")
+        or secrets.token_hex(32),
+        "operator_mavlink_signing_key_hex": os.environ.get("MULTIDETECT_SESSION_SIGNING_HEX")
+        or secrets.token_hex(32),
+        "operator_requires_approval": True,
+    }
+    args.onboard_out.mkdir(parents=True, exist_ok=True)
+    (args.onboard_out / "operator-link.json").write_text(
+        json.dumps(config, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        "Operator link: send a prompt package with scripts/fake_gcs_console.py --link "
+        f"{args.onboard_out / 'operator-link.json'} <package.json>"
+    )
+    return config
+
+
 def _run_task(
     task: str,
     world: Path,
@@ -299,6 +324,7 @@ def _run_task(
     out: Path,
     container_name: str,
     timeout_s: float = 2400.0,
+    operator_link: dict | None = None,
 ) -> int:
     """Run the existing onboard policy entry point against the session port."""
     out.mkdir(parents=True, exist_ok=True)
@@ -313,6 +339,11 @@ def _run_task(
     )["defaults"]
     defaults["planning_model"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["planning_model"])
     defaults["yoloe_weights"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["yoloe_weights"])
+    if operator_link:
+        # The mission comes from a GCS over the signed operator link (prompt →
+        # onboard plan → approval); the policy holds until the plan is approved.
+        defaults["mission"] = "operator_link"
+        defaults.update(operator_link)
     config = out / "onboard-config.json"
     config.write_text(json.dumps(defaults, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     command = [
@@ -367,6 +398,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--exit-after-task", action="store_true")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
     parser.add_argument("--task-timeout-s", type=float, default=2400.0)
+    parser.add_argument(
+        "--operator-link",
+        action="store_true",
+        help="take the onboard mission from a GCS (scripts/fake_gcs_console.py or MultiDetectGCS)",
+    )
+    parser.add_argument("--operator-port", type=int, default=14580)
     parser.add_argument("--snapshot-dir", type=Path)
     parser.add_argument("--snapshot-interval", type=float, default=10.0)
     parser.add_argument("--check-heartbeat", type=float, default=0.0)
@@ -474,6 +511,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 args.onboard_out,
                 plan.container_name,
                 timeout_s=args.task_timeout_s,
+                operator_link=_operator_link_config(args) if args.operator_link else None,
             )
             # The collector writes mission_summary.txt per episode (no report.json).
             summary = next(args.onboard_out.rglob("mission_summary.txt"), None)
