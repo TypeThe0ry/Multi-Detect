@@ -96,7 +96,7 @@ MultiDetectOperatorController::MultiDetectOperatorController(QObject* parent)
       _operatorUdpLocalPort(environmentInteger("MULTIDETECT_OPERATOR_UDP_LOCAL_PORT", 14581)),
       _depthGridUdpPort(environmentInteger("MULTIDETECT_DEPTH_GRID_UDP_PORT", 14582)),
       _depthGridJetsonPort(environmentInteger("MULTIDETECT_DEPTH_GRID_JETSON_PORT", 14583)),
-      _protocol(_hmacKey, _streamId),
+      _protocol(_hmacKey, _streamId, _streamWidth, _streamHeight),
       _sessionId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     // A restarted GCS must continue ahead of the aircraft's serial high-water
@@ -116,7 +116,7 @@ MultiDetectOperatorController::MultiDetectOperatorController(QObject* parent)
         _streamHeight > 65535 ||
         (_streamRotation != 0 && _streamRotation != 90 && _streamRotation != 180 && _streamRotation != 270)) {
         _hmacKey.clear();
-        _protocol = MultiDetectOperatorProtocol({}, _streamId);
+        _protocol = MultiDetectOperatorProtocol({}, _streamId, _streamWidth, _streamHeight);
         _lastError = QStringLiteral("operator-link endpoint or video geometry is invalid");
     } else if (!_protocol.configured()) {
         _lastError = QStringLiteral("set MULTIDETECT_OPERATOR_KEY to at least 32 UTF-8 bytes");
@@ -1702,6 +1702,7 @@ void MultiDetectOperatorController::_reject(const QString& reason)
     emit countersChanged();
     _setLastError(reason);
     qCWarning(MultiDetectOperatorLog) << "rejected metadata:" << reason;
+    qWarning().noquote() << "MultiDetect operator TUNNEL rejected:" << reason;
     if (_linkState != QStringLiteral("AUTHENTICATED")) {
         _setLinkState(QStringLiteral("REJECTED"));
     }
