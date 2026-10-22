@@ -496,3 +496,73 @@ def test_downlink_cursor_advances_only_after_all_chunk_acknowledgements(tmp_path
     finally:
         adapter.close()
         active.downlink.close()
+
+
+def _queue_log(adapter, record):
+    worker = threading.Thread(target=adapter.send_log, args=(record,), daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 2
+    while adapter._queued_log is None and time.monotonic() < deadline:
+        time.sleep(0.002)
+    assert adapter._queued_log is not None
+    return worker
+
+
+@pytest.mark.parametrize(("kind", "first"), [("finding", "finding"), ("decision", "status")])
+def test_priority_log_does_not_wait_behind_a_due_status(tmp_path, kind, first):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    frames = []
+    adapter.tick(frames.append)  # binds the sender; sends the first status
+    adapter._telemetry = None
+    adapter._last_was_status = False
+    adapter._next_status = 0.0  # status is due again
+    worker = _queue_log(adapter, {"mission_id": "m", "sequence": 9, "kind": kind})
+    try:
+        adapter.tick(frames.append)
+        token, index, count, length, _ = CHUNK.unpack_from(
+            adapter.codec.decode(frames[-1]).message.body
+        )
+        pending = adapter._telemetry
+        assert pending is not None and index == 0
+        document = b"".join(message.body[CHUNK.size :][:44] for message in pending.messages)[
+            :length
+        ]
+        assert json.loads(document)["kind"] == first
+    finally:
+        adapter.close()
+        worker.join(2)
+
+
+def test_telemetry_acks_have_their_own_rate_bucket(tmp_path):
+    pytest.importorskip("pymavlink")
+    from multidetect.operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter
+    from multidetect.operator_udp import UdpOperatorSelectionServer
+
+    onboard = OperatorMavlinkTunnelAdapter(
+        codec(),
+        OperatorMavlinkEndpoint(1, 191, 255, 190),
+        signing_key=b"U" * 32,
+        signing_link_id=191,
+        initial_signing_timestamp=4_000_000,
+    )
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=onboard,
+        guard=SelectionCommandGuard(GEOMETRY),
+        receive_timeout_s=1,
+    ) as server:
+        peer = ("127.0.0.1", 40000)
+        heartbeats = sum(
+            server._allow_command(peer, WireMessageType.MISSION_HEARTBEAT, now_s=5.0)
+            for _ in range(100)
+        )
+        acks = sum(
+            server._allow_command(peer, WireMessageType.MISSION_TELEMETRY_ACK, now_s=5.0)
+            for _ in range(100)
+        )
+    # A 1 Hz status is ~20 chunks; at 20 ACKs/s the dropped ACKs stalled the
+    # downlink on its 1 s resend (SITL run7).
+    assert heartbeats == 20 and acks == 100

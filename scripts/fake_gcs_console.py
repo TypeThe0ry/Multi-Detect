@@ -98,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         receive_signing_link_id=1,
     )
     assembler = DocumentAssembler()
+    summary_pages: dict[str, dict[int, str]] = {}
     approved: set[str] = set()
     deadline = time.monotonic() + args.max_seconds if args.max_seconds > 0 else None
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -183,10 +184,31 @@ def main(argv: list[str] | None = None) -> int:
                 document = json.loads(document_bytes.decode())
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            print(json.dumps(document, ensure_ascii=False), flush=True)
-            if args.log:
-                with args.log.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(document, ensure_ascii=False) + "\n")
+            documents = [document]
+            if document.get("kind") == "final_summary_page":
+                # A large final summary arrives as ordered pages of JSON text;
+                # show it once every page is here.
+                pages = summary_pages.setdefault(str(document.get("mission_id")), {})
+                pages[int(document["page"])] = str(document["body"])
+                if len(pages) == int(document["pages"]):
+                    try:
+                        summary = json.loads("".join(pages[i] for i in sorted(pages)))
+                    except json.JSONDecodeError:
+                        summary = None
+                    if summary is not None:
+                        documents.append(
+                            {
+                                "kind": "final_summary",
+                                "mission_id": document.get("mission_id"),
+                                "summary": summary,
+                                "assembled_pages": len(pages),
+                            }
+                        )
+            for item in documents:
+                print(json.dumps(item, ensure_ascii=False), flush=True)
+                if args.log:
+                    with args.log.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(item, ensure_ascii=False) + "\n")
             if document.get("kind") != "plan" or document.get("plan_sha256") in approved:
                 continue
             if not args.auto_approve:

@@ -81,6 +81,13 @@ DEFAULT_BACKGROUND_ERROR_RATE_PER_SOURCE = 10.0
 DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE = 20.0
 DEFAULT_COMMAND_RATE_PER_SECOND = 20.0
 DEFAULT_COMMAND_BURST = 20.0
+# Mission telemetry ACKs (type 36) pace the stop-and-wait downlink: one per
+# 44-byte chunk, so a 1 Hz status alone needs ~20/s.  Under the shared command
+# bucket the dropped ACKs stalled every transfer for its 1 s resend (SITL
+# run7).  An ACK is a fixed-size, HMAC-verified token match, so it gets its own
+# larger bucket.
+DEFAULT_TELEMETRY_ACK_RATE_PER_SECOND = 200.0
+DEFAULT_TELEMETRY_ACK_BURST = 200.0
 DEFAULT_DUPLICATE_ACK_INTERVAL_S = 0.25
 MAX_TRACKED_PEER_STATE_ENTRIES = 64
 
@@ -238,6 +245,8 @@ class UdpOperatorSelectionServer:
         background_error_burst_per_source: float = DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE,
         command_rate_per_second: float = DEFAULT_COMMAND_RATE_PER_SECOND,
         command_burst: float = DEFAULT_COMMAND_BURST,
+        telemetry_ack_rate_per_second: float = DEFAULT_TELEMETRY_ACK_RATE_PER_SECOND,
+        telemetry_ack_burst: float = DEFAULT_TELEMETRY_ACK_BURST,
         duplicate_ack_interval_s: float = DEFAULT_DUPLICATE_ACK_INTERVAL_S,
         max_commands_per_cycle: int = 16,
         replay_state_path: str | None = None,
@@ -273,6 +282,8 @@ class UdpOperatorSelectionServer:
             (background_error_burst_per_source, "background_error_burst_per_source"),
             (command_rate_per_second, "command_rate_per_second"),
             (command_burst, "command_burst"),
+            (telemetry_ack_rate_per_second, "telemetry_ack_rate_per_second"),
+            (telemetry_ack_burst, "telemetry_ack_burst"),
             (status_max_age_s, "status_max_age_s"),
             (status_future_tolerance_s, "status_future_tolerance_s"),
         ):
@@ -313,6 +324,8 @@ class UdpOperatorSelectionServer:
         self._max_sequence_forward_jump = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP
         self._command_rate_per_second = command_rate_per_second
         self._command_burst = command_burst
+        self._telemetry_ack_rate_per_second = telemetry_ack_rate_per_second
+        self._telemetry_ack_burst = telemetry_ack_burst
         self._duplicate_ack_interval_s = duplicate_ack_interval_s
         self._command_buckets: OrderedDict[
             tuple[tuple[str, int], WireMessageType], _TokenBucket
@@ -805,6 +818,9 @@ class UdpOperatorSelectionServer:
         now_s: float,
     ) -> bool:
         key = (peer, message_type)
+        rate, capacity = self._command_rate_per_second, self._command_burst
+        if int(message_type) == int(WireMessageType.MISSION_TELEMETRY_ACK):
+            rate, capacity = self._telemetry_ack_rate_per_second, self._telemetry_ack_burst
         bucket = self._command_buckets.get(key)
         if bucket is None:
             if self._command_peer is not None and peer != self._command_peer:
@@ -815,15 +831,11 @@ class UdpOperatorSelectionServer:
                 ):
                     return False
             self._evict_bounded(self._command_buckets, self._command_peer)
-            bucket = _TokenBucket(self._command_burst, now_s)
+            bucket = _TokenBucket(capacity, now_s)
             self._command_buckets[key] = bucket
         else:
             self._command_buckets.move_to_end(key)
-        return bucket.consume(
-            now_s=now_s,
-            refill_per_s=self._command_rate_per_second,
-            capacity=self._command_burst,
-        )
+        return bucket.consume(now_s=now_s, refill_per_s=rate, capacity=capacity)
 
     def _allow_duplicate_ack(
         self,

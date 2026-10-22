@@ -85,6 +85,23 @@ server.start_background()
 
 机载 `OnboardMissionLog` 保留完整 JSONL。下行接入既有 `DownlinkQueue`：只在其后台线程等待逐片 ACK，飞行线程不等待网络；最后一片确认后才推进持久化游标。较大日志下行压缩为最多 1,536 UTF-8 字节的摘要，保留任务／序号／类型及原始 SHA-256、字节数和截断标志。GCS 保留最近 50 条已收到记录，并按任务／序号去重；完整证据仍在机载文件中。
 
+### 下行选择、优先级与吞吐
+
+每条记录都写入机载 `mission.jsonl`（证据不删减），但 TUNNEL 每个确认分片只有 44 字节，链路只承载操作员需要的内容（`DownlinkSelector`，`src/multidetect/autonomy/onboard_mission_log.py`）：
+
+- 总是下行：`mission_started`、`mission_refused`、`plan`、`plan_approved`／`plan_rejected`、`finding`、`alert`、`escalation`、`envelope_violation`、`replay_state_lost`、`final_summary`（大摘要分页）。
+- `decision`：只有 `(action, reason)` 与上一条已下行的判定不同才发送，另外按记录时间每 30 秒发一条保活。
+- `ground_event`／`ground_event_rejected`：除例行 `heartbeat` 外全部发送。
+- 其余（`execution`、`estimates`、`perception_verdict` 等）只留在机载日志；实时进度由约 1 Hz 的 `status` 提供。
+
+游标仍顺序推进，跳过的记录也会被确认越过，所以 `acknowledged_sequence` 能到达日志末尾（SIM 退出前的排空依赖它）。积压中的 `finding`、`alert`、`escalation`、`final_summary`、计划类记录会越过前面的例行记录先发送；重启后可能重复送达，GCS 按任务／序号去重。适配器中优先记录不排在到期的 `status` 之后；普通记录与 `status` 交替。类型 36 ACK 使用独立的速率桶（默认 200/s），不再与普通命令共用 20/s——此前一个约 20 片的状态就耗尽额度，被丢弃的 ACK 让每次传输等待 1 秒重发（SITL run7 只送达 2051 条中的 735 条）。
+
+例行记录（心跳、判定、估计、执行等）只 flush 不逐条 fsync，下行线程读取日志不持有追加锁，避免慢盘时控制循环和链路线程卡顿（run8 曾卡约 5.6 秒）；发现、计划、升级、地面命令和最终摘要仍在返回前 fsync。
+
+### 最终摘要
+
+每个终止路径恰好写一条 `final_summary`：正常完成（`completed`）、监督器锁定返航／降落（含操作员中止、能量／时间储备、失联策略，状态 `ended_early`，在锁定时立即写，不等返航飞完）、计划被拒（`plan_rejected`）、宿主停止任务（`stopped`）。摘要包含已有历史、发现、报警、计数、每个计数步骤的 `count_lower_bounds`、`count_is_lower_bound`（计数步骤未完成覆盖即为 true）、`terminal_action`／`terminal_reason`。SIM 采集器在 `policy.close()` 之前调用 `_drain_sim_operator_link`：先补写摘要，再等待下行确认到日志末尾，最后在所有路径关闭地面链路服务器。
+
 界面主要显示中文判定、原因和日志摘要。勾选“显示机载原始审计字段”可以查看机器原文。地面站离线不暂停机载日志，也不引入正常步骤的地面批准要求。
 
 ## 本次验证与构建边界

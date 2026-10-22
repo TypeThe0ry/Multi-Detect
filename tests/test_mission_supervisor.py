@@ -392,7 +392,11 @@ def test_recovery_not_done_when_original_executor_finishes(tmp_path):
     assert not s.done
     s.next_action(pose_ned=(30, 0, -20), yaw_deg=180)
     assert not s.done
-    assert not s.log.summary_path.exists()
+    # The abort ends the mission: its one summary says so; recovery is not "completed".
+    summary = json.loads(s.log.summary_path.read_text(encoding="utf-8"))["summary"]
+    assert summary["status"] == "ended_early"
+    assert summary["terminal_action"] == "return_now"
+    assert summary["terminal_reason"] == "explicit operator abort"
 
 
 def test_clock_regression_rejected(tmp_path):
@@ -533,8 +537,14 @@ def test_completed_return_recovery_can_escalate_to_land(tmp_path):
     s.next_action(pose_ned=(0, 0, -20), yaw_deg=0)
     assert s._recovery_kind == "land"
     s.finish()
-    summary = json.loads(s.log.summary_path.read_text(encoding="utf-8"))
-    assert summary["summary"]["action"] == "land_now"
+    # Exactly one final summary: written when the return latched; the later
+    # land escalation is its own (downlinked) escalation record.
+    records = [json.loads(line) for line in s.log.path.read_text(encoding="utf-8").splitlines()]
+    summaries = [r for r in records if r["kind"] == "final_summary"]
+    assert len(summaries) == 1
+    assert summaries[0]["summary"]["terminal_action"] == "return_now"
+    escalations = [r["action"] for r in records if r["kind"] == "escalation"]
+    assert escalations[-1] == "land_now"
 
 
 def test_supervisor_return_recovery_uses_visibility_graph(tmp_path):
@@ -606,3 +616,47 @@ def test_a_slow_call_without_a_decision_logs_its_cause(tmp_path):
     rows = [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
     assert rows[-1]["kind"] == "perception_error"
     assert rows[-1]["track_id"] == "t3" and rows[-1]["error"] == "unparseable model output"
+
+
+def _summaries(log):
+    records = [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
+    return [r["summary"] for r in records if r["kind"] == "final_summary"]
+
+
+def test_early_return_writes_one_summary_with_partial_results(tmp_path):
+    s, now, log = build(tmp_path)
+    assert event(s, "heartbeat")
+    # A count step still searching when the mission ends: its count is a lower bound.
+    s.executor.counts["gate"] = 2
+    s.executor.findings.append({"step": "gate", "query": "cone", "position_ne": (1.0, 2.0)})
+    s.update_estimates(remaining_energy_wh=10)
+    assert s.evaluate() == "return_now"
+    (summary,) = _summaries(log)
+    assert summary["status"] == "ended_early"
+    assert summary["terminal_action"] == "return_now"
+    assert summary["terminal_reason"] == "remaining energy at or below reserve"
+    assert summary["findings"] == [{"step": "gate", "query": "cone", "position_ne": [1.0, 2.0]}]
+    assert summary["counts"] == {"gate": 2}
+    assert summary["count_lower_bounds"] == {"gate": True}
+    assert summary["count_is_lower_bound"] is True
+    # Further ticks, the recovery flight and a host stop never add a second one.
+    now[0] += 1
+    s.evaluate()
+    s.next_action(pose_ned=(0, 0, -20), yaw_deg=0)
+    s.finish("stopped")
+    assert len(_summaries(log)) == 1
+
+
+def test_host_stop_and_plan_rejection_are_terminal_summaries(tmp_path):
+    s, _now, log = build(tmp_path / "stop")
+    s.finish("stopped")
+    s.finish("stopped")
+    (summary,) = _summaries(log)
+    assert summary["status"] == "stopped" and summary["terminal_action"] is None
+    assert summary["count_is_lower_bound"] is None
+
+    s, _now, log = build(tmp_path / "reject")
+    s.requires_approval, s.plan_approved = True, False
+    assert s.reject_plan(s.plan_sha256)
+    (summary,) = _summaries(log)
+    assert summary["status"] == "plan_rejected"
