@@ -315,6 +315,8 @@ class Track:
     contradiction_active: bool = False
     contradiction_votes: list[dict[str, Any]] = field(default_factory=list)
     contradiction_relooks: int = 0
+    contradiction_altitude_m: float | None = None
+    contradiction_range_m: float | None = None
 
 
 def co_visibility_proves_distinct(
@@ -1485,6 +1487,11 @@ class OnboardLoop:
             if not remembered:
                 self._remember_rejection(track, confidence)
         if not remembered and verdict in {"confirm", "no_match"} and track.ground is not None:
+            view_range = self._track_range(track)
+            usable = _min_side(track.bbox) >= self.config.confirm_min_side_px and (
+                self.config.confirm_max_range_m is None
+                or (view_range is not None and view_range <= self.config.confirm_max_range_m)
+            )
             self._place_votes.append(
                 {
                     "ground": track.ground,
@@ -1493,18 +1500,21 @@ class OnboardLoop:
                     "co_visible_with": set(track.co_visible_with),
                     "appearance": track.appearance,
                     "footprint_m": getattr(track.appearance, "footprint_m", None),
+                    "min_side_px": _min_side(track.bbox),
+                    "range_m": view_range,
+                    "usable": usable,
                 }
             )
             del self._place_votes[: -self.config.place_votes_max]
             if (
                 self.config.contradiction_relook_enabled
-                and _min_side(track.bbox) >= self.config.confirm_min_side_px
+                and usable
                 and not track.contradiction_active
                 and track.contradiction_relooks < self.config.contradiction_relook_max
             ):
                 place_key = self._contradiction_place_key(track)
                 place_used = self._contradiction_relook_places.get(place_key, 0) if place_key else 0
-                confirms, rejects = self._place_vote_counts(track)
+                confirms, rejects = self._place_vote_counts(track, usable_only=True)
                 if confirms and rejects and place_used < self.config.contradiction_relook_max:
                     track.contradiction_active = True
                     track.contradiction_votes.clear()
@@ -1514,6 +1524,10 @@ class OnboardLoop:
                     track.confirm_steps.clear()
                     track.match_steps.clear()
                     track.needs_fresh_verdict = True
+                    track.contradiction_altitude_m = (
+                        max(0.0, -self._last_pose[2]) if self._last_pose is not None else None
+                    )
+                    track.contradiction_range_m = view_range
                     if place_key is not None:
                         self._contradiction_relook_places[place_key] = place_used + 1
 
@@ -1531,6 +1545,15 @@ class OnboardLoop:
         return (round(track.ground[0] / radius), round(track.ground[1] / radius))
 
     def _apply_contradiction_vote(self, track: Track, verdict: str) -> None:
+        view_range = self._track_range(track)
+        if _min_side(track.bbox) < self.config.confirm_min_side_px or (
+            self.config.confirm_max_range_m is not None
+            and (view_range is None or view_range > self.config.confirm_max_range_m)
+        ):
+            track.verdict = None
+            track.verdict_step = -1
+            track.needs_fresh_verdict = True
+            return
         bearing = self._view_bearing(track)
         if bearing is not None and any(
             abs(_wrap(bearing - float(v["bearing"]))) < self.config.contradiction_relook_bearing_deg
@@ -1545,6 +1568,8 @@ class OnboardLoop:
         track.contradiction_votes.append(
             {"verdict": verdict, "bearing": bearing, "step": self.step_index}
         )
+        if self._revisit is not None and self._revisit.get("kind") == "contradiction_relook":
+            self._revisit = None
         if track.ground is not None:
             self._place_votes.append(
                 {
@@ -1554,6 +1579,9 @@ class OnboardLoop:
                     "co_visible_with": set(track.co_visible_with),
                     "appearance": track.appearance,
                     "footprint_m": getattr(track.appearance, "footprint_m", None),
+                    "min_side_px": _min_side(track.bbox),
+                    "range_m": view_range,
+                    "usable": True,
                 }
             )
             del self._place_votes[: -self.config.place_votes_max]
@@ -1564,7 +1592,7 @@ class OnboardLoop:
             return
         confirms = sum(v["verdict"] == "confirm" for v in track.contradiction_votes)
         rejects = sum(v["verdict"] == "no_match" for v in track.contradiction_votes)
-        old_confirms, old_rejects = self._place_vote_counts(track)
+        old_confirms, old_rejects = self._place_vote_counts(track, usable_only=True)
         fresh_majority = self.config.contradiction_relook_views // 2 + 1
         final = (
             "confirm"
@@ -1576,6 +1604,8 @@ class OnboardLoop:
         track.verdict, track.verdict_step = final, self.step_index
         track.needs_fresh_verdict = False
         track.verdict_remembered = False
+        track.contradiction_altitude_m = None
+        track.contradiction_range_m = None
         track.identity_verdict_history.append(final)
         if final == "confirm":
             track.identity_positive_matches += 1
@@ -1595,9 +1625,11 @@ class OnboardLoop:
         offset = math.radians(self.config.contradiction_relook_bearing_deg)
         index = len(track.contradiction_votes) + 1
         angle = current + offset * index
+        altitude = track.contradiction_altitude_m or max(0.0, -pose_ned[2])
+        target_range = track.contradiction_range_m
         standoff = max(
-            self.config.second_look_standoff_m,
-            self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
+            self.config.min_translate_m,
+            target_range if target_range is not None else self.config.second_look_standoff_m,
         )
         goal = (centre[0] + standoff * math.cos(angle), centre[1] + standoff * math.sin(angle))
         if not self._segment_clear(pose_ned, goal[0], goal[1]):
@@ -1608,6 +1640,7 @@ class OnboardLoop:
             "phase": "fly",
             "steps": 0,
             "kind": "contradiction_relook",
+            "altitude_m": altitude,
             "rejection": {
                 "ground": centre,
                 "views": [],
@@ -1690,11 +1723,12 @@ class OnboardLoop:
         """An earlier rejection that may be the same object as ``track`` (same place, look)."""
         return next((item for item in self._rejections if self._same_place(item, track)), None)
 
-    def _place_vote_counts(self, track: Track) -> tuple[int, int]:
+    def _place_vote_counts(self, track: Track, *, usable_only: bool = False) -> tuple[int, int]:
         """Real confirm and reject verdicts, from any track, at ``track``'s place."""
         same = [
             v
             for v in self._place_votes
+            if not usable_only or v.get("usable", False)
             if v["track_id"] == track.track_id or self._same_place(v, track)
         ]
         return (
@@ -1842,6 +1876,15 @@ class OnboardLoop:
         if look["steps"] > 2 * self.config.max_approach_steps:
             if look["phase"] == "fly":
                 look["rejection"]["revisited"] = False
+            if look.get("kind") == "contradiction_relook":
+                track = self._tracks.get(look["rejection"].get("track_id"))
+                if track is not None:
+                    track.contradiction_active = False
+                    track.contradiction_votes.clear()
+                    track.needs_fresh_verdict = False
+                    if "confirm" in track.identity_verdict_history:
+                        track.verdict = "confirm"
+                        track.confirm_steps = [self.step_index]
             self._revisit = None
             return None
         if look["phase"] == "fly":
@@ -1891,11 +1934,23 @@ class OnboardLoop:
                 )
                 if compatible and math.dist(track.ground, look["centre"]) <= radius:
                     track.verdict, track.confirm_steps = None, []
+                    track.needs_fresh_verdict = True
                     # A place revisit asks again but never re-opens a counted
                     # or approach-exhausted track.
                     if look.get("kind") != "place_revisit":
                         track.exhausted = False
             look["phase"] = "look"
+            return ActionPrimitive.hold(1.0)
+        if look["phase"] == "look":
+            if look.get("kind") == "contradiction_relook":
+                # Keep the revisit active until the slow model has actually
+                # supplied a usable fresh vote at this viewpoint.
+                look["phase"] = "collect"
+                return ActionPrimitive.hold(1.0)
+            if look.get("kind") == "place_revisit":
+                self._revisit = None
+                return None
+        if look.get("kind") == "contradiction_relook" and look["phase"] == "collect":
             return ActionPrimitive.hold(1.0)
         if look.get("kind") != "place_revisit":
             # Host-requested place revisits do not spend the second-look budget.
@@ -2498,13 +2553,15 @@ class OnboardLoop:
             if best.contradiction_active and self._revisit is None:
                 self._revisit = self.plan_contradiction_relook(best, pose_ned)
                 if self._revisit is None:
-                    # No safe viewpoint means the conservative outcome is reject.
+                    # No safe viewpoint: abandon the extra evidence request and
+                    # preserve the pre-relook usable positive evidence.
                     best.contradiction_active = False
-                    best.verdict = "no_match"
+                    best.contradiction_votes.clear()
+                    best.verdict = "confirm" if "confirm" in best.identity_verdict_history else None
                     best.verdict_step = self.step_index
                     best.needs_fresh_verdict = False
-                    best.confirm_steps.clear()
-                    best.match_steps.clear()
+                    if best.verdict == "confirm":
+                        best.confirm_steps = [self.step_index]
                 else:
                     look = self._second_look_action(pose_ned, yaw_deg, info)
                     if look is not None:

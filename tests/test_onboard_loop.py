@@ -224,6 +224,30 @@ def test_static_ground_veto_rejects_far_jump_even_with_matching_appearance() -> 
     assert [track.track_id for track in tracks] == ["t2"]
 
 
+def test_far_small_reject_does_not_start_contradiction_relook() -> None:
+    loop = _loop(
+        contradiction_relook_enabled=True,
+        confirm_max_range_m=20.0,
+        stop_on_confirm=False,
+    )
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 11), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (40.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track")
+    assert not track.contradiction_active
+    loop.step_index += 1
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 28), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (8.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    assert not track.contradiction_active and track.verdict == "confirm"
+
+
 def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
     loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
     pose = (0.0, 0.0, -20.0)
@@ -281,6 +305,16 @@ def test_contradiction_relook_counts_target_after_two_of_three_fresh_bearings() 
     )
     assert action.kind in {"turn", "translate", "hold"}
     assert info["second_look"]["kind"] == "contradiction_relook"
+    look = loop._revisit
+    assert look is not None and look["altitude_m"] == 20.0
+    goal = look["goal"]
+    yaw = math.degrees(math.atan2(look["centre"][1] - goal[1], look["centre"][0] - goal[0]))
+    for _ in range(3):
+        loop._second_look_action((goal[0], goal[1], -look["altitude_m"]), yaw, {})
+    assert look["phase"] == "collect"
+    loop._last_pose = (goal[0], goal[1], -look["altitude_m"])
+    loop.apply_verdict(track.track_id, "confirm_target")
+    assert len(track.contradiction_votes) == 1
     for pose, verdict in [
         ((30.0, 0.0, -20.0), "confirm_target"),
         ((0.0, 30.0, -20.0), "reject_track"),
@@ -306,6 +340,24 @@ def test_contradiction_relook_rejects_distractor_with_one_flip() -> None:
         loop.apply_verdict(track.track_id, verdict)
     assert not track.contradiction_active
     assert track.verdict == "no_match" and not track.confirm_steps
+
+
+def test_contradiction_relook_blocked_route_preserves_usable_confirm() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: False,
+        config=LoopConfig(contradiction_relook_enabled=True, stop_on_confirm=False),
+    )
+    track = _start_contradiction(loop)
+    loop.next_action(
+        [track],
+        pose_ned=(0.0, -30.0, -20.0),
+        yaw_deg=0.0,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    assert not track.contradiction_active
+    assert track.verdict == "confirm"
 
     loop = _loop(
         small_reject_recheck_px=16.0,
