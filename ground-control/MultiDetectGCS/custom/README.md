@@ -122,6 +122,10 @@ The desktop or Android process reads the following runtime values:
 | `MULTIDETECT_OPERATOR_UDP_LOCAL_PORT` | QGC receive port; defaults to `14581` and must differ from the remote port. |
 | `MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX` | Exactly 32 random bytes encoded as 64 hexadecimal digits for outer MAVLink 2 signing. |
 | `MULTIDETECT_VIDEO_RTSP_URL` | Optional RTSP source injected into QGC without UI setup. |
+| `MULTIDETECT_UI_SNAPSHOT_DIR` | Acceptance-only absolute directory. Enables `QQuickWindow::grabWindow()` PNG snapshots; unset in production. |
+| `MULTIDETECT_UI_SNAPSHOT_INTERVAL_S` | Optional snapshot interval in seconds (default `2`, clamped to `1`-`3600`). |
+| `MULTIDETECT_UI_SNAPSHOT_MAX` | Optional maximum PNG count (default `20`, max `1000`). QML may call `multiDetectUiSnapshotController.requestSnapshot("event")`. |
+| `MULTIDETECT_UI_AUTO_EXIT_S` | Optional acceptance-only clean event-loop exit delay in seconds (maximum `3600`); independent of isolated HIL. |
 
 When `MULTIDETECT_OPERATOR_UDP_HOST` is present, the custom application creates an ephemeral direct
 UDP link only for signed operator metadata. It does not create a vehicle and does not carry flight
@@ -130,9 +134,20 @@ use the direct link; raw video remains RTSP and aircraft telemetry remains stand
 
 Production must not set any `MULTIDETECT_OPERATOR_HIL_*`,
 `MULTIDETECT_OPERATOR_ALLOW_UNSIGNED_HIL`, or acceptance-only
-`MULTIDETECT_HIL_UI_AUTO_*` variable. Windows acceptance still calls the native
+`MULTIDETECT_HIL_UI_AUTO_*` or `MULTIDETECT_UI_*SNAPSHOT*` variable. Windows acceptance still calls the native
 `finishCloseProcess()` path for link/video teardown; the controlled exit after
 `MULTIDETECT_HIL_UI_AUTO_EXIT` avoids the QML/global-singleton destruction race.
+
+For locked-desktop or remote acceptance, set `QT_QPA_PLATFORM=offscreen` and optionally
+`QT_QUICK_BACKEND=software`, then set `MULTIDETECT_UI_SNAPSHOT_DIR` to an absolute directory.
+The custom plugin binds the main `QQuickWindow` after QML startup and writes `snapshot-####-event.png`
+files without relying on Win32 `PrintWindow` or screen capture. The hook is completely inactive when
+the directory variable is absent. `MULTIDETECT_UI_AUTO_EXIT_S` is useful for bounded offscreen runs;
+it only schedules `QCoreApplication::quit()` when explicitly set.
+On the current locked Windows session, this QGC build crashes under `QT_QPA_PLATFORM=offscreen` before
+creating a window (`0xC0000005`); `QT_QPA_PLATFORM=minimal` with the software renderer starts cleanly,
+but does not expose a capturable QQuickWindow. Treat PNG generation as an environment-dependent
+acceptance check and retain the process logs when the platform plugin cannot create a window.
 The three earlier QGC + pinned PX4 SITL runs and the two palette rebuilds are
 historical pre.3 stability evidence: all reported `exit_code=0`/`all_passed=true`
 with no new crash dump, and the then-latest run was `20260825T190317Z-5732`.

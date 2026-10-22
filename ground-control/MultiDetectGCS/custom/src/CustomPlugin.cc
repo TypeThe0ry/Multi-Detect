@@ -4,8 +4,15 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
+#include <QtCore/QDir>
+#include <QtCore/QPointer>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QSettings>
+#include <QtCore/QTimer>
 #include <QtCore/QUrl>
+#include <QtQuick/QQuickWindow>
+#include <QtGui/QGuiApplication>
+#include <QtGui/QWindow>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlContext>
 
@@ -22,6 +29,75 @@
 #include "VideoSettings.h"
 
 Q_APPLICATION_STATIC(CustomPlugin, _customPluginInstance);
+
+class UiSnapshotController final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool enabled READ enabled CONSTANT)
+
+public:
+    explicit UiSnapshotController(QObject* parent = nullptr) : QObject(parent) {}
+
+    bool enabled() const { return !_directory.isEmpty(); }
+
+    void configure(QQuickWindow* window, const QString& directory, int intervalSeconds, int maxFiles,
+                   int autoExitSeconds)
+    {
+        _window = window;
+        _directory = directory;
+        const int boundedIntervalSeconds = qBound(1, intervalSeconds, 3600);
+        _intervalMs = boundedIntervalSeconds * 1000;
+        _maxFiles = qBound(1, maxFiles, 1000);
+        if (!enabled() || !_window) {
+            return;
+        }
+        QDir().mkpath(_directory);
+        connect(_window, &QObject::destroyed, this, [this] { _window = nullptr; });
+        QTimer::singleShot(500, this, [this] { capture(QStringLiteral("startup")); });
+        _timer.setInterval(_intervalMs);
+        connect(&_timer, &QTimer::timeout, this, [this] { capture(QStringLiteral("interval")); });
+        _timer.start();
+        if (autoExitSeconds > 0) {
+            QTimer::singleShot(autoExitSeconds * 1000, qApp, &QCoreApplication::quit);
+        }
+    }
+
+    Q_INVOKABLE bool requestSnapshot(const QString& eventName = QStringLiteral("event"))
+    {
+        return capture(eventName);
+    }
+
+private:
+    bool capture(QString eventName)
+    {
+        if (!enabled() || !_window || _count >= _maxFiles) {
+            if (_count >= _maxFiles) {
+                _timer.stop();
+            }
+            return false;
+        }
+        eventName.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_.-]+")), QStringLiteral("_"));
+        if (eventName.isEmpty()) {
+            eventName = QStringLiteral("event");
+        }
+        const QString path = QDir(_directory).filePath(
+            QStringLiteral("snapshot-%1-%2.png").arg(++_count, 4, 10, QLatin1Char('0')).arg(eventName));
+        const QImage image = _window->grabWindow();
+        if (image.isNull() || !image.save(path, "PNG")) {
+            qWarning() << "MultiDetect UI snapshot failed:" << path;
+            return false;
+        }
+        qInfo() << "MultiDetect UI snapshot:" << QDir::toNativeSeparators(path);
+        return true;
+    }
+
+    QPointer<QQuickWindow> _window;
+    QTimer _timer;
+    QString _directory;
+    int _intervalMs = 2000;
+    int _maxFiles = 20;
+    int _count = 0;
+};
 
 namespace {
 
@@ -187,6 +263,8 @@ void CustomPlugin::init()
 
 void CustomPlugin::cleanup()
 {
+    delete _uiSnapshotController;
+    _uiSnapshotController = nullptr;
     if (_missionController) {
         _missionController->shutdown();
         delete _missionController;
@@ -308,6 +386,49 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiGeometryExport"),
                                                    hilUiGeometryExport);
 
+    // Acceptance-only QQuickWindow snapshots.  The hook is inert unless an
+    // explicit output directory is supplied, so production launches pay no
+    // rendering or filesystem cost.  QML may call requestSnapshot("event")
+    // when a named acceptance state (for example plan/final-summary) appears.
+    const QString snapshotDirectory = qEnvironmentVariable("MULTIDETECT_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty() && QFileInfo(snapshotDirectory).isAbsolute()) {
+        _uiSnapshotController = new UiSnapshotController(this);
+        _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectUiSnapshotController"),
+                                                       _uiSnapshotController);
+        bool intervalOk = false;
+        const int intervalSeconds = qEnvironmentVariable("MULTIDETECT_UI_SNAPSHOT_INTERVAL_S").toInt(&intervalOk);
+        bool maxOk = false;
+        const int maxFiles = qEnvironmentVariable("MULTIDETECT_UI_SNAPSHOT_MAX").toInt(&maxOk);
+        bool autoExitOk = false;
+        const int autoExitSeconds = qEnvironmentVariable("MULTIDETECT_UI_AUTO_EXIT_S").toInt(&autoExitOk);
+        const int configuredAutoExit = autoExitOk && autoExitSeconds > 0 && autoExitSeconds <= 3600 ? autoExitSeconds : 0;
+        if (configuredAutoExit > 0)
+            QTimer::singleShot(configuredAutoExit * 1000, qApp, &QCoreApplication::quit);
+        auto* bindTimer = new QTimer(this);
+        bindTimer->setInterval(250);
+        connect(bindTimer, &QTimer::timeout, this, [this, bindTimer, snapshotDirectory,
+                                                     intervalSeconds = intervalOk ? intervalSeconds : 2,
+                                                     maxFiles = maxOk ? maxFiles : 20] {
+            if (!_uiSnapshotController || !_qmlEngine) { bindTimer->stop(); bindTimer->deleteLater(); return; }
+            for (QWindow* candidate : QGuiApplication::allWindows()) {
+                if (auto* window = qobject_cast<QQuickWindow*>(candidate)) {
+                    _uiSnapshotController->configure(window, snapshotDirectory, intervalSeconds, maxFiles, 0);
+                    bindTimer->stop(); bindTimer->deleteLater();
+                    return;
+                }
+            }
+        });
+        bindTimer->start();
+    } else {
+        // Auto-exit can be useful with an offscreen smoke run even when no
+        // pixels are requested.  Keep it opt-in and bounded for test hygiene.
+        bool autoExitOk = false;
+        const int autoExitSeconds = qEnvironmentVariable("MULTIDETECT_UI_AUTO_EXIT_S").toInt(&autoExitOk);
+        if (autoExitOk && autoExitSeconds > 0 && autoExitSeconds <= 3600) {
+            QTimer::singleShot(autoExitSeconds * 1000, qApp, &QCoreApplication::quit);
+        }
+    }
+
     // An acceptance run may export the pixels rendered by QGC's one native
     // VideoOutput. Do not expose this hook to a normal application launch:
     // the command-line isolation boundary, an explicit true value, and an
@@ -343,3 +464,5 @@ QUrl CustomOverrideInterceptor::intercept(const QUrl& url, DataType type)
     }
     return url;
 }
+
+#include "CustomPlugin.moc"

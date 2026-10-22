@@ -113,7 +113,30 @@ Item {
         if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
         return root.mapFromItem(mapControl, p.x, p.y);
     }
+    function _missionCoordinate(n, e) {
+        const o = (_missionPlan || {}).origin || _missionTelemetry.origin || {};
+        const lat = Number(o.latitude_deg !== undefined ? o.latitude_deg : o.lat);
+        const lon = Number(o.longitude_deg !== undefined ? o.longitude_deg : o.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return QtPositioning.coordinate(lat + Number(n) / 111320.0,
+                                        lon + Number(e) / (111320.0 * Math.cos(lat * Math.PI / 180)));
+    }
     function _hasSummaryPages() { return _missionLogs.some(e => String(e.kind || "") === "final_summary_page"); }
+    property bool _missionPlanSnapshotSent: false
+    property bool _missionSummarySnapshotSent: false
+    Connections {
+        target: root._missionController
+        function onTelemetryChanged() {
+            if (root._missionPlan.requires_approval === true && !root._missionPlanSnapshotSent) {
+                root._missionPlanSnapshotSent = true
+                if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("plan-dialog")
+            }
+            if (root._missionController.finalSummaryComplete && !root._missionSummarySnapshotSent) {
+                root._missionSummarySnapshotSent = true
+                if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("final-summary-complete")
+            }
+        }
+    }
     // Keep the map-only uncertainty projection on the same WGS-84 ellipsoid
     // as the Python geolocation backend.  These values are used solely to
     // convert metres to the two local degree offsets needed by QGC's map
@@ -1147,13 +1170,13 @@ Item {
                     Layout.fillWidth: true
                     visible: root._missionPlan.requires_approval === true || root._missionField(["requires_approval", "plan.requires_approval"], false) === true
                     text: qsTr("查看并审批计划")
-                    onClicked: missionApprovalDialog.open()
+                    onClicked: { missionApprovalDialog.open(); if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("plan-dialog") }
                 }
                 QGCButton {
                     Layout.fillWidth: true
                     visible: root._hasSummaryPages()
                     text: qsTr("查看任务最终摘要")
-                    onClicked: missionSummaryDialog.open()
+                    onClicked: { missionSummaryDialog.open(); if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("final-summary") }
                 }
             }
         }
@@ -1316,6 +1339,16 @@ Item {
             y: point ? point.y - height / 2 : -100
             z: 20
             Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: qgcPal.colorGreen; border.width: 2 }
+        }
+    }
+    Repeater {
+        model: root._missionPlan.routes || []
+        delegate: MapPolyline {
+            parent: root.mapControl
+            line.width: 4
+            line.color: qgcPal.colorGreen
+            z: 21
+            path: (modelData.points || []).map(function (point) { return root._missionCoordinate(point[0], point[1]); }).filter(function (point) { return point !== null; })
         }
     }
 
