@@ -389,11 +389,19 @@ class MissionExecutor:
             overrides.setdefault("obstacle_source", self.obstacle_source)
         return self.loop_factory(task_text, **overrides)
 
-    def _segment_clear(self, start: Pose, north: float, east: float) -> bool:
-        """Apply the configured source to an executor geometry leg."""
+    def _segment_clear(
+        self, start: Pose, north: float, east: float, end_down: float | None = None
+    ) -> bool:
+        """Apply the configured source to an executor geometry leg.
+
+        ``end_down`` makes the leg a descent from ``start``: it must be checked
+        from the current altitude, not from an already lowered start, or a roof
+        between the two altitudes is never seen.
+        """
+        down = start[2] if end_down is None else end_down
         if self.obstacle_source is not None:
-            return self.obstacle_source.segment_clear(start, (north, east, start[2]))
-        return self._probe.segment_clear(start, north, east)
+            return self.obstacle_source.segment_clear(start, (north, east, down))
+        return self._probe.segment_clear((start[0], start[1], max(start[2], down)), north, east)
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
@@ -1838,10 +1846,11 @@ class MissionExecutor:
         altitude = max(0.0, -pose[2])
         altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
         if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
-            target = (pose[0], pose[1], -altitude_m)
             # A pure climb leaves the obstacle footprint vertically; obstacle
             # clearance at the current position must not hold a legal escape.
-            if altitude_m < altitude and not self._segment_clear(target, pose[0], pose[1]):
+            if altitude_m < altitude and not self._segment_clear(
+                pose, pose[0], pose[1], -altitude_m
+            ):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"
