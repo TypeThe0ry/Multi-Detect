@@ -33,6 +33,8 @@ from scripts.run_simulator_docker import (  # noqa: E402
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
+RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
+DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
 WORLD_SCENARIOS = {
     "urban_inspection_multirotor_001.sdf": ROOT
     / "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
@@ -135,7 +137,6 @@ def build_session_command(
     if gcs_port is not None:
         if not 1024 <= gcs_port <= 65535 or gcs_port == control_port:
             raise ValueError("gcs-port must be in 1024..65535 and differ from control port")
-        env.append(f"PX4_GCS_PORT={gcs_port}")
     for index in range(0, image_index - 1):
         if command[index] == "--env" and command[index + 1] == "HEADLESS=1":
             command[index + 1] = "HEADLESS=1"
@@ -158,12 +159,14 @@ def build_session_command(
         "exec /opt/px4-gazebo/bin/px4", viewer_start + "exec /opt/px4-gazebo/bin/px4"
     )
     if gcs_port is not None:
-        command[image_index:image_index] = ["--publish", f"127.0.0.1:{gcs_port}:{gcs_port}/udp"]
         startup = command[-1]
+        gcs_line = (
+            f"mavlink start -x -t $DOCKER_HOST_IP -u 14542 -o {gcs_port} "
+            "-r 4000000 -f $mavlink_network_interface_arg; "
+        )
         command[-1] = startup.replace(
             "exec /opt/px4-gazebo/bin/px4",
-            f"printf '\\nmavlink start -x -u {gcs_port}\\n' >> \"$RC\"; "
-            "exec /opt/px4-gazebo/bin/px4",
+            f"printf '\\n{gcs_line}\\n' >> \"$RC\"; exec /opt/px4-gazebo/bin/px4",
         )
     return command, plan, world_path
 
@@ -204,6 +207,20 @@ def ensure_viewer_image(docker: str, *, force: bool = False) -> None:
         cwd=ROOT,
         check=True,
     )
+
+
+def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
+    if not RESOLVED_FUEL_CACHE.is_dir():
+        raise RuntimeError(
+            "resolved Gazebo Fuel cache is missing: "
+            f"{RESOLVED_FUEL_CACHE}. Create the repository artifacts "
+            "junction/cache before starting."
+        )
+    if onboard and not DEFAULT_LLAMA_SERVER.is_file():
+        raise RuntimeError(
+            "llama-server is missing: "
+            f"{DEFAULT_LLAMA_SERVER}. Install or link the r18 artifacts before --onboard-task."
+        )
 
 
 def _run_task(task: str, world: Path, port: int, out: Path, container_name: str) -> int:
@@ -272,6 +289,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.viewer == "novnc":
         parser.error("novnc fallback is not installed; use --viewer wslg")
     try:
+        validate_runtime_prerequisites(onboard=bool(args.onboard_task))
         command, plan, world = build_session_command(
             world=args.world,
             airframe=args.airframe,
@@ -282,7 +300,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             telemetry_port=args.telemetry_port,
             viewer_port=args.viewer_port,
         )
-    except (OSError, TypeError, ValueError) as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         parser.error(str(exc))
     docker = plan.docker_executable or shutil.which("docker")
     if not docker:

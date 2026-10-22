@@ -17,7 +17,7 @@ python scripts/run_sim_session.py
 
 - `--world <名称|路径>`：`simulation/gazebo/worlds` 下的 SDF 文件名，或仓库内路径；
 - `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`rc_cessna_runway` 等已有 profile；
-- `--gcs-port 14560`：仅本次会话发布 GCS UDP 端口。Windows 上 14550 被排除，验收脚本仍禁止使用 14550；
+- `--gcs-port 14560`：PX4 向宿主 `host.docker.internal:<port>` 主动发送 GCS MAVLink；端口不发布到 Docker，避免 Docker proxy 占用宿主 socket；
 - `--viewer-port 6080`：noVNC HTTP 端口；
 - `--build-viewer`：强制重建一次性派生 viewer 镜像，正常启动会复用缓存；
 - `--onboard-task "..."`：启动后执行仓库的 onboard policy-chain smoke，并把任务文本与结果写入 `--onboard-out`；完整 live episode 还需要相机设备和签名 mission package，当前命令不会伪造这两项；
@@ -31,7 +31,7 @@ python scripts/run_sim_session.py --world gen_cnt2_w0000 --gcs-port 14560 `
 ```
 
 启动后终端会打印世界文件、PX4 control/telemetry、GCS UDP 和浏览器 URL。
-QGroundControl 或 MultiDetectGCS 连接 `127.0.0.1:14560`；手动控制仍使用
+QGroundControl 或 MultiDetectGCS 绑定/连接 `127.0.0.1:14560`；手动控制仍使用
 `127.0.0.1:14540`。
 
 ## 锁与验证
@@ -62,8 +62,9 @@ exit $status
 将 apt 安装固定在构建层，运行时不会下载包。
 
 当前 Windows `netsh int ipv4 show excludedportrange protocol=udp` 输出没有覆盖
-14560；脚本因此默认使用 14560。若本地策略或其他进程仍占用端口，用 `--gcs-port`
-换一个空闲端口，并在终端看到 `PX4 heartbeat: received` 后再连接 GCS。
+14560；脚本因此默认使用 14560。启动前会 fail-fast 检查
+`artifacts/cache/gz-fuel/resolved` 和 onboard 所需的
+`artifacts/cache/llama-cpp/b11552/llama-server.exe`，避免缺缓存时 Gazebo 无限等待。
 
 ## 本机实测结果（2026-10-22）
 
@@ -74,11 +75,11 @@ exit $status
 证据在 `D:/Projects/mdwt/_scratch/simgui/shots/rich.png` 和
 `D:/Projects/mdwt/_scratch/simgui/rich-docker.log`。
 
-`gen_cnt2_w0000.sdf` 也能启动 PX4/Gazebo server，noVNC 返回 `200`，但在 75 秒检查点
-仍处于 `Waiting for Gazebo world`，截图只有 250 bytes 的空白图像；证据在
-`shots/count-late.png`、`count-late-docker.log` 和 `count-late-verification.json`。
+`gen_cnt2_w0000.sdf` 的 Fuel cache 和 `llama-server` 现在由 worktree 的 `artifacts`
+junction 提供。启动器会在缺少任一资源时立即报错，不再让 PX4 无限等待；缓存存在时应
+继续用 `shots/count-late.png`、`count-late-docker.log` 做回归对比。
 
-Windows Docker UDP publish 会占用宿主 `14560` socket，pymavlink 在宿主绑定该 GCS
-端口返回 `WinError 10013`，所以本轮没有伪造 HEARTBEAT 成功结论。attach onboard 任务
-真实启动过，但在起飞前因缺少本机 `llama-server` 可执行文件失败（`WinError 2`），没有
-mission summary 或飞行截图；完整 stderr 在 `onboard2/stderr.log`。
+GCS 端口不再通过 Docker publish，占用问题已修复：PX4 额外 MAVLink instance 主动发送
+到 `host.docker.internal:<gcs-port>`，宿主 pymavlink/QGC 绑定 `0.0.0.0:<gcs-port>`。
+本轮重跑因共享 SITL 锁被 `relook3` lane 占用而中断，尚未声称新的 HEARTBEAT 或 live
+onboard mission 成功；此前失败的 `onboard2/stderr.log` 保留作缺少 llama-server 的历史证据。

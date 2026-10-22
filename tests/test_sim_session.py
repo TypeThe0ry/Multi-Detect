@@ -19,15 +19,15 @@ def test_session_plan_enables_browser_viewer() -> None:
     assert "14550/udp" not in command
 
 
-def test_session_plan_can_publish_gcs_port() -> None:
+def test_session_plan_sends_gcs_to_host_without_publishing_port() -> None:
     command, _, _ = build_session_command(
         world="gen_cnt2_w0000.sdf",
         airframe="x500_mono_cam",
         gcs_port=14560,
         container_name="gcs-session",
     )
-    assert "127.0.0.1:14560:14560/udp" in command
-    assert any("mavlink start -x -u 14560" in token for token in command)
+    assert "127.0.0.1:14560:14560/udp" not in command
+    assert any("-t $DOCKER_HOST_IP -u 14542 -o 14560" in token for token in command)
 
 
 def test_world_must_be_repository_owned() -> None:
