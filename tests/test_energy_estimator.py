@@ -296,3 +296,86 @@ def test_clock_domain_cannot_change_after_telemetry_was_accepted():
     model.ingest(battery(), received_at_s=10)
     assert not model.use_clock(lambda: 0.0)
     assert not model.clock_bound
+
+
+# PX4 SITL x500 battery as recorded in 189 SITL mavlink.jsonl logs (2026-10-23):
+# BatterySimulator reports current -1 ("no current sensor in simulation"),
+# current_consumed 0 mAh, energy_consumed -1, and a voltage interpolated from the
+# synthetic percentage between 3.6 and 4.05 V/cell on 4 cells, i.e. 14.4 + 1.8*pct
+# V (observed within 0.054 V).  The percentage drains while armed and is clamped
+# at SIM_BAT_MIN_PCT (50 in batch runs, 95 in operator sessions).
+SITL_BUDGET = {"energy_wh": 200, "reserve_energy_wh": 40, "reserve_time_s": 60}
+
+
+def sitl_battery(pct):
+    return battery(
+        pct=pct,
+        voltage=round(14400 + 18 * pct),
+        current=-1,
+        consumed=0,
+        energy_consumed=-1,
+        time_remaining=0,
+    )
+
+
+def sitl_flight_step(model, vehicle, t, pct):
+    vehicle[0] = t
+    model.ingest({"mavpackettype": "HEARTBEAT", "base_mode": 129}, received_at_s=t)
+    model.ingest(
+        {"mavpackettype": "LOCAL_POSITION_NED", "vx": 3.0, "vy": 0.0, "vz": 0.0}, received_at_s=t
+    )
+    model.ingest(sitl_battery(pct), received_at_s=t)
+
+
+def test_px4_sitl_battery_adds_no_power_counter_or_voltage_sag_evidence():
+    vehicle = [0.0]
+    model = OnboardEnergyEstimator(EnergyConfig.from_budget(SITL_BUDGET))
+    assert model.use_clock(lambda: vehicle[0])
+    for t in range(0, 61):
+        sitl_flight_step(model, vehicle, float(t), max(50, 100 - t))
+        if t == 30:
+            mid = estimate(model)
+    result = estimate(model)
+    # current -1 never becomes a power sample: the phase powers stay the floors.
+    assert result["phase_power_w"] == {"hover": 360, "translate": 400, "climb": 500}
+    # The SITL voltage is a function of the synthetic SOC, not an independent
+    # load measurement; with the default 14.8/13.2 V envelope it never sags in
+    # the clamped 50-100 % range, so the SOC is not counted twice.
+    assert result["voltage_v"] == pytest.approx(15.3)
+    assert result["voltage_sag_factor"] == 1
+    assert mid["voltage_sag_factor"] == 1
+    # Each SOC reading is an anchor and the 500 W floor is charged from the
+    # lowest one on; the zero consumed counter adds no evidence either way.  The
+    # synthetic drain (1 %/s here) outpaces the floor, so SOC sets the anchor and
+    # the clamp at 50 % (t = 50 s) is then drawn down at 500 W.
+    assert mid["remaining_energy_wh"] == pytest.approx(200 * 0.70)
+    assert result["remaining_energy_wh"] == pytest.approx(100 - 500 * 10 / 3600)
+    assert result["source"] == "onboard_battery_model"
+    assert result["action"] == "continue"
+
+
+@pytest.mark.parametrize("min_pct", [50, 95])
+def test_px4_sitl_endurance_is_the_package_budget_at_the_power_floor(min_pct):
+    vehicle = [0.0]
+    model = OnboardEnergyEstimator(EnergyConfig.from_budget(SITL_BUDGET))
+    assert model.use_clock(lambda: vehicle[0])
+    t, result, clamped_at = 0.0, None, None
+    while t <= 2000:
+        pct = max(min_pct, 100 - t)
+        sitl_flight_step(model, vehicle, t, pct)
+        if pct == min_pct and clamped_at is None:
+            clamped_at = t
+        result = estimate(model)
+        if result["action"] != "continue":
+            break
+        t += 2.0
+    # The synthetic SOC clamp is the last anchor; the return comes when the
+    # 500 W floor drawn from it reaches reserve + return energy.  With the
+    # default 50 % clamp a 200/40 Wh package returns ~7 min after the clamp,
+    # which is why operator sessions run SIM_BAT_MIN_PCT=95 (~17 min).
+    anchor_wh = 200 * min_pct / 100
+    expected = clamped_at + (anchor_wh - 40 - result["return_energy_wh"]) * 3600 / 500
+    assert result["action"] == "return_now"
+    assert result["reason"] == "energy reserve reached"
+    assert expected <= t < expected + 2.0
+    assert t == pytest.approx({50: 440, 95: 1044}[min_pct])
