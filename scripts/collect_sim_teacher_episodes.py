@@ -203,6 +203,7 @@ class CollectionPlan:
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
     segmentation: bool = False
     camera_noise_overlay: bool = False
+    wind_vehicle_overlay: bool = False
     # ``None`` selects the scenario-derived altitude.  An explicit value is
     # retained in the plan so campaign wrappers can override it per run.
     takeoff_altitude_m: float | None = None
@@ -374,6 +375,23 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             "--mount",
             f"type=bind,source={overlay.resolve()},"
             "target=/opt/multidetect-gazebo-models/mono_cam,readonly",
+        )
+        parent_mount = next(
+            (
+                index
+                for index, token in enumerate(command)
+                if token.startswith("type=bind,")
+                and "target=/opt/multidetect-gazebo-models," in token
+            ),
+            command.index("run"),
+        )
+        command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+    if plan.wind_vehicle_overlay:
+        overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_wind"
+        overlay_mount = (
+            "--mount",
+            f"type=bind,source={overlay.resolve()},"
+            "target=/opt/multidetect-gazebo-models/x500_mono_cam,readonly",
         )
         parent_mount = next(
             (
@@ -3669,6 +3687,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="mount the repository mono_cam Gaussian-noise overlay",
     )
+    parser.add_argument("--wind-vehicle-overlay", action="store_true")
     parser.add_argument(
         "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
     )
@@ -3729,6 +3748,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         depth_encoding=args.depth_encoding,
         segmentation=args.segmentation,
         camera_noise_overlay=args.camera_noise_overlay,
+        wind_vehicle_overlay=args.wind_vehicle_overlay,
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
         depth_format=args.depth_format,

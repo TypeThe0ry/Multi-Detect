@@ -62,3 +62,9 @@ def test_pinned_mono_cam_overlay_contains_rgb_noise() -> None:
     assert sensor is not None
     assert sensor.findtext("camera/noise/type") == "gaussian"
     assert sensor.findtext("camera/noise/stddev") == "0.01"
+
+
+def test_wind_overlay_marks_x500_body_links() -> None:
+    root = ET.parse("simulation/gazebo/model-overlays/x500_mono_cam_wind/model.sdf").getroot()
+    assert root.findtext(".//link[@name='base_link']/enable_wind") == "true"
+    assert root.findtext(".//link[@name='camera_link']/enable_wind") == "true"

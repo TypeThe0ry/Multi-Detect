@@ -39,6 +39,10 @@ Ogre2 的 SDF fog 支持依赖渲染器配置，已有 appearance 的 haze fallb
 `baylands.sdf`、`lawn.sdf`、`walls.sdf`、`windy.sdf` 和 `aruco.sdf`，但它们依赖镜像资产；
 本仓库没有把不完整副本提交到 variants。导入前必须把对应模型复制到同一个本地 cache。
 
+两个 suite 的 mission config 都启用 `wind_vehicle_overlay`。collector 会额外挂载
+`model-overlays/x500_mono_cam_wind` 到 `x500_mono_cam`，通过合并后的 `base_link` 和
+`camera_link` 设置 `enable_wind=true`；没有该选项的 calm airframe 不挂载此 overlay。
+
 验证记录：pinned 镜像对带风/演员的提交变体执行 `gz sdf -k` 返回 `Valid.`；镜像的
 `windy.sdf` 明确包含 `<enable_wind>true</enable_wind>`，说明仅写 world `<wind>` 不足以证明
 动力学作用。首次 mission suite 在共享锁等待期间未完成，未产生可引用的 calm/wind steps 或
