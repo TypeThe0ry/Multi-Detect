@@ -1679,6 +1679,13 @@ class OnboardLoop:
             track.match_steps.clear()
             self._remember_rejection(track)
 
+    def _has_usable_confirm(self, track: Track) -> bool:
+        """``track`` itself was confirmed from at least one usable (near, large) view."""
+        return any(
+            v["verdict"] == "confirm" and v.get("usable", False) and v["track_id"] == track.track_id
+            for v in self._place_votes
+        )
+
     def plan_contradiction_relook(self, track: Track, pose_ned) -> dict[str, Any] | None:
         if not track.contradiction_active or track.ground is None:
             return None
@@ -1944,7 +1951,7 @@ class OnboardLoop:
                     track.contradiction_active = False
                     track.contradiction_votes.clear()
                     track.needs_fresh_verdict = False
-                    if "confirm" in track.identity_verdict_history:
+                    if self._has_usable_confirm(track):
                         track.verdict = "confirm"
                         track.confirm_steps = [self.step_index]
             self._revisit = None
@@ -2707,7 +2714,7 @@ class OnboardLoop:
                     # preserve the pre-relook usable positive evidence.
                     best.contradiction_active = False
                     best.contradiction_votes.clear()
-                    best.verdict = "confirm" if "confirm" in best.identity_verdict_history else None
+                    best.verdict = "confirm" if self._has_usable_confirm(best) else None
                     best.verdict_step = self.step_index
                     best.needs_fresh_verdict = False
                     if best.verdict == "confirm":

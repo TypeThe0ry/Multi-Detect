@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import math
 
-from test_onboard_loop import _contradiction_loop, _start_contradiction
+from test_onboard_loop import CAMERA, _box, _contradiction_loop, _start_contradiction
+
+from multidetect.autonomy.onboard_loop import Detection, LoopConfig, OnboardLoop
+from multidetect.sim_teacher.primitives import ActionPrimitive
 
 
 def _fly(action, pose, yaw):
@@ -120,3 +123,40 @@ def test_same_side_give_up_decides_by_usable_majority_and_remembers_a_reject() -
     assert track.identity_reject_matches == rejects_before + 1
     assert loop._rejection_at(track) is not None
 
+
+def test_blocked_first_relook_keeps_confirm_only_from_usable_views() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: False,
+        config=LoopConfig(contradiction_relook_enabled=True, stop_on_confirm=False),
+    )
+    pose = (0.0, -30.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 12), 0.5)], pose_ned=pose, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")  # too small to be usable
+    # Another (not co-visible) look at the same place confirmed it from a usable view.
+    loop._place_votes.append(
+        {
+            "ground": (0.0, 0.0),
+            "verdict": "confirm",
+            "track_id": "other",
+            "co_visible_with": set(),
+            "appearance": None,
+            "footprint_m": None,
+            "min_side_px": 24.0,
+            "range_m": 30.0,
+            "usable": True,
+        }
+    )
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)], pose_ned=pose, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    assert loop.tracks[track.track_id] is track
+    loop.apply_verdict(track.track_id, "reject_track")
+    assert track.contradiction_active
+    loop.next_action([track], pose_ned=pose, yaw_deg=0.0, ground_point=lambda _u, _v: (0.0, 0.0))
+    assert not track.contradiction_active
+    assert track.verdict is None and not track.confirm_steps
