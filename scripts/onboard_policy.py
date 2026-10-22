@@ -695,6 +695,10 @@ class OnboardPolicy:
         second_look = options.get("second_look_after_steps")
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
+            # Resolve real usable-size identity contradictions with bounded
+            # separated views in the mission path; direct LoopConfig callers
+            # retain the historical disabled default.
+            "contradiction_relook_enabled": True,
             # A VTOL's back-transition climbs (the SITL tailsitter rose from 30 m to
             # 60 m): a hover-mode search first settles back to the mission altitude.
             "search_altitude_m": (
@@ -732,6 +736,22 @@ class OnboardPolicy:
             loop_defaults["small_reject_recheck_px"] = None if value is None else float(value)
         if "small_reject_recheck_max" in options:
             loop_defaults["small_reject_recheck_max"] = int(options["small_reject_recheck_max"])
+        for key, convert in (
+            ("contradiction_relook_max", int),
+            ("contradiction_relook_views", int),
+            ("contradiction_relook_bearing_deg", float),
+            ("static_ground_veto_min_m", float),
+            ("static_ground_veto_gates", float),
+        ):
+            if key in options:
+                loop_defaults[key] = convert(options[key])
+        if "contradiction_relook_enabled" in options:
+            value = options["contradiction_relook_enabled"]
+            loop_defaults["contradiction_relook_enabled"] = (
+                value.strip().lower() in {"1", "true", "yes", "on"}
+                if isinstance(value, str)
+                else bool(value)
+            )
         if "proposal_min_side_px" in options:
             min_side = float(options["proposal_min_side_px"])
             if not math.isfinite(min_side) or min_side <= 0:
