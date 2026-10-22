@@ -87,3 +87,86 @@ def test_prepared_operator_package_is_installed_only_on_request(tmp_path) -> Non
     policy.install_operator_package(candidate)
     assert policy.executor is candidate and policy.supervisor is candidate
     assert policy.downlink is candidate.downlink and policy.operator_link_waiting is False
+
+
+def _prompt_package() -> dict:
+    """The e2e run10 prompt package: a Chinese task and one labelled zone, no plan."""
+    document = _example()
+    document.pop("plan", None)
+    document.update(
+        task_text="数一数场地里有几个橙色交通锥，报告位置后返航",
+        zones={
+            "zone:site": {
+                "centre_ne": [0, 0],
+                "radius_m": 55,
+                "risk_tag": "open_field",
+                "oversight_required": False,
+            }
+        },
+        ref_labels={"zone:site": "场地 / the site"},
+        operating_area=dict(
+            document["operating_area"],
+            north_min_m=-100, north_max_m=100, east_min_m=-100, east_max_m=100,
+        ),
+    )
+    return document
+
+
+def _fake_planner(monkeypatch) -> list[str]:
+    """A planner that, like r18/r14 on run10's task, finds the zone only by its label."""
+    import scripts.eval_slow_system as slow_system
+
+    prompts: list[str] = []
+
+    def http_json(url, body, timeout=None):
+        prompt = body["messages"][0]["content"]
+        prompts.append(prompt)
+        region = "zone:site" if "zone:site (场地 / the site)" in prompt else "zone:all"
+        plan = {
+            "goal": "Count the orange traffic cones, report positions and return",
+            "plan_version": 1,
+            "report": ["count", "positions"],
+            "steps": [
+                {
+                    "id": "s1", "on_fail": "s2", "on_success": "s2",
+                    "params": {"query": "orange traffic cone", "region": region},
+                    "skill": "count",
+                },
+                {"id": "s2", "on_fail": None, "on_success": None, "params": {},
+                 "skill": "return_home"},
+            ],
+        }
+        return {"choices": [{"message": {"content": json.dumps(plan)}}]}
+
+    monkeypatch.setattr(slow_system, "_http_json", http_json)
+    return prompts
+
+
+def test_operator_task_is_planned_with_the_package_reference_labels(
+    tmp_path, monkeypatch
+) -> None:
+    # run10: the operator path listed bare "zone:site", the planner chose
+    # zone:all and the count searched a 150 m square until its budget ran out.
+    prompts = _fake_planner(monkeypatch)
+    policy = _waiting_policy(tmp_path)
+    supervisor = policy.admit_operator_package(load_mission_package(_prompt_package()))
+    assert "Known places: zone:site (场地 / the site)." in prompts[0]
+    assert supervisor.executor.plan.steps[0].params["region"] == "zone:site"
+    assert supervisor.executor.region_of(supervisor.executor.plan.steps[0]) == (0.0, 0.0, 55.0)
+
+
+def test_operator_task_sizes_the_search_and_titles_the_mission(tmp_path, monkeypatch) -> None:
+    # The policy starts on a placeholder sentence; the package's cone task must
+    # size the search as the suite's start-up task does (2 m default -> 0.5 m cone).
+    _fake_planner(monkeypatch)
+    policy = _waiting_policy(tmp_path, size_aware_search=True, task_text="operator link mission")
+    placeholder_altitude = policy.search_altitude_m
+    assert placeholder_altitude == pytest.approx(20.0)
+    supervisor = policy.admit_operator_package(load_mission_package(_prompt_package()))
+    assert policy.task_text == "数一数场地里有几个橙色交通锥，报告位置后返航"
+    assert policy.search_altitude_m == pytest.approx(8.0)
+    assert policy._search is policy._search_mc
+    assert policy._search_mc.altitude_m == pytest.approx(8.0)
+    loop = supervisor.executor.loop_factory("orange traffic cone")
+    assert loop.config.search_altitude_m == pytest.approx(8.0)
+    assert loop.config.ground_extent_size_m == pytest.approx(0.5)

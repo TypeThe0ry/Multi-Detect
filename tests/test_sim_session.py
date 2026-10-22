@@ -99,6 +99,16 @@ def test_run_task_uses_session_ports_and_repo_defaults(monkeypatch, tmp_path: Pa
     command = calls[0]
     assert command[command.index("--control-port") + 1] == "14640"
     assert command[command.index("--telemetry-port") + 1] == "14641"
+    # Frames at the camera's native calibration size, as the mission suite flies:
+    # the collector's 640x480 default halved every box below the verdict floor.
+    calibration = json.loads(
+        (ROOT / "simulation/gazebo/calibration/gazebo-multirotor-front-camera-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )["calibration"]
+    assert command[command.index("--rgb-size") + 1] == (
+        f"{calibration['width_px']}x{calibration['height_px']}"
+    )
     config = json.loads((tmp_path / "out/onboard-config.json").read_text(encoding="utf-8"))
     assert config["mission"] == "from_text"
     for key in ("planning_model", "yoloe_weights", "gguf"):

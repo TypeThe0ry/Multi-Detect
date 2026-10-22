@@ -42,6 +42,8 @@ DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe
 # Values starting with "artifacts/" resolve against --artifacts-root.
 DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
 DEFAULT_ARTIFACTS_ROOT = ROOT / "artifacts"
+# Onboard camera frames at the suite's (and the x500 camera calibration's) size.
+SESSION_RGB_SIZE = "1280x960"
 SCENARIO_INDEXES = ROOT / "configs/scenarios"
 FIXED_WING_AIRFRAMES = ("rc_cessna", "advanced_plane")
 WORLD_SCENARIOS = {
@@ -448,6 +450,12 @@ def _run_task(
         # Room for coverage completion and the return-home step: a session count
         # found all three cones but hit a 140-step cap before finishing.
         "220",
+        # The mission suite (eval_onboard_loop_campaign) and the camera's native
+        # calibration are 1280x960.  The collector's 640x480 default halved every
+        # box: e2e run10 saw the cones at 6-9 px, under the loop's 10 px verdict
+        # floor, so two of three were never asked about and the count found one.
+        "--rgb-size",
+        SESSION_RGB_SIZE,
         # The collector's 300 s default ended a SITL count mid-search; the
         # mission suite gives the same task 2400 s.
         "--max-episode-s",
