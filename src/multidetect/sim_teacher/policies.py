@@ -50,8 +50,14 @@ def segment_clear_of_obstacles(
     denom = vx * vx + vy * vy
     # Descending inside a ring is never an escape: the start may be above a roof.
     not_descending = len(start_ned) < 3 or len(end_ned) < 3 or end_ned[2] <= start_ned[2] + 1e-6
+    # ``altitude_m`` is the start altitude; a descending segment ends lower, and an
+    # obstacle top between the two is in its way (a roof 2.4 m under a 17.2 m start
+    # was skipped and a 4 m approach descent flew into it in SITL gen_cnt2_w0001).
+    lowest_m = float(altitude_m)
+    if not not_descending:
+        lowest_m -= float(end_ned[2]) - float(start_ned[2])
     for obstacle in obstacles:
-        if obstacle.top_m <= float(altitude_m) - 2.0:
+        if obstacle.top_m <= lowest_m - 2.0:
             continue
         t = (
             0.0

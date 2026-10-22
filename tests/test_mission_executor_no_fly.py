@@ -253,3 +253,37 @@ def test_timing_64_non_overlapping_circles_replan_under_50ms():
     result = executor._return_home_detour((590.0, 590.0), (5.0, 5.0))
     assert result is not executor_module._DETOUR_TIMEOUT
     assert executor._visibility_graph_build_ms >= 0.0
+
+
+def test_move_to_never_descends_onto_a_roof_below_the_vehicle():
+    from multidetect.autonomy.obstacle_source import StaticMapSource
+    from multidetect.sim_teacher.policies import SDFObstacle
+
+    apartment = SDFObstacle(
+        north_m=-24.641,
+        east_m=-10.416,
+        height_m=14.8046,
+        size_north_m=22.2701,
+        size_east_m=20.2572,
+        yaw_rad=1.019681,
+    )
+    source = StaticMapSource((apartment,))
+
+    def make(_text, **overrides):
+        return OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1.0),
+            obstacle_source=overrides.pop("obstacle_source", source),
+            config=LoopConfig(**overrides),
+        )
+
+    executor = MissionExecutor(_return_plan(), loop_factory=make, obstacle_source=source)
+    executor.home = (0.0, 0.0)
+    run = executor._run
+    assert run is not None
+    over_roof = (-27.2, -17.0, -17.2)
+    action = executor._move_to(run, over_roof, 0.0, over_roof[:2], altitude_m=10.0)
+    assert action.kind == "hold" and run.blocked == 1
+    clear = (-45.0, -45.0, -17.2)
+    action = executor._move_to(run, clear, 0.0, clear[:2], altitude_m=10.0)
+    assert action.kind == "translate" and action.up_m < 0.0

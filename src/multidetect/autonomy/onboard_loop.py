@@ -854,11 +854,24 @@ class OnboardLoop:
     pass_clear: Callable[[tuple[float, float], tuple[float, float]], bool] | None = None
 
     def _segment_clear(
-        self, pose_ned: tuple[float, float, float], north: float, east: float
+        self,
+        pose_ned: tuple[float, float, float],
+        north: float,
+        east: float,
+        end_down: float | None = None,
     ) -> bool:
+        """Clearance of the leg from ``pose_ned`` to ``(north, east, end_down)``.
+
+        A descent must be checked as one leg from the current altitude down to
+        ``end_down``: a leg checked from an already lowered start looks level
+        (and, inside a clearance ring, like leaving it), so a roof between the
+        two altitudes was never seen (SITL gen_cnt2_w0001 approach descents).
+        """
+        down = pose_ned[2] if end_down is None else end_down
         if self.obstacle_source is not None:
-            return self.obstacle_source.segment_clear(pose_ned, (north, east, pose_ned[2]))
-        return self.segment_clear(pose_ned, north, east)
+            return self.obstacle_source.segment_clear(pose_ned, (north, east, down))
+        # The legacy two-dimensional callback judges a leg at its start altitude.
+        return self.segment_clear((pose_ned[0], pose_ned[1], max(pose_ned[2], down)), north, east)
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -2296,8 +2309,7 @@ class OnboardLoop:
         altitude = max(0.0, -pose_ned[2])
         if target is not None and altitude > target + 1.0:
             drop = min(altitude - target, 2.0 * self.config.descent_step_m)
-            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
-            if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
+            if self._segment_clear(pose_ned, pose_ned[0], pose_ned[1], pose_ned[2] + drop):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
         if target is not None and altitude < target - 1.0:
             # An approach may have descended below the search altitude (which
@@ -2351,12 +2363,14 @@ class OnboardLoop:
             self.config.descent_step_m,
             max(0.0, altitude - self.config.approach_min_altitude_m),
         )
+        lower_down = pose_ned[2] + descend
         if horizontal is not None:
             # Never fly so close that the focus drops below the bottom of the image.
             step = min(step, horizontal - self._keep_range(altitude - max(0.0, descend)))
             if step < self.config.min_translate_m:
-                lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                if descend > 0.5 and self._segment_clear(lower, pose_ned[0], pose_ned[1]):
+                if descend > 0.5 and self._segment_clear(
+                    pose_ned, pose_ned[0], pose_ned[1], lower_down
+                ):
                     # Too close to fly on at this altitude: descend in place instead.
                     self._last_translated = True
                     info["descend_m"] = descend
@@ -2365,15 +2379,23 @@ class OnboardLoop:
                 self._at_closest = True
                 return ActionPrimitive.hold(1.0)
         if descend > 0.5:
-            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
             yaw = math.radians(yaw_deg)
             end_n = pose_ned[0] + step * math.cos(yaw)
             end_e = pose_ned[1] + step * math.sin(yaw)
-            if self._segment_clear(lower, end_n, end_e):
+            if self._segment_clear(pose_ned, end_n, end_e, lower_down):
                 action = ActionPrimitive.translate(step, 0.0, -descend)
                 self._last_translated = True
                 info["descend_m"] = descend
                 return action
+            if horizontal is not None:
+                # No descent (e.g. above a roof): a level leg sized for the lower
+                # view would drop the focus below the image, so size it for this
+                # altitude, and hold the closest view when no leg is left.
+                step = min(step, horizontal - self._keep_range(altitude))
+                if step < self.config.min_translate_m:
+                    info["reason"] = "closest_view"
+                    self._at_closest = True
+                    return ActionPrimitive.hold(1.0)
         action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
         self._last_translated = action.kind == "translate"
         return action
@@ -2886,8 +2908,9 @@ class OnboardLoop:
                     max(0.0, altitude - self.config.approach_min_altitude_m),
                 )
                 if descend > 0.5:
-                    lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                    lower_clear = self._segment_clear(lower, end[0], end[1])
+                    lower_clear = self._segment_clear(
+                        pose_ned, end[0], end[1], pose_ned[2] + descend
+                    )
             blocked_or_stalled = (direct_blocked and not lower_clear) or (
                 stalled and (info.get("reason") == "closest_view" or action.kind == "hold")
             )
