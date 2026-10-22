@@ -53,3 +53,12 @@ def test_camera_noise_only_changes_explicit_world_sensors(tmp_path: Path) -> Non
     )
     assert report["camera_sensors_noised"] == 1
     assert ET.parse(output).findtext(".//noise/stddev") == "0.02"
+
+
+def test_pinned_mono_cam_overlay_contains_rgb_noise() -> None:
+    path = Path("simulation/gazebo/model-overlays/mono_cam_noise/model.sdf")
+    root = ET.parse(path).getroot()
+    sensor = root.find(".//sensor[@name='camera']")
+    assert sensor is not None
+    assert sensor.findtext("camera/noise/type") == "gaussian"
+    assert sensor.findtext("camera/noise/stddev") == "0.01"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -224,7 +225,32 @@ def main() -> int:
     parser.add_argument("--terrain", choices=("dem", "procedural"))
     parser.add_argument("--out-dir", type=Path, default=VARIANTS)
     parser.add_argument("--register-index", type=Path)
+    parser.add_argument(
+        "--px4-world",
+        metavar="NAME",
+        help="copy an offline PX4 world named NAME from --px4-world-root after checking local assets",
+    )
+    parser.add_argument("--px4-world-root", type=Path)
     args = parser.parse_args()
+    if args.px4_world:
+        if args.px4_world_root is None:
+            parser.error("--px4-world requires --px4-world-root")
+        source = args.px4_world_root / f"{args.px4_world}.sdf"
+        if not source.is_file():
+            parser.error(f"offline PX4 world not found: {source}")
+        text = source.read_text(encoding="utf-8", errors="replace")
+        external = sorted(set(re.findall(r"model://([A-Za-z0-9_.-]+)", text)))
+        missing = [name for name in external if not (args.out_dir / name).is_dir()]
+        if missing:
+            parser.error(
+                "offline PX4 world references assets not present in output cache: "
+                + ", ".join(missing)
+            )
+        output = args.out_dir / source.name
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        print(json.dumps({"output": str(output), "px4_world": args.px4_world, "assets": external}))
+        return 0
     if args.wind_mps is None and args.gust_mps is not None:
         parser.error("--gust-mps requires --wind-mps")
     if args.gust_period <= 0 or args.actors < 0:
