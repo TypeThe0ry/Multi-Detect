@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m
-from multidetect.autonomy.motion_intent import AirframeMotionAdapter
+from multidetect.autonomy.motion_intent import AirframeMotionAdapter, dynamics_from_profile
+from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,11 +95,69 @@ def test_fixed_wing_steps_hold_the_commanded_altitude_while_the_plane_sinks() ->
         ActionPrimitive.hold(2.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0
     )
     assert loiter.target_ned[2] == pytest.approx(-30.0)
+    # A requested descent is measured from the altitude the loop sees.
     descend = adapter.from_primitive(
         ActionPrimitive.translate(20.0, 0.0, -4.0), pose_ned=(50.0, 0.0, -26.0), yaw_deg=0.0
     )
-    assert descend.target_ned[2] == pytest.approx(-26.0)
+    assert descend.target_ned[2] == pytest.approx(-22.0)
     after = adapter.from_primitive(
         ActionPrimitive.translate(20.0, 0.0, 0.0), pose_ned=(70.0, 0.0, -24.0), yaw_deg=0.0
     )
-    assert after.target_ned[2] == pytest.approx(-26.0)
+    assert after.target_ned[2] == pytest.approx(-22.0)
+
+
+def _orbit_hold(adapter: AirframeMotionAdapter, pose):
+    """The loop's fly-by pass step: a hold carrying the orbit plan."""
+    return adapter.from_primitive(
+        ActionPrimitive.hold(1.0),
+        pose_ned=pose,
+        yaw_deg=0.0,
+        metadata={"onboard": {"fw_orbit": {"centre_ne": [200.0, 0.0], "radius_m": 90.0}}},
+    )
+
+
+def test_fixed_wing_repeated_climb_requests_do_not_wind_up_the_commanded_altitude() -> None:
+    # SITL rc_cessna w0031: the plane at 25.6 m asked for +4.4 m (back to 30 m)
+    # on 8 steps while it climbed slowly; adding each request to the held
+    # altitude commanded 54 m, then the descents back ran it below ground.
+    adapter = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT)
+    adapter.from_primitive(
+        ActionPrimitive.translate(25.0, 0.0, 0.0), pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0
+    )
+    targets = []
+    for step, altitude in enumerate((25.6, 25.6, 25.7, 26.3, 26.9, 27.8, 28.6)):
+        command = adapter.from_primitive(
+            ActionPrimitive.translate(0.0, 0.0, 30.0 - altitude),
+            pose_ned=(float(step), 0.0, -altitude),
+            yaw_deg=0.0,
+        )
+        targets.append(-command.target_ned[2])
+    assert targets == pytest.approx([30.0] * len(targets))
+    orbit = _orbit_hold(adapter, (10.0, 0.0, -29.0))
+    assert orbit.kind == "orbit" and orbit.target_ned[2] == pytest.approx(-30.0)
+
+
+def test_fixed_wing_refused_descents_never_become_the_orbit_altitude() -> None:
+    # SITL rc_cessna w0031: every refused descent still moved the held altitude,
+    # which walked to 153 m below home; the next fly-by orbit flew into the ground.
+    profile = AirframeMotionAdapter("rc_cessna_runway", base_dir=ROOT).profile
+    safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(
+            vehicle=dynamics_from_profile(profile),
+            min_altitude_m=20.0,
+            max_translation_m=profile.limits.max_step_distance_m,
+        )
+    )
+    adapter = AirframeMotionAdapter(profile, safety=safety)
+    pose = (0.0, 0.0, -24.0)
+    adapter.from_primitive(ActionPrimitive.translate(25.0, 0.0, 0.0), pose_ned=pose, yaw_deg=0.0)
+    for _ in range(6):
+        command = adapter.from_primitive(
+            ActionPrimitive.translate(0.0, 0.0, -8.0), pose_ned=pose, yaw_deg=0.0
+        )
+        command, safety_info = adapter.guard_command(command, pose_ned=pose, yaw_deg=0.0)
+        assert command.kind == "loiter" and "min_altitude" in safety_info["reasons"]
+    orbit = _orbit_hold(adapter, pose)
+    assert orbit.kind == "orbit" and orbit.target_ned[2] == pytest.approx(-24.0)
+    guarded, _ = adapter.guard_command(orbit, pose_ned=pose, yaw_deg=0.0)
+    assert guarded.kind == "orbit"

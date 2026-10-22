@@ -479,6 +479,32 @@ class SafetyEnvelope:
         cn, ce = float(centre_ne[0]), float(centre_ne[1])
         radius = abs(float(radius_m))
         down = pose[2] if down_m is None else float(down_m)
+        # The orbit is flown at ``down``, not at the aircraft's altitude: hold it to
+        # the same altitude bounds as a translation (SITL flew a 153 m-below-home
+        # orbit into the ground because only the current altitude was checked).
+        if not math.isfinite(down):
+            return self._reject(["non_finite_altitude"])
+        current_agl = kwargs.get("current_agl_m", kwargs.get("agl_m"))
+        altitude, agl = self._altitude(pose, current_agl)
+        rise = pose[2] - down
+        altitude_reasons: list[str] = []
+        if altitude + rise < self.config.min_altitude_m - 1e-9:
+            altitude_reasons.append("min_altitude")
+        if (
+            self.config.max_altitude_m is not None
+            and altitude + rise > self.config.max_altitude_m + 1e-9
+        ):
+            altitude_reasons.append("max_altitude")
+        if (
+            self.config.min_agl_m is not None
+            and agl is not None
+            and agl + rise < self.config.min_agl_m - 1e-9
+        ):
+            altitude_reasons.append("min_agl")
+        if abs(rise) > self.config.max_vertical_step_m + 1e-9:
+            altitude_reasons.append("max_vertical_step")
+        if altitude_reasons:
+            return self._reject(altitude_reasons)
         count = max(8, int(points))
         angles = [2 * math.pi * i / count for i in range(count + 1)]
         rim = [(cn + radius * math.cos(a), ce + radius * math.sin(a)) for a in angles]
