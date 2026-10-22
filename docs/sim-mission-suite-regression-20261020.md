@@ -228,3 +228,9 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
   --only count-fire-hydrants count-cones inspect-postbox --episodes 3 \
   --retry-failed-episodes --min-free-disk-gb 8
 ```
+
+## 2026-10-23 查询优先的慢模型调用与可判未判补看：SITL 复验
+
+`mission-suite-queryfirst-20261023`（f13a823，各 3 架次）：锥桶 3/3 ×3，消防栓 3/3 ×3，邮筒巡检 1.0 ×3，错误发现全为 0，9/9 预期通过。这是三项任务第一次同一轮全部通过。
+
+同一世界最近几轮的消防栓结果：relook3/loopfix 2/3 ×4（接近下降撞楼顶）→ roofdescent 3/3 ×3 → verdictshift 2/3、3/3、3/3（7 px 单次出现未判断）→ smallrevisit 3/3、2/3、3/3（15 px 可判框的慢模型名额被三个大误检框占满）→ queryfirst 3/3 ×3。消防栓第 3 架次用了 137 步，是三架次里最长的，补看占了预算但仍在 140 步内完成。
