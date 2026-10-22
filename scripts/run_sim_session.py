@@ -374,6 +374,10 @@ def _operator_link_config(args) -> dict:
         or secrets.token_hex(32),
         "operator_mavlink_signing_key_hex": os.environ.get("MULTIDETECT_SESSION_SIGNING_HEX")
         or secrets.token_hex(32),
+        # Onboard admits only signed packages; the console signs with this
+        # session HMAC key (MultiDetectGCS signs with its Ed25519 key instead).
+        "operator_package_key_hex": os.environ.get("MULTIDETECT_SESSION_PACKAGE_HEX")
+        or secrets.token_hex(32),
         "operator_requires_approval": True,
     }
     args.onboard_out.mkdir(parents=True, exist_ok=True)

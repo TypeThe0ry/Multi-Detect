@@ -1250,15 +1250,16 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         operator_mavlink_signing_key_hex=config.get("operator_mavlink_signing_key_hex"),
         operator_requires_approval=bool(config.get("operator_requires_approval", True)),
         operator_package_verify_key=config.get("operator_package_verify_key"),
+        operator_package_key_hex=config.get("operator_package_key_hex"),
     )
-    admit = getattr(policy, "admit_operator_package", None)
+    prepare = getattr(policy, "prepare_operator_package", None)
 
-    def logged_admit(package):
-        # Planning a prompt-only package calls the slow model inside the link's
-        # receive thread; log each stage so a silent link can be diagnosed.
+    def logged_prepare(package):
+        # Planning a prompt-only package calls the slow model on the link's
+        # planner worker; log each stage so a silent link can be diagnosed.
         _progress("operator_package_received", mission_id=package.mission_id)
         try:
-            supervisor = admit(package)
+            supervisor = prepare(package)
         except Exception as error:
             _progress("operator_package_rejected", error=f"{type(error).__name__}: {error}")
             raise
@@ -1269,8 +1270,8 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         )
         return supervisor
 
-    if admit is not None:
-        policy.admit_operator_package = logged_admit
+    if prepare is not None:
+        policy.prepare_operator_package = logged_prepare
     server = _start_operator_link(args, policy, _SimHoverVehicle())
     policy.sim_operator_server = server
     _progress("operator_link_listening", host=args.operator_bind_host, port=args.operator_port)

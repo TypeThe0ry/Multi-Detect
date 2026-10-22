@@ -18,6 +18,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_security import AuthenticationKey, load_key  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
 from multidetect.onboard_runtime.bench import (  # noqa: E402
     LatencyProposer,
@@ -100,8 +101,18 @@ def build_parser() -> argparse.ArgumentParser:
     real.add_argument("--operator-port", type=int, default=14580)
     real.add_argument("--operator-hmac-key-hex")
     real.add_argument("--operator-mavlink-signing-key-hex")
-    real.add_argument("--operator-package-verify-key", type=Path)
+    real.add_argument(
+        "--operator-package-verify-key",
+        type=Path,
+        help="key for packages uploaded over the operator link (default: --operator-key)",
+    )
     real.add_argument("--operator-requires-approval", action="store_true")
+    real.add_argument(
+        "--operator-approval-timeout",
+        type=_positive,
+        default=600,
+        help="seconds to wait on the ground for onboard planning and operator approval",
+    )
     replay = modes.add_parser("replay", help="recorded RGB/MAVLink; fake model latency only")
     source = replay.add_mutually_exclusive_group(required=True)
     source.add_argument("--episode", type=Path)
@@ -227,8 +238,34 @@ def _validate_local_models(config: dict[str, Any]) -> None:
             raise FileNotFoundError(f"local {key} is missing: {path}; automatic download disabled")
 
 
-def _start_operator_link(args, policy, vehicle):
-    """Start the authenticated mission package endpoint when configured."""
+def _operator_package_key(args) -> AuthenticationKey:
+    """Key for packages uploaded over the link; an unsigned upload is never admitted."""
+    session_hex = getattr(args, "operator_package_key_hex", None)
+    if session_hex:
+        material = bytes.fromhex(session_hex)
+        if len(material) != 32:
+            raise ValueError("operator package key must be a 32-byte hex value")
+        return AuthenticationKey("hmac-sha256", material, "default")
+    path = getattr(args, "operator_package_verify_key", None) or getattr(
+        args, "operator_key_path", None
+    )
+    if not path:
+        raise ValueError(
+            "operator link requires a mission package verification key "
+            "(--operator-package-verify-key or --operator-key)"
+        )
+    return load_key(Path(path).expanduser())
+
+
+def _start_operator_link(args, policy, vehicle, *, package_check=None):
+    """Start the authenticated mission package endpoint when configured.
+
+    ``package_check(package)`` runs on the planner worker before onboard
+    planning (the real runtime re-runs its PX4 preflight gate for the uploaded
+    package there).  A mission already loaded at start-up is bound to the link
+    so heartbeats and controls reach it, and when approval is required its plan
+    is sent down and held until the operator approves it.
+    """
     host = getattr(args, "operator_bind_host", None)
     if not host:
         return None
@@ -257,23 +294,72 @@ def _start_operator_link(args, policy, vehicle):
         state = snapshot() if callable(snapshot) else None
         return bool(state is not None and state.armed is False and state.landed is True)
 
+    package_key = _operator_package_key(args)
+    prepare = getattr(policy, "prepare_operator_package", None)
+    install = getattr(policy, "install_operator_package", None)
+    if prepare is None or install is None:
+        # A host with only the one-step admit installs inside the loader; the
+        # adapter still verifies the package and re-reads the gate first.
+        prepare, install = policy.admit_operator_package, None
+
+    def load(package):
+        if package_check is not None:
+            package_check(package)
+        return prepare(package)
+
+    requires_approval = bool(getattr(args, "operator_requires_approval", False))
     server = UdpOperatorSelectionServer(
         bind_host=host,
         port=int(args.operator_port),
         mavlink=mavlink,
         guard=SelectionCommandGuard(VideoGeometry("camera-main", 1280, 720)),
-        mission_package_loader=policy.admit_operator_package,
+        mission_package_loader=load,
+        mission_package_installer=install,
         mission_preflight_allowed=preflight_allowed,
-        mission_requires_approval=bool(getattr(args, "operator_requires_approval", False)),
-        mission_package_verify_key_path=(
-            str(args.operator_package_verify_key)
-            if getattr(args, "operator_package_verify_key", None)
-            else None
-        ),
+        mission_requires_approval=requires_approval,
+        mission_package_verify_key=package_key,
+        mission_runtime_mode=getattr(policy, "runtime_mode", None),
         allow_first_packet_peer=True,
     )
+    current = getattr(policy, "supervisor", None)
+    if current is not None:
+        if requires_approval and not current.plan_rejected:
+            current.requires_approval, current.plan_approved = True, False
+        server.mission_adapter.bind_supervisor(current)
+        server.mission_adapter.announce_plan(current)
     server.start_background()
     return server
+
+
+def _await_operator_approval(policy, server, timeout_s: float, *, poll_s: float = 0.05):
+    """Wait on the ground for an approved plan, then seal it for take-off.
+
+    Returns the supervisor that will fly.  After ``seal`` no upload can replace
+    it, and the approval is re-read so a replacement admitted just before the
+    seal is never flown unapproved.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        supervisor = getattr(policy, "supervisor", None)
+        if supervisor is not None:
+            if supervisor.plan_rejected:
+                raise RuntimeError("operator rejected mission plan")
+            if supervisor._terminal is not None:
+                raise RuntimeError(f"mission ended before take-off: {supervisor.reason}")
+            if supervisor.plan_approved:
+                sealed = server.mission_adapter.seal()
+                if (
+                    sealed is supervisor
+                    and getattr(policy, "supervisor", None) is supervisor
+                    and supervisor.plan_approved
+                    and not supervisor.plan_rejected
+                    and supervisor._terminal is None
+                ):
+                    return supervisor
+                raise RuntimeError("operator mission changed while sealing for take-off")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("operator mission approval timeout")
+        time.sleep(poll_s)
 
 
 def _shutdown(runtime, operator_server, policy, camera, vehicle) -> list[str]:
@@ -430,7 +516,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             mission_package=package,
             runtime_mode=args.mode,
         )
-        operator_server = _start_operator_link(args, raw_policy, vehicle)
+        package_check = None
+        if args.mode == "real":
+
+            def package_check(uploaded) -> None:
+                # An uploaded package replaces the start-up one: its altitude
+                # limits and PX4 parameter matrix are checked the same way.
+                area = uploaded.document["operating_area"]
+                if not area["min_altitude_m"] <= args.altitude <= area["max_altitude_m"]:
+                    raise ValueError("launch altitude outside mission package limits")
+                gate = PX4PreflightGate(vehicle, uploaded)
+                result = gate.apply() if args.apply_px4_params else gate.run()
+                if not result["passed"]:
+                    raise ValueError(
+                        "PX4 preflight blocked arming: " + ", ".join(result["blocking_failures"])
+                    )
+
+        operator_server = _start_operator_link(
+            args, raw_policy, vehicle, package_check=package_check
+        )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
         # Model startup may take minutes. Recheck input freshness before streaming.
         ready_state, _frame = _ready(
@@ -486,14 +590,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             signal.signal(sig, lambda _sig, _frame: runtime.request_stop())
         if not takeover:
             try:
-                if getattr(args, "operator_bind_host", None):
-                    deadline = time.monotonic() + args.startup_timeout
-                    while policy.supervisor is None or not policy.supervisor.plan_approved:
-                        if policy.supervisor is not None and policy.supervisor.plan_rejected:
-                            raise RuntimeError("operator rejected mission plan")
-                        if time.monotonic() >= deadline:
-                            raise TimeoutError("operator mission approval timeout")
-                        time.sleep(0.05)
+                if operator_server is not None:
+                    # HomeRelativePolicy has no supervisor: wait on the policy
+                    # that owns it, for as long as onboard planning may take.
+                    _await_operator_approval(
+                        raw_policy,
+                        operator_server,
+                        getattr(args, "operator_approval_timeout", 600),
+                    )
                 runtime.arm_and_takeoff(args.altitude, timeout_s=args.takeoff_timeout)
             except Exception as exc:
                 if runtime.owns_flight and not runtime.stop_requested:
