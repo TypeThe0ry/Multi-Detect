@@ -375,6 +375,14 @@ def _run_task(
         # mission suite gives the same task 2400 s.
         "--max-episode-s",
         str(timeout_s),
+        *(
+            # A supervised (operator-link) mission runs the onboard energy model;
+            # PX4's simulated battery drains to 50 % in minutes and triggered an
+            # "energy reserve reached" return mid-count in SITL.  Keep it charged
+            # for interactive sessions; the suite's reserve-return mission keeps
+            # the default drain.
+            ("--sim-param", "SIM_BAT_MIN_PCT=95") if operator_link else ()
+        ),
         # One session episode writes ~1 GB; the collector's 15 GB default guard is
         # sized for batch campaigns and aborted a session flight at 13 GB free.
         "--min-free-gb",

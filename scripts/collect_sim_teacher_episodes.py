@@ -206,6 +206,9 @@ class CollectionPlan:
     segmentation: bool = False
     camera_noise_overlay: bool = False
     wind_vehicle_overlay: bool = False
+    # Extra SIM-only PX4 parameters for this run, e.g. a slower simulated
+    # battery for an interactive session; batch campaigns pass none.
+    extra_sim_params: tuple[tuple[str, str], ...] = ()
     # ``None`` selects the scenario-derived altitude.  An explicit value is
     # retained in the plan so campaign wrappers can override it per run.
     takeoff_altitude_m: float | None = None
@@ -1279,6 +1282,32 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         _trace_operator_link(server)
 
 
+def _drain_sim_operator_link(policy, timeout_s: float = 30.0) -> None:
+    """Let the GCS receive the last findings and the final summary before exit.
+
+    The link lives in this process; ending right after landing dropped the queued
+    records (SITL e2e: one of two findings and no final summary reached the GCS).
+    """
+    server = getattr(policy, "sim_operator_server", None)
+    supervisor = getattr(policy, "supervisor", None)
+    downlink = getattr(supervisor, "downlink", None)
+    if server is None or downlink is None:
+        return
+    log = supervisor.log
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and downlink.acknowledged_sequence < log._sequence:
+        time.sleep(0.5)
+    _progress(
+        "operator_link_drained",
+        acknowledged=downlink.acknowledged_sequence,
+        logged=log._sequence,
+    )
+    try:
+        server.close()
+    except Exception:
+        pass
+
+
 def _trace_operator_link(server) -> None:
     """Debug-only: log the link filters that drop mission packets without an ACK."""
     adapter = server.mission_adapter
@@ -1735,6 +1764,7 @@ def _set_sim_params(
         *SIM_PREARM_PARAMETERS,
         *_profile_launch_parameters(plan.airframe, plan.takeoff_method),
         *_profile_landing_parameters(plan.airframe),
+        *plan.extra_sim_params,
     ):
         command = [
             executable,
@@ -3643,6 +3673,7 @@ def run_episode(
             )
             if hasattr(policy, "close"):
                 policy.close()
+            _drain_sim_operator_link(policy)
             if gcs_heartbeat_stop is not None:
                 gcs_heartbeat_stop.set()
             if gcs_heartbeat_thread is not None:
@@ -3824,6 +3855,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--wind-vehicle-overlay", action="store_true")
     parser.add_argument(
+        "--sim-param",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="extra SIM-only PX4 parameter for this run (repeatable)",
+    )
+    parser.add_argument(
         "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
     )
     parser.add_argument(
@@ -3884,6 +3922,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         segmentation=args.segmentation,
         camera_noise_overlay=args.camera_noise_overlay,
         wind_vehicle_overlay=args.wind_vehicle_overlay,
+        extra_sim_params=tuple(tuple(item.split("=", 1)) for item in args.sim_param if "=" in item),
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
         depth_format=args.depth_format,
