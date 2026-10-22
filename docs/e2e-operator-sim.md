@@ -109,6 +109,19 @@ python scripts/augment_sim_world.py simulation/gazebo/worlds/gen_cnt2_w0000.sdf 
 | 演示计数远少于回归套件（同一世界同一配置） | 第十次演示 gen_cnt2_w0000 只数到 1/3（count `budget_exhausted`，140 步里 62 步在 55 m 场地外，最远 90.8 m），套件 3 架次均 3/3。三处与套件不一致：① 会话采集器未传 `--rgb-size`，用了 640x480（套件与相机标定为 1280x960），锥桶框只有 6–9 px，低于 10 px 的身份判断下限，另两个锥桶被跟踪多次却从未送慢系统（慢调用 24 次/match 4 次，套件 42–56/21–26）；② operator-link 规划只给了不带标签的 `zone:site`，中文“场地”对不上，规划成 `zone:all`，搜索半径退回 150 m（离线复现：r18 与 r14 带上 `场地 / the site` 标签都选 `zone:site`）；③ 策略任务文本停在占位句 `operator link mission`，按 2 m 默认物体定搜索高度（13.0 m、24 m 环距，套件 11.3 m、20 m），摘要标题也是占位句。现在会话传 1280x960，operator-link 规划沿用包内 `ref_labels`，安装包时按包任务与 query 重算搜索高度和任务文本。operator-link 规划仍用身份模型 r18，而 from_text 用 `planning_model` r14。 |
 | 回归架次显示 missing | 先看磁盘门限和 `campaign/*.log`；10-22 relook 回归还遇到缺少 `artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt`，没有产生可评分 episode。 |
 
+## 端到端演示记录（2026-10-22/23）
+
+用 `scripts/run_e2e_operator_acceptance.py --evaluate <运行目录>` 评分（判据见 [e2e-operator-acceptance.md](e2e-operator-acceptance.md)）。
+
+| 运行 | 提交 | 结果 | 主要问题 → 修复 |
+|---|---|---|---|
+| run9 | a21ead8 | FAIL：计数 2，摘要只到第 1/2 页，电池误判提前返航 | 摘要分页共用 token → 每页独立传输；机载进程卡顿造成的链路断档不再计入电池年龄 |
+| run10 | 9125589 | FAIL：计数 1（budget_exhausted） | 会话漏传 `--rgb-size 1280x960`、包规划没带 ref_labels（规划成 zone:all）、任务文本停在占位句 |
+| run11 | 0fb2155 | **PASS**：计划签名审批 0.34 s；3 个 finding 到地面延迟 ≤0.8 s；完整两页摘要；coverage_complete 计数 3/3，位置误差 0.08–0.29 m；返航末帧离家 0.26 m | — |
+
 ## 已知限制
 
-SIM 的 energy reserve/battery-stale early return 仍在修复和复测；downlink throughput 也仍在调整。GCS UI 的截图验收尚未完成。`sim-mission-suite-regression-20261020.md` 中的结果表是当前参考基线，单架次结果不能当作稳定性或实机保证。
+- run11 的摘要把计数标成下限（`count_is_lower_bound=true`），原因是区域外和已补看过的拒绝地点也被算作未处理，判定偏保守，修复中。
+- operator-link 规划用身份模型（r18），from_text 用规划模型（r14）；本任务两者结果一致，其他任务未验证。
+- GCS 审批按钮未和真实 SIM 会话联调；地面站联合验收由负责人执行。
+- 单架次结果不能当作稳定性或实机保证；回归基线见 `sim-mission-suite-regression-20261020.md`。
