@@ -1554,9 +1554,10 @@ class OnboardLoop:
         confirms = sum(v["verdict"] == "confirm" for v in track.contradiction_votes)
         rejects = sum(v["verdict"] == "no_match" for v in track.contradiction_votes)
         old_confirms, old_rejects = self._place_vote_counts(track)
+        fresh_majority = self.config.contradiction_relook_views // 2 + 1
         final = (
             "confirm"
-            if confirms >= 2 and confirms > rejects and old_confirms > old_rejects
+            if confirms >= fresh_majority and confirms > rejects and old_confirms > old_rejects
             else "no_match"
         )
         track.contradiction_active = False
