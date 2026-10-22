@@ -111,6 +111,13 @@ def _parse_size(value: str) -> tuple[int, int]:
     return width, height
 
 
+def _parse_sim_param(value: str) -> str:
+    name, sep, setting = value.partition("=")
+    if not sep or not name.strip() or not setting.strip():
+        raise argparse.ArgumentTypeError("sim-param must be NAME=VALUE")
+    return value
+
+
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 TAKEOFF_SAFETY_MARGIN_M = 4.0
 MAX_TAKEOFF_ALTITUDE_M = 40.0
@@ -3858,6 +3865,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sim-param",
         action="append",
         default=[],
+        type=_parse_sim_param,
         metavar="NAME=VALUE",
         help="extra SIM-only PX4 parameter for this run (repeatable)",
     )

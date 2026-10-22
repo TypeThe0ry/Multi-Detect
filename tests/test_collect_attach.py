@@ -55,3 +55,27 @@ def test_attached_environment_does_not_start_or_remove(monkeypatch):
         assert environment.attached
         assert not environment.started
     assert calls == [["docker", "inspect", "--format", "{{.State.Running}}", "session-container"]]
+
+
+def test_parser_rejects_sim_param_without_value():
+    import argparse
+
+    import pytest
+
+    base = [
+        "--scenario",
+        "s.json",
+        "--teacher",
+        "onboard",
+        "--episodes",
+        "1",
+        "--steps-per-episode",
+        "1",
+        "--out",
+        "o",
+    ]
+    args = collector.build_parser().parse_args([*base, "--sim-param", "SIM_BAT_MIN_PCT=95"])
+    assert args.sim_param == ["SIM_BAT_MIN_PCT=95"]
+    for bad in ("SIM_BAT_MIN_PCT", "=95", "SIM_BAT_MIN_PCT="):
+        with pytest.raises((SystemExit, argparse.ArgumentError)):
+            collector.build_parser().parse_args([*base, "--sim-param", bad])
