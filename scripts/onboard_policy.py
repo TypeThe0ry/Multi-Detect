@@ -304,6 +304,13 @@ def perception_task_text(step: MissionStep, original: str) -> str:
     return original
 
 
+def labelled_refs(
+    refs: Mapping[str, Any] | Sequence[str] | None, labels: Mapping[str, Any]
+) -> tuple[str, ...]:
+    """Planner reference list: ``"zone:site (the site)"`` when a label is known."""
+    return tuple(f"{ref} ({labels[ref]})" if ref in labels else str(ref) for ref in refs or ())
+
+
 def build_mission_from_text(
     task_text: str,
     refs: Mapping[str, Any] | Sequence[str] | None,
@@ -633,12 +640,18 @@ class OnboardPolicy:
         self.safety_envelope.obstacle_source = CompositeSource((StaticMapSource(obstacles),))
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
-        self.search_altitude_m = None
-        if options.get("size_aware_search"):
-            size = typical_object_size(self.task_text)
+        if search_pattern == "two_altitude":
+            low_search_setting = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_setting) or low_search_setting <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+
+        def size_aware_altitude(text: str) -> float | None:
+            if not options.get("size_aware_search"):
+                return None
+            size = typical_object_size(text)
             depression = mount_pitch + math.radians(20.0)
             needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
-            self.search_altitude_m = max(
+            search_altitude = max(
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
@@ -650,27 +663,8 @@ class OnboardPolicy:
                 if not math.isfinite(clearance) or clearance < 0:
                     raise ValueError("search_obstacle_clearance_m must be finite and >= 0")
                 floor = max(obstacle.height_m for obstacle in obstacles) + clearance
-                self.search_altitude_m = max(self.search_altitude_m, min(float(altitude_m), floor))
-        if search_pattern == "two_altitude":
-            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
-            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
-                raise ValueError("low_search_altitude_m must be finite and positive")
-            low_search_altitude = min(
-                low_search_altitude, self.search_altitude_m or float(altitude_m)
-            )
-        # The search pattern is target-blind; a target placed far outside the
-        # detection range keeps ExpertSearchPolicy in its search/scan states.
-        self._search_mc = ExpertSearchPolicy(
-            target_ned=(1.0e7, 1.0e7, 0.0),
-            intrinsics=camera_info,
-            image_size=image_size,
-            altitude_m=self.search_altitude_m or altitude_m,
-            obstacles=obstacles,
-            home_ned=home_ned or (0.0, 0.0, 0.0),
-            camera_pitch_rad=mc_mount_pitch,
-            search_pattern=search_pattern,
-            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
-        )
+                search_altitude = max(search_altitude, min(float(altitude_m), floor))
+            return search_altitude
 
         def fixed_wing_search(home, radius_m):
             # Aircraft that cannot hover fly lawnmower lanes instead of turning in place.
@@ -685,15 +679,42 @@ class OnboardPolicy:
                 max_leg_m=profile.limits.max_step_distance_m,
             )
 
-        self._search_fw = fixed_wing_search(
-            home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
-        )
-        if not plans_like_multirotor:
-            self._search = self._search_fw
-        elif hybrid_vtol:
-            self._search = self._search_fw
-        else:
-            self._search = self._search_mc
+        def build_search(text: str) -> None:
+            """Derive the task-size search altitude and the shared search policies."""
+            nonlocal low_search_altitude
+            self.search_altitude_m = size_aware_altitude(text)
+            if search_pattern == "two_altitude":
+                low_search_altitude = min(
+                    low_search_setting, self.search_altitude_m or float(altitude_m)
+                )
+            # The search pattern is target-blind; a target placed far outside the
+            # detection range keeps ExpertSearchPolicy in its search/scan states.
+            self._search_mc = ExpertSearchPolicy(
+                target_ned=(1.0e7, 1.0e7, 0.0),
+                intrinsics=camera_info,
+                image_size=image_size,
+                altitude_m=self.search_altitude_m or altitude_m,
+                obstacles=obstacles,
+                home_ned=home_ned or (0.0, 0.0, 0.0),
+                camera_pitch_rad=mc_mount_pitch,
+                search_pattern=search_pattern,
+                **(
+                    {"low_altitude_m": low_search_altitude}
+                    if low_search_altitude is not None
+                    else {}
+                ),
+            )
+            self._search_fw = fixed_wing_search(
+                home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
+            )
+            if not plans_like_multirotor:
+                self._search = self._search_fw
+            elif hybrid_vtol:
+                self._search = self._search_fw
+            else:
+                self._search = self._search_mc
+
+        build_search(self.task_text)
         camera = CameraModel(
             fx=float(camera_info["fx"]),
             fy=float(camera_info["fy"]),
@@ -905,6 +926,26 @@ class OnboardPolicy:
                 loop.pass_clear = self.safety_envelope.leg_allowed
             return loop
 
+        def retarget_search(text: str) -> None:
+            """Size the search for a task that arrives after start-up.
+
+            An operator-link policy starts on a placeholder sentence ("operator
+            link mission"), so the size-aware search fell back to the 2 m
+            default object: e2e run10 counted cones from 13.0 m on 24 m rings
+            where the suite, sized for a 0.5 m cone, flew 11.3 m and 20 m.
+            """
+            build_search(text)
+            loop_defaults["search_altitude_m"] = (
+                float(altitude_m)
+                if hover_ops and self.search_altitude_m is None
+                else self.search_altitude_m
+            )
+            if "ground_extent_size_m" not in options:
+                loop_defaults["ground_extent_size_m"] = (
+                    typical_object_size(text, default=0.0) or None
+                )
+
+        self._retarget_search = retarget_search
         self.loop = make_loop(task_text)
         mission = options.get("mission")
         if mission not in {
@@ -1144,9 +1185,7 @@ class OnboardPolicy:
                     try:
                         candidate, candidate_report = build_mission_from_text(
                             self.task_text,
-                            tuple(
-                                f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs
-                            ),
+                            labelled_refs(refs, labels),
                             post,
                             sorted_keys=bool(options.get("plan_sorted_keys", True)),
                             plan_checker=plan_checker,
@@ -1414,7 +1453,12 @@ class OnboardPolicy:
 
             plan, report = build_mission_from_text(
                 str(package.document["task_text"]),
-                tuple(package.refs),
+                # The same labelled references as a start-up from_text mission.
+                # Bare names lost the link from the operator's words to the zone:
+                # "数一数场地里…" with "zone:site" alone planned zone:all (e2e
+                # run10: a 150 m search, budget exhausted); with "zone:site
+                # (场地 / the site)" both planner models choose zone:site.
+                labelled_refs(package.refs, package.document.get("ref_labels") or {}),
                 post,
                 capabilities=capabilities,
                 plan_checker=lambda candidate: check_plan_against_package(
@@ -1472,6 +1516,18 @@ class OnboardPolicy:
             raise TypeError("operator package candidate must be a MissionSupervisor")
         self.mission_package, self.mission_plan = supervisor.package, supervisor.executor.plan
         self.mission_plan_report = getattr(supervisor, "plan_report", None)
+        # The package's sentence is now the mission's task, as for a package
+        # loaded at start-up: it sizes the search and titles the summary.
+        task_text = str(supervisor.package.document.get("task_text") or self.mission_plan.goal)
+        self.task_text = task_text
+        retarget = getattr(self, "_retarget_search", None)
+        if retarget is not None:
+            queries = [
+                str(step.params["query"])
+                for step in self.mission_plan.steps
+                if isinstance(step.params.get("query"), str)
+            ]
+            retarget(" ".join([task_text, *queries]))
         self.supervisor, self.executor, self.downlink = supervisor, supervisor, supervisor.downlink
         self.operator_link_waiting = False
 
@@ -2655,5 +2711,6 @@ __all__ = [
     "YoloeProposer",
     "build_mission_from_text",
     "build_onboard_policy",
+    "labelled_refs",
     "perception_task_text",
 ]

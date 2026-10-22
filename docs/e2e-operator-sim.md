@@ -106,6 +106,7 @@ python scripts/augment_sim_world.py simulation/gazebo/worlds/gen_cnt2_w0000.sdf 
 | `battery telemetry stale` 但电量充足 | 先查 `mavlink.jsonl` 的 `time_boot_ms` 是否断档、宿主机进程是否卡住（第九次演示：Windows 上机载进程整体停约 20 秒，UDP 缓冲溢出丢了 PX4 时钟 354.0–361.1 秒的全部遥测，PX4 报 `Failsafe activated`）。SIM 读取器把这类“整条链路无消息”的车辆时钟区间记为 `vehicle_telemetry_gaps_s`，能量模型不把它计入电池时效，并在任务日志写 `vehicle_telemetry_gap`；链路恢复后电池仍需在 5 秒内上报，否则照常返航。实机仍按宿主接收时间判定。 |
 | 最终摘要只到 page 1 | 旧版所有页共用一个传输 token、分片序号跨页累加，GCS 按分片头 ACK 第 2 页时机载不认，page 1 被反复重发。现在每页是独立传输（各自 token、序号从 0 开始）。 |
 | 任务接纳前心跳被拒 | 机载尚无任务时收到 type-34 心跳不回 ACK、不计入任务心跳；已有任务而任务标识不符时仍回拒绝。 |
+| 演示计数远少于回归套件（同一世界同一配置） | 第十次演示 gen_cnt2_w0000 只数到 1/3（count `budget_exhausted`，140 步里 62 步在 55 m 场地外，最远 90.8 m），套件 3 架次均 3/3。三处与套件不一致：① 会话采集器未传 `--rgb-size`，用了 640x480（套件与相机标定为 1280x960），锥桶框只有 6–9 px，低于 10 px 的身份判断下限，另两个锥桶被跟踪多次却从未送慢系统（慢调用 24 次/match 4 次，套件 42–56/21–26）；② operator-link 规划只给了不带标签的 `zone:site`，中文“场地”对不上，规划成 `zone:all`，搜索半径退回 150 m（离线复现：r18 与 r14 带上 `场地 / the site` 标签都选 `zone:site`）；③ 策略任务文本停在占位句 `operator link mission`，按 2 m 默认物体定搜索高度（13.0 m、24 m 环距，套件 11.3 m、20 m），摘要标题也是占位句。现在会话传 1280x960，operator-link 规划沿用包内 `ref_labels`，安装包时按包任务与 query 重算搜索高度和任务文本。operator-link 规划仍用身份模型 r18，而 from_text 用 `planning_model` r14。 |
 | 回归架次显示 missing | 先看磁盘门限和 `campaign/*.log`；10-22 relook 回归还遇到缺少 `artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt`，没有产生可评分 episode。 |
 
 ## 已知限制
