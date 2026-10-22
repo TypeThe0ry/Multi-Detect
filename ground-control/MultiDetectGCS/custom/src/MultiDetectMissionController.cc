@@ -329,6 +329,9 @@ void MultiDetectMissionController::_poll()
     }
     if (!_activeMissionId.isEmpty() && _sender && now - _lastHeartbeatAt >= 1000) {
         _lastHeartbeatAt = now;
+        // A fresh random request token per heartbeat: the aircraft caches
+        // receipts by (type, token), so a counter that restarts with the GCS
+        // or the mission would be answered from that cache, not applied.
         (void) _sender(34,
                        MultiDetectMissionWire::command(MultiDetectOperatorProtocol::hash64(_activeMissionId), token()));
     }
@@ -404,9 +407,13 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
     if (type != 35)
         return;
     const QByteArray digest = fields.value("digest").toByteArray();
-    if (_completed.contains(request)) {
-        if (_completed.value(request) == digest && _sender)
+    const auto sendTelemetryAck = [this, request, index]() {
+        if (_sender)
             (void) _sender(36, MultiDetectMissionWire::telemetryAck(request, index));
+    };
+    if (_completed.contains(request)) {
+        if (_completed.value(request) == digest)
+            sendTelemetryAck();
         return;
     }
     if (!_assemblies.contains(request)) {
@@ -457,7 +464,8 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
         if (QCryptographicHash::hash(document, QCryptographicHash::Sha256) != digest || !_adopt(document)) {
             _telemetryAssemblyBytes -= a.reservedBytes;
             _assemblies.remove(request);
-            return;  // Never acknowledge malformed final telemetry.
+            sendTelemetryAck();
+            return;
         }
         if (_completed.size() >= 128)
             _completed.erase(_completed.begin());
@@ -465,8 +473,7 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
         _telemetryAssemblyBytes -= a.reservedBytes;
         _assemblies.remove(request);
     }
-    if (_sender)
-        (void) _sender(36, MultiDetectMissionWire::telemetryAck(request, index));
+    sendTelemetryAck();
 }
 
 bool MultiDetectMissionController::_adopt(const QByteArray& json)

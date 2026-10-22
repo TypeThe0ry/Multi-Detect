@@ -56,8 +56,9 @@ Item {
     readonly property var _missionPlan: _missionController ? (_missionController.plan || {}) : ({})
     readonly property var _missionFindings: _missionController ? (_missionController.findings || []) : []
     readonly property var _missionAlerts: _missionController ? (_missionController.alerts || []) : []
-    readonly property bool _missionCardVisible: _missionController !== null &&
-                                                 String(_missionController.activeMissionId || "") !== ""
+    // Keep the monitor visible before the first authenticated packet so the
+    // operator always has an explicit waiting state.
+    readonly property bool _missionCardVisible: true
     property bool _missionCardCollapsed: false
     property int _missionPolicyCountdown: 0
     readonly property string _missionPlanOriginText: {
@@ -1095,7 +1096,7 @@ Item {
         repeat: true
         running: root._missionCardVisible
         onTriggered: {
-            if (!root._missionController.telemetryFresh && root._missionPolicyCountdown > 0)
+            if (root._missionController && !root._missionController.telemetryFresh && root._missionPolicyCountdown > 0)
                 root._missionPolicyCountdown -= 1;
         }
     }
