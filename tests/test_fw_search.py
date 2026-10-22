@@ -161,3 +161,60 @@ def test_fixed_wing_refused_descents_never_become_the_orbit_altitude() -> None:
     assert orbit.kind == "orbit" and orbit.target_ned[2] == pytest.approx(-24.0)
     guarded, _ = adapter.guard_command(orbit, pose_ned=pose, yaw_deg=0.0)
     assert guarded.kind == "orbit"
+
+
+# SITL rc_cessna w0016 (e4ecaaf): the search-leg poses (north, east, yaw) of
+# steps 40-63.  Every reposition 28 m ahead became an autopilot loiter, and the
+# plane circled the first lane start (-150, -75) at 64-92 m, abeam, for ~100 steps.
+_W0016_RING = (
+    (-140.8, -11.6, 3.7),
+    (-222.0, -17.0, -105.8),
+    (-227.6, -107.0, -45.7),
+    (-161.0, -159.3, 6.5),
+    (-78.3, -117.4, 85.4),
+    (-76.6, -43.2, 113.8),
+    (-145.5, 7.6, -170.2),
+    (-215.6, -26.3, -121.9),
+    (-225.9, -107.9, -56.2),
+    (-160.8, -155.4, -0.1),
+    (-85.3, -112.4, 72.8),
+    (-90.9, -32.8, 127.3),
+)
+
+
+def _w0016_search() -> FixedWingSearch:
+    # The run's search: home (0, 0), 150 m radius, rc_cessna turn radius and leg.
+    return FixedWingSearch(
+        home_ned=(0.0, 0.0, 0.0),
+        radius_m=150.0,
+        footprint_width_m=camera_footprint_width_m({"fx": 539.94, "cx": 640.0}, 30.0, 0.18),
+        turn_radius_m=21.2,
+        max_leg_m=30.0,
+    )
+
+
+def test_fixed_wing_search_passes_a_waypoint_the_plane_keeps_circling() -> None:
+    search = _w0016_search()
+    first = search.waypoints[0]
+    assert first == pytest.approx((-150.0, -75.0), abs=1.0)
+    indices = []
+    for north, east, yaw in _W0016_RING:
+        search.next_action(pose_ned=(north, east, -30.0), yaw_deg=yaw)
+        indices.append(search._index)
+    # Within a lap the circled lane start counts as passed and the lane is flown.
+    assert indices[-1] >= 1 and indices.index(1) <= 4, indices
+    leg = search.next_action(pose_ned=(-150.0, -75.0, -30.0), yaw_deg=0.0)
+    north, east, _ = body_to_ned(leg.forward_m, leg.right_m, 0.0, 0.0)
+    assert north > 20.0 and abs(east) < 1.0  # up the first lane, towards (150, -75)
+
+
+def test_fixed_wing_search_does_not_skip_a_far_or_closing_waypoint() -> None:
+    search = _w0016_search()
+    # Far away and abeam (e.g. back from an approach elsewhere): never "passed".
+    for _ in range(10):
+        search.next_action(pose_ned=(100.0, -75.0, -30.0), yaw_deg=90.0)
+    assert search._index == 0
+    # Inside the capture bound but closing on it every leg: still approaching.
+    for north in (-60.0, -80.0, -100.0, -120.0):
+        search.next_action(pose_ned=(north, -75.0, -30.0), yaw_deg=180.0)
+    assert search._index == 0

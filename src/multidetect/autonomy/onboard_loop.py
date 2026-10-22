@@ -577,6 +577,13 @@ class LoopConfig:
     # Views within this multiple of the closest in-frame ground range count as the
     # closest view a pass can give (the multirotor's "closest_view").
     fw_pass_near_factor: float = 1.5
+    # Passes started at one place (within fw_pass_place_radius_m) before a new track
+    # there is no longer a candidate.  SITL w0031: the identity model matched a
+    # fire truck as the ambulance from afar and rejected it close in, every lap; a
+    # fresh track id restarted the pass 8 times and 73 of 141 steps went to it.
+    # None disables the cap.
+    fw_pass_max_per_place: int | None = 3
+    fw_pass_place_radius_m: float = 25.0
     # Aircraft that cannot hover hand the flight home to the autopilot (RTL and
     # its landing) with a stop, instead of flying turn/translate legs at home.
     autopilot_return: bool = False
@@ -605,7 +612,10 @@ class LoopConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
-        if not math.isfinite(self.static_verdict_max_shift_m) or self.static_verdict_max_shift_m <= 0:
+        if (
+            not math.isfinite(self.static_verdict_max_shift_m)
+            or self.static_verdict_max_shift_m <= 0
+        ):
             raise ValueError("static_verdict_max_shift_m must be finite and positive")
         if not isinstance(self.contradiction_relook_enabled, bool):
             raise ValueError("contradiction_relook_enabled must be a boolean")
@@ -652,6 +662,14 @@ class LoopConfig:
             or self.fw_pass_max_steps < 1
         ):
             raise ValueError("fw_pass_max_steps must be a positive integer")
+        if self.fw_pass_max_per_place is not None and (
+            isinstance(self.fw_pass_max_per_place, bool)
+            or not isinstance(self.fw_pass_max_per_place, int)
+            or self.fw_pass_max_per_place < 1
+        ):
+            raise ValueError("fw_pass_max_per_place must be a positive integer or None")
+        if not math.isfinite(self.fw_pass_place_radius_m) or self.fw_pass_place_radius_m <= 0:
+            raise ValueError("fw_pass_place_radius_m must be finite and positive")
         if not isinstance(self.step_triangulation, bool):
             raise ValueError("step_triangulation must be a boolean")
         if not isinstance(self.near_depth, bool):
@@ -947,6 +965,8 @@ class OnboardLoop:
     # Active fly-by pass plan (fixed_wing_pass) and its blocked-plan count.
     _fw_pass: dict[str, Any] | None = None
     _fw_pass_blocked: int = 0
+    # Places fly-by passes were started at: {"centre": (n, e), "passes": count}.
+    _fw_pass_places: list[dict[str, Any]] = field(default_factory=list)
     # Extra horizontal clearance for fly-by orbits, e.g. a mission's no-fly zones:
     # (start_ne, end_ne) -> clear.
     pass_clear: Callable[[tuple[float, float], tuple[float, float]], bool] | None = None
@@ -2668,6 +2688,18 @@ class OnboardLoop:
             focus = next((t for t in visible if t.track_id == self._focus), None)
             if focus is not None:
                 return focus
+        if self.config.fixed_wing_pass and self.config.fw_pass_max_per_place is not None:
+            # A new track at the place of the running pass keeps that pass.
+            plan = self._fw_pass
+            visible = [
+                t
+                for t in visible
+                if t.ground is None
+                or (
+                    plan is not None and math.dist(t.ground, plan["target"]) <= 0.5 * plan["radius"]
+                )
+                or self._fw_place_passes(t.ground) < self.config.fw_pass_max_per_place
+            ]
         if not visible:
             return None
         return max(
@@ -2782,17 +2814,27 @@ class OnboardLoop:
         """The search pattern, after descending to the search altitude if one is set."""
         target = self.config.search_altitude_m
         altitude = max(0.0, -pose_ned[2])
+        correction = 0.0
         if target is not None and altitude > target + 1.0:
             drop = min(altitude - target, 2.0 * self.config.descent_step_m)
             if self._segment_clear(pose_ned, pose_ned[0], pose_ned[1], pose_ned[2] + drop):
-                return ActionPrimitive.translate(0.0, 0.0, -drop)
-        if target is not None and altitude < target - 1.0:
+                correction = -drop
+        elif target is not None and altitude < target - 1.0:
             # An approach may have descended below the search altitude (which
             # clears the known obstacles): climb back before searching on.
-            return ActionPrimitive.translate(
-                0.0, 0.0, min(target - altitude, 2.0 * self.config.descent_step_m)
-            )
+            correction = min(target - altitude, 2.0 * self.config.descent_step_m)
+        if correction and not self.config.fixed_wing_pass:
+            return ActionPrimitive.translate(0.0, 0.0, correction)
         action = self.search_action(pose_ned, yaw_deg)
+        if correction and action.kind == "translate":
+            # A plane cannot climb in place: a vertical-only step becomes a loiter
+            # about where it is.  In SITL (rc_cessna, w0016) the plane held 28.6-29 m
+            # under a 30 m search altitude (turn sink), every search step became a
+            # +1.4 m climb "here" and 42 of 141 steps went by without a search leg.
+            # Fly the leg and correct the altitude on it.
+            action = ActionPrimitive.translate(
+                action.forward_m, action.right_m, action.up_m + correction
+            )
         if action.kind == "stop":
             outcome = self.search_outcome() if self.search_outcome is not None else None
             # Only a reported full pass is a completed coverage; any other stop
@@ -3072,6 +3114,7 @@ class OnboardLoop:
                 info["reason"] = "fw_pass_blocked"
                 return ActionPrimitive.hold(1.0)
             self._fw_pass_blocked = 0
+            self._count_fw_place_pass(plan["target"])
         self._fw_pass = plan
         if plan is None:
             return ActionPrimitive.hold(1.0)
@@ -3090,6 +3133,22 @@ class OnboardLoop:
             "steps": plan["steps"],
         }
         return ActionPrimitive.hold(1.0)
+
+    def _fw_place_passes(self, point: Sequence[float]) -> int:
+        radius = self.config.fw_pass_place_radius_m
+        return sum(
+            place["passes"]
+            for place in self._fw_pass_places
+            if math.dist(place["centre"], point[:2]) <= radius
+        )
+
+    def _count_fw_place_pass(self, point: Sequence[float]) -> None:
+        radius = self.config.fw_pass_place_radius_m
+        for place in self._fw_pass_places:
+            if math.dist(place["centre"], point[:2]) <= radius:
+                place["passes"] += 1
+                return
+        self._fw_pass_places.append({"centre": (float(point[0]), float(point[1])), "passes": 1})
 
     def _end_fw_pass(self) -> None:
         self._fw_pass = None

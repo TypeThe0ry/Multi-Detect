@@ -1090,6 +1090,22 @@ def _fw_loop(segment_clear=lambda pose, n, e: True, **config) -> OnboardLoop:
     )
 
 
+def test_fixed_wing_search_corrects_altitude_on_the_search_leg() -> None:
+    # SITL rc_cessna w0016: the plane held 28.6-29 m under a 30 m search altitude
+    # and every search step became a +1.4 m climb in place -- for a plane a loiter
+    # about where it is -- on 42 of 141 steps.  The leg carries the correction.
+    loop = _fw_loop(search_altitude_m=30.0)
+    action, _ = loop.next_action([], pose_ned=(0.0, 0.0, -28.6), yaw_deg=0.0)
+    assert action.kind == "translate"
+    assert action.forward_m == pytest.approx(28.0) and action.up_m == pytest.approx(1.4)
+    action, _ = loop.next_action([], pose_ned=(28.0, 0.0, -31.6), yaw_deg=0.0)
+    assert action.forward_m == pytest.approx(28.0) and action.up_m == pytest.approx(-1.6)
+    # A multirotor still settles the altitude first (it can climb in place).
+    hover = _loop(search_altitude_m=30.0)
+    action, _ = hover.next_action([], pose_ned=(0.0, 0.0, -28.6), yaw_deg=0.0)
+    assert action.forward_m == 0.0 and action.up_m == pytest.approx(1.4)
+
+
 class _Plane:
     """Kinematic plane: straight on, or converging onto a clockwise guided orbit."""
 
@@ -1275,6 +1291,35 @@ def test_fixed_wing_passes_keep_the_focus_through_blind_laps_then_hand_home_over
     gaps = [b - a for a, b in zip(seen_steps, seen_steps[1:], strict=False)]
     assert max(gaps) > loop.config.lost_after_steps
     assert math.dist(loop.confirmed["position_estimate_ne"], target) < 3.0
+
+
+def test_fixed_wing_stops_restarting_passes_at_a_place_after_the_cap() -> None:
+    # SITL w0031: a fire truck matched as the ambulance from afar and rejected
+    # close in; each lap a fresh track id restarted the pass (8 passes, 73 of 141
+    # steps).  Passes started at a place are counted and capped.
+    target = (100.0, 10.0)
+    loop = _fw_loop()
+    plane = _Plane(0.0, 0.0, 10.0)
+    _fw_step(loop, plane, target, _approach)
+    _, info, _ = _fw_step(loop, plane, target, _approach)
+    assert "fw_orbit" in info and loop._fw_place_passes(target) == 1
+    # A place that already had the capped number of passes: a new candidate there
+    # is not passed again and the search goes on.
+    capped = _fw_loop()
+    capped._fw_pass_places = [{"centre": (106.0, 2.0), "passes": 3}]
+    plane = _Plane(0.0, 0.0, 10.0)
+    _fw_step(capped, plane, target, _approach)
+    action, info, seen = _fw_step(capped, plane, target, _approach)
+    assert seen and "fw_orbit" not in info
+    assert capped.state == "searching" and action.kind == "translate"
+    # Below the cap, or with the cap disabled, the candidate still gets its pass.
+    for config, passes in (({}, 2), ({"fw_pass_max_per_place": None}, 3)):
+        other = _fw_loop(**config)
+        other._fw_pass_places = [{"centre": (106.0, 2.0), "passes": passes}]
+        plane = _Plane(0.0, 0.0, 10.0)
+        _fw_step(other, plane, target, _approach)
+        _, info, _ = _fw_step(other, plane, target, _approach)
+        assert "fw_orbit" in info and other.state == "approaching"
 
 
 def test_fixed_wing_pass_gives_up_after_its_lap_budget() -> None:
