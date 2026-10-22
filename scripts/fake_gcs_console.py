@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Small signed-TUNNEL console for exercising onboard prompt missions.
 
-Uploads a mission package (a prompt-only package is compiled onboard), prints
-every plan/status/finding/final-summary document the aircraft sends back, and
-approves the plan on Enter (or at once with ``--auto-approve``).  ``--link``
-reads the keys and port that ``scripts/run_sim_session.py --operator-link``
-writes for a session.
+Uploads a signed mission package (a prompt-only package is compiled onboard),
+prints every plan/status/finding/final-summary document the aircraft sends
+back, and approves the plan when ``a``/Enter is typed (``r`` rejects), or at
+once with ``--auto-approve``.  Keyboard input is read on its own thread, so the
+receive loop keeps sending heartbeats and telemetry ACKs while it waits.
+``--link`` reads the keys and port that ``scripts/run_sim_session.py
+--operator-link`` writes for a session; its session package key signs an
+unsigned package file before upload (onboard refuses unsigned packages).
 """
 
 from __future__ import annotations
@@ -13,11 +16,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import queue
 import secrets
 import socket
 import sys
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -32,6 +40,11 @@ from multidetect.autonomy.mission_operator_protocol import (  # noqa: E402
     mission_token,
 )
 from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.mission_security import (  # noqa: E402
+    AuthenticationKey,
+    load_key,
+    sign_document,
+)
 from multidetect.operator_link import VideoGeometry  # noqa: E402
 from multidetect.operator_mavlink import (  # noqa: E402
     OperatorMavlinkEndpoint,
@@ -61,6 +74,114 @@ class DocumentAssembler:
         return document
 
 
+def initial_sequence(now_s: float | None = None) -> int:
+    """Seed from Unix milliseconds, as the GCS does, so a restarted console is
+    ahead of the onboard sequence high-water instead of "expired" at 1."""
+    now_s = time.time() if now_s is None else now_s
+    return (int(now_s * 1000) & 0xFFFFFFFF) or 1
+
+
+def new_token() -> int:
+    """Fresh non-zero transfer token; onboard caches completed transfers by token."""
+    return secrets.randbits(62) | 1
+
+
+class PlanDecisions:
+    """Approve/reject decisions for onboard plans, never blocking the receive loop."""
+
+    def __init__(
+        self,
+        mission_id: str,
+        send_command: Callable[[dict[str, Any]], None],
+        *,
+        auto_approve: bool = False,
+        command_key: AuthenticationKey | None = None,
+        command_sequence: int = 1,
+        clock: Callable[[], float] = time.time,
+        prompt: Callable[[str], None] = lambda text: print(text, flush=True),
+    ) -> None:
+        self.mission_id = mission_id
+        self.send_command = send_command
+        self.auto_approve = auto_approve
+        self.command_key = command_key
+        self.command_sequence = command_sequence
+        self.clock = clock
+        self.prompt = prompt
+        self.pending: str | None = None
+        self.decided: set[str] = set()
+        self.inputs: queue.Queue[str] = queue.Queue()
+
+    def on_plan(self, document: dict[str, Any]) -> None:
+        if document.get("mission_id") != self.mission_id:
+            self.prompt(f"ignored plan for another mission: {document.get('mission_id')!r}")
+            return
+        digest = document.get("plan_sha256")
+        if not isinstance(digest, str) or digest in self.decided:
+            return
+        self.pending = digest
+        if self.auto_approve:
+            self.decide("approve")
+        else:
+            self.prompt("plan received: type a (or Enter) to approve, r to reject")
+
+    def poll(self) -> None:
+        """Apply typed decisions; called from the receive loop."""
+        while True:
+            try:
+                line = self.inputs.get_nowait().strip().lower()
+            except queue.Empty:
+                return
+            if line in {"", "a", "y", "approve"}:
+                self.decide("approve")
+            elif line in {"r", "n", "reject"}:
+                self.decide("reject")
+
+    def decide(self, decision: str) -> None:
+        digest = self.pending
+        if digest is None:
+            return
+        self.pending = None
+        self.decided.add(digest)
+        command: dict[str, Any] = {
+            "mission_id": self.mission_id,
+            "type": "approve_plan" if decision == "approve" else "reject_plan",
+            "plan_sha256": digest,
+        }
+        if self.command_key is not None:
+            # Signed ground commands carry their own replay protection.
+            command.update(
+                sequence=self.command_sequence,
+                timestamp=self.clock(),
+                timestamp_version=1,
+                timestamp_domain="unix",
+            )
+            self.command_sequence += 1
+            command = sign_document(command, self.command_key)
+        self.send_command(command)
+        self.prompt(f"{decision}d plan {digest[:12]}")
+
+
+def _package_key(args, link_config: dict[str, Any]) -> AuthenticationKey | None:
+    hex_key = args.package_key_hex or link_config.get("operator_package_key_hex")
+    if hex_key:
+        return AuthenticationKey("hmac-sha256", bytes.fromhex(hex_key), "default")
+    return load_key(args.package_key) if args.package_key else None
+
+
+def signed_package_bytes(raw: bytes, key: AuthenticationKey | None) -> tuple[bytes, str]:
+    """Return upload bytes and mission id; sign an unsigned package when a key is given."""
+    document = json.loads(raw)
+    if "signature" in document:
+        return raw, str(document["mission_id"])
+    load_mission_package(document)  # refuse an invalid package before signing it
+    if key is None:
+        raise ValueError("package is unsigned: pass --package-key/--package-key-hex or --link")
+    signed = sign_document(document, key)
+    return json.dumps(signed, ensure_ascii=False, separators=(",", ":")).encode(), str(
+        document["mission_id"]
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", type=Path)
@@ -69,10 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=14580)
     parser.add_argument("--hmac-key", help="32-byte HMAC key, hex")
     parser.add_argument("--mavlink-key", help="32-byte MAVLink signing key, hex")
+    parser.add_argument("--package-key", type=Path, help="package signing key file")
+    parser.add_argument("--package-key-hex", help="32-byte HMAC package signing key, hex")
+    parser.add_argument("--command-key", type=Path, help="ground command signing key file")
+    parser.add_argument("--command-sequence", type=int, default=1)
     parser.add_argument("--auto-approve", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="0 runs until Ctrl-C")
     parser.add_argument("--log", type=Path, help="append every received document as JSON lines")
     args = parser.parse_args(argv)
+    link_config: dict[str, Any] = {}
     if args.link:
         link_config = json.loads(args.link.read_text(encoding="utf-8"))
         args.port = int(link_config["operator_port"])
@@ -81,8 +207,12 @@ def main(argv: list[str] | None = None) -> int:
         args.mavlink_key = link_config["operator_mavlink_signing_key_hex"]
     if not args.hmac_key or not args.mavlink_key:
         parser.error("--hmac-key and --mavlink-key (or --link) are required")
-    raw = args.package.read_bytes()
-    package = load_mission_package(json.loads(raw))
+    try:
+        raw, mission_id = signed_package_bytes(
+            args.package.read_bytes(), _package_key(args, link_config)
+        )
+    except ValueError as error:
+        parser.error(str(error))
     # Same registered stream as the onboard endpoint (scripts/onboard_main.py).
     codec = OperatorTunnelCodec(
         hmac_key=bytes.fromhex(args.hmac_key),
@@ -98,35 +228,54 @@ def main(argv: list[str] | None = None) -> int:
         receive_signing_link_id=1,
     )
     assembler = DocumentAssembler()
-    approved: set[str] = set()
+    summary_pages: dict[str, dict[int, str]] = {}
     deadline = time.monotonic() + args.max_seconds if args.max_seconds > 0 else None
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.settimeout(1.0)
-        sequence = 1
+        sock.settimeout(0.2)
+        sequence = initial_sequence()
+
+        def frame(message_type: int, body: bytes) -> bytes:
+            nonlocal sequence
+            payload = codec.encode_mission(
+                message_type, body, sequence=sequence, sent_at_s=time.time()
+            )
+            sequence = (sequence + 1) & 0xFFFFFFFF or 1
+            return link.wrap_authenticated_operator_payload(payload)
 
         def send(message_type: int, document: bytes, token: int) -> None:
-            nonlocal sequence
             for chunk in document_chunks(document, token, message_type=message_type):
-                payload = codec.encode_mission(
-                    message_type, chunk.body, sequence=sequence, sent_at_s=time.time()
-                )
-                frame = link.wrap_authenticated_operator_payload(payload)
-                sock.sendto(frame, (args.host, args.port))
-                sequence += 1
+                sock.sendto(frame(message_type, chunk.body), (args.host, args.port))
                 # Onboard rate-limits each message type to a burst of 20 and 20/s
                 # (operator_udp.DEFAULT_COMMAND_*) and drops excess chunks without
                 # an ACK; a ~1 KB prompt package is ~25 chunks, so pace below that.
                 time.sleep(0.06)
 
-        # A fresh token per console run: onboard remembers completed transfers by
-        # token, so reusing one makes every later upload "expired or conflicting".
-        upload_token = secrets.randbits(62) | 1
+        def send_command(command: dict[str, Any]) -> None:
+            encoded = json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode()
+            send(37, encoded, new_token())
+
+        decisions = PlanDecisions(
+            mission_id,
+            send_command,
+            auto_approve=args.auto_approve,
+            command_key=load_key(args.command_key) if args.command_key else None,
+            command_sequence=args.command_sequence,
+        )
+        if not args.auto_approve:
+
+            def read_keyboard() -> None:
+                for line in sys.stdin:
+                    decisions.inputs.put(line)
+
+            threading.Thread(target=read_keyboard, name="gcs-keyboard", daemon=True).start()
+
+        upload_token = new_token()
         send(28, raw, upload_token)
         last_upload = time.monotonic()
         heard = False
         last_heartbeat = 0.0
         heartbeat_count = 0
-        print(f"uploaded {package.mission_id}", flush=True)
+        print(f"uploaded {mission_id}", flush=True)
         while deadline is None or time.monotonic() < deadline:
             # The aircraft may start listening after the console: resend the
             # package until anything comes back (a resend after admission would
@@ -135,21 +284,16 @@ def main(argv: list[str] | None = None) -> int:
             # such as the plan are only downlinked while it is.
             if time.monotonic() - last_heartbeat >= 1.0:
                 heartbeat_count += 1
-                beat = codec.encode_mission(
-                    34,
-                    CONTROL.pack(mission_token(package.mission_id), heartbeat_count),
-                    sequence=sequence,
-                    sent_at_s=time.time(),
-                )
-                sock.sendto(link.wrap_authenticated_operator_payload(beat), (args.host, args.port))
-                sequence += 1
+                beat = CONTROL.pack(mission_token(mission_id), heartbeat_count)
+                sock.sendto(frame(34, beat), (args.host, args.port))
                 last_heartbeat = time.monotonic()
             if not heard and time.monotonic() - last_upload > 5.0:
                 send(28, raw, upload_token)
                 last_upload = time.monotonic()
+            decisions.poll()
             try:
-                frame, _ = sock.recvfrom(4096)
-                packet = codec.decode(link.decode_authenticated_datagram(frame).operator_payload)
+                received, _ = sock.recvfrom(4096)
+                packet = codec.decode(link.decode_authenticated_datagram(received).operator_payload)
             except (TimeoutError, OSError):
                 continue
             except ValueError as error:
@@ -159,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Onboard verdict on an upload/command chunk, with a reason text.
                 _token, kind, index, accepted = ACK.unpack_from(packet.message.body)
                 detail = packet.message.body[ACK.size :].decode("utf-8", "replace")
-                if not accepted or index == 0 or __import__("os").environ.get("GCS_ALL_ACKS"):
+                if not accepted or index == 0 or os.environ.get("GCS_ALL_ACKS"):
                     print(
                         f"onboard ack kind={kind} index={index} accepted={bool(accepted)} {detail}",
                         flush=True,
@@ -171,11 +315,7 @@ def main(argv: list[str] | None = None) -> int:
             # Onboard telemetry is stop-and-wait: each chunk is resent every second
             # until the ground acknowledges (token, index) with a type-36 message.
             token, index = CHUNK.unpack_from(packet.message.body)[:2]
-            ack = codec.encode_mission(
-                36, TELEMETRY_ACK.pack(token, index), sequence=sequence, sent_at_s=time.time()
-            )
-            sock.sendto(link.wrap_authenticated_operator_payload(ack), (args.host, args.port))
-            sequence += 1
+            sock.sendto(frame(36, TELEMETRY_ACK.pack(token, index)), (args.host, args.port))
             document_bytes = assembler.add(packet.message.body)
             if document_bytes is None:
                 continue
@@ -183,25 +323,33 @@ def main(argv: list[str] | None = None) -> int:
                 document = json.loads(document_bytes.decode())
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            print(json.dumps(document, ensure_ascii=False), flush=True)
-            if args.log:
-                with args.log.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(document, ensure_ascii=False) + "\n")
-            if document.get("kind") != "plan" or document.get("plan_sha256") in approved:
-                continue
-            if not args.auto_approve:
-                input("approve with Enter, or Ctrl-C to leave waiting: ")
-            approved.add(document["plan_sha256"])
-            command = json.dumps(
-                {
-                    "mission_id": package.mission_id,
-                    "type": "approve_plan",
-                    "plan_sha256": document["plan_sha256"],
-                },
-                separators=(",", ":"),
-            ).encode()
-            send(37, command, 2)
-            print(f"approved plan {document['plan_sha256'][:12]}", flush=True)
+            documents = [document]
+            if document.get("kind") == "final_summary_page":
+                # A large final summary arrives as ordered pages of JSON text;
+                # show it once every page is here.
+                pages = summary_pages.setdefault(str(document.get("mission_id")), {})
+                pages[int(document["page"])] = str(document["body"])
+                if len(pages) == int(document["pages"]):
+                    try:
+                        summary = json.loads("".join(pages[i] for i in sorted(pages)))
+                    except json.JSONDecodeError:
+                        summary = None
+                    if summary is not None:
+                        documents.append(
+                            {
+                                "kind": "final_summary",
+                                "mission_id": document.get("mission_id"),
+                                "summary": summary,
+                                "assembled_pages": len(pages),
+                            }
+                        )
+            for item in documents:
+                print(json.dumps(item, ensure_ascii=False), flush=True)
+                if args.log:
+                    with args.log.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+            if document.get("kind") == "plan":
+                decisions.on_plan(document)
     return 0
 
 

@@ -150,3 +150,29 @@ def test_a_vehicle_inside_a_clearance_ring_may_climb_or_leave_but_not_approach()
     assert not segment_clear_of_obstacles(start, (20.0, 4.0, -4.0), 8.0, (house,))  # descend
     outside = (5.0, 4.0, -8.0)
     assert not segment_clear_of_obstacles(outside, (20.0, 4.0, -8.0), 8.0, (house,))  # enter
+
+
+def test_a_descent_below_a_roof_under_the_start_altitude_is_not_clear() -> None:
+    from multidetect.sim_teacher.policies import SDFObstacle, segment_clear_of_obstacles
+
+    # gen_cnt2_w0001 obstacle_01: a 14.8 m apartment block.  A count run hovered
+    # over its roof at 17.2 m, saw a hydrant 17 m away and descended 4 m toward
+    # it: the roof was 2.4 m below the start altitude, so the map skipped it and
+    # the vehicle flew into the roof (SITL loopfix/relook3, 3 of 4 runs).
+    apartment = SDFObstacle(
+        north_m=-24.641,
+        east_m=-10.416,
+        height_m=14.8046,
+        size_north_m=22.2701,
+        size_east_m=20.2572,
+        yaw_rad=1.019681,
+    )
+    start = (-27.2, -17.0, -17.2)
+    toward = (-30.4, -18.8)
+    # Level above the roof (more than 2 m clear) stays allowed.
+    assert segment_clear_of_obstacles(start, (*toward, -17.2), 17.2, (apartment,))
+    assert not segment_clear_of_obstacles(start, (*toward, -13.2), 17.2, (apartment,))
+    assert not segment_clear_of_obstacles(start, (-27.2, -17.0, -13.2), 17.2, (apartment,))
+    # Away from the block the same descent is clear.
+    far = (-40.0, -40.0, -17.2)
+    assert segment_clear_of_obstacles(far, (-38.0, -38.0, -13.2), 17.2, (apartment,))

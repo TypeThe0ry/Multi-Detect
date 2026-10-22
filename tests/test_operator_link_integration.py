@@ -12,6 +12,7 @@ from multidetect.autonomy.mission_executor import MissionExecutor
 from multidetect.autonomy.mission_operator import MissionOperatorAdapter
 from multidetect.autonomy.mission_operator_protocol import CHUNK, document_chunks
 from multidetect.autonomy.mission_package import load_mission_package
+from multidetect.autonomy.mission_security import AuthenticationKey, sign_document
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import OnboardMissionLog
 from multidetect.operator_link import SelectionCommandGuard, VideoGeometry
@@ -32,7 +33,8 @@ def _package() -> dict:
 def test_signed_task_only_udp_loopback_plan_approval_and_status(tmp_path: Path) -> None:
     pytest.importorskip("pymavlink")
     raw, compiled = _package()
-    payload = json.dumps(raw, separators=(",", ":")).encode()
+    package_key = AuthenticationKey("hmac-sha256", b"P" * 32, "default")
+    payload = json.dumps(sign_document(raw, package_key), separators=(",", ":")).encode()
     compiled_plan = load_mission_package({**raw, "plan": compiled}).plan
     key = b"L" * 32
     geometry = VideoGeometry("camera-main", 1280, 720)
@@ -67,7 +69,11 @@ def test_signed_task_only_udp_loopback_plan_approval_and_status(tmp_path: Path) 
         receive_signing_link_id=1,
     )
     adapter = MissionOperatorAdapter(
-        onboard_codec, package_loader=make_supervisor, preflight_allowed=lambda: True
+        onboard_codec,
+        package_loader=make_supervisor,
+        preflight_allowed=lambda: True,
+        package_verify_key=package_key,
+        planner_runner=lambda job: job(),
     )
     with (
         UdpOperatorSelectionServer(
@@ -77,6 +83,8 @@ def test_signed_task_only_udp_loopback_plan_approval_and_status(tmp_path: Path) 
             guard=SelectionCommandGuard(geometry),
             mission_adapter=adapter,
             receive_timeout_s=0.2,
+            # The signed package is sent back to back, beyond the default burst.
+            command_burst=64,
         ) as server,
         socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock,
     ):

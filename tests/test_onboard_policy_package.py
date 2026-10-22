@@ -245,7 +245,8 @@ def test_optional_transport_attaches_and_drains_on_heartbeat(tmp_path, model_stu
         while policy.downlink.acknowledged_sequence < target and time.monotonic() < deadline:
             time.sleep(0.005)
         assert policy.downlink.acknowledged_sequence == target
-        assert [record["sequence"] for record in received] == list(range(1, target + 1))
+        # The cursor passes every record; a routine heartbeat record stays local.
+        assert [record["kind"] for record in received] == ["mission_started"]
         assert all(record["mission_id"] == "sortie-1" for record in received)
         assert policy.supervisor.log.cursor_path.is_file()
     finally:
@@ -469,3 +470,194 @@ def test_sim_ground_timeline_evaluates_the_supervisor_with_the_vehicle_pose() ->
     timeline = SimGroundTimeline([{"t_s": 0.0, "event": "pause"}])
     timeline.advance({"frame_sensor_stamp_ns": 0}, supervisor, pose_ned=(1.0, 2.0, -10.0))
     assert supervisor.poses == [(1.0, 2.0, -10.0)]
+
+
+class _Evaluated(BaseException):
+    """Stop act() right after supervision; continuing would need the models."""
+
+
+def _battery_sample(host_s, vehicle_s=None):
+    sample = {
+        "received_monotonic_s": host_s,
+        "message": {
+            "mavpackettype": "BATTERY_STATUS",
+            "id": 0,
+            "battery_remaining": 90,
+            "voltages": [16000] + [65535] * 9,
+            "current_battery": -1,
+            "current_consumed": 0,
+        },
+    }
+    if vehicle_s is not None:
+        sample["received_vehicle_s"] = vehicle_s
+    return sample
+
+
+def _supervised_steps(policy, steps, *, stall_s=0.0, gaps_s=None):
+    """Feed (host_s, vehicle_s, samples) observations; return energy per step.
+
+    ``stall_s`` advances the supervisor's host clock between ingest and
+    evaluate, as the 5.6 s mission-log stall in SITL run8 did.
+    """
+    now = _clock(policy)
+    # Operator-link SIM: the supervisor runs on host monotonic time, the same
+    # clock as the reader's receipts, so the receipt offset is zero.
+    policy._energy_receipt_clock_offset = 0.0
+    supervisor = policy.supervisor
+    real_update, real_evaluate = supervisor.update_estimates, supervisor.evaluate
+    estimates = []
+
+    def update_estimates(**kwargs):
+        now[0] += stall_s
+        return real_update(**kwargs)
+
+    def evaluate(**kwargs):
+        result = real_evaluate(**kwargs)
+        estimates.append((result, dict(supervisor.energy_estimate)))
+        raise _Evaluated
+
+    supervisor.update_estimates, supervisor.evaluate = update_estimates, evaluate
+    for host_s, vehicle_s, samples in steps:
+        now[0] = max(now[0], host_s)
+        observation = {"pose_time_boot_ms": int(vehicle_s * 1000), "energy_telemetry": samples}
+        if gaps_s is not None:
+            observation["vehicle_telemetry_gaps_s"] = gaps_s
+        with pytest.raises(_Evaluated):
+            policy.act(observation, pose_ned=(0, 0, -20), yaw_deg=0)
+    return estimates
+
+
+def _slow_sitl_steps(start_s, *, rtf, battery_period_s, steps, step_vehicle_s):
+    """A lockstep SITL at ``rtf`` x real time; BATTERY_STATUS on the sim clock.
+
+    Each observation lands just before the next battery message, the worst
+    phase for a host-clock age (run8 saw 4.3 s at the observation itself).
+    """
+    rows = []
+    for index in range(1, steps + 1):
+        vehicle = 200.0 + index * step_vehicle_s
+        battery_vehicle = vehicle - battery_period_s + 0.05
+        host = start_s + (vehicle - 200.0) / rtf
+        battery_host = host - (vehicle - battery_vehicle) / rtf
+        rows.append((host, vehicle, [_battery_sample(battery_host, battery_vehicle)]))
+    return rows
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        # PX4 lockstep at 0.3x real time, 0.5 Hz BATTERY_STATUS, 7 s translates.
+        "slow_lockstep",
+        # run8: battery 0.14 s old at the observation, 5.6 s host stall before
+        # evaluate while the simulation advanced only 0.2 s.
+        "policy_stall",
+    ],
+)
+def test_sitl_battery_freshness_is_judged_on_the_vehicle_clock(tmp_path, model_stubs, scenario):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    start = policy.supervisor.started
+    try:
+        if scenario == "slow_lockstep":
+            steps = _slow_sitl_steps(
+                start, rtf=0.3, battery_period_s=2.0, steps=6, step_vehicle_s=7.0
+            )
+            estimates = _supervised_steps(policy, steps)
+        else:
+            steps = [
+                (
+                    start + 16.0 * i,
+                    228.592 + 7.5 * i,
+                    [_battery_sample(start + 16.0 * i - 0.14, 228.55 + 7.5 * i)],
+                )
+                for i in range(1, 4)
+            ]
+            estimates = _supervised_steps(policy, steps, stall_s=5.6)
+        assert [result for result, _ in estimates] == ["continue"] * len(steps)
+        assert all(energy["action"] == "continue" for _, energy in estimates)
+        # The newest sample's age is its age on the simulation clock.
+        assert max(energy["battery_age_s"] for _, energy in estimates) < 2.0
+        assert policy.supervisor.energy_estimator.clock_bound
+    finally:
+        policy.close()
+
+
+def test_sitl_battery_that_stops_arriving_still_returns(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    start = policy.supervisor.started
+    try:
+        # Battery received once at vehicle 200.5 s; pose keeps advancing the
+        # vehicle clock, so the reading ages on that clock until it is stale.
+        steps = [(start + 1.0, 201.0, [_battery_sample(start + 0.5, 200.5)])]
+        steps += [(start + 1.0 + 3.0 * i, 201.0 + 1.0 * i, []) for i in range(1, 7)]
+        estimates = _supervised_steps(policy, steps)
+        assert estimates[0][0] == "continue"
+        assert estimates[-1][0] == "return_now"
+        assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
+        assert [energy["action"] for _, energy in estimates].index("return_now") == 5
+        assert estimates[-1][1]["battery_age_s"] == pytest.approx(6.5)
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("reader_saw_gap", [False, True])
+def test_sitl_link_gap_is_not_charged_to_the_battery(tmp_path, model_stubs, reader_saw_gap):
+    """Run9 replay: a 20 s host stall lost PX4 telemetry from 354.016 to 361.096 s.
+
+    The last battery (SYS_STATUS) was at 353.5 s; the first post-gap pose made
+    it 7.7 s old and the mission returned.  With the reader's gap the battery is
+    judged from link recovery; if it then stays silent it still goes stale.
+    """
+    policy = _construct(tmp_path, {"mission_package": document()})
+    start = policy.supervisor.started
+    try:
+        steps = [
+            (start + 1.0, 353.6, [_battery_sample(start + 0.9, 353.5)]),
+            (start + 24.0, 361.168, []),
+            # The battery never reports again after recovery.
+            (start + 40.0, 366.3, []),
+        ]
+        gaps = [[354.016, 361.096]] if reader_saw_gap else None
+        estimates = _supervised_steps(policy, steps, gaps_s=gaps)
+        assert estimates[1][1]["battery_age_s"] == pytest.approx(7.668)
+        if not reader_saw_gap:
+            assert estimates[1][0] == "return_now"
+            assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
+            return
+        assert [result for result, _ in estimates[:2]] == ["continue", "continue"]
+        assert estimates[1][1]["link_gap_excluded_s"] == pytest.approx(7.08)
+        assert [
+            record["gap_s"]
+            for record in map(json.loads, policy.supervisor.log.path.read_text().splitlines())
+            if record["kind"] == "vehicle_telemetry_gap"
+        ] == [pytest.approx(7.08)]
+        # Stale once 5 s of live link have passed without a battery report.
+        assert estimates[2][0] == "return_now"
+        assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("stamped", [False, True])
+def test_flight_battery_freshness_stays_on_host_receipt_time(tmp_path, model_stubs, stamped):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    # A real aircraft: a stall really ages the data, so host receipt time rules
+    # even if a reader also stamped the vehicle clock.
+    policy.supervisor._flight_mode = True
+    start = policy.supervisor.started
+    try:
+        steps = [
+            (
+                start + 1.0,
+                201.0,
+                [_battery_sample(start + 0.9, 200.9 if stamped else None)],
+            ),
+            (start + 7.0, 201.1, []),
+        ]
+        estimates = _supervised_steps(policy, steps)
+        assert estimates[0][0] == "continue"
+        assert estimates[1][0] == "return_now"
+        assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
+        assert estimates[1][1]["battery_age_s"] == pytest.approx(6.1)
+        assert not policy.supervisor.energy_estimator.clock_bound
+    finally:
+        policy.close()

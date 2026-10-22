@@ -111,6 +111,13 @@ def _parse_size(value: str) -> tuple[int, int]:
     return width, height
 
 
+def _parse_sim_param(value: str) -> str:
+    name, sep, setting = value.partition("=")
+    if not sep or not name.strip() or not setting.strip():
+        raise argparse.ArgumentTypeError("sim-param must be NAME=VALUE")
+    return value
+
+
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
 TAKEOFF_SAFETY_MARGIN_M = 4.0
 MAX_TAKEOFF_ALTITUDE_M = 40.0
@@ -1243,15 +1250,16 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         operator_mavlink_signing_key_hex=config.get("operator_mavlink_signing_key_hex"),
         operator_requires_approval=bool(config.get("operator_requires_approval", True)),
         operator_package_verify_key=config.get("operator_package_verify_key"),
+        operator_package_key_hex=config.get("operator_package_key_hex"),
     )
-    admit = getattr(policy, "admit_operator_package", None)
+    prepare = getattr(policy, "prepare_operator_package", None)
 
-    def logged_admit(package):
-        # Planning a prompt-only package calls the slow model inside the link's
-        # receive thread; log each stage so a silent link can be diagnosed.
+    def logged_prepare(package):
+        # Planning a prompt-only package calls the slow model on the link's
+        # planner worker; log each stage so a silent link can be diagnosed.
         _progress("operator_package_received", mission_id=package.mission_id)
         try:
-            supervisor = admit(package)
+            supervisor = prepare(package)
         except Exception as error:
             _progress("operator_package_rejected", error=f"{type(error).__name__}: {error}")
             raise
@@ -1262,15 +1270,16 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         )
         return supervisor
 
-    if admit is not None:
-        policy.admit_operator_package = logged_admit
+    if prepare is not None:
+        policy.prepare_operator_package = logged_prepare
     server = _start_operator_link(args, policy, _SimHoverVehicle())
     policy.sim_operator_server = server
     _progress("operator_link_listening", host=args.operator_bind_host, port=args.operator_port)
 
     def report_link_errors() -> None:
         errors = getattr(server, "_background_errors", None)
-        while errors is not None and not getattr(server, "_closed", False):
+        stopped = getattr(server, "_stop_event", None)
+        while errors is not None and not (stopped is not None and stopped.is_set()):
             try:
                 error = errors.get(timeout=1.0)
             except Exception:
@@ -1285,27 +1294,39 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
 def _drain_sim_operator_link(policy, timeout_s: float = 30.0) -> None:
     """Let the GCS receive the last findings and the final summary before exit.
 
-    The link lives in this process; ending right after landing dropped the queued
-    records (SITL e2e: one of two findings and no final summary reached the GCS).
+    Call before ``policy.close()``: that closes the downlink queue, after which
+    nothing more is sent (SITL e2e: the drain then waited 30 s in vain and the
+    final summary never reached the GCS).  The host stop is a terminal path, so
+    the supervisor's one final summary is written here first when the mission
+    has not produced it yet.  The operator server is closed on every path.
     """
     server = getattr(policy, "sim_operator_server", None)
-    supervisor = getattr(policy, "supervisor", None)
-    downlink = getattr(supervisor, "downlink", None)
-    if server is None or downlink is None:
+    if server is None:
         return
-    log = supervisor.log
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline and downlink.acknowledged_sequence < log._sequence:
-        time.sleep(0.5)
-    _progress(
-        "operator_link_drained",
-        acknowledged=downlink.acknowledged_sequence,
-        logged=log._sequence,
-    )
     try:
-        server.close()
-    except Exception:
-        pass
+        supervisor = getattr(policy, "supervisor", None)
+        downlink = getattr(supervisor, "downlink", None)
+        if supervisor is None or downlink is None:
+            return
+        try:
+            supervisor.finish("stopped")
+        except Exception as error:
+            _progress("operator_link_finish_failed", error=f"{type(error).__name__}: {error}")
+        log = supervisor.log
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline and downlink.acknowledged_sequence < log._sequence:
+            time.sleep(0.2)
+        _progress(
+            "operator_link_drained",
+            acknowledged=downlink.acknowledged_sequence,
+            logged=log._sequence,
+        )
+    finally:
+        policy.sim_operator_server = None
+        try:
+            server.close()
+        except Exception:
+            pass
 
 
 def _trace_operator_link(server) -> None:
@@ -1641,6 +1662,8 @@ def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
         received_wall_time=dict(state.received_wall_time),
         count=state.count,
         last_preflight_failure_ns=state.last_preflight_failure_ns,
+        vehicle_time_boot_ms=state.vehicle_time_boot_ms,
+        received_vehicle_ms=dict(state.received_vehicle_ms),
     )
 
 
@@ -3671,9 +3694,9 @@ def run_episode(
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
             )
+            _drain_sim_operator_link(policy)
             if hasattr(policy, "close"):
                 policy.close()
-            _drain_sim_operator_link(policy)
             if gcs_heartbeat_stop is not None:
                 gcs_heartbeat_stop.set()
             if gcs_heartbeat_thread is not None:
@@ -3691,6 +3714,10 @@ def run_episode(
                 if connection is not None:
                     connection.close()
     except LowDiskSpace as exc:
+        try:
+            _drain_sim_operator_link(policy, timeout_s=10.0)
+        except Exception:
+            pass
         if hasattr(policy, "close"):
             try:
                 policy.close()
@@ -3727,6 +3754,10 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
+        try:
+            _drain_sim_operator_link(policy, timeout_s=10.0)
+        except Exception:
+            pass
         if hasattr(policy, "close"):
             try:
                 policy.close()
@@ -3858,6 +3889,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sim-param",
         action="append",
         default=[],
+        type=_parse_sim_param,
         metavar="NAME=VALUE",
         help="extra SIM-only PX4 parameter for this run (repeatable)",
     )

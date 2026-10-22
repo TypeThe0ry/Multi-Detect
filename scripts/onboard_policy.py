@@ -281,6 +281,15 @@ def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _vehicle_receipt_s(sample: Mapping[str, Any]) -> float | None:
+    """Vehicle (PX4 boot) clock at a telemetry sample's receipt, if stamped."""
+    value = sample.get("received_vehicle_s")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value >= 0 else None
+
+
 def _enabled(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -293,6 +302,13 @@ def perception_task_text(step: MissionStep, original: str) -> str:
     if isinstance(query, str) and query.isascii():
         return task_text_for(step)
     return original
+
+
+def labelled_refs(
+    refs: Mapping[str, Any] | Sequence[str] | None, labels: Mapping[str, Any]
+) -> tuple[str, ...]:
+    """Planner reference list: ``"zone:site (the site)"`` when a label is known."""
+    return tuple(f"{ref} ({labels[ref]})" if ref in labels else str(ref) for ref in refs or ())
 
 
 def build_mission_from_text(
@@ -458,6 +474,7 @@ class OnboardPolicy:
             or security.get("ground_command_verify_key")
             or legacy_key_setting
         )
+        self._ground_key_setting = ground_key_setting
         if isinstance(key_setting, str):
             key_path = Path(key_setting)
             key_setting = key_path if key_path.is_absolute() else ROOT / key_path
@@ -623,12 +640,18 @@ class OnboardPolicy:
         self.safety_envelope.obstacle_source = CompositeSource((StaticMapSource(obstacles),))
         # Size-aware search altitude: low enough that an object of the task's typical
         # size spans about min_search_px pixels at a mid-image depression angle.
-        self.search_altitude_m = None
-        if options.get("size_aware_search"):
-            size = typical_object_size(self.task_text)
+        if search_pattern == "two_altitude":
+            low_search_setting = float(options.get("low_search_altitude_m", 12.0))
+            if not math.isfinite(low_search_setting) or low_search_setting <= 0:
+                raise ValueError("low_search_altitude_m must be finite and positive")
+
+        def size_aware_altitude(text: str) -> float | None:
+            if not options.get("size_aware_search"):
+                return None
+            size = typical_object_size(text)
             depression = mount_pitch + math.radians(20.0)
             needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
-            self.search_altitude_m = max(
+            search_altitude = max(
                 float(options.get("min_search_altitude_m", 8.0)),
                 min(altitude_m, needed * math.sin(depression)),
             )
@@ -640,27 +663,8 @@ class OnboardPolicy:
                 if not math.isfinite(clearance) or clearance < 0:
                     raise ValueError("search_obstacle_clearance_m must be finite and >= 0")
                 floor = max(obstacle.height_m for obstacle in obstacles) + clearance
-                self.search_altitude_m = max(self.search_altitude_m, min(float(altitude_m), floor))
-        if search_pattern == "two_altitude":
-            low_search_altitude = float(options.get("low_search_altitude_m", 12.0))
-            if not math.isfinite(low_search_altitude) or low_search_altitude <= 0:
-                raise ValueError("low_search_altitude_m must be finite and positive")
-            low_search_altitude = min(
-                low_search_altitude, self.search_altitude_m or float(altitude_m)
-            )
-        # The search pattern is target-blind; a target placed far outside the
-        # detection range keeps ExpertSearchPolicy in its search/scan states.
-        self._search_mc = ExpertSearchPolicy(
-            target_ned=(1.0e7, 1.0e7, 0.0),
-            intrinsics=camera_info,
-            image_size=image_size,
-            altitude_m=self.search_altitude_m or altitude_m,
-            obstacles=obstacles,
-            home_ned=home_ned or (0.0, 0.0, 0.0),
-            camera_pitch_rad=mc_mount_pitch,
-            search_pattern=search_pattern,
-            **({"low_altitude_m": low_search_altitude} if low_search_altitude is not None else {}),
-        )
+                search_altitude = max(search_altitude, min(float(altitude_m), floor))
+            return search_altitude
 
         def fixed_wing_search(home, radius_m):
             # Aircraft that cannot hover fly lawnmower lanes instead of turning in place.
@@ -675,15 +679,42 @@ class OnboardPolicy:
                 max_leg_m=profile.limits.max_step_distance_m,
             )
 
-        self._search_fw = fixed_wing_search(
-            home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
-        )
-        if not plans_like_multirotor:
-            self._search = self._search_fw
-        elif hybrid_vtol:
-            self._search = self._search_fw
-        else:
-            self._search = self._search_mc
+        def build_search(text: str) -> None:
+            """Derive the task-size search altitude and the shared search policies."""
+            nonlocal low_search_altitude
+            self.search_altitude_m = size_aware_altitude(text)
+            if search_pattern == "two_altitude":
+                low_search_altitude = min(
+                    low_search_setting, self.search_altitude_m or float(altitude_m)
+                )
+            # The search pattern is target-blind; a target placed far outside the
+            # detection range keeps ExpertSearchPolicy in its search/scan states.
+            self._search_mc = ExpertSearchPolicy(
+                target_ned=(1.0e7, 1.0e7, 0.0),
+                intrinsics=camera_info,
+                image_size=image_size,
+                altitude_m=self.search_altitude_m or altitude_m,
+                obstacles=obstacles,
+                home_ned=home_ned or (0.0, 0.0, 0.0),
+                camera_pitch_rad=mc_mount_pitch,
+                search_pattern=search_pattern,
+                **(
+                    {"low_altitude_m": low_search_altitude}
+                    if low_search_altitude is not None
+                    else {}
+                ),
+            )
+            self._search_fw = fixed_wing_search(
+                home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
+            )
+            if not plans_like_multirotor:
+                self._search = self._search_fw
+            elif hybrid_vtol:
+                self._search = self._search_fw
+            else:
+                self._search = self._search_mc
+
+        build_search(self.task_text)
         camera = CameraModel(
             fx=float(camera_info["fx"]),
             fy=float(camera_info["fy"]),
@@ -741,6 +772,7 @@ class OnboardPolicy:
             ("contradiction_relook_bearing_deg", float),
             ("static_ground_veto_min_m", float),
             ("static_ground_veto_gates", float),
+            ("static_verdict_max_shift_m", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
@@ -894,6 +926,26 @@ class OnboardPolicy:
                 loop.pass_clear = self.safety_envelope.leg_allowed
             return loop
 
+        def retarget_search(text: str) -> None:
+            """Size the search for a task that arrives after start-up.
+
+            An operator-link policy starts on a placeholder sentence ("operator
+            link mission"), so the size-aware search fell back to the 2 m
+            default object: e2e run10 counted cones from 13.0 m on 24 m rings
+            where the suite, sized for a 0.5 m cone, flew 11.3 m and 20 m.
+            """
+            build_search(text)
+            loop_defaults["search_altitude_m"] = (
+                float(altitude_m)
+                if hover_ops and self.search_altitude_m is None
+                else self.search_altitude_m
+            )
+            if "ground_extent_size_m" not in options:
+                loop_defaults["ground_extent_size_m"] = (
+                    typical_object_size(text, default=0.0) or None
+                )
+
+        self._retarget_search = retarget_search
         self.loop = make_loop(task_text)
         mission = options.get("mission")
         if mission not in {
@@ -1133,9 +1185,7 @@ class OnboardPolicy:
                     try:
                         candidate, candidate_report = build_mission_from_text(
                             self.task_text,
-                            tuple(
-                                f"{ref} ({labels[ref]})" if ref in labels else ref for ref in refs
-                            ),
+                            labelled_refs(refs, labels),
                             post,
                             sorted_keys=bool(options.get("plan_sorted_keys", True)),
                             plan_checker=plan_checker,
@@ -1267,25 +1317,7 @@ class OnboardPolicy:
                     self.mission_package,
                     log=log,
                     downlink=self.downlink,
-                    **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-                    security_key_path=(
-                        str(ground_key_setting) if ground_key_setting is not None else None
-                    ),
-                    timestamp_window_s=float(
-                        options.get(
-                            "command_timestamp_window_s",
-                            security.get("timestamp_window_s", 30.0),
-                        )
-                    ),
-                    clock_skew_s=float(
-                        options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
-                    ),
-                    rate_limit=int(
-                        options.get("command_rate_limit", security.get("rate_limit", 20))
-                    ),
-                    rate_window_s=float(
-                        options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
-                    ),
+                    **self._supervisor_link_options(),
                     energy_config=EnergyConfig.from_budget(
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
@@ -1299,22 +1331,57 @@ class OnboardPolicy:
                         else time.monotonic(),
                         model_runtime=dict(self._model_runtime),
                     )
-                # Telemetry readers stamp receipts with host monotonic time,
-                # while SIM supervisors run on the simulation clock. Keep a
-                # fixed affine offset so both values are compared in one domain.
+                # Fallback for telemetry without a vehicle-clock stamp: readers
+                # stamp receipts with host monotonic time, while SIM timelines run
+                # on the simulation clock. Stamped SIM samples bypass this offset
+                # (see _energy_vehicle_estimator); it drifts when the sim is slow.
                 self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
                 self.executor = self.supervisor
                 for event in options.get("ground_events", []):
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
 
-    def _refuse_package_plan(self, violations: Sequence[Mapping[str, Any]]) -> None:
-        """Persist a fail-closed admission decision before raising to the caller."""
-        if self.mission_package is None:
+    def _supervisor_link_options(self) -> dict[str, Any]:
+        """Clock and ground-command security settings shared by every MissionSupervisor."""
+        options = self.config
+        security = options.get("security") if isinstance(options.get("security"), dict) else {}
+        key = self._ground_key_setting
+        return {
+            **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
+            "security_key_path": str(key) if key is not None else None,
+            "timestamp_window_s": float(
+                options.get(
+                    "command_timestamp_window_s",
+                    security.get("timestamp_window_s", 30.0),
+                )
+            ),
+            "clock_skew_s": float(
+                options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
+            ),
+            "rate_limit": int(options.get("command_rate_limit", security.get("rate_limit", 20))),
+            "rate_window_s": float(
+                options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
+            ),
+        }
+
+    def _refuse_package_plan(
+        self,
+        violations: Sequence[Mapping[str, Any]],
+        package: MissionPackage | None = None,
+        *,
+        close_runner: bool = True,
+    ) -> None:
+        """Persist a fail-closed admission decision before raising to the caller.
+
+        An operator-link package is refused with ``close_runner=False``: the
+        running mission and its slow runner must stay untouched.
+        """
+        package = package if package is not None else self.mission_package
+        if package is None:
             raise ValueError("mission plan violates package policy")
         log = None
         try:
-            log = OnboardMissionLog(self.work_dir / "mission_log", self.mission_package.mission_id)
+            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
             now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
             log.append(
                 "mission_refused",
@@ -1331,7 +1398,7 @@ class OnboardPolicy:
                 },
             )
         finally:
-            close = getattr(self.slow, "close", None)
+            close = getattr(self.slow, "close", None) if close_runner else None
             if close is not None:
                 close()
         details = "; ".join(
@@ -1341,7 +1408,19 @@ class OnboardPolicy:
         raise ValueError(f"mission plan refused by package policy: {details}")
 
     def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
-        """Compile and install a package received over the signed operator link."""
+        """Compile and install a package (both steps; tests and legacy hosts)."""
+        supervisor = self.prepare_operator_package(package)
+        self.install_operator_package(supervisor)
+        return supervisor
+
+    def prepare_operator_package(self, package: MissionPackage) -> MissionSupervisor:
+        """Compile and check a signed operator-link package without installing it.
+
+        Runs on the operator link's planner worker.  The running (or waiting)
+        mission is untouched; ``MissionOperatorAdapter`` installs the returned
+        candidate through :meth:`install_operator_package` only after its own
+        checks, a fresh preflight read and setting the plan-approval gate.
+        """
         if self.executor is None:
             raise RuntimeError("operator package arrived before policy initialization")
         capabilities = frozenset(package.document.get("capabilities", ()))
@@ -1374,7 +1453,12 @@ class OnboardPolicy:
 
             plan, report = build_mission_from_text(
                 str(package.document["task_text"]),
-                tuple(package.refs),
+                # The same labelled references as a start-up from_text mission.
+                # Bare names lost the link from the operator's words to the zone:
+                # "数一数场地里…" with "zone:site" alone planned zone:all (e2e
+                # run10: a 150 m search, budget exhausted); with "zone:site
+                # (场地 / the site)" both planner models choose zone:site.
+                labelled_refs(package.refs, package.document.get("ref_labels") or {}),
                 post,
                 capabilities=capabilities,
                 plan_checker=lambda candidate: check_plan_against_package(
@@ -1386,6 +1470,13 @@ class OnboardPolicy:
             )
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
+        # The same package policy as a package loaded at start-up, whether the
+        # plan came with the package or was compiled here.
+        violations = check_plan_against_package(
+            plan, package, capabilities=capabilities, executor_config=self.executor.config
+        )
+        if violations:
+            self._refuse_package_plan(violations, package, close_runner=False)
         package.validate_plan(plan)
         executor = MissionExecutor(
             plan,
@@ -1410,12 +1501,35 @@ class OnboardPolicy:
             downlink=downlink,
             requires_approval=bool(self.config.get("operator_requires_approval", False)),
             runtime_mode=self.runtime_mode,
+            **self._supervisor_link_options(),
+            # The same onboard energy model as a package loaded at start-up.
+            energy_config=EnergyConfig.from_budget(
+                package.document["budget"], self.config.get("energy_model")
+            ),
         )
-        self.mission_package, self.mission_plan = package, plan
-        self.mission_plan_report = report
-        self.supervisor, self.executor, self.downlink = supervisor, supervisor, downlink
-        self.operator_link_waiting = False
+        supervisor.plan_report = report
         return supervisor
+
+    def install_operator_package(self, supervisor: MissionSupervisor) -> None:
+        """Make a prepared operator-link candidate the policy's mission."""
+        if not isinstance(supervisor, MissionSupervisor):
+            raise TypeError("operator package candidate must be a MissionSupervisor")
+        self.mission_package, self.mission_plan = supervisor.package, supervisor.executor.plan
+        self.mission_plan_report = getattr(supervisor, "plan_report", None)
+        # The package's sentence is now the mission's task, as for a package
+        # loaded at start-up: it sizes the search and titles the summary.
+        task_text = str(supervisor.package.document.get("task_text") or self.mission_plan.goal)
+        self.task_text = task_text
+        retarget = getattr(self, "_retarget_search", None)
+        if retarget is not None:
+            queries = [
+                str(step.params["query"])
+                for step in self.mission_plan.steps
+                if isinstance(step.params.get("query"), str)
+            ]
+            retarget(" ".join([task_text, *queries]))
+        self.supervisor, self.executor, self.downlink = supervisor, supervisor, supervisor.downlink
+        self.operator_link_waiting = False
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Forward a host receipt; this policy has no payload hardware driver."""
@@ -1724,6 +1838,60 @@ class OnboardPolicy:
                 return True
         return False
 
+    def _energy_vehicle_estimator(
+        self, observation: Mapping[str, Any], samples: Sequence[Mapping[str, Any]]
+    ):
+        """Return the energy model when SIM telemetry is judged on the vehicle clock.
+
+        The collector stamps each sample with PX4's boot clock at receipt.  In
+        SITL that is the lockstep simulation clock, which on a loaded host runs
+        at a fraction of host time; host-clock ages then grow with primitive and
+        inference wall time and a fresh battery reading looks stale.  Measuring
+        both receipt and "now" on the vehicle clock gives each sample its true
+        age.  Flight keeps host receipt time: there, a stall really ages data.
+        """
+        estimator = getattr(self.supervisor, "energy_estimator", None)
+        if estimator is None or getattr(self.supervisor, "_flight_mode", False):
+            return None
+        stamps = [_vehicle_receipt_s(sample) for sample in samples]
+        stamps = [stamp for stamp in stamps if stamp is not None]
+        if not estimator.clock_bound and not stamps:
+            return None
+        boot_ms = observation.get("pose_time_boot_ms")
+        if isinstance(boot_ms, (int, float)) and not isinstance(boot_ms, bool):
+            if math.isfinite(boot_ms) and boot_ms >= 0:
+                stamps.append(boot_ms / 1000.0)
+        previous = getattr(self, "_energy_vehicle_now_s", None)
+        self._energy_vehicle_now_s = max(stamps + ([previous] if previous is not None else []))
+        if not estimator.clock_bound and not estimator.use_clock(
+            lambda: self._energy_vehicle_now_s
+        ):
+            return None
+        return estimator
+
+    def _note_vehicle_telemetry_gaps(self, estimator, observation: Mapping[str, Any]) -> None:
+        """Hand the reader's no-telemetry spans (vehicle clock) to the energy model.
+
+        Run9: the host process stalled for 20 s, 7 s of PX4 telemetry were lost,
+        and the next battery report was due only after a fresh pose arrived, so
+        the battery alone looked 7.7 s old and the mission returned.  The gap
+        is logged as evidence; the battery is then judged from link recovery.
+        """
+        for gap in observation.get("vehicle_telemetry_gaps_s") or []:
+            if not isinstance(gap, (list, tuple)) or len(gap) != 2:
+                continue
+            start, end = gap
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in gap):
+                continue
+            if estimator.note_delivery_gap(float(start), float(end)):
+                self.supervisor.log.append(
+                    "vehicle_telemetry_gap",
+                    self.supervisor.clock(),
+                    vehicle_start_s=float(start),
+                    vehicle_end_s=float(end),
+                    gap_s=float(end) - float(start),
+                )
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
@@ -1735,13 +1903,27 @@ class OnboardPolicy:
         if self.supervisor is not None:
             if self.sim_timeline is not None:
                 self.sim_timeline.advance(observation, self.supervisor, pose_ned=pose_ned)
-            for sample in observation.get("energy_telemetry", []):
+            samples = observation.get("energy_telemetry") or []
+            vehicle_estimator = self._energy_vehicle_estimator(observation, samples)
+            if samples and vehicle_estimator is None:
+                # Clamp host receipts against the current clock, not the last
+                # evaluation's: a stale ``_now`` would backdate fresh samples.
+                self.supervisor._time()
+            for sample in samples:
+                if vehicle_estimator is not None:
+                    # One domain: receipt and "now" are both on the vehicle clock.
+                    received_at = _vehicle_receipt_s(sample)
+                    if received_at is not None:
+                        vehicle_estimator.ingest(sample["message"], received_at_s=received_at)
+                    continue
                 received_at = float(sample["received_monotonic_s"])
                 received_at += getattr(self, "_energy_receipt_clock_offset", 0.0)
                 received_at = min(received_at, self.supervisor._now)
                 self.supervisor.ingest_energy_telemetry(
                     sample["message"], received_at_s=received_at
                 )
+            if vehicle_estimator is not None:
+                self._note_vehicle_telemetry_gaps(vehicle_estimator, observation)
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)
             update_estimates = getattr(self.supervisor, "update_estimates", None)
@@ -2529,5 +2711,6 @@ __all__ = [
     "YoloeProposer",
     "build_mission_from_text",
     "build_onboard_policy",
+    "labelled_refs",
     "perception_task_text",
 ]

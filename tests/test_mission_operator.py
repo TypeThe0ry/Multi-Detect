@@ -81,8 +81,25 @@ def upload(adapter, payload, *, token=42, sequence=1):
     return replies
 
 
-def encoded_document(doc=None):
-    return json.dumps(doc or document(), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+PACKAGE_KEY = AuthenticationKey("hmac-sha256", b"p" * 32, "default")
+
+
+def inline(job):
+    job()
+
+
+def uploading(**kwargs):
+    """An upload-capable adapter: package key configured, planner run inline."""
+    kwargs.setdefault("package_verify_key", PACKAGE_KEY)
+    kwargs.setdefault("planner_runner", inline)
+    return MissionOperatorAdapter(codec(), **kwargs)
+
+
+def encoded_document(doc=None, *, signed=True):
+    value = doc or document()
+    if signed:
+        value = sign_document(value, PACKAGE_KEY)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def test_cpp_golden_v2_abort_and_v1_unchanged():
@@ -137,7 +154,7 @@ def test_upload_ack_only_after_admission_and_idempotent_final_retry(tmp_path):
         installed.append(value)
         return value
 
-    adapter = MissionOperatorAdapter(codec(), package_loader=loader, preflight_allowed=lambda: True)
+    adapter = uploading(package_loader=loader, preflight_allowed=lambda: True)
     payload = encoded_document()
     messages = list(document_chunks(payload, 42))
     for index, message in enumerate(messages):
@@ -184,9 +201,7 @@ def test_upload_fails_closed_without_flight_gate_and_armed_transition(tmp_path):
         calls.append(package)
         return supervisor(tmp_path, package=package)
 
-    adapter = MissionOperatorAdapter(
-        codec(), package_loader=loader, preflight_allowed=lambda: gate[0]
-    )
+    adapter = uploading(package_loader=loader, preflight_allowed=lambda: gate[0])
     messages = list(document_chunks(encoded_document(), 43))
     for index, message in enumerate(messages[:-1]):
         assert accepted(adapter, deliver(adapter, 28, message.body, index + 1))
@@ -215,7 +230,7 @@ def test_loader_cannot_substitute_same_id_or_mutate_admitted_package(tmp_path, m
             value.executor.plan = load_mission_package(changed).plan
         return value
 
-    adapter = MissionOperatorAdapter(codec(), package_loader=loader, preflight_allowed=lambda: True)
+    adapter = uploading(package_loader=loader, preflight_allowed=lambda: True)
     assert not accepted(adapter, upload(adapter, encoded_document())[-1])
     assert adapter.supervisor is None
 
@@ -235,7 +250,7 @@ def test_task_only_upload_accepts_onboard_compiled_executor_without_changing_pac
         loaded.append(value)
         return value
 
-    adapter = MissionOperatorAdapter(codec(), package_loader=loader, preflight_allowed=lambda: True)
+    adapter = uploading(package_loader=loader, preflight_allowed=lambda: True)
     assert accepted(adapter, upload(adapter, encoded_document(task))[-1])
     assert adapter.supervisor is loaded[0]
     assert adapter.supervisor.package.plan is None
@@ -247,8 +262,7 @@ def test_task_only_upload_accepts_onboard_compiled_executor_without_changing_pac
 )
 def test_invalid_json_or_package_never_installs(payload):
     calls = []
-    adapter = MissionOperatorAdapter(
-        codec(),
+    adapter = uploading(
         package_loader=lambda package: calls.append(package),
         preflight_allowed=lambda: True,
     )
@@ -261,9 +275,9 @@ def test_factory_failure_and_digest_mismatch_fail_ack():
     def reject(_):
         raise RuntimeError("onboard compile rejected task")
 
-    adapter = MissionOperatorAdapter(codec(), package_loader=reject, preflight_allowed=lambda: True)
+    adapter = uploading(package_loader=reject, preflight_allowed=lambda: True)
     assert not accepted(adapter, upload(adapter, encoded_document())[-1])
-    adapter = MissionOperatorAdapter(codec(), package_loader=reject, preflight_allowed=lambda: True)
+    adapter = uploading(package_loader=reject, preflight_allowed=lambda: True)
     messages = list(document_chunks(encoded_document(), 99))
     for index, message in enumerate(messages):
         body = message.body[:16] + b"z" * 32 + message.body[48:]
@@ -273,8 +287,8 @@ def test_factory_failure_and_digest_mismatch_fail_ack():
 
 def test_out_of_order_conflicting_duplicate_stale_sequence_and_timeout():
     now = [100.0]
-    adapter = MissionOperatorAdapter(
-        codec(), package_loader=lambda p: None, preflight_allowed=lambda: True, clock=lambda: now[0]
+    adapter = uploading(
+        package_loader=lambda p: None, preflight_allowed=lambda: True, clock=lambda: now[0]
     )
     parts = list(document_chunks(encoded_document(), 42))
     assert not accepted(adapter, deliver(adapter, 28, parts[1].body, 1))
@@ -496,3 +510,347 @@ def test_downlink_cursor_advances_only_after_all_chunk_acknowledgements(tmp_path
     finally:
         adapter.close()
         active.downlink.close()
+
+
+def _queue_log(adapter, record):
+    worker = threading.Thread(target=adapter.send_log, args=(record,), daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 2
+    while adapter._queued_log is None and time.monotonic() < deadline:
+        time.sleep(0.002)
+    assert adapter._queued_log is not None
+    return worker
+
+
+@pytest.mark.parametrize(("kind", "first"), [("finding", "finding"), ("decision", "status")])
+def test_priority_log_does_not_wait_behind_a_due_status(tmp_path, kind, first):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    frames = []
+    adapter.tick(frames.append)  # binds the sender; sends the first status
+    adapter._telemetry = None
+    adapter._last_was_status = False
+    adapter._next_status = 0.0  # status is due again
+    worker = _queue_log(adapter, {"mission_id": "m", "sequence": 9, "kind": kind})
+    try:
+        adapter.tick(frames.append)
+        token, index, count, length, _ = CHUNK.unpack_from(
+            adapter.codec.decode(frames[-1]).message.body
+        )
+        pending = adapter._telemetry
+        assert pending is not None and index == 0
+        document = b"".join(message.body[CHUNK.size :][:44] for message in pending.messages)[
+            :length
+        ]
+        assert json.loads(document)["kind"] == first
+    finally:
+        adapter.close()
+        worker.join(2)
+
+
+def test_telemetry_acks_have_their_own_rate_bucket(tmp_path):
+    pytest.importorskip("pymavlink")
+    from multidetect.operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter
+    from multidetect.operator_udp import UdpOperatorSelectionServer
+
+    onboard = OperatorMavlinkTunnelAdapter(
+        codec(),
+        OperatorMavlinkEndpoint(1, 191, 255, 190),
+        signing_key=b"U" * 32,
+        signing_link_id=191,
+        initial_signing_timestamp=4_000_000,
+    )
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=onboard,
+        guard=SelectionCommandGuard(GEOMETRY),
+        receive_timeout_s=1,
+    ) as server:
+        peer = ("127.0.0.1", 40000)
+        heartbeats = sum(
+            server._allow_command(peer, WireMessageType.MISSION_HEARTBEAT, now_s=5.0)
+            for _ in range(100)
+        )
+        acks = sum(
+            server._allow_command(peer, WireMessageType.MISSION_TELEMETRY_ACK, now_s=5.0)
+            for _ in range(100)
+        )
+    # A 1 Hz status is ~20 chunks; at 20 ACKs/s the dropped ACKs stalled the
+    # downlink on its 1 s resend (SITL run7).
+    assert heartbeats == 20 and acks == 100
+
+
+def test_unsigned_package_is_refused_even_without_a_configured_key(tmp_path):
+    calls = []
+
+    def loader(package):
+        calls.append(package)
+        return supervisor(tmp_path, package=package)
+
+    adapter = uploading(package_loader=loader, preflight_allowed=lambda: True)
+    assert not accepted(adapter, upload(adapter, encoded_document(signed=False))[-1])
+    keyless = MissionOperatorAdapter(
+        codec(), package_loader=loader, preflight_allowed=lambda: True, planner_runner=inline
+    )
+    assert not accepted(keyless, upload(keyless, encoded_document(signed=False), token=43)[-1])
+    assert not accepted(keyless, upload(keyless, encoded_document(), token=44)[-1])
+    assert not calls and adapter.supervisor is None and keyless.supervisor is None
+    assert accepted(adapter, upload(adapter, encoded_document(), token=45, sequence=100)[-1])
+    assert len(calls) == 1
+
+
+def _command(adapter, document, *, token, sequence):
+    payload = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    replies = [
+        deliver(adapter, 37, message.body, sequence + index)
+        for index, message in enumerate(document_chunks(payload, token, message_type=37))
+    ]
+    return accepted(adapter, replies[-1])
+
+
+def test_plan_commands_take_the_signed_ground_event_path(tmp_path):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    command_key = AuthenticationKey("hmac-sha256", KEY, "default")
+    active._security_key = command_key
+    active.requires_approval, active.plan_approved = True, False
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    unsigned = {
+        "mission_id": active.package.mission_id,
+        "type": "approve_plan",
+        "plan_sha256": active.plan_sha256,
+    }
+    assert not _command(adapter, unsigned, token=1, sequence=1)
+    assert not active.plan_approved
+
+    def signed(sequence, **fields):
+        return sign_document(
+            {
+                **unsigned,
+                "sequence": sequence,
+                "timestamp": now[0],
+                "timestamp_version": 1,
+                "timestamp_domain": "monotonic",
+                **fields,
+            },
+            command_key,
+        )
+
+    assert not _command(adapter, signed(1, mission_id="other"), token=2, sequence=20)
+    assert not _command(adapter, signed(2, plan_sha256="0" * 64), token=3, sequence=40)
+    assert not active.plan_approved
+    assert _command(adapter, signed(3), token=4, sequence=60)
+    assert active.plan_approved
+
+
+def test_candidate_is_installed_only_after_recheck_and_approval_gate(tmp_path):
+    gate = [True]
+    installed = []
+
+    def loader(package):
+        value = supervisor(tmp_path, package=package)
+        gate[0] = False  # the aircraft armed while the plan was compiling
+        return value
+
+    adapter = uploading(
+        package_loader=loader,
+        preflight_allowed=lambda: gate[0],
+        package_installer=installed.append,
+        requires_approval=True,
+    )
+    assert not accepted(adapter, upload(adapter, encoded_document())[-1])
+    assert not installed and adapter.supervisor is None
+
+    seen = []
+
+    def install(value):
+        seen.append((value.requires_approval, value.plan_approved))
+        installed.append(value)
+
+    adapter = uploading(
+        package_loader=lambda package: supervisor(tmp_path / "ok", package=package),
+        preflight_allowed=lambda: True,
+        package_installer=install,
+        requires_approval=True,
+    )
+    assert accepted(adapter, upload(adapter, encoded_document(), token=50)[-1])
+    assert seen == [(True, False)] and adapter.supervisor is installed[0]
+
+
+def test_sealed_adapter_refuses_new_and_in_flight_packages(tmp_path):
+    adapter = uploading(
+        package_loader=lambda package: supervisor(tmp_path, package=package),
+        preflight_allowed=lambda: True,
+    )
+    adapter.seal()
+    assert not accepted(adapter, upload(adapter, encoded_document())[-1])
+    assert adapter.supervisor is None
+    jobs = []
+    adapter = uploading(
+        package_loader=lambda package: supervisor(tmp_path / "late", package=package),
+        preflight_allowed=lambda: True,
+        planner_runner=jobs.append,
+    )
+    assert accepted(adapter, upload(adapter, encoded_document(), token=60)[-1])
+    adapter.seal()
+    jobs[0]()
+    assert adapter.supervisor is None
+
+
+def test_planning_runs_off_the_receive_thread(tmp_path):
+    now = [100.0]
+    active = supervisor(tmp_path / "current", now=now)
+    release = threading.Event()
+
+    def slow_loader(package):
+        release.wait(10)
+        return supervisor(tmp_path / "new", package=package)
+
+    adapter = MissionOperatorAdapter(
+        codec(),
+        supervisor=active,
+        package_loader=slow_loader,
+        preflight_allowed=lambda: True,
+        package_verify_key=PACKAGE_KEY,
+        clock=lambda: now[0],
+    )
+    messages = list(document_chunks(encoded_document(), 70))
+    try:
+        for index, message in enumerate(messages[:-1]):
+            assert accepted(adapter, deliver(adapter, 28, message.body, index + 1))
+        replies = []
+        receive = threading.Thread(
+            target=lambda: replies.append(deliver(adapter, 28, messages[-1].body, len(messages)))
+        )
+        receive.start()
+        receive.join(2)
+        assert not receive.is_alive(), "planning blocked the receive thread"
+        assert accepted(adapter, replies[0])
+        mission = mission_token(active.package.mission_id)
+        assert accepted(adapter, deliver(adapter, 34, CONTROL.pack(mission, 1), len(messages) + 1))
+        assert adapter.supervisor is active
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while adapter.supervisor is active and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert adapter.supervisor is not active
+    sent = []
+    adapter.tick(sent.append)
+    verdicts = [
+        ACK.unpack_from(packet.message.body)
+        for packet in map(adapter.codec.decode, sent)
+        if packet.message_type == 29
+    ]
+    assert verdicts == [(70, 28, len(messages) - 1, 1)]
+    adapter.close()
+
+
+def test_oversized_status_is_bounded_not_dropped(tmp_path):
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    active.reason = "原因" * 400
+    for index in range(80):
+        active.executor.counts[f"count_step_{index:03d}"] = index
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    sent = []
+    adapter.tick(sent.append)  # raised ValueError: status silently stopped
+    pending = adapter._telemetry
+    assert sent and pending is not None
+    payload = b"".join(message.body[CHUNK.size :] for message in pending.messages)
+    status = json.loads(payload)
+    assert len(payload) <= 1200
+    assert status["kind"] == "status" and status["truncated"] is True
+    assert status["mission_id"] == active.package.mission_id
+    adapter.close()
+
+
+def test_final_summary_pages_fit_the_byte_budget_for_chinese_text(tmp_path):
+    active = supervisor(tmp_path)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active)
+    summary = {"findings": ["发现一个橙色锥桶" * 200, 'quote " and \\ slash' * 50]}
+    pending = adapter._new_telemetry(
+        {"kind": "final_summary", "mission_id": active.package.mission_id, "summary": summary}
+    )
+    pages, offset = [], 0
+    while offset < len(pending.messages):
+        _token, _index, count, length, _digest = CHUNK.unpack_from(pending.messages[offset].body)
+        raw = b"".join(
+            message.body[CHUNK.size :] for message in pending.messages[offset : offset + count]
+        )
+        assert len(raw) == length <= MAX_LOG_DOCUMENT_BYTES
+        pages.append(json.loads(raw))
+        offset += count
+    assert len(pages) > 1 and {page["pages"] for page in pages} == {len(pages)}
+    assert json.loads("".join(page["body"] for page in pages)) == summary
+
+
+def test_paged_final_summary_completes_when_ground_acks_chunk_headers(tmp_path):
+    """Run9: the ground ACKs (token, index) from each chunk header; page 2 never came."""
+    now = [100.0]
+    active = supervisor(tmp_path, now=now)
+    adapter = MissionOperatorAdapter(codec(), supervisor=active, clock=lambda: now[0])
+    adapter._next_status = float("inf")
+    adapter.tick(lambda frame: None)  # the link is up before the summary is queued
+    summary = {"status": "ended_early", "findings": ["orange traffic cone " * 8] * 12}
+    record = {"kind": "final_summary", "mission_id": active.package.mission_id, "summary": summary}
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(adapter.send_log(record)))
+    worker.start()
+    parts: dict[int, dict[int, bytes]] = {}
+    completed: dict[int, bytes] = {}  # MultiDetectMissionController: token -> digest
+    sequence = 1
+    for _ in range(2000):
+        if not worker.is_alive():
+            break
+        sent = []
+        adapter.tick(sent.append)
+        for frame in sent:
+            body = adapter.codec.decode(frame).message.body
+            token, index, count, length, digest = CHUNK.unpack_from(body)
+            if token in completed and completed[token] != digest:
+                continue  # the C++ ground station ignores a reused, completed token
+            chunks = parts.setdefault(token, {})
+            chunks[index] = body[CHUNK.size :]
+            if len(chunks) == count:
+                completed[token] = digest
+            sequence += 1
+            deliver(adapter, 36, TELEMETRY_ACK.pack(token, index), sequence)
+        now[0] += 1
+        worker.join(timeout=0.001)
+    worker.join(timeout=1)
+    assert outcome == [True]
+    pages = [json.loads(b"".join(chunks[i] for i in sorted(chunks))) for chunks in parts.values()]
+    assert len(pages) > 1 and sorted(page["page"] for page in pages) == list(
+        range(1, len(pages) + 1)
+    )
+    body = "".join(page["body"] for page in sorted(pages, key=lambda page: page["page"]))
+    assert json.loads(body) == summary
+    adapter.close()
+
+
+def test_heartbeat_before_admission_is_ignored_not_rejected(tmp_path):
+    adapter = MissionOperatorAdapter(codec())
+    mission = mission_token(load_mission_package(document()).mission_id)
+    # No onboard mission yet: no rejection noise, and nothing counted as a heartbeat.
+    assert deliver(adapter, 34, CONTROL.pack(mission, 1), 1) == []
+    active = supervisor(tmp_path)
+    adapter.bind_supervisor(active)
+    assert active.last_heartbeat is None
+    assert accepted(adapter, deliver(adapter, 34, CONTROL.pack(mission, 2), 2))
+    assert active.last_heartbeat is not None
+    # A heartbeat for another mission is still refused once a mission is installed.
+    assert not accepted(adapter, deliver(adapter, 34, CONTROL.pack(mission ^ 1, 3), 3))
+    adapter.close()
+
+
+def test_status_of_a_rejected_plan_is_not_awaiting_approval(tmp_path):
+    active = supervisor(tmp_path)
+    active.requires_approval, active.plan_approved = True, False
+    adapter = MissionOperatorAdapter(codec(), supervisor=active)
+    assert adapter.status_document()["state"] == "awaiting_approval"
+    assert active.reject_plan(active.plan_sha256)
+    status = adapter.status_document()
+    assert status["state"] == "returning" and status["action"] == "land_now"

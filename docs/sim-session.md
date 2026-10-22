@@ -14,8 +14,13 @@ python scripts/run_sim_session.py
 ```
 
 默认使用 `urban_inspection_multirotor_001.sdf` 和 `x500_mono_cam`。`--airframe` 会同时选择
-PX4 runtime、Gazebo 模型、默认世界和 onboard collector profile；显式 `--world` 时只替换
-世界文件，生成的 `gen_v2_w0016/w0031` 会按机型选择对应的固定翼或 VTOL scenario。
+PX4 runtime、Gazebo 模型、默认世界和 onboard collector profile；省略 `--world` 时使用下表的
+机型默认世界。显式 `--world` 时，会在该世界的全部 scenario（命名世界、
+`configs/scenarios/*/index.json` 与 `*/*/index.json` 索引、变体的基础世界）中挑选 runtime
+载具与机型同族的那个：例如 `gen_v2_w0016/w0031` 对 `rc_cessna` 选 `fixed-wing-v2`，对
+`standard_vtol`/`quadtailsitter` 选 `vtol-v2/<airframe>`，对 x500 选 `generated-v2`。已知世界
+没有该机型的 scenario（如 `tiltrotor` + `gen_v2_w0031`、`rc_cessna` + 城市多旋翼世界）时直接
+报错，不会用别的载具起飞；仓库内未登记的 SDF 才退回机型自身的 scenario。
 
 | airframe | 默认世界 | 起飞方法 | session runtime/scenario |
 | --- | --- | --- | --- |
@@ -25,8 +30,13 @@ PX4 runtime、Gazebo 模型、默认世界和 onboard collector profile；显式
 | `tiltrotor` | `tiltrotor_mono_cam_001.sdf` | `vtol` | `tiltrotor_mono_cam` |
 | `rc_cessna` | `coastal_patrol_fixed_wing_001.sdf` | `runway` | 固定翼 `rc_cessna_mono_cam` |
 
-固定翼的 `--takeoff-method hand` / `catapult` 会透传到 collector，并选择对应的 PX4
-launch profile。VTOL onboard 配置中的 `vtol_search_mode`（`mc` 或 `fw`）以及
+起飞方法默认按机型推断（固定翼 `runway`，`rc_cessna_hand`/`rc_cessna_catapult` 分别推断为
+`hand`/`catapult`，VTOL 为 `vtol`，多旋翼不传）。固定翼的 `--takeoff-method hand` / `catapult`
+会透传到 collector，由它选择 `rc_cessna_hand`/`rc_cessna_catapult` profile 并设置
+`FW_LAUN_*` 发射检测参数；与机型不符的组合（多旋翼带起飞方法、VTOL 用 `runway`、固定翼用
+`vtol`）在启动容器前就报错。`--operator-link` 会话的 `SIM_BAT_MIN_PCT=95` 对所有机型都下发
+（PX4 SITL 的 battery simulator 与机型无关），collector 仍用 `--min-free-gb 6` 和 220 步上限。
+VTOL onboard 配置中的 `vtol_search_mode`（`mc` 或 `fw`）以及
 `vtol_fw_reentry_min_mc_steps`、`vtol_fw_transition_budget`、
 `vtol_fw_reentry_candidate_max_steps` 会原样保留；需要混合搜索时在 defaults JSON
 中设置 `vtol_search_mode: "fw"`。
@@ -42,7 +52,7 @@ python scripts/run_sim_session.py --airframe tiltrotor --gcs-port 14566
 python scripts/run_sim_session.py --airframe rc_cessna --gcs-port 14568
 ```
 
-按文档中已验证的生成场景运行固定翼和 VTOL：
+在已有固定翼/VTOL 派生 scenario 的生成世界中运行：
 
 ```powershell
 python scripts/run_sim_session.py --airframe rc_cessna --world gen_v2_w0031 --gcs-port 14568 `
@@ -53,8 +63,8 @@ python scripts/run_sim_session.py --airframe quadtailsitter --world gen_v2_w0031
   --onboard-task "Find the red fire truck and return home."
 ```
 
-GCS prompt mission 使用同一 session，只需追加 `--operator-link`（可同时指定
-`--onboard-task` 作为本地任务文本兼容入口）：
+GCS prompt mission 使用同一 session，只需追加 `--operator-link`；未给 `--onboard-task` 时
+会以 `operator link mission` 作为本地任务标签启动 onboard，任务本身由 GCS 上传：
 
 ```powershell
 python scripts/run_sim_session.py --airframe standard_vtol --operator-link --gcs-port 14562
@@ -63,7 +73,9 @@ python scripts/run_sim_session.py --airframe standard_vtol --operator-link --gcs
 常用选项：
 
 - `--world <名称|路径>`：`simulation/gazebo/worlds` 下的 SDF 文件名，或仓库内路径；
-- `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`rc_cessna_runway` 等已有 profile；
+- `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`quadtailsitter`、`tiltrotor`、`rc_cessna`（及 `rc_cessna_runway/hand/catapult`）；
+- `--takeoff-method runway|hand|catapult|vtol`：覆盖按机型推断的起飞方法；
+- `--onboard-defaults FILE`、`--artifacts-root DIR`：onboard 配置默认值（默认 `configs/onboard/sim-session-r18-defaults.json`），其中 `artifacts/...` 路径相对 `--artifacts-root` 解析；
 - `--gcs-port 14560`：PX4 向宿主 `host.docker.internal:<port>` 主动发送 GCS MAVLink；端口不发布到 Docker，避免 Docker proxy 占用宿主 socket；
 - `--viewer-port 6080`：noVNC HTTP 端口；
 - `--build-viewer`：强制重建一次性派生 viewer 镜像，正常启动会复用缓存；

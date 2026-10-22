@@ -25,6 +25,58 @@ from .mission_security import load_key, verify_document
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
 
+PLAN_COMMANDS = frozenset({"approve_plan", "reject_plan"})
+# Fixed-layout TUNNEL controls carry no document signature; the operator
+# tunnel's HMAC, MAVLink signing and sequence high-water authenticate them.
+# Plan decisions never take this path: they must be signed documents.
+TRANSPORT_AUTHENTICATED_EVENTS = frozenset(
+    {"heartbeat", "abort", "pause", "resume", "policy_update"}
+)
+
+
+def plan_digest(package: MissionPackage, plan: Any) -> str:
+    """Approval digest binding the mission id, the admitted package and its plan.
+
+    An approval for one mission's plan cannot approve the same steps under a
+    different package (other zones, budget, home or refs) or mission id.
+    """
+
+    def canonical(value: Any) -> bytes:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+            default=list,
+        ).encode("utf-8")
+
+    return hashlib.sha256(
+        canonical(
+            {
+                "v": 2,
+                "mission_id": package.mission_id,
+                "package_sha256": hashlib.sha256(canonical(package.document)).hexdigest(),
+                "refs_sha256": hashlib.sha256(canonical(package.refs)).hexdigest(),
+                "plan": asdict(plan),
+            }
+        )
+    ).hexdigest()
+
+
+def count_lower_bounds(executor: Any) -> dict[str, bool]:
+    """Per count step: True when the count may have missed objects.
+
+    A count step that has not finished (the mission ended early, or is still
+    searching) is always a lower bound; a finished one keeps the executor's
+    coverage verdict.
+    """
+    finished: dict[str, bool] = {}
+    for item in getattr(executor, "history", ()):
+        if isinstance(item, dict) and "count_is_lower_bound" in item:
+            finished[str(item.get("step"))] = bool(item["count_is_lower_bound"])
+    return {str(step): finished.get(str(step), True) for step in executor.counts}
+
 
 @dataclass(frozen=True, slots=True)
 class RecoveryPolicy:
@@ -170,15 +222,9 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self._finish_lock = threading.Lock()
         self.requires_approval = bool(requires_approval)
-        self.plan_sha256 = hashlib.sha256(
-            json.dumps(
-                asdict(executor.plan),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest()
+        self.plan_sha256 = plan_digest(package, executor.plan)
         self.plan_approved = not self.requires_approval
         self.plan_rejected = False
         self._last_envelope_violation: tuple[str, str] | None = None
@@ -353,11 +399,21 @@ class MissionSupervisor:
             raise ValueError("invalid supervisor clock")
         self._now = now
 
-    def ground_event(self, event: dict[str, Any]) -> bool:
-        with self._ground_lock:
-            return self._ground_event_locked(event)
+    def ground_event(self, event: dict[str, Any], *, transport_authenticated: bool = False) -> bool:
+        """Apply one ground command; the only path that changes operator state.
 
-    def _ground_event_locked(self, event: dict[str, Any]) -> bool:
+        ``transport_authenticated`` is set only by the operator TUNNEL adapter
+        for its fixed-layout controls (heartbeat, abort, pause, resume, policy
+        tightening).  Those frames are already authenticated and replay-checked
+        by the tunnel, so they need no document signature.  Plan approval and
+        rejection always need the document signature when a key is configured.
+        """
+        with self._ground_lock:
+            return self._ground_event_locked(event, transport_authenticated=transport_authenticated)
+
+    def _ground_event_locked(
+        self, event: dict[str, Any], *, transport_authenticated: bool = False
+    ) -> bool:
         self._time()
         raw_input = event
         if isinstance(event, (str, bytes, bytearray)):
@@ -374,7 +430,10 @@ class MissionSupervisor:
         if not isinstance(event, dict):
             self._record("ground_event_rejected", reason="event must be an object")
             return False
-        secured = self._security_key is not None
+        transport_only = (
+            transport_authenticated and event.get("type") in TRANSPORT_AUTHENTICATED_EVENTS
+        )
+        secured = self._security_key is not None and not transport_only
         raw_size = len(json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode())
 
         def depth(value, level=0):
@@ -401,7 +460,7 @@ class MissionSupervisor:
             return False
         while self._auth_failures and self._now - self._auth_failures[0] > self.rate_window_s:
             self._auth_failures.popleft()
-        if self._require_signature and not secured:
+        if self._require_signature and not secured and not transport_only:
             self._record("ground_event_rejected", reason="flight control requires authentication")
             return False
         sequence: int | None = None
@@ -480,7 +539,7 @@ class MissionSupervisor:
             self._record("ground_event_rejected", reason="mission id mismatch")
             return False
         kind = event.get("type")
-        if kind not in {"heartbeat", "abort", "pause", "resume", "policy_update"}:
+        if kind not in TRANSPORT_AUTHENTICATED_EVENTS | PLAN_COMMANDS:
             self._record("ground_event_rejected", reason="unknown event type")
             return False
         if not secured and not self.started <= stamp_number <= self._now:
@@ -508,7 +567,13 @@ class MissionSupervisor:
             "reason": self.reason,
         }
         try:
-            if kind == "policy_update":
+            if kind in PLAN_COMMANDS:
+                digest = event.get("plan_sha256")
+                if not isinstance(digest, str) or digest != self.plan_sha256:
+                    raise ValueError("plan digest mismatch or stale")
+                if self.plan_rejected or (kind == "reject_plan" and self.plan_approved):
+                    raise ValueError("plan decision already made")
+            elif kind == "policy_update":
                 policy, timeout = parse_policy(event.get("policy"))
                 old_rank, new_rank = POLICIES.index(self.policy), POLICIES.index(policy)
                 timed = policy in {"continue_then_return", "hold_then_return"}
@@ -594,6 +659,17 @@ class MissionSupervisor:
             policy=self.policy,
             timeout_s=self.timeout_s,
         )
+        if kind == "approve_plan":
+            self.plan_approved = True
+            self._record("plan_approved", plan_sha256=self.plan_sha256)
+        elif kind == "reject_plan":
+            # A rejected plan never runs: latch land_now so the host lands (or
+            # stays on the ground) and the mission reaches a terminal state.
+            self.plan_rejected = True
+            self._escalate("land_now", "operator rejected mission plan")
+            self.action, self.reason = "land_now", "operator rejected mission plan"
+            self._record("plan_rejected", plan_sha256=self.plan_sha256)
+            self.finish("plan_rejected")
         if self.downlink is not None:
             self.downlink.set_connected(self.connected)
         return True
@@ -633,7 +709,6 @@ class MissionSupervisor:
     def _escalate(self, action: str, reason: str, *, record: bool = True) -> None:
         if self._terminal is None or POLICIES.index(action) > POLICIES.index(self._terminal):
             self._terminal = action
-            self._finished = False
             self._brake_pending = action == "return_now"
             self.reason = reason
             self.recovery_sequence = self.recovery_policy.sequence(
@@ -782,6 +857,10 @@ class MissionSupervisor:
                         )
         if self._terminal is not None:
             action, reason = self._terminal, self.reason
+        elif action == "continue" and not self.plan_approved:
+            # Every check above still ran: abort, link loss, energy and
+            # reserves latch while the plan waits; only progress is held.
+            action, reason = "hold", "awaiting operator plan approval"
         self.action, self.reason = action, reason
         if self.downlink is not None:
             self.downlink.set_connected(self.connected)
@@ -794,6 +873,11 @@ class MissionSupervisor:
             step=self.executor.current_step.id if self.executor.current_step else None,
             energy=self.energy_estimate,
         )
+        if self._terminal is not None and not self._finished:
+            # The search is over once a return/land latches: report the result
+            # now, while the link is likely still up, instead of after the
+            # recovery flight (which a host may stop before it completes).
+            self.finish("ended_early")
         return action
 
     def observe(self, *args, **kwargs):
@@ -860,18 +944,6 @@ class MissionSupervisor:
         return self._recovery
 
     def next_action(self, **kwargs):
-        if self.plan_rejected:
-            return ActionPrimitive.hold(self.executor.config.hold_s), {
-                "supervisor_action": "land_now",
-                "supervisor_reason": "operator rejected mission plan",
-            }
-        if not self.plan_approved:
-            self.action = "hold"
-            self.reason = "awaiting operator plan approval"
-            return ActionPrimitive.hold(self.executor.config.hold_s), {
-                "supervisor_action": "hold",
-                "supervisor_reason": self.reason,
-            }
         if self.executor.cruise_altitude_m is None:
             area = self.package.document["operating_area"]
             self.executor.cruise_altitude_m = min(
@@ -918,42 +990,59 @@ class MissionSupervisor:
         return action, info
 
     def finish(self, status: str = "stopped") -> None:
-        if self._finished:
-            return
-        self._time()
-        self.log.finish(
-            self._now,
-            {
-                "status": status,
-                "action": self.action,
-                "reason": self.reason,
-                "report": asdict(self.executor.report()),
-                "findings": self.executor.findings,
-                "history": self.executor.history,
-                "counts": self.executor.counts,
-                "recovery_history": self._recovery.history if self._recovery else [],
-            },
-        )
-        self._finished = True
+        """Write the mission's one ``final_summary`` record (idempotent).
+
+        Called on completion, when a return/land latches (``ended_early``), on
+        plan rejection and by the host when it stops the mission (``stopped``).
+        """
+        with self._finish_lock:
+            if self._finished:
+                return
+            self._time()
+            executor = self.executor
+            lower_bounds = count_lower_bounds(executor)
+            self.log.finish(
+                self._now,
+                {
+                    "status": status,
+                    "action": self.action,
+                    "reason": self.reason,
+                    "terminal_action": self._terminal,
+                    "terminal_reason": self.reason if self._terminal is not None else None,
+                    "report": asdict(executor.report()),
+                    "findings": executor.findings,
+                    "alerts": list(executor.alerts),
+                    "history": executor.history,
+                    "counts": executor.counts,
+                    "count_lower_bounds": lower_bounds,
+                    "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
+                    "recovery_history": self._recovery.history if self._recovery else [],
+                },
+            )
+            self._finished = True
         if self.downlink is not None:
             self.downlink.notify()
 
     def approve_plan(self, plan_sha256: str) -> bool:
-        if not isinstance(plan_sha256, str) or plan_sha256 != self.plan_sha256:
-            return False
-        if self.plan_rejected:
-            return False
-        self.plan_approved = True
-        self._record("plan_approved", plan_sha256=plan_sha256)
-        return True
+        """Unsigned local convenience that takes the ``ground_event`` path.
+
+        With a ground command key configured this fails closed: a remote
+        approval must arrive as a signed ``approve_plan`` document.
+        """
+        return self.ground_event(
+            {
+                "mission_id": self.package.mission_id,
+                "type": "approve_plan",
+                "plan_sha256": plan_sha256,
+            }
+        )
 
     def reject_plan(self, plan_sha256: str) -> bool:
-        if not isinstance(plan_sha256, str) or plan_sha256 != self.plan_sha256:
-            return False
-        if self.plan_approved:
-            return False
-        self.plan_rejected = True
-        self.action = "land_now"
-        self.reason = "operator rejected mission plan"
-        self._record("plan_rejected", plan_sha256=plan_sha256)
-        return True
+        """As :meth:`approve_plan`; a rejection latches ``land_now``."""
+        return self.ground_event(
+            {
+                "mission_id": self.package.mission_id,
+                "type": "reject_plan",
+                "plan_sha256": plan_sha256,
+            }
+        )

@@ -274,6 +274,10 @@ class Track:
     hits: int = 1
     verdict: str | None = None
     verdict_step: int = -1
+    # Ground anchor where the current verdict was formed.  Static-target
+    # association invalidates the verdict when a continued track moves too far
+    # from this place, while retaining the track id for fresh evidence.
+    verdict_ground: tuple[float, float] | None = None
     max_min_side: float = 0.0
     confirm_steps: list[int] = field(default_factory=list)
     # Steps whose verdict said "this is the task's object" (approach or confirm).
@@ -403,6 +407,7 @@ class LoopConfig:
     static_ground_veto: bool = False
     static_ground_veto_min_m: float = 20.0
     static_ground_veto_gates: float = 5.0
+    static_verdict_max_shift_m: float = 8.0
     # None enables 60-step ground re-identification for continuing (count,
     # patrol, monitor) loops only. Zero disables it, including for those loops.
     ground_reid_max_steps: int | None = None
@@ -530,6 +535,8 @@ class LoopConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        if not math.isfinite(self.static_verdict_max_shift_m) or self.static_verdict_max_shift_m <= 0:
+            raise ValueError("static_verdict_max_shift_m must be finite and positive")
         if not isinstance(self.contradiction_relook_enabled, bool):
             raise ValueError("contradiction_relook_enabled must be a boolean")
         for name in ("contradiction_relook_max", "contradiction_relook_views"):
@@ -854,11 +861,24 @@ class OnboardLoop:
     pass_clear: Callable[[tuple[float, float], tuple[float, float]], bool] | None = None
 
     def _segment_clear(
-        self, pose_ned: tuple[float, float, float], north: float, east: float
+        self,
+        pose_ned: tuple[float, float, float],
+        north: float,
+        east: float,
+        end_down: float | None = None,
     ) -> bool:
+        """Clearance of the leg from ``pose_ned`` to ``(north, east, end_down)``.
+
+        A descent must be checked as one leg from the current altitude down to
+        ``end_down``: a leg checked from an already lowered start looks level
+        (and, inside a clearance ring, like leaving it), so a roof between the
+        two altitudes was never seen (SITL gen_cnt2_w0001 approach descents).
+        """
+        down = pose_ned[2] if end_down is None else end_down
         if self.obstacle_source is not None:
-            return self.obstacle_source.segment_clear(pose_ned, (north, east, pose_ned[2]))
-        return self.segment_clear(pose_ned, north, east)
+            return self.obstacle_source.segment_clear(pose_ned, (north, east, down))
+        # The legacy two-dimensional callback judges a leg at its start altitude.
+        return self.segment_clear((pose_ned[0], pose_ned[1], max(pose_ned[2], down)), north, east)
 
     @property
     def tracks(self) -> Mapping[str, Track]:
@@ -1083,9 +1103,24 @@ class OnboardLoop:
                     best.approach_steps = 0
                     best.verdict = None
                     best.verdict_step = -1
+                    best.verdict_ground = None
                     best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
+                if (
+                    self.config.static_ground_veto
+                    and best.verdict is not None
+                    and best.verdict_ground is not None
+                    and math.dist(ground, best.verdict_ground)
+                    > self.config.static_verdict_max_shift_m
+                ):
+                    best.verdict = None
+                    best.verdict_step = -1
+                    best.verdict_ground = None
+                    best.confirm_steps.clear()
+                    best.match_steps.clear()
+                    best.needs_fresh_verdict = True
+                    best.verdict_remembered = False
             if self.config.fixed_wing_pass and appearance is not None:
                 best.appearance = appearance
             if self.config.fixed_wing_pass:
@@ -1473,6 +1508,7 @@ class OnboardLoop:
         ):
             return
         track.verdict, track.verdict_step = verdict, self.step_index
+        track.verdict_ground = track.ground
         track.needs_fresh_verdict = False
         track.verdict_remembered = remembered
         if small_recheck:
@@ -1550,6 +1586,7 @@ class OnboardLoop:
                     track.contradiction_relooks += 1
                     track.verdict = None
                     track.verdict_step = -1
+                    track.verdict_ground = None
                     track.confirm_steps.clear()
                     track.match_steps.clear()
                     track.needs_fresh_verdict = True
@@ -1581,6 +1618,7 @@ class OnboardLoop:
         ):
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         bearing = self._view_bearing(track)
@@ -1593,26 +1631,18 @@ class OnboardLoop:
             track.contradiction_same_side += 1
             if track.contradiction_same_side >= 2 * self.config.contradiction_relook_views:
                 # The vehicle is not reaching another bearing (held at the closest
-                # view): give up the relook and let the normal confirm rules decide.
-                track.contradiction_active = False
-                track.contradiction_votes.clear()
-                track.contradiction_same_side = 0
-                track.contradiction_altitude_m = None
-                track.contradiction_range_m = None
-                if (
-                    self._revisit is not None
-                    and self._revisit.get("kind") == "contradiction_relook"
-                ):
-                    self._revisit = None
-                track.verdict = "confirm" if verdict == "confirm" else verdict
-                track.verdict_step = self.step_index
-                track.needs_fresh_verdict = False
-                if verdict == "confirm":
-                    track.confirm_steps.append(self.step_index)
-                    track.match_steps.append(self.step_index)
+                # view): give up the relook and decide by the usable votes at this
+                # place, not by whichever answer happened to come last.
+                confirms, rejects = self._place_vote_counts(track, usable_only=True)
+                if confirms != rejects:
+                    final = "confirm" if confirms > rejects else "no_match"
+                else:
+                    final = verdict
+                self._finish_contradiction(track, final)
                 return
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         track.contradiction_votes.append(
@@ -1620,11 +1650,13 @@ class OnboardLoop:
         )
         if self._revisit is not None and self._revisit.get("kind") == "contradiction_relook":
             self._revisit = None
-        if track.ground is not None:
+        if track.ground is not None and verdict in {"confirm", "no_match"}:
+            # "approach" is a positive answer ("worth a closer look"), never a
+            # reject; like outside a relook it is not a place vote.
             self._place_votes.append(
                 {
                     "ground": track.ground,
-                    "verdict": "confirm" if verdict == "confirm" else "no_match",
+                    "verdict": verdict,
                     "track_id": track.track_id,
                     "co_visible_with": set(track.co_visible_with),
                     "appearance": track.appearance,
@@ -1638,34 +1670,62 @@ class OnboardLoop:
         if len(track.contradiction_votes) < self.config.contradiction_relook_views:
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         confirms = sum(v["verdict"] == "confirm" for v in track.contradiction_votes)
+        positives = sum(v["verdict"] in {"confirm", "approach"} for v in track.contradiction_votes)
         rejects = sum(v["verdict"] == "no_match" for v in track.contradiction_votes)
         old_confirms, old_rejects = self._place_vote_counts(track, usable_only=True)
         fresh_majority = self.config.contradiction_relook_views // 2 + 1
-        final = (
-            "confirm"
-            if confirms >= fresh_majority and confirms > rejects and old_confirms > old_rejects
-            else "no_match"
-        )
+        if positives >= fresh_majority and positives > rejects:
+            # A positive majority without enough confirm evidence keeps closing in
+            # ("approach"); it is never written down as a rejection.
+            final = "confirm" if confirms and old_confirms > old_rejects else "approach"
+        else:
+            final = "no_match"
+        self._finish_contradiction(track, final)
+
+    def _finish_contradiction(self, track: Track, final: str) -> None:
+        """End ``track``'s contradiction relook with ``final`` (confirm, approach, no_match)."""
         track.contradiction_active = False
         track.contradiction_votes.clear()
+        track.contradiction_same_side = 0
+        if (
+            self._revisit is not None
+            and self._revisit.get("kind") == "contradiction_relook"
+            and self._revisit["rejection"].get("track_id") == track.track_id
+        ):
+            self._revisit = None
         track.verdict, track.verdict_step = final, self.step_index
+        track.verdict_ground = track.ground
         track.needs_fresh_verdict = False
         track.verdict_remembered = False
         track.contradiction_altitude_m = None
         track.contradiction_range_m = None
         track.identity_verdict_history.append(final)
-        if final == "confirm":
+        if final in {"confirm", "approach"}:
             track.identity_positive_matches += 1
             track.match_steps.append(self.step_index)
-            track.confirm_steps.append(self.step_index)
+            if final == "confirm":
+                track.confirm_steps.append(self.step_index)
+                # The reject that started the contradiction was remembered; the
+                # relook overruled it, so it must not steer later looks or counts.
+                self._rejections = [
+                    item for item in self._rejections if not self._same_place(item, track)
+                ]
         else:
             track.identity_reject_matches += 1
             track.confirm_steps.clear()
             track.match_steps.clear()
             self._remember_rejection(track)
+
+    def _has_usable_confirm(self, track: Track) -> bool:
+        """``track`` itself was confirmed from at least one usable (near, large) view."""
+        return any(
+            v["verdict"] == "confirm" and v.get("usable", False) and v["track_id"] == track.track_id
+            for v in self._place_votes
+        )
 
     def plan_contradiction_relook(self, track: Track, pose_ned) -> dict[str, Any] | None:
         if not track.contradiction_active or track.ground is None:
@@ -1932,8 +1992,9 @@ class OnboardLoop:
                     track.contradiction_active = False
                     track.contradiction_votes.clear()
                     track.needs_fresh_verdict = False
-                    if "confirm" in track.identity_verdict_history:
+                    if self._has_usable_confirm(track):
                         track.verdict = "confirm"
+                        track.verdict_ground = track.ground
                         track.confirm_steps = [self.step_index]
             self._revisit = None
             return None
@@ -1984,6 +2045,7 @@ class OnboardLoop:
                 )
                 if compatible and math.dist(track.ground, look["centre"]) <= radius:
                     track.verdict, track.confirm_steps = None, []
+                    track.verdict_ground = None
                     track.needs_fresh_verdict = True
                     # A place revisit asks again but never re-opens a counted
                     # or approach-exhausted track.
@@ -2277,8 +2339,7 @@ class OnboardLoop:
         altitude = max(0.0, -pose_ned[2])
         if target is not None and altitude > target + 1.0:
             drop = min(altitude - target, 2.0 * self.config.descent_step_m)
-            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + drop)
-            if self._segment_clear(lower, pose_ned[0], pose_ned[1]):
+            if self._segment_clear(pose_ned, pose_ned[0], pose_ned[1], pose_ned[2] + drop):
                 return ActionPrimitive.translate(0.0, 0.0, -drop)
         if target is not None and altitude < target - 1.0:
             # An approach may have descended below the search altitude (which
@@ -2332,12 +2393,14 @@ class OnboardLoop:
             self.config.descent_step_m,
             max(0.0, altitude - self.config.approach_min_altitude_m),
         )
+        lower_down = pose_ned[2] + descend
         if horizontal is not None:
             # Never fly so close that the focus drops below the bottom of the image.
             step = min(step, horizontal - self._keep_range(altitude - max(0.0, descend)))
             if step < self.config.min_translate_m:
-                lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                if descend > 0.5 and self._segment_clear(lower, pose_ned[0], pose_ned[1]):
+                if descend > 0.5 and self._segment_clear(
+                    pose_ned, pose_ned[0], pose_ned[1], lower_down
+                ):
                     # Too close to fly on at this altitude: descend in place instead.
                     self._last_translated = True
                     info["descend_m"] = descend
@@ -2346,15 +2409,23 @@ class OnboardLoop:
                 self._at_closest = True
                 return ActionPrimitive.hold(1.0)
         if descend > 0.5:
-            lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
             yaw = math.radians(yaw_deg)
             end_n = pose_ned[0] + step * math.cos(yaw)
             end_e = pose_ned[1] + step * math.sin(yaw)
-            if self._segment_clear(lower, end_n, end_e):
+            if self._segment_clear(pose_ned, end_n, end_e, lower_down):
                 action = ActionPrimitive.translate(step, 0.0, -descend)
                 self._last_translated = True
                 info["descend_m"] = descend
                 return action
+            if horizontal is not None:
+                # No descent (e.g. above a roof): a level leg sized for the lower
+                # view would drop the focus below the image, so size it for this
+                # altitude, and hold the closest view when no leg is left.
+                step = min(step, horizontal - self._keep_range(altitude))
+                if step < self.config.min_translate_m:
+                    info["reason"] = "closest_view"
+                    self._at_closest = True
+                    return ActionPrimitive.hold(1.0)
         action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
         self._last_translated = action.kind == "translate"
         return action
@@ -2695,15 +2766,24 @@ class OnboardLoop:
                     # preserve the pre-relook usable positive evidence.
                     best.contradiction_active = False
                     best.contradiction_votes.clear()
-                    best.verdict = "confirm" if "confirm" in best.identity_verdict_history else None
+                    best.verdict = "confirm" if self._has_usable_confirm(best) else None
                     best.verdict_step = self.step_index
+                    best.verdict_ground = best.ground if best.verdict is not None else None
                     best.needs_fresh_verdict = False
                     if best.verdict == "confirm":
                         best.confirm_steps = [self.step_index]
-                else:
-                    look = self._second_look_action(pose_ned, yaw_deg, info)
-                    if look is not None:
-                        return look, info
+            if (
+                best.contradiction_active
+                and self._revisit is not None
+                and self._revisit.get("kind") == "contradiction_relook"
+                and self._revisit["rejection"].get("track_id") == best.track_id
+            ):
+                # Every step of the relook (fly/face/look/collect) runs here, not
+                # only the first: the focus stays visible, so falling through
+                # would approach it instead and the relook would never advance.
+                look = self._second_look_action(pose_ned, yaw_deg, info)
+                if look is not None:
+                    return look, info
             self.state, self._focus = "approaching", best.track_id
             best.approach_steps += 1
             if (
@@ -2859,12 +2939,14 @@ class OnboardLoop:
                     max(0.0, altitude - self.config.approach_min_altitude_m),
                 )
                 if descend > 0.5:
-                    lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
-                    lower_clear = self._segment_clear(lower, end[0], end[1])
+                    lower_clear = self._segment_clear(
+                        pose_ned, end[0], end[1], pose_ned[2] + descend
+                    )
             blocked_or_stalled = (direct_blocked and not lower_clear) or (
                 stalled and (info.get("reason") == "closest_view" or action.kind == "hold")
             )
-            if blocked_or_stalled and not near:
+            # _close_in may have just reached the closest view: that is not an obstacle.
+            if blocked_or_stalled and not (self._at_closest or near):
                 look = self._plan_obstacle_relook(best, pose_ned)
                 if look is not None:
                     self._obstacle_relook = look

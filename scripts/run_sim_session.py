@@ -9,6 +9,7 @@ contract, then adds the WSLg display bindings needed by Gazebo's client.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -46,6 +47,13 @@ BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
 DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+# Onboard-policy defaults for --onboard-task (the r18 mission-suite defaults).
+# Values starting with "artifacts/" resolve against --artifacts-root.
+DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
+DEFAULT_ARTIFACTS_ROOT = ROOT / "artifacts"
+# Onboard camera frames at the suite's (and the x500 camera calibration's) size.
+SESSION_RGB_SIZE = "1280x960"
+SCENARIO_INDEXES = ROOT / "configs/scenarios"
 WORLD_SCENARIOS = {
     "urban_inspection_multirotor_001.sdf": ROOT
     / "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
@@ -63,7 +71,7 @@ AIRFRAME_SCENARIOS = {
     "x500": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "x500_mono_cam": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "standard_vtol": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
-    "tiltrotor": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
+    "tiltrotor": ROOT / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
     "quadtailsitter": ROOT
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -75,10 +83,11 @@ AIRFRAME_SCENARIOS = {
 WORLD_SCENARIOS.update(
     {
         "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
-        "tiltrotor_mono_cam_001.sdf": ROOT
-        / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
+        "tiltrotor_mono_cam_001.sdf": AIRFRAME_SCENARIOS["tiltrotor"],
     }
 )
+VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "tiltrotor")
+FIXED_WING_TAKEOFFS = ("runway", "hand", "catapult")
 
 
 def _canonical_airframe(value: str) -> str:
@@ -97,6 +106,53 @@ def _canonical_airframe(value: str) -> str:
     return aliases.get(normalized, normalized)
 
 
+def _vehicle_family(value: str | None) -> str | None:
+    """Coarse vehicle family of an airframe id or a runtime vehicle model."""
+    text = str(value or "").lower()
+    for token, family in (
+        ("quadtailsitter", "quadtailsitter"),
+        ("tiltrotor", "tiltrotor"),
+        ("vtol", "standard_vtol"),
+        ("cessna", "fixed_wing"),
+        ("fixed_wing", "fixed_wing"),
+        ("plane", "fixed_wing"),
+        ("multirotor", "multirotor"),
+        ("x500", "multirotor"),
+    ):
+        if token in text:
+            return family
+    return None
+
+
+def resolve_takeoff_method(airframe: str, takeoff_method: str | None = None) -> str | None:
+    """Collector takeoff method for an airframe; rejects methods it cannot fly.
+
+    ``rc_cessna_hand`` / ``rc_cessna_catapult`` imply their launch method (the
+    collector picks the PX4 launch profile from ``--takeoff-method``).
+    """
+    family = _vehicle_family(_canonical_airframe(airframe))
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    implied = next(
+        (method for method in ("hand", "catapult") if normalized.endswith(f"_{method}")), None
+    )
+    if family == "fixed_wing":
+        allowed, default = FIXED_WING_TAKEOFFS, implied or "runway"
+    elif family in VTOL_AIRFRAMES:
+        allowed, default = ("vtol",), "vtol"
+    elif family == "multirotor":
+        allowed, default = (), None
+    else:
+        return takeoff_method
+    if takeoff_method is None:
+        return default
+    if takeoff_method not in allowed or (implied and takeoff_method != implied):
+        raise ValueError(
+            f"takeoff method {takeoff_method!r} does not apply to airframe {airframe!r}"
+            + (f"; use one of {', '.join(allowed)}" if allowed else "")
+        )
+    return takeoff_method
+
+
 def resolve_world(value: str | Path) -> Path:
     candidate = Path(value)
     if not candidate.is_absolute():
@@ -104,8 +160,10 @@ def resolve_world(value: str | Path) -> Path:
             candidate = candidate.with_suffix(".sdf")
         by_name = ROOT / "simulation/gazebo/worlds" / candidate
         airframe_world = ROOT / "configs/scenarios/airframes" / candidate
-        candidate = by_name if by_name.is_file() else (
-            airframe_world if airframe_world.is_file() else ROOT / candidate
+        candidate = (
+            by_name
+            if by_name.is_file()
+            else (airframe_world if airframe_world.is_file() else ROOT / candidate)
         )
     candidate = candidate.resolve()
     if not candidate.is_file() or candidate.suffix.lower() != ".sdf":
@@ -115,17 +173,76 @@ def resolve_world(value: str | Path) -> Path:
     return candidate
 
 
+@functools.lru_cache(maxsize=1)
+def _indexed_worlds() -> dict[str, list[tuple[Path, dict]]]:
+    """world_file -> [(scenario path, index entry)] over the scenario indexes.
+
+    Covers ``configs/scenarios/*/index.json`` and the per-airframe derivations
+    one level deeper (``vtol-v2/<airframe>/index.json``).
+    """
+    worlds: dict[str, list[tuple[Path, dict]]] = {}
+    indexes = [*SCENARIO_INDEXES.glob("*/index.json"), *SCENARIO_INDEXES.glob("*/*/index.json")]
+    for index in sorted(indexes):
+        try:
+            entries = json.loads(index.read_text(encoding="utf-8")).get("worlds") or []
+        except (OSError, ValueError):
+            continue
+        for entry in entries:
+            world_file = entry.get("world_file")
+            if not world_file:
+                continue
+            relative = ((entry.get("files") or {}).get("scenario") or {}).get("path")
+            scenario = index.parent / (relative or f"{Path(world_file).stem}.scenario.json")
+            if scenario.is_file():
+                worlds.setdefault(world_file, []).append((scenario, entry))
+    return worlds
+
+
+@functools.cache
+def _scenario_vehicle_model(scenario: Path) -> str | None:
+    """``runtime_input.vehicle.model`` of a scenario (the vehicle PX4 spawns)."""
+    try:
+        document = json.loads(scenario.read_text(encoding="utf-8"))
+        channel = (document.get("channels") or {}).get("runtime_input") or {}
+        runtime = json.loads((scenario.parent / channel["path"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    vehicle = runtime.get("vehicle") if isinstance(runtime, dict) else None
+    return vehicle.get("model") if isinstance(vehicle, dict) else None
+
+
+def _world_scenarios(world_name: str) -> list[Path]:
+    """Every scenario written for a world: named, indexed, or a variant's base."""
+    found = [WORLD_SCENARIOS[world_name]] if world_name in WORLD_SCENARIOS else []
+    found += [scenario for scenario, _ in _indexed_worlds().get(world_name, [])]
+    if not found and "__" in world_name:
+        # augment_sim_world names variants <base>__<suffix>.sdf; an unindexed
+        # variant keeps the base world's spawn pose and home.
+        found = _world_scenarios(world_name.split("__", 1)[0] + ".sdf")
+    return found
+
+
 def _scenario_for(world: Path, airframe: str) -> Path:
+    """Scenario for a session world, matching the airframe's vehicle.
+
+    A world can carry several scenarios (generated-v2 and its fixed-wing /
+    VTOL derivations); the one whose runtime vehicle is the session's airframe
+    family wins.  A known world with no scenario for this airframe is an
+    error: its spawn pose would launch a different vehicle.  An unknown world
+    falls back to the airframe's own scenario.
+    """
     canonical = _canonical_airframe(airframe)
-    stem = world.stem
-    if stem in {"gen_v2_w0016", "gen_v2_w0031"}:
-        if canonical == "rc_cessna_mono_cam":
-            return ROOT / "configs/scenarios/fixed-wing-v2" / f"{stem}.scenario.json"
-        if canonical in {"standard_vtol", "quadtailsitter"}:
-            return ROOT / "configs/scenarios/vtol-v2" / canonical / f"{stem}.scenario.json"
-    for name, scenario in WORLD_SCENARIOS.items():
-        if world.name == name:
+    wanted = _vehicle_family(canonical)
+    candidates = _world_scenarios(world.name)
+    for scenario in candidates:
+        family = _vehicle_family(_scenario_vehicle_model(scenario))
+        if wanted is None or family is None or family == wanted:
             return scenario
+    if candidates:
+        raise ValueError(
+            f"world {world.name!r} has no scenario for airframe {airframe!r}; "
+            "pick a world made for it or omit --world to use the airframe default"
+        )
     try:
         return AIRFRAME_SCENARIOS[canonical]
     except KeyError as exc:
@@ -152,7 +269,7 @@ def _replace_world_mount(command: list[str], world: Path) -> None:
 
 def build_session_command(
     *,
-    world: str | Path = DEFAULT_WORLD,
+    world: str | Path | None = None,
     airframe: str = "x500_mono_cam",
     gcs_port: int | None = None,
     viewer: str = "novnc",
@@ -161,12 +278,14 @@ def build_session_command(
     telemetry_port: int = 14541,
     viewer_port: int = 6080,
 ) -> tuple[list[str], DockerSimulatorPlan, Path]:
-    """Build the Docker argv without starting Docker (unit-test boundary)."""
+    """Build the Docker argv without starting Docker (unit-test boundary).
+
+    ``world=None`` selects the airframe's default world.
+    """
     canonical = _canonical_airframe(airframe)
-    requested_world = str(world)
-    if requested_world == DEFAULT_WORLD and canonical != "x500_mono_cam":
-        requested_world = DEFAULT_AIRFRAME_WORLDS.get(canonical, requested_world)
-    world_path = resolve_world(requested_world)
+    if world is None:
+        world = DEFAULT_AIRFRAME_WORLDS.get(canonical, DEFAULT_WORLD)
+    world_path = resolve_world(world)
     scenario = _scenario_for(world_path, canonical)
     name = container_name or f"multidetect-sim-session-{uuid.uuid4().hex[:8]}"
     plan = build_docker_simulator_plan(
@@ -211,16 +330,26 @@ def build_session_command(
         "exec /opt/px4-gazebo/bin/px4", viewer_start + "exec /opt/px4-gazebo/bin/px4"
     )
     if gcs_port is not None:
-        startup = command[-1]
-        gcs_line = (
-            f"mavlink start -x -t $DOCKER_HOST_IP -u 14542 -o {gcs_port} "
-            "-r 4000000 -f $mavlink_network_interface_arg; "
-        )
-        command[-1] = startup.replace(
+        command[-1] = command[-1].replace(
             "exec /opt/px4-gazebo/bin/px4",
-            f"printf '\\n{gcs_line}\\n' >> \"$RC\"; exec /opt/px4-gazebo/bin/px4",
+            _gcs_rc_append(gcs_port) + "exec /opt/px4-gazebo/bin/px4",
         )
     return command, plan, world_path
+
+
+def _gcs_rc_append(gcs_port: int) -> str:
+    """Shell that adds the GCS MAVLink instance to the container rc file once.
+
+    A restarted container re-runs its start-up command on the same file system;
+    an unconditional append would start a second instance on the same ports.
+    """
+    gcs_line = (
+        f"mavlink start -x -t $DOCKER_HOST_IP -u 14542 -o {gcs_port} "
+        "-r 4000000 -f $mavlink_network_interface_arg; "
+    )
+    return (
+        f"grep -qF -- '-u 14542 -o {gcs_port} ' \"$RC\" || printf '\\n{gcs_line}\\n' >> \"$RC\"; "
+    )
 
 
 def _heartbeat(port: int, timeout: float = 20.0) -> bool:
@@ -230,11 +359,16 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
         return False
     try:
         connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", autoreconnect=False)
-        message = connection.wait_heartbeat(timeout=timeout)
     except OSError as exc:
         print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
         return False
-    return message is not None
+    try:
+        return connection.wait_heartbeat(timeout=timeout) is not None
+    except OSError as exc:
+        print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
+        return False
+    finally:
+        connection.close()
 
 
 def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
@@ -242,7 +376,11 @@ def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
         from pymavlink import mavutil
 
         connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
-        message = connection.wait_heartbeat(timeout=timeout)
+        try:
+            message = connection.wait_heartbeat(timeout=timeout)
+        finally:
+            # Release the port: it is the GCS port a real ground station binds next.
+            connection.close()
         if message is None:
             return None
         return {
@@ -354,6 +492,10 @@ def _operator_link_config(args) -> dict:
         or secrets.token_hex(32),
         "operator_mavlink_signing_key_hex": os.environ.get("MULTIDETECT_SESSION_SIGNING_HEX")
         or secrets.token_hex(32),
+        # Onboard admits only signed packages; the console signs with this
+        # session HMAC key (MultiDetectGCS signs with its Ed25519 key instead).
+        "operator_package_key_hex": os.environ.get("MULTIDETECT_SESSION_PACKAGE_HEX")
+        or secrets.token_hex(32),
         "operator_requires_approval": True,
     }
     args.onboard_out.mkdir(parents=True, exist_ok=True)
@@ -373,10 +515,14 @@ def _run_task(
     port: int,
     out: Path,
     container_name: str,
-    airframe: str,
-    takeoff_method: str | None = None,
     timeout_s: float = 2400.0,
     operator_link: dict | None = None,
+    *,
+    airframe: str = "x500_mono_cam",
+    takeoff_method: str | None = None,
+    telemetry_port: int = 14541,
+    onboard_defaults: Path = DEFAULT_ONBOARD_DEFAULTS,
+    artifacts_root: Path = DEFAULT_ARTIFACTS_ROOT,
 ) -> int:
     """Run the existing onboard policy entry point against the session port."""
     out.mkdir(parents=True, exist_ok=True)
@@ -386,16 +532,12 @@ def _run_task(
         encoding="utf-8",
     )
     canonical = _canonical_airframe(airframe)
-    if takeoff_method is None:
-        takeoff_method = "runway" if canonical.startswith("rc_cessna") else (
-            "vtol" if canonical in {"standard_vtol", "quadtailsitter", "tiltrotor"} else None
-        )
+    takeoff_method = resolve_takeoff_method(airframe, takeoff_method)
     scenario = _scenario_for(world, canonical)
-    defaults = json.loads(
-        (Path(r"D:/Projects/mdwt/_scratch/suite-r18-defaults.json")).read_text(encoding="utf-8")
-    )["defaults"]
-    defaults["planning_model"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["planning_model"])
-    defaults["yoloe_weights"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["yoloe_weights"])
+    defaults = json.loads(Path(onboard_defaults).read_text(encoding="utf-8"))["defaults"]
+    for key, value in defaults.items():
+        if isinstance(value, str) and value.startswith("artifacts/"):
+            defaults[key] = str(Path(artifacts_root) / value.removeprefix("artifacts/"))
     if operator_link:
         # The mission comes from a GCS over the signed operator link (prompt →
         # onboard plan → approval); the policy holds until the plan is approved.
@@ -418,7 +560,7 @@ def _run_task(
         "--control-port",
         str(port),
         "--telemetry-port",
-        "14541",
+        str(telemetry_port),
         "--onboard-config",
         str(config),
         "--task-text",
@@ -429,6 +571,12 @@ def _run_task(
         # Room for coverage completion and the return-home step: a session count
         # found all three cones but hit a 140-step cap before finishing.
         "220",
+        # The mission suite (eval_onboard_loop_campaign) and the camera's native
+        # calibration are 1280x960.  The collector's 640x480 default halved every
+        # box: e2e run10 saw the cones at 6-9 px, under the loop's 10 px verdict
+        # floor, so two of three were never asked about and the count found one.
+        "--rgb-size",
+        SESSION_RGB_SIZE,
         # The collector's 300 s default ended a SITL count mid-search; the
         # mission suite gives the same task 2400 s.
         "--max-episode-s",
@@ -438,7 +586,8 @@ def _run_task(
             # PX4's simulated battery drains to 50 % in minutes and triggered an
             # "energy reserve reached" return mid-count in SITL.  Keep it charged
             # for interactive sessions; the suite's reserve-return mission keeps
-            # the default drain.
+            # the default drain.  PX4's SITL battery simulator is the same module
+            # for multirotor, fixed-wing and VTOL airframes, so this holds for all.
             ("--sim-param", "SIM_BAT_MIN_PCT=95") if operator_link else ()
         ),
         # One session episode writes ~1 GB; the collector's 15 GB default guard is
@@ -457,7 +606,7 @@ def _run_task(
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--world", default=DEFAULT_WORLD)
+    parser.add_argument("--world", help=f"default: the airframe's world ({DEFAULT_WORLD} for x500)")
     parser.add_argument("--airframe", default="x500_mono_cam")
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--gcs-port", type=int, default=14560)
@@ -465,6 +614,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--exit-after-task", action="store_true")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
     parser.add_argument("--task-timeout-s", type=float, default=2400.0)
+    parser.add_argument("--onboard-defaults", type=Path, default=DEFAULT_ONBOARD_DEFAULTS)
+    parser.add_argument(
+        "--artifacts-root",
+        type=Path,
+        default=DEFAULT_ARTIFACTS_ROOT,
+        help='root that "artifacts/..." paths in --onboard-defaults resolve against',
+    )
     parser.add_argument(
         "--operator-link",
         action="store_true",
@@ -484,7 +640,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.snapshot_interval <= 0 or args.check_heartbeat < 0:
         parser.error("snapshot-interval must be positive and check-heartbeat non-negative")
+    if args.operator_link and not args.onboard_task:
+        # The GCS supplies the mission; the onboard run still needs a task label.
+        args.onboard_task = "operator link mission"
     try:
+        args.takeoff_method = resolve_takeoff_method(args.airframe, args.takeoff_method)
         validate_runtime_prerequisites(onboard=bool(args.onboard_task))
         command, plan, world = build_session_command(
             world=args.world,
@@ -577,10 +737,13 @@ def main(argv: Iterable[str] | None = None) -> int:
                 args.control_port,
                 args.onboard_out,
                 plan.container_name,
-                args.airframe,
-                args.takeoff_method,
                 timeout_s=args.task_timeout_s,
                 operator_link=_operator_link_config(args) if args.operator_link else None,
+                airframe=args.airframe,
+                takeoff_method=args.takeoff_method,
+                telemetry_port=args.telemetry_port,
+                onboard_defaults=args.onboard_defaults,
+                artifacts_root=args.artifacts_root,
             )
             # The collector writes mission_summary.txt per episode (no report.json).
             summary = next(args.onboard_out.rglob("mission_summary.txt"), None)

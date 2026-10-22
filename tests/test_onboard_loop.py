@@ -265,6 +265,68 @@ def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
     assert [track.track_id for track in tracks] == ["t1"]
 
 
+def test_static_verdict_survives_small_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (6.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
+def test_static_verdict_is_reasked_after_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict is None
+    assert continued.needs_fresh_verdict
+    assert continued.confirm_steps == []
+    assert loop.tracks_needing_verdict([continued]) == [continued]
+
+
+def test_moving_target_keeps_verdict_across_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
 def test_blocked_approach_routes_around_obstacle_and_confirms() -> None:
     target = (30.0, 0.0)
 
@@ -1394,3 +1456,74 @@ def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:
     loop.apply_verdict(fresh.track_id, "confirm_target")
     _, info = loop.next_action([fresh], pose_ned=(0.0, 0.0, -8.0), yaw_deg=0.0)
     assert info.get("focus") is None and loop.state == "searching"
+
+
+def _apartment_loop(**config):
+    from multidetect.autonomy.obstacle_source import StaticMapSource
+    from multidetect.sim_teacher.policies import SDFObstacle
+
+    apartment = SDFObstacle(
+        north_m=-24.641,
+        east_m=-10.416,
+        height_m=14.8046,
+        size_north_m=22.2701,
+        size_east_m=20.2572,
+        yaw_rad=1.019681,
+    )
+    return OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.hold(1.0),
+        obstacle_source=StaticMapSource((apartment,)),
+        config=LoopConfig(**config),
+    )
+
+
+def test_approach_never_descends_into_a_roof_below_the_vehicle() -> None:
+    # SITL gen_cnt2_w0001: hovering at 17.2 m over a 14.8 m roof with a hydrant
+    # 17 m away, the approach commanded forward 4 m + down 4 m; the leg was
+    # checked from the *lowered* start, which looked like leaving the ring, and
+    # the vehicle descended into the roof (timeouts, approach_exhausted, 2/3).
+    hydrant = (-35.44, -31.80)
+    pose = (-27.2, -17.0, -17.2)
+    yaw = math.degrees(math.atan2(hydrant[1] - pose[1], hydrant[0] - pose[0]))
+    loop = _apartment_loop()
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 900, 14), 0.3)],
+        pose_ned=pose,
+        yaw_deg=yaw,
+        ground_point=lambda u, v: hydrant,
+    )
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=yaw, ground_point=lambda u, v: hydrant
+    )
+    assert action.up_m >= 0.0 and "descend_m" not in info
+    # Flying on level would drop the hydrant below the image: hold the closest view.
+    assert action.kind == "hold" and info.get("reason") == "closest_view"
+
+
+def test_approach_still_descends_once_clear_of_the_roof() -> None:
+    hydrant = (-35.44, -31.80)
+    pose = (-45.0, -45.0, -17.2)
+    yaw = math.degrees(math.atan2(hydrant[1] - pose[1], hydrant[0] - pose[0]))
+    loop = _apartment_loop()
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 900, 14), 0.3)],
+        pose_ned=pose,
+        yaw_deg=yaw,
+        ground_point=lambda u, v: hydrant,
+    )
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=yaw, ground_point=lambda u, v: hydrant
+    )
+    assert action.kind == "translate" and action.up_m < 0.0 and info["descend_m"] > 0.0
+
+
+def test_search_altitude_descent_is_checked_against_the_roof_below() -> None:
+    loop = _apartment_loop(search_altitude_m=10.0)
+    # Over the roof: the in-place drop to the search altitude would hit it.
+    action = loop._search_step((-27.2, -17.0, -17.2), 0.0)
+    assert not (action.kind == "translate" and action.up_m < 0.0)
+    clear = loop._search_step((-45.0, -45.0, -17.2), 0.0)
+    assert clear.kind == "translate" and clear.up_m < 0.0
