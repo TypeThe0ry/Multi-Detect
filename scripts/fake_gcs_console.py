@@ -24,9 +24,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.mission_operator_protocol import (  # noqa: E402
     CHUNK,
     CHUNK_DATA_BYTES,
+    CONTROL,
+    TELEMETRY_ACK,
     document_chunks,
+    mission_token,
 )
 from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.operator_link import VideoGeometry  # noqa: E402
 from multidetect.operator_mavlink import (  # noqa: E402
     OperatorMavlinkEndpoint,
     OperatorMavlinkTunnelAdapter,
@@ -77,7 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--hmac-key and --mavlink-key (or --link) are required")
     raw = args.package.read_bytes()
     package = load_mission_package(json.loads(raw))
-    codec = OperatorTunnelCodec(hmac_key=bytes.fromhex(args.hmac_key), geometries=())
+    # Same registered stream as the onboard endpoint (scripts/onboard_main.py).
+    codec = OperatorTunnelCodec(
+        hmac_key=bytes.fromhex(args.hmac_key),
+        geometries=(VideoGeometry("camera-main", 1280, 720),),
+    )
     endpoint = OperatorMavlinkEndpoint(255, 190, 1, 191)
     link = OperatorMavlinkTunnelAdapter(
         codec,
@@ -106,11 +114,28 @@ def main(argv: list[str] | None = None) -> int:
 
         send(28, raw, 1)
         last_upload = time.monotonic()
+        heard = False
+        last_heartbeat = 0.0
+        heartbeat_count = 0
         print(f"uploaded {package.mission_id}", flush=True)
         while deadline is None or time.monotonic() < deadline:
             # The aircraft may start listening after the console: resend the
-            # package until its plan comes back.
-            if not approved and time.monotonic() - last_upload > 5.0:
+            # package until anything comes back (a resend after admission would
+            # replace the mission that is waiting for approval).
+            # Ground heartbeats (type 34) keep the onboard link "up"; log records
+            # such as the plan are only downlinked while it is.
+            if time.monotonic() - last_heartbeat >= 1.0:
+                heartbeat_count += 1
+                beat = codec.encode_mission(
+                    34,
+                    CONTROL.pack(mission_token(package.mission_id), heartbeat_count),
+                    sequence=sequence,
+                    sent_at_s=time.time(),
+                )
+                sock.sendto(link.wrap_authenticated_operator_payload(beat), (args.host, args.port))
+                sequence += 1
+                last_heartbeat = time.monotonic()
+            if not heard and time.monotonic() - last_upload > 5.0:
                 send(28, raw, 1)
                 last_upload = time.monotonic()
             try:
@@ -123,6 +148,15 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if packet.message_type != 35:
                 continue
+            heard = True
+            # Onboard telemetry is stop-and-wait: each chunk is resent every second
+            # until the ground acknowledges (token, index) with a type-36 message.
+            token, index = CHUNK.unpack_from(packet.message.body)[:2]
+            ack = codec.encode_mission(
+                36, TELEMETRY_ACK.pack(token, index), sequence=sequence, sent_at_s=time.time()
+            )
+            sock.sendto(link.wrap_authenticated_operator_payload(ack), (args.host, args.port))
+            sequence += 1
             document_bytes = assembler.add(packet.message.body)
             if document_bytes is None:
                 continue
