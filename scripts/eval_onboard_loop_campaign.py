@@ -245,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
                 command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.min_free_disk_gb > 0:
+                # The collector otherwise applies its own 15 GB guard and aborts
+                # episodes that the campaign's lower --min-free-disk-gb allows.
+                command += ["--min-free-gb", str(args.min_free_disk_gb)]
             log = args.out / f"{world_id}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a", encoding="utf-8") as handle:
@@ -317,6 +321,10 @@ def main(argv: list[str] | None = None) -> int:
                 command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.min_free_disk_gb > 0:
+                # The collector otherwise applies its own 15 GB guard and aborts
+                # episodes that the campaign's lower --min-free-disk-gb allows.
+                command += ["--min-free-gb", str(args.min_free_disk_gb)]
             log = args.out / f"{world_id}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a", encoding="utf-8") as handle:
