@@ -697,10 +697,10 @@ class OnboardPolicy:
         second_look = options.get("second_look_after_steps")
         loop_defaults: dict[str, Any] = {
             "confirm_min_side_px": confirm_min_side_px,
-            # Resolve real usable-size identity contradictions with bounded
-            # separated views in the mission path; direct LoopConfig callers
-            # retain the historical disabled default.
-            "contradiction_relook_enabled": True,
+            # Off until fixed: a SITL hydrant count lost a usable close confirm
+            # because a far 11 px reject started a relook that climbed back to
+            # search altitude, never got a fresh vote and then rejected it.
+            "contradiction_relook_enabled": False,
             # A VTOL's back-transition climbs (the SITL tailsitter rose from 30 m to
             # 60 m): a hover-mode search first settles back to the mission altitude.
             "search_altitude_m": (
