@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, Full, Queue
 from threading import Condition, Event, Lock, Thread
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autonomy.mission_operator import MissionOperatorAdapter
@@ -226,6 +226,8 @@ class UdpOperatorSelectionServer:
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
         mission_adapter: MissionOperatorAdapter | None = None,
+        mission_package_loader: Callable[[Any], Any] | None = None,
+        mission_preflight_allowed: Callable[[], bool] | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -282,7 +284,11 @@ class UdpOperatorSelectionServer:
         if mission_adapter is None:
             from .autonomy.mission_operator import MissionOperatorAdapter
 
-            mission_adapter = MissionOperatorAdapter(mavlink.codec)
+            mission_adapter = MissionOperatorAdapter(
+                mavlink.codec,
+                package_loader=mission_package_loader,
+                preflight_allowed=mission_preflight_allowed,
+            )
         self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self._command_clock = command_clock

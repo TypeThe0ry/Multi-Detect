@@ -39,6 +39,7 @@ from .mission_supervisor import MissionSupervisor
 from .serialization import strict_json_loads
 
 MAX_LOG_DOCUMENT_BYTES = 1536
+MAX_STATUS_DOCUMENT_BYTES = 1200
 
 
 @dataclass
@@ -411,6 +412,30 @@ class MissionOperatorAdapter:
             raise ValueError("机载加载器未安装对应任务监督器")
         supervisor.package.validate_plan(supervisor.executor.plan)
         self.bind_supervisor(supervisor)
+        supervisor.log.append(
+            "plan",
+            supervisor.clock(),
+            plan_sha256=supervisor.plan_sha256,
+            task_text=supervisor.package.document.get("task_text") or supervisor.executor.plan.goal,
+            requires_approval=supervisor.requires_approval,
+            steps=[
+                {
+                    "id": s.id,
+                    "skill": s.skill,
+                    "params": dict(s.params),
+                    "on_success": s.on_success,
+                    "on_fail": s.on_fail,
+                }
+                for s in supervisor.executor.plan.steps
+            ],
+            **(
+                {"origin": supervisor.package.document["origin"]}
+                if "origin" in supervisor.package.document
+                else {}
+            ),
+        )
+        if supervisor.downlink is not None:
+            supervisor.downlink.notify()
         self._retire_upload(rejected=False)
         self._next_status = 0
         return True, "任务包已通过机载验证并接纳"
@@ -440,6 +465,17 @@ class MissionOperatorAdapter:
         event = strict_json_loads(payload, name="ground command")
         if not isinstance(event, dict):
             raise ValueError("ground command must be a JSON object")
+        if event.get("type") in {"approve_plan", "reject_plan"}:
+            digest = event.get("plan_sha256")
+            accepted = (
+                supervisor.approve_plan(digest)
+                if event["type"] == "approve_plan"
+                else supervisor.reject_plan(digest)
+            )
+            return (
+                accepted,
+                "plan command accepted" if accepted else "plan digest mismatch or stale",
+            )
         accepted = supervisor.ground_event(event)
         return (
             accepted,
@@ -485,6 +521,8 @@ class MissionOperatorAdapter:
                 ).encode("utf-8")
                 messages.extend(document_chunks(encoded, token, message_type=35))
             return _Telemetry(messages, token)
+        if document.get("kind") == "status" and len(payload) > MAX_STATUS_DOCUMENT_BYTES:
+            raise ValueError("status document exceeds 1200-byte protocol bound")
         if document.get("kind") != "status" and len(payload) > MAX_LOG_DOCUMENT_BYTES:
             # A <=35-chunk log yields to current status within about 3.5 seconds
             # at the endpoint's 100 ms tick. Full evidence remains in JSONL.
@@ -554,9 +592,13 @@ class MissionOperatorAdapter:
             budget = max(1, int(getattr(executor.config, "step_budget", 1)))
             progress = min(1.0, max(0.0, float(getattr(run, "visited", 0)) / budget))
         state = (
-            "done"
-            if executor.done
-            else ("returning" if supervisor.action.startswith("return") else "running")
+            "awaiting_approval"
+            if not supervisor.plan_approved
+            else (
+                "done"
+                if executor.done
+                else ("returning" if supervisor.action.startswith("return") else "running")
+            )
         )
         document = {
             "v": 2,
