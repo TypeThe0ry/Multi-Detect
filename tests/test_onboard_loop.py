@@ -265,6 +265,68 @@ def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
     assert [track.track_id for track in tracks] == ["t1"]
 
 
+def test_static_verdict_survives_small_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (6.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
+def test_static_verdict_is_reasked_after_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict is None
+    assert continued.needs_fresh_verdict
+    assert continued.confirm_steps == []
+    assert loop.tracks_needing_verdict([continued]) == [continued]
+
+
+def test_moving_target_keeps_verdict_across_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
 def test_blocked_approach_routes_around_obstacle_and_confirms() -> None:
     target = (30.0, 0.0)
 

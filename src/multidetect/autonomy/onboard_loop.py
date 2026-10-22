@@ -274,6 +274,10 @@ class Track:
     hits: int = 1
     verdict: str | None = None
     verdict_step: int = -1
+    # Ground anchor where the current verdict was formed.  Static-target
+    # association invalidates the verdict when a continued track moves too far
+    # from this place, while retaining the track id for fresh evidence.
+    verdict_ground: tuple[float, float] | None = None
     max_min_side: float = 0.0
     confirm_steps: list[int] = field(default_factory=list)
     # Steps whose verdict said "this is the task's object" (approach or confirm).
@@ -403,6 +407,7 @@ class LoopConfig:
     static_ground_veto: bool = False
     static_ground_veto_min_m: float = 20.0
     static_ground_veto_gates: float = 5.0
+    static_verdict_max_shift_m: float = 8.0
     # None enables 60-step ground re-identification for continuing (count,
     # patrol, monitor) loops only. Zero disables it, including for those loops.
     ground_reid_max_steps: int | None = None
@@ -530,6 +535,8 @@ class LoopConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        if not math.isfinite(self.static_verdict_max_shift_m) or self.static_verdict_max_shift_m <= 0:
+            raise ValueError("static_verdict_max_shift_m must be finite and positive")
         if not isinstance(self.contradiction_relook_enabled, bool):
             raise ValueError("contradiction_relook_enabled must be a boolean")
         for name in ("contradiction_relook_max", "contradiction_relook_views"):
@@ -1083,9 +1090,24 @@ class OnboardLoop:
                     best.approach_steps = 0
                     best.verdict = None
                     best.verdict_step = -1
+                    best.verdict_ground = None
                     best.verdict_remembered = False
             if ground is not None:
                 best.ground = ground
+                if (
+                    self.config.static_ground_veto
+                    and best.verdict is not None
+                    and best.verdict_ground is not None
+                    and math.dist(ground, best.verdict_ground)
+                    > self.config.static_verdict_max_shift_m
+                ):
+                    best.verdict = None
+                    best.verdict_step = -1
+                    best.verdict_ground = None
+                    best.confirm_steps.clear()
+                    best.match_steps.clear()
+                    best.needs_fresh_verdict = True
+                    best.verdict_remembered = False
             if self.config.fixed_wing_pass and appearance is not None:
                 best.appearance = appearance
             if self.config.fixed_wing_pass:
@@ -1473,6 +1495,7 @@ class OnboardLoop:
         ):
             return
         track.verdict, track.verdict_step = verdict, self.step_index
+        track.verdict_ground = track.ground
         track.needs_fresh_verdict = False
         track.verdict_remembered = remembered
         if small_recheck:
@@ -1550,6 +1573,7 @@ class OnboardLoop:
                     track.contradiction_relooks += 1
                     track.verdict = None
                     track.verdict_step = -1
+                    track.verdict_ground = None
                     track.confirm_steps.clear()
                     track.match_steps.clear()
                     track.needs_fresh_verdict = True
@@ -1581,6 +1605,7 @@ class OnboardLoop:
         ):
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         bearing = self._view_bearing(track)
@@ -1606,6 +1631,7 @@ class OnboardLoop:
                     self._revisit = None
                 track.verdict = "confirm" if verdict == "confirm" else verdict
                 track.verdict_step = self.step_index
+                track.verdict_ground = track.ground
                 track.needs_fresh_verdict = False
                 if verdict == "confirm":
                     track.confirm_steps.append(self.step_index)
@@ -1613,6 +1639,7 @@ class OnboardLoop:
                 return
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         track.contradiction_votes.append(
@@ -1638,6 +1665,7 @@ class OnboardLoop:
         if len(track.contradiction_votes) < self.config.contradiction_relook_views:
             track.verdict = None
             track.verdict_step = -1
+            track.verdict_ground = None
             track.needs_fresh_verdict = True
             return
         confirms = sum(v["verdict"] == "confirm" for v in track.contradiction_votes)
@@ -1652,6 +1680,7 @@ class OnboardLoop:
         track.contradiction_active = False
         track.contradiction_votes.clear()
         track.verdict, track.verdict_step = final, self.step_index
+        track.verdict_ground = track.ground
         track.needs_fresh_verdict = False
         track.verdict_remembered = False
         track.contradiction_altitude_m = None
@@ -1934,6 +1963,7 @@ class OnboardLoop:
                     track.needs_fresh_verdict = False
                     if "confirm" in track.identity_verdict_history:
                         track.verdict = "confirm"
+                        track.verdict_ground = track.ground
                         track.confirm_steps = [self.step_index]
             self._revisit = None
             return None
@@ -1984,6 +2014,7 @@ class OnboardLoop:
                 )
                 if compatible and math.dist(track.ground, look["centre"]) <= radius:
                     track.verdict, track.confirm_steps = None, []
+                    track.verdict_ground = None
                     track.needs_fresh_verdict = True
                     # A place revisit asks again but never re-opens a counted
                     # or approach-exhausted track.
@@ -2697,6 +2728,7 @@ class OnboardLoop:
                     best.contradiction_votes.clear()
                     best.verdict = "confirm" if "confirm" in best.identity_verdict_history else None
                     best.verdict_step = self.step_index
+                    best.verdict_ground = best.ground if best.verdict is not None else None
                     best.needs_fresh_verdict = False
                     if best.verdict == "confirm":
                         best.confirm_steps = [self.step_index]
