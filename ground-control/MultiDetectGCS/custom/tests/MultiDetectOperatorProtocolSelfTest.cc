@@ -49,6 +49,17 @@ int main(int argc, char* argv[])
     MultiDetectOperatorProtocol protocol(key, QStringLiteral("camera-main"));
     int failures = 0;
     failures += check(protocol.configured(), "protocol must accept the shared 32-byte test key");
+    QString geometryError;
+    const QByteArray geometryFrame = protocol.encodeSelection(
+        QStringLiteral("11111111-1111-1111-1111-111111111111"),
+        QStringLiteral("22222222-2222-2222-2222-222222222222"), 1, QStringLiteral("SELECT"), 1280, 720, 0,
+        0.1, 0.2, 0.3, 0.4, 1000, 1000, &geometryError);
+    MultiDetectOperatorProtocol::DecodedPacket geometryPacket;
+    failures += check(!geometryFrame.isEmpty() && protocol.decode(geometryFrame, &geometryPacket, &geometryError),
+                       "registered camera-main geometry must round-trip");
+    MultiDetectOperatorProtocol mismatchedGeometry(key, QStringLiteral("camera-main"), 640, 480);
+    failures += check(!mismatchedGeometry.decode(geometryFrame, &geometryPacket, &geometryError),
+                       "unregistered video geometry must be rejected");
 
     MultiDetectObservationEpoch observationEpoch;
     failures += check(observationEpoch.observe(0) == MultiDetectObservationEpoch::Result::Invalid,

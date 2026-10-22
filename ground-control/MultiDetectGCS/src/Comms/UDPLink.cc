@@ -1,4 +1,11 @@
 #include "UDPLink.h"
+
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+#endif
 #include "AutoConnectSettings.h"
 #include "QGCLoggingCategory.h"
 #include "QGCNetworkHelper.h"
@@ -364,6 +371,21 @@ void UDPWorker::connectLink()
         return;
     }
 
+#ifdef Q_OS_WIN
+    // Windows reports ICMP port-unreachable for an unstarted peer as a UDP
+    // connection reset.  This is normal during aircraft startup; suppress it
+    // at the socket layer so the generic link error dialog is not raised.
+    // A synchronous WSAIoctl needs lpcbBytesReturned; with nullptr it fails
+    // with WSAEFAULT and the resets keep arriving as unreadable datagrams.
+    DWORD disableUdpConnReset = 0;
+    DWORD bytesReturned = 0;
+    const SOCKET nativeSocket = static_cast<SOCKET>(_socket->socketDescriptor());
+    if (WSAIoctl(nativeSocket, SIO_UDP_CONNRESET, &disableUdpConnReset, sizeof(disableUdpConnReset), nullptr, 0,
+                 &bytesReturned, nullptr, nullptr) == SOCKET_ERROR) {
+        qCWarning(UDPLinkLog) << "Could not disable UDP connection-reset reports:" << WSAGetLastError();
+    }
+#endif
+
     qCDebug(UDPLinkLog) << "Attempting to join multicast group:" << _multicastGroup.toString();
     const bool joinSuccess = _socket->joinMulticastGroup(_multicastGroup);
     if (!joinSuccess) {
@@ -439,12 +461,22 @@ void UDPWorker::_onSocketDisconnected()
 void UDPWorker::_onSocketReadyRead()
 {
     if (!isConnected()) {
+        if (_udpConfig->name().contains(QStringLiteral("MultiDetect Jetson metadata"))) {
+            return;
+        }
         emit errorOccurred(tr("Could Not Read Data - Link is Disconnected!"));
         return;
     }
 
+    // A zero-size pending datagram (seen on Windows while the peer was not yet
+    // listening) must still be consumed below: an
+    // unbuffered QUdpSocket stops emitting readyRead until a datagram is read,
+    // so returning here left the link permanently deaf.
     const qint64 byteCount = _socket->pendingDatagramSize();
-    if (byteCount <= 0) {
+    if (byteCount <= 0 && !_socket->hasPendingDatagrams()) {
+        if (_udpConfig->name().contains(QStringLiteral("MultiDetect Jetson metadata"))) {
+            return;
+        }
         emit errorOccurred(tr("Could Not Read Data - No Data Available!"));
         return;
     }
@@ -481,7 +513,7 @@ void UDPWorker::_onSocketReadyRead()
     }
 
     if (!received && buffer.isEmpty()) {
-        qCWarning(UDPLinkLog) << "No Data Available to Read!";
+        qCDebug(UDPLinkLog) << "No Data Available to Read!";
         return;
     }
 
@@ -497,6 +529,14 @@ void UDPWorker::_onSocketErrorOccurred(QUdpSocket::SocketError error)
 {
     const QString errorString = _socket->errorString();
     qCWarning(UDPLinkLog) << "UDP Link error:" << error << _socket->errorString();
+
+    // An ephemeral aircraft metadata peer may be offline while the GCS is
+    // already running. Windows reports the resulting ICMP reset as a generic
+    // UDP network error; keep it in the non-modal link state for this link.
+    if (error == QAbstractSocket::NetworkError &&
+        _udpConfig->name().contains(QStringLiteral("MultiDetect Jetson metadata"))) {
+        return;
+    }
 
     if (!_errorEmitted) {
         emit errorOccurred(errorString);

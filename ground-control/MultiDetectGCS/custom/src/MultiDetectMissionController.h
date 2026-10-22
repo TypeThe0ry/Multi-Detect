@@ -7,7 +7,10 @@
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtCore/QVariantList>
+#include <QtCore/QSet>
 #include <functional>
+
+#include "MultiDetectMissionSecurity.h"
 
 class MultiDetectMissionController final : public QObject
 {
@@ -24,6 +27,16 @@ class MultiDetectMissionController final : public QObject
     Q_PROPERTY(bool telemetryFresh READ telemetryFresh NOTIFY telemetryChanged)
     Q_PROPERTY(QString currentPolicy READ currentPolicy NOTIFY telemetryChanged)
     Q_PROPERTY(double currentPolicyTimeout READ currentPolicyTimeout NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantMap plan READ plan NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantList findings READ findings NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantList alerts READ alerts NOTIFY telemetryChanged)
+    Q_PROPERTY(QVariantMap finalSummary READ finalSummary NOTIFY telemetryChanged)
+    Q_PROPERTY(bool finalSummaryComplete READ finalSummaryComplete NOTIFY telemetryChanged)
+    Q_PROPERTY(int summaryPagesReceived READ summaryPagesReceived NOTIFY telemetryChanged)
+    Q_PROPERTY(int summaryPagesTotal READ summaryPagesTotal NOTIFY telemetryChanged)
+    Q_PROPERTY(bool onboardCompiling READ onboardCompiling NOTIFY stateChanged)
+    Q_PROPERTY(bool planAwaitingDecision READ planAwaitingDecision NOTIFY stateChanged)
+    Q_PROPERTY(QString planDecisionState READ planDecisionState NOTIFY stateChanged)
 
 public:
     explicit MultiDetectMissionController(QObject* parent = nullptr);
@@ -54,6 +67,20 @@ public:
     QString currentPolicy() const { return _currentPolicy; }
 
     double currentPolicyTimeout() const { return _currentPolicyTimeout; }
+    QVariantMap plan() const { return _plan; }
+    QVariantList findings() const { return _findings; }
+    QVariantList alerts() const { return _alerts; }
+    QVariantMap finalSummary() const { return _finalSummary; }
+    bool finalSummaryComplete() const { return _finalSummaryComplete; }
+    int summaryPagesReceived() const { return static_cast<int>(_summaryPages.size()); }
+    int summaryPagesTotal() const { return _summaryPageCount; }
+    // The last package chunk was received and the aircraft is still planning;
+    // its second ACK for the same token/index carries the verdict.
+    bool onboardCompiling() const { return _pending.type == 28 && _pending.awaitingVerdict; }
+    // A plan that asks for approval and has neither been decided nor has a
+    // decision in flight.
+    bool planAwaitingDecision() const;
+    QString planDecisionState() const { return _planDecisionState; }
 
     void setSender(std::function<bool(int, const QByteArray&)> sender) { _sender = std::move(sender); }
 
@@ -71,6 +98,8 @@ public:
     Q_INVOKABLE bool pauseMission();
     Q_INVOKABLE bool resumeMission();
     Q_INVOKABLE bool tightenPolicy(const QString& policy, double timeout);
+    Q_INVOKABLE bool approvePlan();
+    Q_INVOKABLE bool rejectPlan();
 
 signals:
     void packageChanged();
@@ -89,6 +118,9 @@ private:
         int attempts = 0;
         QString requestedPolicy;
         double requestedTimeout = 0;
+        bool awaitingVerdict = false;
+        qint64 verdictDeadline = 0;
+        QString planDigest;
     };
 
     struct Assembly
@@ -102,6 +134,12 @@ private:
     };
 
     bool _control(int type, const QString& policy = {}, double timeout = 0);
+    bool _planDecision(bool approve);
+    bool _prepareCommand(QJsonObject* command, QString* error);
+    void _beginMission(const QString& missionId);
+    void _switchMission(const QString& missionId);
+    void _admitUpload(const QString& detail);
+    bool _adoptSummaryPage(const QJsonObject& page);
     bool _sendPending();
     bool _fail(const QString& message);
     bool _adopt(const QByteArray& json);
@@ -119,13 +157,25 @@ private:
     double _currentPolicyTimeout = 0;
     QByteArray _uploadDocument;
     QByteArray _commandDocument;
-    QByteArray _missionPrivateSeed;
+    MultiDetectMissionSecurity::SigningKey _packageKey;
+    MultiDetectMissionSecurity::SigningKey _commandKey;
+    QString _keyError;
     QString _missionKeyId;
+    QString _uploadMissionId;
+    QSet<QString> _decidedPlans;
+    QString _planDecisionState;
     bool _requireMissionSignature = false;
     Pending _pending;
     quint64 _uploadToken = 0;
     QVariantMap _telemetry;
     QVariantList _logs;
+    QVariantMap _plan;
+    QVariantList _findings;
+    QVariantList _alerts;
+    QVariantMap _finalSummary;
+    bool _finalSummaryComplete = false;
+    QHash<int, QByteArray> _summaryPages;
+    int _summaryPageCount = 0;
     quint64 _lastStatusSequence = 0;
     quint64 _lastLogSequence = 0;
     QHash<quint64, Assembly> _assemblies;

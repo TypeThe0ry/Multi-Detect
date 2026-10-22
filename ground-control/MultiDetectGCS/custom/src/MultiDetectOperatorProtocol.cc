@@ -383,8 +383,10 @@ quint8 rotationCode(int degrees)
 
 }  // namespace
 
-MultiDetectOperatorProtocol::MultiDetectOperatorProtocol(QByteArray hmacKey, QString streamId)
-    : _hmacKey(std::move(hmacKey)), _streamId(std::move(streamId)), _streamHash(hash32(_streamId))
+MultiDetectOperatorProtocol::MultiDetectOperatorProtocol(QByteArray hmacKey, QString streamId, int streamWidth,
+                                                         int streamHeight)
+    : _hmacKey(std::move(hmacKey)), _streamId(std::move(streamId)), _streamWidth(streamWidth),
+      _streamHeight(streamHeight), _streamHash(hash32(_streamId))
 {}
 
 bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacket* packet, QString* error) const
@@ -2011,6 +2013,12 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
     packet->type = type;
     packet->sequence = sequence;
     packet->sentAtMs = sentAtMs;
+    if (fields.contains(QStringLiteral("width")) || fields.contains(QStringLiteral("height"))) {
+        if (fields.value(QStringLiteral("width")).toInt() != _streamWidth ||
+            fields.value(QStringLiteral("height")).toInt() != _streamHeight) {
+            return fail(error, QStringLiteral("operator-link video geometry is not registered"));
+        }
+    }
     packet->fields = std::move(fields);
     if (error) {
         error->clear();

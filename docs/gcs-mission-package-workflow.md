@@ -134,3 +134,7 @@ QML 解析与资源编译可以独立检查；完整 `qmllint` 语义及原生�
 ## SIM 联调控制台
 
 `scripts/fake_gcs_console.py --link <operator-link.json> <package.json>` 用于 SIM 会话联调。`scripts/run_sim_session.py --operator-link` 生成的 `operator-link.json` 含会话级 `operator_package_key_hex`，控制台用它对未签名的任务包文件签名后上传（也可用 `--package-key`／`--package-key-hex` 指定）。消息序号由 Unix 毫秒初始化，控制台重启后不会被机上判为过期；每条审批／拒绝命令使用新的随机 token；键盘输入在独立线程读取（`a` 或回车批准，`r` 拒绝），等待期间心跳与遥测 ACK 不中断；只处理与上传任务编号一致的计划。机上配置了地面命令密钥时，用 `--command-key` 对审批命令签名，`--command-sequence` 指定起始命令序号（须高于机上该任务已记录的命令序号）。
+
+## C++ 地面站（MultiDetectGCS）对齐
+
+C++ 地面站按上述协议实现同一流程：最后一片的“已接收，机载编译中”ACK 只进入“机载编译中”等待态，每 5 秒重发最后一片以查询结论（机上幂等应答，也能补回丢失的结论 ACK），最长等待 15 分钟；同一 token／分片编号的第二条 ACK 才决定接纳或拒绝。任务被接纳（或收到该任务的下行记录）之前不发送类型 34 心跳。收到 `kind=plan` 且 `requires_approval=true` 时，飞行页任务卡提供批准／拒绝；命令为类型 37 的 `{"mission_id","type":"approve_plan"|"reject_plan","plan_sha256"}`，`plan_sha256` 取机上计划记录原值，计划所属任务必须是当前任务，每条命令使用新的随机 token。配置地面命令密钥（`MULTIDETECT_GROUND_COMMAND_KEY` 或 `MULTIDETECT_OPERATOR_SIGNING_KEY`，`hmac:` 或 `ed25519-private:` 前缀）时按 `ground_event` 格式加 `sequence`、`timestamp`、`timestamp_version=1`、`timestamp_domain=unix`、`key_id` 并签名；未配置时发送不带时间戳的未签名命令，由机上时钟定时。`final_summary_page` 按页独立重组，收齐全部页并解析成功后才显示最终摘要。

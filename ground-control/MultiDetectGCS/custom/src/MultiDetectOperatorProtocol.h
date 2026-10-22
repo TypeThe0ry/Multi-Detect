@@ -78,11 +78,18 @@ public:
         QVariantMap fields;
     };
 
-    MultiDetectOperatorProtocol(QByteArray hmacKey, QString streamId);
+    MultiDetectOperatorProtocol(QByteArray hmacKey, QString streamId, int streamWidth = 1280,
+                                int streamHeight = 720);
 
-    bool configured() const { return _hmacKey.size() >= 32 && !_streamId.trimmed().isEmpty(); }
+    bool configured() const
+    {
+        return _hmacKey.size() >= 32 && !_streamId.trimmed().isEmpty() && _streamWidth > 0 && _streamWidth <= 65535 &&
+               _streamHeight > 0 && _streamHeight <= 65535;
+    }
 
     QString streamId() const { return _streamId; }
+    int streamWidth() const { return _streamWidth; }
+    int streamHeight() const { return _streamHeight; }
 
     bool decode(const QByteArray& payload, DecodedPacket* packet, QString* error) const;
     QByteArray encodeMission(MessageType type, const QByteArray& body, quint32 sequence,
@@ -124,5 +131,7 @@ private:
 
     QByteArray _hmacKey;
     QString _streamId;
+    int _streamWidth = 1280;
+    int _streamHeight = 720;
     quint32 _streamHash = 0;
 };

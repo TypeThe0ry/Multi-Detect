@@ -158,6 +158,25 @@ def test_gcs_ground_command_golden_vector_matches_onboard_verifier():
     assert verify_document(signed, public)
 
 
+def test_gcs_hmac_plan_command_golden_vector_matches_onboard_verifier():
+    # Mirrored in MultiDetectMissionSecuritySelfTest: the GCS signs plan
+    # decisions with a configured HMAC ground-command key in this format.
+    key = AuthenticationKey("hmac-sha256", bytes(range(32)), "gcs-test")
+    command = {
+        "mission_id": "golden-mission",
+        "type": "approve_plan",
+        "plan_sha256": "ab" * 32,
+        "sequence": 3,
+        "timestamp": 1700000000.5,
+        "timestamp_version": 1,
+        "timestamp_domain": "unix",
+    }
+    signed = sign_document(command, key)
+    assert signed["signature_alg"] == "hmac-sha256"
+    assert signed["signature"] == "u31BMTjZSMPnE+lvJhOzqY3Qj4czLP8cyN+bv5EbjLk="
+    assert verify_document(signed, key)
+
+
 def test_gcs_canonical_numbers_and_unicode_golden_vector():
     key = AuthenticationKey("ed25519", bytes(range(32)), "gcs-test")
     command = {

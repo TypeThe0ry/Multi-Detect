@@ -6,6 +6,7 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QDir>
 #include <QtCore/QLockFile>
+#include <QtCore/QMessageAuthenticationCode>
 #include <QtCore/QMutex>
 #include <QtCore/QMutexLocker>
 #include <QtCore/QSettings>
@@ -136,15 +137,18 @@ bool signEd25519(const QByteArray& message, const QByteArray& seed, QByteArray* 
 #endif
 }
 
-bool sign(QJsonObject* document, const QByteArray& seed, const QString& keyId, QString* error)
+bool sign(QJsonObject* document, const MultiDetectMissionSecurity::SigningKey& key, const QString& keyId,
+          QString* error)
 {
-    if (!document || seed.size() != 32 || keyId.trimmed().isEmpty()) {
+    const bool ed25519 = key.algorithm == QStringLiteral("ed25519") && key.material.size() == 32;
+    const bool hmac = key.algorithm == QStringLiteral("hmac-sha256") && key.material.size() >= 16 &&
+                      key.material.size() <= 4096;
+    if (!document || !(ed25519 || hmac) || keyId.trimmed().isEmpty()) {
         if (error)
-            *error = QStringLiteral("mission signing requires a 32-byte private key and key_id");
+            *error = QStringLiteral("mission signing requires an Ed25519 private seed or HMAC key and key_id");
         return false;
     }
     document->insert(QStringLiteral("key_id"), keyId.trimmed());
-    document->insert(QStringLiteral("signature_alg"), QStringLiteral("ed25519"));
     document->remove(QStringLiteral("signature"));
     document->remove(QStringLiteral("signature_alg"));
     const QByteArray payload = MultiDetectMissionSecurity::canonicalJson(
@@ -155,14 +159,98 @@ bool sign(QJsonObject* document, const QByteArray& seed, const QString& keyId, Q
         return false;
     }
     QByteArray signature;
-    if (!signEd25519(payload, seed, &signature, error))
+    if (hmac)
+        signature = QMessageAuthenticationCode::hash(payload, key.material, QCryptographicHash::Sha256);
+    else if (!signEd25519(payload, key.material, &signature, error))
         return false;
-    document->insert(QStringLiteral("signature_alg"), QStringLiteral("ed25519"));
+    document->insert(QStringLiteral("signature_alg"), key.algorithm);
     document->insert(QStringLiteral("signature"), QString::fromLatin1(signature.toBase64()));
     return true;
 }
 
+bool hasGroundTimestampContract(const QJsonObject* command)
+{
+    constexpr double kMaxJsonExactInteger = 9007199254740991.0;
+    const QJsonValue sequence = command ? command->value(QStringLiteral("sequence")) : QJsonValue();
+    return command && command->contains(QStringLiteral("mission_id")) &&
+           command->contains(QStringLiteral("type")) && command->contains(QStringLiteral("sequence")) &&
+           sequence.isDouble() && std::isfinite(sequence.toDouble()) &&
+           std::floor(sequence.toDouble()) == sequence.toDouble() && sequence.toDouble() >= 1.0 &&
+           sequence.toDouble() <= kMaxJsonExactInteger && command->contains(QStringLiteral("timestamp")) &&
+           command->value(QStringLiteral("timestamp_version")).toInt() == 1 &&
+           QStringList({QStringLiteral("monotonic"), QStringLiteral("unix")})
+               .contains(command->value(QStringLiteral("timestamp_domain")).toString());
+}
+
+// Exactly one hex or base64 representation, as mission_security._decode_encoded.
+QByteArray decodeKeyText(const QByteArray& text)
+{
+    if (text.isEmpty())
+        return {};
+    const bool hex = std::all_of(text.begin(), text.end(), [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    });
+    if (hex)
+        return text.size() % 2 ? QByteArray() : QByteArray::fromHex(text);
+    const auto decoded = QByteArray::fromBase64Encoding(text, QByteArray::AbortOnBase64DecodingErrors);
+    return decoded ? decoded.decoded : QByteArray();
+}
+
 }  // namespace
+
+void MultiDetectMissionSecurity::SigningKey::wipe()
+{
+    std::fill(material.begin(), material.end(), '\0');
+    material.clear();
+    algorithm.clear();
+}
+
+bool MultiDetectMissionSecurity::parseSigningKey(const QByteArray& text, SigningKey* key, QString* error)
+{
+    const QByteArray trimmed = text.trimmed();
+    const QByteArray lowered = trimmed.toLower();
+    SigningKey parsed;
+    if (lowered.startsWith("hmac:")) {
+        parsed.algorithm = QStringLiteral("hmac-sha256");
+        parsed.material = decodeKeyText(trimmed.mid(5).trimmed());
+    } else if (lowered.startsWith("ed25519-private:")) {
+        parsed.algorithm = QStringLiteral("ed25519");
+        parsed.material = decodeKeyText(trimmed.mid(16).trimmed());
+    }
+    const bool ok = (parsed.algorithm == QStringLiteral("hmac-sha256") && parsed.material.size() >= 16 &&
+                     parsed.material.size() <= 4096) ||
+                    (parsed.algorithm == QStringLiteral("ed25519") && parsed.material.size() == 32);
+    if (!ok) {
+        parsed.wipe();
+        if (error)
+            *error = QStringLiteral("signing key must be hmac:<hex|base64> (16-4096 bytes) or "
+                                    "ed25519-private:<hex|base64> (32 bytes)");
+        return false;
+    }
+    if (key)
+        *key = parsed;
+    parsed.wipe();
+    if (error)
+        error->clear();
+    return true;
+}
+
+bool MultiDetectMissionSecurity::signDocument(QJsonObject* document, const SigningKey& key, const QString& keyId,
+                                              QString* error)
+{
+    return sign(document, key, keyId, error);
+}
+
+bool MultiDetectMissionSecurity::signGroundCommand(QJsonObject* command, const SigningKey& key,
+                                                   const QString& keyId, QString* error)
+{
+    if (!hasGroundTimestampContract(command)) {
+        if (error)
+            *error = QStringLiteral("ground command is missing its versioned timestamp contract");
+        return false;
+    }
+    return sign(command, key, keyId, error);
+}
 
 QByteArray MultiDetectMissionSecurity::canonicalJson(const QJsonObject& document,
                                                       const QStringList& excluded)
@@ -178,7 +266,7 @@ QByteArray MultiDetectMissionSecurity::canonicalJson(const QJsonObject& document
 bool MultiDetectMissionSecurity::signDocument(QJsonObject* document, const QByteArray& privateSeed,
                                               const QString& keyId, QString* error)
 {
-    return sign(document, privateSeed, keyId, error);
+    return sign(document, SigningKey{QStringLiteral("ed25519"), privateSeed}, keyId, error);
 }
 
 quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId, QString* error)
@@ -237,19 +325,5 @@ quint64 MultiDetectMissionSecurity::nextGroundSequence(const QString& missionId,
 bool MultiDetectMissionSecurity::signGroundCommand(QJsonObject* command, const QByteArray& privateSeed,
                                                    const QString& keyId, QString* error)
 {
-    constexpr double kMaxJsonExactInteger = 9007199254740991.0;
-    const QJsonValue sequence = command ? command->value(QStringLiteral("sequence")) : QJsonValue();
-    if (!command || !command->contains(QStringLiteral("mission_id")) ||
-        !command->contains(QStringLiteral("type")) || !command->contains(QStringLiteral("sequence")) ||
-        !sequence.isDouble() || !std::isfinite(sequence.toDouble()) ||
-        std::floor(sequence.toDouble()) != sequence.toDouble() ||
-        sequence.toDouble() < 1.0 || sequence.toDouble() > kMaxJsonExactInteger ||
-        !command->contains(QStringLiteral("timestamp")) || command->value(QStringLiteral("timestamp_version")).toInt() != 1 ||
-        !QStringList({QStringLiteral("monotonic"), QStringLiteral("unix")}).contains(
-            command->value(QStringLiteral("timestamp_domain")).toString())) {
-        if (error)
-            *error = QStringLiteral("ground command is missing its versioned timestamp contract");
-        return false;
-    }
-    return sign(command, privateSeed, keyId, error);
+    return signGroundCommand(command, SigningKey{QStringLiteral("ed25519"), privateSeed}, keyId, error);
 }

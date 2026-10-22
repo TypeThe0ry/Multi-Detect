@@ -89,6 +89,38 @@ int main(int argc, char** argv)
     outOfRangeCommand.insert(QStringLiteral("sequence"), 9007199254740992.0);
     check(!MultiDetectMissionSecurity::signGroundCommand(&outOfRangeCommand, seed, "gcs-test", &error),
           "ground command refuses sequence outside exact JSON range");
+    // HMAC ground-command key (onboard --operator-key / fake_gcs_console
+    // --command-key): golden vector from mission_security.sign_document.
+    MultiDetectMissionSecurity::SigningKey hmacKey;
+    check(MultiDetectMissionSecurity::parseSigningKey("hmac:" + seed.toHex(), &hmacKey, &error) &&
+              hmacKey.algorithm == "hmac-sha256" && hmacKey.material == seed,
+          "hex HMAC key parses");
+    MultiDetectMissionSecurity::SigningKey base64Key;
+    check(MultiDetectMissionSecurity::parseSigningKey("HMAC:" + seed.toBase64(), &base64Key, &error) &&
+              base64Key.material == seed,
+          "base64 HMAC key parses");
+    check(!MultiDetectMissionSecurity::parseSigningKey("hmac:0011", &base64Key, &error),
+          "HMAC key shorter than 16 bytes is refused");
+    check(!MultiDetectMissionSecurity::parseSigningKey(seed.toHex(), &base64Key, &error),
+          "unprefixed key text is refused");
+    check(!MultiDetectMissionSecurity::parseSigningKey("ed25519-public:" + seed.toHex(), &base64Key, &error),
+          "a public key cannot sign");
+    QJsonObject approve{{"mission_id", "golden-mission"},
+                        {"type", "approve_plan"},
+                        {"plan_sha256", QStringLiteral("ab").repeated(32)},
+                        {"sequence", 3},
+                        {"timestamp", 1700000000.5},
+                        {"timestamp_version", 1},
+                        {"timestamp_domain", "unix"}};
+    check(MultiDetectMissionSecurity::signGroundCommand(&approve, hmacKey, "gcs-test", &error) &&
+              approve.value("key_id").toString() == "gcs-test" &&
+              approve.value("signature_alg").toString() == "hmac-sha256" &&
+              approve.value("signature").toString() == "u31BMTjZSMPnE+lvJhOzqY3Qj4czLP8cyN+bv5EbjLk=",
+          "HMAC approve_plan signature matches the onboard verifier");
+    QJsonObject untimed{{"mission_id", "golden-mission"}, {"type", "approve_plan"}};
+    check(!MultiDetectMissionSecurity::signGroundCommand(&untimed, hmacKey, "gcs-test", &error),
+          "signed ground command requires the versioned timestamp contract");
+
     QString sequenceError;
     const QString sequenceMission = QStringLiteral("security-self-test-sequence");
     const quint64 first = MultiDetectMissionSecurity::nextGroundSequence(sequenceMission, &sequenceError);
