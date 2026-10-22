@@ -164,3 +164,32 @@ def test_reader_stamps_energy_samples_with_the_vehicle_boot_clock() -> None:
     assert rows["BATTERY_STATUS"]["received_vehicle_s"] == 200.0
     assert rows["SYS_STATUS"]["received_vehicle_s"] == 200.25
     assert rows["LOCAL_POSITION_NED"]["received_vehicle_s"] == 200.25
+
+
+def test_reader_reports_vehicle_clock_spans_with_no_telemetry() -> None:
+    """Run9: a host stall overflowed the UDP buffer; PX4 time jumped 354.016 -> 361.096 s."""
+    host = iter(range(1_000_000_000, 100_000_000_000, 1_000_000_000))
+    wire = [
+        {"type": "GLOBAL_POSITION_INT", "time_boot_ms": 353_996},
+        {"type": "SYS_STATUS", "battery_remaining": 95},
+        {"type": "GLOBAL_POSITION_INT", "time_boot_ms": 354_016},
+        {"type": "GLOBAL_POSITION_INT", "time_boot_ms": 361_096},
+        {"type": "ATTITUDE", "time_boot_ms": 1_000},  # a stray older clock
+        {"type": "LOCAL_POSITION_NED", "time_boot_ms": 361_120, "x": 0, "y": 0, "z": -5},
+    ]
+
+    class Connection:
+        def recv_msg(self):
+            if wire:
+                return wire.pop(0)
+            reader._stop.set()
+            return None
+
+    reader = MavlinkReader(Connection(), clock=lambda: next(host))
+    reader._run()
+    assert reader.error is None
+    assert reader.state.vehicle_gaps_ms == [(354_016, 361_096)]
+    snapshot = _state()
+    snapshot.vehicle_gaps_ms = reader.aligned_state(361_120_000_000, timeout_s=0).vehicle_gaps_ms
+    observation = build_observation(_sensor(), snapshot)
+    assert observation["vehicle_telemetry_gaps_s"] == [[354.016, 361.096]]

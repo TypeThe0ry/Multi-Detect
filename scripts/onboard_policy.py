@@ -1812,6 +1812,29 @@ class OnboardPolicy:
             return None
         return estimator
 
+    def _note_vehicle_telemetry_gaps(self, estimator, observation: Mapping[str, Any]) -> None:
+        """Hand the reader's no-telemetry spans (vehicle clock) to the energy model.
+
+        Run9: the host process stalled for 20 s, 7 s of PX4 telemetry were lost,
+        and the next battery report was due only after a fresh pose arrived, so
+        the battery alone looked 7.7 s old and the mission returned.  The gap
+        is logged as evidence; the battery is then judged from link recovery.
+        """
+        for gap in observation.get("vehicle_telemetry_gaps_s") or []:
+            if not isinstance(gap, (list, tuple)) or len(gap) != 2:
+                continue
+            start, end = gap
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in gap):
+                continue
+            if estimator.note_delivery_gap(float(start), float(end)):
+                self.supervisor.log.append(
+                    "vehicle_telemetry_gap",
+                    self.supervisor.clock(),
+                    vehicle_start_s=float(start),
+                    vehicle_end_s=float(end),
+                    gap_s=float(end) - float(start),
+                )
+
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
@@ -1842,6 +1865,8 @@ class OnboardPolicy:
                 self.supervisor.ingest_energy_telemetry(
                     sample["message"], received_at_s=received_at
                 )
+            if vehicle_estimator is not None:
+                self._note_vehicle_telemetry_gaps(vehicle_estimator, observation)
             for event in observation.get("ground_events", []):
                 self.supervisor.ground_event(event)
             update_estimates = getattr(self.supervisor, "update_estimates", None)

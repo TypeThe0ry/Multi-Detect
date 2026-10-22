@@ -177,6 +177,7 @@ class OnboardEnergyEstimator:
         self._velocity: tuple[float, float, float, float] | None = None
         self._armed: tuple[bool, float] | None = None
         self._seen: dict[str, float] = {}
+        self._delivery_gaps: list[tuple[float, float]] = []
         self._powers = {phase: deque(maxlen=4096) for phase in ("hover", "translate", "climb")}
         self._clock: Callable[[], float] | None = None
 
@@ -199,6 +200,43 @@ class OnboardEnergyEstimator:
         self._clock = clock
         self._last_time = None
         return True
+
+    MAX_DELIVERY_GAPS = 32
+
+    def note_delivery_gap(self, start_s: float, end_s: float) -> bool:
+        """Record a span in which the vehicle link delivered no telemetry at all.
+
+        Only for the bound producer clock (SITL's PX4 boot clock, see
+        ``use_clock``), where the reader sees every message and so knows the
+        span ``(start_s, end_s)`` between two consecutive wire messages.  In run9
+        the host process stalled for 20 s; 7 s of PX4 telemetry were lost and,
+        once the link resumed, the 0.5 Hz battery report looked 7.7 s old next to
+        a fresh position.  The span is not counted against the battery's age:
+        the battery is then judged like every other stream, from the moment the
+        link delivered again, and still goes stale ``telemetry_timeout_s`` after
+        that if it does not report.  An outage still in progress has no end
+        yet, so it is never excused.
+        """
+        if self._clock is None:
+            return False
+        start, end = _finite(start_s), _finite(end_s)
+        if start is None or end is None or not 0 <= start < end:
+            return False
+        if (start, end) in self._delivery_gaps:
+            return False
+        self._delivery_gaps.append((start, end))
+        self._delivery_gaps.sort()
+        del self._delivery_gaps[: -self.MAX_DELIVERY_GAPS]
+        return True
+
+    def _gap_within(self, since_s: float, now_s: float) -> float:
+        covered, cursor = 0.0, since_s
+        for start, end in self._delivery_gaps:
+            start, end = max(start, cursor), min(end, now_s)
+            if end > start:
+                covered += end - start
+                cursor = end
+        return covered
 
     def phase(self, now_s: float) -> str:
         if self._velocity and now_s - self._velocity[3] <= self.config.telemetry_timeout_s:
@@ -395,7 +433,10 @@ class OnboardEnergyEstimator:
         }
         if self._remaining is None:
             return result
-        stale = self._battery_at is None or now_s - self._battery_at > c.telemetry_timeout_s
+        link_gap = 0.0 if self._battery_at is None else self._gap_within(self._battery_at, now_s)
+        stale = (
+            self._battery_at is None or now_s - self._battery_at - link_gap > c.telemetry_timeout_s
+        )
         # Voltage sag can tighten, but never restore, the coulomb/SOC bound.
         sag = self._sag_factor
         remaining = self._remaining * sag
@@ -408,6 +449,7 @@ class OnboardEnergyEstimator:
             reserve_energy_wh=reserve,
             time_to_reserve_s=max(0, (remaining - reserve) * 3600 / active_power),
             battery_age_s=None if self._battery_at is None else now_s - self._battery_at,
+            link_gap_excluded_s=link_gap,
             voltage_v=self._voltage,
             voltage_sag_factor=sag,
             reason="battery SOC/counter/current bound with conservative phase power",
