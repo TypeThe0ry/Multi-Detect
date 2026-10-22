@@ -121,6 +121,10 @@ The desktop or Android process reads the following runtime values:
 | `MULTIDETECT_OPERATOR_UDP_PORT` | Jetson metadata port; defaults to `14580`. |
 | `MULTIDETECT_OPERATOR_UDP_LOCAL_PORT` | QGC receive port; defaults to `14581` and must differ from the remote port. |
 | `MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX` | Exactly 32 random bytes encoded as 64 hexadecimal digits for outer MAVLink 2 signing. |
+| `MULTIDETECT_OPERATOR_ED25519_PRIVATE_KEY` | Optional 32-byte Ed25519 seed (hex/base64, optional `ed25519-private:` prefix) signing mission packages and ground commands. |
+| `MULTIDETECT_OPERATOR_SIGNING_KEY` | Optional `hmac:<hex\|base64>` (16-4096 bytes) or `ed25519-private:<hex\|base64>`; replaces the seed above for packages and ground commands, matching onboard `--operator-key`. |
+| `MULTIDETECT_GROUND_COMMAND_KEY` | Optional key in the same format for ground commands only (plan approval/rejection, abort, pause, resume, policy), i.e. the key the aircraft verifies ground commands with (`scripts/fake_gcs_console.py --command-key`). Without any key, commands are sent unsigned and REAL mode refuses them. A configured but malformed key fails closed. All three key variables are removed from the process environment after reading. |
+| `MULTIDETECT_OPERATOR_KEY_ID` | Optional `key_id` written into signed documents; defaults to `default`. |
 | `MULTIDETECT_VIDEO_RTSP_URL` | Optional RTSP source injected into QGC without UI setup. |
 | `MULTIDETECT_UI_SNAPSHOT_DIR` | Acceptance-only absolute directory. Enables `QQuickWindow::grabWindow()` PNG snapshots; unset in production. |
 | `MULTIDETECT_UI_SNAPSHOT_INTERVAL_S` | Optional snapshot interval in seconds (default `2`, clamped to `1`-`3600`). |

@@ -39,6 +39,27 @@ QByteArray configuredPrivateSeed()
     seed = QByteArray::fromBase64(encoded, QByteArray::Base64Encoding);
     return seed.size() == 32 ? seed : QByteArray();
 }
+
+// Read once, then remove from the process environment like the legacy seed.
+MultiDetectMissionSecurity::SigningKey takeSigningKey(const char* name, QString* error)
+{
+    QByteArray text = qgetenv(name).trimmed();
+    qunsetenv(name);
+    MultiDetectMissionSecurity::SigningKey key;
+    if (!text.isEmpty() && !MultiDetectMissionSecurity::parseSigningKey(text, &key, error))
+        *error = QString::fromLatin1(name) + QStringLiteral(": ") + *error;
+    std::fill(text.begin(), text.end(), '\0');
+    return key;
+}
+
+// Planning a prompt-only package onboard can take minutes; the operator is
+// told the result is unknown only after this long without a verdict.
+constexpr qint64 kCompileVerdictTimeoutMs = 15 * 60 * 1000;
+// While compiling, re-query the verdict by resending the last chunk.  The
+// aircraft answers it idempotently ("编译中" or the cached verdict), which
+// also recovers a lost verdict ACK.
+constexpr qint64 kCompileVerdictQueryMs = 5000;
+const QString kCompilingMarker = QStringLiteral("编译中");
 }  // namespace
 
 MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QObject(parent)
@@ -47,7 +68,25 @@ MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QO
     setPackageJson(QStringLiteral(
         R"({"mission_id":"","task_text":"","places":{},"zones":{},"routes":{},"ref_labels":{},"operating_area":{"north_min_m":0,"north_max_m":0,"east_min_m":0,"east_max_m":0,"min_altitude_m":0,"max_altitude_m":0},"budget":{"time_s":0,"reserve_time_s":0,"energy_wh":0,"reserve_energy_wh":0},"home":[0,0],"risk_level":"medium","link_loss_policy":{"action":"continue_then_return","timeout_s":0},"heartbeat_timeout_s":5,"oversight_steps":[]})"));
     _clock.start();
-    _missionPrivateSeed = configuredPrivateSeed();
+    // Package and ground-command keys mirror the aircraft: its --operator-key
+    // verifies both by default; a separate ground-command key may be set.
+    const QByteArray seed = configuredPrivateSeed();
+    if (!seed.isEmpty())
+        _packageKey = MultiDetectMissionSecurity::SigningKey{QStringLiteral("ed25519"), seed};
+    QString keyError;
+    MultiDetectMissionSecurity::SigningKey operatorKey = takeSigningKey("MULTIDETECT_OPERATOR_SIGNING_KEY", &keyError);
+    if (operatorKey.isValid()) {
+        _packageKey.wipe();
+        _packageKey = operatorKey;
+    }
+    QString commandKeyError;
+    MultiDetectMissionSecurity::SigningKey commandKey =
+        takeSigningKey("MULTIDETECT_GROUND_COMMAND_KEY", &commandKeyError);
+    _commandKey = commandKey.isValid() ? commandKey : _packageKey;
+    operatorKey.wipe();
+    commandKey.wipe();
+    // A configured but unusable key fails closed instead of sending unsigned.
+    _keyError = !keyError.isEmpty() ? keyError : commandKeyError;
     _missionKeyId = qEnvironmentVariable("MULTIDETECT_OPERATOR_KEY_ID", "default").trimmed();
     _requireMissionSignature = qEnvironmentVariable("MULTIDETECT_EXPECTED_RUNTIME_MODE").trimmed().toUpper() ==
                                QStringLiteral("REAL");
@@ -59,8 +98,8 @@ MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QO
 MultiDetectMissionController::~MultiDetectMissionController()
 {
     shutdown();
-    std::fill(_missionPrivateSeed.begin(), _missionPrivateSeed.end(), '\0');
-    _missionPrivateSeed.clear();
+    _packageKey.wipe();
+    _commandKey.wipe();
 }
 
 void MultiDetectMissionController::shutdown()
@@ -151,17 +190,20 @@ bool MultiDetectMissionController::upload()
         return _fail(_validation);
     if ((_uploadGuard && !_uploadGuard()) || (_telemetry.value("flight_active").toBool() && telemetryFresh()))
         return _fail(QStringLiteral("飞行中不能替换任务包"));
+    if (!_keyError.isEmpty())
+        return _fail(_keyError);
     QJsonObject signedDocument = _document;
     QString signingError;
-    if (_missionPrivateSeed.isEmpty()) {
+    if (!_packageKey.isValid()) {
         if (_requireMissionSignature)
-            return _fail(QStringLiteral("REAL 模式必须配置 Ed25519 mission operator key"));
-    } else if (!MultiDetectMissionSecurity::signDocument(&signedDocument, _missionPrivateSeed, _missionKeyId,
+            return _fail(QStringLiteral("REAL 模式必须配置任务包签名密钥"));
+    } else if (!MultiDetectMissionSecurity::signDocument(&signedDocument, _packageKey, _missionKeyId,
                                                          &signingError)) {
         return _fail(signingError);
     }
     _document = signedDocument;
     _uploadDocument = MultiDetectMissionSecurity::canonicalJson(signedDocument);
+    _uploadMissionId = signedDocument.value(QStringLiteral("mission_id")).toString();
     _uploadToken = token();
     _progress = 0;
     _pending = {};
@@ -216,33 +258,20 @@ bool MultiDetectMissionController::_control(int type, const QString& policy, dou
             (newRank == oldRank && timed && timeout > _currentPolicyTimeout))
             return _fail(QStringLiteral("飞行中只允许收紧失联策略或缩短超时"));
     }
-    QString sequenceError;
-    const quint64 groundSequence = MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId, &sequenceError);
-    if (groundSequence == 0)
-        return _fail(sequenceError);
     QJsonObject groundCommand{{QStringLiteral("mission_id"), _activeMissionId},
                               {QStringLiteral("type"), type == 30 ? QStringLiteral("abort")
                                    : type == 31 ? QStringLiteral("pause")
                                    : type == 32 ? QStringLiteral("resume")
                                    : type == 33 ? QStringLiteral("policy_update")
-                                                : QStringLiteral("heartbeat")},
-                              {QStringLiteral("sequence"),
-                               static_cast<qint64>(groundSequence)},
-                              {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0},
-                              {QStringLiteral("timestamp_version"), 1},
-                              {QStringLiteral("timestamp_domain"), QStringLiteral("unix")}};
+                                                : QStringLiteral("heartbeat")}};
     if (type == 33) {
-        groundCommand.insert(QStringLiteral("policy"), policy);
-        groundCommand.insert(QStringLiteral("timeout_s"), timeout);
+        // The supervisor parses this with mission_package.parse_policy.
+        groundCommand.insert(QStringLiteral("policy"),
+                             QJsonObject{{QStringLiteral("action"), policy}, {QStringLiteral("timeout_s"), timeout}});
     }
     QString signingError;
-    if (_missionPrivateSeed.isEmpty()) {
-        if (_requireMissionSignature)
-            return _fail(QStringLiteral("REAL mode requires an Ed25519 ground-command key"));
-    } else if (!MultiDetectMissionSecurity::signGroundCommand(&groundCommand, _missionPrivateSeed, _missionKeyId,
-                                                              &signingError)) {
+    if (!_prepareCommand(&groundCommand, &signingError))
         return _fail(signingError);
-    }
     _commandDocument = MultiDetectMissionSecurity::canonicalJson(groundCommand);
     _pending = {};
     _pending.type = 37;
@@ -275,40 +304,76 @@ bool MultiDetectMissionController::tightenPolicy(const QString& policy, double t
     return _control(33, policy, timeout);
 }
 
+bool MultiDetectMissionController::_prepareCommand(QJsonObject* command, QString* error)
+{
+    if (!_keyError.isEmpty()) {
+        *error = _keyError;
+        return false;
+    }
+    if (!_commandKey.isValid()) {
+        if (_requireMissionSignature) {
+            *error = QStringLiteral("REAL 模式必须配置地面命令签名密钥");
+            return false;
+        }
+        // Unsigned SIM/test commands carry no sequence or timestamp: the
+        // aircraft stamps them with its own clock, and a GCS wall-clock stamp
+        // would fall outside its flight window (mission_supervisor.ground_event).
+        return true;
+    }
+    // Signed commands follow the ground_event contract: per-mission sequence
+    // high-water, versioned Unix timestamp and the configured key's signature.
+    QString sequenceError;
+    const QString missionId = command->value(QStringLiteral("mission_id")).toString();
+    const quint64 sequence = MultiDetectMissionSecurity::nextGroundSequence(missionId, &sequenceError);
+    if (!sequence) {
+        *error = sequenceError;
+        return false;
+    }
+    command->insert(QStringLiteral("sequence"), static_cast<qint64>(sequence));
+    command->insert(QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0);
+    command->insert(QStringLiteral("timestamp_version"), 1);
+    command->insert(QStringLiteral("timestamp_domain"), QStringLiteral("unix"));
+    return MultiDetectMissionSecurity::signGroundCommand(command, _commandKey, _missionKeyId, error);
+}
+
+bool MultiDetectMissionController::planAwaitingDecision() const
+{
+    const QString digest = _plan.value(QStringLiteral("plan_sha256")).toString();
+    return _plan.value(QStringLiteral("requires_approval")).toBool() && !digest.isEmpty() &&
+           !_decidedPlans.contains(digest) && !(_pending.type == 37 && _pending.planDigest == digest);
+}
+
 bool MultiDetectMissionController::_planDecision(bool approve)
 {
-    if (_activeMissionId.isEmpty() || _plan.isEmpty())
+    // Approve exactly the plan the aircraft announced: its own plan_sha256
+    // covers mission id, package and plan, so it is never recomputed here.
+    const QString digest = _plan.value(QStringLiteral("plan_sha256")).toString();
+    const QString missionId = _plan.value(QStringLiteral("mission_id")).toString();
+    if (_plan.isEmpty() || digest.isEmpty())
         return _fail(QStringLiteral("尚未收到可审批的任务计划"));
+    if (missionId.isEmpty() || missionId != _activeMissionId)
+        return _fail(QStringLiteral("计划所属任务与当前任务不一致，不能审批"));
+    if (_decidedPlans.contains(digest))
+        return _fail(QStringLiteral("该计划已作出决定"));
     if (busy())
         return _fail(QStringLiteral("请等待当前请求确认"));
-    QString sequenceError;
-    const quint64 sequence = MultiDetectMissionSecurity::nextGroundSequence(_activeMissionId, &sequenceError);
-    if (!sequence)
-        return _fail(sequenceError);
-    const QByteArray planBytes = QJsonDocument::fromVariant(_plan).toJson(QJsonDocument::Compact);
-    const QString sha = QString::fromLatin1(QCryptographicHash::hash(planBytes, QCryptographicHash::Sha256).toHex());
-    QJsonObject command{{QStringLiteral("mission_id"), _activeMissionId},
+    QJsonObject command{{QStringLiteral("mission_id"), missionId},
                         {QStringLiteral("type"), approve ? QStringLiteral("approve_plan") : QStringLiteral("reject_plan")},
-                        {QStringLiteral("plan_sha256"), sha},
-                        {QStringLiteral("sequence"), static_cast<qint64>(sequence)},
-                        {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch() / 1000.0},
-                        {QStringLiteral("timestamp_version"), 1},
-                        {QStringLiteral("timestamp_domain"), QStringLiteral("unix")}};
+                        {QStringLiteral("plan_sha256"), digest}};
     QString signingError;
-    if (!_missionPrivateSeed.isEmpty() && !MultiDetectMissionSecurity::signGroundCommand(&command, _missionPrivateSeed, _missionKeyId, &signingError))
+    if (!_prepareCommand(&command, &signingError))
         return _fail(signingError);
-    if (_missionPrivateSeed.isEmpty() && _requireMissionSignature)
-        return _fail(QStringLiteral("REAL mode requires an Ed25519 ground-command key"));
     _commandDocument = MultiDetectMissionSecurity::canonicalJson(command);
     _pending = {};
     _pending.type = 37;
     _pending.commandType = approve ? 38 : 39;
-    _pending.token = token();
+    _pending.token = token();  // every command is a new transfer
+    _pending.planDigest = digest;
     _beginChunk();
+    _planDecisionState = approve ? QStringLiteral("批准已发送，等待机载确认") : QStringLiteral("拒绝已发送，等待机载确认");
     _state = approve ? QStringLiteral("已发送计划批准") : QStringLiteral("已发送计划拒绝");
     return _sendPending();
 }
-
 bool MultiDetectMissionController::approvePlan() { return _planDecision(true); }
 bool MultiDetectMissionController::rejectPlan() { return _planDecision(false); }
 
@@ -320,8 +385,17 @@ bool MultiDetectMissionController::telemetryFresh() const
 void MultiDetectMissionController::_poll()
 {
     const auto now = _clock.elapsed();
-    if (busy() && now - _pending.sentAt >= 1000) {
+    if (busy() && _pending.awaitingVerdict) {
+        if (now >= _pending.verdictDeadline) {
+            _pending = {};
+            _fail(QStringLiteral("机载编译结论超时；任务包是否被接纳未知，请查看机载监控"));
+        } else if (now - _pending.sentAt >= kCompileVerdictQueryMs) {
+            _sendPending();
+        }
+    } else if (busy() && now - _pending.sentAt >= 1000) {
         if (_pending.attempts >= 5) {
+            if (_pending.type == 37 && !_pending.planDigest.isEmpty())
+                _planDecisionState = QStringLiteral("审批命令确认超时；结果未知，可重新发送");
             _pending = {};
             _fail(QStringLiteral("机载确认超时；任务或指令状态未知，请查看机载监控"));
         } else
@@ -361,9 +435,14 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
         if (!busy() || request != _pending.token || fields.value("requestType").toInt() != _pending.type ||
             index != _pending.index)
             return;
+        const QString detail = fields.value("detail").toString();
         if (!fields.value("accepted").toBool()) {
+            if (_pending.type == 28)
+                _uploadMissionId.clear();  // refused: its telemetry cannot follow
+            if (_pending.type == 37 && !_pending.planDigest.isEmpty())
+                _planDecisionState = QStringLiteral("机载拒绝审批命令：%1").arg(detail);
             _pending = {};
-            _fail(QStringLiteral("机载拒绝：%1").arg(fields.value("detail").toString()));
+            _fail(QStringLiteral("机载拒绝：%1").arg(detail));
             return;
         }
         if (_pending.type == 28 || _pending.type == 37) {
@@ -376,24 +455,33 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
                 _sendPending();
                 return;
             }
+            if (_pending.type == 28 && detail.contains(kCompilingMarker)) {
+                // First ACK of the last chunk: received, the aircraft is
+                // planning.  The verdict is a second ACK for this token/index;
+                // until then the mission is not admitted (no heartbeats).
+                if (!_pending.awaitingVerdict) {
+                    _pending.awaitingVerdict = true;
+                    _pending.verdictDeadline = _clock.elapsed() + kCompileVerdictTimeoutMs;
+                }
+                _pending.attempts = 0;
+                _state = QStringLiteral("任务包已送达，机载编译中；等待机载最终结论");
+                emit stateChanged();
+                return;
+            }
             if (_pending.type == 37) {
-                _state = QStringLiteral("ground command accepted by onboard verifier");
+                if (!_pending.planDigest.isEmpty()) {
+                    _decidedPlans.insert(_pending.planDigest);
+                    _planDecisionState = _pending.commandType == 38 ? QStringLiteral("机载已接受计划批准")
+                                                                    : QStringLiteral("机载已接受计划拒绝");
+                }
+                _state = QStringLiteral("机载端已接受地面命令");
             } else {
-            const auto uploaded = QJsonDocument::fromJson(_uploadDocument).object();
-            const QString missionId = uploaded["mission_id"].toString();
-            if (_activeMissionId != missionId) {
-                _logs.clear();
-                _telemetry.clear();
-                _plan.clear(); _findings.clear(); _alerts.clear(); _finalSummary.clear();
-                _summaryPages.clear(); _summaryPageCount = 0; _finalSummaryComplete = false;
-                _lastStatusSequence = _lastLogSequence = 0;
-                _lastStatusAt = -1;
+                _admitUpload(detail);
+                _pending = {};
+                emit stateChanged();
+                emit telemetryChanged();
+                return;
             }
-            _activeMissionId = missionId;
-            _currentPolicy = uploaded["link_loss_policy"].toObject()["action"].toString();
-            _currentPolicyTimeout = uploaded["link_loss_policy"].toObject()["timeout_s"].toDouble();
-            }
-            _state = QStringLiteral("任务包已由机载端校验并载入；是否起飞由机载端决定");
         } else {
             // Only telemetry describes the effective policy; the supervisor may
             // clamp the deadline more conservatively than the requested timeout.
@@ -412,9 +500,13 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
             (void) _sender(36, MultiDetectMissionWire::telemetryAck(request, index));
     };
     if (_completed.contains(request)) {
-        if (_completed.value(request) == digest)
+        if (_completed.value(request) == digest) {
             sendTelemetryAck();
-        return;
+            return;
+        }
+        // Same token, different document: a new transfer (e.g. after an
+        // onboard restart), not a conflicting retry of the completed one.
+        _completed.remove(request);
     }
     if (!_assemblies.contains(request)) {
         const qint64 required = fields.value("total").toInt();
@@ -476,6 +568,101 @@ void MultiDetectMissionController::receive(int type, const QByteArray& body)
     sendTelemetryAck();
 }
 
+void MultiDetectMissionController::_beginMission(const QString& missionId)
+{
+    if (_activeMissionId == missionId)
+        return;
+    _logs.clear();
+    _telemetry.clear();
+    _plan.clear();
+    _findings.clear();
+    _alerts.clear();
+    _finalSummary.clear();
+    _summaryPages.clear();
+    _summaryPageCount = 0;
+    _finalSummaryComplete = false;
+    _planDecisionState.clear();
+    _lastStatusSequence = _lastLogSequence = 0;
+    _lastStatusAt = -1;
+    _activeMissionId = missionId;
+}
+
+void MultiDetectMissionController::_admitUpload(const QString& detail)
+{
+    const auto uploaded = QJsonDocument::fromJson(_uploadDocument).object();
+    _beginMission(uploaded["mission_id"].toString());
+    _currentPolicy = uploaded["link_loss_policy"].toObject()["action"].toString();
+    _currentPolicyTimeout = uploaded["link_loss_policy"].toObject()["timeout_s"].toDouble();
+    _progress = 1;
+    _state = detail.isEmpty() ? QStringLiteral("任务包已由机载端校验并载入；是否起飞由机载端决定")
+                              : QStringLiteral("机载结论：%1；是否起飞由机载端决定").arg(detail);
+}
+
+void MultiDetectMissionController::_switchMission(const QString& missionId)
+{
+    if (missionId == _activeMissionId)
+        return;
+    _beginMission(missionId);
+    // Telemetry of the uploaded mission settles an upload whose verdict ACK
+    // has not (yet) arrived: the aircraft only reports an admitted mission.
+    if (_pending.type == 28 && missionId == _uploadMissionId &&
+        _pending.index + 1 == (_uploadDocument.size() + 43) / 44) {
+        _admitUpload({});
+        _pending = {};
+    }
+}
+
+bool MultiDetectMissionController::_adoptSummaryPage(const QJsonObject& page)
+{
+    // Every page is its own transfer and carries no log sequence; pages are
+    // shown only once all of them are here and the joined text parses.
+    const QJsonValue pageValue = page.value(QStringLiteral("page"));
+    const QJsonValue pagesValue = page.value(QStringLiteral("pages"));
+    const QJsonValue bodyValue = page.value(QStringLiteral("body"));
+    const double pageNumber = pageValue.toDouble(-1), pageCount = pagesValue.toDouble(-1);
+    if (!pageValue.isDouble() || !pagesValue.isDouble() || !bodyValue.isString() ||
+        std::floor(pageNumber) != pageNumber || std::floor(pageCount) != pageCount || pageCount < 1 ||
+        pageCount > 1000 || pageNumber < 1 || pageNumber > pageCount)
+        return false;
+    _switchMission(page.value(QStringLiteral("mission_id")).toString());
+    if (_finalSummaryComplete)
+        return true;  // a late duplicate of an already assembled summary
+    const int pages = static_cast<int>(pageCount);
+    if (_summaryPageCount != pages) {
+        _summaryPages.clear();
+        _summaryPageCount = pages;
+    }
+    const int number = static_cast<int>(pageNumber);
+    const QByteArray body = bodyValue.toString().toUtf8();
+    if (_summaryPages.contains(number) && _summaryPages.value(number) != body) {
+        // Pages of two different summaries: start over with this one.
+        _summaryPages.clear();
+    }
+    _summaryPages.insert(number, body);
+    if (_summaryPages.size() < _summaryPageCount)
+        return true;
+    QByteArray joined;
+    for (int i = 1; i <= _summaryPageCount; ++i)
+        joined += _summaryPages.value(i);
+    QJsonDocument summary;
+    QString error;
+    if (!MultiDetectMissionPackage::parseStrictJson(joined, &summary, &error) || !summary.isObject()) {
+        _summaryPages.clear();
+        _summaryPageCount = 0;
+        _state = QStringLiteral("最终摘要分页拼接失败；完整摘要仍在机载日志中");
+        return true;
+    }
+    _finalSummary = summary.object().toVariantMap();
+    _finalSummaryComplete = true;
+    _logs.append(QVariantMap{{QStringLiteral("kind"), QStringLiteral("final_summary")},
+                             {QStringLiteral("mission_id"), page.value(QStringLiteral("mission_id")).toString()},
+                             {QStringLiteral("assembled_pages"), _summaryPageCount},
+                             {QStringLiteral("summary"), _finalSummary}});
+    while (_logs.size() > 50)
+        _logs.removeFirst();
+    return true;
+}
+
 bool MultiDetectMissionController::_adopt(const QByteArray& json)
 {
     QJsonDocument doc;
@@ -484,14 +671,30 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
         return false;
     const auto obj = doc.object();
     const QString missionId = obj["mission_id"].toString();
+    if (missionId.trimmed().isEmpty())
+        return false;
+    // Only the current mission, or the one just uploaded: its telemetry proves
+    // admission even when the verdict ACK was lost.  With neither known (a
+    // GCS started after the aircraft loaded its package) the first is adopted.
+    if (missionId != _activeMissionId && !(_activeMissionId.isEmpty() && _uploadMissionId.isEmpty()) &&
+        missionId != _uploadMissionId)
+        return false;
+    const QString kind = obj.value(QStringLiteral("kind")).toString();
+    if (kind == QStringLiteral("final_summary_page")) {
+        if (!_adoptSummaryPage(obj))
+            return false;
+        emit stateChanged();
+        emit telemetryChanged();
+        return true;
+    }
     const double seq = obj["sequence"].toDouble(-1);
-    if (missionId.trimmed().isEmpty() || !std::isfinite(seq) || seq < 1 || seq > 9007199254740991.0 ||
-        std::floor(seq) != seq || (!_activeMissionId.isEmpty() && missionId != _activeMissionId))
+    if (!std::isfinite(seq) || seq < 1 || seq > 9007199254740991.0 || std::floor(seq) != seq)
         return false;
     const quint64 sequence = static_cast<quint64>(seq);
-    if (obj["kind"] == "status") {
+    QJsonObject normalized;
+    if (kind == QStringLiteral("status")) {
         // v2 uses nested supervisor/budget/step objects; retain legacy flat aliases for existing QML.
-        QJsonObject normalized = obj;
+        normalized = obj;
         const auto supervisor = obj.value("supervisor").toObject();
         const auto budget = obj.value("budget").toObject();
         normalized.insert("action", supervisor.value("action").toString(obj.value("action").toString()));
@@ -516,6 +719,11 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
             if (!normalized[key].isNull() &&
                 (!normalized[key].isDouble() || !std::isfinite(normalized[key].toDouble()) || normalized[key].toDouble() < 0))
                 return false;
+    } else if (kind.trimmed().isEmpty()) {
+        return false;
+    }
+    _switchMission(missionId);
+    if (kind == QStringLiteral("status")) {
         if (sequence <= _lastStatusSequence)
             return true;  // ACK duplicates without refreshing stale state.
         _lastStatusSequence = sequence;
@@ -524,37 +732,37 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
         _currentPolicy = normalized["policy"].toString();
         _currentPolicyTimeout = normalized["timeout_s"].toDouble();
     } else {
-        if (obj["kind"].toString().trimmed().isEmpty())
-            return false;
         if (sequence <= _lastLogSequence)
             return true;
         _lastLogSequence = sequence;
         _logs.append(obj.toVariantMap());
-        const QString kind = obj.value("kind").toString();
         if (kind == QStringLiteral("plan")) {
             _plan = obj.toVariantMap();
+            const QString digest = obj.value(QStringLiteral("plan_sha256")).toString();
+            _planDecisionState = _decidedPlans.contains(digest)  ? QStringLiteral("该计划已作出决定")
+                                 : obj.value(QStringLiteral("requires_approval")).toBool()
+                                     ? QStringLiteral("机载计划等待操作员批准")
+                                     : QStringLiteral("机载计划无需批准");
         } else if (kind == QStringLiteral("finding") || kind == QStringLiteral("alert")) {
             auto& list = kind == QStringLiteral("finding") ? _findings : _alerts;
             list.append(obj.toVariantMap());
-        } else if (kind == QStringLiteral("final_summary_page")) {
-            const int page = obj.value("page").toInt();
-            _summaryPageCount = qMax(_summaryPageCount, obj.value("pages").toInt());
-            if (page > 0 && page <= 1000)
-                _summaryPages.insert(page, obj.value("body").toString().toUtf8());
-            _finalSummaryComplete = _summaryPageCount > 0 && _summaryPages.size() == _summaryPageCount;
-            if (_finalSummaryComplete) {
-                QByteArray body;
-                for (int i = 1; i <= _summaryPageCount; ++i) body += _summaryPages.value(i);
-                QJsonParseError parseError;
-                const auto summaryDoc = QJsonDocument::fromJson(body, &parseError);
-                if (parseError.error == QJsonParseError::NoError && summaryDoc.isObject())
-                    _finalSummary = summaryDoc.object().toVariantMap();
-            }
+        } else if (kind == QStringLiteral("plan_approved") || kind == QStringLiteral("plan_rejected")) {
+            const QString digest = obj.value(QStringLiteral("plan_sha256")).toString();
+            if (!digest.isEmpty())
+                _decidedPlans.insert(digest);
+            _planDecisionState = kind == QStringLiteral("plan_approved") ? QStringLiteral("机载记录：计划已批准")
+                                                                         : QStringLiteral("机载记录：计划已拒绝");
+        } else if (kind == QStringLiteral("final_summary")) {
+            // A summary that fits one transfer: the log record wraps it.
+            const QJsonValue inner = obj.value(QStringLiteral("summary"));
+            _finalSummary = inner.isObject() ? inner.toObject().toVariantMap() : obj.toVariantMap();
+            _finalSummaryComplete = true;
+            _summaryPages.clear();
+            _summaryPageCount = 0;
         }
         while (_logs.size() > 50)
             _logs.removeFirst();
     }
-    _activeMissionId = missionId;
     emit stateChanged();
     emit telemetryChanged();
     return true;

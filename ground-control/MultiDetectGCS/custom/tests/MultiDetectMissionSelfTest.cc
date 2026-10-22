@@ -1,7 +1,10 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDataStream>
 #include <QtCore/QDir>
+#include <QtCore/QEventLoop>
 #include <QtCore/QFile>
+#include <QtCore/QMessageAuthenticationCode>
+#include <QtCore/QTimer>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -10,6 +13,7 @@
 
 #include "MultiDetectMissionController.h"
 #include "MultiDetectMissionPackage.h"
+#include "MultiDetectMissionSecurity.h"
 #include "MultiDetectMissionWire.h"
 #include "MultiDetectOperatorProtocol.h"
 
@@ -24,13 +28,83 @@ void check(bool condition, const char* description)
     }
 }
 
-QByteArray ack(quint64 token, int type, int index, bool accepted)
+QByteArray ack(quint64 token, int type, int index, bool accepted, const QString& detail = {})
 {
     QByteArray result;
     QDataStream out(&result, QIODevice::WriteOnly);
     out.setByteOrder(QDataStream::BigEndian);
     out << token << quint8(type) << quint16(index) << quint8(accepted);
-    return result;
+    return result + detail.toUtf8();
+}
+
+using Sent = QList<QPair<int, QByteArray>>;
+
+void spin(int milliseconds)
+{
+    QEventLoop loop;
+    QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
+// Onboard downlink: one type-35 transfer per document.
+void deliver(MultiDetectMissionController& controller, quint64 token, const QByteArray& document)
+{
+    for (int i = 0; i < (document.size() + 43) / 44; ++i)
+        controller.receive(35, MultiDetectMissionWire::chunk(token, i, document));
+}
+
+int countType(const Sent& sent, int type)
+{
+    int n = 0;
+    for (const auto& item : sent)
+        n += item.first == type ? 1 : 0;
+    return n;
+}
+
+// Upload the controller's package and ACK it chunk by chunk; the last chunk
+// gets ``lastDetail`` (the onboard "compiling" or verdict text).
+quint64 uploadUntilLast(MultiDetectMissionController& controller, Sent& sent, const QString& lastDetail)
+{
+    if (!controller.upload())
+        return 0;
+    QVariantMap fields;
+    QString error;
+    quint64 token = 0;
+    for (int guard = 0; controller.busy() && guard < 2000; ++guard) {
+        if (!MultiDetectMissionWire::decode(28, sent.last().second, &fields, &error))
+            return 0;
+        token = fields.value("token").toULongLong();
+        const int index = fields.value("index").toInt();
+        const bool last = index + 1 == fields.value("count").toInt();
+        controller.receive(29, ack(token, 28, index, true, last ? lastDetail : QStringLiteral("分块已接收")));
+        if (last)
+            break;
+    }
+    return token;
+}
+
+// Run one type-37 ground command transfer; returns the reassembled JSON.
+QByteArray runCommand(MultiDetectMissionController& controller, Sent& sent, bool acceptLast, quint64* tokenOut,
+                      const QString& lastDetail = QStringLiteral("ground command accepted"))
+{
+    QVariantMap fields;
+    QString error;
+    QByteArray document;
+    for (int guard = 0; controller.busy() && guard < 512; ++guard) {
+        if (sent.isEmpty() || sent.last().first != 37 ||
+            !MultiDetectMissionWire::decode(37, sent.last().second, &fields, &error))
+            return {};
+        const quint64 token = fields.value("token").toULongLong();
+        const int index = fields.value("index").toInt();
+        const bool last = index + 1 == fields.value("count").toInt();
+        if (tokenOut)
+            *tokenOut = token;
+        if (document.size() == index * 44)
+            document += fields.value("data").toByteArray();
+        controller.receive(29, ack(token, 37, index, last ? acceptLast : true,
+                                   last ? lastDetail : QStringLiteral("ground command chunk received")));
+    }
+    return document;
 }
 
 const QByteArray package =
@@ -101,7 +175,7 @@ int main(int argc, char** argv)
     check(!controller.valid(), "blank draft cannot upload");
     controller.setPackageJson(QString::fromUtf8(package));
     check(controller.valid(), "valid package updates model");
-    QList<QPair<int, QByteArray>> sent;
+    Sent sent;
     controller.setSender([&](int type, const QByteArray& body) {
         sent.append(qMakePair(type, body));
         return true;
@@ -126,14 +200,14 @@ int main(int argc, char** argv)
     check(!controller.tightenPolicy("continue_then_return", 61), "same policy cannot extend timeout");
     check(controller.tightenPolicy("hold_then_return", 30), "stronger policy sent");
     check(MultiDetectMissionWire::decode(37, sent.last().second, &fields, &error), "signed command chunk parses");
-    int commandIterations = 0;
-    while (controller.busy() && commandIterations++ < 256) {
-        const auto t = fields.value("token").toULongLong();
-        const auto i = fields.value("index").toInt();
-        controller.receive(29, ack(t, 37, i, true));
-        if (controller.busy())
-            check(MultiDetectMissionWire::decode(37, sent.last().second, &fields, &error), "next command chunk parses");
-    }
+    const QJsonObject policyCommand = QJsonDocument::fromJson(runCommand(controller, sent, true, nullptr)).object();
+    check(policyCommand.value("type").toString() == "policy_update" &&
+              policyCommand.value("policy").toObject().value("action").toString() == "hold_then_return" &&
+              policyCommand.value("policy").toObject().value("timeout_s").toDouble() == 30,
+          "policy update carries the link_loss_policy object the supervisor parses");
+    check(!policyCommand.contains("timestamp") && !policyCommand.contains("sequence"),
+          "unsigned command leaves timestamping to the aircraft clock");
+    check(!controller.busy(), "policy command transfer completes");
     check(controller.currentPolicy() == "continue_then_return", "effective policy waits for telemetry");
 
     const QByteArray status =
@@ -158,11 +232,183 @@ int main(int argc, char** argv)
     for (int i = 0; i < (plan.size() + 43) / 44; ++i)
         controller.receive(35, MultiDetectMissionWire::chunk(104, i, plan));
     check(!controller.plan().isEmpty(), "plan record exposed");
-    const QByteArray page = R"({"kind":"final_summary_page","mission_id":"test-001","sequence":8,"page":1,"pages":1,"body":"{\"counts\":{\"s1\":1}}"})";
-    for (int i = 0; i < (page.size() + 43) / 44; ++i)
-        controller.receive(35, MultiDetectMissionWire::chunk(105, i, page));
-    check(controller.finalSummaryComplete() && controller.finalSummary().value("counts").isValid(), "summary page reassembled");
+    check(!controller.planAwaitingDecision() && !controller.approvePlan(),
+          "a plan without the onboard plan_sha256 cannot be approved");
+
+    // Final summary pages exactly as mission_operator sends them: no log
+    // sequence, one transfer (own token, chunk indexes from 0) per page,
+    // pages may arrive out of order and are shown only once all are here.
+    const QByteArray page1 =
+        R"({"kind":"final_summary_page","mission_id":"test-001","page":1,"pages":3,"body":"{\"status\":\"completed\",\"counts\":{\"s1\":2},"})";
+    const QByteArray page2 =
+        R"({"kind":"final_summary_page","mission_id":"test-001","page":2,"pages":3,"body":"\"count_lower_bounds\":{\"s1\":true},\"findings\":[{\"id\":\"f1\"}],"})";
+    const QByteArray page3 =
+        R"({"kind":"final_summary_page","mission_id":"test-001","page":3,"pages":3,"body":"\"alerts\":[],\"history\":[{\"step\":\"s1\",\"state\":\"done\"}]}"})";
+    const QByteArray otherMissionPage =
+        R"({"kind":"final_summary_page","mission_id":"someone-else","page":1,"pages":1,"body":"{\"status\":\"forged\"}"})";
+    sent.clear();
+    deliver(controller, 0x3000, otherMissionPage);
+    check(!controller.finalSummaryComplete() && controller.summaryPagesTotal() == 0,
+          "summary page of another mission is not adopted");
+    deliver(controller, 0x3002, page2);
+    deliver(controller, 0x3003, page3);
+    check(!controller.finalSummaryComplete() && controller.finalSummary().isEmpty() &&
+              controller.summaryPagesReceived() == 2 && controller.summaryPagesTotal() == 3,
+          "incomplete summary is never shown");
+    deliver(controller, 0x3001, page1);
+    check(controller.finalSummaryComplete() && controller.finalSummary().value("status").toString() == "completed" &&
+              controller.finalSummary().value("count_lower_bounds").toMap().value("s1").toBool() &&
+              controller.finalSummary().value("history").toList().size() == 1,
+          "all pages joined in page order into one final_summary");
+    bool pageAcksRestart = false;
+    for (const auto& item : sent) {
+        QVariantMap ackFields;
+        if (item.first == 36 && MultiDetectMissionWire::decode(36, item.second, &ackFields, &error) &&
+            ackFields.value("token").toULongLong() == 0x3001 && ackFields.value("index").toInt() == 0)
+            pageAcksRestart = true;
+    }
+    check(pageAcksRestart, "each page is acknowledged by its own token from chunk 0");
+    const int acksBefore = countType(sent, 36);
+    deliver(controller, 0x3001, page1);
+    check(countType(sent, 36) > acksBefore && controller.finalSummaryComplete(),
+          "a retransmitted page is re-acknowledged without disturbing the summary");
     controller.shutdown();
+
+    // ---- Two-stage upload verdict, heartbeats only after admission --------
+    {
+        MultiDetectMissionController compiling;
+        QByteArray second = package;
+        second.replace("test-001", "test-002");
+        compiling.setPackageJson(QString::fromUtf8(second));
+        Sent out;
+        compiling.setSender([&](int type, const QByteArray& body) {
+            out.append(qMakePair(type, body));
+            return true;
+        });
+        compiling.setUploadGuard([] { return true; });
+        const QString compilingText = QStringLiteral("任务包已接收，机载编译中");
+        quint64 uploadToken = uploadUntilLast(compiling, out, compilingText);
+        check(uploadToken != 0 && compiling.busy() && compiling.onboardCompiling() &&
+                  compiling.activeMissionId().isEmpty(),
+              "first ACK of the last chunk only says the aircraft is compiling");
+        spin(700);
+        check(countType(out, 34) == 0, "no mission heartbeat before the package is admitted");
+        QVariantMap last;
+        MultiDetectMissionWire::decode(28, out.last().second, &last, &error);
+        const int lastIndex = last.value("index").toInt();
+        compiling.receive(29, ack(uploadToken, 28, lastIndex, false, QStringLiteral("拒绝: 计划超出作业区")));
+        check(!compiling.busy() && compiling.activeMissionId().isEmpty() &&
+                  compiling.uploadState().contains(QStringLiteral("计划超出作业区")),
+              "second ACK carries the refusal verdict");
+        spin(400);
+        check(countType(out, 34) == 0, "a refused package never starts heartbeats");
+
+        out.clear();
+        uploadToken = uploadUntilLast(compiling, out, compilingText);
+        MultiDetectMissionWire::decode(28, out.last().second, &last, &error);
+        compiling.receive(29, ack(uploadToken, 28, last.value("index").toInt(), true, compilingText));
+        check(compiling.onboardCompiling(), "a repeated compiling ACK keeps waiting for the verdict");
+        const QByteArray strayPlan =
+            R"({"kind":"plan","mission_id":"other-mission","sequence":1,"plan_sha256":"cd","requires_approval":true,"steps":[]})";
+        deliver(compiling, 0x4000, strayPlan);
+        check(compiling.plan().isEmpty(), "plan of a mission other than the uploaded one is ignored");
+        compiling.receive(29, ack(uploadToken, 28, last.value("index").toInt(), true,
+                                  QStringLiteral("任务包已通过机载验证并接纳")));
+        check(!compiling.busy() && compiling.activeMissionId() == "test-002",
+              "second ACK of the same token/index admits the mission");
+        spin(700);
+        int heartbeats = 0;
+        for (const auto& item : out) {
+            QVariantMap beat;
+            if (item.first == 34 && MultiDetectMissionWire::decode(34, item.second, &beat, &error) &&
+                beat.value("missionToken").toULongLong() == MultiDetectOperatorProtocol::hash64(QStringLiteral("test-002")))
+                ++heartbeats;
+        }
+        check(heartbeats >= 1, "heartbeats start once the mission is admitted");
+
+        // Plan approval: exact onboard digest, mission check, new token per command.
+        const QString digest = QString(64, QLatin1Char('a'));
+        const QByteArray onboardPlan =
+            QByteArray(R"({"kind":"plan","mission_id":"test-002","sequence":3,"requires_approval":true,"plan_sha256":")") +
+            digest.toLatin1() + R"(","task_text":"数一下消防栓","steps":[{"id":"s1","skill":"count"}]})";
+        deliver(compiling, 0x4001, onboardPlan);
+        check(compiling.planAwaitingDecision(), "approval-required plan awaits a decision");
+        out.clear();
+        check(compiling.approvePlan(), "approve_plan sent");
+        check(!compiling.planAwaitingDecision(), "no second decision while one is in flight");
+        quint64 firstToken = 0;
+        const QJsonObject refused =
+            QJsonDocument::fromJson(runCommand(compiling, out, false, &firstToken,
+                                               QStringLiteral("ground supervisor rejected command")))
+                .object();
+        check(refused.value("type").toString() == "approve_plan" &&
+                  refused.value("mission_id").toString() == "test-002" &&
+                  refused.value("plan_sha256").toString() == digest && !refused.contains("signature"),
+              "unsigned approve_plan carries mission_id and the onboard plan_sha256");
+        check(compiling.planAwaitingDecision() && compiling.planDecisionState().contains(QStringLiteral("拒绝")),
+              "a refused approval can be decided again");
+        out.clear();
+        check(compiling.approvePlan(), "approve_plan resent");
+        quint64 secondToken = 0;
+        runCommand(compiling, out, true, &secondToken);
+        check(firstToken != 0 && secondToken != 0 && firstToken != secondToken,
+              "every plan command uses a new transfer token");
+        check(!compiling.planAwaitingDecision() && !compiling.approvePlan() && !compiling.rejectPlan(),
+              "an accepted decision is final");
+        compiling.shutdown();
+    }
+
+    // ---- Signed approval with a configured ground-command key ------------
+    {
+        QByteArray keyBytes;
+        for (int i = 0; i < 32; ++i)
+            keyBytes.append(static_cast<char>(i));
+        qputenv("MULTIDETECT_GROUND_COMMAND_KEY", "hmac:" + keyBytes.toHex());
+        qputenv("MULTIDETECT_OPERATOR_KEY_ID", "gcs-test");
+        MultiDetectMissionController signer;
+        qunsetenv("MULTIDETECT_OPERATOR_KEY_ID");
+        check(qgetenv("MULTIDETECT_GROUND_COMMAND_KEY").isEmpty(), "ground command key is removed from the environment");
+        QByteArray third = package;
+        third.replace("test-001", "test-003");
+        signer.setPackageJson(QString::fromUtf8(third));
+        Sent out;
+        signer.setSender([&](int type, const QByteArray& body) {
+            out.append(qMakePair(type, body));
+            return true;
+        });
+        signer.setUploadGuard([] { return true; });
+        uploadUntilLast(signer, out, QStringLiteral("任务包已通过机载验证并接纳"));
+        check(signer.activeMissionId() == "test-003", "signed-command controller admits its mission");
+        const QString digest = QString(64, QLatin1Char('b'));
+        deliver(signer, 0x5001,
+                QByteArray(R"({"kind":"plan","mission_id":"test-003","sequence":2,"requires_approval":true,"plan_sha256":")") +
+                    digest.toLatin1() + R"(","steps":[]})");
+        out.clear();
+        check(signer.rejectPlan(), "signed reject_plan sent");
+        const QJsonObject command = QJsonDocument::fromJson(runCommand(signer, out, true, nullptr)).object();
+        const QByteArray canonical = MultiDetectMissionSecurity::canonicalJson(
+            command, {QStringLiteral("signature"), QStringLiteral("signature_alg")});
+        const QByteArray expected =
+            QMessageAuthenticationCode::hash(canonical, keyBytes, QCryptographicHash::Sha256).toBase64();
+        check(command.value("type").toString() == "reject_plan" && command.value("plan_sha256").toString() == digest &&
+                  command.value("sequence").toDouble() >= 1 && command.value("timestamp").toDouble() > 1.6e9 &&
+                  command.value("timestamp_version").toInt() == 1 &&
+                  command.value("timestamp_domain").toString() == "unix" &&
+                  command.value("key_id").toString() == "gcs-test" &&
+                  command.value("signature_alg").toString() == "hmac-sha256" &&
+                  command.value("signature").toString().toLatin1() == expected,
+              "configured key signs the plan command in the ground_event format");
+        signer.shutdown();
+    }
+    {
+        qputenv("MULTIDETECT_GROUND_COMMAND_KEY", "hmac:00");
+        MultiDetectMissionController misconfigured;
+        misconfigured.setPackageJson(QString::fromUtf8(package));
+        misconfigured.setSender([](int, const QByteArray&) { return true; });
+        check(!misconfigured.upload() && misconfigured.uploadState().contains("MULTIDETECT_GROUND_COMMAND_KEY"),
+              "an unusable configured key fails closed instead of sending unsigned");
+        misconfigured.shutdown();
+    }
     std::printf("MultiDetectMissionSelfTest: %d failures\n", failures);
     return failures == 0 ? 0 : 1;
 }

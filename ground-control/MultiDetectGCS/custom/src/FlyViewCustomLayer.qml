@@ -123,7 +123,28 @@ Item {
         return QtPositioning.coordinate(lat + Number(n) / 111320.0,
                                         lon + Number(e) / (111320.0 * Math.cos(lat * Math.PI / 180)));
     }
-    function _hasSummaryPages() { return _missionLogs.some(e => String(e.kind || "") === "final_summary_page"); }
+    function _hasSummaryPages() {
+        return _missionController !== null &&
+               (_missionController.finalSummaryComplete || _missionController.summaryPagesTotal > 0);
+    }
+    // Only an assembled summary is shown: pages are never displayed alone.
+    function _missionSummaryLines() {
+        if (!_missionController || !_missionController.finalSummaryComplete) return [];
+        const s = _missionController.finalSummary || {};
+        const lines = [];
+        lines.push(qsTr("结束状态：%1").arg(String(s.status || "--")));
+        if (s.terminal_action)
+            lines.push(qsTr("终止动作：%1（%2）").arg(String(s.terminal_action)).arg(String(s.terminal_reason || "")));
+        const counts = s.counts || {};
+        const lower = s.count_lower_bounds || {};
+        for (const key in counts) {
+            const n = counts[key];
+            lines.push(lower[key] === true ? qsTr("计数 %1：至少 %2").arg(key).arg(n) : qsTr("计数 %1：%2").arg(key).arg(n));
+        }
+        lines.push(qsTr("发现 %1 个，报警 %2 个").arg((s.findings || []).length).arg((s.alerts || []).length));
+        lines.push(qsTr("步骤记录 %1 条").arg((s.history || []).length));
+        return lines;
+    }
     property bool _missionPlanSnapshotSent: false
     property bool _missionSummarySnapshotSent: false
     Connections {
@@ -1149,7 +1170,7 @@ Item {
                     Layout.fillWidth: true
                     text: qsTr("原语：%1 · 预算：%2\n剩余：%3 秒 · %4 瓦时\n发现：%5 · 告警：%6")
                         .arg(root._missionField(["primitives_used", "usage.primitives"], "--"))
-                        .arg(root._missionField(["budget", "usage.budget"], "--"))
+                        .arg(root._missionField(["usage_budget", "step.budget"], "--"))
                         .arg(root._missionField(["remaining_time_s"], "--"))
                         .arg(root._missionField(["remaining_energy_wh"], "--"))
                         .arg(root._missionCount(root._missionField(["findings_total", "findings", "counts.findings", "finding_count"], root._missionFindings.length)))
@@ -1168,10 +1189,16 @@ Item {
                     QGCButton { text: qsTr("暂停"); enabled: root._missionController && root._missionController.telemetryFresh; onClicked: root._missionController.pauseMission() }
                     QGCButton { text: qsTr("恢复"); enabled: root._missionController && root._missionController.telemetryFresh; onClicked: root._missionController.resumeMission() }
                 }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    visible: root._missionController !== null && root._missionController.onboardCompiling
+                    text: qsTr("机载正在编译任务包，等待最终结论…")
+                    wrapMode: Text.WordWrap
+                }
                 QGCButton {
                     Layout.fillWidth: true
                     visible: root._missionPlan.requires_approval === true || root._missionField(["requires_approval", "plan.requires_approval"], false) === true
-                    text: qsTr("查看并审批计划")
+                    text: root._missionController && root._missionController.planAwaitingDecision ? qsTr("查看并审批计划（待批准）") : qsTr("查看计划审批状态")
                     onClicked: { missionApprovalDialog.open(); if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("plan-dialog") }
                 }
                 QGCButton {
@@ -1190,11 +1217,23 @@ Item {
         buttons: Dialog.Close
         ColumnLayout {
             width: Math.min(root.width * 0.55, ScreenTools.defaultFontPixelWidth * 70)
-            QGCLabel { Layout.fillWidth: true; text: qsTr("任务 %1 请求执行以下计划：").arg(root._missionController ? root._missionController.activeMissionId : "--"); wrapMode: Text.WordWrap }
+            QGCLabel { Layout.fillWidth: true; text: qsTr("任务 %1 请求执行以下计划：").arg(String(root._missionPlan.mission_id || "--")); wrapMode: Text.WordWrap }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: String(root._missionPlan.task_text || "") !== ""
+                text: qsTr("任务描述：%1").arg(String(root._missionPlan.task_text || ""))
+                wrapMode: Text.WordWrap
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                text: qsTr("计划摘要 SHA-256：%1…").arg(String(root._missionPlan.plan_sha256 || "--").substring(0, 16))
+                font.family: ScreenTools.fixedFontFamily
+            }
             Repeater {
                     model: root._missionPlan.steps || root._missionField(["plan.steps", "steps"], [])
                 delegate: QGCLabel {
                     required property var modelData
+                    required property int index
                     Layout.fillWidth: true
                     text: qsTr("%1. %2 · 参数：%3 · 区域：%4").arg(index + 1).arg(modelData.skill || "--").arg(JSON.stringify(modelData.params || {})).arg(JSON.stringify(modelData.region || {}))
                     wrapMode: Text.WordWrap
@@ -1202,8 +1241,22 @@ Item {
             }
             RowLayout {
                 Layout.fillWidth: true
-                QGCButton { text: qsTr("批准"); onClicked: { root._missionController.approvePlan(); missionApprovalDialog.close(); } }
-                QGCButton { text: qsTr("拒绝"); onClicked: { root._missionController.rejectPlan(); missionApprovalDialog.close(); } }
+                QGCButton {
+                    text: qsTr("批准")
+                    enabled: root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy
+                    onClicked: { root._missionController.approvePlan(); missionApprovalDialog.close(); }
+                }
+                QGCButton {
+                    text: qsTr("拒绝")
+                    enabled: root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy
+                    onClicked: { root._missionController.rejectPlan(); missionApprovalDialog.close(); }
+                }
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                text: root._missionController ? String(root._missionController.planDecisionState || "") : ""
+                visible: text !== ""
+                wrapMode: Text.WordWrap
             }
         }
     }
@@ -1216,19 +1269,19 @@ Item {
             width: Math.min(root.width * 0.62, ScreenTools.defaultFontPixelWidth * 78)
             QGCLabel { Layout.fillWidth: true; text: qsTr("完整结果（下界计数显示‘至少 N’）："); font.bold: true }
             Repeater {
-                model: root._missionLogs.filter(e => String(e.kind || "") === "final_summary_page")
+                model: root._missionSummaryLines()
                 delegate: QGCLabel {
                     required property var modelData
                     Layout.fillWidth: true
-                    text: String(modelData.text || modelData.summary || JSON.stringify(modelData))
+                    text: String(modelData)
                     wrapMode: Text.WordWrap
                 }
             }
             QGCLabel {
                 Layout.fillWidth: true
                 color: qgcPal.warningText
-                text: qsTr("摘要不完整，等待重传")
-                visible: root._missionField(["summary_complete", "final_summary.complete"], true) !== true
+                text: qsTr("摘要不完整：已收到 %1 / %2 页，等待其余分页").arg(root._missionController ? root._missionController.summaryPagesReceived : 0).arg(root._missionController ? root._missionController.summaryPagesTotal : 0)
+                visible: root._missionController !== null && !root._missionController.finalSummaryComplete
             }
         }
     }

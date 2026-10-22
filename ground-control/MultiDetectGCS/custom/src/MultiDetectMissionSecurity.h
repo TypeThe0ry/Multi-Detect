@@ -10,8 +10,28 @@
 class MultiDetectMissionSecurity final
 {
 public:
+    // A locally provisioned signing key.  The algorithm comes from the key
+    // text prefix (as in mission_security.load_key), never from a document.
+    struct SigningKey
+    {
+        QString algorithm;  // "ed25519" (private seed) or "hmac-sha256"
+        QByteArray material;
+
+        bool isValid() const { return !algorithm.isEmpty() && !material.isEmpty(); }
+        void wipe();
+    };
+
+    // Accepts "hmac:<hex|base64>" (16..4096 bytes, as onboard) or
+    // "ed25519-private:<hex|base64>" (32-byte seed).
+    static bool parseSigningKey(const QByteArray& text, SigningKey* key, QString* error);
+
     static QByteArray canonicalJson(const QJsonObject& document,
                                     const QStringList& excluded = {});
+
+    static bool signDocument(QJsonObject* document, const SigningKey& key, const QString& keyId,
+                             QString* error);
+    static bool signGroundCommand(QJsonObject* command, const SigningKey& key, const QString& keyId,
+                                  QString* error);
 
     static bool signDocument(QJsonObject* document, const QByteArray& privateSeed,
                              const QString& keyId, QString* error);
