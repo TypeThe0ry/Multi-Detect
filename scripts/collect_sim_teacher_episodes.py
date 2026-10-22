@@ -1641,6 +1641,8 @@ def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
         received_wall_time=dict(state.received_wall_time),
         count=state.count,
         last_preflight_failure_ns=state.last_preflight_failure_ns,
+        vehicle_time_boot_ms=state.vehicle_time_boot_ms,
+        received_vehicle_ms=dict(state.received_vehicle_ms),
     )
 
 

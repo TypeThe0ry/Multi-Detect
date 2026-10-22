@@ -1,14 +1,15 @@
 """Onboard, conservative multirotor energy estimates (Wh, W, metres, seconds).
 
-Host receipt time is the only time domain. No PX4 time_remaining, simulated
-clock, ground station or simulator power model is required.
+Telemetry is judged by local receipt time: host time by default, or one bound
+clock domain (SITL binds PX4's lockstep boot clock). No PX4 time_remaining,
+ground station or simulator power model is required.
 """
 
 from __future__ import annotations
 
 import math
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -177,6 +178,27 @@ class OnboardEnergyEstimator:
         self._armed: tuple[bool, float] | None = None
         self._seen: dict[str, float] = {}
         self._powers = {phase: deque(maxlen=4096) for phase in ("hover", "translate", "climb")}
+        self._clock: Callable[[], float] | None = None
+
+    @property
+    def clock_bound(self) -> bool:
+        return self._clock is not None
+
+    def use_clock(self, clock: Callable[[], float]) -> bool:
+        """Judge telemetry in the producer's own clock domain instead of the caller's.
+
+        Once bound, ``ingest`` stamps must be in that domain and ``estimate``
+        ignores the caller's ``now_s``.  SITL uses this for PX4's lockstep clock,
+        which runs slower than the supervisor's host clock on a loaded machine.
+        The domain can only be chosen before any telemetry was accepted.
+        """
+        if self._clock is not None:
+            return self._clock is clock
+        if self._seen:
+            return False
+        self._clock = clock
+        self._last_time = None
+        return True
 
     def phase(self, now_s: float) -> str:
         if self._velocity and now_s - self._velocity[3] <= self.config.telemetry_timeout_s:
@@ -351,6 +373,10 @@ class OnboardEnergyEstimator:
         mission_remaining_s: float,
         flight_mode: str | None = None,
     ) -> dict[str, Any]:
+        if self._clock is not None:
+            now_s = self._clock()
+            if self._last_time is not None:
+                now_s = max(now_s, self._last_time)
         self._advance(now_s)
         c = self.config
         powers = self.powers(now_s)

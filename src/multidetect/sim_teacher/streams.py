@@ -320,6 +320,11 @@ class MavlinkState:
     last_preflight_failure_ns: int = 0
     pose_alignment: dict[str, Any] | None = None
     energy_telemetry: list[dict[str, Any]] | None = None
+    # Vehicle (PX4 boot) clock: the newest time_boot_ms on the wire, and its value
+    # when each tracked message arrived.  In SITL this is the lockstep simulation
+    # clock, which can run far slower than host time on a loaded machine.
+    vehicle_time_boot_ms: int | None = None
+    received_vehicle_ms: dict[str, int] = field(default_factory=dict)
     # Latest COMMAND_ACK per command id with its receive clock.  ACKs for two
     # commands sent back to back (e.g. RTL then VTOL transition) arrive within
     # milliseconds; the single latest COMMAND_ACK would hide the earlier one.
@@ -353,12 +358,14 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
             read_source = getattr(message, getter, None)
             if callable(read_source):
                 row[source_field] = read_source()
-        samples.append(
-            {
-                "message": {**row, "mavpackettype": name},
-                "received_monotonic_s": stamp / 1e9,
-            }
-        )
+        sample = {
+            "message": {**row, "mavpackettype": name},
+            "received_monotonic_s": stamp / 1e9,
+        }
+        vehicle_ms = state.received_vehicle_ms.get(name)
+        if vehicle_ms is not None:
+            sample["received_vehicle_s"] = vehicle_ms / 1e3
+        samples.append(sample)
     return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
@@ -468,6 +475,8 @@ class MavlinkReader:
                 count=self.state.count,
                 last_preflight_failure_ns=self.state.last_preflight_failure_ns,
                 energy_telemetry=_energy_telemetry(self.state),
+                vehicle_time_boot_ms=self.state.vehicle_time_boot_ms,
+                received_vehicle_ms=dict(self.state.received_vehicle_ms),
             )
         for name, result in selected.items():
             if result is None:
@@ -583,11 +592,17 @@ class MavlinkReader:
                     continue
                 mono = self.clock()
                 wall = time.time()
+                boot_ms = _field(message, "time_boot_ms", None)
+                if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0:
+                    with self._pose_condition:
+                        self.state.vehicle_time_boot_ms = boot_ms
                 if name in self.TRACKED:
                     with self._pose_condition:
                         self.state.messages[name] = message
                         self.state.received_monotonic_ns[name] = mono
                         self.state.received_wall_time[name] = wall
+                        if self.state.vehicle_time_boot_ms is not None:
+                            self.state.received_vehicle_ms[name] = self.state.vehicle_time_boot_ms
                         if (
                             name == "STATUSTEXT"
                             and "preflight fail" in str(_field(message, "text", "")).lower()
