@@ -376,11 +376,14 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         )
         command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
     if plan.camera_noise_overlay:
+        # mono_cam comes from the image's model dir; the repo model root is a
+        # read-only bind without a mono_cam directory, so Docker cannot create the
+        # mount point there ("make mountpoint" failure in SITL).
         overlay = ROOT / "simulation/gazebo/model-overlays/mono_cam_noise"
         overlay_mount = (
             "--mount",
             f"type=bind,source={overlay.resolve()},"
-            "target=/opt/multidetect-gazebo-models/mono_cam,readonly",
+            "target=/opt/px4-gazebo/share/gz/models/mono_cam,readonly",
         )
         parent_mount = next(
             (
