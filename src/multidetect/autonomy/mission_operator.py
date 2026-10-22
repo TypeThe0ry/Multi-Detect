@@ -39,6 +39,7 @@ from .mission_supervisor import MissionSupervisor
 from .serialization import strict_json_loads
 
 MAX_LOG_DOCUMENT_BYTES = 1536
+MAX_STATUS_DOCUMENT_BYTES = 1200
 
 
 @dataclass
@@ -91,12 +92,16 @@ class MissionOperatorAdapter:
         package_loader: Callable[[MissionPackage], MissionSupervisor] | None = None,
         preflight_allowed: Callable[[], bool] | None = None,
         supervisor: MissionSupervisor | None = None,
+        requires_approval: bool | None = None,
+        package_verify_key_path: str | None = None,
         clock: Callable[[], float] = time.monotonic,
         upload_timeout_s: float = 30.0,
     ) -> None:
         if not 0 < upload_timeout_s <= 300:
             raise ValueError("upload timeout must be in (0, 300]")
         self.codec, self.package_loader = codec, package_loader
+        self.requires_approval = requires_approval
+        self.package_verify_key_path = package_verify_key_path
         self.preflight_allowed = preflight_allowed
         self.supervisor = supervisor
         self.clock, self.upload_timeout_s = clock, upload_timeout_s
@@ -392,7 +397,11 @@ class MissionOperatorAdapter:
         payload = b"".join(upload.parts)
         if len(payload) != total or hashlib.sha256(payload).digest() != digest:
             raise ValueError("任务包摘要不一致")
-        package = load_mission_package(strict_json_loads(payload, name="mission package"))
+        package = load_mission_package(
+            strict_json_loads(payload, name="mission package"),
+            operator_key_path=self.package_verify_key_path,
+            require_signature=self.package_verify_key_path is not None,
+        )
         if not self._preflight():
             raise ValueError("飞行状态已变化，拒绝替换任务")
         # Frozen dataclasses still contain mutable dictionaries. Snapshot before
@@ -410,7 +419,34 @@ class MissionOperatorAdapter:
         ):
             raise ValueError("机载加载器未安装对应任务监督器")
         supervisor.package.validate_plan(supervisor.executor.plan)
+        if self.requires_approval is not None:
+            supervisor.requires_approval = bool(self.requires_approval)
+            supervisor.plan_approved = not supervisor.requires_approval
         self.bind_supervisor(supervisor)
+        supervisor.log.append(
+            "plan",
+            supervisor.clock(),
+            plan_sha256=supervisor.plan_sha256,
+            task_text=supervisor.package.document.get("task_text") or supervisor.executor.plan.goal,
+            requires_approval=supervisor.requires_approval,
+            steps=[
+                {
+                    "id": s.id,
+                    "skill": s.skill,
+                    "params": dict(s.params),
+                    "on_success": s.on_success,
+                    "on_fail": s.on_fail,
+                }
+                for s in supervisor.executor.plan.steps
+            ],
+            **(
+                {"origin": supervisor.package.document["origin"]}
+                if "origin" in supervisor.package.document
+                else {}
+            ),
+        )
+        if supervisor.downlink is not None:
+            supervisor.downlink.notify()
         self._retire_upload(rejected=False)
         self._next_status = 0
         return True, "任务包已通过机载验证并接纳"
@@ -440,6 +476,17 @@ class MissionOperatorAdapter:
         event = strict_json_loads(payload, name="ground command")
         if not isinstance(event, dict):
             raise ValueError("ground command must be a JSON object")
+        if event.get("type") in {"approve_plan", "reject_plan"}:
+            digest = event.get("plan_sha256")
+            accepted = (
+                supervisor.approve_plan(digest)
+                if event["type"] == "approve_plan"
+                else supervisor.reject_plan(digest)
+            )
+            return (
+                accepted,
+                "plan command accepted" if accepted else "plan digest mismatch or stale",
+            )
         accepted = supervisor.ground_event(event)
         return (
             accepted,
@@ -450,6 +497,43 @@ class MissionOperatorAdapter:
         payload = json.dumps(
             document, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode("utf-8")
+        if document.get("kind") == "final_summary" and len(payload) > MAX_LOG_DOCUMENT_BYTES:
+            # The summary body is intentionally split as JSON text.  Ground
+            # stations concatenate pages in order and parse only once all
+            # pages have arrived, so no partial result is displayed.
+            summary = document.get("summary", document)
+            body = json.dumps(summary, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+            page_budget = MAX_LOG_DOCUMENT_BYTES - 180
+            chunks = [
+                body[offset : offset + page_budget] for offset in range(0, len(body), page_budget)
+            ]
+            pages = len(chunks)
+            page_docs = [
+                {
+                    "kind": "final_summary_page",
+                    "mission_id": document.get("mission_id"),
+                    "page": index,
+                    "pages": pages,
+                    "body": chunk,
+                }
+                for index, chunk in enumerate(chunks, 1)
+            ]
+            payload = json.dumps(
+                page_docs[0], ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            ).encode("utf-8")
+            # A telemetry transfer carries one JSON document.  Queue all page
+            # documents as one bounded transfer sequence.
+            self._transfer_token = (self._transfer_token + 1) & ((1 << 64) - 1) or 1
+            token = self._transfer_token
+            messages: list[MissionWireMessage] = []
+            for page in page_docs:
+                encoded = json.dumps(
+                    page, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+                ).encode("utf-8")
+                messages.extend(document_chunks(encoded, token, message_type=35))
+            return _Telemetry(messages, token)
+        if document.get("kind") == "status" and len(payload) > MAX_STATUS_DOCUMENT_BYTES:
+            raise ValueError("status document exceeds 1200-byte protocol bound")
         if document.get("kind") != "status" and len(payload) > MAX_LOG_DOCUMENT_BYTES:
             # A <=35-chunk log yields to current status within about 3.5 seconds
             # at the endpoint's 100 ms tick. Full evidence remains in JSONL.
@@ -511,10 +595,63 @@ class MissionOperatorAdapter:
                 remaining, supervisor._remaining_time - (now - supervisor._time_estimated_at)
             )
         self._status_sequence = max(self._status_sequence + 1, time.time_ns() // 1_000_000)
-        return {
+        executor = supervisor.executor
+        current = executor.current_step
+        run = getattr(executor, "_run", None)
+        progress = None
+        if run is not None:
+            budget = max(1, int(getattr(executor.config, "step_budget", 1)))
+            progress = min(1.0, max(0.0, float(getattr(run, "visited", 0)) / budget))
+        state = (
+            "awaiting_approval"
+            if not supervisor.plan_approved
+            else (
+                "done"
+                if executor.done
+                else ("returning" if supervisor.action.startswith("return") else "running")
+            )
+        )
+        document = {
+            "v": 2,
             "kind": "status",
             "mission_id": supervisor.package.mission_id,
             "sequence": self._status_sequence,
+            "seq": self._status_sequence,
+            "t": now,
+            "state": state,
+            "supervisor": {
+                "action": supervisor.action,
+                "reason": supervisor.reason or "",
+                "policy": supervisor.policy,
+                "timeout_s": supervisor.timeout_s,
+                "link": "up" if supervisor.connected else "down",
+                "link_silent_s": max(0.0, now - (supervisor.last_heartbeat or now)),
+            },
+            "budget": {
+                "time_left_s": max(0.0, remaining),
+                "energy_left_wh": supervisor._remaining_energy,
+            },
+            "step": {
+                "id": current.id if current else None,
+                "skill": current.skill if current else None,
+                "state": run.state if run is not None else ("done" if executor.done else None),
+                "index": next(
+                    (i for i, item in enumerate(executor.plan.steps) if item.id == current.id), 0
+                )
+                if current
+                else 0,
+                "total": len(executor.plan.steps),
+                "progress": progress,
+                "primitives": len(getattr(run.loop, "history", ())) if run is not None else 0,
+                "budget": getattr(executor.config, "step_budget", None),
+                "query": current.params.get("query") if current else None,
+            },
+            "counts": {
+                key: {"n": value, "lower_bound": bool(executor.count_is_lower_bound)}
+                for key, value in executor.counts.items()
+            },
+            "findings_total": len(executor.findings),
+            "alerts_total": len(executor.alerts),
             "action": supervisor.action,
             "reason": supervisor.reason,
             "policy": supervisor.policy,
@@ -524,6 +661,7 @@ class MissionOperatorAdapter:
             # Unknown gate is conservative, never proof of preflight permission.
             "flight_active": not self._preflight(),
         }
+        return document
 
     def tick(self, sender: Callable[[bytes], object] | None) -> None:
         """Send at most one chunk per receive-loop tick, with bounded retries."""

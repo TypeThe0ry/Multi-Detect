@@ -423,6 +423,8 @@ class OnboardPolicy:
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
+        self.config = options
+        self.runtime_mode = effective_runtime_mode
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
@@ -1016,6 +1018,7 @@ class OnboardPolicy:
         self._mission_plan_labeled = False
         # Optional multi-skill mode: a MissionPlan compiled from the complete task sentence.
         self.executor: MissionExecutor | MissionSupervisor | None = None
+        self.operator_link_waiting = False
         self.supervisor: MissionSupervisor | None = None
         self.downlink: DownlinkQueue | None = None
         executor_config = ExecutorConfig(
@@ -1038,7 +1041,12 @@ class OnboardPolicy:
             frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
         )
         if mission:
-            if mission == "package":
+            if mission == "operator_link":
+                # Keep a valid executor shape for the collector while the
+                # authenticated operator link waits for its first package.
+                self.operator_link_waiting = True
+                plan = plan_for_find_task("operator mission")
+            elif mission == "package":
                 if self.mission_package is None:
                     raise ValueError("mission=package requires mission_package")
                 plan = self.mission_package.plan
@@ -1326,6 +1334,83 @@ class OnboardPolicy:
             for item in violations
         )
         raise ValueError(f"mission plan refused by package policy: {details}")
+
+    def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
+        """Compile and install a package received over the signed operator link."""
+        if self.executor is None:
+            raise RuntimeError("operator package arrived before policy initialization")
+        capabilities = frozenset(package.document.get("capabilities", ()))
+        if package.plan is not None:
+            plan = package.plan
+            report: dict[str, Any] = {"error": None, "source": "package"}
+        else:
+            from scripts.eval_slow_system import _http_json
+
+            def post(prompt: str, schema: dict[str, Any]) -> str:
+                response = _http_json(
+                    f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
+                    {
+                        "model": "local",
+                        "temperature": 0,
+                        "max_tokens": 768,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "mission_plan",
+                                "strict": True,
+                                "schema": schema,
+                            },
+                        },
+                    },
+                    timeout=self.slow_call_timeout_s,
+                )
+                return response["choices"][0]["message"].get("content", "")
+
+            plan, report = build_mission_from_text(
+                str(package.document["task_text"]),
+                tuple(package.refs),
+                post,
+                capabilities=capabilities,
+                plan_checker=lambda candidate: check_plan_against_package(
+                    candidate,
+                    package,
+                    capabilities=capabilities,
+                    executor_config=self.executor.config,
+                ),
+            )
+            if report.get("error"):
+                raise ValueError(f"operator task planning failed: {report['error']}")
+        package.validate_plan(plan)
+        executor = MissionExecutor(
+            plan,
+            loop_factory=self.executor.loop_factory,
+            refs=package.refs,
+            capabilities=capabilities,
+            mission_package=package,
+            config=self.executor.config,
+            task_text=lambda step: perception_task_text(
+                step, package.document.get("task_text", plan.goal)
+            ),
+            airframe_adapter=self.motion_adapter,
+        )
+        executor.home = self.executor.home
+        executor.cruise_altitude_m = self.executor.cruise_altitude_m
+        log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
+        downlink = DownlinkQueue(log, sender=None)
+        supervisor = MissionSupervisor(
+            executor,
+            package,
+            log=log,
+            downlink=downlink,
+            requires_approval=bool(self.config.get("operator_requires_approval", False)),
+            runtime_mode=self.runtime_mode,
+        )
+        self.mission_package, self.mission_plan = package, plan
+        self.mission_plan_report = report
+        self.supervisor, self.executor, self.downlink = supervisor, supervisor, downlink
+        self.operator_link_waiting = False
+        return supervisor
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Forward a host receipt; this policy has no payload hardware driver."""
@@ -1736,6 +1821,7 @@ class OnboardPolicy:
         if health_decision.stop_frame_writes:
             # Low disk: write no frame; slow calls are skipped by _slow_identity.
             pass
+
         elif self.frame_format == "jpeg":
             Image.fromarray(rgb, mode="RGB").save(
                 frame_path, format="JPEG", quality=self.frame_quality, optimize=True
@@ -1957,6 +2043,10 @@ class OnboardPolicy:
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         """Single return point: every policy primitive crosses the envelope."""
+        if getattr(self, "operator_link_waiting", False):
+            return ActionPrimitive.hold(1.0), {
+                "onboard": {"state": "operator_link_waiting", "mission": "operator_link"}
+            }
         self._sync_vehicle_mode(observation)
         self._hybrid_sync_step()
         adapter = getattr(self, "motion_adapter", None)

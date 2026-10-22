@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -102,6 +103,7 @@ class MissionSupervisor:
         flight_mode: bool | None = None,
         require_signature: bool | None = None,
         ground_command_verify_key: bytes | None = None,
+        requires_approval: bool | None = None,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
@@ -168,6 +170,17 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self.requires_approval = bool(requires_approval)
+        self.plan_sha256 = hashlib.sha256(
+            json.dumps(
+                asdict(executor.plan),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        self.plan_approved = not self.requires_approval
+        self.plan_rejected = False
         self._last_envelope_violation: tuple[str, str] | None = None
         self._last_envelope_violation_event_s: float | None = None
         # An existing mission log means this is a restart.  A missing replay
@@ -847,6 +860,18 @@ class MissionSupervisor:
         return self._recovery
 
     def next_action(self, **kwargs):
+        if self.plan_rejected:
+            return ActionPrimitive.hold(self.executor.config.hold_s), {
+                "supervisor_action": "land_now",
+                "supervisor_reason": "operator rejected mission plan",
+            }
+        if not self.plan_approved:
+            self.action = "hold"
+            self.reason = "awaiting operator plan approval"
+            return ActionPrimitive.hold(self.executor.config.hold_s), {
+                "supervisor_action": "hold",
+                "supervisor_reason": self.reason,
+            }
         if self.executor.cruise_altitude_m is None:
             area = self.package.document["operating_area"]
             self.executor.cruise_altitude_m = min(
@@ -886,6 +911,8 @@ class MissionSupervisor:
             history=self.executor.history,
             counts=self.executor.counts,
         )
+        for event in self.executor.drain_protocol_events():
+            self._record(event.pop("kind", "finding"), **event)
         if self.done and not self._finished:
             self.finish("completed" if self._terminal is None else "recovery_finished")
         return action, info
@@ -910,3 +937,23 @@ class MissionSupervisor:
         self._finished = True
         if self.downlink is not None:
             self.downlink.notify()
+
+    def approve_plan(self, plan_sha256: str) -> bool:
+        if not isinstance(plan_sha256, str) or plan_sha256 != self.plan_sha256:
+            return False
+        if self.plan_rejected:
+            return False
+        self.plan_approved = True
+        self._record("plan_approved", plan_sha256=plan_sha256)
+        return True
+
+    def reject_plan(self, plan_sha256: str) -> bool:
+        if not isinstance(plan_sha256, str) or plan_sha256 != self.plan_sha256:
+            return False
+        if self.plan_approved:
+            return False
+        self.plan_rejected = True
+        self.action = "land_now"
+        self.reason = "operator rejected mission plan"
+        self._record("plan_rejected", plan_sha256=plan_sha256)
+        return True
