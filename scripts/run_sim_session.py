@@ -33,6 +33,14 @@ from scripts.run_simulator_docker import (  # noqa: E402
 )
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
+DEFAULT_AIRFRAME_WORLDS = {
+    "x500": DEFAULT_WORLD,
+    "x500_mono_cam": DEFAULT_WORLD,
+    "standard_vtol": "river_rescue_vtol_001.sdf",
+    "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
+    "tiltrotor": "tiltrotor_mono_cam_001.sdf",
+    "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
+}
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
@@ -55,11 +63,36 @@ AIRFRAME_SCENARIOS = {
     "x500_mono_cam": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "standard_vtol": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
     "tiltrotor": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
+    "quadtailsitter": ROOT
+    / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_hand": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_catapult": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
 }
+WORLD_SCENARIOS.update(
+    {
+        "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
+        "tiltrotor_mono_cam_001.sdf": ROOT
+        / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
+    }
+)
+
+
+def _canonical_airframe(value: str) -> str:
+    normalized = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "x500": "x500_mono_cam",
+        "multirotor": "x500_mono_cam",
+        "standard_vtol_mono_cam": "standard_vtol",
+        "quadtailsitter_mono_cam": "quadtailsitter",
+        "tiltrotor_mono_cam": "tiltrotor",
+        "rc_cessna_mono_cam": "rc_cessna",
+        "rc_cessna_runway": "rc_cessna",
+        "rc_cessna_hand": "rc_cessna",
+        "rc_cessna_catapult": "rc_cessna",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def resolve_world(value: str | Path) -> Path:
@@ -68,7 +101,10 @@ def resolve_world(value: str | Path) -> Path:
         if candidate.suffix == "":
             candidate = candidate.with_suffix(".sdf")
         by_name = ROOT / "simulation/gazebo/worlds" / candidate
-        candidate = by_name if by_name.is_file() else ROOT / candidate
+        airframe_world = ROOT / "configs/scenarios/airframes" / candidate
+        candidate = by_name if by_name.is_file() else (
+            airframe_world if airframe_world.is_file() else ROOT / candidate
+        )
     candidate = candidate.resolve()
     if not candidate.is_file() or candidate.suffix.lower() != ".sdf":
         raise ValueError(f"world not found or not an SDF file: {value}")
@@ -82,10 +118,11 @@ def _scenario_for(world: Path, airframe: str) -> Path:
         if world.name == name:
             return scenario
     try:
-        return AIRFRAME_SCENARIOS[airframe]
+        return AIRFRAME_SCENARIOS[_canonical_airframe(airframe)]
     except KeyError as exc:
         raise ValueError(
-            f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, or rc_cessna"
+            f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, "
+            "quadtailsitter, tiltrotor, or rc_cessna"
         ) from exc
 
 
@@ -116,8 +153,12 @@ def build_session_command(
     viewer_port: int = 6080,
 ) -> tuple[list[str], DockerSimulatorPlan, Path]:
     """Build the Docker argv without starting Docker (unit-test boundary)."""
-    world_path = resolve_world(world)
-    scenario = _scenario_for(world_path, airframe)
+    canonical = _canonical_airframe(airframe)
+    requested_world = str(world)
+    if requested_world == DEFAULT_WORLD and canonical != "x500_mono_cam":
+        requested_world = DEFAULT_AIRFRAME_WORLDS[canonical]
+    world_path = resolve_world(requested_world)
+    scenario = _scenario_for(world_path, canonical)
     name = container_name or f"multidetect-sim-session-{uuid.uuid4().hex[:8]}"
     plan = build_docker_simulator_plan(
         scenario,
@@ -323,6 +364,8 @@ def _run_task(
     port: int,
     out: Path,
     container_name: str,
+    airframe: str,
+    takeoff_method: str | None = None,
     timeout_s: float = 2400.0,
     operator_link: dict | None = None,
 ) -> int:
@@ -333,7 +376,12 @@ def _run_task(
         json.dumps({"task": task, "world": str(world)}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    scenario = _scenario_for(world, "x500_mono_cam")
+    canonical = _canonical_airframe(airframe)
+    if takeoff_method is None:
+        takeoff_method = "runway" if canonical == "rc_cessna" else (
+            "vtol" if canonical in {"standard_vtol", "quadtailsitter", "tiltrotor"} else None
+        )
+    scenario = _scenario_for(world, canonical)
     defaults = json.loads(
         (Path(r"D:/Projects/mdwt/_scratch/suite-r18-defaults.json")).read_text(encoding="utf-8")
     )["defaults"]
@@ -352,7 +400,8 @@ def _run_task(
         "--scenario",
         str(scenario),
         "--airframe",
-        "x500_mono_cam",
+        canonical,
+        *(["--takeoff-method", takeoff_method] if takeoff_method else []),
         "--teacher",
         "onboard",
         "--attach-container",
@@ -401,6 +450,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--world", default=DEFAULT_WORLD)
     parser.add_argument("--airframe", default="x500_mono_cam")
+    parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--gcs-port", type=int, default=14560)
     parser.add_argument("--onboard-task")
     parser.add_argument("--exit-after-task", action="store_true")
@@ -518,6 +568,8 @@ def main(argv: Iterable[str] | None = None) -> int:
                 args.control_port,
                 args.onboard_out,
                 plan.container_name,
+                args.airframe,
+                args.takeoff_method,
                 timeout_s=args.task_timeout_s,
                 operator_link=_operator_link_config(args) if args.operator_link else None,
             )
