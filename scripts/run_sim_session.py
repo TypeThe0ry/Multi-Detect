@@ -40,6 +40,7 @@ DEFAULT_AIRFRAME_WORLDS = {
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
     "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
+    "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001.sdf",
 }
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
@@ -66,6 +67,7 @@ AIRFRAME_SCENARIOS = {
     "quadtailsitter": ROOT
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
+    "rc_cessna_mono_cam": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_hand": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_catapult": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -87,10 +89,10 @@ def _canonical_airframe(value: str) -> str:
         "standard_vtol_mono_cam": "standard_vtol",
         "quadtailsitter_mono_cam": "quadtailsitter",
         "tiltrotor_mono_cam": "tiltrotor",
-        "rc_cessna_mono_cam": "rc_cessna",
-        "rc_cessna_runway": "rc_cessna",
-        "rc_cessna_hand": "rc_cessna",
-        "rc_cessna_catapult": "rc_cessna",
+        "rc_cessna": "rc_cessna_mono_cam",
+        "rc_cessna_runway": "rc_cessna_mono_cam",
+        "rc_cessna_hand": "rc_cessna_mono_cam",
+        "rc_cessna_catapult": "rc_cessna_mono_cam",
     }
     return aliases.get(normalized, normalized)
 
@@ -114,11 +116,18 @@ def resolve_world(value: str | Path) -> Path:
 
 
 def _scenario_for(world: Path, airframe: str) -> Path:
+    canonical = _canonical_airframe(airframe)
+    stem = world.stem
+    if stem in {"gen_v2_w0016", "gen_v2_w0031"}:
+        if canonical == "rc_cessna_mono_cam":
+            return ROOT / "configs/scenarios/fixed-wing-v2" / f"{stem}.scenario.json"
+        if canonical in {"standard_vtol", "quadtailsitter"}:
+            return ROOT / "configs/scenarios/vtol-v2" / canonical / f"{stem}.scenario.json"
     for name, scenario in WORLD_SCENARIOS.items():
         if world.name == name:
             return scenario
     try:
-        return AIRFRAME_SCENARIOS[_canonical_airframe(airframe)]
+        return AIRFRAME_SCENARIOS[canonical]
     except KeyError as exc:
         raise ValueError(
             f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, "
@@ -156,7 +165,7 @@ def build_session_command(
     canonical = _canonical_airframe(airframe)
     requested_world = str(world)
     if requested_world == DEFAULT_WORLD and canonical != "x500_mono_cam":
-        requested_world = DEFAULT_AIRFRAME_WORLDS[canonical]
+        requested_world = DEFAULT_AIRFRAME_WORLDS.get(canonical, requested_world)
     world_path = resolve_world(requested_world)
     scenario = _scenario_for(world_path, canonical)
     name = container_name or f"multidetect-sim-session-{uuid.uuid4().hex[:8]}"
@@ -378,7 +387,7 @@ def _run_task(
     )
     canonical = _canonical_airframe(airframe)
     if takeoff_method is None:
-        takeoff_method = "runway" if canonical == "rc_cessna" else (
+        takeoff_method = "runway" if canonical.startswith("rc_cessna") else (
             "vtol" if canonical in {"standard_vtol", "quadtailsitter", "tiltrotor"} else None
         )
     scenario = _scenario_for(world, canonical)

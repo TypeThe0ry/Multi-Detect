@@ -13,7 +13,54 @@ $env:PYTHONPATH="src;."
 python scripts/run_sim_session.py
 ```
 
-默认使用 `urban_inspection_multirotor_001.sdf` 和 `x500_mono_cam`。常用选项：
+默认使用 `urban_inspection_multirotor_001.sdf` 和 `x500_mono_cam`。`--airframe` 会同时选择
+PX4 runtime、Gazebo 模型、默认世界和 onboard collector profile；显式 `--world` 时只替换
+世界文件，生成的 `gen_v2_w0016/w0031` 会按机型选择对应的固定翼或 VTOL scenario。
+
+| airframe | 默认世界 | 起飞方法 | session runtime/scenario |
+| --- | --- | --- | --- |
+| `x500` / `x500_mono_cam` | `urban_inspection_multirotor_001.sdf` | PX4 默认多旋翼 | `urban_inspection_multirotor_001` |
+| `standard_vtol` | `river_rescue_vtol_001.sdf` | `vtol` | 4+1 `standard_vtol_mono_cam` |
+| `quadtailsitter` | `quadtailsitter_mono_cam_001.sdf` | `vtol` | `quadtailsitter_mono_cam` |
+| `tiltrotor` | `tiltrotor_mono_cam_001.sdf` | `vtol` | `tiltrotor_mono_cam` |
+| `rc_cessna` | `coastal_patrol_fixed_wing_001.sdf` | `runway` | 固定翼 `rc_cessna_mono_cam` |
+
+固定翼的 `--takeoff-method hand` / `catapult` 会透传到 collector，并选择对应的 PX4
+launch profile。VTOL onboard 配置中的 `vtol_search_mode`（`mc` 或 `fw`）以及
+`vtol_fw_reentry_min_mc_steps`、`vtol_fw_transition_budget`、
+`vtol_fw_reentry_candidate_max_steps` 会原样保留；需要混合搜索时在 defaults JSON
+中设置 `vtol_search_mode: "fw"`。
+
+五种机型的可复制启动命令：
+
+```powershell
+$env:PYTHONPATH="src;."
+python scripts/run_sim_session.py --airframe x500 --gcs-port 14560
+python scripts/run_sim_session.py --airframe standard_vtol --gcs-port 14562
+python scripts/run_sim_session.py --airframe quadtailsitter --gcs-port 14564
+python scripts/run_sim_session.py --airframe tiltrotor --gcs-port 14566
+python scripts/run_sim_session.py --airframe rc_cessna --gcs-port 14568
+```
+
+按文档中已验证的生成场景运行固定翼和 VTOL：
+
+```powershell
+python scripts/run_sim_session.py --airframe rc_cessna --world gen_v2_w0031 --gcs-port 14568 `
+  --onboard-task "Find the red fire truck and return home."
+python scripts/run_sim_session.py --airframe standard_vtol --world gen_v2_w0016 --gcs-port 14562 `
+  --onboard-task "Find the ambulance and return home."
+python scripts/run_sim_session.py --airframe quadtailsitter --world gen_v2_w0031 --gcs-port 14564 `
+  --onboard-task "Find the red fire truck and return home."
+```
+
+GCS prompt mission 使用同一 session，只需追加 `--operator-link`（可同时指定
+`--onboard-task` 作为本地任务文本兼容入口）：
+
+```powershell
+python scripts/run_sim_session.py --airframe standard_vtol --operator-link --gcs-port 14562
+```
+
+常用选项：
 
 - `--world <名称|路径>`：`simulation/gazebo/worlds` 下的 SDF 文件名，或仓库内路径；
 - `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`rc_cessna_runway` 等已有 profile；
