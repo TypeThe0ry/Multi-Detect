@@ -32,6 +32,9 @@ class EpisodeRecorder:
         task_text: str = "",
         sensor_status: str = "unknown",
         depth_format: str = "npy",
+        rgb_format: str = "png",
+        rgb_quality: int = 90,
+        record_depth: bool = True,
         deduplicate_depth: bool = False,
         compress_mavlink: bool = False,
     ):
@@ -39,13 +42,21 @@ class EpisodeRecorder:
         self.rgb_dir = self.episode_dir / "rgb"
         self.depth_dir = self.episode_dir / "depth"
         self.rgb_dir.mkdir(parents=True, exist_ok=True)
-        self.depth_dir.mkdir(exist_ok=True)
+        if record_depth:
+            self.depth_dir.mkdir(exist_ok=True)
         self.steps_path = self.episode_dir / "steps.jsonl"
         mavlink_name = "mavlink.jsonl.gz" if compress_mavlink else "mavlink.jsonl"
         self.mavlink_path = self.episode_dir / mavlink_name
         if depth_format not in {"npy", "npz", "png16"}:
             raise ValueError("depth_format must be npy, npz, or png16")
         self.depth_format = depth_format
+        if rgb_format not in {"png", "jpeg"}:
+            raise ValueError("rgb_format must be png or jpeg")
+        if not 1 <= int(rgb_quality) <= 100:
+            raise ValueError("rgb_quality must be between 1 and 100")
+        self.rgb_format = rgb_format
+        self.rgb_quality = int(rgb_quality)
+        self.record_depth = bool(record_depth)
         self.deduplicate_depth = deduplicate_depth
         self.compress_mavlink = compress_mavlink
         self._previous_depth: Any = None
@@ -61,7 +72,6 @@ class EpisodeRecorder:
             "created_monotonic_ns": time.monotonic_ns(),
             "step_count": 0,
         }
-        self.episode_path.write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
         self._mavlink_file = None
         self._mavlink_lock = threading.Lock()
         self._mavlink_count = 0
@@ -74,6 +84,17 @@ class EpisodeRecorder:
                     "mavlink_compressed": compress_mavlink,
                 }
             )
+        if rgb_format != "png" or not self.record_depth:
+            # Low-disk recordings declare themselves; the audit relaxes the live
+            # depth requirement only for an episode whose metadata says so.
+            self.meta.update(
+                {
+                    "rgb_format": rgb_format,
+                    "rgb_quality": self.rgb_quality if rgb_format == "jpeg" else None,
+                    "depth_recorded": self.record_depth,
+                }
+            )
+        self.episode_path.write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
 
     def begin_mavlink_stream(self) -> None:
         with self._mavlink_lock:
@@ -110,20 +131,44 @@ class EpisodeRecorder:
         stem = f"{self.index:06d}_{prefix}"
         rgb = obs.get("rgb")
         if rgb is not None:
-            path = self.rgb_dir / f"{stem}.png"
+            suffix = ".jpg" if self.rgb_format == "jpeg" else ".png"
+            path = self.rgb_dir / f"{stem}{suffix}"
+            if isinstance(rgb, str):
+                rgb = base64.b64decode(rgb)
             if isinstance(rgb, (bytes, bytearray)):
-                path.write_bytes(bytes(rgb))
-            elif isinstance(rgb, str):
-                path.write_bytes(base64.b64decode(rgb))
+                if self.rgb_format == "jpeg":
+                    # Encoded frames (PNG from the collector) are re-encoded; bytes
+                    # that are no image are kept as-is and fail the live audit's
+                    # JPEG signature check, like the array fallback below.
+                    from io import BytesIO
+
+                    from PIL import Image
+
+                    try:
+                        with Image.open(BytesIO(bytes(rgb))) as opened:
+                            opened.convert("RGB").save(
+                                path, format="JPEG", quality=self.rgb_quality, optimize=True
+                            )
+                    except Exception:
+                        path.write_bytes(bytes(rgb))
+                else:
+                    path.write_bytes(bytes(rgb))
             else:
                 try:
                     from PIL import Image
 
-                    Image.fromarray(rgb).save(path)
+                    if self.rgb_format == "jpeg":
+                        Image.fromarray(rgb).convert("RGB").save(
+                            path, format="JPEG", quality=self.rgb_quality, optimize=True
+                        )
+                    else:
+                        Image.fromarray(rgb).save(path)
                 except Exception:
                     path.write_bytes(json.dumps(rgb, default=_json_default).encode())
             out["rgb_path"] = str(path.relative_to(self.episode_dir))
-        depth = obs.get("depth")
+        # record_depth=False (low-disk) leaves the sensor stream as is -- the frame
+        # server's wire contract still carries depth -- and only skips the file.
+        depth = obs.get("depth") if self.record_depth else None
         if depth is not None:
             import numpy as np
 
@@ -287,18 +332,32 @@ def _has_gps_fix(gps: Any) -> bool:
     return _finite_number(fix) and float(fix) >= 2
 
 
-def _real_file(ep: Path, value: Any, suffix: str | tuple[str, ...]) -> bool:
+_IMAGE_MAGIC = {
+    ".png": b"\x89PNG\r\n\x1a\n",
+    ".jpg": b"\xff\xd8\xff",
+    ".jpeg": b"\xff\xd8\xff",
+}
+# Live RGB is PNG by default and JPEG in low-disk mode (--rgb-format jpeg).
+LIVE_RGB_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+
+def _real_file(
+    ep: Path, value: Any, suffix: str | tuple[str, ...], *, image_magic: bool = False
+) -> bool:
     if not isinstance(value, str) or not value or Path(value).is_absolute():
         return False
     path = ep / value
     try:
         suffixes = (suffix,) if isinstance(suffix, str) else suffix
-        if not path.is_file() or path.suffix.lower() not in suffixes or path.stat().st_size <= 0:
+        actual = path.suffix.lower()
+        if not path.is_file() or actual not in suffixes or path.stat().st_size <= 0:
             return False
-        # Live RGB must be an actual PNG, avoiding JSON/placeholder fallbacks.
-        if suffix == ".png":
+        # Live RGB must be an actual PNG/JPEG whose bytes match its suffix,
+        # avoiding JSON/placeholder fallbacks.
+        magic = _IMAGE_MAGIC.get(actual) if image_magic else None
+        if magic is not None:
             with path.open("rb") as stream:
-                return stream.read(8) == b"\x89PNG\r\n\x1a\n"
+                return stream.read(len(magic)) == magic
         return True
     except OSError:
         return False
@@ -506,6 +565,8 @@ def audit_dataset(
         except (OSError, json.JSONDecodeError) as exc:
             raise DatasetAuditError(f"invalid episode.json: {ep.name}") from exc
         strict_live = meta.get("sensor_status") == "live"
+        # Only an episode whose metadata declares depth off (low-disk mode) may omit it.
+        depth_recorded = meta.get("depth_recorded") is not False
         prev = -1
         previous_receive_ns = -1
         ep_steps = 0
@@ -548,9 +609,15 @@ def audit_dataset(
                 if not isinstance(after, dict):
                     raise DatasetAuditError(f"live step {idx} in {ep.name} has no obs_after")
                 for name, obs in (("obs_before", before), ("obs_after", after)):
-                    if not _real_file(ep, obs.get("rgb_path"), ".png"):
+                    if not _real_file(
+                        ep, obs.get("rgb_path"), LIVE_RGB_SUFFIXES, image_magic=True
+                    ):
                         raise DatasetAuditError(f"live step {idx} {name} has no real rgb file")
-                    if not _depth_finite(ep, obs.get("depth_path")):
+                    if not depth_recorded and obs.get("depth_path") is not None:
+                        raise DatasetAuditError(
+                            f"live step {idx} {name} references depth in a no-depth episode"
+                        )
+                    if depth_recorded and not _depth_finite(ep, obs.get("depth_path")):
                         raise DatasetAuditError(f"live step {idx} {name} has no finite depth file")
                     if not _finite_pose(obs.get("pose")):
                         raise DatasetAuditError(f"live step {idx} {name} has invalid pose")
