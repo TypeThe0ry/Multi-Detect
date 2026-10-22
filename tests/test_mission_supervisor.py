@@ -660,3 +660,100 @@ def test_host_stop_and_plan_rejection_are_terminal_summaries(tmp_path):
     assert s.reject_plan(s.plan_sha256)
     (summary,) = _summaries(log)
     assert summary["status"] == "plan_rejected"
+
+
+def awaiting(tmp_path, policy="continue", *, doc=None):
+    s, now, log = build(tmp_path, policy, doc=doc)
+    s.requires_approval, s.plan_approved = True, False
+    return s, now, log
+
+
+def test_signed_supervisor_refuses_unsigned_or_replayed_plan_approval(tmp_path):
+    s, now, _log, key = secured_supervisor(tmp_path)
+    s.requires_approval, s.plan_approved = True, False
+    # The old direct path approved without signature, sequence or rate limit.
+    assert not s.approve_plan(s.plan_sha256)
+    assert not event(s, "approve_plan", plan_sha256=s.plan_sha256)
+    assert not s.plan_approved
+    forged = signed_event(
+        b"another-test-key-99", 1, now[0], "approve_plan", plan_sha256=s.plan_sha256
+    )
+    assert not s.ground_event(forged)
+    approval = signed_event(key, 1, now[0], "approve_plan", plan_sha256=s.plan_sha256)
+    assert s.ground_event(approval)
+    assert s.plan_approved
+    assert not s.ground_event(approval)  # replay of the same sequence
+
+
+def test_transport_controls_never_carry_a_plan_decision(tmp_path):
+    s, _now, _log, _key = secured_supervisor(tmp_path)
+    s.requires_approval, s.plan_approved = True, False
+    assert not s.ground_event(
+        {"mission_id": "sortie-1", "type": "approve_plan", "plan_sha256": s.plan_sha256},
+        transport_authenticated=True,
+    )
+    assert not s.plan_approved
+    # Fixed-layout tunnel controls are authenticated by the tunnel itself.
+    assert s.ground_event(
+        {"mission_id": "sortie-1", "type": "heartbeat"}, transport_authenticated=True
+    )
+    assert s.last_heartbeat is not None
+
+
+def test_plan_approval_is_rate_limited_and_mission_bound(tmp_path):
+    s, now, _log = awaiting(tmp_path)
+    assert not s.ground_event(
+        {"mission_id": "other", "type": "approve_plan", "plan_sha256": s.plan_sha256}
+    )
+    s.rate_limit = 1
+    assert event(s, "heartbeat")
+    assert not event(s, "approve_plan", plan_sha256=s.plan_sha256)
+    assert not s.plan_approved
+    now[0] += s.rate_window_s
+    assert event(s, "approve_plan", plan_sha256=s.plan_sha256)
+    assert s.plan_approved
+
+
+def test_awaiting_approval_still_evaluates_abort_link_and_energy(tmp_path):
+    s, now, _log = awaiting(tmp_path)
+    assert s.evaluate() == "hold" and s.reason == "awaiting operator plan approval"
+    action, info = s.next_action(pose_ned=(0, 0, -20), yaw_deg=0)
+    assert info["supervisor_action"] == "hold"
+    s.update_estimates(remaining_energy_wh=10)  # at or below the 30 Wh reserve
+    assert s.evaluate() == "return_now"
+    s, now, _log = awaiting(tmp_path / "abort")
+    assert event(s, "abort")
+    action, info = s.next_action(pose_ned=(0, 0, -20), yaw_deg=0)
+    assert info["supervisor_action"] == "return_now"
+    s, now, _log = awaiting(tmp_path / "link", "return_now")
+    now[0] += 6
+    assert s.evaluate() == "return_now"
+
+
+def test_rejected_plan_lands_and_finishes(tmp_path):
+    s, _now, log = awaiting(tmp_path)
+    assert s.reject_plan(s.plan_sha256)
+    assert s.evaluate() == "land_now"
+    pose = (0.0, 0.0, -20.0)
+    for _ in range(400):
+        _action, info = s.next_action(pose_ned=pose, yaw_deg=0)
+        assert info["supervisor_action"] == "land_now"
+        pose = (0.0, 0.0, min(0.0, pose[2] + 1.0))
+        if s.done:
+            break
+    assert s.done
+    (summary,) = _summaries(log)
+    assert summary["status"] == "plan_rejected" and summary["terminal_action"] == "land_now"
+    assert not s.approve_plan(s.plan_sha256)
+
+
+def test_plan_digest_binds_mission_id_and_package_content(tmp_path):
+    first, _now, _log = build(tmp_path / "a")
+    renamed = document()
+    renamed["mission_id"] = "sortie-2"
+    second, _now, _log = build(tmp_path / "b", doc=renamed)
+    wider = document()
+    wider["budget"]["time_s"] = 3600
+    third, _now, _log = build(tmp_path / "c", doc=wider)
+    assert first.executor.plan == second.executor.plan == third.executor.plan
+    assert len({first.plan_sha256, second.plan_sha256, third.plan_sha256}) == 3
