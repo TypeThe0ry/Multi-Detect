@@ -35,7 +35,8 @@ from .mission_operator_protocol import (
     mission_token,
 )
 from .mission_package import POLICIES, MissionPackage, load_mission_package
-from .mission_supervisor import MissionSupervisor
+from .mission_supervisor import MissionSupervisor, count_lower_bounds
+from .onboard_mission_log import is_priority_record
 from .serialization import strict_json_loads
 
 MAX_LOG_DOCUMENT_BYTES = 1536
@@ -71,6 +72,7 @@ class _Telemetry:
     attempts: int = 0
     sent: float = float("-inf")
     accepted: bool = False
+    priority: bool = False
 
 
 class MissionOperatorAdapter:
@@ -575,6 +577,7 @@ class MissionOperatorAdapter:
             if self._closed or self._sender is None or self._queued_log is not None:
                 return False
             pending = self._new_telemetry(record)
+            pending.priority = is_priority_record(record)
             self._queued_log = pending
         pending.complete.wait(timeout=30)
         with self._lock:
@@ -611,6 +614,7 @@ class MissionOperatorAdapter:
                 else ("returning" if supervisor.action.startswith("return") else "running")
             )
         )
+        lower_bounds = count_lower_bounds(executor)
         document = {
             "v": 2,
             "kind": "status",
@@ -647,7 +651,7 @@ class MissionOperatorAdapter:
                 "query": current.params.get("query") if current else None,
             },
             "counts": {
-                key: {"n": value, "lower_bound": bool(executor.count_is_lower_bound)}
+                key: {"n": value, "lower_bound": lower_bounds.get(key, True)}
                 for key, value in executor.counts.items()
             },
             "findings_total": len(executor.findings),
@@ -680,10 +684,13 @@ class MissionOperatorAdapter:
                 pending.complete.set()
                 self._telemetry = pending = None
             status_due = now >= self._next_status
+            queued = self._queued_log
+            # Status and logs alternate when both are due; a finding, alert,
+            # escalation or final summary never waits behind a status.
             if (
                 pending is None
-                and self._queued_log is not None
-                and (not status_due or self._last_was_status)
+                and queued is not None
+                and (not status_due or self._last_was_status or queued.priority)
             ):
                 self._telemetry = pending = self._queued_log
                 self._queued_log = None
