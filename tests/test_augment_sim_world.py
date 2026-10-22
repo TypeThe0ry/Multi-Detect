@@ -6,6 +6,8 @@ from argparse import Namespace
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from scripts.augment_sim_world import transform
 
 
@@ -64,7 +66,31 @@ def test_pinned_mono_cam_overlay_contains_rgb_noise() -> None:
     assert sensor.findtext("camera/noise/stddev") == "0.01"
 
 
-def test_wind_overlay_marks_x500_body_links() -> None:
-    root = ET.parse("simulation/gazebo/model-overlays/x500_mono_cam_wind/model.sdf").getroot()
-    assert root.findtext(".//link[@name='base_link']/enable_wind") == "true"
-    assert root.findtext(".//link[@name='camera_link']/enable_wind") == "true"
+@pytest.mark.parametrize("name", ["x500_mono_cam_wind", "x500_mono_cam_seg_wind"])
+def test_wind_overlays_enable_wind_for_the_whole_vehicle(name) -> None:
+    # Model-level enable_wind reaches the merged x500 links; redeclaring a merged
+    # link such as base_link would collide with the included one.
+    model = ET.parse(f"simulation/gazebo/model-overlays/{name}/model.sdf").getroot().find("model")
+    assert model.findtext("enable_wind") == "true"
+    assert model.find("link[@name='base_link']") is None
+
+
+def test_wind_with_segmentation_mounts_one_x500_overlay(tmp_path) -> None:
+    from scripts import collect_sim_teacher_episodes as collector
+
+    stem = "configs/scenarios/variants/gen_cnt2_w0000__wind6_gust3p4"
+    plan = collector.CollectionPlan(
+        f"{stem}.scenario.json",
+        f"{stem}.runtime_input.json",
+        f"{stem}.truth.json",
+        "explore",
+        1,
+        1,
+        0,
+        str(tmp_path),
+        segmentation=True,
+        wind_vehicle_overlay=True,
+    )
+    command = collector.docker_command(plan, name="md-test-wind")
+    targets = [t for t in command if "target=/opt/multidetect-gazebo-models/x500_mono_cam," in t]
+    assert len(targets) == 1 and "x500_mono_cam_seg_wind" in targets[0]

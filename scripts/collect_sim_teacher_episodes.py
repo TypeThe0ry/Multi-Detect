@@ -351,7 +351,13 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
     command = list(stack_plan.command)
     if plan.segmentation:
-        overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_seg"
+        # One overlay owns the x500_mono_cam mount: Docker rejects two binds to
+        # the same target, so the wind variant carries the segmentation camera too.
+        overlay = ROOT / (
+            "simulation/gazebo/model-overlays/x500_mono_cam_seg_wind"
+            if plan.wind_vehicle_overlay
+            else "simulation/gazebo/model-overlays/x500_mono_cam_seg"
+        )
         if not (overlay / "model.sdf").is_file():
             raise FileNotFoundError(overlay / "model.sdf")
         overlay_mount = (
@@ -386,7 +392,7 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             command.index("run"),
         )
         command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
-    if plan.wind_vehicle_overlay:
+    if plan.wind_vehicle_overlay and not plan.segmentation:
         overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_wind"
         overlay_mount = (
             "--mount",

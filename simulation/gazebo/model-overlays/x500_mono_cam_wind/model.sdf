@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sdf version="1.9">
   <model name="x500_mono_cam">
+    <!-- Wind variant: every link of the composite (incl. merged x500 links) feels the world wind. -->
+    <enable_wind>true</enable_wind>
     <include merge="true"><uri>model://x500</uri></include>
     <include merge="true"><uri>model://mono_cam</uri><pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose></include>
-    <link name="base_link"><enable_wind>true</enable_wind></link>
-    <link name="camera_link"><enable_wind>true</enable_wind></link>
     <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>camera_link</child><pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose></joint>
   </model>
 </sdf>
