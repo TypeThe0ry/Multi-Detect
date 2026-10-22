@@ -47,3 +47,24 @@ Ogre2 的 SDF fog 支持依赖渲染器配置，已有 appearance 的 haze fallb
 `windy.sdf` 明确包含 `<enable_wind>true</enable_wind>`，说明仅写 world `<wind>` 不足以证明
 动力学作用。首次 mission suite 在共享锁等待期间未完成，未产生可引用的 calm/wind steps 或
 PX4 ulog；因此本文不宣称风对飞行器已产生实测漂移，也不伪造 actors+dusk+noise 结果。
+
+## 2026-10-22 SITL 实测
+
+风场变体前后踩了四个坑，都已修复：
+
+| 现象 | 原因 | 修复 |
+|---|---|---|
+| Docker 报 `Duplicate mount point ... x500_mono_cam` | 分割相机覆盖层和风场覆盖层挂到同一目标 | 新增 `x500_mono_cam_seg_wind`（分割相机 + 模型级 `<enable_wind>`），开风时替换而不是叠加（`4678a40`） |
+| PX4 一直 “Waiting for Gazebo world” | 世界里声明了 `WindEffects` 插件；Gazebo 世界一旦声明任何系统插件，就不再加载默认系统 | 世界只写 `<wind>` 和阵风注释，容器启动补丁按需把 WindEffects 加进 server config（`055674d`） |
+| 停在地上被风推滑、“Preflight Fail: no heading reference”，解锁后翻倒 | 风力换算系数 1、5 s 内加满风，对 2 kg 的 x500 过大 | 系数 0.3，60 s 内逐渐加满（`610ba11`） |
+| 相机噪声覆盖层挂载失败（make mountpoint） | 仓库模型根目录是只读挂载，里面没有 `mono_cam` 目录 | 改为覆盖镜像自带的 `/opt/px4-gazebo/share/gz/models/mono_cam`（`2413258`） |
+
+数锥桶（gen_cnt2_w0000，各 1 架次）：
+
+| 条件 | 结果 | 步数 | 原地转向时位置漂移均值 |
+|---|---|---|---|
+| 无风（10-22 三个架次） | 3/3，0 误报 | 87–122 | 0.08–0.10 m |
+| 风 6 m/s + 阵风 3 m/s | 3/3，0 误报，覆盖完成后返航 | 127 | 0.26 m |
+| 风 + 2 个移动物体 + 黄昏 + 相机噪声 0.01 | 3/3，0 误报 | 144 | — |
+
+风确实作用在机体上（漂移约为无风时的 3 倍），任务仍能完成，代价是步数增加。每种条件只跑了 1 架次，还不能说明稳定性。
