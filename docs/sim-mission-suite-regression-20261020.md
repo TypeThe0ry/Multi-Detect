@@ -83,3 +83,19 @@
 修复前那 3 架次漏的都是 (-35.4, -31.8) 这一个消防栓：飞到 8 m、目标框 22–24 px 时身份模型“是/不是”来回翻（一架次 2 次“是”、3 次“不是”），按两次连续确认的规则不计数。这是模型对这个具体目标的分辨力问题，结果正确地标成了下限。
 
 两次结果都正确标成了“下限”，摘要里写的是“至少 2 个”，不会把漏数报成准确数量。
+
+## 2026-10-22 relook 分支验证
+
+实现：`ca64bfd`（`wt/relook`；随后补充了可配置多数门限）。可用尺寸且地点上出现真实“是/不是”矛盾时，航迹进入一次有预算上限的矛盾回看：沿地点外侧按默认 60° 分离方位飞行，复用第二眼的清障与地点回看状态机，只接受不同方位的真实慢模型票；默认收集 3 个新方位，严格多数且地点总票“是”多于“不是”才确认，否则记忆为拒绝。直接构造 `LoopConfig` 时该开关仍关闭，机上 policy 默认打开。`area_search`、`count`、`inspect` 的航迹启用静态地面 hard veto：距离超过 `max(20 m, 5 * ground_gate)` 永不续接；跟随、监视、巡逻不启用。`survey` 是几何覆盖步骤，不创建感知航迹。
+
+按要求在共享 SITL 锁内执行：
+`python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-relook-20261022 --only count-fire-hydrants count-cones --episodes 3 --retry-failed-episodes --min-free-disk-gb 8`
+
+本次没有产生可评分的 episode。两个 campaign 都在创建 policy 时退出（`collector_exit=1`），原因是当前 worktree 缺少 `artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt`；没有改动其他 worktree 或补造模型文件。因而 6 个架次的逐架结果如下：
+
+| 任务 / 架次 | 状态 | 计数 | 误报 | 矛盾回看及结果 | `(-35.4,-31.8)` 消防栓 |
+| --- | --- | --- | --- | --- | --- |
+| `count-fire-hydrants` 1–3 | missing（均无 `steps.jsonl`） | N/A | N/A | 0 / N/A | N/A |
+| `count-cones` 1–3 | missing（均无 `steps.jsonl`） | N/A | N/A | 0 / N/A | N/A |
+
+所以本次不能宣称 hydrant 是否被计数，也不能从 `steps.jsonl` 统计回看标签；基线中的 hydrant 3/3、2/3 与 cones 3/3 结果仍是 2026-10-21 的参考值。失败输出和 traceback 保存在上述 benchmark 目录的两个 `campaign/*.log` 中，待补齐该权重后需要重新跑同一命令。
