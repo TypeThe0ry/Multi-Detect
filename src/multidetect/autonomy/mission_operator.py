@@ -93,6 +93,7 @@ class MissionOperatorAdapter:
         preflight_allowed: Callable[[], bool] | None = None,
         supervisor: MissionSupervisor | None = None,
         requires_approval: bool | None = None,
+        package_verify_key_path: str | None = None,
         clock: Callable[[], float] = time.monotonic,
         upload_timeout_s: float = 30.0,
     ) -> None:
@@ -100,6 +101,7 @@ class MissionOperatorAdapter:
             raise ValueError("upload timeout must be in (0, 300]")
         self.codec, self.package_loader = codec, package_loader
         self.requires_approval = requires_approval
+        self.package_verify_key_path = package_verify_key_path
         self.preflight_allowed = preflight_allowed
         self.supervisor = supervisor
         self.clock, self.upload_timeout_s = clock, upload_timeout_s
@@ -395,7 +397,11 @@ class MissionOperatorAdapter:
         payload = b"".join(upload.parts)
         if len(payload) != total or hashlib.sha256(payload).digest() != digest:
             raise ValueError("任务包摘要不一致")
-        package = load_mission_package(strict_json_loads(payload, name="mission package"))
+        package = load_mission_package(
+            strict_json_loads(payload, name="mission package"),
+            operator_key_path=self.package_verify_key_path,
+            require_signature=self.package_verify_key_path is not None,
+        )
         if not self._preflight():
             raise ValueError("飞行状态已变化，拒绝替换任务")
         # Frozen dataclasses still contain mutable dictionaries. Snapshot before

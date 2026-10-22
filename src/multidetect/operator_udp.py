@@ -229,6 +229,7 @@ class UdpOperatorSelectionServer:
         mission_package_loader: Callable[[Any], Any] | None = None,
         mission_preflight_allowed: Callable[[], bool] | None = None,
         mission_requires_approval: bool | None = None,
+        mission_package_verify_key_path: str | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -290,6 +291,7 @@ class UdpOperatorSelectionServer:
                 package_loader=mission_package_loader,
                 preflight_allowed=mission_preflight_allowed,
                 requires_approval=mission_requires_approval,
+                package_verify_key_path=mission_package_verify_key_path,
             )
         self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
@@ -315,15 +317,15 @@ class UdpOperatorSelectionServer:
         self._command_buckets: OrderedDict[
             tuple[tuple[str, int], WireMessageType], _TokenBucket
         ] = OrderedDict()
-        self._duplicate_ack_sent_at: OrderedDict[
-            tuple[tuple[str, int], WireMessageType], float
-        ] = OrderedDict()
+        self._duplicate_ack_sent_at: OrderedDict[tuple[tuple[str, int], WireMessageType], float] = (
+            OrderedDict()
+        )
         self._background_error_rate_per_source = background_error_rate_per_source
         self._background_error_burst_per_source = background_error_burst_per_source
         self._background_error_buckets: OrderedDict[tuple[str, int], _TokenBucket] = OrderedDict()
-        self._background_error_counts: OrderedDict[
-            tuple[tuple[str, int] | None, str], int
-        ] = OrderedDict()
+        self._background_error_counts: OrderedDict[tuple[tuple[str, int] | None, str], int] = (
+            OrderedDict()
+        )
         self._unknown_peer_bucket = _TokenBucket(8.0, time.monotonic())
         self._background_error_drop_count = 0
         self._last_received_peer: tuple[str, int] | None = None
@@ -843,9 +845,7 @@ class UdpOperatorSelectionServer:
         while len(mapping) >= MAX_TRACKED_PEER_STATE_ENTRIES:
             victim = next(iter(mapping))
             key_peer = (
-                victim[0]
-                if isinstance(victim, tuple) and isinstance(victim[0], tuple)
-                else victim
+                victim[0] if isinstance(victim, tuple) and isinstance(victim[0], tuple) else victim
             )
             if protected_peer is not None and key_peer == protected_peer:
                 mapping.move_to_end(victim)
@@ -1413,8 +1413,12 @@ class UdpOperatorSelectionServer:
     def poll_mission_telemetry(self) -> None:
         """Also callable by a foreground runtime using ``serve_once`` directly."""
         peer = self.active_metadata_peer()
-        sender = None if peer is None else lambda payload: self._channel.sendto(
-            self.mavlink.wrap_authenticated_operator_payload(payload), peer
+        sender = (
+            None
+            if peer is None
+            else lambda payload: self._channel.sendto(
+                self.mavlink.wrap_authenticated_operator_payload(payload), peer
+            )
         )
         self.mission_adapter.tick(sender)
 
@@ -1789,13 +1793,9 @@ class UdpOperatorSessionClient:
         if status.selection_command_id != self._active_command_id:
             raise OperatorProtocolError("tracking status selection command ID does not match")
         if self._last_status_sequence is not None and not serial_is_newer(
-
             status.sequence,
-
             self._last_status_sequence,
-
             max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
-
         ):
             raise OperatorProtocolError("tracking status sequence is not newer")
         self._last_status_sequence = status.sequence
@@ -2112,8 +2112,7 @@ class UdpOperatorSessionClient:
             age_s = now_s - packet.sent_at_s
             if age_s > self.status_max_age_s:
                 raise _StatusFreshnessError(
-                    packet.message_type,
-                    "status packet is stale and cannot be shown as current"
+                    packet.message_type, "status packet is stale and cannot be shown as current"
                 )
             if age_s < -self.status_future_tolerance_s:
                 raise _StatusFreshnessError(
@@ -2124,8 +2123,7 @@ class UdpOperatorSessionClient:
             producer_epoch = getattr(packet.message, "producer_epoch", None)
             epoch_suffix = "" if producer_epoch is None else f":{producer_epoch}"
             key = (
-                f"status:{self.remote[0]}:{self.remote[1]}:"
-                f"{packet.message_type.name}{epoch_suffix}"
+                f"status:{self.remote[0]}:{self.remote[1]}:{packet.message_type.name}{epoch_suffix}"
             )
             previous = self._status_replay_state.sequences.get(key)
             if previous is not None and not serial_is_newer(
