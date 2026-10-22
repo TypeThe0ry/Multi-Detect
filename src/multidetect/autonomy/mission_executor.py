@@ -114,8 +114,25 @@ class ExecutorConfig:
     # Count-only looks for places rejected before a usable-size or near view.
     count_rejection_revisit_attempts: int = 3
     count_rejection_revisit_range_m: float = 15.0
+    # count/area_search: places of query-relevant tracks that were only ever too
+    # small to judge get a closer look before the search ends, at most this many.
+    small_unjudged_revisit_attempts: int = 2
+    # Far/small rejection and small unjudged looks of one step share this cap.
+    completion_revisit_max: int = 4
+    # With a supervisor energy/time margin, a small unjudged look is flown only
+    # while this multiple of its estimated duration stays inside the margin.
+    revisit_margin_factor: float = 2.0
+    revisit_speed_mps: float = 5.0
 
     def __post_init__(self) -> None:
+        for name in ("small_unjudged_revisit_attempts", "completion_revisit_max"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        for name in ("revisit_margin_factor", "revisit_speed_mps"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
         if (
             isinstance(self.unresolved_revisit_attempts, bool)
             or not isinstance(self.unresolved_revisit_attempts, int)
@@ -265,6 +282,9 @@ class _StepRun:
     revisited_places: list[tuple[float, float]] = field(default_factory=list)
     rejection_revisit_places: list[tuple[float, float]] = field(default_factory=list)
     rejection_revisit_skipped: list[dict[str, Any]] = field(default_factory=list)
+    # Small unjudged looks started by this step and why pending places got none.
+    small_unjudged_revisits: list[dict[str, Any]] = field(default_factory=list)
+    small_unjudged_skipped: list[dict[str, Any]] = field(default_factory=list)
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -373,6 +393,9 @@ class MissionExecutor:
         # the pure executor to a transport implementation.
         self._protocol_events: list[dict[str, Any]] = []
         self.done = False
+        # Seconds of flight left before the return reserve, when a supervisor
+        # energy/time model supplies it (MissionSupervisor.evaluate).
+        self.energy_margin_s: float | None = None
         self._last_loop: OnboardLoop | None = None
         self._run: _StepRun | None = self._start(self.plan.steps[0])
         self._current: list[Track] = []
@@ -477,6 +500,12 @@ class MissionExecutor:
             run.loop = self._loop(step, max_steps=10**6, restart_route=False)
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6, restart_route=False)
+        if step.skill in {"area_search", "count"} and run.loop is not None:
+            query = step.params.get("query")
+            config = run.loop.config
+            if isinstance(query, str) and hasattr(config, "small_unjudged_query"):
+                # Detector labels naming this query mark small unjudged tracks.
+                run.loop.config = replace(config, small_unjudged_query=query)
         elif step.skill == "inspect":
             run.loop = self._loop(step)
         elif step.skill in {"patrol", "monitor"}:
@@ -527,20 +556,29 @@ class MissionExecutor:
         status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         if run.step.skill == "count":
             unresolved = bool(run.loop and run.loop.unresolved_positive_tracks())
-            pending_rejections = bool(
-                run.loop
-                and run.loop.has_pending_far_small_rejections(
-                    self.config.count_rejection_revisit_range_m
-                )
-            )
             # Only a full coverage pass with nothing left unresolved is a complete
             # count; any other ending (budget, max_count, a blocked or exhausted
-            # search, an interruption) can have missed objects.
+            # search, an interruption) can have missed objects.  Pending places
+            # follow the revisit skip reasons: a place outside the step region is
+            # not part of the task, and a place already looked at again has had
+            # its second look; one left unvisited for budget, viewpoint or margin
+            # reasons is still open.
             status["count_is_lower_bound"] = (
-                reason != "coverage_complete" or unresolved or pending_rejections
+                reason != "coverage_complete"
+                or unresolved
+                or bool(self._pending_rejection_places(run))
+                or bool(self._pending_small_unjudged_places(run))
             )
             if run.rejection_revisit_skipped:
                 status["rejection_revisit_skipped"] = run.rejection_revisit_skipped
+        if run.step.skill in {"count", "area_search"}:
+            if run.small_unjudged_revisits:
+                for record in run.small_unjudged_revisits:
+                    if record.get("outcome") is None:
+                        record["outcome"] = "interrupted"
+                status["small_unjudged_revisits"] = run.small_unjudged_revisits
+            if run.small_unjudged_skipped:
+                status["small_unjudged_revisit_skipped"] = run.small_unjudged_skipped
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1154,6 +1192,9 @@ class MissionExecutor:
             revisit = self._revisit_unresolved(run, pose, yaw, info)
             if revisit is not None:
                 return revisit
+            revisit = self._revisit_small_unjudged(run, pose, yaw, info)
+            if revisit is not None:
+                return revisit
             # The loop's own budget ended its search; flying home is the plan's job.
             reason = "coverage_complete" if run.loop.state == "completed" else "search_exhausted"
             self._finish("succeeded" if reason == "coverage_complete" else "failed", reason)
@@ -1166,6 +1207,11 @@ class MissionExecutor:
         if loop is None or run.step.skill != "count" or limit < 1:
             return None
         if len(run.rejection_revisit_places) >= limit:
+            return None
+        if (
+            len(run.rejection_revisit_places) + len(run.small_unjudged_revisits)
+            >= self.config.completion_revisit_max
+        ):
             return None
         here = (pose[0], pose[1])
         region = self.region_of(run.step)
@@ -1257,6 +1303,9 @@ class MissionExecutor:
             revisit = self._revisit_unresolved(run, pose, yaw, info)
             if revisit is not None:
                 return revisit
+            revisit = self._revisit_small_unjudged(run, pose, yaw, info)
+            if revisit is not None:
+                return revisit
             revisit = self._revisit_far_small_rejection(run, pose, yaw, info)
             if revisit is not None:
                 return revisit
@@ -1324,6 +1373,188 @@ class MissionExecutor:
                 {"event": "unresolved_place_revisit", "step_id": run.step.id, **record}
             )
             return action, info
+        return None
+
+    def _in_step_area(self, run: _StepRun, point: Sequence[float]) -> bool:
+        """Whether ``point`` lies in the step's region and the operating area."""
+        region = self.region_of(run.step)
+        area = self.operating_area if isinstance(self.operating_area, Mapping) else None
+        return (region is None or math.dist(point[:2], region[:2]) <= region[2]) and (
+            area is None or self._point_inside_area(point, area)
+        )
+
+    def _looked_places(self, run: _StepRun) -> list[tuple[float, float]]:
+        """Places this step already flew back to look at, by any revisit kind."""
+        return [
+            *run.revisited_places,
+            *run.rejection_revisit_places,
+            *(tuple(record["centre"]) for record in run.small_unjudged_revisits),
+        ]
+
+    def _pending_rejection_places(self, run: _StepRun) -> list[dict[str, Any]]:
+        """Far/small rejected places that still lack a usable second look.
+
+        The same exclusions as ``_revisit_far_small_rejection``'s skip reasons:
+        near a counted object, outside the step region, already revisited, or
+        co-visible with a counted object (so not a missed copy of it).
+        """
+        loop = run.loop
+        if loop is None:
+            return []
+        looked = self._looked_places(run)
+        pending = []
+        for item in loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m):
+            centre = item.get("ground")
+            if centre is None:
+                continue
+            if any(
+                record.get("position_estimate_ne") is not None
+                and math.dist(centre, record["position_estimate_ne"][:2])
+                <= loop.config.count_dedupe_m
+                for record in loop.confirmations
+            ):
+                continue
+            if not self._in_step_area(run, centre):
+                continue
+            if any(math.dist(centre, place) <= loop.config.count_dedupe_m for place in looked):
+                continue
+            if any(
+                item.get("track_id") in record.get("co_visible_with", ())
+                or record.get("track_id") in item.get("co_visible_with", ())
+                for record in loop.confirmations
+            ):
+                continue
+            pending.append(item)
+        return pending
+
+    def _pending_small_unjudged_places(self, run: _StepRun) -> list[dict[str, Any]]:
+        """Relevant small unjudged places inside the step that were never looked at."""
+        loop = run.loop
+        if loop is None:
+            return []
+        looked = self._looked_places(run)
+        return [
+            place
+            for place in loop.small_unjudged_places()
+            if self._in_step_area(run, place["centre"])
+            and not any(
+                math.dist(place["centre"], point) <= loop.config.count_dedupe_m for point in looked
+            )
+        ]
+
+    def _revisit_small_unjudged(self, run, pose, yaw, info):
+        """Before a search ends, look closer at query-relevant places never judged.
+
+        A far object of the queried class can stay below the judging size for
+        every frame it is in (SITL gen_cnt2_w0001: a hydrant seen once at
+        7.1 px was never judged, and the coverage pass turned away).  Nearest
+        first, each such place gets one look from a viewpoint where its box
+        reaches the judging size, while the step's attempts, the cap shared
+        with far/small rejection looks, the step budget and any supervisor
+        energy/time margin allow it.  The loop then judges and counts the place
+        with its normal rules.  Why a pending place got no look is recorded.
+        """
+        loop = run.loop
+        limit = self.config.small_unjudged_revisit_attempts
+        if loop is None or run.step.skill not in {"count", "area_search"} or limit < 1:
+            return None
+        places = loop.small_unjudged_places()
+        if not places:
+            return None
+        here = (pose[0], pose[1])
+        region = self.region_of(run.step)
+        area = self.operating_area if isinstance(self.operating_area, Mapping) else None
+
+        def allowed(point):
+            return (region is None or math.dist(point, region[:2]) <= region[2]) and (
+                area is None or self._point_inside_area(point, area)
+            )
+
+        def reachable(point):
+            return allowed(point) and not self._leg_enters_no_fly(here, point)
+
+        skipped: list[dict[str, Any]] = []
+
+        def skip(place, reason):
+            skipped.append(
+                {
+                    "centre": [round(float(v), 2) for v in place["centre"][:2]],
+                    "track_ids": list(place["track_ids"]),
+                    "reason": reason,
+                }
+            )
+
+        looked = [
+            *run.revisited_places,
+            *run.rejection_revisit_places,
+            *(tuple(record["centre"]) for record in run.small_unjudged_revisits),
+        ]
+        remaining = self._budget(run.step) - run.primitives
+        for place in sorted(places, key=lambda item: math.dist(item["centre"], here)):
+            centre = place["centre"]
+            if not allowed(centre):
+                skip(place, "outside_region")
+                continue
+            if any(math.dist(centre, point) <= loop.config.count_dedupe_m for point in looked):
+                skip(place, "already_revisited")
+                continue
+            if len(run.small_unjudged_revisits) >= limit:
+                skip(place, "attempts_exhausted")
+                continue
+            used = len(run.small_unjudged_revisits) + (
+                len(run.rejection_revisit_places) if run.step.skill == "count" else 0
+            )
+            if used >= self.config.completion_revisit_max:
+                skip(place, "revisit_cap")
+                continue
+            look, reason = loop.plan_small_unjudged_revisit(place, pose, allowed=reachable)
+            if look is None:
+                skip(place, reason or "no_clear_viewpoint")
+                continue
+            # Turns, legs, descent, face, holds, climb back, and two to judge.
+            needed = (
+                look["legs"]
+                + 2 * look["vertical_steps"]
+                + loop.config.small_unjudged_look_holds
+                + 5
+            )
+            if needed > remaining:
+                skip(place, "budget")
+                continue
+            if self.energy_margin_s is not None:
+                home = self.home or here
+                extra_home = max(0.0, math.dist(look["goal"], home) - math.dist(here, home))
+                seconds = (
+                    look["flight_m"] + extra_home + 2.0 * look["vertical_m"]
+                ) / self.config.revisit_speed_mps + (
+                    loop.config.small_unjudged_look_holds + 3
+                ) * self.config.hold_s
+                if self.config.revisit_margin_factor * seconds >= self.energy_margin_s:
+                    skip(place, "energy_margin")
+                    continue
+            record = look["record"]
+            action = loop.begin_place_revisit(look, pose, yaw, info)
+            if action is None:
+                skip(place, "revisit_not_started")
+                continue
+            run.small_unjudged_revisits.append(record)
+            info["small_unjudged_revisit"] = record
+            self.mission_log.append(
+                {"event": "small_unjudged_revisit", "step_id": run.step.id, **record}
+            )
+            if skipped:
+                run.small_unjudged_skipped = skipped
+            return action, info
+        run.small_unjudged_skipped = skipped
+        if skipped:
+            info["small_unjudged_revisit_skipped"] = skipped
+            self.mission_log.append(
+                {
+                    "event": "small_unjudged_revisit_skipped",
+                    "step_id": run.step.id,
+                    "skipped": skipped,
+                }
+            )
         return None
 
     def _report_count(self, run: _StepRun) -> None:

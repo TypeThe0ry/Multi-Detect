@@ -162,3 +162,69 @@ ID 比较相邻更新的 `ground_ne`，只统计更新后仍带非空 `verdict` 
 `verdict_ground` 超过 8 m，就清空 `verdict`、`confirm_steps` 和 `match_steps`，
 置 `needs_fresh_verdict`，要求身份模型在新位置重新判断。判决形成点随新的真实
 判决更新；移动目标技能不触发该失效，避免破坏跟随/监视航迹。
+
+## 2026-10-23 “见过但太小、从未判断”的补看
+
+verdictshift 轮消防栓第 1 架次（7d6ea791）只计到 2/3。漏掉的 `count_member_0001_02`（NED -35.44, -31.80）
+只在第 57 步出现一次：航迹 t14 从 (-11.4, -17.0)、高 17.2 m 看到，框最小边 7.1 px，低于
+`min_verdict_side_px = 10`，从没送去慢模型判断。之后目标掉出视场下沿，覆盖结束。已有补看只处理
+被拒绝的地点（远小拒绝、second look）和判过“是”但没确认的地点，这种“见过、相关、但一直太小”的
+航迹直接被遗忘。
+
+**触发条件**（count / area_search，执行器把步骤的 `query` 写进 `LoopConfig.small_unjudged_query`）：
+- 检测框的类别标签与查询相关（`label_matches_query`：标签中心名词是查询词，或整串标签/连写形式是
+  连续的查询词，如 “post box”/“postbox”），分数不低于 `small_unjudged_min_score = 0.05`（等于
+  提议器默认候选门槛），且框最小边 < `min_verdict_side_px`。
+- 航迹从没有过身份判断（无 `identity_verdict_history`、无 `verdict`、未 exhausted），也没长到判断尺寸。
+- 地点不在已计数物体的去重半径内（`_counted_at`，同帧共视证明是两个物体的除外）；同地点
+  （`count_dedupe_m` 内）没有其他航迹拿到过判断、没有拒绝记忆、地点记忆为空。
+- 去重半径内的多条小航迹合并为一个地点，用最大的那次视角估计尺寸。
+
+**视角选择**：框边长与斜距成反比，所以斜距 `reach = 看到时斜距 × 看到时边长 / 14 px`
+（`small_unjudged_target_side_px`）。观察高度取让目标落在相机光轴下 20° 的高度，下限
+`approach_min_altitude_m`（8 m），上限为当前高度和“目标不掉出图像下沿”的最高高度；水平距离
+`sqrt(reach² − h²)` 且不小于可视距离。方位从当前所在一侧开始，每 30° 试一次，每个候选必须：
+当前高度的平飞航段清障、在观察点**从当前高度到观察高度的三维下降线段**清障（与楼顶下降修复同一
+检查），并在区域内、不进禁飞区。视线不穿过障碍物占地的观察点优先。执行时每个平飞腿、每次下降都
+再检查一次；看完（或放弃）后爬回出发高度。7d6ea791 的几何：最近一侧的观察点在公寓楼（obstacle_01，
+14.8 m）的余量圈里、下降会进楼顶，被拒；选到 (-21.0, -31.4)、高 8.5 m、水平 14.5 m，预计 14 px。
+
+**预算协调**：每个步骤最多 2 次（`small_unjudged_revisit_attempts`）；与远小拒绝补看共用每步
+4 次的上限（`completion_revisit_max`），在“判过是但未解决”的补看之后、远小拒绝补看之前进行；与已
+补看过的地点（任何一种）去重；剩余步数要够飞过去、下降、对准、等待 2 步、爬回再加 2 步判断；
+有监督器时，补看估计耗时（含回家距离增量）× 2 必须小于监督器给出的余量
+（`energy_margin_s`：电池模式即 `action_margin_s`，已扣返航能量；只有时间预算时再扣掉回家飞行
+与降落时间），不会挤掉 return_home 的余量。
+
+**判断与计数**：补看本身不改任何判断。到观察点后框够大就照常送慢模型；判“是”则交还正常接近和
+确认规则（`two_views` / `identity_at_closest_view` 等），计数照常去重；判“不是”就记入拒绝记忆。
+补看结果写进步骤 history 的 `small_unjudged_revisits`（`outcome`：`judged_*`、`counted`、
+`still_unjudged`、`not_seen`、`descent_blocked`、`fly_blocked`、`timeout`、`interrupted`），
+跳过原因写进 `small_unjudged_revisit_skipped`（`outside_region`、`already_revisited`、
+`attempts_exhausted`、`revisit_cap`、`no_clear_viewpoint`、`too_small_to_resolve`、`budget`、
+`energy_margin`），mission_log 记 `small_unjudged_revisit(_skipped)` 事件。
+
+**计数下限判定**（第十一次 e2e：覆盖完成、3/3 全对，却因两个已跳过的远小拒绝地点被标成下限）：
+`count_is_lower_bound` 现在与补看跳过原因一致。远小拒绝地点在任务区域外（`outside_region`）、
+已补看过（`already_revisited`）、与已计数物体同帧共视（`co_visible_with_counted`）或在已计数物体
+去重半径内的，不再算未决；因预算、观察点、能量余量等没补看的仍算未决。相关小而未判断的地点同样
+处理：在区域内且没补看过（包括预算/余量用尽、次数用尽）时计数为下限；补看过（不论结果）或在区域
+外则不算。
+
+**离线重放**：对 verdictshift、veto、veto-b、wind-20261022d、wind-full-20261022e 中 12 个 count
+架次（另有 7 个 wind 架次没有 steps.jsonl），用同一 YOLOE 权重（imgsz 1280，conf 0.05）在对应帧上
+重检，拿回日志里没记的类别标签（所有候选框 IoU = 1.0）。全程未判断、始终 < 10 px 的候选航迹
+共 48 条；按上面的规则只触发 1 次：7d6ea791 的 t14（重检为 fire hydrant，0.80，距真值 0.02 m），
+正是漏计的那个。误触发 0 次。不加类别相关性过滤会多出 6 个误触发地点（electrical box、mailbox、
+concrete barrier、误检的 traffic cone）。veto 轮 e3d03448 同一消防栓也漏计，但那里没有任何候选
+航迹，补看救不回来。inspect-postbox 不属于该功能。
+
+**未验证**：未跑 SITL。复验命令（冻结工作树后）：
+
+```bash
+cd /d/Projects/mdwt/small-revisit && export PYTHONPATH="src;." PYTHONUTF8=1
+python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json \
+  --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-smallrevisit-20261023 \
+  --only count-fire-hydrants count-cones inspect-postbox --episodes 3 \
+  --retry-failed-episodes --min-free-disk-gb 8
+```
