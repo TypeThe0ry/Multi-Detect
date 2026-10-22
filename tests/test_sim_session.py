@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.run_sim_session as session
 from scripts.run_sim_session import VIEWER_IMAGE, build_session_command, main, resolve_world
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,148 @@ def test_session_options_reject_invalid_snapshot_interval() -> None:
 def test_world_must_be_repository_owned() -> None:
     with pytest.raises(ValueError, match="world not found"):
         resolve_world("missing-world.sdf")
+
+
+@pytest.mark.parametrize(
+    ("airframe", "world", "model"),
+    [
+        ("x500", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
+        ("standard_vtol", "river_rescue_vtol_001.sdf", "px4_vtol_standard"),
+        ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
+        ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor_mono_cam"),
+        ("rc_cessna", "coastal_patrol_fixed_wing_001.sdf", "px4_fixed_wing_standard"),
+    ],
+)
+def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model: str) -> None:
+    _, plan, selected_world = build_session_command(
+        airframe=airframe, container_name=f"test-{airframe}"
+    )
+    assert selected_world.name == world
+    assert plan.scenario_id
+    assert plan.vehicle_model == model
+
+
+@pytest.mark.parametrize(
+    ("airframe", "world", "scenario"),
+    [
+        ("standard_vtol", "gen_v2_w0031", "vtol-v2/standard_vtol/gen_v2_w0031"),
+        ("standard_vtol", "gen_v2_w0016", "vtol-v2/standard_vtol/gen_v2_w0016"),
+        ("quadtailsitter", "gen_v2_w0016", "vtol-v2/quadtailsitter/gen_v2_w0016"),
+        ("rc_cessna", "gen_v2_w0031", "fixed-wing-v2/gen_v2_w0031"),
+        ("rc_cessna_hand", "gen_v2_w0016", "fixed-wing-v2/gen_v2_w0016"),
+        ("x500", "gen_v2_w0031", "generated-v2/gen_v2_w0031"),
+    ],
+)
+def test_generated_world_uses_matching_airframe_scenario(
+    airframe: str, world: str, scenario: str
+) -> None:
+    resolved = session._scenario_for(resolve_world(world), airframe)
+    assert resolved == ROOT / "configs/scenarios" / f"{scenario}.scenario.json"
+    _, plan, _ = build_session_command(
+        airframe=airframe, world=world, container_name=f"test-generated-{airframe}"
+    )
+    assert plan.scenario_id == world
+
+
+@pytest.mark.parametrize(
+    ("airframe", "world"),
+    [
+        ("tiltrotor", "gen_v2_w0031"),  # no tiltrotor derivation of the generated world
+        ("rc_cessna", "urban_inspection_multirotor_001.sdf"),
+        ("x500", "river_rescue_vtol_001.sdf"),
+    ],
+)
+def test_known_world_without_an_airframe_scenario_is_rejected(airframe: str, world: str) -> None:
+    with pytest.raises(ValueError, match="has no scenario for airframe"):
+        build_session_command(airframe=airframe, world=world, container_name="mismatch")
+
+
+@pytest.mark.parametrize(
+    ("airframe", "requested", "expected"),
+    [
+        ("x500", None, None),
+        ("standard_vtol", None, "vtol"),
+        ("quadtailsitter_mono_cam", None, "vtol"),
+        ("tiltrotor", None, "vtol"),
+        ("rc_cessna", None, "runway"),
+        ("rc_cessna", "catapult", "catapult"),
+        ("rc_cessna_hand", None, "hand"),
+        ("rc_cessna_catapult", None, "catapult"),
+    ],
+)
+def test_takeoff_method_follows_the_airframe(
+    airframe: str, requested: str | None, expected: str | None
+) -> None:
+    assert session.resolve_takeoff_method(airframe, requested) == expected
+
+
+@pytest.mark.parametrize(
+    ("airframe", "requested"),
+    [
+        ("x500", "runway"),
+        ("standard_vtol", "runway"),
+        ("rc_cessna", "vtol"),
+        ("rc_cessna_hand", "catapult"),
+    ],
+)
+def test_takeoff_method_rejects_other_airframe_families(airframe: str, requested: str) -> None:
+    with pytest.raises(ValueError, match="does not apply"):
+        session.resolve_takeoff_method(airframe, requested)
+    with pytest.raises(SystemExit):
+        main(["--airframe", airframe, "--takeoff-method", requested])
+
+
+@pytest.mark.parametrize(
+    ("airframe", "world", "canonical", "takeoff"),
+    [
+        ("x500", "urban_inspection_multirotor_001.sdf", "x500_mono_cam", None),
+        ("standard_vtol", "gen_v2_w0016", "standard_vtol", "vtol"),
+        ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter", "vtol"),
+        ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor", "vtol"),
+        ("rc_cessna", "gen_v2_w0031", "rc_cessna_mono_cam", "runway"),
+        ("rc_cessna_hand", "coastal_patrol_fixed_wing_001.sdf", "rc_cessna_mono_cam", "hand"),
+    ],
+)
+def test_onboard_collector_command_carries_airframe_and_takeoff(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    airframe: str,
+    world: str,
+    canonical: str,
+    takeoff: str | None,
+) -> None:
+    captured: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        captured.append(command)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(session.subprocess, "run", fake_run)
+    world_path = resolve_world(world)
+    session._run_task(
+        "find target",
+        world_path,
+        14540,
+        tmp_path,
+        "sim",
+        operator_link={"operator_port": 14580},
+        airframe=airframe,
+        artifacts_root=tmp_path / "art",
+    )
+    command = captured[0]
+    assert command[command.index("--airframe") + 1] == canonical
+    assert Path(command[command.index("--scenario") + 1]) == session._scenario_for(
+        world_path, airframe
+    )
+    if takeoff:
+        assert command[command.index("--takeoff-method") + 1] == takeoff
+    else:
+        assert "--takeoff-method" not in command
+    # The SITL battery simulator is airframe-agnostic: keep it charged for every
+    # operator-link session, alongside the session disk guard and step budget.
+    assert command[command.index("--sim-param") + 1] == "SIM_BAT_MIN_PCT=95"
+    assert command[command.index("--min-free-gb") + 1] == "6"
+    assert command[command.index("--steps-per-episode") + 1] == "220"
 
 
 def test_variant_world_resolves_its_own_scenario() -> None:
