@@ -9,6 +9,7 @@ contract, then adds the WSLg display bindings needed by Gazebo's client.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -37,6 +38,12 @@ BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
 DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+# Onboard-policy defaults for --onboard-task (the r18 mission-suite defaults).
+# Values starting with "artifacts/" resolve against --artifacts-root.
+DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
+DEFAULT_ARTIFACTS_ROOT = ROOT / "artifacts"
+SCENARIO_INDEXES = ROOT / "configs/scenarios"
+FIXED_WING_AIRFRAMES = ("rc_cessna", "advanced_plane")
 WORLD_SCENARIOS = {
     "urban_inspection_multirotor_001.sdf": ROOT
     / "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
@@ -77,10 +84,54 @@ def resolve_world(value: str | Path) -> Path:
     return candidate
 
 
+@functools.lru_cache(maxsize=1)
+def _indexed_worlds() -> dict[str, list[tuple[Path, dict]]]:
+    """world_file -> [(scenario path, index entry)] over configs/scenarios/*/index.json."""
+    worlds: dict[str, list[tuple[Path, dict]]] = {}
+    for index in sorted(SCENARIO_INDEXES.glob("*/index.json")):
+        try:
+            entries = json.loads(index.read_text(encoding="utf-8")).get("worlds") or []
+        except (OSError, ValueError):
+            continue
+        for entry in entries:
+            world_file = entry.get("world_file")
+            if not world_file:
+                continue
+            relative = ((entry.get("files") or {}).get("scenario") or {}).get("path")
+            scenario = index.parent / (relative or f"{Path(world_file).stem}.scenario.json")
+            if scenario.is_file():
+                worlds.setdefault(world_file, []).append((scenario, entry))
+    return worlds
+
+
+def _indexed_scenario(world_name: str, airframe: str) -> Path | None:
+    """Scenario of a generated or variant world, by its scenario index entry.
+
+    A world listed by several indexes (generated-v2 and its fixed-wing
+    derivation) picks the entry whose ``airframe`` matches the session.
+    """
+    candidates = _indexed_worlds().get(world_name, [])
+    wanted = "fixed_wing" if airframe.startswith(FIXED_WING_AIRFRAMES) else None
+    for scenario, entry in candidates:
+        if entry.get("airframe") == wanted:
+            return scenario
+    if candidates:
+        return candidates[0][0]
+    if "__" in world_name:
+        # augment_sim_world names variants <base>__<suffix>.sdf; an unindexed
+        # variant keeps the base world's spawn pose and home.
+        base = world_name.split("__", 1)[0] + ".sdf"
+        return WORLD_SCENARIOS.get(base) or _indexed_scenario(base, airframe)
+    return None
+
+
 def _scenario_for(world: Path, airframe: str) -> Path:
     for name, scenario in WORLD_SCENARIOS.items():
         if world.name == name:
             return scenario
+    indexed = _indexed_scenario(world.name, airframe)
+    if indexed is not None:
+        return indexed
     try:
         return AIRFRAME_SCENARIOS[airframe]
     except KeyError as exc:
@@ -161,16 +212,26 @@ def build_session_command(
         "exec /opt/px4-gazebo/bin/px4", viewer_start + "exec /opt/px4-gazebo/bin/px4"
     )
     if gcs_port is not None:
-        startup = command[-1]
-        gcs_line = (
-            f"mavlink start -x -t $DOCKER_HOST_IP -u 14542 -o {gcs_port} "
-            "-r 4000000 -f $mavlink_network_interface_arg; "
-        )
-        command[-1] = startup.replace(
+        command[-1] = command[-1].replace(
             "exec /opt/px4-gazebo/bin/px4",
-            f"printf '\\n{gcs_line}\\n' >> \"$RC\"; exec /opt/px4-gazebo/bin/px4",
+            _gcs_rc_append(gcs_port) + "exec /opt/px4-gazebo/bin/px4",
         )
     return command, plan, world_path
+
+
+def _gcs_rc_append(gcs_port: int) -> str:
+    """Shell that adds the GCS MAVLink instance to the container rc file once.
+
+    A restarted container re-runs its start-up command on the same file system;
+    an unconditional append would start a second instance on the same ports.
+    """
+    gcs_line = (
+        f"mavlink start -x -t $DOCKER_HOST_IP -u 14542 -o {gcs_port} "
+        "-r 4000000 -f $mavlink_network_interface_arg; "
+    )
+    return (
+        f"grep -qF -- '-u 14542 -o {gcs_port} ' \"$RC\" || printf '\\n{gcs_line}\\n' >> \"$RC\"; "
+    )
 
 
 def _heartbeat(port: int, timeout: float = 20.0) -> bool:
@@ -180,11 +241,16 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
         return False
     try:
         connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", autoreconnect=False)
-        message = connection.wait_heartbeat(timeout=timeout)
     except OSError as exc:
         print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
         return False
-    return message is not None
+    try:
+        return connection.wait_heartbeat(timeout=timeout) is not None
+    except OSError as exc:
+        print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
+        return False
+    finally:
+        connection.close()
 
 
 def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
@@ -192,7 +258,11 @@ def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
         from pymavlink import mavutil
 
         connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
-        message = connection.wait_heartbeat(timeout=timeout)
+        try:
+            message = connection.wait_heartbeat(timeout=timeout)
+        finally:
+            # Release the port: it is the GCS port a real ground station binds next.
+            connection.close()
         if message is None:
             return None
         return {
@@ -325,6 +395,10 @@ def _run_task(
     container_name: str,
     timeout_s: float = 2400.0,
     operator_link: dict | None = None,
+    *,
+    telemetry_port: int = 14541,
+    onboard_defaults: Path = DEFAULT_ONBOARD_DEFAULTS,
+    artifacts_root: Path = DEFAULT_ARTIFACTS_ROOT,
 ) -> int:
     """Run the existing onboard policy entry point against the session port."""
     out.mkdir(parents=True, exist_ok=True)
@@ -334,11 +408,10 @@ def _run_task(
         encoding="utf-8",
     )
     scenario = _scenario_for(world, "x500_mono_cam")
-    defaults = json.loads(
-        (Path(r"D:/Projects/mdwt/_scratch/suite-r18-defaults.json")).read_text(encoding="utf-8")
-    )["defaults"]
-    defaults["planning_model"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["planning_model"])
-    defaults["yoloe_weights"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["yoloe_weights"])
+    defaults = json.loads(Path(onboard_defaults).read_text(encoding="utf-8"))["defaults"]
+    for key, value in defaults.items():
+        if isinstance(value, str) and value.startswith("artifacts/"):
+            defaults[key] = str(Path(artifacts_root) / value.removeprefix("artifacts/"))
     if operator_link:
         # The mission comes from a GCS over the signed operator link (prompt →
         # onboard plan → approval); the policy holds until the plan is approved.
@@ -360,7 +433,7 @@ def _run_task(
         "--control-port",
         str(port),
         "--telemetry-port",
-        "14541",
+        str(telemetry_port),
         "--onboard-config",
         str(config),
         "--task-text",
@@ -406,6 +479,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--exit-after-task", action="store_true")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
     parser.add_argument("--task-timeout-s", type=float, default=2400.0)
+    parser.add_argument("--onboard-defaults", type=Path, default=DEFAULT_ONBOARD_DEFAULTS)
+    parser.add_argument(
+        "--artifacts-root",
+        type=Path,
+        default=DEFAULT_ARTIFACTS_ROOT,
+        help='root that "artifacts/..." paths in --onboard-defaults resolve against',
+    )
     parser.add_argument(
         "--operator-link",
         action="store_true",
@@ -520,6 +600,9 @@ def main(argv: Iterable[str] | None = None) -> int:
                 plan.container_name,
                 timeout_s=args.task_timeout_s,
                 operator_link=_operator_link_config(args) if args.operator_link else None,
+                telemetry_port=args.telemetry_port,
+                onboard_defaults=args.onboard_defaults,
+                artifacts_root=args.artifacts_root,
             )
             # The collector writes mission_summary.txt per episode (no report.json).
             summary = next(args.onboard_out.rglob("mission_summary.txt"), None)
