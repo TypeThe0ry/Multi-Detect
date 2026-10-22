@@ -2891,7 +2891,8 @@ class OnboardLoop:
             blocked_or_stalled = (direct_blocked and not lower_clear) or (
                 stalled and (info.get("reason") == "closest_view" or action.kind == "hold")
             )
-            if blocked_or_stalled and not near:
+            # _close_in may have just reached the closest view: that is not an obstacle.
+            if blocked_or_stalled and not (self._at_closest or near):
                 look = self._plan_obstacle_relook(best, pose_ned)
                 if look is not None:
                     self._obstacle_relook = look

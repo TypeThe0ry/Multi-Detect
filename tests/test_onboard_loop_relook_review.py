@@ -160,3 +160,30 @@ def test_blocked_first_relook_keeps_confirm_only_from_usable_views() -> None:
     loop.next_action([track], pose_ned=pose, yaw_deg=0.0, ground_point=lambda _u, _v: (0.0, 0.0))
     assert not track.contradiction_active
     assert track.verdict is None and not track.confirm_steps
+
+
+def test_reaching_the_closest_view_while_stalled_is_not_an_obstacle() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: True,
+        config=LoopConfig(approach_min_altitude_m=11.0),
+    )
+    pose, yaw = (0.0, 0.0, -11.0), 0.0
+    target = (30.0, 0.0)
+    for step in range(4):
+        tracks = loop.update_tracks(
+            [Detection(_box(640, 800, 44), 0.3)],
+            pose_ned=pose,
+            yaw_deg=yaw,
+            ground_point=lambda _u, _v: target,
+        )
+        if step == 0:
+            loop.apply_verdict(tracks[0].track_id, "approach_track")
+        action, info = loop.next_action(
+            tracks, pose_ned=pose, yaw_deg=yaw, ground_point=lambda _u, _v: target
+        )
+        pose, yaw = _fly(action, pose, yaw)
+    assert info.get("reason") == "closest_view"
+    assert "obstacle_relook" not in info
+    assert tracks[0].obstacle_relook_attempts == 0
