@@ -809,6 +809,28 @@ class MissionSupervisor:
             or (max(0, -pose_ned[2]) if pose_ned is not None else 0),
             mission_remaining_s=remaining,
         )
+        # Optional extra looks (small unjudged revisits) are flown only inside
+        # this margin, so they never eat into the return reserve.
+        margin = self.energy_estimate.get("action_margin_s")
+        if (
+            isinstance(margin, (int, float))
+            and self.energy_estimate.get("return_energy_wh") is None
+            and pose_ned is not None
+        ):
+            # Time budget only: that margin does not yet hold the flight home.
+            c = self.energy_estimator.config
+            home = doc["home"]
+            margin -= (
+                math.dist(pose_ned[:2], home[:2]) / max(c.cruise_speed_mps, 0.1)
+                + max(0.0, -pose_ned[2]) / max(c.descent_speed_mps, 0.1)
+                + c.landing_time_s
+            )
+        if hasattr(self.executor, "energy_margin_s"):
+            self.executor.energy_margin_s = (
+                float(margin)
+                if isinstance(margin, (int, float)) and math.isfinite(margin)
+                else None
+            )
         if self.energy_estimate["action"] != "continue":
             self._escalate(self.energy_estimate["action"], self.energy_estimate["reason"])
         if remaining <= budget["reserve_time_s"]:

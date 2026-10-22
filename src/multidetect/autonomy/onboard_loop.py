@@ -160,6 +160,53 @@ def _wrap(degrees: float) -> float:
     return (degrees + 180.0) % 360.0 - 180.0
 
 
+def _singular(word: str) -> str:
+    if len(word) <= 3 or word.endswith("ss"):
+        return word
+    if word.endswith(("ches", "shes", "xes", "ses")):
+        return word[:-2]
+    if word.endswith("ies"):
+        return word[:-3] + "y"
+    return word[:-1] if word.endswith("s") else word
+
+
+def _words(text: str) -> list[str]:
+    words, current = [], []
+    for char in text.lower():
+        if "a" <= char <= "z":
+            current.append(char)
+        elif current:
+            words.append("".join(current))
+            current = []
+    if current:
+        words.append("".join(current))
+    return [_singular(word) for word in words]
+
+
+def label_matches_query(label: str | None, query: str | None) -> bool:
+    """Whether a detector class word names the queried object.
+
+    The proposal vocabulary is generic ("fire hydrant", "traffic cone"); a label
+    matches when its head noun is a query word ("orange traffic cones"), the
+    whole label is a run of query words, or the label written as one word is
+    one or more consecutive query words joined ("post box" / "postbox").  An
+    unlabelled detection never matches.
+    """
+    if not label or not query:
+        return False
+    tokens, asked = _words(label), _words(query)
+    if not tokens or not asked:
+        return False
+    if tokens[-1] in asked:
+        return True
+    joined = "".join(tokens)
+    for start in range(len(asked)):
+        for end in range(start + 1, len(asked) + 1):
+            if asked[start:end] == tokens or "".join(asked[start:end]) == joined:
+                return True
+    return False
+
+
 # Two boxes in one frame whose intersection covers at least this fraction of the
 # smaller box are one object detected twice (or an object and a part of it), not
 # evidence of two separate objects.
@@ -323,6 +370,11 @@ class Track:
     contradiction_same_side: int = 0
     contradiction_altitude_m: float | None = None
     contradiction_range_m: float | None = None
+    # Largest query-relevant view that was too small to judge, as
+    # (min side px, slant range m, step), with its detector label and score.
+    small_relevant_view: tuple[float, float, int] | None = None
+    small_relevant_label: str | None = None
+    small_relevant_score: float = 0.0
 
 
 def co_visibility_proves_distinct(
@@ -439,6 +491,20 @@ class LoopConfig:
     contradiction_relook_max: int = 1
     contradiction_relook_views: int = 3
     contradiction_relook_bearing_deg: float = 60.0
+    # Small unjudged revisit (count/area_search).  The executor sets the step's
+    # query; None disables the bookkeeping.  A detection whose class label names
+    # the query (label_matches_query) with at least this proposal score, but
+    # whose box stays below min_verdict_side_px, marks its track for a closer
+    # look before the search ends (SITL gen_cnt2_w0001: a 7.1 px hydrant seen
+    # once was never judged and never counted).
+    small_unjudged_query: str | None = None
+    small_unjudged_min_score: float = 0.05
+    # The revisit viewpoint is sized so the box reaches this many pixels.
+    small_unjudged_target_side_px: float = 14.0
+    # Preferred view ray: this far below the camera axis.
+    small_unjudged_view_depression_deg: float = 20.0
+    # Holds at the viewpoint waiting for a judgement before giving up.
+    small_unjudged_look_holds: int = 2
     # Search below the cruise altitude (e.g. for small objects), when the map is clear.
     search_altitude_m: float | None = None
     # At the closest view, this many views whose verdict says "this is the task's
@@ -690,6 +756,27 @@ class LoopConfig:
             or self.place_votes_max < 1
         ):
             raise ValueError("place_votes_max must be a positive integer")
+        if self.small_unjudged_query is not None and not isinstance(self.small_unjudged_query, str):
+            raise ValueError("small_unjudged_query must be a string or None")
+        if not math.isfinite(self.small_unjudged_min_score) or not (
+            0 <= self.small_unjudged_min_score <= 1
+        ):
+            raise ValueError("small_unjudged_min_score must be in [0, 1]")
+        if (
+            not math.isfinite(self.small_unjudged_target_side_px)
+            or self.small_unjudged_target_side_px < self.min_verdict_side_px
+        ):
+            raise ValueError("small_unjudged_target_side_px must be >= min_verdict_side_px")
+        if not math.isfinite(self.small_unjudged_view_depression_deg) or not (
+            0 < self.small_unjudged_view_depression_deg < 80
+        ):
+            raise ValueError("small_unjudged_view_depression_deg must be in (0, 80)")
+        if (
+            isinstance(self.small_unjudged_look_holds, bool)
+            or not isinstance(self.small_unjudged_look_holds, int)
+            or self.small_unjudged_look_holds < 0
+        ):
+            raise ValueError("small_unjudged_look_holds must be a non-negative integer")
 
 
 @dataclass(slots=True)
@@ -1141,6 +1228,8 @@ class OnboardLoop:
             if appearance is not None:
                 best.appearance = appearance
             best.max_min_side = max(best.max_min_side, _min_side(best.bbox))
+            if ground is not None and pose_ned is not None:
+                self._note_small_relevant(best, detection, ground, pose_ned)
             current.append(best)
             frame_ground[best.track_id] = ground
         # Separate detections in one frame are distinct objects at their places
@@ -1983,6 +2072,15 @@ class OnboardLoop:
         info["second_look"] = {"centre": list(look["centre"]), "phase": look["phase"]}
         if look.get("kind"):
             info["second_look"]["kind"] = look["kind"]
+        small = look.get("kind") == "small_unjudged_revisit"
+        if small:
+            if look["steps"] > look["max_steps"] and look["phase"] != "climb":
+                return self._end_small_unjudged(look, "timeout", pose_ned)
+            if look["phase"] != "fly":
+                return self._small_unjudged_step(look, pose_ned, yaw_deg, info)
+            outcome = self._small_unjudged_resolution(look)
+            if outcome is not None:
+                return self._end_small_unjudged(look, outcome, pose_ned)
         if look["steps"] > 2 * self.config.max_approach_steps:
             if look["phase"] == "fly":
                 look["rejection"]["revisited"] = False
@@ -2010,8 +2108,13 @@ class OnboardLoop:
                 action = self._safe(pose_ned, ActionPrimitive.translate(step, 0.0, 0.0), yaw_deg)
                 if action.kind != "translate":
                     look["rejection"]["revisited"] = False
+                    if small:
+                        look["record"]["outcome"] = "fly_blocked"
                     self._revisit = None
                 return action
+            if small:
+                look["phase"] = "descend"
+                return self._small_unjudged_step(look, pose_ned, yaw_deg, info)
             look["phase"] = "face"
         if look["phase"] == "face":
             cn, ce = look["centre"][0] - pose_ned[0], look["centre"][1] - pose_ned[1]
@@ -2189,6 +2292,326 @@ class OnboardLoop:
         if action is None:
             self.state = previous
         return action
+
+    # -- small unjudged revisit ---------------------------------------------
+    def _note_small_relevant(
+        self,
+        track: Track,
+        detection: Detection,
+        ground: tuple[float, float],
+        pose_ned: tuple[float, float, float],
+    ) -> None:
+        """Remember the largest query-relevant view of ``track`` too small to judge."""
+        query = self.config.small_unjudged_query
+        side = _min_side(detection.bbox)
+        if (
+            not query
+            or side >= self.config.min_verdict_side_px
+            or detection.score < self.config.small_unjudged_min_score
+            or not label_matches_query(detection.label, query)
+        ):
+            return
+        slant = math.hypot(math.dist(ground, pose_ned[:2]), max(0.0, -pose_ned[2]))
+        if slant <= 1e-6 or not math.isfinite(slant):
+            return
+        prior = track.small_relevant_view
+        if prior is None or side > prior[0]:
+            track.small_relevant_view = (side, slant, self.step_index)
+            track.small_relevant_label = detection.label
+            track.small_relevant_score = float(detection.score)
+
+    def _judged_near(self, track: Track, position: Sequence[float], radius: float) -> bool:
+        """Whether a real or remembered look already judged something at ``position``."""
+        for other in self._tracks.values():
+            if other is track or not other.identity_verdict_history:
+                continue
+            place = self.target_position(other)
+            if (
+                place is not None
+                and other.track_id not in track.co_visible_with
+                and track.track_id not in other.co_visible_with
+                and math.dist(place, position[:2]) <= radius
+            ):
+                return True
+        if self._rejection_at(track) is not None:
+            return True
+        if self.config.memory_enabled:
+            remembered = self._place_memory._nearest(position, track.appearance, self.config)
+            if remembered is not None and remembered.verdicts:
+                return True
+        return False
+
+    def small_unjudged_places(self) -> list[dict[str, Any]]:
+        """Places of query-relevant tracks that were only ever too small to judge.
+
+        A track qualifies while it has a relevant small view, a ground place, no
+        verdict of its own (no identity history, not exhausted), never grew to
+        ``min_verdict_side_px``, is not an object this count already holds, and
+        nothing else was judged at its place.  Tracks within the de-duplication
+        radius of each other (and never seen as two boxes in one frame) are one
+        place, described by its largest view.
+        """
+        if not self.config.small_unjudged_query:
+            return []
+        places: list[dict[str, Any]] = []
+        for track in sorted(self._tracks.values(), key=lambda t: t.first_step):
+            view = track.small_relevant_view
+            position = self.target_position(track)
+            if (
+                view is None
+                or position is None
+                or track.exhausted
+                or track.verdict is not None
+                or track.identity_verdict_history
+                or track.max_min_side >= self.config.min_verdict_side_px
+            ):
+                continue
+            radius = max(self.place_radius(track), self.config.count_dedupe_m)
+            if self._counted_at(track, position, check_appearance=False):
+                continue
+            if self._judged_near(track, position, radius):
+                continue
+            for place in places:
+                if math.dist(place["centre"], position) <= radius and not (
+                    set(place["track_ids"]) & track.co_visible_with
+                ):
+                    place["track_ids"].append(track.track_id)
+                    if view[0] > place["min_side_px"]:
+                        place.update(
+                            centre=(float(position[0]), float(position[1])),
+                            min_side_px=view[0],
+                            slant_m=view[1],
+                            step=view[2],
+                            label=track.small_relevant_label,
+                            score=track.small_relevant_score,
+                            track=track,
+                        )
+                    break
+            else:
+                places.append(
+                    {
+                        "centre": (float(position[0]), float(position[1])),
+                        "track_ids": [track.track_id],
+                        "min_side_px": view[0],
+                        "slant_m": view[1],
+                        "step": view[2],
+                        "label": track.small_relevant_label,
+                        "score": track.small_relevant_score,
+                        "track": track,
+                    }
+                )
+        return places
+
+    def plan_small_unjudged_revisit(
+        self,
+        place: Mapping[str, Any],
+        pose_ned: tuple[float, float, float],
+        allowed: Callable[[tuple[float, float]], bool] | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """A viewpoint from which ``place``'s box reaches the judging size.
+
+        The box side scales with the inverse slant range, so the place's largest
+        small view gives the slant range at which it spans
+        ``small_unjudged_target_side_px``.  The view altitude puts the object
+        ``small_unjudged_view_depression_deg`` below the camera axis, bounded by
+        ``approach_min_altitude_m`` and the current altitude, and the horizontal
+        range keeps it above the image bottom.  Bearings are tried nearest the
+        current side first; a viewpoint needs a clear level leg at the current
+        altitude and a clear descent from the current altitude down to the view
+        altitude at the viewpoint (the 3-D leg, so a roof between the two
+        altitudes is seen).  Viewpoints whose sight line passes no obstacle
+        footprint are preferred.  Returns ``(look, None)`` or ``(None, reason)``.
+        """
+        centre = (float(place["centre"][0]), float(place["centre"][1]))
+        side, slant = float(place["min_side_px"]), float(place["slant_m"])
+        reach = slant * side / self.config.small_unjudged_target_side_px
+        altitude = max(0.0, -pose_ned[2])
+        floor = self.config.approach_min_altitude_m
+        lowest = self.camera.pitch_down_rad + math.atan2(self.camera.cy, self.camera.fy)
+        keep = self.config.keep_in_view_margin / math.tan(lowest) if lowest < math.pi / 2 else 0.0
+        # Highest altitude at which the object still sits above the image bottom.
+        top = min(altitude, reach / math.hypot(1.0, keep))
+        if top < floor - 1e-6:
+            return None, "too_small_to_resolve"
+        depression = self.camera.pitch_down_rad + math.radians(
+            self.config.small_unjudged_view_depression_deg
+        )
+        preferred = min(top, max(floor, reach * math.sin(depression)))
+        heights = [preferred]
+        for fraction in (0.5, 1.0):
+            candidate = preferred + fraction * (top - preferred)
+            if all(abs(candidate - h) > 0.5 for h in heights):
+                heights.append(candidate)
+        toward = math.atan2(pose_ned[1] - centre[1], pose_ned[0] - centre[0])
+        offsets = [0.0]
+        for k in range(1, 7):
+            offsets += [30.0 * k, -30.0 * k] if k < 6 else [180.0]
+        fallback = None
+        for height in heights:
+            horizontal = math.sqrt(max(0.0, reach * reach - height * height))
+            if horizontal < keep * height - 1e-6:
+                continue
+            for offset in offsets:
+                bearing = toward + math.radians(offset)
+                goal = (
+                    centre[0] + horizontal * math.cos(bearing),
+                    centre[1] + horizontal * math.sin(bearing),
+                )
+                if allowed is not None and not allowed(goal):
+                    continue
+                if not self._segment_clear(pose_ned, goal[0], goal[1]):
+                    continue
+                start = (goal[0], goal[1], pose_ned[2])
+                if height < altitude - 0.5 and not self._segment_clear(
+                    start, goal[0], goal[1], -height
+                ):
+                    continue
+                sight = self._segment_clear((goal[0], goal[1], -height), centre[0], centre[1], 0.0)
+                candidate = (goal, height, horizontal, sight)
+                if sight:
+                    return self._small_unjudged_look(place, pose_ned, candidate), None
+                if fallback is None:
+                    fallback = candidate
+        if fallback is not None:
+            return self._small_unjudged_look(place, pose_ned, fallback), None
+        return None, "no_clear_viewpoint"
+
+    def _small_unjudged_look(self, place, pose_ned, candidate) -> dict[str, Any]:
+        goal, height, horizontal, sight = candidate
+        centre = (float(place["centre"][0]), float(place["centre"][1]))
+        track = place.get("track")
+        view_slant = math.hypot(horizontal, height)
+        vertical = max(0.0, -pose_ned[2] - height)
+        legs = math.ceil(math.dist(pose_ned[:2], goal) / max(self.config.max_translate_m, 1e-6))
+        vertical_steps = math.ceil(vertical / max(2.0 * self.config.descent_step_m, 1e-6))
+        record = {
+            "centre": [round(centre[0], 2), round(centre[1], 2)],
+            "track_ids": list(place.get("track_ids", ())),
+            "label": place.get("label"),
+            "score": round(float(place.get("score") or 0.0), 3),
+            "seen_min_side_px": round(float(place["min_side_px"]), 1),
+            "seen_slant_m": round(float(place["slant_m"]), 1),
+            "seen_step": place.get("step"),
+            "viewpoint": [round(goal[0], 2), round(goal[1], 2)],
+            "view_altitude_m": round(height, 2),
+            "view_range_m": round(horizontal, 2),
+            "predicted_min_side_px": round(
+                float(place["min_side_px"]) * float(place["slant_m"]) / view_slant, 1
+            ),
+            "sight_line_clear": bool(sight),
+            "outcome": None,
+        }
+        return {
+            "goal": goal,
+            "centre": centre,
+            "phase": "fly",
+            "steps": 0,
+            "kind": "small_unjudged_revisit",
+            "view_down": -height,
+            "return_down": pose_ned[2],
+            "look_holds": 0,
+            "start_step": self.step_index,
+            # Turns, legs, descent, face, holds and the climb back, with slack.
+            "max_steps": 2 * legs + 2 * vertical_steps + self.config.small_unjudged_look_holds + 8,
+            "flight_m": math.dist(pose_ned[:2], goal),
+            "vertical_m": vertical,
+            "vertical_steps": vertical_steps,
+            "legs": legs,
+            "record": record,
+            "rejection": {
+                "ground": centre,
+                "views": [],
+                "revisited": True,
+                "confidence": None,
+                "track_id": track.track_id if track is not None else None,
+                "co_visible_with": set(track.co_visible_with) if track is not None else set(),
+                "appearance": track.appearance if track is not None else None,
+                "footprint_m": getattr(getattr(track, "appearance", None), "footprint_m", None),
+            },
+        }
+
+    def _small_unjudged_radius(self) -> float:
+        return self.config.count_dedupe_m
+
+    def _small_unjudged_resolution(self, look: Mapping[str, Any]) -> str | None:
+        """How the place was resolved since the look began, or None while it is not."""
+        start, centre = look["start_step"], look["centre"]
+        radius = self._small_unjudged_radius()
+        for record in self.confirmations:
+            position = record.get("position_estimate_ne")
+            if (
+                position is not None
+                and int(record.get("step", -1)) >= start - 1
+                and math.dist(position[:2], centre) <= radius
+            ):
+                return "counted"
+        for track in self._tracks.values():
+            place = self.target_position(track)
+            if (
+                place is not None
+                and track.verdict is not None
+                and track.verdict_step >= start
+                and math.dist(place, centre) <= radius
+            ):
+                return f"judged_{track.verdict}"
+        return None
+
+    def _end_small_unjudged(self, look: dict[str, Any], outcome: str, pose_ned):
+        """Record ``outcome`` and climb back to the altitude the look started from."""
+        if look["record"].get("outcome") is None:
+            look["record"]["outcome"] = outcome
+        if pose_ned[2] > look["return_down"] + 1.0:
+            look["phase"] = "climb"
+            climb = min(pose_ned[2] - look["return_down"], 2.0 * self.config.descent_step_m)
+            return ActionPrimitive.translate(0.0, 0.0, climb)
+        self._revisit = None
+        return None
+
+    def _small_unjudged_step(self, look: dict[str, Any], pose_ned, yaw_deg, info):
+        """Phases of a small unjudged revisit after the shared fly phase."""
+        if look["phase"] == "climb":
+            if pose_ned[2] > look["return_down"] + 1.0:
+                climb = min(pose_ned[2] - look["return_down"], 2.0 * self.config.descent_step_m)
+                return ActionPrimitive.translate(0.0, 0.0, climb)
+            self._revisit = None
+            return None
+        outcome = self._small_unjudged_resolution(look)
+        if outcome is not None:
+            return self._end_small_unjudged(look, outcome, pose_ned)
+        if look["phase"] == "descend":
+            if pose_ned[2] < look["view_down"] - 0.5:
+                drop = min(look["view_down"] - pose_ned[2], 2.0 * self.config.descent_step_m)
+                # The whole drop as one leg from the current altitude.
+                if self._segment_clear(pose_ned, pose_ned[0], pose_ned[1], pose_ned[2] + drop):
+                    info["descend_m"] = drop
+                    return ActionPrimitive.translate(0.0, 0.0, -drop)
+                return self._end_small_unjudged(look, "descent_blocked", pose_ned)
+            look["phase"] = "face"
+        if look["phase"] == "face":
+            cn, ce = look["centre"][0] - pose_ned[0], look["centre"][1] - pose_ned[1]
+            delta = _wrap(math.degrees(math.atan2(ce, cn)) - yaw_deg)
+            if abs(delta) > self.config.approach_bearing_deg:
+                self._last_turn_deg = delta
+                return ActionPrimitive.turn(delta)
+            look["phase"] = "look"
+            return ActionPrimitive.hold(1.0)
+        # look: the slow model judges a track here as soon as its box is large enough.
+        look["look_holds"] += 1
+        if look["look_holds"] <= self.config.small_unjudged_look_holds:
+            return ActionPrimitive.hold(1.0)
+        radius = self._small_unjudged_radius()
+        seen = [
+            track
+            for track in self._tracks.values()
+            if track.last_step >= look["start_step"]
+            and self.target_position(track) is not None
+            and math.dist(self.target_position(track), look["centre"]) <= radius
+        ]
+        if seen:
+            look["record"]["seen_again_min_side_px"] = round(
+                max(_min_side(track.bbox) for track in seen), 1
+            )
+        return self._end_small_unjudged(look, "still_unjudged" if seen else "not_seen", pose_ned)
 
     def _touches_border(self, box: Box) -> bool:
         margin = self.config.border_margin_px
@@ -2759,6 +3182,20 @@ class OnboardLoop:
                     # A candidate elsewhere gets its own passes and lap budget; a new
                     # track at the same place keeps the running plan and budget.
                     self._end_fw_pass()
+            look = self._revisit
+            if (
+                look is not None
+                and look.get("kind") == "small_unjudged_revisit"
+                and self.target_position(best) is not None
+                and math.dist(self.target_position(best), look["centre"])
+                <= self._small_unjudged_radius()
+            ):
+                # The place was judged a match: the normal approach and
+                # confirmation rules take over from the revisit.
+                if look["record"].get("outcome") is None:
+                    look["record"]["outcome"] = f"judged_{best.verdict}"
+                info["small_unjudged_revisit_outcome"] = look["record"]["outcome"]
+                self._revisit = None
             if best.contradiction_active and self._revisit is None:
                 self._revisit = self.plan_contradiction_relook(best, pose_ned)
                 if self._revisit is None:
@@ -3016,4 +3453,5 @@ __all__ = [
     "OnboardLoop",
     "PlaceVerdictMemory",
     "Track",
+    "label_matches_query",
 ]

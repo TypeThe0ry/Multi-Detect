@@ -757,3 +757,17 @@ def test_plan_digest_binds_mission_id_and_package_content(tmp_path):
     third, _now, _log = build(tmp_path / "c", doc=wider)
     assert first.executor.plan == second.executor.plan == third.executor.plan
     assert len({first.plan_sha256, second.plan_sha256, third.plan_sha256}) == 3
+
+
+def test_supervisor_hands_the_executor_a_margin_that_holds_the_flight_home(tmp_path):
+    s, now, _ = build(tmp_path)
+    s.evaluate(pose_ned=(0.0, 0.0, -10.0))
+    near = s.executor.energy_margin_s
+    s.evaluate(pose_ned=(80.0, 0.0, -10.0))
+    far = s.executor.energy_margin_s
+    # Time budget only: the margin left for optional looks shrinks with the way home.
+    assert near is not None and far is not None
+    assert near < 86400 - 60 and far < near
+    now[0] += 86400 - 60
+    s.evaluate(pose_ned=(80.0, 0.0, -10.0))
+    assert s.executor.energy_margin_s <= 0
