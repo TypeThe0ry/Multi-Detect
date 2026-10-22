@@ -493,7 +493,7 @@ def _battery_sample(host_s, vehicle_s=None):
     return sample
 
 
-def _supervised_steps(policy, steps, *, stall_s=0.0):
+def _supervised_steps(policy, steps, *, stall_s=0.0, gaps_s=None):
     """Feed (host_s, vehicle_s, samples) observations; return energy per step.
 
     ``stall_s`` advances the supervisor's host clock between ingest and
@@ -520,6 +520,8 @@ def _supervised_steps(policy, steps, *, stall_s=0.0):
     for host_s, vehicle_s, samples in steps:
         now[0] = max(now[0], host_s)
         observation = {"pose_time_boot_ms": int(vehicle_s * 1000), "energy_telemetry": samples}
+        if gaps_s is not None:
+            observation["vehicle_telemetry_gaps_s"] = gaps_s
         with pytest.raises(_Evaluated):
             policy.act(observation, pose_ned=(0, 0, -20), yaw_deg=0)
     return estimates
@@ -593,6 +595,44 @@ def test_sitl_battery_that_stops_arriving_still_returns(tmp_path, model_stubs):
         assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
         assert [energy["action"] for _, energy in estimates].index("return_now") == 5
         assert estimates[-1][1]["battery_age_s"] == pytest.approx(6.5)
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("reader_saw_gap", [False, True])
+def test_sitl_link_gap_is_not_charged_to_the_battery(tmp_path, model_stubs, reader_saw_gap):
+    """Run9 replay: a 20 s host stall lost PX4 telemetry from 354.016 to 361.096 s.
+
+    The last battery (SYS_STATUS) was at 353.5 s; the first post-gap pose made
+    it 7.7 s old and the mission returned.  With the reader's gap the battery is
+    judged from link recovery; if it then stays silent it still goes stale.
+    """
+    policy = _construct(tmp_path, {"mission_package": document()})
+    start = policy.supervisor.started
+    try:
+        steps = [
+            (start + 1.0, 353.6, [_battery_sample(start + 0.9, 353.5)]),
+            (start + 24.0, 361.168, []),
+            # The battery never reports again after recovery.
+            (start + 40.0, 366.3, []),
+        ]
+        gaps = [[354.016, 361.096]] if reader_saw_gap else None
+        estimates = _supervised_steps(policy, steps, gaps_s=gaps)
+        assert estimates[1][1]["battery_age_s"] == pytest.approx(7.668)
+        if not reader_saw_gap:
+            assert estimates[1][0] == "return_now"
+            assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
+            return
+        assert [result for result, _ in estimates[:2]] == ["continue", "continue"]
+        assert estimates[1][1]["link_gap_excluded_s"] == pytest.approx(7.08)
+        assert [
+            record["gap_s"]
+            for record in map(json.loads, policy.supervisor.log.path.read_text().splitlines())
+            if record["kind"] == "vehicle_telemetry_gap"
+        ] == [pytest.approx(7.08)]
+        # Stale once 5 s of live link have passed without a battery report.
+        assert estimates[2][0] == "return_now"
+        assert policy.supervisor.reason == "battery telemetry stale; return while feasible"
     finally:
         policy.close()
 
