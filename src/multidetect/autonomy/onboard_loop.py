@@ -310,6 +310,7 @@ class Track:
     # Independent of the bottom-pixel ground anchor used by tracking and memory.
     position_views: list[ViewObservation] = field(default_factory=list)
     position_estimate: PositionEstimate | None = None
+    obstacle_relook_attempts: int = 0
     # A usable candidate whose real identity votes contradicted each other is
     # deliberately re-viewed from separated bearings before it can count.
     contradiction_active: bool = False
@@ -376,6 +377,8 @@ class LoopConfig:
     overhead_range_m: float = 6.0
     stall_steps: int = 2
     stall_growth: float = 1.1
+    obstacle_relook_max: int = 2
+    obstacle_relook_samples: int = 16
     home_tolerance_m: float = 3.0
     max_steps: int = 120
     confirm_matches: int = 2
@@ -508,6 +511,18 @@ class LoopConfig:
     vtol_fw_reentry_candidate_max_steps: int = 3
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.obstacle_relook_max, bool)
+            or not isinstance(self.obstacle_relook_max, int)
+            or self.obstacle_relook_max < 0
+        ):
+            raise ValueError("obstacle_relook_max must be a non-negative integer")
+        if (
+            isinstance(self.obstacle_relook_samples, bool)
+            or not isinstance(self.obstacle_relook_samples, int)
+            or self.obstacle_relook_samples < 4
+        ):
+            raise ValueError("obstacle_relook_samples must be an integer >= 4")
         if not isinstance(self.static_ground_veto, bool):
             raise ValueError("static_ground_veto must be a boolean")
         for name in ("static_ground_veto_min_m", "static_ground_veto_gates"):
@@ -810,6 +825,7 @@ class OnboardLoop:
     _tracks: dict[str, Track] = field(default_factory=dict)
     _next_id: int = 1
     _focus: str | None = None
+    _obstacle_relook: dict[str, Any] | None = None
     _approach_sizes: list[float] = field(default_factory=list)
     _last_translated: bool = False
     _last_turn_deg: float = 0.0
@@ -2309,6 +2325,92 @@ class OnboardLoop:
         self._last_translated = action.kind == "translate"
         return action
 
+    def _plan_obstacle_relook(
+        self,
+        track: Track,
+        pose_ned: tuple[float, float, float],
+    ) -> dict[str, Any] | None:
+        """Find a clear same-height viewpoint around a blocked static target."""
+        target = self.target_position(track)
+        if target is None or track.obstacle_relook_attempts >= self.config.obstacle_relook_max:
+            return None
+        altitude = max(self.config.approach_min_altitude_m, max(0.0, -pose_ned[2]))
+        keep = max(self.config.overhead_range_m, self._keep_range(altitude))
+        current = math.atan2(pose_ned[1] - target[1], pose_ned[0] - target[0])
+        samples = self.config.obstacle_relook_samples
+        offsets = sorted(
+            (2.0 * math.pi * index / samples for index in range(samples)),
+            key=lambda value: abs(_wrap(math.degrees(value))),
+        )
+        for offset in offsets:
+            angle = current + offset
+            goal = (target[0] + keep * math.cos(angle), target[1] + keep * math.sin(angle))
+            if not self._segment_clear(pose_ned, goal[0], goal[1]):
+                continue
+            if not self._segment_clear((goal[0], goal[1], -altitude), target[0], target[1]):
+                continue
+            track.obstacle_relook_attempts += 1
+            return {
+                "track_id": track.track_id,
+                "target": target,
+                "goal": goal,
+                "altitude_m": altitude,
+                "phase": "fly",
+                "steps": 0,
+            }
+        track.obstacle_relook_attempts = self.config.obstacle_relook_max
+        return None
+
+    def _obstacle_relook_action(
+        self,
+        pose_ned: tuple[float, float, float],
+        yaw_deg: float,
+        info: dict[str, Any],
+    ) -> ActionPrimitive:
+        look = self._obstacle_relook
+        assert look is not None
+        look["steps"] += 1
+        info["obstacle_relook"] = {"phase": look["phase"], "track": look["track_id"]}
+        if look["steps"] > 2 * self.config.max_approach_steps:
+            self._obstacle_relook = None
+            info["reason"] = "obstacle_relook_exhausted"
+            return ActionPrimitive.hold(1.0)
+        if look["phase"] == "fly":
+            dn = look["goal"][0] - pose_ned[0]
+            de = look["goal"][1] - pose_ned[1]
+            distance = math.hypot(dn, de)
+            if distance > self.config.min_translate_m:
+                delta = _wrap(math.degrees(math.atan2(de, dn)) - yaw_deg)
+                if abs(delta) > self.config.approach_bearing_deg:
+                    self._last_turn_deg = delta
+                    return ActionPrimitive.turn(delta)
+                step = min(self.config.max_translate_m, distance)
+                action = self._safe(
+                    pose_ned,
+                    ActionPrimitive.translate(step, 0.0, 0.0),
+                    yaw_deg,
+                )
+                if action.kind != "translate":
+                    self._obstacle_relook = None
+                    info["reason"] = "obstacle_relook_blocked"
+                return action
+            look["phase"] = "face"
+        if look["phase"] == "face":
+            delta = _wrap(
+                math.degrees(
+                    math.atan2(look["target"][1] - pose_ned[1], look["target"][0] - pose_ned[0])
+                )
+                - yaw_deg
+            )
+            if abs(delta) > self.config.approach_bearing_deg:
+                self._last_turn_deg = delta
+                return ActionPrimitive.turn(delta)
+            self._obstacle_relook = None
+            info["obstacle_relook"]["phase"] = "complete"
+            return ActionPrimitive.hold(1.0)
+        self._obstacle_relook = None
+        return ActionPrimitive.hold(1.0)
+
     # -- fixed-wing fly-by passes -------------------------------------------------
     def _lowest_ray_rad(self) -> float:
         """Depression of the bottom image row below the horizon."""
@@ -2473,6 +2575,8 @@ class OnboardLoop:
             self.cruise_altitude_m = max(0.0, -pose_ned[2])
         info: dict[str, Any] = {"state_before": self.state, "step": self.step_index}
         self.step_index += 1
+        if self._obstacle_relook is not None:
+            return self._obstacle_relook_action(pose_ned, yaw_deg, info), info
         if self.state not in {"returning", "done"} and self.step_index > self.config.max_steps:
             self.state = "returning"
             info["reason"] = "step_budget"
@@ -2703,6 +2807,39 @@ class OnboardLoop:
                     return action, info
                 return self._fw_pass_action(pose_ned, ground, info), info
             action = self._close_in(pose_ned, yaw_deg, bearing, horizontal, info)
+            direct_blocked = False
+            lower_clear = False
+            if abs(bearing) <= self.config.approach_bearing_deg and horizontal is not None:
+                direct_step = min(
+                    self.config.max_translate_m, max(self.config.min_translate_m, 0.6 * horizontal)
+                )
+                yaw = math.radians(yaw_deg)
+                end = (
+                    pose_ned[0] + direct_step * math.cos(yaw),
+                    pose_ned[1] + direct_step * math.sin(yaw),
+                )
+                direct_blocked = not self._segment_clear(pose_ned, end[0], end[1])
+                altitude = max(0.0, -pose_ned[2])
+                descend = min(
+                    self.config.descent_step_m,
+                    max(0.0, altitude - self.config.approach_min_altitude_m),
+                )
+                if descend > 0.5:
+                    lower = (pose_ned[0], pose_ned[1], pose_ned[2] + descend)
+                    lower_clear = self._segment_clear(lower, end[0], end[1])
+            blocked_or_stalled = (direct_blocked and not lower_clear) or (
+                stalled and (info.get("reason") == "closest_view" or action.kind == "hold")
+            )
+            if blocked_or_stalled and not near:
+                look = self._plan_obstacle_relook(best, pose_ned)
+                if look is not None:
+                    self._obstacle_relook = look
+                    return self._obstacle_relook_action(pose_ned, yaw_deg, info), info
+                best.exhausted = True
+                self.state, self._focus = "searching", None
+                self._approach_sizes.clear()
+                info["reason"] = "obstacle_relook_exhausted"
+                return self._search_step(pose_ned, yaw_deg), info
             if info.get("reason") != "closest_view":
                 return action, info
             self._closest_holds += 1
