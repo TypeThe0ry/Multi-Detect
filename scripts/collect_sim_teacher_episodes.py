@@ -225,6 +225,11 @@ class CollectionPlan:
     takeoff_method: str | None = None
     # Copy PX4's .ulg flight logs out of the container before it is removed.
     keep_px4_ulog: bool = False
+    # Attach to a simulator owned by another process (for example run_sim_session).
+    # Attached containers are inspected and reused, never started or removed here.
+    attach_container: str | None = None
+    # Explicit onboard task text; when omitted, generated-index text is used.
+    task_text: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -724,7 +729,8 @@ class DockerSimEnvironment:
 
     def __init__(self, plan: CollectionPlan, episode_id: str):
         self.plan = plan
-        self.name = f"{plan.container_prefix}-{episode_id}"
+        self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
+        self.attached = bool(plan.attach_container)
         self.started = False
         self._log = None
 
@@ -741,6 +747,10 @@ class DockerSimEnvironment:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=sys.stderr, flush=True)
 
     def __enter__(self) -> DockerSimEnvironment:
+        if self.attached:
+            self.wait(self.plan.max_episode_s)
+            self._progress("container_attached", container=self.name, image=self.plan.image)
+            return self
         result = subprocess.run(
             docker_command(self.plan, name=self.name),
             capture_output=True,
@@ -2724,7 +2734,7 @@ def run_episode(
     elif plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
-        task_text = _index_task_text(truth_path) or "找到目标并记录位置"
+        task_text = plan.task_text or _index_task_text(truth_path) or "找到目标并记录位置"
         policy = _onboard_policy(plan, task_text, Path(plan.out) / f"{episode_id}-onboard-frames")
     elif plan.teacher == "expert_search":
         policy, target_label = _policy_for(plan, truth_path, plan.seed + episode_index)
@@ -3667,9 +3677,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="JSON overrides for --teacher onboard (model paths, thresholds)",
     )
+    parser.add_argument(
+        "--task-text",
+        default=None,
+        help="explicit natural-language task for --teacher onboard (overrides scenario index)",
+    )
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument(
+        "--attach-container",
+        default=None,
+        help="reuse an already-running PX4/Gazebo container instead of starting/removing one",
+    )
     parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
     parser.add_argument("--seed", type=int, default=0)
@@ -3774,6 +3794,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
         keep_px4_ulog=args.keep_px4_ulog,
+        attach_container=args.attach_container,
+        task_text=args.task_text,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
