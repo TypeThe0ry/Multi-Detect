@@ -1368,7 +1368,19 @@ class OnboardPolicy:
         raise ValueError(f"mission plan refused by package policy: {details}")
 
     def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
-        """Compile and install a package received over the signed operator link."""
+        """Compile and install a package (both steps; tests and legacy hosts)."""
+        supervisor = self.prepare_operator_package(package)
+        self.install_operator_package(supervisor)
+        return supervisor
+
+    def prepare_operator_package(self, package: MissionPackage) -> MissionSupervisor:
+        """Compile and check a signed operator-link package without installing it.
+
+        Runs on the operator link's planner worker.  The running (or waiting)
+        mission is untouched; ``MissionOperatorAdapter`` installs the returned
+        candidate through :meth:`install_operator_package` only after its own
+        checks, a fresh preflight read and setting the plan-approval gate.
+        """
         if self.executor is None:
             raise RuntimeError("operator package arrived before policy initialization")
         capabilities = frozenset(package.document.get("capabilities", ()))
@@ -1445,12 +1457,22 @@ class OnboardPolicy:
             requires_approval=bool(self.config.get("operator_requires_approval", False)),
             runtime_mode=self.runtime_mode,
             **self._supervisor_link_options(),
+            # The same onboard energy model as a package loaded at start-up.
+            energy_config=EnergyConfig.from_budget(
+                package.document["budget"], self.config.get("energy_model")
+            ),
         )
-        self.mission_package, self.mission_plan = package, plan
-        self.mission_plan_report = report
-        self.supervisor, self.executor, self.downlink = supervisor, supervisor, downlink
-        self.operator_link_waiting = False
+        supervisor.plan_report = report
         return supervisor
+
+    def install_operator_package(self, supervisor: MissionSupervisor) -> None:
+        """Make a prepared operator-link candidate the policy's mission."""
+        if not isinstance(supervisor, MissionSupervisor):
+            raise TypeError("operator package candidate must be a MissionSupervisor")
+        self.mission_package, self.mission_plan = supervisor.package, supervisor.executor.plan
+        self.mission_plan_report = getattr(supervisor, "plan_report", None)
+        self.supervisor, self.executor, self.downlink = supervisor, supervisor, supervisor.downlink
+        self.operator_link_waiting = False
 
     def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
         """Forward a host receipt; this policy has no payload hardware driver."""
