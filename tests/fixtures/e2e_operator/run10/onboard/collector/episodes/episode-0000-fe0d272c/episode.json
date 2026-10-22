@@ -1,0 +1,69 @@
+{
+  "schema_version": 2,
+  "episode_id": "episode-0000-fe0d272c",
+  "task_text": "operator link mission",
+  "sensor_status": "live",
+  "created_wall_time": 1792684308.2239048,
+  "created_monotonic_ns": 222838093000000,
+  "step_count": 150,
+  "episode_index": 0,
+  "seed": 0,
+  "takeoff_altitude_m": 13.271817,
+  "takeoff_altitude_source": "auto_max_obstacle_top_plus_4m",
+  "frame_age_limit_s": 0.25,
+  "world_sdf": "D:\\Projects\\mdwt\\e2e-run\\simulation\\gazebo\\worlds\\gen_cnt2_w0000.sdf",
+  "sim_only_parameters": [
+    {
+      "parameter": "COM_RC_IN_MODE",
+      "value": "4",
+      "exit_code": 0,
+      "stdout": "  COM_RC_IN_MODE: curr: 1 -> new: 4\n",
+      "stderr": "",
+      "attempt_count": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "returncode": 0,
+          "stdout": "  COM_RC_IN_MODE: curr: 1 -> new: 4\n",
+          "stderr": ""
+        }
+      ],
+      "scope": "owned disposable PX4/Gazebo SITL only"
+    },
+    {
+      "parameter": "SIM_BAT_MIN_PCT",
+      "value": "95",
+      "exit_code": 0,
+      "stdout": "  SIM_BAT_MIN_PCT: curr: 50.0000 -> new: 95.0000\n",
+      "stderr": "",
+      "attempt_count": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "returncode": 0,
+          "stdout": "  SIM_BAT_MIN_PCT: curr: 50.0000 -> new: 95.0000\n",
+          "stderr": ""
+        }
+      ],
+      "scope": "owned disposable PX4/Gazebo SITL only"
+    }
+  ],
+  "gcs_identity": {
+    "source_system": 255,
+    "source_component": 190,
+    "heartbeat_connection": "telemetry",
+    "command_connection": "telemetry",
+    "single_connection": true
+  },
+  "prearm_health": {
+    "source": "SYS_STATUS",
+    "error_flags": 0,
+    "failed_checks": [],
+    "ready": true,
+    "heartbeat_warmup_s": 10.062999999994645
+  },
+  "mover_driver": null,
+  "finished_wall_time": 1792685449.992933,
+  "finished_monotonic_ns": 223979843000000,
+  "status": "complete"
+}
