@@ -104,6 +104,10 @@ SHA-256、字节数及电池样本数量。固定范围是现有
 `voltages[0]`，其余槽位为 65535；不能按有效数组项数量推导电芯数。实机必须通过
 onboard policy 的 `energy_model` 明确配置容量、额定/截止电压和阶段功率。
 
+2026-10-23 对 189 个 SITL 日志和 PX4 `BatterySimulator` 源码的复核、放弃 SIM 专用电压 profile 的
+理由，以及 SIM 下由任务包 `energy_wh` 推出的返航时间，见
+[energy-model-calibration.md](energy-model-calibration.md)。
+
 复现命令（从当前 worktree 根目录执行）：
 
 ```powershell
