@@ -1593,23 +1593,14 @@ class OnboardLoop:
             track.contradiction_same_side += 1
             if track.contradiction_same_side >= 2 * self.config.contradiction_relook_views:
                 # The vehicle is not reaching another bearing (held at the closest
-                # view): give up the relook and let the normal confirm rules decide.
-                track.contradiction_active = False
-                track.contradiction_votes.clear()
-                track.contradiction_same_side = 0
-                track.contradiction_altitude_m = None
-                track.contradiction_range_m = None
-                if (
-                    self._revisit is not None
-                    and self._revisit.get("kind") == "contradiction_relook"
-                ):
-                    self._revisit = None
-                track.verdict = "confirm" if verdict == "confirm" else verdict
-                track.verdict_step = self.step_index
-                track.needs_fresh_verdict = False
-                if verdict == "confirm":
-                    track.confirm_steps.append(self.step_index)
-                    track.match_steps.append(self.step_index)
+                # view): give up the relook and decide by the usable votes at this
+                # place, not by whichever answer happened to come last.
+                confirms, rejects = self._place_vote_counts(track, usable_only=True)
+                if confirms != rejects:
+                    final = "confirm" if confirms > rejects else "no_match"
+                else:
+                    final = verdict
+                self._finish_contradiction(track, final)
                 return
             track.verdict = None
             track.verdict_step = -1
@@ -1620,11 +1611,13 @@ class OnboardLoop:
         )
         if self._revisit is not None and self._revisit.get("kind") == "contradiction_relook":
             self._revisit = None
-        if track.ground is not None:
+        if track.ground is not None and verdict in {"confirm", "no_match"}:
+            # "approach" is a positive answer ("worth a closer look"), never a
+            # reject; like outside a relook it is not a place vote.
             self._place_votes.append(
                 {
                     "ground": track.ground,
-                    "verdict": "confirm" if verdict == "confirm" else "no_match",
+                    "verdict": verdict,
                     "track_id": track.track_id,
                     "co_visible_with": set(track.co_visible_with),
                     "appearance": track.appearance,
@@ -1641,26 +1634,45 @@ class OnboardLoop:
             track.needs_fresh_verdict = True
             return
         confirms = sum(v["verdict"] == "confirm" for v in track.contradiction_votes)
+        positives = sum(v["verdict"] in {"confirm", "approach"} for v in track.contradiction_votes)
         rejects = sum(v["verdict"] == "no_match" for v in track.contradiction_votes)
         old_confirms, old_rejects = self._place_vote_counts(track, usable_only=True)
         fresh_majority = self.config.contradiction_relook_views // 2 + 1
-        final = (
-            "confirm"
-            if confirms >= fresh_majority and confirms > rejects and old_confirms > old_rejects
-            else "no_match"
-        )
+        if positives >= fresh_majority and positives > rejects:
+            # A positive majority without enough confirm evidence keeps closing in
+            # ("approach"); it is never written down as a rejection.
+            final = "confirm" if confirms and old_confirms > old_rejects else "approach"
+        else:
+            final = "no_match"
+        self._finish_contradiction(track, final)
+
+    def _finish_contradiction(self, track: Track, final: str) -> None:
+        """End ``track``'s contradiction relook with ``final`` (confirm, approach, no_match)."""
         track.contradiction_active = False
         track.contradiction_votes.clear()
+        track.contradiction_same_side = 0
+        if (
+            self._revisit is not None
+            and self._revisit.get("kind") == "contradiction_relook"
+            and self._revisit["rejection"].get("track_id") == track.track_id
+        ):
+            self._revisit = None
         track.verdict, track.verdict_step = final, self.step_index
         track.needs_fresh_verdict = False
         track.verdict_remembered = False
         track.contradiction_altitude_m = None
         track.contradiction_range_m = None
         track.identity_verdict_history.append(final)
-        if final == "confirm":
+        if final in {"confirm", "approach"}:
             track.identity_positive_matches += 1
             track.match_steps.append(self.step_index)
-            track.confirm_steps.append(self.step_index)
+            if final == "confirm":
+                track.confirm_steps.append(self.step_index)
+                # The reject that started the contradiction was remembered; the
+                # relook overruled it, so it must not steer later looks or counts.
+                self._rejections = [
+                    item for item in self._rejections if not self._same_place(item, track)
+                ]
         else:
             track.identity_reject_matches += 1
             track.confirm_steps.clear()
