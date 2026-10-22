@@ -31,6 +31,8 @@ from scripts.run_simulator_docker import (  # noqa: E402
 )
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
+BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
+VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 WORLD_SCENARIOS = {
     "urban_inspection_multirotor_001.sdf": ROOT
     / "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
@@ -38,6 +40,12 @@ WORLD_SCENARIOS = {
     "coastal_patrol_fixed_wing_001.sdf": ROOT
     / "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
 }
+WORLD_SCENARIOS.update(
+    {
+        "gen_cnt2_w0000.sdf": ROOT
+        / "configs/scenarios/generated-count-site/gen_cnt2_w0000.scenario.json",
+    }
+)
 AIRFRAME_SCENARIOS = {
     "x500": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "x500_mono_cam": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
@@ -97,10 +105,11 @@ def build_session_command(
     world: str | Path = DEFAULT_WORLD,
     airframe: str = "x500_mono_cam",
     gcs_port: int | None = None,
-    viewer: str = "wslg",
+    viewer: str = "novnc",
     container_name: str | None = None,
     control_port: int = 14540,
     telemetry_port: int = 14541,
+    viewer_port: int = 6080,
 ) -> tuple[list[str], DockerSimulatorPlan, Path]:
     """Build the Docker argv without starting Docker (unit-test boundary)."""
     world_path = resolve_world(world)
@@ -119,41 +128,35 @@ def build_session_command(
     command = list(plan.command)
     _replace_world_mount(command, world_path)
     image_index = command.index(plan.image)
-    env = [
-        "HEADLESS=0",
-        "DISPLAY=:0",
-        "WAYLAND_DISPLAY=wayland-0",
-        "XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir",
-    ]
-    if viewer == "wslg":
-        env.extend(("GDK_BACKEND=x11", "QT_X11_NO_MITSHM=1"))
+    command[image_index] = VIEWER_IMAGE
+    if viewer != "novnc":
+        raise ValueError("the browser viewer is the only supported viewer on docker-desktop")
+    env = ["HEADLESS=1", "DISPLAY=:99", "LIBGL_ALWAYS_SOFTWARE=1", f"VIEWER_PORT={viewer_port}"]
     if gcs_port is not None:
         if not 1024 <= gcs_port <= 65535 or gcs_port == control_port:
             raise ValueError("gcs-port must be in 1024..65535 and differ from control port")
         env.append(f"PX4_GCS_PORT={gcs_port}")
-    # Replace the planner's default HEADLESS=1 and add the WSLg variables.
     for index in range(0, image_index - 1):
         if command[index] == "--env" and command[index + 1] == "HEADLESS=1":
-            command[index + 1] = "HEADLESS=0"
+            command[index + 1] = "HEADLESS=1"
             break
-    for item in reversed([value for value in env if value != "HEADLESS=0"]):
+    for item in reversed([value for value in env if value != "HEADLESS=1"]):
         command[image_index:image_index] = ["--env", item]
-    mount_at = command.index("--workdir")
-    gui_mounts = [
-        ("type=bind,source=/run/desktop/mnt/host/wslg/.X11-unix,target=/tmp/.X11-unix,readonly"),
-        ("type=bind,source=/run/desktop/mnt/host/wslg,target=/mnt/wslg,readonly"),
-    ]
-    for spec in reversed(gui_mounts):
-        command[mount_at:mount_at] = ["--mount", spec]
-    if Path("/dev/dxg").exists():
-        command[mount_at:mount_at] = ["--device", "/dev/dxg"]
-        if Path("/usr/lib/wsl/lib").is_dir():
-            command[mount_at:mount_at] = [
-                "--mount",
-                "type=bind,source=/usr/lib/wsl/lib,target=/usr/lib/wsl/lib,readonly",
-            ]
-    else:
-        command[image_index:image_index] = ["--env", "LIBGL_ALWAYS_SOFTWARE=1"]
+    command[image_index:image_index] = ["--publish", f"127.0.0.1:{viewer_port}:{viewer_port}/tcp"]
+    startup = command[-1]
+    viewer_start = (
+        "Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset & "
+        "x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet & "
+        f"websockify --web=/usr/share/novnc {viewer_port} 127.0.0.1:5900 & "
+        "(sleep 8; DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 "
+        "gz sim -g --render-engine-gui ogre2 "
+        "/opt/px4-gazebo/share/gz/worlds/default.sdf >/tmp/gz-gui.log 2>&1 "
+        "|| DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 gz sim -g --render-engine-gui ogre "
+        "/opt/px4-gazebo/share/gz/worlds/default.sdf >>/tmp/gz-gui.log 2>&1 || true) & "
+    )
+    command[-1] = startup.replace(
+        "exec /opt/px4-gazebo/bin/px4", viewer_start + "exec /opt/px4-gazebo/bin/px4"
+    )
     if gcs_port is not None:
         command[image_index:image_index] = ["--publish", f"127.0.0.1:{gcs_port}:{gcs_port}/udp"]
         startup = command[-1]
@@ -179,7 +182,31 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
     return message is not None
 
 
-def _run_task(task: str, world: Path, port: int, out: Path) -> int:
+def ensure_viewer_image(docker: str, *, force: bool = False) -> None:
+    """Build the cached viewer layer once; runtime sessions never apt-install."""
+    present = (
+        subprocess.run(
+            [docker, "image", "inspect", VIEWER_IMAGE], capture_output=True, check=False
+        ).returncode
+        == 0
+    )
+    if present and not force:
+        return
+    subprocess.run(
+        [
+            docker,
+            "build",
+            "--pull=false",
+            "-t",
+            VIEWER_IMAGE,
+            str(ROOT / "simulation/docker/viewer"),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+
+def _run_task(task: str, world: Path, port: int, out: Path, container_name: str) -> int:
     """Run the existing onboard policy entry point against the session port."""
     out.mkdir(parents=True, exist_ok=True)
     task_file = out / "onboard-task.json"
@@ -187,14 +214,39 @@ def _run_task(task: str, world: Path, port: int, out: Path) -> int:
         json.dumps({"task": task, "world": str(world)}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    # The policy-chain command is the repository's model/admission smoke.  A
-    # full live episode additionally needs the camera stream and mission
-    # package; those are intentionally not fabricated here.
+    scenario = _scenario_for(world, "x500_mono_cam")
+    defaults = json.loads(
+        (Path(r"D:/Projects/mdwt/_scratch/suite-r18-defaults.json")).read_text(encoding="utf-8")
+    )["defaults"]
+    defaults["planning_model"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["planning_model"])
+    defaults["yoloe_weights"] = str(Path(r"D:/Projects/Multi-Detect") / defaults["yoloe_weights"])
+    config = out / "onboard-config.json"
+    config.write_text(json.dumps(defaults, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     command = [
         sys.executable,
-        str(ROOT / "scripts/run_onboard_policy_chain.py"),
-        "--output",
-        str(out / "policy-chain.json"),
+        str(ROOT / "scripts/collect_sim_teacher_episodes.py"),
+        "--scenario",
+        str(scenario),
+        "--airframe",
+        "x500_mono_cam",
+        "--teacher",
+        "onboard",
+        "--attach-container",
+        container_name,
+        "--control-port",
+        str(port),
+        "--telemetry-port",
+        "14541",
+        "--onboard-config",
+        str(config),
+        "--task-text",
+        task,
+        "--episodes",
+        "1",
+        "--steps-per-episode",
+        "140",
+        "--out",
+        str(out / "collector"),
     ]
     try:
         return subprocess.run(command, cwd=ROOT, check=False).returncode
@@ -207,10 +259,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--world", default=DEFAULT_WORLD)
     parser.add_argument("--airframe", default="x500_mono_cam")
-    parser.add_argument("--gcs-port", type=int, default=None)
+    parser.add_argument("--gcs-port", type=int, default=14560)
     parser.add_argument("--onboard-task")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
-    parser.add_argument("--viewer", choices=("wslg", "novnc"), default="wslg")
+    parser.add_argument("--viewer", choices=("novnc",), default="novnc")
+    parser.add_argument("--viewer-port", type=int, default=6080)
+    parser.add_argument("--build-viewer", action="store_true")
     parser.add_argument("--container-name")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
@@ -226,12 +280,14 @@ def main(argv: Iterable[str] | None = None) -> int:
             container_name=args.container_name,
             control_port=args.control_port,
             telemetry_port=args.telemetry_port,
+            viewer_port=args.viewer_port,
         )
     except (OSError, TypeError, ValueError) as exc:
         parser.error(str(exc))
     docker = plan.docker_executable or shutil.which("docker")
     if not docker:
         parser.error("Docker Desktop executable not found")
+    ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
     print(f"Gazebo world: {world}")
     print(
@@ -240,7 +296,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     if args.gcs_port:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")
-    print("WSLg: DISPLAY=:0, WAYLAND_DISPLAY=wayland-0")
+    print(f"Browser viewer: http://127.0.0.1:{args.viewer_port}/vnc.html?autoconnect=1")
     try:
         subprocess.run(command, cwd=ROOT, check=True)
     except (OSError, subprocess.CalledProcessError):
@@ -264,7 +320,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             f"on UDP {heartbeat_port}"
         )
         if args.onboard_task:
-            code = _run_task(args.onboard_task, world, args.control_port, args.onboard_out)
+            code = _run_task(
+                args.onboard_task, world, args.control_port, args.onboard_out, plan.container_name
+            )
             if code:
                 return code
         print("Interactive session is running. Press Ctrl+C to stop.")
