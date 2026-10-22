@@ -368,6 +368,10 @@ class MissionExecutor:
         self.answers: list[str] = []
         self.alerts: list[str] = []
         self.history: list[dict[str, Any]] = []
+        # Ephemeral protocol records consumed by MissionSupervisor/downlink.
+        # Keeping these separate from the durable mission log avoids coupling
+        # the pure executor to a transport implementation.
+        self._protocol_events: list[dict[str, Any]] = []
         self.done = False
         self._last_loop: OnboardLoop | None = None
         self._run: _StepRun | None = self._start(self.plan.steps[0])
@@ -534,6 +538,22 @@ class MissionExecutor:
             self.done, self._run = True, None
         else:
             self._run = self._start(self._steps[following])
+
+    def drain_protocol_events(self) -> tuple[dict[str, Any], ...]:
+        """Return and clear finding/alert records produced since last drain."""
+        events = tuple(self._protocol_events)
+        self._protocol_events.clear()
+        return events
+
+    @property
+    def count_is_lower_bound(self) -> bool | None:
+        """Whether any completed count step may have missed objects."""
+        values = [
+            bool(item["count_is_lower_bound"])
+            for item in self.history
+            if "count_is_lower_bound" in item
+        ]
+        return any(values) if values else None
 
     @property
     def current_step(self) -> MissionStep | None:
@@ -829,6 +849,20 @@ class MissionExecutor:
                 **run.loop.position_metadata(track),
             },
             None,
+        )
+        # The alert has its own wire record while retaining the historical
+        # finding entry used by report/count consumers.
+        self._protocol_events.append(
+            {
+                "kind": "alert",
+                "step": run.step.id,
+                "id": f"a{len(self.alerts)}",
+                "label": run.step.params.get("query"),
+                "n": float(north),
+                "e": float(east),
+                "track": track.track_id,
+                "t": self._clock(),
+            }
         )
 
     @property
@@ -1136,9 +1170,7 @@ class MissionExecutor:
         skipped = []
 
         def skip(centre, reason):
-            skipped.append(
-                {"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason}
-            )
+            skipped.append({"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason})
 
         for rejection in candidates:
             centre = tuple(rejection["ground"])
@@ -1308,6 +1340,21 @@ class MissionExecutor:
         self.track_ids.append(str(record.get("track_id")))
         if frame_id:
             self.evidence.append(frame_id)
+        event = {
+            "kind": "finding",
+            "step": run.step.id,
+            "id": f"f{len(self.findings)}",
+            "label": finding.get("query"),
+            "n": finding["position_ne"][0],
+            "e": finding["position_ne"][1],
+            "evidence_frame": frame_id,
+            "track": finding.get("track_id"),
+            "t": self._clock(),
+        }
+        for source, target in (("sigma_m", "sigma_m"), ("confidence", "confidence")):
+            if source in record:
+                event[target] = record[source]
+        self._protocol_events.append(event)
 
     # -- inspect: orbit the referenced ground point ----------------------------
     def _inspect_altitude(self, run: _StepRun) -> float:
