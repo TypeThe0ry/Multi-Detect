@@ -751,6 +751,7 @@ class OnboardPolicy:
             ("contradiction_relook_bearing_deg", float),
             ("static_ground_veto_min_m", float),
             ("static_ground_veto_gates", float),
+            ("static_verdict_max_shift_m", float),
         ):
             if key in options:
                 loop_defaults[key] = convert(options[key])
