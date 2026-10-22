@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Iterable
@@ -185,6 +186,74 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
     return message is not None
 
 
+def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
+    try:
+        from pymavlink import mavutil
+
+        connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
+        message = connection.wait_heartbeat(timeout=timeout)
+        if message is None:
+            return None
+        return {
+            "sysid": int(message.get_srcSystem()),
+            "compid": int(message.get_srcComponent()),
+            "autopilot": int(getattr(message, "autopilot", -1)),
+            "type": int(getattr(message, "type", -1)),
+        }
+    except (ImportError, OSError, ValueError) as exc:
+        raise RuntimeError(f"MAVLink heartbeat listener failed on UDP {port}: {exc}") from exc
+
+
+def _session_log(path: Path | None, phase: str, **fields: object) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {"ts": time.time(), "phase": phase, **fields}
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _snapshot(
+    docker: str, container: str, directory: Path, *, label: str | None = None
+) -> Path | None:
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    suffix = f"-{label}" if label else ""
+    target = directory / f"{stamp}{suffix}.png"
+    remote = f"/tmp/sim-session-{stamp}.png"
+    capture = subprocess.run(
+        [docker, "exec", container, "sh", "-lc", f"DISPLAY=:99 import -window root {remote}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if capture.returncode:
+        return None
+    copied = subprocess.run([docker, "cp", f"{container}:{remote}", str(target)], check=False)
+    return target if copied.returncode == 0 else None
+
+
+def _wait_world_ready(docker: str, container: str, timeout: float) -> tuple[bool, bool, str]:
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        logs = subprocess.run(
+            [docker, "logs", "--tail", "240", container],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        last = logs.stdout + logs.stderr
+        ready = "Gazebo world is ready" in last or "World is ready" in last
+        spawned = any(
+            token in last.lower() for token in ("x500", "vehicle spawned", "spawned vehicle")
+        )
+        if ready or ("Starting gazebo" in last and spawned):
+            return True, spawned, last
+        time.sleep(1)
+    return False, False, last
+
+
 def ensure_viewer_image(docker: str, *, force: bool = False) -> None:
     """Build the cached viewer layer once; runtime sessions never apt-install."""
     present = (
@@ -278,7 +347,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--airframe", default="x500_mono_cam")
     parser.add_argument("--gcs-port", type=int, default=14560)
     parser.add_argument("--onboard-task")
+    parser.add_argument("--exit-after-task", action="store_true")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
+    parser.add_argument("--snapshot-dir", type=Path)
+    parser.add_argument("--snapshot-interval", type=float, default=10.0)
+    parser.add_argument("--check-heartbeat", type=float, default=0.0)
+    parser.add_argument("--session-log", type=Path)
     parser.add_argument("--viewer", choices=("novnc",), default="novnc")
     parser.add_argument("--viewer-port", type=int, default=6080)
     parser.add_argument("--build-viewer", action="store_true")
@@ -286,8 +360,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
     args = parser.parse_args(list(argv) if argv is not None else None)
-    if args.viewer == "novnc":
-        parser.error("novnc fallback is not installed; use --viewer wslg")
+    if args.snapshot_interval <= 0 or args.check_heartbeat < 0:
+        parser.error("snapshot-interval must be positive and check-heartbeat non-negative")
     try:
         validate_runtime_prerequisites(onboard=bool(args.onboard_task))
         command, plan, world = build_session_command(
@@ -307,6 +381,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error("Docker Desktop executable not found")
     ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
+    snapshot_dir = args.snapshot_dir.resolve() if args.snapshot_dir else None
+    session_log = args.session_log.resolve() if args.session_log else None
+    _session_log(session_log, "plan_built", world=str(world), container=plan.container_name)
     print(f"Gazebo world: {world}")
     print(
         f"PX4 control UDP: 127.0.0.1:{args.control_port}; "
@@ -322,6 +399,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         subprocess.run([docker, "rm", plan.container_name], check=False)
         raise
     try:
+        _session_log(session_log, "container_started", container=plan.container_name)
         for _ in range(60):
             state = subprocess.run(
                 [docker, "inspect", "-f", "{{.State.Running}}", plan.container_name],
@@ -332,15 +410,60 @@ def main(argv: Iterable[str] | None = None) -> int:
             if state.stdout.strip() == "true":
                 break
             time.sleep(1)
-        heartbeat_port = args.gcs_port or args.telemetry_port
-        print(
-            f"PX4 heartbeat: {'received' if _heartbeat(heartbeat_port) else 'not observed'} "
-            f"on UDP {heartbeat_port}"
+        ready, spawned, logs = _wait_world_ready(docker, plan.container_name, 240.0)
+        _session_log(
+            session_log,
+            "world_ready" if ready else "world_timeout",
+            vehicle_spawned=spawned,
+            log_tail=logs[-4000:],
         )
+        if not ready:
+            raise RuntimeError("PX4/Gazebo world did not become ready within 240 seconds")
+        if spawned:
+            _session_log(session_log, "vehicle_spawned")
+        if snapshot_dir:
+            _snapshot(docker, plan.container_name, snapshot_dir, label="world-ready")
+        heartbeat_port = args.gcs_port or args.telemetry_port
+        if args.check_heartbeat:
+            try:
+                details = _heartbeat_details(heartbeat_port, args.check_heartbeat)
+            except RuntimeError as exc:
+                _session_log(session_log, "heartbeat_failed", error=str(exc))
+                raise
+            if details is None:
+                _session_log(session_log, "heartbeat_timeout", port=heartbeat_port)
+                raise RuntimeError(f"no MAVLink HEARTBEAT received on UDP {heartbeat_port}")
+            _session_log(session_log, "heartbeat", port=heartbeat_port, **details)
+            if snapshot_dir:
+                (snapshot_dir / "heartbeat.json").write_text(
+                    json.dumps(details, indent=2) + "\n", encoding="utf-8"
+                )
+            print(f"PX4 heartbeat: received on UDP {heartbeat_port}: {details}")
+        stop_snapshots = threading.Event()
+
+        def snapshot_loop() -> None:
+            while snapshot_dir and not stop_snapshots.wait(args.snapshot_interval):
+                _snapshot(docker, plan.container_name, snapshot_dir)
+
+        snapshot_thread = threading.Thread(target=snapshot_loop, daemon=True)
+        snapshot_thread.start()
         if args.onboard_task:
+            _session_log(session_log, "task_start", task=args.onboard_task)
             code = _run_task(
                 args.onboard_task, world, args.control_port, args.onboard_out, plan.container_name
             )
+            summary = next(args.onboard_out.rglob("report.json"), None)
+            _session_log(
+                session_log,
+                "task_end",
+                exit_code=code,
+                summary_path=str(summary) if summary else None,
+            )
+            if snapshot_dir:
+                _snapshot(docker, plan.container_name, snapshot_dir, label="task-end")
+            stop_snapshots.set()
+            if args.exit_after_task:
+                return code
             if code:
                 return code
         print("Interactive session is running. Press Ctrl+C to stop.")
@@ -349,6 +472,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Stopping owned simulator container...")
     finally:
+        _session_log(session_log, "teardown", container=plan.container_name)
         subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
         subprocess.run([docker, "rm", plan.container_name], check=False)
     return 0

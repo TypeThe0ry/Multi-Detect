@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.run_sim_session import VIEWER_IMAGE, build_session_command, resolve_world
+from scripts.run_sim_session import VIEWER_IMAGE, build_session_command, main, resolve_world
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +28,11 @@ def test_session_plan_sends_gcs_to_host_without_publishing_port() -> None:
     )
     assert "127.0.0.1:14560:14560/udp" not in command
     assert any("-t $DOCKER_HOST_IP -u 14542 -o 14560" in token for token in command)
+
+
+def test_session_options_reject_invalid_snapshot_interval() -> None:
+    with pytest.raises(SystemExit):
+        main(["--snapshot-interval", "0"])
 
 
 def test_world_must_be_repository_owned() -> None:

@@ -21,6 +21,10 @@ python scripts/run_sim_session.py
 - `--viewer-port 6080`：noVNC HTTP 端口；
 - `--build-viewer`：强制重建一次性派生 viewer 镜像，正常启动会复用缓存；
 - `--onboard-task "..."`：启动后执行仓库的 onboard policy-chain smoke，并把任务文本与结果写入 `--onboard-out`；完整 live episode 还需要相机设备和签名 mission package，当前命令不会伪造这两项；
+- `--exit-after-task`：任务成功或失败后清理容器并返回任务 exit code；
+- `--snapshot-dir DIR`、`--snapshot-interval S`：把容器 `DISPLAY=:99` 截图复制到目录，默认间隔 10 秒；世界 ready 和任务结束各额外保存一张；
+- `--check-heartbeat S`：在宿主绑定 GCS UDP 端口等待 HEARTBEAT，并写入 `heartbeat.json`；
+- `--session-log FILE`：写入 JSON Lines 生命周期日志；
 - `--viewer novnc`：浏览器 viewer（默认）。PX4 保持 `HEADLESS=1`，容器内的 GUI 客户端稍后用 `gz sim -g` 连接同一个 server；先尝试 ogre2，失败再退回 ogre。
 
 例如：
