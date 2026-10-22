@@ -478,6 +478,11 @@ class AirframeMotionAdapter:
             if decision.reasons:
                 reason += ": " + ", ".join(decision.reasons)
             recovery = self._recovery(reason, pose)
+            if self._held_down is not None and recovery.target_ned is not None:
+                # The refused command's altitude was never flown: the recovery's is
+                # now the commanded one.  Keeping the refused altitude let repeated
+                # refusals walk it below ground, and the next fly-by orbit used it.
+                self._held_down = float(recovery.target_ned[2])
             recovery = MotionCommand(
                 recovery.kind,
                 target_ned=recovery.target_ned,
@@ -573,7 +578,13 @@ class AirframeMotionAdapter:
         # commanded altitude and apply only the loop's requested climb/descent.
         if self._held_down is None:
             self._held_down = pose[2]
-        pose = (pose[0], pose[1], self._held_down)
+        # The loop measures a climb/descent from the altitude it sees (search
+        # altitude, cruise, a revisit's return height), so it applies to the
+        # actual altitude.  Adding it to the held altitude integrated every
+        # correction: in SITL a 25 -> 30 m climb asked 8 times became a 54 m
+        # command, and the descents back ran the held altitude below ground.
+        if not (action.kind == "translate" and abs(action.up_m) > 1e-9):
+            pose = (pose[0], pose[1], self._held_down)
         if (
             not self._safe_legacy(
                 ActionPrimitive.translate(action.forward_m, action.right_m, action.up_m),
@@ -582,6 +593,8 @@ class AirframeMotionAdapter:
             )
             and action.kind == "translate"
         ):
+            # The recovery loiter is the altitude now commanded.
+            self._held_down = pose[2]
             return self._recovery("safety envelope rejected motion", pose)
         pass_orbit = onboard.get("fw_orbit") if isinstance(onboard, Mapping) else None
         if action.kind == "hold" and isinstance(pass_orbit, Mapping):

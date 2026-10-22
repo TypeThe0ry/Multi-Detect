@@ -156,3 +156,16 @@ def test_act_single_exit_arbiter_covers_supervisor_health_and_detector_holds():
         action, _ = policy.act({"i": i, "labels": {"state": label}}, pose_ned=(0, 0, -5), yaw_deg=0)
         assert action == actions[i]
     assert envelope.calls == 3
+
+
+def test_orbit_is_checked_at_its_own_altitude_not_the_aircraft_altitude():
+    # SITL rc_cessna w0031: a fly-by orbit commanded 153 m below home passed the
+    # guard (only the aircraft's 25 m was checked) and flew the plane into the ground.
+    envelope = SafetyEnvelope(SafetyEnvelopeConfig(min_altitude_m=5.0, max_vertical_step_m=30.0))
+    pose = (0.0, 0.0, -25.0)
+    below_ground = envelope.apply_orbit((100.0, 0.0), 90.0, pose_ned=pose, down_m=152.9)
+    assert below_ground.rejected and "min_altitude" in below_ground.reasons
+    too_far = envelope.apply_orbit((100.0, 0.0), 90.0, pose_ned=pose, down_m=-60.0)
+    assert too_far.rejected and "max_vertical_step" in too_far.reasons
+    held = envelope.apply_orbit((100.0, 0.0), 90.0, pose_ned=pose, down_m=-28.0)
+    assert not held.rejected
