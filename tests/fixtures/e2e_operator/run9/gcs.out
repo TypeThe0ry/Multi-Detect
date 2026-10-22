@@ -1,0 +1,28 @@
+uploaded e2e-count-cones-001
+onboard ack kind=34 index=0 accepted=False 任务标识不匹配或没有机载任务
+onboard ack kind=28 index=0 accepted=True 分块已接收
+onboard ack kind=28 index=1 accepted=True 分块已接收
+onboard ack kind=28 index=2 accepted=True 分块已接收
+onboard ack kind=28 index=3 accepted=True 分块已接收
+onboard ack kind=28 index=4 accepted=True 分块已接收
+onboard ack kind=28 index=5 accepted=True 分块已接收
+onboard ack kind=28 index=6 accepted=True 分块已接收
+onboard ack kind=28 index=7 accepted=True 分块已接收
+onboard ack kind=28 index=8 accepted=True 分块已接收
+onboard ack kind=28 index=9 accepted=True 分块已接收
+onboard ack kind=28 index=10 accepted=True 分块已接收
+onboard ack kind=28 index=11 accepted=True 分块已接收
+onboard ack kind=28 index=12 accepted=True 分块已接收
+onboard ack kind=28 index=13 accepted=True 分块已接收
+onboard ack kind=28 index=14 accepted=True 分块已接收
+onboard ack kind=28 index=15 accepted=True 分块已接收
+onboard ack kind=28 index=16 accepted=True 分块已接收
+onboard ack kind=28 index=17 accepted=True 任务包已接收，机载编译中
+onboard ack kind=34 index=0 accepted=False 任务标识不匹配或没有机载任务
+onboard ack kind=28 index=17 accepted=True 任务包已通过机载验证并接纳
+{"v": 2, "kind": "status", "mission_id": "e2e-count-cones-001", "sequence": 1792677526862, "seq": 1792677526862, "t": 216056.781, "state": "awaiting_approval", "supervisor": {"action": "continue", "reason": "mission admitted; onboard operation enabled", "policy": "continue", "timeout_s": 0.0, "link": "down", "link_silent_s": 0.0}, "budget": {"time_left_s": 3599.9220000000205, "energy_left_wh": null}, "step": {"id": "s1", "skill": "count", "state": "running", "index": 0, "total": 2, "progress": 0.0, "primitives": 0, "budget": 140, "query": "orange traffic cone"}, "counts": {}, "findings_total": 0, "alerts_total": 0, "action": "continue", "reason": "mission admitted; onboard operation enabled", "policy": "continue", "timeout_s": 0.0, "remaining_time_s": 3599.9220000000205, "remaining_energy_wh": null, "flight_active": false}
+approved plan c7e18426d1a2
+onboard ack kind=37 index=0 accepted=True ground command chunk received
+onboard ack kind=37 index=1 accepted=True ground command chunk received
+onboard ack kind=37 index=2 accepted=True ground command chunk received
+onboard ack kind=37 index=3 accepted=True ground command accepted

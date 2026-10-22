@@ -41,6 +41,7 @@ _EXACT = {
     "test_place_verdict_memory.py",
     "test_supervisor_evidence.py",
     "test_score_onboard_loop.py",
+    "test_e2e_operator_acceptance.py",
     "test_sim_world_gen.py",
     "test_fixed_wing_scenario_derivation.py",
     "test_airframe_camera_mount_pitch.py",
