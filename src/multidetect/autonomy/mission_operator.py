@@ -844,13 +844,20 @@ class MissionOperatorAdapter:
         if run is not None:
             budget = max(1, int(getattr(executor.config, "step_budget", 1)))
             progress = min(1.0, max(0.0, float(getattr(run, "visited", 0)) / budget))
+        # A rejected plan or a return/land latched while waiting is no longer
+        # "awaiting approval": the aircraft is recovering.
+        terminal = getattr(supervisor, "_terminal", None)
         state = (
             "awaiting_approval"
-            if not supervisor.plan_approved
+            if not supervisor.plan_approved and terminal is None
             else (
                 "done"
                 if executor.done
-                else ("returning" if supervisor.action.startswith("return") else "running")
+                else (
+                    "returning"
+                    if terminal is not None or supervisor.action.startswith("return")
+                    else "running"
+                )
             )
         )
         lower_bounds = count_lower_bounds(executor)

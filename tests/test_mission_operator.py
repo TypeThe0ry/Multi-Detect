@@ -785,3 +785,13 @@ def test_final_summary_pages_fit_the_byte_budget_for_chinese_text(tmp_path):
         offset += count
     assert len(pages) > 1 and {page["pages"] for page in pages} == {len(pages)}
     assert json.loads("".join(page["body"] for page in pages)) == summary
+
+
+def test_status_of_a_rejected_plan_is_not_awaiting_approval(tmp_path):
+    active = supervisor(tmp_path)
+    active.requires_approval, active.plan_approved = True, False
+    adapter = MissionOperatorAdapter(codec(), supervisor=active)
+    assert adapter.status_document()["state"] == "awaiting_approval"
+    assert active.reject_plan(active.plan_sha256)
+    status = adapter.status_document()
+    assert status["state"] == "returning" and status["action"] == "land_now"
