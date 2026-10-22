@@ -831,7 +831,9 @@ bool QGCApplication::event(QEvent* e)
 
 void QGCApplication::quitForIsolatedHilAcceptance()
 {
-    if (!_isolatedHilMode || !qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+    if ((!_isolatedHilMode && !qEnvironmentVariableIsSet("MULTIDETECT_UI_AUTO_EXIT_S")) ||
+        (!qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT") &&
+         !qEnvironmentVariableIsSet("MULTIDETECT_UI_AUTO_EXIT_S"))) {
         return;
     }
 
@@ -899,7 +901,8 @@ void QGCApplication::shutdown()
     // keep the engine alive until the OS tears the process down instead of allowing
     // QML-owned objects to race the QObject tree during teardown.  This is scoped to
     // the acceptance-only environment and does not change normal QGC shutdown.
-    if (_isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+    if ((_isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) ||
+        qEnvironmentVariableIsSet("MULTIDETECT_UI_AUTO_EXIT_S")) {
         if (_qmlAppEngine) {
             _qmlAppEngine->setParent(nullptr);
             _qmlAppEngine = nullptr;

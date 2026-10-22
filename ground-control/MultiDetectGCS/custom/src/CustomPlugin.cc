@@ -11,6 +11,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtQuick/QQuickWindow>
+#include <QtQuick/QQuickItem>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
 #include <QtQml/QQmlApplicationEngine>
@@ -51,26 +52,44 @@ public:
         if (!enabled() || !_window) {
             return;
         }
+        qInfo() << "MultiDetect UI snapshot controller bound to" << _window << "size" << _window->size();
         QDir().mkpath(_directory);
         connect(_window, &QObject::destroyed, this, [this] { _window = nullptr; });
-        QTimer::singleShot(500, this, [this] { capture(QStringLiteral("startup")); });
+        connect(_window, &QQuickWindow::frameSwapped, this, [this] {
+            if (_capturePending) {
+                _capturePending = false;
+                captureNow(_pendingEvent);
+            }
+        });
         _timer.setInterval(_intervalMs);
-        connect(&_timer, &QTimer::timeout, this, [this] { capture(QStringLiteral("interval")); });
+        connect(&_timer, &QTimer::timeout, this, [this] { requestCapture(QStringLiteral("interval")); });
         _timer.start();
         if (autoExitSeconds > 0) {
-            QTimer::singleShot(autoExitSeconds * 1000, qApp, &QCoreApplication::quit);
+            QTimer::singleShot(autoExitSeconds * 1000, this, [this] {
+                if (auto* app = qobject_cast<QGCApplication*>(QCoreApplication::instance()))
+                    app->quitForIsolatedHilAcceptance();
+            });
         }
     }
 
     Q_INVOKABLE bool requestSnapshot(const QString& eventName = QStringLiteral("event"))
     {
-        return capture(eventName);
+        return requestCapture(eventName);
     }
 
 private:
-    bool capture(QString eventName)
+    bool requestCapture(QString eventName)
     {
-        if (!enabled() || !_window || _count >= _maxFiles) {
+        if (!enabled() || !_window || _count >= _maxFiles || _capturePending)
+            return false;
+        _pendingEvent = std::move(eventName);
+        _capturePending = true;
+        return true;
+    }
+
+    bool captureNow(QString eventName)
+    {
+        if (!enabled() || !_window || _count >= _maxFiles || !_window->isSceneGraphInitialized()) {
             if (_count >= _maxFiles) {
                 _timer.stop();
             }
@@ -88,6 +107,9 @@ private:
             return false;
         }
         qInfo() << "MultiDetect UI snapshot:" << QDir::toNativeSeparators(path);
+        if (_count >= _maxFiles) {
+            _timer.stop();
+        }
         return true;
     }
 
@@ -97,6 +119,8 @@ private:
     int _intervalMs = 2000;
     int _maxFiles = 20;
     int _count = 0;
+    bool _capturePending = false;
+    QString _pendingEvent;
 };
 
 namespace {
@@ -403,7 +427,10 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
         const int autoExitSeconds = qEnvironmentVariable("MULTIDETECT_UI_AUTO_EXIT_S").toInt(&autoExitOk);
         const int configuredAutoExit = autoExitOk && autoExitSeconds > 0 && autoExitSeconds <= 3600 ? autoExitSeconds : 0;
         if (configuredAutoExit > 0)
-            QTimer::singleShot(configuredAutoExit * 1000, qApp, &QCoreApplication::quit);
+            QTimer::singleShot(configuredAutoExit * 1000, this, [this] {
+                if (auto* app = qobject_cast<QGCApplication*>(QCoreApplication::instance()))
+                    app->quitForIsolatedHilAcceptance();
+            });
         auto* bindTimer = new QTimer(this);
         bindTimer->setInterval(250);
         connect(bindTimer, &QTimer::timeout, this, [this, bindTimer, snapshotDirectory,
@@ -412,6 +439,10 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
             if (!_uiSnapshotController || !_qmlEngine) { bindTimer->stop(); bindTimer->deleteLater(); return; }
             for (QWindow* candidate : QGuiApplication::allWindows()) {
                 if (auto* window = qobject_cast<QQuickWindow*>(candidate)) {
+                    if (window->width() <= 0 || window->height() <= 0) {
+                        continue;
+                    }
+                    qInfo() << "MultiDetect UI snapshot candidate" << window << window->size();
                     _uiSnapshotController->configure(window, snapshotDirectory, intervalSeconds, maxFiles, 0);
                     bindTimer->stop(); bindTimer->deleteLater();
                     return;
@@ -425,7 +456,10 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
         bool autoExitOk = false;
         const int autoExitSeconds = qEnvironmentVariable("MULTIDETECT_UI_AUTO_EXIT_S").toInt(&autoExitOk);
         if (autoExitOk && autoExitSeconds > 0 && autoExitSeconds <= 3600) {
-            QTimer::singleShot(autoExitSeconds * 1000, qApp, &QCoreApplication::quit);
+            QTimer::singleShot(autoExitSeconds * 1000, this, [this] {
+                if (auto* app = qobject_cast<QGCApplication*>(QCoreApplication::instance()))
+                    app->quitForIsolatedHilAcceptance();
+            });
         }
     }
 

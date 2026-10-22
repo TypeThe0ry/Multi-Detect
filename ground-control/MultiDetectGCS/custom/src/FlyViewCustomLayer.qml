@@ -7,6 +7,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import QtPositioning
+import QtLocation
 import "qrc:/Custom/qml" as MultiDetectPanels
 
 Item {
@@ -1122,7 +1123,7 @@ Item {
             RowLayout {
                 id: collapseRow
                 Layout.fillWidth: true
-                QGCLabel { Layout.fillWidth: true; font.bold: true; text: qsTr("任务监控 · %1").arg(root._missionController.activeMissionId) }
+                QGCLabel { Layout.fillWidth: true; font.bold: true; text: qsTr("任务监控 · %1").arg(root._missionController ? root._missionController.activeMissionId : qsTr("等待任务")) }
                 QGCButton { text: root._missionCardCollapsed ? qsTr("展开") : qsTr("收起"); onClicked: root._missionCardCollapsed = !root._missionCardCollapsed }
             }
             ColumnLayout {

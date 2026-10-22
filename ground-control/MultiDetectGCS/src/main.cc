@@ -74,7 +74,8 @@ int main(int argc, char *argv[])
     // this deliberately short-lived acceptance process without running the
     // remaining static destructors; normal GUI and test modes keep the complete
     // QGC cleanup path below.
-    if (args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+    if ((args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) ||
+        qEnvironmentVariableIsSet("MULTIDETECT_UI_AUTO_EXIT_S")) {
         std::fflush(nullptr);
         std::_Exit(exitCode);
     }
