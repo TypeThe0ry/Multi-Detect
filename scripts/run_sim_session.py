@@ -337,7 +337,9 @@ def _run_task(
         "--episodes",
         "1",
         "--steps-per-episode",
-        "140",
+        # Room for coverage completion and the return-home step: a session count
+        # found all three cones but hit a 140-step cap before finishing.
+        "220",
         # The collector's 300 s default ended a SITL count mid-search; the
         # mission suite gives the same task 2400 s.
         "--max-episode-s",
