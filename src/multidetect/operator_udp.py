@@ -228,6 +228,7 @@ class UdpOperatorSelectionServer:
         mission_adapter: MissionOperatorAdapter | None = None,
         mission_package_loader: Callable[[Any], Any] | None = None,
         mission_preflight_allowed: Callable[[], bool] | None = None,
+        mission_requires_approval: bool | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -288,6 +289,7 @@ class UdpOperatorSelectionServer:
                 mavlink.codec,
                 package_loader=mission_package_loader,
                 preflight_allowed=mission_preflight_allowed,
+                requires_approval=mission_requires_approval,
             )
         self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s

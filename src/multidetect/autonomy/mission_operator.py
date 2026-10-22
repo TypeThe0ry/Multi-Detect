@@ -92,12 +92,14 @@ class MissionOperatorAdapter:
         package_loader: Callable[[MissionPackage], MissionSupervisor] | None = None,
         preflight_allowed: Callable[[], bool] | None = None,
         supervisor: MissionSupervisor | None = None,
+        requires_approval: bool | None = None,
         clock: Callable[[], float] = time.monotonic,
         upload_timeout_s: float = 30.0,
     ) -> None:
         if not 0 < upload_timeout_s <= 300:
             raise ValueError("upload timeout must be in (0, 300]")
         self.codec, self.package_loader = codec, package_loader
+        self.requires_approval = requires_approval
         self.preflight_allowed = preflight_allowed
         self.supervisor = supervisor
         self.clock, self.upload_timeout_s = clock, upload_timeout_s
@@ -411,6 +413,9 @@ class MissionOperatorAdapter:
         ):
             raise ValueError("机载加载器未安装对应任务监督器")
         supervisor.package.validate_plan(supervisor.executor.plan)
+        if self.requires_approval is not None:
+            supervisor.requires_approval = bool(self.requires_approval)
+            supervisor.plan_approved = not supervisor.requires_approval
         self.bind_supervisor(supervisor)
         supervisor.log.append(
             "plan",
