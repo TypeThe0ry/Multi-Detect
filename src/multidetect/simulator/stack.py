@@ -640,6 +640,8 @@ def parse_builtin_world_uri(
         )
     root = _resolve_repository_root(repository_root)
     path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
+    if not path.is_file():
+        path = root / "simulation" / "gazebo" / "worlds" / "variants" / f"{name}.sdf"
     # New airframe fixtures are self-contained under the scenario boundary so
     # adding a model does not require changing the shared world asset tree.
     if not path.is_file():

@@ -1,4 +1,4 @@
-﻿"""Evaluate the truth-free onboard loop on the held-out realistic-mesh test worlds.
+"""Evaluate the truth-free onboard loop on the held-out realistic-mesh test worlds.
 
 Runs ``collect_sim_teacher_episodes.py --teacher onboard`` once per (world,
 episode), one container at a time, then scores every episode against truth with
@@ -239,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.segmentation:
                 command.append("--segmentation")
+            if mission_config and mission_config.get("camera_noise_overlay"):
+                command.append("--camera-noise-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
             log = args.out / f"{world_id}.log"
@@ -307,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.segmentation:
                 command.append("--segmentation")
+            if mission_config and mission_config.get("camera_noise_overlay"):
+                command.append("--camera-noise-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
             log = args.out / f"{world_id}.log"

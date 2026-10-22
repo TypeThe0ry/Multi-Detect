@@ -10,8 +10,10 @@ Harmonic 的 WindEffects 系统读取 world ``<wind>``，并用同一系统的 g
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -201,12 +203,86 @@ def register_variant(index: Path, source_name: str, variant_name: str) -> None:
     data = json.loads(index.read_text(encoding="utf-8"))
     worlds = data.setdefault("worlds", [])
     source = next((item for item in worlds if item.get("world_file") == source_name), None)
+    source_dir = index.parent
+    target_dir = index.parent
+    if source is None:
+        fallback = ROOT / "configs/scenarios/generated-count-site/index.json"
+        if fallback.is_file():
+            base = json.loads(fallback.read_text(encoding="utf-8"))
+            source = next(
+                (item for item in base.get("worlds", []) if item.get("world_file") == source_name),
+                None,
+            )
+            source_dir = fallback.parent
     if source is None:
         raise ValueError(f"source world not found in {index}: {source_name}")
     entry = dict(source)
     entry["world_file"] = variant_name
     entry["world_id"] = Path(variant_name).stem
     entry["variant_of"] = source_name
+    variant_stem = Path(variant_name).stem
+    source_stem = Path(source_name).stem
+    for suffix in (".scenario.json", ".runtime_input.json", ".truth.json", ".expectations.json"):
+        source_file = source_dir / f"{source_stem}{suffix}"
+        target_file = target_dir / f"{variant_stem}{suffix}"
+        if source_file.is_file():
+            payload = json.loads(source_file.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                payload["scenario_id"] = variant_stem
+                if suffix == ".scenario.json":
+                    payload["channels"] = {
+                        name: {"path": f"{variant_stem}.{name}.json"}
+                        for name in ("expectations", "runtime_input", "truth")
+                    }
+                if suffix == ".runtime_input.json":
+                    payload.setdefault("world", {})["world_asset"] = (
+                        f"builtin://gazebo/{variant_stem}"
+                    )
+                    payload["world"]["map_asset"] = f"builtin://maps/{variant_stem}.geojson"
+                    payload["world"]["dem_asset"] = f"builtin://terrain/{variant_stem}.dem.json"
+                target_file.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+            else:
+                shutil.copyfile(source_file, target_file)
+    for asset_kind, suffix in (("maps", ".geojson"), ("terrain", ".dem.json")):
+        original = ROOT / "simulation" / asset_kind / f"{source_stem}{suffix}"
+        target = ROOT / "simulation" / asset_kind / f"{variant_stem}{suffix}"
+        if original.is_file():
+            asset = json.loads(original.read_text(encoding="utf-8"))
+            asset["scenario_id"] = variant_stem
+            target.write_text(
+                json.dumps(asset, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+    entry["files"] = {
+        "scenario": {"path": f"{variant_stem}.scenario.json"},
+        "runtime_input": {"path": f"{variant_stem}.runtime_input.json"},
+        "truth": {"path": f"{variant_stem}.truth.json"},
+        "expectations": {"path": f"{variant_stem}.expectations.json"},
+        "world": {"path": f"{variant_name}"},
+    }
+    scenario_file = target_dir / f"{variant_stem}.scenario.json"
+    if scenario_file.is_file():
+        payload = json.loads(scenario_file.read_text(encoding="utf-8"))
+        payload["channels"] = {
+            name: {
+                "path": f"{variant_stem}.{name}.json",
+                "sha256": hashlib.sha256(
+                    json.dumps(
+                        json.loads(
+                            (target_dir / f"{variant_stem}.{name}.json").read_text(encoding="utf-8")
+                        ),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+            }
+            for name in ("expectations", "runtime_input", "truth")
+        }
+        scenario_file.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     worlds.append(entry)
     data["count"] = len(worlds)
     index.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
