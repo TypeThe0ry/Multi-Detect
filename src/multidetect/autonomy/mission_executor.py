@@ -368,6 +368,10 @@ class MissionExecutor:
         self.answers: list[str] = []
         self.alerts: list[str] = []
         self.history: list[dict[str, Any]] = []
+        # Ephemeral protocol records consumed by MissionSupervisor/downlink.
+        # Keeping these separate from the durable mission log avoids coupling
+        # the pure executor to a transport implementation.
+        self._protocol_events: list[dict[str, Any]] = []
         self.done = False
         self._last_loop: OnboardLoop | None = None
         self._run: _StepRun | None = self._start(self.plan.steps[0])
@@ -385,11 +389,19 @@ class MissionExecutor:
             overrides.setdefault("obstacle_source", self.obstacle_source)
         return self.loop_factory(task_text, **overrides)
 
-    def _segment_clear(self, start: Pose, north: float, east: float) -> bool:
-        """Apply the configured source to an executor geometry leg."""
+    def _segment_clear(
+        self, start: Pose, north: float, east: float, end_down: float | None = None
+    ) -> bool:
+        """Apply the configured source to an executor geometry leg.
+
+        ``end_down`` makes the leg a descent from ``start``: it must be checked
+        from the current altitude, not from an already lowered start, or a roof
+        between the two altitudes is never seen.
+        """
+        down = start[2] if end_down is None else end_down
         if self.obstacle_source is not None:
-            return self.obstacle_source.segment_clear(start, (north, east, start[2]))
-        return self._probe.segment_clear(start, north, east)
+            return self.obstacle_source.segment_clear(start, (north, east, down))
+        return self._probe.segment_clear((start[0], start[1], max(start[2], down)), north, east)
 
     # -- step lifecycle ---------------------------------------------------
     def region_of(self, step: MissionStep) -> tuple[float, float, float] | None:
@@ -443,6 +455,10 @@ class MissionExecutor:
         region = self.region_of(step)
         if region is not None:
             overrides["region"] = region
+        if step.skill in {"area_search", "count", "inspect", "survey"}:
+            overrides["static_ground_veto"] = True
+        else:
+            overrides["static_ground_veto"] = False
         loop = self._make_loop(self.task_text(step), **overrides)
         if self._inflated_no_fly_zones:
             # Fly-by orbits leave the per-step legs this executor checks; their
@@ -462,7 +478,7 @@ class MissionExecutor:
         elif step.skill == "count":
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6, restart_route=False)
         elif step.skill == "inspect":
-            run.loop = self._make_loop(self.task_text(step))
+            run.loop = self._loop(step)
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
         elif step.skill == "follow":
@@ -491,6 +507,9 @@ class MissionExecutor:
                 # Step triangulation assumes a static target. A moving-target
                 # skill must also ignore estimates inherited from a finding.
                 step_triangulation=False,
+                # A search loop vetoes far ground jumps as a static-object rule; a
+                # followed object moves, so a brief loss must not split its track.
+                static_ground_veto=False,
                 # Following moving objects must not opt into static-place re-id.
                 ground_reid_max_steps=(
                     0
@@ -534,6 +553,22 @@ class MissionExecutor:
             self.done, self._run = True, None
         else:
             self._run = self._start(self._steps[following])
+
+    def drain_protocol_events(self) -> tuple[dict[str, Any], ...]:
+        """Return and clear finding/alert records produced since last drain."""
+        events = tuple(self._protocol_events)
+        self._protocol_events.clear()
+        return events
+
+    @property
+    def count_is_lower_bound(self) -> bool | None:
+        """Whether any completed count step may have missed objects."""
+        values = [
+            bool(item["count_is_lower_bound"])
+            for item in self.history
+            if "count_is_lower_bound" in item
+        ]
+        return any(values) if values else None
 
     @property
     def current_step(self) -> MissionStep | None:
@@ -829,6 +864,20 @@ class MissionExecutor:
                 **run.loop.position_metadata(track),
             },
             None,
+        )
+        # The alert has its own wire record while retaining the historical
+        # finding entry used by report/count consumers.
+        self._protocol_events.append(
+            {
+                "kind": "alert",
+                "step": run.step.id,
+                "id": f"a{len(self.alerts)}",
+                "label": run.step.params.get("query"),
+                "n": float(north),
+                "e": float(east),
+                "track": track.track_id,
+                "t": self._clock(),
+            }
         )
 
     @property
@@ -1136,9 +1185,7 @@ class MissionExecutor:
         skipped = []
 
         def skip(centre, reason):
-            skipped.append(
-                {"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason}
-            )
+            skipped.append({"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason})
 
         for rejection in candidates:
             centre = tuple(rejection["ground"])
@@ -1308,6 +1355,21 @@ class MissionExecutor:
         self.track_ids.append(str(record.get("track_id")))
         if frame_id:
             self.evidence.append(frame_id)
+        event = {
+            "kind": "finding",
+            "step": run.step.id,
+            "id": f"f{len(self.findings)}",
+            "label": finding.get("query"),
+            "n": finding["position_ne"][0],
+            "e": finding["position_ne"][1],
+            "evidence_frame": frame_id,
+            "track": finding.get("track_id"),
+            "t": self._clock(),
+        }
+        for source, target in (("sigma_m", "sigma_m"), ("confidence", "confidence")):
+            if source in record:
+                event[target] = record[source]
+        self._protocol_events.append(event)
 
     # -- inspect: orbit the referenced ground point ----------------------------
     def _inspect_altitude(self, run: _StepRun) -> float:
@@ -1784,10 +1846,11 @@ class MissionExecutor:
         altitude = max(0.0, -pose[2])
         altitude_tolerance = 1.0 if tolerance_m is None else min(1.0, tolerance_m / 2.0)
         if altitude_m is not None and abs(altitude - altitude_m) > altitude_tolerance:
-            target = (pose[0], pose[1], -altitude_m)
             # A pure climb leaves the obstacle footprint vertically; obstacle
             # clearance at the current position must not hold a legal escape.
-            if altitude_m < altitude and not self._segment_clear(target, pose[0], pose[1]):
+            if altitude_m < altitude and not self._segment_clear(
+                pose, pose[0], pose[1], -altitude_m
+            ):
                 run.blocked += 1
                 if run.blocked > self.config.max_blocked_legs:
                     return "blocked"

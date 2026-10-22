@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, Full, Queue
 from threading import Condition, Event, Lock, Thread
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autonomy.mission_operator import MissionOperatorAdapter
@@ -81,6 +81,13 @@ DEFAULT_BACKGROUND_ERROR_RATE_PER_SOURCE = 10.0
 DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE = 20.0
 DEFAULT_COMMAND_RATE_PER_SECOND = 20.0
 DEFAULT_COMMAND_BURST = 20.0
+# Mission telemetry ACKs (type 36) pace the stop-and-wait downlink: one per
+# 44-byte chunk, so a 1 Hz status alone needs ~20/s.  Under the shared command
+# bucket the dropped ACKs stalled every transfer for its 1 s resend (SITL
+# run7).  An ACK is a fixed-size, HMAC-verified token match, so it gets its own
+# larger bucket.
+DEFAULT_TELEMETRY_ACK_RATE_PER_SECOND = 200.0
+DEFAULT_TELEMETRY_ACK_BURST = 200.0
 DEFAULT_DUPLICATE_ACK_INTERVAL_S = 0.25
 MAX_TRACKED_PEER_STATE_ENTRIES = 64
 
@@ -226,6 +233,13 @@ class UdpOperatorSelectionServer:
         metadata_peer_timeout_s: float = 5.0,
         command_clock: Callable[[], float] = time.time,
         mission_adapter: MissionOperatorAdapter | None = None,
+        mission_package_loader: Callable[[Any], Any] | None = None,
+        mission_preflight_allowed: Callable[[], bool] | None = None,
+        mission_requires_approval: bool | None = None,
+        mission_package_verify_key_path: str | None = None,
+        mission_package_verify_key: Any = None,
+        mission_package_installer: Callable[[Any], Any] | None = None,
+        mission_runtime_mode: str | None = None,
         configured_peer: tuple[str, int] | None = None,
         require_configured_peer: bool = False,
         allow_first_packet_peer: bool = True,
@@ -234,6 +248,8 @@ class UdpOperatorSelectionServer:
         background_error_burst_per_source: float = DEFAULT_BACKGROUND_ERROR_BURST_PER_SOURCE,
         command_rate_per_second: float = DEFAULT_COMMAND_RATE_PER_SECOND,
         command_burst: float = DEFAULT_COMMAND_BURST,
+        telemetry_ack_rate_per_second: float = DEFAULT_TELEMETRY_ACK_RATE_PER_SECOND,
+        telemetry_ack_burst: float = DEFAULT_TELEMETRY_ACK_BURST,
         duplicate_ack_interval_s: float = DEFAULT_DUPLICATE_ACK_INTERVAL_S,
         max_commands_per_cycle: int = 16,
         replay_state_path: str | None = None,
@@ -269,6 +285,8 @@ class UdpOperatorSelectionServer:
             (background_error_burst_per_source, "background_error_burst_per_source"),
             (command_rate_per_second, "command_rate_per_second"),
             (command_burst, "command_burst"),
+            (telemetry_ack_rate_per_second, "telemetry_ack_rate_per_second"),
+            (telemetry_ack_burst, "telemetry_ack_burst"),
             (status_max_age_s, "status_max_age_s"),
             (status_future_tolerance_s, "status_future_tolerance_s"),
         ):
@@ -282,7 +300,16 @@ class UdpOperatorSelectionServer:
         if mission_adapter is None:
             from .autonomy.mission_operator import MissionOperatorAdapter
 
-            mission_adapter = MissionOperatorAdapter(mavlink.codec)
+            mission_adapter = MissionOperatorAdapter(
+                mavlink.codec,
+                package_loader=mission_package_loader,
+                preflight_allowed=mission_preflight_allowed,
+                requires_approval=mission_requires_approval,
+                package_verify_key_path=mission_package_verify_key_path,
+                package_verify_key=mission_package_verify_key,
+                package_installer=mission_package_installer,
+                runtime_mode=mission_runtime_mode,
+            )
         self.mission_adapter = mission_adapter
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self._command_clock = command_clock
@@ -303,19 +330,21 @@ class UdpOperatorSelectionServer:
         self._max_sequence_forward_jump = DEFAULT_MAX_SEQUENCE_FORWARD_JUMP
         self._command_rate_per_second = command_rate_per_second
         self._command_burst = command_burst
+        self._telemetry_ack_rate_per_second = telemetry_ack_rate_per_second
+        self._telemetry_ack_burst = telemetry_ack_burst
         self._duplicate_ack_interval_s = duplicate_ack_interval_s
         self._command_buckets: OrderedDict[
             tuple[tuple[str, int], WireMessageType], _TokenBucket
         ] = OrderedDict()
-        self._duplicate_ack_sent_at: OrderedDict[
-            tuple[tuple[str, int], WireMessageType], float
-        ] = OrderedDict()
+        self._duplicate_ack_sent_at: OrderedDict[tuple[tuple[str, int], WireMessageType], float] = (
+            OrderedDict()
+        )
         self._background_error_rate_per_source = background_error_rate_per_source
         self._background_error_burst_per_source = background_error_burst_per_source
         self._background_error_buckets: OrderedDict[tuple[str, int], _TokenBucket] = OrderedDict()
-        self._background_error_counts: OrderedDict[
-            tuple[tuple[str, int] | None, str], int
-        ] = OrderedDict()
+        self._background_error_counts: OrderedDict[tuple[tuple[str, int] | None, str], int] = (
+            OrderedDict()
+        )
         self._unknown_peer_bucket = _TokenBucket(8.0, time.monotonic())
         self._background_error_drop_count = 0
         self._last_received_peer: tuple[str, int] | None = None
@@ -795,6 +824,9 @@ class UdpOperatorSelectionServer:
         now_s: float,
     ) -> bool:
         key = (peer, message_type)
+        rate, capacity = self._command_rate_per_second, self._command_burst
+        if int(message_type) == int(WireMessageType.MISSION_TELEMETRY_ACK):
+            rate, capacity = self._telemetry_ack_rate_per_second, self._telemetry_ack_burst
         bucket = self._command_buckets.get(key)
         if bucket is None:
             if self._command_peer is not None and peer != self._command_peer:
@@ -805,15 +837,11 @@ class UdpOperatorSelectionServer:
                 ):
                     return False
             self._evict_bounded(self._command_buckets, self._command_peer)
-            bucket = _TokenBucket(self._command_burst, now_s)
+            bucket = _TokenBucket(capacity, now_s)
             self._command_buckets[key] = bucket
         else:
             self._command_buckets.move_to_end(key)
-        return bucket.consume(
-            now_s=now_s,
-            refill_per_s=self._command_rate_per_second,
-            capacity=self._command_burst,
-        )
+        return bucket.consume(now_s=now_s, refill_per_s=rate, capacity=capacity)
 
     def _allow_duplicate_ack(
         self,
@@ -835,9 +863,7 @@ class UdpOperatorSelectionServer:
         while len(mapping) >= MAX_TRACKED_PEER_STATE_ENTRIES:
             victim = next(iter(mapping))
             key_peer = (
-                victim[0]
-                if isinstance(victim, tuple) and isinstance(victim[0], tuple)
-                else victim
+                victim[0] if isinstance(victim, tuple) and isinstance(victim[0], tuple) else victim
             )
             if protected_peer is not None and key_peer == protected_peer:
                 mapping.move_to_end(victim)
@@ -1405,8 +1431,12 @@ class UdpOperatorSelectionServer:
     def poll_mission_telemetry(self) -> None:
         """Also callable by a foreground runtime using ``serve_once`` directly."""
         peer = self.active_metadata_peer()
-        sender = None if peer is None else lambda payload: self._channel.sendto(
-            self.mavlink.wrap_authenticated_operator_payload(payload), peer
+        sender = (
+            None
+            if peer is None
+            else lambda payload: self._channel.sendto(
+                self.mavlink.wrap_authenticated_operator_payload(payload), peer
+            )
         )
         self.mission_adapter.tick(sender)
 
@@ -1781,13 +1811,9 @@ class UdpOperatorSessionClient:
         if status.selection_command_id != self._active_command_id:
             raise OperatorProtocolError("tracking status selection command ID does not match")
         if self._last_status_sequence is not None and not serial_is_newer(
-
             status.sequence,
-
             self._last_status_sequence,
-
             max_forward_jump=DEFAULT_MAX_SEQUENCE_FORWARD_JUMP,
-
         ):
             raise OperatorProtocolError("tracking status sequence is not newer")
         self._last_status_sequence = status.sequence
@@ -2104,8 +2130,7 @@ class UdpOperatorSessionClient:
             age_s = now_s - packet.sent_at_s
             if age_s > self.status_max_age_s:
                 raise _StatusFreshnessError(
-                    packet.message_type,
-                    "status packet is stale and cannot be shown as current"
+                    packet.message_type, "status packet is stale and cannot be shown as current"
                 )
             if age_s < -self.status_future_tolerance_s:
                 raise _StatusFreshnessError(
@@ -2116,8 +2141,7 @@ class UdpOperatorSessionClient:
             producer_epoch = getattr(packet.message, "producer_epoch", None)
             epoch_suffix = "" if producer_epoch is None else f":{producer_epoch}"
             key = (
-                f"status:{self.remote[0]}:{self.remote[1]}:"
-                f"{packet.message_type.name}{epoch_suffix}"
+                f"status:{self.remote[0]}:{self.remote[1]}:{packet.message_type.name}{epoch_suffix}"
             )
             previous = self._status_replay_state.sequences.get(key)
             if previous is not None and not serial_is_newer(

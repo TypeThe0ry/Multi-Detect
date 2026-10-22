@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -85,8 +86,48 @@ _WAIT_LONGER_FOR_GAZEBO = (
     f"sed -i 's/^ATTEMPTS=30$/ATTEMPTS={GAZEBO_WORLD_ATTEMPTS}/' {PX4_GZSIM_RC}; "
     f"grep -q '^ATTEMPTS={GAZEBO_WORLD_ATTEMPTS}$' {PX4_GZSIM_RC} || exit 72; "
 )
+# A world that declares any <plugin> replaces Gazebo's default systems (physics,
+# scene broadcaster, sensors), so the world never becomes ready.  Wind variants
+# therefore carry only <wind> plus a gust comment, and the WindEffects system is
+# added to the patched server config only when the world carries that comment
+# (written by scripts/augment_sim_world.py, also without a gust).  Hand-made
+# worlds that merely declare <wind> keep their default dynamics.  Parameters
+# follow the gz-sim 8 WindEffects schema (magnitude rise/sin/noise, direction).
+# With scaling 1 and a 5 s rise, 6 m/s slid the parked x500 (EKF "no heading
+# reference") and flipped it at arming; 0.3 and a 60 s rise let it take off first.
+_GUST_COMMENT = "multidetect-wind-gust"
+_WIND_EFFECTS_PLUGIN = (
+    '<plugin entity_name="*" entity_type="world" filename="gz-sim-wind-effects-system"'
+    ' name="gz::sim::systems::WindEffects">'
+    "<force_approximation_scaling_factor>0.3</force_approximation_scaling_factor>"
+    "<horizontal><magnitude><time_for_rise>60</time_for_rise>"
+    "<sin><amplitude_percent>GUST_AMP</amplitude_percent><period>GUST_PERIOD</period></sin>"
+    '<noise type="gaussian"><mean>0</mean><stddev>0.0002</stddev></noise></magnitude>'
+    "<direction><time_for_rise>30</time_for_rise>"
+    "<sin><amplitude>5</amplitude><period>20</period></sin>"
+    '<noise type="gaussian"><mean>0</mean><stddev>0.03</stddev></noise></direction>'
+    "</horizontal>"
+    '<vertical><noise type="gaussian"><mean>0</mean><stddev>0.03</stddev></noise></vertical>'
+    "</plugin>"
+)
+_ENABLE_WIND_EFFECTS = (
+    f"if grep -q '{_GUST_COMMENT} amplitude_percent=' {CONTAINER_WORLD}; then "
+    "GUST=$(sed -n "
+    + shlex.quote(
+        rf"s/.*{_GUST_COMMENT} amplitude_percent=\([0-9.]*\) period=\([0-9.]*\).*/\1 \2/p"
+    )
+    + f" {CONTAINER_WORLD} | head -n 1); "
+    "GUST_AMP=${GUST% *}; GUST_PERIOD=${GUST#* }; "
+    'test -n "$GUST" || { GUST_AMP=0; GUST_PERIOD=10; }; '
+    "sed -i "
+    + shlex.quote("s#</plugins>#" + _WIND_EFFECTS_PLUGIN + "</plugins>#")
+    + f" {CONTAINER_SERVER_CONFIG}; "
+    f'sed -i "s/GUST_AMP/$GUST_AMP/; s/GUST_PERIOD/$GUST_PERIOD/" {CONTAINER_SERVER_CONFIG}; '
+    f"grep -q gz-sim-wind-effects-system {CONTAINER_SERVER_CONFIG} || exit 73; "
+    "fi; "
+)
 # Shell prefix every PX4/Gazebo SITL container runs before PX4 starts.
-SIM_STARTUP_PATCHES = _DROP_GAZEBO_MAGNETOMETER + _WAIT_LONGER_FOR_GAZEBO
+SIM_STARTUP_PATCHES = _DROP_GAZEBO_MAGNETOMETER + _ENABLE_WIND_EFFECTS + _WAIT_LONGER_FOR_GAZEBO
 
 
 class DockerSimulatorPlanError(RuntimeError):

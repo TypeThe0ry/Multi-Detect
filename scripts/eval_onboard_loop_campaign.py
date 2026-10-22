@@ -1,4 +1,4 @@
-﻿"""Evaluate the truth-free onboard loop on the held-out realistic-mesh test worlds.
+"""Evaluate the truth-free onboard loop on the held-out realistic-mesh test worlds.
 
 Runs ``collect_sim_teacher_episodes.py --teacher onboard`` once per (world,
 episode), one container at a time, then scores every episode against truth with
@@ -239,8 +239,16 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.segmentation:
                 command.append("--segmentation")
+            if mission_config and mission_config.get("camera_noise_overlay"):
+                command.append("--camera-noise-overlay")
+            if mission_config and mission_config.get("wind_vehicle_overlay"):
+                command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.min_free_disk_gb > 0:
+                # The collector otherwise applies its own 15 GB guard and aborts
+                # episodes that the campaign's lower --min-free-disk-gb allows.
+                command += ["--min-free-gb", str(args.min_free_disk_gb)]
             log = args.out / f"{world_id}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a", encoding="utf-8") as handle:
@@ -307,8 +315,16 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.segmentation:
                 command.append("--segmentation")
+            if mission_config and mission_config.get("camera_noise_overlay"):
+                command.append("--camera-noise-overlay")
+            if mission_config and mission_config.get("wind_vehicle_overlay"):
+                command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.min_free_disk_gb > 0:
+                # The collector otherwise applies its own 15 GB guard and aborts
+                # episodes that the campaign's lower --min-free-disk-gb allows.
+                command += ["--min-free-gb", str(args.min_free_disk_gb)]
             log = args.out / f"{world_id}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a", encoding="utf-8") as handle:

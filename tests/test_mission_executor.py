@@ -1857,3 +1857,28 @@ def test_fixed_wing_search_loops_plan_passes_outside_package_no_fly_zones():
     assert loop.pass_clear is not None
     assert not loop.pass_clear((0.0, 50.0), (100.0, 50.0))
     assert loop.pass_clear((0.0, 0.0), (0.0, 30.0))
+
+
+def test_follow_after_search_keeps_a_fast_target_through_a_long_ground_jump():
+    # The search loop vetoes far ground jumps (a static-object rule); the follow
+    # step reuses that loop, and a mover re-seen > max(20 m, 5 gates) away must
+    # keep its track instead of becoming a new one and timing the follow out.
+    executor = MissionExecutor(_search_follow_plan(), loop_factory=_factory())
+    sim = Sim()
+    target = [50.0, 0.0]
+    run = _start_follow(executor, sim, target)
+    assert run.loop.config.static_ground_veto is False
+    reference = math.dist(sim.ned[:2], target)
+    _cycle(executor, sim)  # briefly lost
+    target[1] += 40.0
+    for _ in range(2):
+        side = 40.0 * reference / max(1.0, math.dist(sim.ned[:2], target))
+        _cycle(
+            executor,
+            sim,
+            [Detection(_box(640, 700, side), 0.5)],
+            ground=lambda u, v: tuple(target),
+            verdicts=lambda t: "confirm_target",
+        )
+    assert [t.track_id for t in executor.current_tracks] == [run.follow_track_id]
+    assert run.lost_cycles == 0

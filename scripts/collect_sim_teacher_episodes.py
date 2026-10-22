@@ -12,12 +12,14 @@ import argparse
 import io
 import json
 import math
+import os
 import shutil
 import statistics
 import subprocess
 import sys
 import threading
 import time
+import types
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Mapping
@@ -107,6 +109,13 @@ def _parse_size(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0 or width > 4096 or height > 4096:
         raise argparse.ArgumentTypeError("size is outside supported range")
     return width, height
+
+
+def _parse_sim_param(value: str) -> str:
+    name, sep, setting = value.partition("=")
+    if not sep or not name.strip() or not setting.strip():
+        raise argparse.ArgumentTypeError("sim-param must be NAME=VALUE")
+    return value
 
 
 DEFAULT_TAKEOFF_ALTITUDE_M = 5.0
@@ -202,6 +211,11 @@ class CollectionPlan:
     depth_size: tuple[int, int] = DEFAULT_DEPTH_SIZE
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
     segmentation: bool = False
+    camera_noise_overlay: bool = False
+    wind_vehicle_overlay: bool = False
+    # Extra SIM-only PX4 parameters for this run, e.g. a slower simulated
+    # battery for an interactive session; batch campaigns pass none.
+    extra_sim_params: tuple[tuple[str, str], ...] = ()
     # ``None`` selects the scenario-derived altitude.  An explicit value is
     # retained in the plan so campaign wrappers can override it per run.
     takeoff_altitude_m: float | None = None
@@ -223,6 +237,11 @@ class CollectionPlan:
     takeoff_method: str | None = None
     # Copy PX4's .ulg flight logs out of the container before it is removed.
     keep_px4_ulog: bool = False
+    # Attach to a simulator owned by another process (for example run_sim_session).
+    # Attached containers are inspected and reused, never started or removed here.
+    attach_container: str | None = None
+    # Explicit onboard task text; when omitted, generated-index text is used.
+    task_text: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -349,9 +368,52 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
     command = list(stack_plan.command)
     if plan.segmentation:
-        overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_seg"
+        # One overlay owns the x500_mono_cam mount: Docker rejects two binds to
+        # the same target, so the wind variant carries the segmentation camera too.
+        overlay = ROOT / (
+            "simulation/gazebo/model-overlays/x500_mono_cam_seg_wind"
+            if plan.wind_vehicle_overlay
+            else "simulation/gazebo/model-overlays/x500_mono_cam_seg"
+        )
         if not (overlay / "model.sdf").is_file():
             raise FileNotFoundError(overlay / "model.sdf")
+        overlay_mount = (
+            "--mount",
+            f"type=bind,source={overlay.resolve()},"
+            "target=/opt/multidetect-gazebo-models/x500_mono_cam,readonly",
+        )
+        parent_mount = next(
+            (
+                index
+                for index, token in enumerate(command)
+                if token.startswith("type=bind,")
+                and "target=/opt/multidetect-gazebo-models," in token
+            ),
+            command.index("run"),
+        )
+        command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+    if plan.camera_noise_overlay:
+        # mono_cam comes from the image's model dir; the repo model root is a
+        # read-only bind without a mono_cam directory, so Docker cannot create the
+        # mount point there ("make mountpoint" failure in SITL).
+        overlay = ROOT / "simulation/gazebo/model-overlays/mono_cam_noise"
+        overlay_mount = (
+            "--mount",
+            f"type=bind,source={overlay.resolve()},"
+            "target=/opt/px4-gazebo/share/gz/models/mono_cam,readonly",
+        )
+        parent_mount = next(
+            (
+                index
+                for index, token in enumerate(command)
+                if token.startswith("type=bind,")
+                and "target=/opt/multidetect-gazebo-models," in token
+            ),
+            command.index("run"),
+        )
+        command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+    if plan.wind_vehicle_overlay and not plan.segmentation:
+        overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_wind"
         overlay_mount = (
             "--mount",
             f"type=bind,source={overlay.resolve()},"
@@ -679,7 +741,8 @@ class DockerSimEnvironment:
 
     def __init__(self, plan: CollectionPlan, episode_id: str):
         self.plan = plan
-        self.name = f"{plan.container_prefix}-{episode_id}"
+        self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
+        self.attached = bool(plan.attach_container)
         self.started = False
         self._log = None
 
@@ -696,6 +759,10 @@ class DockerSimEnvironment:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=sys.stderr, flush=True)
 
     def __enter__(self) -> DockerSimEnvironment:
+        if self.attached:
+            self.wait(self.plan.max_episode_s)
+            self._progress("container_attached", container=self.name, image=self.plan.image)
+            return self
         result = subprocess.run(
             docker_command(self.plan, name=self.name),
             capture_output=True,
@@ -1137,7 +1204,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
     from scripts.onboard_policy import build_onboard_policy
 
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
-    return build_onboard_policy(
+    policy = build_onboard_policy(
         task_text=task_text,
         world_path=scenario_world_path(plan.runtime),
         altitude_m=altitude_m,
@@ -1149,6 +1216,150 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         frame_quality=plan.onboard_frame_quality,
         airframe=_onboard_airframe_id(plan),
     )
+    _start_sim_operator_link(plan, policy)
+    return policy
+
+
+class _SimHoverVehicle:
+    """Preflight view for a SIM operator link.
+
+    The collector takes off before the policy runs, so a package arrives while
+    the vehicle already hovers; the policy still holds until the plan is
+    approved.  The real runtime (scripts/onboard_main.py) keeps the landed and
+    disarmed preflight gate.
+    """
+
+    @staticmethod
+    def snapshot():
+        return types.SimpleNamespace(armed=False, landed=True)
+
+
+def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
+    """With ``mission: operator_link`` the SIM policy takes its mission from a GCS."""
+    if not plan.onboard_config:
+        return
+    config = json.loads(Path(plan.onboard_config).read_text(encoding="utf-8"))
+    if config.get("mission") != "operator_link":
+        return
+    from scripts.onboard_main import _start_operator_link
+
+    args = types.SimpleNamespace(
+        operator_bind_host=str(config.get("operator_bind_host", "127.0.0.1")),
+        operator_port=int(config.get("operator_port", 14580)),
+        operator_hmac_key_hex=config.get("operator_hmac_key_hex"),
+        operator_mavlink_signing_key_hex=config.get("operator_mavlink_signing_key_hex"),
+        operator_requires_approval=bool(config.get("operator_requires_approval", True)),
+        operator_package_verify_key=config.get("operator_package_verify_key"),
+        operator_package_key_hex=config.get("operator_package_key_hex"),
+    )
+    prepare = getattr(policy, "prepare_operator_package", None)
+
+    def logged_prepare(package):
+        # Planning a prompt-only package calls the slow model on the link's
+        # planner worker; log each stage so a silent link can be diagnosed.
+        _progress("operator_package_received", mission_id=package.mission_id)
+        try:
+            supervisor = prepare(package)
+        except Exception as error:
+            _progress("operator_package_rejected", error=f"{type(error).__name__}: {error}")
+            raise
+        _progress(
+            "operator_plan_compiled",
+            steps=[step.skill for step in supervisor.executor.plan.steps],
+            plan_sha256=supervisor.plan_sha256,
+        )
+        return supervisor
+
+    if prepare is not None:
+        policy.prepare_operator_package = logged_prepare
+    server = _start_operator_link(args, policy, _SimHoverVehicle())
+    policy.sim_operator_server = server
+    _progress("operator_link_listening", host=args.operator_bind_host, port=args.operator_port)
+
+    def report_link_errors() -> None:
+        errors = getattr(server, "_background_errors", None)
+        stopped = getattr(server, "_stop_event", None)
+        while errors is not None and not (stopped is not None and stopped.is_set()):
+            try:
+                error = errors.get(timeout=1.0)
+            except Exception:
+                continue
+            _progress("operator_link_error", error=f"{type(error).__name__}: {error}")
+
+    threading.Thread(target=report_link_errors, name="sim-operator-errors", daemon=True).start()
+    if os.environ.get("MULTIDETECT_SIM_LINK_DEBUG"):
+        _trace_operator_link(server)
+
+
+def _drain_sim_operator_link(policy, timeout_s: float = 30.0) -> None:
+    """Let the GCS receive the last findings and the final summary before exit.
+
+    Call before ``policy.close()``: that closes the downlink queue, after which
+    nothing more is sent (SITL e2e: the drain then waited 30 s in vain and the
+    final summary never reached the GCS).  The host stop is a terminal path, so
+    the supervisor's one final summary is written here first when the mission
+    has not produced it yet.  The operator server is closed on every path.
+    """
+    server = getattr(policy, "sim_operator_server", None)
+    if server is None:
+        return
+    try:
+        supervisor = getattr(policy, "supervisor", None)
+        downlink = getattr(supervisor, "downlink", None)
+        if supervisor is None or downlink is None:
+            return
+        try:
+            supervisor.finish("stopped")
+        except Exception as error:
+            _progress("operator_link_finish_failed", error=f"{type(error).__name__}: {error}")
+        log = supervisor.log
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline and downlink.acknowledged_sequence < log._sequence:
+            time.sleep(0.2)
+        _progress(
+            "operator_link_drained",
+            acknowledged=downlink.acknowledged_sequence,
+            logged=log._sequence,
+        )
+    finally:
+        policy.sim_operator_server = None
+        try:
+            server.close()
+        except Exception:
+            pass
+
+
+def _trace_operator_link(server) -> None:
+    """Debug-only: log the link filters that drop mission packets without an ACK."""
+    adapter = server.mission_adapter
+    handle, allow, replay = adapter.handle, server._allow_command, server._replay_state
+
+    def traced_handle(packet, *, peer=None):
+        kind = int(packet.message_type)
+        body = packet.message.body
+        index = int.from_bytes(body[8:10], "big") if kind in (28, 37) and len(body) > 10 else -1
+        _progress(
+            "operator_link_trace", stage="adapter", kind=kind, index=index, seq=packet.sequence
+        )
+        return handle(packet, peer=peer)
+
+    def traced_allow(peer, message_type, *, now_s):
+        allowed = allow(peer, message_type, now_s=now_s)
+        if not allowed:
+            _progress("operator_link_trace", stage="rate_limited", kind=int(message_type))
+        return allowed
+
+    original_accept = replay.accept_sequence
+
+    def traced_accept(key, sequence, **kwargs):
+        accepted = original_accept(key, sequence, **kwargs)
+        if not accepted:
+            _progress("operator_link_trace", stage="replay_rejected", key=key, seq=sequence)
+        return accepted
+
+    adapter.handle = traced_handle
+    server._allow_command = traced_allow
+    replay.accept_sequence = traced_accept
 
 
 def _onboard_airframe_id(plan: CollectionPlan) -> str | None:
@@ -1451,6 +1662,8 @@ def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
         received_wall_time=dict(state.received_wall_time),
         count=state.count,
         last_preflight_failure_ns=state.last_preflight_failure_ns,
+        vehicle_time_boot_ms=state.vehicle_time_boot_ms,
+        received_vehicle_ms=dict(state.received_vehicle_ms),
     )
 
 
@@ -1574,6 +1787,7 @@ def _set_sim_params(
         *SIM_PREARM_PARAMETERS,
         *_profile_launch_parameters(plan.airframe, plan.takeoff_method),
         *_profile_landing_parameters(plan.airframe),
+        *plan.extra_sim_params,
     ):
         command = [
             executable,
@@ -2679,7 +2893,7 @@ def run_episode(
     elif plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
-        task_text = _index_task_text(truth_path) or "找到目标并记录位置"
+        task_text = plan.task_text or _index_task_text(truth_path) or "找到目标并记录位置"
         policy = _onboard_policy(plan, task_text, Path(plan.out) / f"{episode_id}-onboard-frames")
     elif plan.teacher == "expert_search":
         policy, target_label = _policy_for(plan, truth_path, plan.seed + episode_index)
@@ -3480,6 +3694,7 @@ def run_episode(
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
             )
+            _drain_sim_operator_link(policy)
             if hasattr(policy, "close"):
                 policy.close()
             if gcs_heartbeat_stop is not None:
@@ -3499,6 +3714,10 @@ def run_episode(
                 if connection is not None:
                     connection.close()
     except LowDiskSpace as exc:
+        try:
+            _drain_sim_operator_link(policy, timeout_s=10.0)
+        except Exception:
+            pass
         if hasattr(policy, "close"):
             try:
                 policy.close()
@@ -3535,6 +3754,10 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
+        try:
+            _drain_sim_operator_link(policy, timeout_s=10.0)
+        except Exception:
+            pass
         if hasattr(policy, "close"):
             try:
                 policy.close()
@@ -3622,9 +3845,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="JSON overrides for --teacher onboard (model paths, thresholds)",
     )
+    parser.add_argument(
+        "--task-text",
+        default=None,
+        help="explicit natural-language task for --teacher onboard (overrides scenario index)",
+    )
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument(
+        "--attach-container",
+        default=None,
+        help="reuse an already-running PX4/Gazebo container instead of starting/removing one",
+    )
     parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
     parser.add_argument("--seed", type=int, default=0)
@@ -3645,6 +3878,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--segmentation",
         action="store_true",
         help="mount the teacher camera overlay and require exact-time segmentation frames",
+    )
+    parser.add_argument(
+        "--camera-noise-overlay",
+        action="store_true",
+        help="mount the repository mono_cam Gaussian-noise overlay",
+    )
+    parser.add_argument("--wind-vehicle-overlay", action="store_true")
+    parser.add_argument(
+        "--sim-param",
+        action="append",
+        default=[],
+        type=_parse_sim_param,
+        metavar="NAME=VALUE",
+        help="extra SIM-only PX4 parameter for this run (repeatable)",
     )
     parser.add_argument(
         "--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default=DEFAULT_DEPTH_ENCODING
@@ -3705,6 +3952,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,
         segmentation=args.segmentation,
+        camera_noise_overlay=args.camera_noise_overlay,
+        wind_vehicle_overlay=args.wind_vehicle_overlay,
+        extra_sim_params=tuple(tuple(item.split("=", 1)) for item in args.sim_param if "=" in item),
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
         depth_format=args.depth_format,
@@ -3721,6 +3971,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
         keep_px4_ulog=args.keep_px4_ulog,
+        attach_container=args.attach_container,
+        task_text=args.task_text,
     )
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))

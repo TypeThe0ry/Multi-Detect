@@ -197,3 +197,121 @@ def test_a_count_record_with_sets_and_dataclasses_is_logged() -> None:
     assert decoded["counted"]["appearance"]["aspect_ratio"] == 0.5
     with pytest.raises(TypeError):
         _encoded({"bad": object()})
+
+
+def test_selector_keeps_routine_records_local_but_passes_the_cursor(tmp_path: Path):
+    log = OnboardMissionLog(tmp_path, "mission-1")
+    log.append("mission_started", 0.0)
+    for second in range(1, 70):
+        log.append("ground_event", float(second), event_type="heartbeat")
+        log.append("estimates", float(second), remaining_energy_wh=80)
+        log.append("execution", float(second), action={"kind": "hold"})
+        log.append("decision", float(second), action="continue", reason="ok")
+    log.append("ground_event", 70.0, event_type="pause")
+    log.append("ground_event_rejected", 70.5, reason="rate", event_type="heartbeat")
+    log.append("decision", 71.0, action="hold", reason="operator pause")
+    log.append("decision", 72.0, action="hold", reason="operator pause")
+    received = []
+    queue = DownlinkQueue(log, received.append)
+    try:
+        queue.set_connected(True)
+        _wait_for_ack(queue, log._sequence)
+    finally:
+        queue.close()
+    sent = [(r["kind"], r["timestamp"]) for r in received]
+    # One decision per change, plus a keepalive every 30 s of record time.
+    assert sent == [
+        ("mission_started", 0.0),
+        ("decision", 1.0),
+        ("decision", 31.0),
+        ("decision", 61.0),
+        ("ground_event", 70.0),
+        ("decision", 71.0),
+    ]
+
+
+def test_priority_record_overtakes_the_routine_backlog(tmp_path: Path):
+    log = OnboardMissionLog(tmp_path, "mission-1")
+    for second in range(5):
+        log.append("decision", float(second), action="continue", reason=f"r{second}")
+    log.append("finding", 5.0, label="cone")
+    log.append("final_summary", 6.0, summary={})
+    received = []
+    queue = DownlinkQueue(log, received.append)
+    try:
+        queue.set_connected(True)
+        _wait_for_ack(queue, 7)
+    finally:
+        queue.close()
+    assert [r["sequence"] for r in received] == [6, 7, 1, 2, 3, 4, 5]
+
+
+def test_failed_decision_send_is_retried_not_treated_as_a_repeat(tmp_path: Path):
+    log = OnboardMissionLog(tmp_path, "mission-1")
+    log.append("decision", 1.0, action="continue", reason="ok")
+    attempts = []
+
+    def flaky(record):
+        attempts.append(record["sequence"])
+        return len(attempts) > 1
+
+    queue = DownlinkQueue(log, flaky)
+    try:
+        queue.set_connected(True)
+        _wait_until(lambda: queue.last_error is not None)
+        queue.notify()
+        _wait_for_ack(queue, 1)
+    finally:
+        queue.close()
+    assert attempts == [1, 1]
+
+
+def test_tick_rate_appends_stay_fast_on_a_slow_disk(tmp_path: Path, monkeypatch):
+    """SITL run8: a per-record fsync under the log lock stalled the control loop
+    and the link thread for ~5.6 s.  Routine records are no longer fsynced one
+    by one and the downlink reader takes no append lock."""
+    import multidetect.autonomy.onboard_mission_log as module
+
+    synced = []
+    real_fsync = module.os.fsync
+
+    def slow_fsync(fd):
+        # Count the control loop's own syncs; the downlink cursor syncs in its worker.
+        if threading.current_thread() is threading.main_thread():
+            synced.append(fd)
+        time.sleep(0.2)
+        real_fsync(fd)
+
+    monkeypatch.setattr(module.os, "fsync", slow_fsync)
+    log = OnboardMissionLog(tmp_path, "mission-1")
+    in_flight = threading.Event()
+
+    def slow_sender(record):
+        in_flight.set()
+        time.sleep(0.05)
+
+    queue = DownlinkQueue(log, slow_sender)
+    queue.set_connected(True)
+    try:
+        latencies = []
+        # run7 rates: per second one heartbeat, ~2 decisions, estimates, execution.
+        for second in range(60):
+            for kind, payload in (
+                ("ground_event", {"event_type": "heartbeat"}),
+                ("decision", {"action": "continue", "reason": f"r{second % 3}"}),
+                ("estimates", {"remaining_energy_wh": 80}),
+                ("execution", {"action": {"kind": "hold"}, "history": list(range(50))}),
+                ("decision", {"action": "continue", "reason": "ok"}),
+            ):
+                started = time.perf_counter()
+                log.append(kind, float(second), **payload)
+                latencies.append(time.perf_counter() - started)
+            queue.notify()
+        assert in_flight.is_set()
+        assert max(latencies) < 0.1, max(latencies)
+        assert synced == []
+        started = time.perf_counter()
+        log.append("finding", 61.0, label="cone")
+        assert time.perf_counter() - started >= 0.2 and len(synced) == 1  # results stay durable
+    finally:
+        queue.close()

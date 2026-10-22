@@ -207,6 +207,365 @@ def test_small_reject_recheck_is_opt_in_and_pending_until_confirm_size() -> None
     assert loop.tracks["t1"].identity_reject_matches == 1
 
 
+def test_static_ground_veto_rejects_far_jump_even_with_matching_appearance() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=3.0)
+    pose = (0.0, 0.0, -20.0)
+    loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.step_index += 1
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (30.0, 0.0),
+    )
+    assert [track.track_id for track in tracks] == ["t2"]
+
+
+def test_far_small_reject_does_not_start_contradiction_relook() -> None:
+    loop = _loop(
+        contradiction_relook_enabled=True,
+        confirm_max_range_m=20.0,
+        stop_on_confirm=False,
+    )
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 11), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (40.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track")
+    assert not track.contradiction_active
+    loop.step_index += 1
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 28), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (8.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    assert not track.contradiction_active and track.verdict == "confirm"
+
+
+def test_moving_target_keeps_old_association_when_static_veto_is_off() -> None:
+    loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.step_index += 1
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (30.0, 0.0),
+    )
+    assert [track.track_id for track in tracks] == ["t1"]
+
+
+def test_static_verdict_survives_small_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (6.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
+def test_static_verdict_is_reasked_after_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=True, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict is None
+    assert continued.needs_fresh_verdict
+    assert continued.confirm_steps == []
+    assert loop.tracks_needing_verdict([continued]) == [continued]
+
+
+def test_moving_target_keeps_verdict_across_large_ground_shift() -> None:
+    loop = _loop(static_ground_veto=False, ground_veto_gates=0.0)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    (continued,) = loop.update_tracks(
+        [Detection(_box(640, 500, 18), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (9.0, 0.0),
+    )
+    assert continued is track
+    assert continued.verdict == "confirm"
+    assert not continued.needs_fresh_verdict
+
+
+def test_blocked_approach_routes_around_obstacle_and_confirms() -> None:
+    target = (30.0, 0.0)
+
+    def clear(start, north, east):
+        # A building ring blocks the straight south-to-target leg, while either
+        # side of the footprint and the final diagonal are clear.
+        end = (north, east)
+        return not (abs(start[1]) < 3.0 and abs(end[1]) < 3.0 and end[0] > 10.0)
+
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=clear,
+        config=LoopConfig(
+            stop_on_confirm=False,
+            confirm_matches=1,
+            obstacle_relook_max=2,
+        ),
+    )
+    pose = [0.0, 0.0, -20.0]
+    yaw = 0.0
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 700, 16), 0.5)],
+        pose_ned=tuple(pose),
+        yaw_deg=yaw,
+        ground_point=lambda _u, _v: target,
+    )
+    loop.apply_verdict(track.track_id, "approach_track")
+    for _ in range(30):
+        tracks = loop.update_tracks(
+            [Detection(_box(640, 700, 16), 0.5)],
+            pose_ned=tuple(pose),
+            yaw_deg=yaw,
+            ground_point=lambda _u, _v: target,
+        )
+        action, info = loop.next_action(
+            tracks, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=lambda _u, _v: target
+        )
+        if action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+        elif action.kind == "translate":
+            heading = math.radians(yaw)
+            pose[0] += action.forward_m * math.cos(heading)
+            pose[1] += action.forward_m * math.sin(heading)
+        if info.get("obstacle_relook", {}).get("phase") == "complete":
+            break
+    assert track.obstacle_relook_attempts == 1
+    assert loop._obstacle_relook is None
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 700, 24), 0.5)],
+        pose_ned=tuple(pose),
+        yaw_deg=yaw,
+        ground_point=lambda _u, _v: target,
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.next_action(tracks, pose_ned=tuple(pose), yaw_deg=yaw, ground_point=lambda _u, _v: target)
+    assert track.verdict == "confirm" and loop.confirmations
+
+
+def test_fully_enclosed_focus_gives_up_without_unsafe_leg() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: False,
+        config=LoopConfig(obstacle_relook_max=1, stop_on_confirm=False),
+    )
+    pose = (0.0, -20.0, -15.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 650, 16), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "approach_track")
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 650, 16), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=0.0, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    assert action.kind == "hold" or loop.state == "searching"
+    assert track.exhausted or info.get("reason") in {"obstacle_relook_exhausted", "closest_view"}
+
+
+def _contradiction_loop() -> OnboardLoop:
+    return _loop(
+        stop_on_confirm=False,
+        contradiction_relook_enabled=True,
+        contradiction_relook_max=1,
+        contradiction_relook_views=3,
+        contradiction_relook_bearing_deg=60.0,
+    )
+
+
+def _start_contradiction(loop: OnboardLoop):
+    pose = (0.0, -30.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track")
+    return track
+
+
+def _vote_at_close_view(loop: OnboardLoop, track, verdict: str) -> None:
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)],
+        pose_ned=(0.0, -30.0, -20.0),
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    loop.apply_verdict(track.track_id, verdict)
+
+
+def test_one_stray_reject_among_confirms_is_not_a_contradiction() -> None:
+    # SITL hydrant at 8 m: confirm, confirm, confirm, reject, confirm, confirm.
+    loop = _contradiction_loop()
+    pose = (0.0, -30.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.5)], pose_ned=pose, ground_point=lambda _u, _v: (0.0, 0.0)
+    )
+    for verdict in ["confirm_target", "confirm_target", "confirm_target", "reject_track"]:
+        _vote_at_close_view(loop, track, verdict)
+    assert not track.contradiction_active
+    for verdict in ["confirm_target", "confirm_target"]:
+        _vote_at_close_view(loop, track, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "confirm" and len(track.confirm_steps) >= 2
+
+
+def test_contradiction_relook_gives_up_when_views_never_change_bearing() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    assert track.contradiction_active
+    loop._last_pose = (30.0, 0.0, -20.0)
+    loop.apply_verdict(track.track_id, "confirm_target")  # first fresh bearing
+    for _ in range(2 * loop.config.contradiction_relook_views):
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, "confirm_target")  # same side, held
+    assert not track.contradiction_active
+    assert track.verdict == "confirm"
+
+
+def test_contradiction_relook_counts_target_after_two_of_three_fresh_bearings() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    assert track.contradiction_active and track.contradiction_relooks == 1
+    action, info = loop.next_action(
+        [track],
+        pose_ned=(0.0, -30.0, -20.0),
+        yaw_deg=0.0,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    assert action.kind in {"turn", "translate", "hold"}
+    assert info["second_look"]["kind"] == "contradiction_relook"
+    look = loop._revisit
+    assert look is not None and look["altitude_m"] == 20.0
+    goal = look["goal"]
+    yaw = math.degrees(math.atan2(look["centre"][1] - goal[1], look["centre"][0] - goal[0]))
+    for _ in range(3):
+        loop._second_look_action((goal[0], goal[1], -look["altitude_m"]), yaw, {})
+    assert look["phase"] == "collect"
+    loop._last_pose = (goal[0], goal[1], -look["altitude_m"])
+    loop.apply_verdict(track.track_id, "confirm_target")
+    assert len(track.contradiction_votes) == 1
+    for pose, verdict in [
+        ((30.0, 0.0, -20.0), "confirm_target"),
+        ((0.0, 30.0, -20.0), "reject_track"),
+        ((-30.0, 0.0, -20.0), "confirm_target"),
+    ]:
+        loop._last_pose = pose
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "confirm" and track.confirm_steps
+
+
+def test_contradiction_relook_rejects_distractor_with_one_flip() -> None:
+    loop = _contradiction_loop()
+    track = _start_contradiction(loop)
+    for pose, verdict in [
+        ((30.0, 0.0, -20.0), "reject_track"),
+        ((0.0, 30.0, -20.0), "confirm_target"),
+        ((-30.0, 0.0, -20.0), "reject_track"),
+    ]:
+        loop._last_pose = pose
+        loop.step_index += 1
+        loop.apply_verdict(track.track_id, verdict)
+    assert not track.contradiction_active
+    assert track.verdict == "no_match" and not track.confirm_steps
+
+
+def test_contradiction_relook_blocked_route_preserves_usable_confirm() -> None:
+    loop = OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda _pose, _yaw: ActionPrimitive.translate(10.0, 0.0, 0.0),
+        segment_clear=lambda *_args: False,
+        config=LoopConfig(contradiction_relook_enabled=True, stop_on_confirm=False),
+    )
+    track = _start_contradiction(loop)
+    loop.next_action(
+        [track],
+        pose_ned=(0.0, -30.0, -20.0),
+        yaw_deg=0.0,
+        ground_point=lambda _u, _v: (0.0, 0.0),
+    )
+    assert not track.contradiction_active
+    assert track.verdict == "confirm"
+
+    loop = _loop(
+        small_reject_recheck_px=16.0,
+        small_reject_recheck_max=1,
+        confirm_min_side_px=20.0,
+    )
+    tracks = loop.update_tracks([Detection(_box(640, 400, 12), 0.3)])
+    loop.apply_verdict("t1", "reject_track")
+    track = loop.tracks["t1"]
+    assert track.verdict == "pending_near"
+    assert track.identity_reject_matches == 0
+    assert track.small_reject_rechecks == 1
+    assert loop.tracks_needing_verdict(tracks) == []
+
+    loop.step_index += 1
+    tracks = loop.update_tracks([Detection(_box(640, 400, 20), 0.3)])
+    assert [t.track_id for t in loop.tracks_needing_verdict(tracks)] == ["t1"]
+    loop.apply_verdict("t1", "reject_track")
+    assert loop.tracks["t1"].verdict == "no_match"
+    assert loop.tracks["t1"].identity_reject_matches == 1
+
+
 def test_small_reject_recheck_does_not_bypass_confirm_size_gate() -> None:
     loop = _loop(
         small_reject_recheck_px=16.0,
@@ -1097,3 +1456,74 @@ def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:
     loop.apply_verdict(fresh.track_id, "confirm_target")
     _, info = loop.next_action([fresh], pose_ned=(0.0, 0.0, -8.0), yaw_deg=0.0)
     assert info.get("focus") is None and loop.state == "searching"
+
+
+def _apartment_loop(**config):
+    from multidetect.autonomy.obstacle_source import StaticMapSource
+    from multidetect.sim_teacher.policies import SDFObstacle
+
+    apartment = SDFObstacle(
+        north_m=-24.641,
+        east_m=-10.416,
+        height_m=14.8046,
+        size_north_m=22.2701,
+        size_east_m=20.2572,
+        yaw_rad=1.019681,
+    )
+    return OnboardLoop(
+        camera=CAMERA,
+        search_action=lambda pose, yaw: ActionPrimitive.hold(1.0),
+        obstacle_source=StaticMapSource((apartment,)),
+        config=LoopConfig(**config),
+    )
+
+
+def test_approach_never_descends_into_a_roof_below_the_vehicle() -> None:
+    # SITL gen_cnt2_w0001: hovering at 17.2 m over a 14.8 m roof with a hydrant
+    # 17 m away, the approach commanded forward 4 m + down 4 m; the leg was
+    # checked from the *lowered* start, which looked like leaving the ring, and
+    # the vehicle descended into the roof (timeouts, approach_exhausted, 2/3).
+    hydrant = (-35.44, -31.80)
+    pose = (-27.2, -17.0, -17.2)
+    yaw = math.degrees(math.atan2(hydrant[1] - pose[1], hydrant[0] - pose[0]))
+    loop = _apartment_loop()
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 900, 14), 0.3)],
+        pose_ned=pose,
+        yaw_deg=yaw,
+        ground_point=lambda u, v: hydrant,
+    )
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=yaw, ground_point=lambda u, v: hydrant
+    )
+    assert action.up_m >= 0.0 and "descend_m" not in info
+    # Flying on level would drop the hydrant below the image: hold the closest view.
+    assert action.kind == "hold" and info.get("reason") == "closest_view"
+
+
+def test_approach_still_descends_once_clear_of_the_roof() -> None:
+    hydrant = (-35.44, -31.80)
+    pose = (-45.0, -45.0, -17.2)
+    yaw = math.degrees(math.atan2(hydrant[1] - pose[1], hydrant[0] - pose[0]))
+    loop = _apartment_loop()
+    tracks = loop.update_tracks(
+        [Detection(_box(640, 900, 14), 0.3)],
+        pose_ned=pose,
+        yaw_deg=yaw,
+        ground_point=lambda u, v: hydrant,
+    )
+    loop.apply_verdict("t1", "approach_track")
+    action, info = loop.next_action(
+        tracks, pose_ned=pose, yaw_deg=yaw, ground_point=lambda u, v: hydrant
+    )
+    assert action.kind == "translate" and action.up_m < 0.0 and info["descend_m"] > 0.0
+
+
+def test_search_altitude_descent_is_checked_against_the_roof_below() -> None:
+    loop = _apartment_loop(search_altitude_m=10.0)
+    # Over the roof: the in-place drop to the search altitude would hit it.
+    action = loop._search_step((-27.2, -17.0, -17.2), 0.0)
+    assert not (action.kind == "translate" and action.up_m < 0.0)
+    clear = loop._search_step((-45.0, -45.0, -17.2), 0.0)
+    assert clear.kind == "translate" and clear.up_m < 0.0

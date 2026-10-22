@@ -320,6 +320,15 @@ class MavlinkState:
     last_preflight_failure_ns: int = 0
     pose_alignment: dict[str, Any] | None = None
     energy_telemetry: list[dict[str, Any]] | None = None
+    # Vehicle (PX4 boot) clock: the newest time_boot_ms on the wire, and its value
+    # when each tracked message arrived.  In SITL this is the lockstep simulation
+    # clock, which can run far slower than host time on a loaded machine.
+    vehicle_time_boot_ms: int | None = None
+    received_vehicle_ms: dict[str, int] = field(default_factory=dict)
+    # Recent spans of the vehicle clock in which no message carrying time_boot_ms
+    # arrived at all (a host stall overflowing the UDP buffer, a link drop),
+    # as (last before, first after) in ms.  See MavlinkReader.VEHICLE_GAP_MS.
+    vehicle_gaps_ms: list[tuple[int, int]] = field(default_factory=list)
     # Latest COMMAND_ACK per command id with its receive clock.  ACKs for two
     # commands sent back to back (e.g. RTL then VTOL transition) arrive within
     # milliseconds; the single latest COMMAND_ACK would hide the earlier one.
@@ -353,17 +362,23 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
             read_source = getattr(message, getter, None)
             if callable(read_source):
                 row[source_field] = read_source()
-        samples.append(
-            {
-                "message": {**row, "mavpackettype": name},
-                "received_monotonic_s": stamp / 1e9,
-            }
-        )
+        sample = {
+            "message": {**row, "mavpackettype": name},
+            "received_monotonic_s": stamp / 1e9,
+        }
+        vehicle_ms = state.received_vehicle_ms.get(name)
+        if vehicle_ms is not None:
+            sample["received_vehicle_s"] = vehicle_ms / 1e3
+        samples.append(sample)
     return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
 class MavlinkReader:
     POSE_TYPES = frozenset({"LOCAL_POSITION_NED", "ATTITUDE", "GLOBAL_POSITION_INT"})
+    # PX4 streams pose at tens of Hz of its own clock; a second of that clock
+    # with nothing on the wire is a delivery gap, not a slow stream.
+    VEHICLE_GAP_MS = 1_000
+    VEHICLE_GAPS_KEPT = 16
     POSE_HISTORY_MS = 5_000
     POSE_HISTORY_MAX_SAMPLES = 1_024
     TRACKED = frozenset(
@@ -407,6 +422,7 @@ class MavlinkReader:
         self.done = threading.Event()
         self._stop = threading.Event()
         self._thread = None
+        self._vehicle_newest_ms: int | None = None
         self.progress = progress
         self.message_counts: Counter[str] = Counter()
         self.parse_errors = 0
@@ -468,6 +484,9 @@ class MavlinkReader:
                 count=self.state.count,
                 last_preflight_failure_ns=self.state.last_preflight_failure_ns,
                 energy_telemetry=_energy_telemetry(self.state),
+                vehicle_time_boot_ms=self.state.vehicle_time_boot_ms,
+                received_vehicle_ms=dict(self.state.received_vehicle_ms),
+                vehicle_gaps_ms=list(self.state.vehicle_gaps_ms),
             )
         for name, result in selected.items():
             if result is None:
@@ -583,11 +602,26 @@ class MavlinkReader:
                     continue
                 mono = self.clock()
                 wall = time.time()
+                boot_ms = _field(message, "time_boot_ms", None)
+                if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0:
+                    with self._pose_condition:
+                        # Measured from the newest clock seen, so a stray older
+                        # stamp (another component, a reboot) never opens a gap.
+                        newest_ms = self._vehicle_newest_ms
+                        if newest_ms is not None and boot_ms - newest_ms > self.VEHICLE_GAP_MS:
+                            gaps = self.state.vehicle_gaps_ms
+                            gaps.append((newest_ms, boot_ms))
+                            del gaps[: -self.VEHICLE_GAPS_KEPT]
+                        if newest_ms is None or boot_ms > newest_ms:
+                            self._vehicle_newest_ms = boot_ms
+                        self.state.vehicle_time_boot_ms = boot_ms
                 if name in self.TRACKED:
                     with self._pose_condition:
                         self.state.messages[name] = message
                         self.state.received_monotonic_ns[name] = mono
                         self.state.received_wall_time[name] = wall
+                        if self.state.vehicle_time_boot_ms is not None:
+                            self.state.received_vehicle_ms[name] = self.state.vehicle_time_boot_ms
                         if (
                             name == "STATUSTEXT"
                             and "preflight fail" in str(_field(message, "text", "")).lower()
@@ -883,6 +917,11 @@ def build_observation(
         "energy_telemetry": mavlink.energy_telemetry
         if mavlink.energy_telemetry is not None
         else _energy_telemetry(mavlink),
+        # Vehicle-clock spans with no telemetry at all; energy freshness is not
+        # charged for them (OnboardEnergyEstimator.note_delivery_gap).
+        "vehicle_telemetry_gaps_s": [
+            [start / 1e3, end / 1e3] for start, end in mavlink.vehicle_gaps_ms
+        ],
         "gps_fix": gps_fix,
         "landed": landed,
         "flight_state": {

@@ -22,7 +22,7 @@ Fly 和 Plan 页均有“任务包”入口，复用 QGC 的弹窗、控件、�
 
 ## 协议
 
-继续使用签名 MAVLink2 `TUNNEL`，`payload_type=42000`，原端点地址及密钥配置不变。现有类型 1–27 的 v1 字节格式完全保留；只有类型 28–36 使用 v2。类型与版本必须匹配，旧端不会误解新任务消息。
+继续使用签名 MAVLink2 `TUNNEL`，`payload_type=42000`，原端点地址及密钥配置不变。现有类型 1–27 的 v1 字节格式完全保留；只有类型 28–37 使用 v2。类型与版本必须匹配，旧端不会误解新任务消息。
 
 外层仍为大端 `>2sBBBBIQH`：`MD`、版本、类型、零 flags、零 reserved、32 位序号、64 位毫秒时间、16 位 body 长度。尾部仍为 HMAC-SHA256 前 16 字节。外层共 36 字节，body 最多 92 字节，每个 TUNNEL 最多 128 字节。
 
@@ -37,10 +37,11 @@ Fly 和 Plan 页均有“任务包”入口，复用 QGC 的弹窗、控件、�
 | 34 | `MISSION_HEARTBEAT` | GCS → Jetson | `>QQ` |
 | 35 | `MISSION_TELEMETRY_CHUNK` | Jetson → GCS | 与类型 28 相同；重组后为状态或日志 JSON |
 | 36 | `MISSION_TELEMETRY_ACK` | GCS → Jetson | `>QH`：下行 token、分片编号 |
+| 37 | `MISSION_GROUND_COMMAND_CHUNK` | GCS → Jetson | 与类型 28 相同；重组后为一条地面命令 JSON（如 `approve_plan`／`reject_plan`），最多 8,192 字节 |
 
 策略编号依次为 `continue=0`、`continue_then_return=1`、`hold_then_return=2`、`return_now=3`、`land_now=4`。任务 token 是任务编号 UTF-8 的 SHA-256 前八字节按大端整数解释。请求／上传 token 非零；控制 ACK 的分片编号为零。
 
-分片数据最多 44 字节，文档最多 65,536 字节，最多 1,490 片。片数与每片长度必须与总长度一致；最终摘要匹配后才做 Python 包准入和装载。采用逐片等待确认；1 秒重试，单片最多五次。ACK 丢失可以幂等重发，token 冲突、内容冲突及乱序不能替换已接受任务。上传中断会在无进展 30 秒后清理。只有最后一片确认成功，GCS 才显示机载装载完成；超时显示结果未知。
+分片数据最多 44 字节，文档最多 65,536 字节，最多 1,490 片。片数与每片长度必须与总长度一致；最终摘要匹配后才做 Python 包准入和装载。机载只接纳已签名任务包：未配置验证密钥时拒绝一切上传，未签名或签名不符的包在规划前即被拒绝。采用逐片等待确认；1 秒重试，单片最多五次。ACK 丢失可以幂等重发，token 冲突、内容冲突及乱序不能替换已接受任务。上传中断会在无进展 30 秒后清理。机上规划在独立的规划线程中进行（可能数分钟），接收线程不被阻塞，期间心跳、中止和遥测 ACK 照常处理。最后一片的首个 ACK 表示“已接收，机载编译中”；规划结束后，机上对同一 token、同一最后分片编号再发一条 ACK 给出最终结论（接受或拒绝及原因），GCS 应以这条为准，再以下行的 `kind=plan` 记录展示计划。规划期间再收到新的上传会被拒绝；超时显示结果未知。
 
 GCS 序号由 Unix 毫秒低 32 位初始化，后续保持串行递增并向前跟随时钟，支持普通地面站进程重启。Jetson 使用 32 位串行高水位及请求去重，不因断链自动清空重放保护。严重时钟回拨或超过半个序号周期的间隔需要运行时重新建立受认证会话；不会为此放宽飞行策略。
 
@@ -67,7 +68,7 @@ server = UdpOperatorSelectionServer(
 server.start_background()
 ```
 
-`atomic_load_package(package) -> MissionSupervisor` 必须在安装时再次原子检查飞行状态，采用机载现有编译器处理只有 `task_text` 的包，验证编译计划，安装执行器并返回实际使用的监督器。失败时保留原任务。适配器在首片和最终装载前检查准入门；控制事件绑定任务编号，并由监督器采样机载时钟，不能把 GCS 的墙钟当作飞行事件时间。
+`package_loader(package) -> MissionSupervisor` 在规划线程中编译（只有 `task_text` 时使用机载现有编译器）并返回候选监督器，不得安装；`package_installer(supervisor)` 才把候选设为飞机的任务。适配器在自身锁内依次：核对候选与已验证包一致、重新读取飞行前准入门、确认未被 `seal()` 锁定、设置计划审批状态，最后才调用安装器。规划期间飞机若已解锁或宿主已锁定起飞，候选被拒绝，原任务保持不变。宿主在计划批准后、解锁前调用 `seal()`，此后不再接纳任何上传，并在锁定后再次确认获批的仍是当前任务。适配器在首片和最终装载前检查准入门；控制事件绑定任务编号，并由监督器采样机载时钟，不能把 GCS 的墙钟当作飞行事件时间。
 
 适配器在调用加载器前保存文档、引用及可选计划快照，拒绝原地修改或替换后的包。上传已含计划时，执行器必须使用该计划；只有任务文字时，保留 `package.plan=None`，将机载编译结果放在 `supervisor.executor.plan`，并再次验证其引用与约束。
 
@@ -75,9 +76,36 @@ server.start_background()
 
 ## 下行监控与日志
 
-状态 JSON 包含 `kind=status`、任务编号、递增序号、监督器判定／原因、有效策略／超时、剩余时间、剩余能量及飞行状态门。未知能量显示“尚未收到”，不把名义预算当作测量值。超过五秒未收到更新，界面明确标为过期；恢复与收紧操作要求新鲜状态。
+## 提示词任务的机上执行
+
+地面站上传只含 `task_text` 的已签名任务包后，机上会在飞行前重新校验边界，并使用与 onboard policy 相同的 `from_text` 编译路径生成计划，候选监督器使用与启动任务包相同的机载能量模型（`energy_model`）。计划以 `kind=plan` 回传，包含 `plan_sha256`、步骤和 `requires_approval`。`plan_sha256` 覆盖任务编号、完整任务包文档摘要、引用摘要和计划本身，换包或换任务编号都会得到不同摘要。
+
+要求批准时，监督器照常评估（中止、失联策略、能量与时间储备、监督区域都会生效），只把“继续”降级为悬停等待，不推进步骤；地面站以类型 37 发送带相同 `mission_id` 和 `plan_sha256` 的 `approve_plan` 后才开始执行。审批命令与其他地面命令走同一条 `ground_event` 路径：任务编号、速率限制和监督器地面锁始终生效；机上配置了地面命令密钥（真实模式为 `--operator-key`）时，命令必须是带 `sequence`、`timestamp`、`timestamp_version=1`、`timestamp_domain` 的签名文档，未签名、重放或过期的审批一律拒绝。类型 30–34 的定长控制由 TUNNEL 的 HMAC、MAVLink 签名和序号高水位认证，但审批永远不能经由这类控制下达。摘要不匹配、重复决定或任务编号不符都会被拒绝并记入日志；收到 `reject_plan` 会锁定 `land_now`，写出 `plan_rejected` 最终摘要，未起飞时保持在地面。
+
+真实运行时（`scripts/onboard_main.py real`）配置 `--operator-bind-host` 后：上传包的验证密钥为 `--operator-package-verify-key`，缺省使用 `--operator-key`，两者都没有则拒绝启动链路；启动时加载的任务包也绑定到链路，`--operator-requires-approval` 会让它同样回传计划并等待批准；上传包在规划线程中重新检查起飞高度和 PX4 预检门（`--apply-px4-params` 时重新写入参数矩阵）；等待批准的时限为 `--operator-approval-timeout`（默认 600 秒，覆盖机上规划耗时），超时、被拒或任务在起飞前已锁定返航都不会解锁。
+
+任务执行期间约每秒发送 v2 `status`，包含当前步骤、技能、进度、计数下限标记、发现数、报警数、预算和链路状态。每个发现和报警都会单独发送记录。最终摘要超过单包预算时拆成 `final_summary_page`，按编码后的 UTF-8 字节（含 JSON 转义）分页，每页文档不超过 1,536 字节，中文摘要也不会超出预算；每页是一个独立的 type-35 传输（各自 token，分片序号从 0 开始），地面站按分片头 `(token, index)` 逐片 ACK；地面站必须收齐页后再展示，不能把不完整摘要当成结果。机载尚未装载任务时收到的 type-34 心跳不回 ACK，也不计入任务心跳。
+
+状态 JSON 包含 `kind=status`、任务编号、递增序号、监督器判定／原因、有效策略／超时、剩余时间、剩余能量及飞行状态门。状态超过 1,200 字节时不再被丢弃：先截短原因、步骤等文本，再把分步计数合并为 `counts_total`，并标记 `truncated=true`。计划被拒或起飞前已锁定返航／降落时，状态为 `returning` 而不是 `awaiting_approval`。未知能量显示“尚未收到”，不把名义预算当作测量值。超过五秒未收到更新，界面明确标为过期；恢复与收紧操作要求新鲜状态。
 
 机载 `OnboardMissionLog` 保留完整 JSONL。下行接入既有 `DownlinkQueue`：只在其后台线程等待逐片 ACK，飞行线程不等待网络；最后一片确认后才推进持久化游标。较大日志下行压缩为最多 1,536 UTF-8 字节的摘要，保留任务／序号／类型及原始 SHA-256、字节数和截断标志。GCS 保留最近 50 条已收到记录，并按任务／序号去重；完整证据仍在机载文件中。
+
+### 下行选择、优先级与吞吐
+
+每条记录都写入机载 `mission.jsonl`（证据不删减），但 TUNNEL 每个确认分片只有 44 字节，链路只承载操作员需要的内容（`DownlinkSelector`，`src/multidetect/autonomy/onboard_mission_log.py`）：
+
+- 总是下行：`mission_started`、`mission_refused`、`plan`、`plan_approved`／`plan_rejected`、`finding`、`alert`、`escalation`、`envelope_violation`、`replay_state_lost`、`final_summary`（大摘要分页）。
+- `decision`：只有 `(action, reason)` 与上一条已下行的判定不同才发送，另外按记录时间每 30 秒发一条保活。
+- `ground_event`／`ground_event_rejected`：除例行 `heartbeat` 外全部发送。
+- 其余（`execution`、`estimates`、`perception_verdict` 等）只留在机载日志；实时进度由约 1 Hz 的 `status` 提供。
+
+游标仍顺序推进，跳过的记录也会被确认越过，所以 `acknowledged_sequence` 能到达日志末尾（SIM 退出前的排空依赖它）。积压中的 `finding`、`alert`、`escalation`、`final_summary`、计划类记录会越过前面的例行记录先发送；重启后可能重复送达，GCS 按任务／序号去重。适配器中优先记录不排在到期的 `status` 之后；普通记录与 `status` 交替。类型 36 ACK 使用独立的速率桶（默认 200/s），不再与普通命令共用 20/s——此前一个约 20 片的状态就耗尽额度，被丢弃的 ACK 让每次传输等待 1 秒重发（SITL run7 只送达 2051 条中的 735 条）。
+
+例行记录（心跳、判定、估计、执行等）只 flush 不逐条 fsync，下行线程读取日志不持有追加锁，避免慢盘时控制循环和链路线程卡顿（run8 曾卡约 5.6 秒）；发现、计划、升级、地面命令和最终摘要仍在返回前 fsync。
+
+### 最终摘要
+
+每个终止路径恰好写一条 `final_summary`：正常完成（`completed`）、监督器锁定返航／降落（含操作员中止、能量／时间储备、失联策略，状态 `ended_early`，在锁定时立即写，不等返航飞完）、计划被拒（`plan_rejected`）、宿主停止任务（`stopped`）。摘要包含已有历史、发现、报警、计数、每个计数步骤的 `count_lower_bounds`、`count_is_lower_bound`（计数步骤未完成覆盖即为 true）、`terminal_action`／`terminal_reason`。SIM 采集器在 `policy.close()` 之前调用 `_drain_sim_operator_link`：先补写摘要，再等待下行确认到日志末尾，最后在所有路径关闭地面链路服务器。
 
 界面主要显示中文判定、原因和日志摘要。勾选“显示机载原始审计字段”可以查看机器原文。地面站离线不暂停机载日志，也不引入正常步骤的地面批准要求。
 
@@ -102,3 +130,7 @@ ctest --test-dir build/mission-gcs-check/repro --output-on-failure
 最终验证结果：两个 C++ 自检通过；Python 协议、适配器、监督器、UDP 与跨语言准入共 237 项通过，其中跨语言比较 44 项。三处 QML 经 `qmlformat` 解析通过，`rcc --binary` 资源编译通过；新增构建脚本目标通过 PowerShell AST 语法检查。Ruff 与 `git diff --check` 通过。
 
 QML 解析与资源编译可以独立检查；完整 `qmllint` 语义及原生界面运行仍需要生成的 QGroundControl imports 和完整应用构建。本次未宣称完整 GCS EXE、真实硬件或人工飞行界面验收通过。
+
+## SIM 联调控制台
+
+`scripts/fake_gcs_console.py --link <operator-link.json> <package.json>` 用于 SIM 会话联调。`scripts/run_sim_session.py --operator-link` 生成的 `operator-link.json` 含会话级 `operator_package_key_hex`，控制台用它对未签名的任务包文件签名后上传（也可用 `--package-key`／`--package-key-hex` 指定）。消息序号由 Unix 毫秒初始化，控制台重启后不会被机上判为过期；每条审批／拒绝命令使用新的随机 token；键盘输入在独立线程读取（`a` 或回车批准，`r` 拒绝），等待期间心跳与遥测 ACK 不中断；只处理与上传任务编号一致的计划。机上配置了地面命令密钥时，用 `--command-key` 对审批命令签名，`--command-sequence` 指定起始命令序号（须高于机上该任务已记录的命令序号）。
