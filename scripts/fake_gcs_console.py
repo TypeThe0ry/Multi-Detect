@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_operator_protocol import (  # noqa: E402
+    ACK,
     CHUNK,
     CHUNK_DATA_BYTES,
     CONTROL,
@@ -145,6 +146,16 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             except ValueError as error:
                 print(f"rejected packet: {error}", flush=True)
+                continue
+            if packet.message_type == 29:
+                # Onboard verdict on an upload/command chunk, with a reason text.
+                _token, kind, index, accepted = ACK.unpack_from(packet.message.body)
+                detail = packet.message.body[ACK.size :].decode("utf-8", "replace")
+                if not accepted or index == 0:
+                    print(
+                        f"onboard ack kind={kind} index={index} accepted={bool(accepted)} {detail}",
+                        flush=True,
+                    )
                 continue
             if packet.message_type != 35:
                 continue

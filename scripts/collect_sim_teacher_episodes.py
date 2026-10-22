@@ -1240,9 +1240,40 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
         operator_requires_approval=bool(config.get("operator_requires_approval", True)),
         operator_package_verify_key=config.get("operator_package_verify_key"),
     )
+    admit = getattr(policy, "admit_operator_package", None)
+
+    def logged_admit(package):
+        # Planning a prompt-only package calls the slow model inside the link's
+        # receive thread; log each stage so a silent link can be diagnosed.
+        _progress("operator_package_received", mission_id=package.mission_id)
+        try:
+            supervisor = admit(package)
+        except Exception as error:
+            _progress("operator_package_rejected", error=f"{type(error).__name__}: {error}")
+            raise
+        _progress(
+            "operator_plan_compiled",
+            steps=[step.skill for step in supervisor.executor.plan.steps],
+            plan_sha256=supervisor.plan_sha256,
+        )
+        return supervisor
+
+    if admit is not None:
+        policy.admit_operator_package = logged_admit
     server = _start_operator_link(args, policy, _SimHoverVehicle())
     policy.sim_operator_server = server
     _progress("operator_link_listening", host=args.operator_bind_host, port=args.operator_port)
+
+    def report_link_errors() -> None:
+        errors = getattr(server, "_background_errors", None)
+        while errors is not None and not getattr(server, "_closed", False):
+            try:
+                error = errors.get(timeout=1.0)
+            except Exception:
+                continue
+            _progress("operator_link_error", error=f"{type(error).__name__}: {error}")
+
+    threading.Thread(target=report_link_errors, name="sim-operator-errors", daemon=True).start()
 
 
 def _onboard_airframe_id(plan: CollectionPlan) -> str | None:
