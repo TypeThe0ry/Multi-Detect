@@ -1746,6 +1746,51 @@ def test_count_search_end_records_why_a_far_small_rejection_was_not_revisited() 
     assert any(e["event"] == "count_rejection_revisit_skipped" for e in executor.mission_log)
 
 
+@pytest.mark.parametrize(
+    ("case", "lower_bound"),
+    [
+        # Outside the step's zone: not part of this count.
+        ("outside_region", False),
+        # Already looked at again: it has had its second look.
+        ("already_revisited", False),
+        # Seen beside a counted object in one frame: not a missed copy of it.
+        ("co_visible_with_counted", False),
+        # Never looked at for lack of budget: the count may still miss it.
+        ("budget", True),
+    ],
+)
+def test_count_lower_bound_follows_the_rejection_revisit_skip_reason(case, lower_bound) -> None:
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 40.0 if case == "outside_region" else 100.0)},
+        config=ExecutorConfig(step_budget=3 if case == "budget" else 140),
+    )
+    loop = executor.active_loop
+    loop._rejections.append(
+        {
+            "ground": (60.0, 0.0) if case == "outside_region" else (20.0, 0.0),
+            "min_side_px": [12.0],
+            "range_m": [25.0],
+            "revisited": False,
+            "track_id": "reject-0",
+            "co_visible_with": {"t9"} if case == "co_visible_with_counted" else set(),
+        }
+    )
+    if case == "already_revisited":
+        executor._run.rejection_revisit_places.append((20.5, 0.0))
+    if case == "co_visible_with_counted":
+        loop.confirmations.append(
+            {"position_estimate_ne": [-30.0, 0.0], "track_id": "t9", "co_visible_with": set()}
+        )
+    loop.state = "completed"  # a full coverage pass
+    _cycle(executor, Sim(altitude=8.0))
+    status = executor.history[0]
+    assert status["reason"] == "coverage_complete"
+    assert [item["reason"] for item in status["rejection_revisit_skipped"]] == [case]
+    assert status["count_is_lower_bound"] is lower_bound
+
+
 def test_search_end_revisits_each_unresolved_place_a_bounded_number_of_times():
     place = (30.0, 20.0)
     executor = MissionExecutor(

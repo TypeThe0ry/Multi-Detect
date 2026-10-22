@@ -288,3 +288,43 @@ def test_area_search_also_revisits_a_small_unjudged_place():
     _, info, _ = _cycle(executor, sim)
     assert math.dist(info["small_unjudged_revisit"]["centre"], HYDRANT) < 0.5
     assert executor.history == []
+
+
+def test_count_lower_bound_tells_a_looked_at_small_place_from_an_unvisited_one():
+    # Looked at again (nothing there to judge): no longer an open place.
+    executor = _executor()
+    sim = Sim(*SEEN_FROM, yaw=_seen_yaw())
+    _see_once_then_finish_coverage(executor, sim)
+    _, info, _ = _cycle(executor, sim)
+    record = info["small_unjudged_revisit"]
+    loop = executor.active_loop
+    for _ in range(40):
+        _cycle(executor, sim)
+        if loop._revisit is None:
+            break
+    assert record["outcome"] == "not_seen"
+    loop.state = "completed"
+    _cycle(executor, sim)
+    status = executor.history[0]
+    assert status["small_unjudged_revisits"][0]["outcome"] == "not_seen"
+    assert status["small_unjudged_revisit_skipped"] == [
+        {"centre": record["centre"], "track_ids": ["t1"], "reason": "already_revisited"}
+    ]
+    assert status["count_is_lower_bound"] is False
+
+    # Outside the step's zone: not part of the count, no look, no lower bound.
+    outside = MissionExecutor(
+        _plan(),
+        loop_factory=_make_loop,
+        refs={"zone:site": (0.0, 0.0, 30.0)},
+        config=ExecutorConfig(step_budget=140),
+        obstacle_source=SOURCE,
+    )
+    sim = Sim(*SEEN_FROM, yaw=_seen_yaw())
+    _see_once_then_finish_coverage(outside, sim)
+    _cycle(outside, sim)
+    status = outside.history[0]
+    assert [item["reason"] for item in status["small_unjudged_revisit_skipped"]] == [
+        "outside_region"
+    ]
+    assert status["count_is_lower_bound"] is False

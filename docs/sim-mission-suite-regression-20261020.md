@@ -202,8 +202,14 @@ verdictshift 轮消防栓第 1 架次（7d6ea791）只计到 2/3。漏掉的 `co
 `still_unjudged`、`not_seen`、`descent_blocked`、`fly_blocked`、`timeout`、`interrupted`），
 跳过原因写进 `small_unjudged_revisit_skipped`（`outside_region`、`already_revisited`、
 `attempts_exhausted`、`revisit_cap`、`no_clear_viewpoint`、`too_small_to_resolve`、`budget`、
-`energy_margin`），mission_log 记 `small_unjudged_revisit(_skipped)` 事件。仍有相关小地点未判断时
-`count_is_lower_bound` 为真。
+`energy_margin`），mission_log 记 `small_unjudged_revisit(_skipped)` 事件。
+
+**计数下限判定**（第十一次 e2e：覆盖完成、3/3 全对，却因两个已跳过的远小拒绝地点被标成下限）：
+`count_is_lower_bound` 现在与补看跳过原因一致。远小拒绝地点在任务区域外（`outside_region`）、
+已补看过（`already_revisited`）、与已计数物体同帧共视（`co_visible_with_counted`）或在已计数物体
+去重半径内的，不再算未决；因预算、观察点、能量余量等没补看的仍算未决。相关小而未判断的地点同样
+处理：在区域内且没补看过（包括预算/余量用尽、次数用尽）时计数为下限；补看过（不论结果）或在区域
+外则不算。
 
 **离线重放**：对 verdictshift、veto、veto-b、wind-20261022d、wind-full-20261022e 中 12 个 count
 架次（另有 7 个 wind 架次没有 steps.jsonl），用同一 YOLOE 权重（imgsz 1280，conf 0.05）在对应帧上
