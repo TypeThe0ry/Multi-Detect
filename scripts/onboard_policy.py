@@ -896,7 +896,15 @@ class OnboardPolicy:
 
         self.loop = make_loop(task_text)
         mission = options.get("mission")
-        if mission not in {None, "find", "count", "find_and_inspect", "from_text", "package"}:
+        if mission not in {
+            None,
+            "find",
+            "count",
+            "find_and_inspect",
+            "from_text",
+            "package",
+            "operator_link",
+        }:
             raise ValueError(f"unknown mission template {mission!r}")
         self._step = 0
         self.proposer = (

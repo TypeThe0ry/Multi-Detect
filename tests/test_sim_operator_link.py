@@ -48,3 +48,12 @@ def test_text_missions_do_not_open_an_operator_endpoint(tmp_path, monkeypatch) -
     policy = SimpleNamespace()
     collector._start_sim_operator_link(_plan(tmp_path, {"mission": "from_text"}), policy)
     assert not hasattr(policy, "sim_operator_server")
+
+
+def test_operator_link_is_a_known_mission_template(tmp_path) -> None:
+    from onboard_factories import make_policy
+
+    policy = make_policy(work_dir=tmp_path, config={"mission": "operator_link"})
+    # Holds safely until a package arrives over the link (SITL e2e failed on
+    # "unknown mission template 'operator_link'" before this was accepted).
+    assert policy.operator_link_waiting is True
