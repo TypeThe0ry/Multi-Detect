@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_cnt2_w0000__wind6_gust3p4_noise0.01_dusk_actors2.expectations.json",
+      "sha256": "7d955bb4be28795590844ab477b3e74581db49e3d9d2fb8f7fcd4251c5645e04"
+    },
+    "runtime_input": {
+      "path": "gen_cnt2_w0000__wind6_gust3p4_noise0.01_dusk_actors2.runtime_input.json",
+      "sha256": "00a9c76518517e65bd889947ce507ddd3ee3a800eba89573d4b8b77ca6c0d2c3"
+    },
+    "truth": {
+      "path": "gen_cnt2_w0000__wind6_gust3p4_noise0.01_dusk_actors2.truth.json",
+      "sha256": "bdfb1d2dcb49db0fef07d22770cca6032233c6cd7b0b242f2c042e15885dae10"
+    }
+  },
+  "scenario_id": "gen_cnt2_w0000__wind6_gust3p4_noise0.01_dusk_actors2",
+  "scenario_version": 1,
+  "schema_version": 1
+}
