@@ -292,7 +292,14 @@ def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
         )
 
 
-def _run_task(task: str, world: Path, port: int, out: Path, container_name: str) -> int:
+def _run_task(
+    task: str,
+    world: Path,
+    port: int,
+    out: Path,
+    container_name: str,
+    timeout_s: float = 2400.0,
+) -> int:
     """Run the existing onboard policy entry point against the session port."""
     out.mkdir(parents=True, exist_ok=True)
     task_file = out / "onboard-task.json"
@@ -331,6 +338,10 @@ def _run_task(task: str, world: Path, port: int, out: Path, container_name: str)
         "1",
         "--steps-per-episode",
         "140",
+        # The collector's 300 s default ended a SITL count mid-search; the
+        # mission suite gives the same task 2400 s.
+        "--max-episode-s",
+        str(timeout_s),
         "--out",
         str(out / "collector"),
     ]
@@ -349,6 +360,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--onboard-task")
     parser.add_argument("--exit-after-task", action="store_true")
     parser.add_argument("--onboard-out", type=Path, default=ROOT / "tmp/sim-session/onboard")
+    parser.add_argument("--task-timeout-s", type=float, default=2400.0)
     parser.add_argument("--snapshot-dir", type=Path)
     parser.add_argument("--snapshot-interval", type=float, default=10.0)
     parser.add_argument("--check-heartbeat", type=float, default=0.0)
@@ -450,9 +462,15 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.onboard_task:
             _session_log(session_log, "task_start", task=args.onboard_task)
             code = _run_task(
-                args.onboard_task, world, args.control_port, args.onboard_out, plan.container_name
+                args.onboard_task,
+                world,
+                args.control_port,
+                args.onboard_out,
+                plan.container_name,
+                timeout_s=args.task_timeout_s,
             )
-            summary = next(args.onboard_out.rglob("report.json"), None)
+            # The collector writes mission_summary.txt per episode (no report.json).
+            summary = next(args.onboard_out.rglob("mission_summary.txt"), None)
             _session_log(
                 session_log,
                 "task_end",
