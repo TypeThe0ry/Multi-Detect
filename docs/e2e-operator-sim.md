@@ -103,6 +103,9 @@ python scripts/augment_sim_world.py simulation/gazebo/worlds/gen_cnt2_w0000.sdf 
 | 上传 ACK 丢失、`expired or conflicting` | 上传超过 20 burst/20/s，或复用了 token；按约 0.06 秒 pacing，每次运行生成 fresh token。 |
 | 有 plan 但没有 status/finding | GCS 没发 type-34，或未 ACK type-35；保持 heartbeat、逐片回 type-36。 |
 | 任务提前返航 | 读取 session log 和 status 的 supervisor reason；历史回归曾因时间线缺飞机位置触发错误能量返航，当前 SIM 仍在修 energy reserve/battery-stale early return。 |
+| `battery telemetry stale` 但电量充足 | 先查 `mavlink.jsonl` 的 `time_boot_ms` 是否断档、宿主机进程是否卡住（第九次演示：Windows 上机载进程整体停约 20 秒，UDP 缓冲溢出丢了 PX4 时钟 354.0–361.1 秒的全部遥测，PX4 报 `Failsafe activated`）。SIM 读取器把这类“整条链路无消息”的车辆时钟区间记为 `vehicle_telemetry_gaps_s`，能量模型不把它计入电池时效，并在任务日志写 `vehicle_telemetry_gap`；链路恢复后电池仍需在 5 秒内上报，否则照常返航。实机仍按宿主接收时间判定。 |
+| 最终摘要只到 page 1 | 旧版所有页共用一个传输 token、分片序号跨页累加，GCS 按分片头 ACK 第 2 页时机载不认，page 1 被反复重发。现在每页是独立传输（各自 token、序号从 0 开始）。 |
+| 任务接纳前心跳被拒 | 机载尚无任务时收到 type-34 心跳不回 ACK、不计入任务心跳；已有任务而任务标识不符时仍回拒绝。 |
 | 回归架次显示 missing | 先看磁盘门限和 `campaign/*.log`；10-22 relook 回归还遇到缺少 `artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt`，没有产生可评分 episode。 |
 
 ## 已知限制
