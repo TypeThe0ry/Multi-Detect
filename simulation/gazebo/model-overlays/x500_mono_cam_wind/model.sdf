@@ -1,10 +1,89 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sdf version="1.9">
+  <!--
+    Repository-owned composition for the PX4 x500 multirotor path.
+
+    PX4-gazebo-models supplies the x500 aerodynamic/actuator model.  The
+    checked-in mono_cam composition gives every airframe the same camera
+    topic and QGC metadata contract used by the VTOL and fixed-wing scenes.
+  -->
   <model name="x500_mono_cam">
-    <!-- Wind variant: every link of the composite (incl. merged x500 links) feels the world wind. -->
+    <!-- Wind variant: every link of the composite (incl. merged x500 links) feels the world wind.
+         Otherwise identical to simulation/gazebo/models/x500_mono_cam, which this overlay shadows. -->
     <enable_wind>true</enable_wind>
-    <include merge="true"><uri>model://x500</uri></include>
-    <include merge="true"><uri>model://mono_cam</uri><pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose></include>
-    <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>camera_link</child><pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose></joint>
+    <include merge="true">
+      <uri>model://x500</uri>
+    </include>
+    <include merge="true">
+      <uri>model://mono_cam</uri>
+      <!-- Downward-tilted camera for inspection and target geolocation. -->
+      <!--
+        Keep the include and fixed-joint transforms in the same base_link
+        frame. Without relative_to, SDFormat interprets this merged include
+        pose in the composite-model frame and places the camera below the
+        terrain on the x500, whose base_link origin is elevated.
+      -->
+      <pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose>
+    </include>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose>
+    </joint>
+    <!--
+      Co-located metric depth source.  Gazebo's camera frame looks along +X;
+      consumers that use an optical +Z convention must apply that explicit
+      frame transform before interpreting the R_FLOAT32 image.  This SDF does
+      not assert whether a depth scalar is optical-axis or ray-slant distance;
+      the transport contract must bind and normalize that semantics.
+    -->
+    <link name="depth_camera_link">
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+      <!-- Keep the transport-only sensor from changing the x500 mass/inertia. -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.000001</mass>
+        <inertia>
+          <ixx>0.000000001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000000001</iyy>
+          <iyz>0</iyz>
+          <izz>0.000000001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="depth_camera" type="depth_camera">
+        <gz_frame_id>depth_camera_link</gz_frame_id>
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.74</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>960</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>3000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+      </sensor>
+      <gravity>false</gravity>
+      <velocity_decay />
+    </link>
+    <joint name="DepthCameraJoint" type="fixed">
+      <parent>camera_link</parent>
+      <child>depth_camera_link</child>
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+    </joint>
+    <plugin
+      filename="gz-sim-odometry-publisher-system"
+      name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
   </model>
 </sdf>

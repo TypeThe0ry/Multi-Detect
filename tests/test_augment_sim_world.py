@@ -132,3 +132,79 @@ def test_wind_startup_patch_adds_wind_effects_only_for_windy_worlds(tmp_path: Pa
             assert plugin.findtext("horizontal/magnitude/sin/period") == "4"
         else:
             assert plugin is None
+
+
+def _composition(path: str) -> tuple[list[tuple[str, str]], str]:
+    model = ET.parse(path).getroot().find("model")
+    assert model is not None
+    parts = sorted(
+        (child.tag, child.get("name") or child.findtext("uri") or "")
+        for child in model
+        if child.tag in {"link", "joint", "plugin", "include"}
+    )
+    body = "".join(
+        ET.tostring(child, encoding="unicode")
+        for child in model
+        if child.tag in {"link", "joint", "plugin", "include"}
+    )
+    return parts, "".join(body.split())
+
+
+@pytest.mark.parametrize(
+    ("overlay", "base"),
+    [
+        (
+            "simulation/gazebo/model-overlays/x500_mono_cam_wind/model.sdf",
+            "simulation/gazebo/models/x500_mono_cam/model.sdf",
+        ),
+        (
+            "simulation/gazebo/model-overlays/x500_mono_cam_seg_wind/model.sdf",
+            "simulation/gazebo/model-overlays/x500_mono_cam_seg/model.sdf",
+        ),
+    ],
+)
+def test_wind_overlays_keep_the_shadowed_model_composition(overlay: str, base: str) -> None:
+    # The overlay fully shadows the base model when mounted: it must keep every
+    # link/joint/plugin (depth camera, odometry) and only add enable_wind.
+    assert _composition(overlay) == _composition(base)
+
+
+def test_wind_without_gust_still_marks_the_world_for_wind_effects(tmp_path: Path) -> None:
+    source = Path("simulation/gazebo/worlds/gen_cnt2_w0000.sdf")
+    output = tmp_path / "variant.sdf"
+    transform(source, output, _args(gust_mps=None, actors=0, terrain=None, fog=False))
+    text = output.read_text(encoding="utf-8")
+    assert "multidetect-wind-gust amplitude_percent=0 period=4" in text
+
+
+@pytest.mark.parametrize(
+    "world",
+    [
+        "simulation/gazebo/worlds/urban_inspection_multirotor_001.sdf",
+        "simulation/gazebo/worlds/river_rescue_vtol_001.sdf",
+        "simulation/gazebo/worlds/coastal_patrol_fixed_wing_001.sdf",
+    ],
+)
+def test_hand_made_worlds_with_wind_do_not_get_wind_effects(world: str, tmp_path: Path) -> None:
+    import subprocess
+
+    from scripts import run_simulator_docker as docker_plan
+
+    assert "<wind>" in Path(world).read_text(encoding="utf-8")
+    config = tmp_path / "server.config"
+    config.write_text(
+        "<server_config><plugins><plugin name='gz::sim::systems::Physics'/></plugins></server_config>",
+        encoding="utf-8",
+    )
+    script = docker_plan._ENABLE_WIND_EFFECTS.replace(
+        docker_plan.CONTAINER_WORLD, Path(world).resolve().as_posix()
+    ).replace(docker_plan.CONTAINER_SERVER_CONFIG, config.as_posix())
+    subprocess.run(["sh", "-c", script], check=True)
+    assert "WindEffects" not in config.read_text(encoding="utf-8")
+
+
+def test_committed_wind_variants_carry_the_wind_effects_marker() -> None:
+    for path in Path("simulation/gazebo/worlds/variants").glob("*.sdf"):
+        text = path.read_text(encoding="utf-8")
+        if "<wind>" in text:
+            assert "multidetect-wind-gust amplitude_percent=" in text, path
