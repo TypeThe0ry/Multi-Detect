@@ -89,7 +89,9 @@ _WAIT_LONGER_FOR_GAZEBO = (
 # A world that declares any <plugin> replaces Gazebo's default systems (physics,
 # scene broadcaster, sensors), so the world never becomes ready.  Wind variants
 # therefore carry only <wind> plus a gust comment, and the WindEffects system is
-# added to the patched server config when the world has <wind>.  Parameters
+# added to the patched server config only when the world carries that comment
+# (written by scripts/augment_sim_world.py, also without a gust).  Hand-made
+# worlds that merely declare <wind> keep their default dynamics.  Parameters
 # follow the gz-sim 8 WindEffects schema (magnitude rise/sin/noise, direction).
 # With scaling 1 and a 5 s rise, 6 m/s slid the parked x500 (EKF "no heading
 # reference") and flipped it at arming; 0.3 and a 60 s rise let it take off first.
@@ -109,7 +111,7 @@ _WIND_EFFECTS_PLUGIN = (
     "</plugin>"
 )
 _ENABLE_WIND_EFFECTS = (
-    f"if grep -q '<wind>' {CONTAINER_WORLD}; then "
+    f"if grep -q '{_GUST_COMMENT} amplitude_percent=' {CONTAINER_WORLD}; then "
     "GUST=$(sed -n "
     + shlex.quote(
         rf"s/.*{_GUST_COMMENT} amplitude_percent=\([0-9.]*\) period=\([0-9.]*\).*/\1 \2/p"

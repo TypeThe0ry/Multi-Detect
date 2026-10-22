@@ -54,7 +54,8 @@ def _add_wind(world: ET.Element, speed: float, gust: float | None, period: float
     # Only <wind> goes into the world: any world <plugin> replaces Gazebo's default
     # systems and the world never becomes ready.  The container start-up patch
     # (run_simulator_docker._ENABLE_WIND_EFFECTS) adds WindEffects to the server
-    # config and reads the gust amplitude/period from this comment.
+    # config only for worlds carrying this comment (also without a gust) and
+    # reads the gust amplitude/period from it.
     for plugin in [p for p in world.findall("plugin") if "WindEffects" in (p.get("name") or "")]:
         world.remove(plugin)
     for comment in [
@@ -63,14 +64,13 @@ def _add_wind(world: ET.Element, speed: float, gust: float | None, period: float
         world.remove(comment)
     wind = _child(world, "wind")
     _child(wind, "linear_velocity", f"{speed:.6g} 0 0")
-    if gust is not None and speed > 0:
-        amplitude = min(1.0, gust / speed)
-        world.insert(
-            0,
-            ET.Comment(
-                f" multidetect-wind-gust amplitude_percent={amplitude:.4g} period={period:.6g} "
-            ),
-        )
+    amplitude = min(1.0, gust / speed) if gust is not None and speed > 0 else 0.0
+    world.insert(
+        0,
+        ET.Comment(
+            f" multidetect-wind-gust amplitude_percent={amplitude:.4g} period={period:.6g} "
+        ),
+    )
 
 
 def _add_camera_noise(world: ET.Element, stddev: float) -> int:
