@@ -229,3 +229,60 @@ def test_identity_summary_reads_the_metrics_block_and_size_buckets():
     assert not approved
     assert any("v1 真实飞行集干扰物拒绝" in r for r in reasons)
     assert not any("<12 px" in r for r in reasons)  # 46% -> 92% is a real improvement
+
+
+def _annotate_round(tmp_path: Path, **overrides) -> Round:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
+    episodes = repo / "artifacts" / "r19-round" / "episodes"
+    for world in ("gen_r19_w0000", "gen_r19_w0001", "gen_r15_w0000"):
+        (episodes / world).mkdir(parents=True, exist_ok=True)
+    index = tmp_path / "index.json"
+    index.write_text(
+        '{"worlds": [{"world_id": "gen_r19_w0000"}, {"world_id": "gen_r19_w0001"},'
+        ' {"world_id": "gen_r19_w0002"}]}',
+        encoding="utf-8",
+    )
+    args = dict(
+        out=tmp_path / "out",
+        dry_run=False,
+        r15_index=index,
+        episodes=episodes,
+        extra_episodes=[],
+        source_root=None,
+        annotate_device="cpu",
+    )
+    args.update(overrides)
+    return Round(Namespace(**args))
+
+
+def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp_path: Path):
+    runner = _annotate_round(tmp_path)
+    cmd = runner.annotate_command()
+    campaigns = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--campaign"]
+    episodes = tmp_path / "repo" / "artifacts" / "r19-round" / "episodes"
+    # gen_r19_* from the index, not the old hard-coded gen_r15_* glob; a world
+    # that was never collected is simply absent.
+    assert campaigns == [str(episodes / "gen_r19_w0000"), str(episodes / "gen_r19_w0001")]
+    # build_sft keys frames as artifacts/r19-round/... relative to the repository.
+    assert cmd[cmd.index("--source-root") + 1] == str((tmp_path / "repo").resolve())
+
+
+def test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up(tmp_path: Path):
+    import pytest
+
+    wrong = tmp_path / "repo" / "artifacts"
+    runner = _annotate_round(tmp_path, source_root=wrong)
+    with pytest.raises(RuntimeError, match="不一致"):
+        runner.annotate_command()
+    explicit = _annotate_round(tmp_path, source_root=tmp_path / "repo")
+    assert "--source-root" in explicit.annotate_command()
+
+
+def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path):
+    import pytest
+
+    runner = _annotate_round(tmp_path)
+    runner.a.r15_index.write_text('{"worlds": [{"world_id": "gen_x_w0000"}]}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="找不到"):
+        runner.annotate_command()

@@ -32,15 +32,17 @@
 export PYTHONPATH="src;."
 python scripts/run_r15_round.py --stage all \
   --out D:/Projects/Multi-Detect/artifacts/r19-round/pipeline \
-  --scenarios D:/Projects/Multi-Detect/artifacts/r19-round/scenarios \
-  --r15-index D:/Projects/Multi-Detect/artifacts/r19-round/scenarios/index.json \
+  --scenarios configs/scenarios/generated-r19 \
+  --r15-index configs/scenarios/generated-r19/index.json \
   --episodes D:/Projects/Multi-Detect/artifacts/r19-round/episodes \
-  --source-root D:/Projects/Multi-Detect/artifacts \
+  --source-root D:/Projects/Multi-Detect \
   --holdout-from configs/scenarios/generated-v2/index.json \
   --r12-replay-fraction 1.0 \
   --r12-adapter D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter
 sitl_release
 ```
+
+2026-10-23：首次流水线内采集失败（`scenario manifest escapes repository root`）。SIM stack 只接受运行 checkout 内的场景清单，且世界/地图/DEM 固定从 `simulation/gazebo/worlds`、`simulation/maps`、`simulation/terrain` 解析，而本轮场景在 `artifacts/r19-round/scenarios`、世界在 `artifacts/r19-round/worlds`（地图/DEM 被生成器写到了主仓库根的 `maps/`、`terrain/`）。现已把这 20 个世界按原字节提交为 `configs/scenarios/generated-r19` 与 `simulation/{gazebo/worlds,maps,terrain}/gen_r19_w*`，命令改用仓库内路径；collect 开始前逐个世界构建 SIM stack 预检。同时修正 annotate 只认 `gen_r15_w*` 目录、build_sft 只在历史 generated-* 目录找 truth 两处会让 r19 静默产出空数据的问题；`--source-root` 必须是保存 episodes 的仓库根 `D:/Projects/Multi-Detect`（填 `.../artifacts` 时缓存键与 build_sft 的 `artifacts/...` 帧路径对不上），现在填错会直接报错。
 
 实际参数以 `python scripts/run_r15_round.py --help` 和 `round-state.json` 为准；训练器会从 checkpoint 自动续跑。训练 recipe 必须保持 r18：r12 adapter 热启动、1 epoch、LoRA rank 16/alpha 32、accumulation 4、learning rate `1e-4`、candidate_zoom_v2、全量 r12 replay；随后合并并量化 `Q5_K_M`，用 `fast_identity`、同一 v1/v3 数据集和设置评测。构建后必须核对 cache lookup 的真实候选数、正负配对数、每类/尺寸分布和 holdout 排除清单。
 

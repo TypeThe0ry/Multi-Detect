@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
@@ -411,6 +412,26 @@ def cleanup_consumed_segmentation(
     }
 
 
+def round_world_ids(index: Path) -> list[str]:
+    doc = json.loads(index.read_text(encoding="utf-8"))
+    return [str(item["world_id"]) for item in doc.get("worlds", []) if item.get("world_id")]
+
+
+def frame_key_root(episodes: Path) -> Path:
+    """The directory build_slow_system_sft makes frame paths relative to.
+
+    Mirrors its ``_relative``: the current checkout when the (resolved) episodes
+    live inside it, otherwise the nearest enclosing repository (``.git``).
+    """
+    resolved = episodes.resolve()
+    if resolved.is_relative_to(ROOT.resolve()):
+        return ROOT.resolve()
+    for parent in (resolved, *resolved.parents):
+        if (parent / ".git").exists():
+            return parent
+    raise RuntimeError(f"采集目录 {resolved} 不在任何 git 仓库内，build_sft 无法生成相对帧路径")
+
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -580,13 +601,28 @@ class Round:
     def collect(self):
         # Read IDs from the supplied index so fresh rounds can use an isolated
         # prefix (for example ``gen_r19_w``) without touching r15 worlds.
-        index_doc = json.loads(self.a.r15_index.read_text(encoding="utf-8"))
-        world_ids = [str(item.get("world_id")) for item in index_doc.get("worlds", []) if item.get("world_id")]
+        world_ids = round_world_ids(self.a.r15_index)
         scenarios = sorted(self.a.scenarios / f"{world_id}.scenario.json" for world_id in world_ids)
         if len(scenarios) != 20:
             raise RuntimeError(
                 f"collection plan 期望 20 个 world，实际 {len(scenarios)}：{self.a.scenarios}"
             )
+        missing = [str(path) for path in scenarios if not path.is_file()]
+        if missing:
+            raise RuntimeError(f"collection plan 缺少场景文件：{missing}")
+        if not self.a.dry_run:
+            # The collector only accepts scenarios, worlds, maps and DEMs inside this
+            # checkout; check every world once here instead of failing each episode.
+            from multidetect.simulator.stack import build_stack_plan
+
+            for scenario in scenarios:
+                try:
+                    build_stack_plan(scenario, repository_root=ROOT)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"场景 {scenario} 无法构建 SIM stack（场景与世界/地图/DEM 资产必须位于 "
+                        f"{ROOT} 内，例如 configs/scenarios/generated-r19）：{exc}"
+                    ) from exc
         jobs: list[tuple[str, list[str], Path]] = []
         for scenario in scenarios:
             world = scenario.name.removesuffix(".scenario.json")
@@ -676,6 +712,47 @@ class Round:
             outputs=(),
         )
 
+    def annotate_command(self) -> list[str]:
+        cmd = [sys.executable, "scripts/cache_onboard_proposals.py"]
+        # The round's own worlds come from its index (gen_r15_w*, gen_r19_w*, ...);
+        # build_sft drops every other world, so caching them would only cost time.
+        world_ids = round_world_ids(self.a.r15_index)
+        roots = (self.a.episodes, *self.a.extra_episodes)
+        for root in roots:
+            for world in world_ids:
+                if (root / world).is_dir():
+                    cmd += ["--campaign", str(root / world)]
+        if "--campaign" not in cmd and not self.a.dry_run:
+            raise RuntimeError(
+                f"annotate 找不到本轮 index 中任何 world 的采集目录：{[str(r) for r in roots]}"
+            )
+        # Cache keys must equal the repository-relative image paths build_sft looks
+        # up (artifacts/<campaign>/...), so they are keyed from the repository that
+        # holds the episodes; any other root silently matches no frame.
+        key_root = frame_key_root(self.a.episodes)
+        for extra in self.a.extra_episodes:
+            if frame_key_root(extra) != key_root:
+                raise RuntimeError(
+                    f"--extra-episodes {extra} 与 --episodes 不在同一仓库数据根 {key_root}"
+                )
+        source_root = key_root if self.a.source_root is None else self.a.source_root.resolve()
+        if source_root == ROOT.resolve():
+            raise RuntimeError("--source-root 不能指向当前 worktree；请指向保存 episodes 的仓库根")
+        if source_root != key_root:
+            raise RuntimeError(
+                f"--source-root {source_root} 与 build_sft 的帧路径基准 {key_root} 不一致；"
+                f"缓存键将无法匹配任何帧，请使用 --source-root {key_root}"
+            )
+        return [
+            *cmd,
+            "--source-root",
+            str(source_root),
+            "--output",
+            str(self.out / "yoloe-v3-cache.jsonl"),
+            "--device",
+            self.a.annotate_device,
+        ]
+
     def execute(self):
         self.out.mkdir(parents=True, exist_ok=True)
         if self.a.stage in ("all", "collect"):
@@ -683,33 +760,7 @@ class Round:
             self.collect()
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
-            cmd = [sys.executable, "scripts/cache_onboard_proposals.py"]
-            for root in (self.a.episodes, *self.a.extra_episodes):
-                for p in sorted(root.glob("gen_r15_w*")):
-                    cmd += ["--campaign", str(p)]
-            # Cache keys must match the repository-relative image paths build_sft looks
-            # up (artifacts/<campaign>/...); key them from the data root that holds the
-            # episodes, otherwise no live proposal ever matches a frame.
-            source_root = self.a.source_root
-            if source_root is None:
-                source_root = (
-                    self.a.data_root
-                    if self.a.episodes.resolve().is_relative_to(self.a.data_root.resolve())
-                    else self.a.episodes
-                )
-            if source_root.resolve() == ROOT.resolve():
-                raise RuntimeError(
-                    "--source-root 不能指向当前 worktree；请指向 Multi-Detect "
-                    "主仓库或本轮采集输出根"
-                )
-            cmd += [
-                "--source-root",
-                str(source_root),
-                "--output",
-                str(self.out / "yoloe-v3-cache.jsonl"),
-                "--device",
-                self.a.annotate_device,
-            ]
+            cmd = self.annotate_command()
             self.run(
                 "annotate",
                 cmd,
@@ -1219,7 +1270,8 @@ def main():
         "--source-root",
         type=Path,
         default=None,
-        help="采集数据根；必须是 Multi-Detect 或本轮 episodes 根，不能是当前 worktree",
+        help="YOLOE 缓存键的根：保存 episodes 的仓库根（如 D:/Projects/Multi-Detect）；"
+        "默认自动推断",
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
