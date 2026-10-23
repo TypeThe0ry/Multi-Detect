@@ -234,3 +234,7 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 `mission-suite-queryfirst-20261023`（f13a823，各 3 架次）：锥桶 3/3 ×3，消防栓 3/3 ×3，邮筒巡检 1.0 ×3，错误发现全为 0，9/9 预期通过。这是三项任务第一次同一轮全部通过。
 
 同一世界最近几轮的消防栓结果：relook3/loopfix 2/3 ×4（接近下降撞楼顶）→ roofdescent 3/3 ×3 → verdictshift 2/3、3/3、3/3（7 px 单次出现未判断）→ smallrevisit 3/3、2/3、3/3（15 px 可判框的慢模型名额被三个大误检框占满）→ queryfirst 3/3 ×3。消防栓第 3 架次用了 137 步，是三架次里最长的，补看占了预算但仍在 140 步内完成。
+
+## 2026-10-23 计划意图一致性检查后的完整套件回归
+
+`mission-suite-fullsuite-20261023`（ed3cbe7，14 条任务各 1 架次，约 3 小时）：计划准确率 1.000，预期通过率 1.000（14/14）。计数类 count-cones、count-fire-hydrants、comms-free-count 均 3/3、0 误报；monitor-backpacks 告警精确率 1.0、召回 0.667；patrol-fence-backpacks 精确率 1.0、召回 0.333；inspect-postbox 1.0。任务完成率 0.643 来自按设计提前结束的任务（操作员中止、链路丢失、静默超时、预算储备返航、find-suv-land 找到后就地降落），这些任务的预期判据都通过。同一提交的第十三次端到端演示（`_scratch/e2e/run13`）验收 PASS。
