@@ -366,3 +366,35 @@ def test_mover_trajectory_ids_are_integers_for_gazebo():
     for world in sorted(Path("simulation/gazebo/worlds").glob("gen_mov_w*.sdf")):
         for trajectory in ET.parse(world).getroot().iter("trajectory"):
             assert trajectory.get("id", "").isdigit(), world
+
+
+def test_plural_alert_query_matches_singular_truth_words() -> None:
+    from scripts.score_onboard_loop import _mission_metrics, _object_matches_query
+
+    backpack = {"label": "backpack bag", "category_words": ["backpack", "bag"]}
+    assert _object_matches_query(backpack, "backpacks")
+    assert _object_matches_query({"label": "fire hydrant"}, "fire hydrants")
+    assert _object_matches_query({"label": "bus"}, "buses")
+    assert not _object_matches_query({"label": "postbox"}, "backpacks")
+    truth = {
+        "targets": [
+            {**backpack, "pose": {"y_north_m": 0.0, "x_east_m": 0.0}, "true_target": True},
+            {**backpack, "pose": {"y_north_m": 20.0, "x_east_m": 0.0}},
+        ]
+    }
+    rows = [
+        {
+            "labels": {
+                "onboard": {
+                    "mission": {
+                        "plan": {"skills": ["monitor", "return_home"]},
+                        "alerts": ["work:alert:backpacks@0.2,0.0"],
+                    }
+                }
+            }
+        }
+    ]
+    metrics = _mission_metrics(rows, truth, 3.0)
+    assert metrics["mission_alert_precision"] == 1.0
+    assert metrics["mission_alert_eligible_count"] == 2
+    assert metrics["mission_alert_recall"] == 0.5

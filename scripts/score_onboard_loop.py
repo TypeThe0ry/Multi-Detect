@@ -184,13 +184,29 @@ def _query_noun(query: str) -> str | None:
     return re.findall(r"[^\W_]+", query.casefold(), flags=re.UNICODE)[-1]
 
 
+def _singular_forms(noun: str) -> set[str]:
+    """The noun and its singular: a plan query is often plural ("backpacks")."""
+    forms = {noun}
+    if len(noun) > 3 and not noun.endswith("ss"):
+        if noun.endswith("ies"):
+            forms.add(noun[:-3] + "y")
+        elif noun.endswith(("ches", "shes", "xes", "ses")):
+            forms.add(noun[:-2])
+        elif noun.endswith("s"):
+            forms.add(noun[:-1])
+    return forms
+
+
 def _object_matches_query(obj: dict[str, Any], query: str) -> bool:
     noun = _query_noun(query)
     if noun is None:
         return False
     values = list(obj.get("category_words") or obj.get("semantic_words") or [])
     values.extend(obj.get(key) for key in ("label", "class", "category") if obj.get(key))
-    return any(noun in _word_tokens(value) for value in values)
+    # SITL mission packages ask for "backpacks": the singular truth word must match
+    # (operator-pause-resume scored its one correct alert as precision 0).
+    forms = _singular_forms(noun)
+    return any(forms & _word_tokens(value) for value in values)
 
 
 def _mission_area(
