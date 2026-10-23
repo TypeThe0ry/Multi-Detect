@@ -1,0 +1,1797 @@
+{
+ "note": "Real r14/r19 planner outputs (temperature 0, onboard entry) from the 2026-10-23 planner comparison (_scratch/plannercmp): 15 return-home probe tasks and the 11 regression-suite tasks per model. expect = the blocking intent finding the host must raise, null = the plan must pass.",
+ "cases": [
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p01",
+   "text": "到大门检查位置，然后返回起飞前指定的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "area_search",
+     "params": {
+      "query": "truck",
+      "region": "zone:all"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p02",
+   "text": "到大门看一下，然后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "truck",
+      "standoff_m": 12.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p03",
+   "text": "去大门，然后回到起飞点。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p04",
+   "text": "飞到大门上空，然后回 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p05",
+   "text": "到大门检查一下，再返回 home 点。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "truck",
+      "standoff_m": 12.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p06",
+   "text": "数一数场地里的交通锥，数完回到 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "max_count": 10,
+      "query": "traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p07",
+   "text": "沿巡逻路线巡一圈找人，然后返回起飞前的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "patrol",
+     "params": {
+      "loops": 1,
+      "query": "person",
+      "route_ref": "route:patrol"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p08",
+   "text": "在人员区域监视三分钟，看有没有人，结束后返回 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "monitor",
+     "params": {
+      "duration_s": 600.0,
+      "query": "person",
+      "region": "zone:people"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p09",
+   "text": "场地里的电瓶车给我报个总数，凑够十二辆就停手。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "max_count": 12,
+      "query": "electric bike",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p10",
+   "text": "数一下场地里的交通锥，然后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p11",
+   "text": "Go to the gate, check the position, then return to the home set before takeoff.",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "area_search",
+     "params": {
+      "query": "car",
+      "region": "zone:all"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p12",
+   "text": "Fly to the gate and come back home.",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p13",
+   "text": "到大门，然后在大门降落。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p14",
+   "text": "找到场地里的人，记录位置后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "person",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "record",
+     "params": {
+      "query": "person"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r14",
+   "model": "r14",
+   "id": "p15",
+   "text": "在场地里找那辆白色轿车，找到后在原地降落。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "white car",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "count-cones",
+   "text": "Count the orange traffic cones in the site and report their positions.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "orange traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "count-fire-hydrants",
+   "text": "Count the fire hydrants in the site and report their positions.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "fire hydrant",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "monitor-backpacks",
+   "text": "Monitor the site for backpacks for five minutes and report alerts.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "monitor",
+     "params": {
+      "duration_s": 300.0,
+      "query": "backpack",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "patrol-fence-backpacks",
+   "text": "Patrol the fence route while watching for backpacks, then return home.",
+   "refs": [
+    "route:fence (a 60 meter square fence route)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "patrol",
+     "params": {
+      "loops": 3,
+      "query": "backpack",
+      "route_ref": "route:fence"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "inspect-postbox",
+   "text": "Find the postbox, inspect it from four sides, and return home.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "postbox",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "postbox",
+      "standoff_m": 10.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "find-suv-land",
+   "text": "Find the SUV, record its position, and land.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "suv",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s9"
+    },
+    {
+     "id": "s2",
+     "skill": "record",
+     "params": {
+      "query": "suv"
+     },
+     "on_success": "s3",
+     "on_fail": "s9"
+    },
+    {
+     "id": "s3",
+     "skill": "land",
+     "params": {
+      "target_ref": "poi:up"
+     },
+     "on_success": null,
+     "on_fail": null
+    },
+    {
+     "id": "s9",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "survey-site-overlap",
+   "text": "Survey the site with seventy percent photo overlap and return home.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "survey",
+     "params": {
+      "overlap": 0.7,
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "english-find-person",
+   "text": "Find the person and record its position, then return home.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "person",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "e2e-count-cones-zh",
+   "text": "数一数场地里有几个橙色交通锥，报告位置后返航",
+   "refs": [
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "max_count": 10,
+      "query": "orange traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "pkg-count-cones-example-001",
+   "text": "数一数场地里有几个交通锥，然后返航",
+   "refs": [
+    "zone:field (交通锥所在场地 / cone field)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "traffic cone",
+      "region": "zone:field"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r14",
+   "model": "r14",
+   "id": "pkg-gate-patrol-example-001",
+   "text": "到大门检查位置，然后返回起飞前指定的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "truck",
+      "standoff_m": 12.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p01",
+   "text": "到大门检查位置，然后返回起飞前指定的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "return_intent_land"
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p02",
+   "text": "到大门看一下，然后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "return_intent_land"
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p03",
+   "text": "去大门，然后回到起飞点。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p04",
+   "text": "飞到大门上空，然后回 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p05",
+   "text": "到大门检查一下，再返回 home 点。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "red car",
+      "standoff_m": 12.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p06",
+   "text": "数一数场地里的交通锥，数完回到 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p07",
+   "text": "沿巡逻路线巡一圈找人，然后返回起飞前的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "patrol",
+     "params": {
+      "loops": 1,
+      "query": "person",
+      "route_ref": "route:patrol"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p08",
+   "text": "在人员区域监视三分钟，看有没有人，结束后返回 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "monitor",
+     "params": {
+      "duration_s": 300.0,
+      "query": "person",
+      "region": "zone:people"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p09",
+   "text": "场地里的电瓶车给我报个总数，凑够十二辆就停手。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "max_count": 12,
+      "query": "electric bike",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p10",
+   "text": "数一下场地里的交通锥，然后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p11",
+   "text": "Go to the gate, check the position, then return to the home set before takeoff.",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "area_search",
+     "params": {
+      "query": "none",
+      "region": "zone:all"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "ungrounded_query"
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p12",
+   "text": "Fly to the gate and come back home.",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p13",
+   "text": "到大门，然后在大门降落。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p14",
+   "text": "找到场地里的人，记录位置后返航。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "person",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "record",
+     "params": {
+      "query": "person"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "probe-r19",
+   "model": "r19",
+   "id": "p15",
+   "text": "在场地里找那辆白色轿车，找到后在原地降落。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)",
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "white car",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "count-cones",
+   "text": "Count the orange traffic cones in the site and report their positions.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "orange traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "count-fire-hydrants",
+   "text": "Count the fire hydrants in the site and report their positions.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "fire hydrant",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "monitor-backpacks",
+   "text": "Monitor the site for backpacks for five minutes and report alerts.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "monitor",
+     "params": {
+      "duration_s": 300.0,
+      "query": "backpack",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "patrol-fence-backpacks",
+   "text": "Patrol the fence route while watching for backpacks, then return home.",
+   "refs": [
+    "route:fence (a 60 meter square fence route)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "patrol",
+     "params": {
+      "loops": 3,
+      "query": "backpack",
+      "route_ref": "route:fence"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "inspect-postbox",
+   "text": "Find the postbox, inspect it from four sides, and return home.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "postbox",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s2",
+     "skill": "inspect",
+     "params": {
+      "query": "postbox",
+      "standoff_m": 8.0,
+      "target_ref": "finding:1",
+      "views": 4
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "find-suv-land",
+   "text": "Find the SUV, record its position, and land.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "suv",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s2",
+     "skill": "record",
+     "params": {
+      "query": "suv"
+     },
+     "on_success": "s3",
+     "on_fail": "s3"
+    },
+    {
+     "id": "s3",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "survey-site-overlap",
+   "text": "Survey the site with seventy percent photo overlap and return home.",
+   "refs": [
+    "zone:site (the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "survey",
+     "params": {
+      "overlap": 0.7,
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "english-find-person",
+   "text": "Find the person and record its position, then return home.",
+   "refs": [],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "area_search",
+     "params": {
+      "query": "person",
+      "region": "zone:all"
+     },
+     "on_success": "s2",
+     "on_fail": "s9"
+    },
+    {
+     "id": "s2",
+     "skill": "record",
+     "params": {
+      "query": "person"
+     },
+     "on_success": "s9",
+     "on_fail": "s9"
+    },
+    {
+     "id": "s9",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "e2e-count-cones-zh",
+   "text": "数一数场地里有几个橙色交通锥，报告位置后返航",
+   "refs": [
+    "zone:site (场地 / the site)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "orange traffic cone",
+      "region": "zone:site"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "pkg-count-cones-example-001",
+   "text": "数一数场地里有几个交通锥，然后返航",
+   "refs": [
+    "zone:field (交通锥所在场地 / cone field)"
+   ],
+   "skill_path_ok": true,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "count",
+     "params": {
+      "query": "traffic cone",
+      "region": "zone:field"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "return_home",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": null
+  },
+  {
+   "source": "compare-r19",
+   "model": "r19",
+   "id": "pkg-gate-patrol-example-001",
+   "text": "到大门检查位置，然后返回起飞前指定的 home。",
+   "refs": [
+    "poi:gate (大门 / gate)",
+    "zone:people (人员区域 / people area)",
+    "route:patrol (巡逻路线 / patrol route)"
+   ],
+   "skill_path_ok": false,
+   "steps": [
+    {
+     "id": "s1",
+     "skill": "goto",
+     "params": {
+      "target_ref": "poi:gate"
+     },
+     "on_success": "s2",
+     "on_fail": "s2"
+    },
+    {
+     "id": "s2",
+     "skill": "land",
+     "params": {},
+     "on_success": null,
+     "on_fail": null
+    }
+   ],
+   "expect": "return_intent_land"
+  }
+ ]
+}

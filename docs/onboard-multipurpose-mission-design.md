@@ -62,6 +62,24 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 
 **从任务文字生成计划（2026-10-14）**：`src/multidetect/autonomy/mission_planner.py` 按技能注册表生成逐技能的严格 JSON schema（参数名、类型、范围都固定），提示里给出技能清单、引用规则和 6 个短示例；`repair_plan_document` 确定性修复常见错误（“失败就重试”的回边、缺少或悬空的终止步骤），然后再走 `validate_mission_plan`。在 30 条手写中英文任务（`configs/onboard/plan-eval-tasks.json`，含找、计数、检查、巡逻、测绘、监视、跟随、悬停、降落及组合）上，未微调的 Qwen3-VL-2B Q4_K_M：计划 100% 有效，技能序列 70% 正确（严格 20/30），开发机中位 1.5 s。最初只有 2 个示例时只有 53% 有效、23% 正确。剩余错误主要是多加“记录 / 检查”步骤（例如把“记录位置”理解成拍照记录）。
 
+**计划与任务意图一致性检查（2026-10-23）**：`src/multidetect/autonomy/plan_intent.py` 在 `compile_mission_plan` 里、schema/引用/图结构校验之后和任务包检查之前运行，只看任务文本和计划，对任何规划模型都生效（机载 `from_text`、`plan_from_task.py` 评测走同一路径）。动机是 r14/r19 对比中与模型无关的三类错误：r19 把“到大门看一下，然后返航”规划成 `goto → land`；r14 在没提任何物体的任务里加 `inspect(query="truck")`；把地图上没有的地点（Raven Pier、青石码头）换成已知 ref。
+
+| 规则 | 判定 | 处理 |
+| --- | --- | --- |
+| `return_intent_land` | 任务含未被否定的返航说法，且没有明确降落说法时，从首步沿 `on_success`/`on_fail` 可达的终止步骤里不能有 `land`（`land(target_ref=home)` 除外）。返航说法：返航/回航/归航/返场/撤回/回家/回来（不含“找回来”等）、“返回/回到/飞回/回 + 6 字内 起飞/起点/出发点/放飞/home/基地”；`return home/to launch/to base`、句末的 `return`、`come/head/fly/bring … back`（后面不接“to 非 home 地点”）、`… home`、`back to/at launch`、RTL/RTH。降落说法：降落/着陆/落地/落下/落在/落起降坪/原地落、`land`（`landing pad` 等名词除外）、`touch down`、`set/put … down`。同一分句里前面有 不/别/勿/无需/取消、not/don't/never/no need to/without 则不算。“起降坪”是地点，不算 home | 重试时把原因写进提示；最后一次尝试把这些 `land` 改成 `return_home` |
+| `ungrounded_query` | area_search/count/inspect/record/follow 的 query 必须在任务里有依据：英文词（单复数、少量同义词表）出现在文本里，或该词的中文名（词表 `ZH_NAMES`）出现在文本里；`none/object/target` 等占位词一律无依据。英文任务按自身词判；中文任务里 query 的词都不在词表时判“无法判断”并放行，所以词表外的物体永远不会被拦。`record` 的 `current view`（当前画面）是数据约定，不查 | 重试；最后一次尝试删掉该步骤并把指向它的边接到它的后继 |
+| 同上（patrol/monitor） | 这两个技能必须带 query；任务确实要求巡逻/监视（巡/监视/观察/盯/留意…，patrol/monitor/watch/observe/circuit/loop…）但没说找什么时只记 `intent_warnings`；任务根本没要求时（如“直接回放飞的位置”却规划了 `monitor(dog)`）按上一行拦截 | 同上 |
+| `ungrounded_place` | goto/land/deliver 的 `target_ref`（home、zone:all、finding、track 除外）必须是任务提到的地点：ref 名或英文标签词出现在文本中，或中文标签的任一两字片段/末字（中文地点名中心词在后，“大门”也匹配“门口”）出现在文本中；只用来排除地点的分句（不是/顶替/代替/not/substitute/instead of）不算提到 | 重试；**从不修复**，最后一次仍违反则不给计划，退回只返航的安全计划，report 带 `intent_violations` |
+
+未知地点：`check_plan_refs` 原本就拒绝未知 ref 并带已知列表重试；现在没有任何已知地点时也照样检查（以前 `refs` 为空就跳过，`land(poi:up)` 会一直留到执行器 `unknown_ref` 才失败）。最后一次尝试把未知 ref 换成“唯一同类 ref”的旧修复仍保留，但换出来的地点若任务没提到，会被 `ungrounded_place` 拦下。区域（`region`）不做地点依据检查：实测正确序列的计划里区域与文本对不上的有 47 例，误拦太多。`compile_mission_plan(check_intent=False)` 可关掉检查。
+
+离线回放（`_scratch/plan-intent/replay.py`、`synth.py`）：
+- 期望计划零误拦：planning-v3 72 条带参数的期望计划、v1 30 条和 v2 60 条期望技能序列，0 条有发现；`build_plan_sft` 的 v1/v3/v5 共 8 个生成器各 1500 条、中英各一（24000 条合成计划），0 条有发现。
+- 真实模型输出（r4–r19、base 共 43 个规划评测文件 2089 行）：技能序列正确的 1420 行中拦下 12 行，逐条核对都是真错误（数“木托盘”却用 `red car`/`cardboard box`，“收尾落起降坪”却 `land(poi:gate)`，“就在脚下着陆”却 `land(poi:shed)`，“先飞到起降坪”却 `goto(poi:gate)` 等）；序列错误的 589 行拦下 101 行；8 条应拒绝任务的 80 行拦下 38 行，其中 4 个未知地点任务 40 行全部被拒（36 行由地点规则、4 行由原有未知 ref 检查），其余是载荷能力任务，不属于本检查。
+- 对比的 15 条返航探测 + 11 条回归任务（`tests/fixtures/plan_intent_replay.json`）：r19 的两条 `goto → land` 和回归包任务的 `goto → land` 被拦；r14 的 `truck`/`car`、r19 的 `none` 幻觉被拦；p05“到大门检查一下，再返回 home 点”两个模型的 `inspect(truck/red car)` 也被拦——原探测只比技能序列算它对，但任务没提物体，而且前面没有搜索步骤，`finding:1` 根本不存在。其余计划 0 误拦。
+
+真实模型（GPU，temperature 0，`--cache-ram 0`）：同 26 条任务 r14、r19 都从 22/26 到 26/26；r19 在反馈后自己改对 3 条（p01、p05、回归包），r14 的幻觉在重试里不改，由最后一次修复删掉。planning-v3（80 条，无 mmproj）：r14 完整序列 0.6125 → 0.6625，r19 0.6875 → 0.7125；8 条应拒绝任务中 4 个未知地点任务全部拒绝（以前 r14、r19 各只拒 1 条）；72 条正常任务没有一条因此失去计划。r19 有一条从“对”变“错”：“收尾落起降坪”原计划落在 `poi:gate`（只是序列碰巧对），被拦后重试多了一个 survey。
+
 尚未实现：生成计划的模型微调与机上接线、上表之外的技能、计数任务的测试世界（需要同类多实例场景）、payload 硬件驱动、真实 Orin 峰值测量、各 mission family 的教师数据和闭环训练。这些部分不能由本 contract 的模型输出直接宣称完成。
 
 ## 地面链路已有机制与机上任务的关系

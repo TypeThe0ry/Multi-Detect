@@ -4,7 +4,11 @@ The slow model is asked once per mission, text only. Constrained decoding uses a
 per-skill JSON schema built from the SKILLS registry (exact parameter names,
 types and bounds), so every generated plan is structurally valid JSON; the host
 then runs ``validate_mission_plan`` (references, terminal step, cycles) and can
-retry once with the validation error. Model I/O is supplied by the caller.
+retry once with the validation error. The validated plan is then checked against
+the task text (``plan_intent``: return-home request, invented objects, places
+the task does not name); a contradiction is fed back like any other rejection,
+and the last attempt gets a deterministic repair or no plan. Model I/O is
+supplied by the caller.
 """
 
 from __future__ import annotations
@@ -16,6 +20,11 @@ from typing import Any
 
 from multidetect.autonomy.mission_package import check_plan_against_package
 from multidetect.autonomy.mission_plan import SKILLS, MissionPlan, validate_mission_plan
+from multidetect.autonomy.plan_intent import (
+    check_plan_intent,
+    intent_error,
+    repair_plan_intent,
+)
 from multidetect.autonomy.serialization import AutonomyContractError
 
 _PARAM_SCHEMA: dict[str, dict[str, Any]] = {
@@ -462,6 +471,12 @@ def check_plan_refs(
     return document, notes, unknown
 
 
+# Intent findings the host may repair on the last attempt (land -> return_home,
+# drop an invented-object step).  A place the task does not name is never
+# replaced by another: the plan is rejected instead.
+_INTENT_REPAIRABLE = frozenset({"return_intent_land", "ungrounded_query"})
+
+
 def compile_mission_plan(
     post: Callable[[str, dict], str],
     task_text: str,
@@ -472,8 +487,16 @@ def compile_mission_plan(
     prompt_variant: str = "default",
     plan_checker: Callable[[MissionPlan], Any] | None = None,
     capabilities: frozenset[str] = frozenset(),
+    check_intent: bool = True,
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
-    """Compile, repair and validate a plan, retrying with the rejection reason."""
+    """Compile, repair and validate a plan, retrying with the rejection reason.
+
+    Unknown references are always rejected (with no known places, every named
+    place is unknown). With ``check_intent`` the plan must also agree with the
+    task text (see ``plan_intent``); on the last attempt a return-home or
+    invented-object contradiction is repaired deterministically, an
+    ungrounded place never is.
+    """
     if attempts < 1:
         raise ValueError("attempts must be positive")
     if prompt_variant not in PLAN_PROMPT_VARIANTS:
@@ -484,7 +507,9 @@ def compile_mission_plan(
     for attempt in range(attempts):
         started = time.perf_counter()
         report.pop("package_violations", None)
+        report.pop("intent_violations", None)
         report["raw"] = ""
+        last = attempt == attempts - 1
         try:
             raw = post(
                 plan_prompt(
@@ -505,20 +530,31 @@ def compile_mission_plan(
                 if not isinstance(document, dict):
                     raise ValueError("mission plan must be a JSON object")
                 document, notes = repair_plan_document(document)
-                if refs:
-                    last = attempt == attempts - 1
-                    document, ref_notes, unknown = check_plan_refs(
-                        document, tuple(refs), substitute=last
+                document, ref_notes, unknown = check_plan_refs(
+                    document, tuple(refs), substitute=last
+                )
+                if unknown:
+                    raise ValueError(
+                        f"unknown reference(s) {', '.join(sorted(set(unknown)))}; "
+                        "use only: "
+                        + ", ".join(sorted(r.split(" ", 1)[0] for r in refs) + ["zone:all", "home"])
                     )
-                    if unknown:
-                        raise ValueError(
-                            f"unknown reference(s) {', '.join(sorted(set(unknown)))}; "
-                            "use only: "
-                            + ", ".join(sorted(r.split(" ", 1)[0] for r in refs))
-                            + ", zone:all, home"
-                        )
-                    notes = notes + ref_notes
+                notes = notes + ref_notes
                 plan = validate_mission_plan(document, capabilities=capabilities)
+                intent_warnings: list[dict[str, Any]] = []
+                if check_intent:
+                    findings = check_plan_intent(plan, task_text, refs)
+                    blocking = [f for f in findings if f.blocking]
+                    if blocking and last and all(f.code in _INTENT_REPAIRABLE for f in blocking):
+                        document, intent_notes = repair_plan_intent(document, blocking)
+                        plan = validate_mission_plan(document, capabilities=capabilities)
+                        notes = notes + intent_notes
+                        findings = check_plan_intent(plan, task_text, refs)
+                        blocking = [f for f in findings if f.blocking]
+                    if blocking:
+                        report["intent_violations"] = [f.as_dict() for f in blocking]
+                        raise ValueError(intent_error(blocking))
+                    intent_warnings = [f.as_dict() for f in findings if not f.blocking]
                 if plan_checker is not None:
                     violations = plan_checker(plan)
                     if violations:
@@ -544,6 +580,9 @@ def compile_mission_plan(
             else:
                 report["repairs"] = notes
                 report.pop("package_violations", None)
+                report.pop("intent_violations", None)
+                if intent_warnings:
+                    report["intent_warnings"] = intent_warnings
                 report["error"] = None
                 return plan, report
         finally:
