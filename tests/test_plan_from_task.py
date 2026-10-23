@@ -381,10 +381,11 @@ def test_main_mmproj_mode_is_explicit(
         json.dumps({"tasks": [{"text": "Return home", "skills": ["return_home"]}]}),
         encoding="utf-8",
     )
-    calls = []
+    calls, options = [], []
 
     def runner(*args, **kwargs):
         calls.append(args)
+        options.append(kwargs)
         return SimpleNamespace(close=lambda: None)
 
     monkeypatch.setitem(
@@ -412,6 +413,9 @@ def test_main_mmproj_mode_is_explicit(
     assert result["summary"]["mmproj_mode"] == expected_mode
     assert result["rows"][0]["mmproj_mode"] == expected_mode
     assert calls[0][1] == (Path(expected_mmproj) if expected_mmproj is not None else None)
+    # The server's 8 GiB host prompt cache stays off for evaluations (r19 CUDA OOM).
+    assert options[0]["cache_ram_mib"] == 0
+    assert result["summary"]["cache_ram_mib"] == 0
 
 
 def test_usage_totals_are_unknown_if_any_retry_usage_is_missing():

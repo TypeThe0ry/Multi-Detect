@@ -64,6 +64,8 @@ def make_llama_runner(**overrides: Any) -> LlamaServerRunner:
         "last_usage": None,
         "server_log": SimpleNamespace(flush=lambda: None, name="<test-runner>"),
         "process": _StoppedProcess(),
+        "max_restarts": 0,
+        "restarts": [],
     }
     defaults.update(overrides)
     for name, value in defaults.items():
