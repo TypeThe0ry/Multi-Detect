@@ -286,3 +286,155 @@ def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path):
     runner.a.r15_index.write_text('{"worlds": [{"world_id": "gen_x_w0000"}]}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="找不到"):
         runner.annotate_command()
+
+
+def _identity(
+    sample_id: str,
+    decision: str,
+    label_type: str,
+    *,
+    world: str = "w0",
+    image: str | None = None,
+    task: str = "Find the backpack.",
+) -> dict:
+    return {
+        "sample_id": sample_id,
+        "assistant_target": {"decision": decision},
+        "label_type": label_type,
+        "world": world,
+        "image_path": image or f"{sample_id}.jpg",
+        "task_text": task,
+    }
+
+
+def test_full_replay_trims_unpaired_counterfactual_positives_before_paired_or_true():
+    from scripts.run_r15_round import trim_counterfactual_positives
+
+    r12 = [_identity(f"r12-p{i}", "confirm_target", "true_target") for i in range(4)] + [
+        _identity(f"r12-n{i}", "reject_track", "distractor") for i in range(6)
+    ]
+    true = [
+        _identity(f"t{i}", "approach_track", "true_target", world=f"w{i % 2}") for i in range(3)
+    ]
+    paired = [
+        _identity(
+            f"cp{i}", "confirm_target", "counterfactual", image=f"f{i}.jpg", task="Find the box."
+        )
+        for i in range(2)
+    ]
+    paired_rejects = [
+        _identity(
+            f"cn{i}",
+            "reject_track",
+            "counterfactual_negative",
+            image=f"f{i}.jpg",
+            task="Find the box.",
+        )
+        for i in range(2)
+    ]
+    unpaired = [
+        _identity(f"cu{i}", "approach_track", "proposal_counterfactual", world=f"w{i % 2}")
+        for i in range(6)
+    ]
+    rows = r12 + true + paired + paired_rejects + unpaired
+    protected = {row["sample_id"] for row in r12}
+
+    kept, report = trim_counterfactual_positives(rows, protected, 0.5, seed=7)
+    again, _ = trim_counterfactual_positives(rows, protected, 0.5, seed=7)
+    kept_ids = {row["sample_id"] for row in kept}
+    # 15 positives vs 8 negatives; a 0.5 cap allows 8 positives, so 7 must go:
+    # all six unpaired renamed-task positives, then one paired one.
+    assert report["dropped"] == 7
+    assert report["unpaired_counterfactual"] == 6 and report["paired_counterfactual"] == 1
+    assert protected <= kept_ids
+    assert {row["sample_id"] for row in true + paired_rejects} <= kept_ids
+    assert [row["sample_id"] for row in again] == [row["sample_id"] for row in kept]
+
+    kept, report = trim_counterfactual_positives(rows, protected, 0.6, seed=7)
+    # cap 0.6 allows 12 positives: only 3 of the 6 unpaired go, spread over both worlds.
+    assert report["dropped"] == 3 and report["unpaired_counterfactual"] == 3
+    assert {k.split("|")[0] for k in report["by_stratum"]} == {"w0", "w1"}
+    assert {row["sample_id"] for row in paired} <= {row["sample_id"] for row in kept}
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    import json
+
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+def _merge_args(tmp_path: Path) -> Namespace:
+    return Namespace(
+        merged=tmp_path / "merged",
+        r12_dataset=tmp_path / "r12",
+        additions=tmp_path / "add",
+        r12_replay_fraction=1.0,
+        max_positive_ratio_delta=0.02,
+        max_negative_ratio_delta=0.02,
+        seed=20261016,
+    )
+
+
+def _r12_dataset(tmp_path: Path) -> None:
+    import json
+
+    r12 = tmp_path / "r12"
+    r12.mkdir()
+    train = [_identity(f"r12-p{i}", "confirm_target", "true_target") for i in range(40)] + [
+        _identity(f"r12-n{i}", "reject_track", "distractor") for i in range(60)
+    ]
+    _write_jsonl(r12 / "train.jsonl", train)
+    for split in ("val", "test"):
+        _write_jsonl(r12 / f"{split}.jsonl", [])
+    (r12 / "manifest.json").write_text(
+        json.dumps(
+            {"counts": {"train": {"decisions": {"confirm_target": 40, "reject_track": 60}}}}
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_merge_with_full_replay_rebalances_positive_heavy_additions(tmp_path: Path):
+    import json
+
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    # Same shape as r19: about half positives, most of them renamed-task rows.
+    rows = [_identity(f"t{i}", "approach_track", "true_target") for i in range(5)]
+    rows += [_identity(f"c{i}", "approach_track", "counterfactual") for i in range(15)]
+    rows += [_identity(f"n{i}", "reject_track", "distractor") for i in range(20)]
+    _write_jsonl(add / "train.jsonl", rows)
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+
+    merge_cli(_merge_args(tmp_path))  # 60/140 = 0.429 before rebalancing
+
+    manifest = json.loads((tmp_path / "merged" / "manifest.json").read_text(encoding="utf-8"))
+    assert abs(manifest["merged_positive_ratio"] - 0.40) <= 0.02
+    rebalance = manifest["counts"]["train"]["rebalance"]
+    assert rebalance["r12_negative_top_up"] == 0
+    assert rebalance["dropped"] == rebalance["unpaired_counterfactual"] > 0
+    merged = (tmp_path / "merged" / "train.jsonl").read_text(encoding="utf-8")
+    assert all(f'"t{i}"' in merged for i in range(5))
+    assert all(f'"r12-p{i}"' in merged for i in range(40))
+
+
+def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path: Path):
+    import pytest
+
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    rows = [_identity(f"t{i}", "approach_track", "true_target") for i in range(20)]
+    rows += [_identity(f"n{i}", "reject_track", "distractor") for i in range(10)]
+    _write_jsonl(add / "train.jsonl", rows)
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+
+    with pytest.raises(SystemExit, match="positive ratio"):
+        merge_cli(_merge_args(tmp_path))
