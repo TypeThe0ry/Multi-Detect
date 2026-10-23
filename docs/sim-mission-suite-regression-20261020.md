@@ -238,3 +238,55 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 ## 2026-10-23 计划意图一致性检查后的完整套件回归
 
 `mission-suite-fullsuite-20261023`（ed3cbe7，14 条任务各 1 架次，约 3 小时）：计划准确率 1.000，预期通过率 1.000（14/14）。计数类 count-cones、count-fire-hydrants、comms-free-count 均 3/3、0 误报；monitor-backpacks 告警精确率 1.0、召回 0.667；patrol-fence-backpacks 精确率 1.0、召回 0.333；inspect-postbox 1.0。任务完成率 0.643 来自按设计提前结束的任务（操作员中止、链路丢失、静默超时、预算储备返航、find-suv-land 找到后就地降落），这些任务的预期判据都通过。同一提交的第十三次端到端演示（`_scratch/e2e/run13`）验收 PASS。
+
+## 2026-10-23 监视/巡逻背包召回：逐个漏检定位与修复
+
+对象：`mission-suite-fullsuite-20261023`（ed3cbe7）的 monitor-backpacks（158d906e，2/3）、patrol-fence-backpacks（33415ad9，1/3）、operator-pause-resume（d1edff9e，1/3）。世界 gen_cnt2_w0003 有 3 个背包（0.44 × 0.26 × 0.52 m）：A (16.03, -38.15)、B (21.52, 1.71)、C (-34.62, -24.54)。三类任务都在起飞高度 18.5 m（最高障碍 + 4 m）飞行，相机下俯 10.3°，最低视线 51.9°，最近可见地面约 14.5 m，背包框最小边最多约 19 px，大部分时间 7–12 px。
+
+方法：逐步用分割图确认背包是否在画面内及像素框，对照机上航迹/慢模型调用/告警；用机上同一 runner、同一提示和裁剪方式在同一帧上重放 r18 身份模型（机上 17 次背包判断全部复现）；用机上 YOLOE 重检拿回航迹类别（背包航迹全部标为 backpack，其余为 person、electrical box、dumpster）。
+
+| 架次 | 漏掉 | 覆盖/出框 | 慢模型 | 丢失环节 |
+|---|---|---|---|---|
+| monitor 158d906e | C | 第 6 个视点 (-41, -2)，第 55/57/59 步框 12/14/19 px，地面 24 m | 55 步 12 px 判“不是”（0.999）；57、59 步仍在 12 步 TTL 内，没有再问。重放：14 px“不是”（0.57），19 px approach（0.75） | 小框拒绝后框变大不再问 |
+| patrol 33415ad9 | A | 每圈向西航段第 18/38/58 步 10–11 px，地面 28 m，随后掉出视场下沿 | 3 次“不是”（≈1.0），重放相同 | 只在 10 px 判过，航线不靠近，没有补看 |
+| patrol 33415ad9 | C | 每圈向南航段最小边 7–8 px（端视 8 × 17），地面 21 m | 从未判断（< `min_verdict_side_px` 10） | 太小未判，没有补看 |
+| pause-resume d1edff9e | A | 只在第 2 步过渡航段出现，10 px | “不是”（0.9996） | 只在 10 px 判过，没有补看 |
+| pause-resume d1edff9e | C | 第 79/80 步 11/16 px，此时 180 s 时长已到 | 79 步“不是”（0.94）；重放 80 步 16 px 仍“不是”（0.90） | 时长末尾才看到；该视角模型也判“不是” |
+
+其余环节已排除：告警判定是首个 approach 即告警，`alert_same_place_m` 去重没有吞掉任何背包（漏掉的三个点附近都没有正判断）；没有移动目标；巡逻 3 圈 69 步、监视 8 个视点全部飞完（覆盖率 1.0），多飞几圈只会重复同样的小框（巡逻 3 圈里 A、C 的框大小逐圈相同）。同一世界 r18 历次运行：巡逻 9 次全部 1/3；监视 1/3–3/3。
+
+模型在这个尺寸段确实不稳（37 个 r18 架次的背包判断）：10–13 px 时 A 正判 16/51、B 40/51、C 7/18；≥ 13 px 时 A 2/4、B 11/16、C 6/7。所以根因在逻辑上：监视/巡逻从不去拿“可判尺寸”的视角——小尺寸拒绝在 TTL 内是终局，计数/区域搜索才有的补看对监视/巡逻不生效。
+
+**修复**（`wt/patrol-recall`）：
+
+1. 长大后重问（`LoopConfig.grown_reject_reask_ratio`，执行器只对 patrol/monitor 设 1.25）：类别标签与查询相关的航迹，最近一次真实判断是小于 `confirm_min_side_px` 的“不是”，框长大到 1.25 倍就立即重问，不等 TTL。人、电箱等无关标签不重问；≥ 20 px 的拒绝不重问。
+2. 监视/巡逻补看（`ExecutorConfig.alert_look_attempts = 3`）：巡逻到达航点、监视一个视点 4 个方向看完时，最近的“相关但只见过小框未判”或“只在小框被拒”的地点，用计数补看的同一视点几何（框到 14 px、平飞腿与三维下降线都避障、视线优先无遮挡）飞过去、下降、对准、在视点重问，再爬回原高度、飞回出发点继续航线。只有正判断或视点上的新判断才结束补看；告警仍由原告警规则决定。约束：每步最多 3 次、视点距当前位置 ≤ 30 m、主步骤预算留够剩余航线/时长所需原语（本来就会超预算的长任务只要求补看本身放得下）、剩余时长与监督器余量够用、仅多旋翼。巡逻/监视步骤历史写 `alert_looks` 与 `alert_look_skipped`。
+3. 评分：任务包查询是复数 “backpacks”，评分把它与真值词 “backpack” 直接比较，pause-resume 那 1 个正确告警被算成精确率 0、可召回数 0。修正后重算这 6 个架次：精确率均 1.0，pause-resume、link-loss、abort、budget-reserve 召回 1/3，monitor 2/3，patrol 1/3。
+
+**离线重放**（`_scratch/patrol-recall/replay_executor.py`：日志位姿/仿真时间/帧驱动 MissionExecutor，机上同样的 loop 默认值、障碍图、地面投影与相机射线，YOLOE 重检得到检测，慢模型用 r18 GGUF 实时调用并缓存）。监视/巡逻的飞行与判断无关，关闭补看时是精确反事实：
+
+| 架次 | 旧代码 / 关闭新功能 | 只开长大后重问 | 开补看：第一次偏离日志的动作 |
+|---|---|---|---|
+| monitor-backpacks | A、B（与 SITL 一致） | A、B、C（59 步 19 px 重问 approach 0.645），多 1 次慢调用 | 第 11 步补看 B（10.9 px 被拒，视点 14.1 m 高、预计 14 px） |
+| patrol-fence-backpacks | B | B | 第 4 步补看 C（7.1 px 未判，视点 (-25.2, -35.9)、8.6 m 高、预计 14 px） |
+| operator-pause-resume | B | B（C 在时长结束前没有变大的帧） | 第 11 步补看 A（10.2 px 被拒，视点 12.3 m 高） |
+| high-risk-monitor-link-loss / budget-reserve-return | B | B（budget：B 在 16.6 px 重问 approach，已告警，去重不重复） | 第 11 步补看 A |
+| operator-abort / comms-free-patrol-timeout | B / 无 | 不变 | 无补看 |
+
+旧代码与新代码（关闭新功能）在这 7 个架次逐步动作、告警、发现完全一致，只有同帧慢调用顺序因查询相关优先而不同。计数类 count-cones、count-fire-hydrants、comms-free-count 用新旧代码重放，逐步动作、计数（均 3）、发现与步骤历史完全一致（新功能只在 patrol/monitor 打开）。全部新增告警都落在真实背包上，没有误报或重复告警。补看之后的飞行离开日志轨迹，离线无法评估其判断；按上面的尺寸统计，14 px 视角大致能把 A/C 的正判率从 10–13 px 的 30–40% 提到 50–85%。
+
+**模型/数据建议**：r18 对 18–20 m 高、斜视 25–35 m 外的背包（10–13 px）判断接近随机，A（从东侧看）和 C（端视）最差。后续身份模型数据应补这类远小斜视背包正样本（含端视、贴边框），并配同尺寸的非背包小物体（电箱、垃圾桶、人）负样本；按测试世界留出。
+
+**测试与门禁**：`tests/test_alert_closer_look.py`（按 SITL 几何：巡逻补看 C 和 A、两点告警、所有腿与下降避开该世界建筑；监视 12→14→19 px 重问；无关标签、可用尺寸拒绝、预算、时长、配置校验），去掉修复后 18 项中 16 项失败；`tests/test_score_onboard_loop.py` 新增复数查询用例。`python scripts/run_onboard_gate.py` PASS。
+
+**未验证**：未跑 SITL。补看会占监视时长与巡逻预算，需要 SITL 确认召回提升、计数类不退步、误报不升。复验命令（冻结工作树后，脚本 `_scratch/queue_patrolrecall.sh`）：
+
+```bash
+cd /d/Projects/mdwt/patrol-recall && export PYTHONPATH="src;." PYTHONUTF8=1
+python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json \
+  --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-patrolrecall-20261023 \
+  --only monitor-backpacks patrol-fence-backpacks operator-pause-resume count-cones count-fire-hydrants \
+  --episodes 2 --retry-failed-episodes --min-free-disk-gb 8
+```
+
+已知限制（按代码推算，未在 SITL 中观察到）：监视/巡逻步骤的原语预算固定为 `travel_budget = 150`，本轮 SITL 约 3 s 一个原语，所以超过约 450 s 的监视（如套件里 900 s 的安全类任务）本身就会以 `step_budget` 结束，与本次修改无关；套件里这些任务都被监督器在 120 s 左右提前结束，所以没暴露。
