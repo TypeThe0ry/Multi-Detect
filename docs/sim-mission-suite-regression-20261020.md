@@ -338,3 +338,7 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 ```
 
 复验看：各补看记录的 `predicted_min_side_px` 与 `seen_again_min_side_px`、`reapproaches` 的 outcome、计数步骤历史的 `rejection_revisits`；背包告警召回、消防栓/锥桶计数不退步、无误报。
+
+## 2026-10-24 消防栓 10 架次（b0da50e，低于计划搜索高度时先爬升再飞航段）
+
+`mission-suite-hydrant10-20261024`：count-fire-hydrants 7/10 架次 3/3，3 架次 2/3，错误发现全为 0，步数 69–103。按事先约定的判据（10 架次漏检 ≥5 才判回退）不算回退；自 roofdescent 起累计 28 架次漏检 7 次（25%）。高度/避障阈值导致整片未飞到的那类失败已修，剩余失败的主要类型是慢模型在 10–14 px 下对同一目标先“是”后“不是”、拒绝地点补看视点太远拿不到可判框，后者由 b6ce76f（光轴深度视点几何 + 再接近）处理，复验见下一节。
