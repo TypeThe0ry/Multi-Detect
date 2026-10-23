@@ -116,9 +116,11 @@ def test_short_prompt_variant_is_preserved_when_retrying():
         prompts.append(prompt)
         return next(responses)
 
-    plan, report = compile_mission_plan(post, "Find the car", prompt_variant="compact")
+    plan, report = compile_mission_plan(
+        post, "Find the car", refs=("zone:site",), prompt_variant="compact"
+    )
     assert plan is not None and len(report["attempts"]) == 2
-    assert prompts[0] == plan_prompt("Find the car", prompt_variant="compact")
+    assert prompts[0] == plan_prompt("Find the car", refs=("zone:site",), prompt_variant="compact")
     assert "The previous plan was rejected:" in prompts[1]
     assert all(prompt.count("Task:") == 1 for prompt in prompts)
     assert all("Skills (* required):" in prompt for prompt in prompts)
@@ -356,7 +358,7 @@ def test_compile_mission_plan_repairs_retry_back_edge():
         calls.append(prompt)
         return raw
 
-    plan, report = compile_mission_plan(post, "Find the red car")
+    plan, report = compile_mission_plan(post, "Find the red car", refs=("zone:site",))
 
     assert plan is not None
     assert plan.steps[0].on_fail == "home"
@@ -376,7 +378,7 @@ def test_compile_mission_plan_retries_invalid_json_with_error_feedback():
         prompts.append(prompt)
         return next(responses)
 
-    plan, report = compile_mission_plan(post, "Find the red car")
+    plan, report = compile_mission_plan(post, "Find the red car", refs=("zone:site",))
 
     assert plan is not None
     assert len(prompts) == len(report["attempts"]) == 2
