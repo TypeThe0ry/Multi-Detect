@@ -153,7 +153,10 @@ class Stage:
 
 def local_output(path: Path) -> Path:
     path = path.resolve()
-    if not path.is_relative_to(ROOT):
+    # A worktree's artifacts/ may be a junction to a shared artifacts tree;
+    # resolve() follows it, so the resolved artifacts root is local too.
+    roots = (ROOT.resolve(), (ROOT / "artifacts").resolve())
+    if not any(path.is_relative_to(root) for root in roots):
         raise ValueError(f"Output must stay inside this worktree: {path}")
     return path
 
