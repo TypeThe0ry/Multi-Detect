@@ -17,6 +17,7 @@ _EXACT = {
     "test_ground_model.py",
     "test_onboard_ground_policy.py",
     "test_mission_executor.py",
+    "test_alert_closer_look.py",
     "test_mission_executor_remaining_gaps.py",
     "test_mission_executor_no_fly.py",
     "test_mission_package_preflight.py",

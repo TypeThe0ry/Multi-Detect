@@ -325,6 +325,8 @@ class Track:
     # association invalidates the verdict when a continued track moves too far
     # from this place, while retaining the track id for fresh evidence.
     verdict_ground: tuple[float, float] | None = None
+    # Box min side when the current real verdict was formed (None if remembered).
+    verdict_side_px: float | None = None
     max_min_side: float = 0.0
     confirm_steps: list[int] = field(default_factory=list)
     # Steps whose verdict said "this is the task's object" (approach or confirm).
@@ -509,6 +511,13 @@ class LoopConfig:
     small_unjudged_view_depression_deg: float = 20.0
     # Holds at the viewpoint waiting for a judgement before giving up.
     small_unjudged_look_holds: int = 2
+    # Patrol/monitor (set by MissionExecutor; None disables): a query-relevant
+    # track whose latest real verdict was a rejection of a box smaller than
+    # confirm_min_side_px is asked again as soon as its box has grown by this
+    # factor, without waiting for verdict_ttl_steps.  SITL monitor-backpacks
+    # (fullsuite 20261023): a backpack rejected at 12 px grew to 19 px within
+    # four steps and was never asked again; the same model says "approach" there.
+    grown_reject_reask_ratio: float | None = None
     # Search below the cruise altitude (e.g. for small objects), when the map is clear.
     search_altitude_m: float | None = None
     # At the closest view, this many views whose verdict says "this is the task's
@@ -799,6 +808,13 @@ class LoopConfig:
             or self.small_unjudged_look_holds < 0
         ):
             raise ValueError("small_unjudged_look_holds must be a non-negative integer")
+        if self.grown_reject_reask_ratio is not None and (
+            isinstance(self.grown_reject_reask_ratio, bool)
+            or not isinstance(self.grown_reject_reask_ratio, (int, float))
+            or not math.isfinite(self.grown_reject_reask_ratio)
+            or self.grown_reject_reask_ratio <= 1.0
+        ):
+            raise ValueError("grown_reject_reask_ratio must be finite and > 1, or None")
 
 
 @dataclass(slots=True)
@@ -1524,6 +1540,24 @@ class OnboardLoop:
             "position_consistency_note": estimate.consistency_note if estimate else None,
         }
 
+    def _grown_since_small_reject(self, track: Track) -> bool:
+        """A small real rejection of a query-relevant box that has since grown.
+
+        Only with ``grown_reject_reask_ratio`` (patrol/monitor).  A rejection at
+        or above ``confirm_min_side_px`` stands; a remembered one carries no size.
+        """
+        ratio = self.config.grown_reject_reask_ratio
+        side = track.verdict_side_px
+        return (
+            ratio is not None
+            and track.verdict == "no_match"
+            and not track.verdict_remembered
+            and side is not None
+            and side < self.config.confirm_min_side_px
+            and label_matches_query(track.label, self.config.small_unjudged_query)
+            and _min_side(track.bbox) >= ratio * side
+        )
+
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
         stale = [
             t
@@ -1545,6 +1579,7 @@ class OnboardLoop:
                     t.verdict == "pending_near"
                     and _min_side(t.bbox) >= self.config.confirm_min_side_px
                 )
+                or self._grown_since_small_reject(t)
                 # Re-verify the approach focus from each new view until confirmed.
                 or (
                     t.track_id == self._focus
@@ -1635,6 +1670,7 @@ class OnboardLoop:
             return
         track.verdict, track.verdict_step = verdict, self.step_index
         track.verdict_ground = track.ground
+        track.verdict_side_px = None if remembered else _min_side(track.bbox)
         track.needs_fresh_verdict = False
         track.verdict_remembered = remembered
         if small_recheck:
@@ -1825,6 +1861,7 @@ class OnboardLoop:
             self._revisit = None
         track.verdict, track.verdict_step = final, self.step_index
         track.verdict_ground = track.ground
+        track.verdict_side_px = _min_side(track.bbox)
         track.needs_fresh_verdict = False
         track.verdict_remembered = False
         track.contradiction_altitude_m = None
@@ -2444,6 +2481,106 @@ class OnboardLoop:
                 )
         return places
 
+    def small_rejected_places(self) -> list[dict[str, Any]]:
+        """Places of query-relevant tracks rejected only from too-small boxes.
+
+        Patrol/monitor fly at one height and never close in, so a backpack can
+        stay at 10-12 px for the whole step (SITL patrol-fence-backpacks: three
+        rejections at 10 px from 28 m, one per loop).  A track qualifies while it
+        has a relevant view and a ground place, its latest real verdict is a
+        rejection of a box below ``confirm_min_side_px`` and it never had a
+        positive verdict.  A place where any other track had a positive verdict
+        or a rejection at usable size is settled.  Places are merged and
+        described like :meth:`small_unjudged_places`.
+        """
+        if not self.config.small_unjudged_query:
+            return []
+        positive = {"approach", "confirm", "pending_near"}
+
+        def settled_by(other: Track, track: Track, position, radius: float) -> bool:
+            place = self.target_position(other)
+            return (
+                other is not track
+                and place is not None
+                and other.track_id not in track.co_visible_with
+                and track.track_id not in other.co_visible_with
+                and math.dist(place, position) <= radius
+                and (
+                    any(verdict in positive for verdict in other.identity_verdict_history)
+                    or (
+                        other.verdict == "no_match"
+                        and not other.verdict_remembered
+                        and (other.verdict_side_px or 0.0) >= self.config.confirm_min_side_px
+                    )
+                )
+            )
+
+        places: list[dict[str, Any]] = []
+        for track in sorted(self._tracks.values(), key=lambda t: t.first_step):
+            view = track.small_relevant_view
+            position = self.target_position(track)
+            if (
+                view is None
+                or position is None
+                or track.exhausted
+                or track.verdict != "no_match"
+                or track.verdict_remembered
+                or track.verdict_side_px is None
+                or track.verdict_side_px >= self.config.confirm_min_side_px
+                or any(verdict in positive for verdict in track.identity_verdict_history)
+            ):
+                continue
+            radius = max(self.place_radius(track), self.config.count_dedupe_m)
+            if any(settled_by(other, track, position, radius) for other in self._tracks.values()):
+                continue
+            for place in places:
+                if math.dist(place["centre"], position) <= radius and not (
+                    set(place["track_ids"]) & track.co_visible_with
+                ):
+                    place["track_ids"].append(track.track_id)
+                    if view[0] > place["min_side_px"]:
+                        place.update(
+                            centre=(float(position[0]), float(position[1])),
+                            min_side_px=view[0],
+                            slant_m=view[1],
+                            step=view[2],
+                            label=track.small_relevant_label,
+                            score=track.small_relevant_score,
+                            track=track,
+                        )
+                    break
+            else:
+                places.append(
+                    {
+                        "centre": (float(position[0]), float(position[1])),
+                        "track_ids": [track.track_id],
+                        "min_side_px": view[0],
+                        "slant_m": view[1],
+                        "step": view[2],
+                        "label": track.small_relevant_label,
+                        "score": track.small_relevant_score,
+                        "track": track,
+                    }
+                )
+        return places
+
+    @property
+    def revisit_active(self) -> bool:
+        """Whether a revisit started by :meth:`begin_place_revisit` is still running."""
+        return self._revisit is not None
+
+    def continue_revisit(
+        self, pose_ned, yaw_deg: float, info: dict[str, Any]
+    ) -> ActionPrimitive | None:
+        """Advance the running revisit by one primitive; None once it has ended.
+
+        For hosts that own the flight themselves (patrol/monitor never call
+        :meth:`next_action`).
+        """
+        if self._revisit is None:
+            return None
+        return self._second_look_action(pose_ned, yaw_deg, info)
+
     def plan_small_unjudged_revisit(
         self,
         place: Mapping[str, Any],
@@ -2587,6 +2724,9 @@ class OnboardLoop:
                 and math.dist(position[:2], centre) <= radius
             ):
                 return "counted"
+        # A patrol/monitor look already holds small rejections of this place: only
+        # a positive verdict, or a rejection from the viewpoint itself, resolves it.
+        view_step = look.get("view_step") if look.get("alert_look") else None
         for track in self._tracks.values():
             place = self.target_position(track)
             if (
@@ -2594,6 +2734,11 @@ class OnboardLoop:
                 and track.verdict is not None
                 and track.verdict_step >= start
                 and math.dist(place, centre) <= radius
+                and (
+                    not look.get("alert_look")
+                    or track.verdict in {"approach", "confirm"}
+                    or (view_step is not None and track.verdict_step >= view_step)
+                )
             ):
                 return f"judged_{track.verdict}"
         return None
@@ -2636,6 +2781,19 @@ class OnboardLoop:
                 self._last_turn_deg = delta
                 return ActionPrimitive.turn(delta)
             look["phase"] = "look"
+            if look.get("alert_look"):
+                # Ask again from here about every rejection at the place; only
+                # verdicts on frames from this view on can resolve the look.
+                look["view_step"] = self.step_index + 1
+                radius = self._small_unjudged_radius()
+                for track in self._tracks.values():
+                    place = self.target_position(track)
+                    if (
+                        track.verdict == "no_match"
+                        and place is not None
+                        and math.dist(place, look["centre"]) <= radius
+                    ):
+                        track.needs_fresh_verdict = True
             return ActionPrimitive.hold(1.0)
         # look: the slow model judges a track here as soon as its box is large enough.
         look["look_holds"] += 1

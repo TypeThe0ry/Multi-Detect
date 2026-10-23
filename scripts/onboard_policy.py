@@ -1095,6 +1095,14 @@ class OnboardPolicy:
                 else options["alert_require_majority"].strip().lower() in {"1", "true", "yes", "on"}
             ),
             alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
+            # Patrol/monitor closer looks and grown small-rejection re-asks
+            # (0 / null turn them off for an A/B run).
+            alert_look_attempts=int(options.get("alert_look_attempts", 3)),
+            alert_grown_reask_ratio=(
+                None
+                if options.get("alert_grown_reask_ratio", 1.25) is None
+                else float(options.get("alert_grown_reask_ratio", 1.25))
+            ),
             deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
             deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
             deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),

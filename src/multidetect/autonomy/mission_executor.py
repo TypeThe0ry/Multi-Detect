@@ -123,16 +123,37 @@ class ExecutorConfig:
     # while this multiple of its estimated duration stays inside the margin.
     revisit_margin_factor: float = 2.0
     revisit_speed_mps: float = 5.0
+    # Patrol/monitor fly one height and never close in: a backpack stays at
+    # 7-12 px, too small to judge or rejected at that size (SITL fullsuite
+    # 20261023 patrol-fence-backpacks: 1/3).  At a route waypoint, or when
+    # leaving a monitor viewpoint, a query-relevant place seen only that small
+    # gets a closer look (the count small-unjudged viewpoint), at most this many
+    # per step.  0 disables.
+    alert_look_attempts: int = 3
+    # Only places whose viewpoint is within this distance of the vehicle.
+    alert_look_max_detour_m: float = 30.0
+    # Patrol/monitor loops re-ask a grown small rejection
+    # (LoopConfig.grown_reject_reask_ratio).  None disables.
+    alert_grown_reask_ratio: float | None = 1.25
 
     def __post_init__(self) -> None:
-        for name in ("small_unjudged_revisit_attempts", "completion_revisit_max"):
+        for name in (
+            "small_unjudged_revisit_attempts",
+            "completion_revisit_max",
+            "alert_look_attempts",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
-        for name in ("revisit_margin_factor", "revisit_speed_mps"):
+        for name in ("revisit_margin_factor", "revisit_speed_mps", "alert_look_max_detour_m"):
             value = getattr(self, name)
             if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        ratio = self.alert_grown_reask_ratio
+        if ratio is not None and (
+            isinstance(ratio, bool) or not math.isfinite(ratio) or ratio <= 1.0
+        ):
+            raise ValueError("alert_grown_reask_ratio must be finite and > 1, or None")
         if (
             isinstance(self.unresolved_revisit_attempts, bool)
             or not isinstance(self.unresolved_revisit_attempts, int)
@@ -285,6 +306,12 @@ class _StepRun:
     # Small unjudged looks started by this step and why pending places got none.
     small_unjudged_revisits: list[dict[str, Any]] = field(default_factory=list)
     small_unjudged_skipped: list[dict[str, Any]] = field(default_factory=list)
+    # Patrol/monitor closer looks: records, why pending places got none, the
+    # running look and the point/altitude the route resumes from afterwards.
+    alert_looks: list[dict[str, Any]] = field(default_factory=list)
+    alert_look_skipped: list[dict[str, Any]] = field(default_factory=list)
+    alert_look_active: bool = False
+    alert_look_resume: tuple[float, float, float] | None = None
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -510,6 +537,17 @@ class MissionExecutor:
             run.loop = self._loop(step)
         elif step.skill in {"patrol", "monitor"}:
             run.loop = self._loop(step, stop_on_confirm=False, max_steps=10**6)
+            query = step.params.get("query")
+            config = run.loop.config
+            if isinstance(query, str) and hasattr(config, "small_unjudged_query"):
+                # Query-labelled boxes are asked first, their small views are
+                # remembered for closer looks, and a grown small rejection is
+                # asked again.
+                run.loop.config = replace(
+                    config,
+                    small_unjudged_query=query,
+                    grown_reject_reask_ratio=self.config.alert_grown_reask_ratio,
+                )
         elif step.skill == "follow":
             ref = str(step.params["track_ref"])
             finding = None
@@ -579,6 +617,14 @@ class MissionExecutor:
                 status["small_unjudged_revisits"] = run.small_unjudged_revisits
             if run.small_unjudged_skipped:
                 status["small_unjudged_revisit_skipped"] = run.small_unjudged_skipped
+        if run.step.skill in {"patrol", "monitor"}:
+            if run.alert_looks:
+                for record in run.alert_looks:
+                    if record.get("outcome") is None:
+                        record["outcome"] = "interrupted"
+                status["alert_looks"] = run.alert_looks
+            if run.alert_look_skipped:
+                status["alert_look_skipped"] = run.alert_look_skipped
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1776,6 +1822,191 @@ class MissionExecutor:
         duration = run.step.params.get("duration_s")
         return duration is not None and run.elapsed_s >= float(duration) - 1e-6
 
+    def _tracking_reserve(self, run: _StepRun, pose: Pose) -> int:
+        """Primitives the rest of a patrol/monitor step still needs."""
+        reserves = []
+        duration = run.step.params.get("duration_s")
+        if duration is not None:
+            spent = run.held_s if run.step.skill == "monitor" else run.elapsed_s
+            remaining_s = max(0.0, float(duration) - spent)
+            # Observed seconds per primitive (holds, turns and legs alike).
+            rate = max(1.0, run.elapsed_s / max(1, run.primitives))
+            reserves.append(math.ceil(remaining_s / rate))
+        if run.step.skill == "patrol" and run.waypoints:
+            total = len(run.waypoints) * int(run.step.params["loops"])
+            here, legs = (pose[0], pose[1]), 0
+            for index in range(run.waypoint_index, total):
+                point = run.waypoints[index % len(run.waypoints)]
+                legs += math.ceil(math.dist(here, point) / max(self.config.max_translate_m, 1e-6))
+                legs += 1  # the turn onto the leg
+                here = point
+            reserves.append(legs)
+        return min(reserves) if reserves else 0
+
+    def _alert_look(self, run: _StepRun, pose: Pose, yaw: float, *, start: bool):
+        """Run, finish or start a patrol/monitor closer look at a small place.
+
+        Patrol and monitor hold one height, so a query-relevant object can be
+        seen only below the judging size, or rejected only from such boxes,
+        for the whole step (SITL fullsuite 20261023: patrol 1/3 backpacks; one
+        never above 8 px, one rejected three times at 10 px from 28 m).  At a
+        decision point (``start``: a route waypoint reached, a monitor viewpoint
+        done) the nearest such place gets the count small-unjudged look: a
+        viewpoint where its box reaches the judging size, clear legs and a clear
+        descent, the slow model asked again there, then the climb back.  The
+        vehicle then returns to where the look began and the route resumes.  A
+        look needs a free attempt, a viewpoint within ``alert_look_max_detour_m``,
+        the step's primitive budget beyond what the rest of the step needs, the
+        remaining duration and any supervisor margin.  Nothing here raises an
+        alert: the normal alert rule judges the verdicts the look collects.
+        """
+        loop = run.loop
+        if loop is None or not hasattr(loop, "continue_revisit"):
+            return None
+        if run.alert_look_active:
+            info: dict[str, Any] = {"phase": "alert_look"}
+            action = loop.continue_revisit(pose, yaw, info)
+            if action is not None:
+                return action, info
+            run.alert_look_active = False
+            record = run.alert_looks[-1]
+            self.mission_log.append(
+                {
+                    "event": "alert_look_end",
+                    "step_id": run.step.id,
+                    "centre": record.get("centre"),
+                    "outcome": record.get("outcome"),
+                }
+            )
+        if run.alert_look_resume is not None:
+            resume = run.alert_look_resume
+            moved = self._move_to(run, pose, yaw, resume[:2], resume[2])
+            if moved == "no_fly":
+                return None
+            if moved is not None and moved != "blocked":
+                return moved, {"phase": "alert_look_return"}
+            # Arrived (or the way back is blocked: the route's own leg decides).
+            run.alert_look_resume = None
+            run.blocked = 0
+        if not start or self.config.alert_look_attempts < 1:
+            return None
+        if getattr(loop.config, "fixed_wing_pass", False) or (
+            self.airframe_adapter is not None and not self.airframe_adapter.is_multirotor
+        ):
+            # The look hovers, descends and turns in place: multirotor only.
+            return None
+        places = [
+            *({**place, "kind": "small_unjudged"} for place in loop.small_unjudged_places()),
+            *({**place, "kind": "small_rejected"} for place in loop.small_rejected_places()),
+        ]
+        if not places:
+            return None
+        here = (pose[0], pose[1])
+        region = self.region_of(run.step)
+        area = self.operating_area if isinstance(self.operating_area, Mapping) else None
+
+        def allowed(point):
+            return (region is None or math.dist(point, region[:2]) <= region[2]) and (
+                area is None or self._point_inside_area(point, area)
+            )
+
+        def reachable(point):
+            return allowed(point) and not self._leg_enters_no_fly(here, point)
+
+        skipped: list[dict[str, Any]] = []
+
+        def skip(place, reason):
+            skipped.append(
+                {
+                    "centre": [round(float(v), 2) for v in place["centre"][:2]],
+                    "track_ids": list(place["track_ids"]),
+                    "kind": place["kind"],
+                    "reason": reason,
+                }
+            )
+
+        dedupe = loop.config.count_dedupe_m
+        looked = [tuple(record["centre"]) for record in run.alert_looks]
+        remaining = self._budget(run.step) - run.primitives
+        duration = run.step.params.get("duration_s")
+        remaining_s = None
+        if duration is not None:
+            spent = run.held_s if run.step.skill == "monitor" else run.elapsed_s
+            remaining_s = float(duration) - spent
+        started = None
+        for place in sorted(places, key=lambda item: math.dist(item["centre"], here)):
+            centre = place["centre"]
+            if not allowed(centre):
+                skip(place, "outside_region")
+                continue
+            if any(math.dist(centre, point) <= dedupe for point in looked):
+                skip(place, "already_looked")
+                continue
+            if any(math.dist(centre, point) <= dedupe for point in run.alert_positions):
+                skip(place, "already_alerted")
+                continue
+            if started is not None:
+                continue
+            if len(run.alert_looks) >= self.config.alert_look_attempts:
+                skip(place, "attempts_exhausted")
+                continue
+            look, reason = loop.plan_small_unjudged_revisit(place, pose, allowed=reachable)
+            if look is None:
+                skip(place, reason or "no_clear_viewpoint")
+                continue
+            if math.dist(here, look["goal"]) > self.config.alert_look_max_detour_m:
+                skip(place, "too_far")
+                continue
+            # Out: turns, legs, descent, face, holds, climb, two to judge; back: legs.
+            needed = (
+                2 * look["legs"]
+                + 2 * look["vertical_steps"]
+                + loop.config.small_unjudged_look_holds
+                + 5
+            )
+            # The rest of the step keeps its primitives.  A step that cannot
+            # finish inside its budget anyway (a 900 s monitor at ~3 s per
+            # primitive) only needs room for the look itself.
+            reserve = self._tracking_reserve(run, pose)
+            if needed > remaining or (reserve <= remaining and needed + reserve > remaining):
+                skip(place, "budget")
+                continue
+            seconds = (
+                2.0 * look["flight_m"] + 2.0 * look["vertical_m"]
+            ) / self.config.revisit_speed_mps + (
+                loop.config.small_unjudged_look_holds + 3
+            ) * self.config.hold_s
+            if remaining_s is not None and seconds >= remaining_s:
+                skip(place, "duration")
+                continue
+            if (
+                self.energy_margin_s is not None
+                and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
+            ):
+                skip(place, "energy_margin")
+                continue
+            look["alert_look"] = True
+            record = look["record"]
+            record["kind"] = place["kind"]
+            info = {"phase": "alert_look"}
+            action = loop.begin_place_revisit(look, pose, yaw, info)
+            if action is None:
+                skip(place, "look_not_started")
+                continue
+            run.alert_looks.append(record)
+            run.alert_look_active = True
+            run.alert_look_resume = (pose[0], pose[1], max(0.0, -pose[2]))
+            info["alert_look"] = record
+            self.mission_log.append({"event": "alert_look", "step_id": run.step.id, **record})
+            started = (action, info)
+        if skipped != run.alert_look_skipped:
+            run.alert_look_skipped = skipped
+            if skipped:
+                self.mission_log.append(
+                    {"event": "alert_look_skipped", "step_id": run.step.id, "skipped": skipped}
+                )
+        return started
+
     def _patrol(self, run, pose, yaw, ground_point, frame_id):
         if not run.waypoints:
             route = self.route_of(str(run.step.params["route_ref"]))
@@ -1785,6 +2016,12 @@ class MissionExecutor:
             run.waypoints = route
             if "altitude_m" in run.step.params:
                 run.goal_altitude_m = float(run.step.params["altitude_m"])
+        # A running look (and the flight back to the route) finishes first.
+        look = self._alert_look(run, pose, yaw, start=False)
+        if look is not None:
+            return look
+        if run.state != "running":
+            return None
         if self._duration_reached(run):
             self._finish("succeeded", "duration_elapsed")
             return None
@@ -1804,6 +2041,9 @@ class MissionExecutor:
                 }
             run.visited += 1
             run.waypoint_index += 1
+            look = self._alert_look(run, pose, yaw, start=True)
+            if look is not None:
+                return look
         self._finish("succeeded", "duration_elapsed")
         return None
 
@@ -1910,6 +2150,13 @@ class MissionExecutor:
             self._plan_monitor(run, pose)
         if run.observation_start_s is not None:
             self._monitor_coverage(run, pose, yaw, frame_id)
+        # A running look (and the flight back to the viewpoint) finishes first.
+        look = self._alert_look(run, pose, yaw, start=False)
+        if look is not None:
+            return look
+        if run.state != "running":
+            return None
+        if run.observation_start_s is not None:
             if run.held_s >= float(run.step.params["duration_s"]) - 1e-6:
                 self._finish("succeeded", "duration_elapsed")
                 return None
@@ -1933,6 +2180,16 @@ class MissionExecutor:
             self._finish("succeeded", "duration_elapsed")
             return None
         if run.phase == "turn":
+            if run.captured >= 4:
+                # The four views of this viewpoint are done: a closer look at a
+                # small place, if one is pending, before the next viewpoint.
+                look = self._alert_look(run, pose, yaw, start=True)
+                if look is not None:
+                    if len(run.waypoints) > 1:
+                        run.waypoint_index += 1
+                    run.captured = 0
+                    run.phase = "fly"
+                    return look
             if run.captured >= 4 and len(run.waypoints) > 1:
                 run.waypoint_index += 1
                 run.captured = 0
