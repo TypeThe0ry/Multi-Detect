@@ -303,6 +303,8 @@ class _StepRun:
     revisited_places: list[tuple[float, float]] = field(default_factory=list)
     rejection_revisit_places: list[tuple[float, float]] = field(default_factory=list)
     rejection_revisit_skipped: list[dict[str, Any]] = field(default_factory=list)
+    # Closer (descending) looks at small-box rejections: their records.
+    rejection_revisits: list[dict[str, Any]] = field(default_factory=list)
     # Small unjudged looks started by this step and why pending places got none.
     small_unjudged_revisits: list[dict[str, Any]] = field(default_factory=list)
     small_unjudged_skipped: list[dict[str, Any]] = field(default_factory=list)
@@ -609,6 +611,11 @@ class MissionExecutor:
             )
             if run.rejection_revisit_skipped:
                 status["rejection_revisit_skipped"] = run.rejection_revisit_skipped
+            if run.rejection_revisits:
+                for record in run.rejection_revisits:
+                    if record.get("outcome") is None:
+                        record["outcome"] = "interrupted"
+                status["rejection_revisits"] = run.rejection_revisits
         if run.step.skill in {"count", "area_search"}:
             if run.small_unjudged_revisits:
                 for record in run.small_unjudged_revisits:
@@ -1268,6 +1275,9 @@ class MissionExecutor:
                 area is None or self._point_inside_area(point, area)
             )
 
+        def reachable(point):
+            return allowed(point) and not self._leg_enters_no_fly(here, point)
+
         candidates = sorted(
             loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m),
             key=lambda item: math.dist(item["ground"], here),
@@ -1297,9 +1307,9 @@ class MissionExecutor:
             ):
                 skip(centre, "co_visible_with_counted")
                 continue
-            look = loop.plan_rejection_revisit(rejection, pose)
+            look, reason = loop.plan_rejection_revisit(rejection, pose, allowed=reachable)
             if look is None:
-                skip(centre, "no_clear_viewpoint")
+                skip(centre, reason or "no_clear_viewpoint")
                 continue
             if not allowed(look["goal"]):
                 skip(centre, "viewpoint_outside_region")
@@ -1307,10 +1317,28 @@ class MissionExecutor:
             if self._leg_enters_no_fly(here, look["goal"]):
                 skip(centre, "leg_enters_no_fly")
                 continue
-            legs = math.ceil(math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6))
-            if legs + 3 > self._budget(run.step) - run.primitives:
-                skip(centre, "budget")
-                continue
+            remaining = self._budget(run.step) - run.primitives
+            if look.get("staged"):
+                # The closer look: as a small unjudged look, descent and climb included.
+                needed = self._staged_look_steps(loop, look)
+                seconds = self._staged_look_seconds(loop, look, here)
+                if needed > remaining:
+                    skip(centre, "budget")
+                    continue
+                if (
+                    self.energy_margin_s is not None
+                    and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
+                ):
+                    skip(centre, "energy_margin")
+                    continue
+                self._fit_reapproach(loop, look, allowed, remaining - needed, seconds)
+            else:
+                legs = math.ceil(
+                    math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6)
+                )
+                if legs + 3 > remaining:
+                    skip(centre, "budget")
+                    continue
             rejection["revisited"] = True
             run.rejection_revisit_places.append(centre)
             action = loop.begin_place_revisit(look, pose, yaw, info)
@@ -1320,6 +1348,10 @@ class MissionExecutor:
                 skip(centre, "revisit_not_started")
                 continue
             record = {"centre": list(look["centre"]), "track_id": rejection.get("track_id")}
+            if look.get("staged"):
+                record = look["record"]
+                record["track_id"] = rejection.get("track_id")
+                run.rejection_revisits.append(record)
             info["count_rejection_revisit"] = record
             self.mission_log.append(
                 {"event": "count_rejection_revisit", "step_id": run.step.id, **record}
@@ -1488,6 +1520,50 @@ class MissionExecutor:
             )
         ]
 
+    @staticmethod
+    def _staged_look_steps(loop, look) -> int:
+        """Primitives of a count closer look: turns, legs, descent, face, holds,
+        climb back, and two to judge."""
+        return look["legs"] + 2 * look["vertical_steps"] + loop.config.small_unjudged_look_holds + 5
+
+    def _staged_look_seconds(self, loop, look, here) -> float:
+        """Seconds of a count closer look, including any extra way home from its viewpoint."""
+        home = self.home or here
+        extra_home = max(0.0, math.dist(look["goal"], home) - math.dist(here, home))
+        return (
+            look["flight_m"] + extra_home + 2.0 * look["vertical_m"]
+        ) / self.config.revisit_speed_mps + (
+            loop.config.small_unjudged_look_holds + 3
+        ) * self.config.hold_s
+
+    def _fit_reapproach(self, loop, look, allowed, spare_steps, seconds, spare_s=None) -> None:
+        """Let a closer look move in once more only when the step can pay for it.
+
+        ``spare_steps`` is what the step budget leaves after the look itself,
+        ``seconds`` the look's own time and ``spare_s`` any duration left after
+        it.  A re-approach leg must stay in the step's area and out of no-fly
+        zones from wherever it starts.
+        """
+        look["leg_allowed"] = lambda start, point: (
+            allowed(point) and not self._leg_enters_no_fly(start, point)
+        )
+        if look.get("reapproaches_left", 0) < 1:
+            return
+        extra_s = (
+            2.0 * look["reapproach_m"] / self.config.revisit_speed_mps
+            + (loop.config.small_unjudged_look_holds + 2) * self.config.hold_s
+        )
+        if (
+            look["reapproach_steps"] > spare_steps
+            or (spare_s is not None and extra_s >= spare_s)
+            or (
+                self.energy_margin_s is not None
+                and self.config.revisit_margin_factor * (seconds + extra_s) >= self.energy_margin_s
+            )
+        ):
+            look["reapproaches_left"] = 0
+            look["record"]["reapproach_skipped"] = "budget"
+
     def _revisit_small_unjudged(self, run, pose, yaw, info):
         """Before a search ends, look closer at query-relevant places never judged.
 
@@ -1559,27 +1635,18 @@ class MissionExecutor:
             if look is None:
                 skip(place, reason or "no_clear_viewpoint")
                 continue
-            # Turns, legs, descent, face, holds, climb back, and two to judge.
-            needed = (
-                look["legs"]
-                + 2 * look["vertical_steps"]
-                + loop.config.small_unjudged_look_holds
-                + 5
-            )
+            needed = self._staged_look_steps(loop, look)
             if needed > remaining:
                 skip(place, "budget")
                 continue
-            if self.energy_margin_s is not None:
-                home = self.home or here
-                extra_home = max(0.0, math.dist(look["goal"], home) - math.dist(here, home))
-                seconds = (
-                    look["flight_m"] + extra_home + 2.0 * look["vertical_m"]
-                ) / self.config.revisit_speed_mps + (
-                    loop.config.small_unjudged_look_holds + 3
-                ) * self.config.hold_s
-                if self.config.revisit_margin_factor * seconds >= self.energy_margin_s:
-                    skip(place, "energy_margin")
-                    continue
+            seconds = self._staged_look_seconds(loop, look, here)
+            if (
+                self.energy_margin_s is not None
+                and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
+            ):
+                skip(place, "energy_margin")
+                continue
+            self._fit_reapproach(loop, look, allowed, remaining - needed, seconds)
             record = look["record"]
             action = loop.begin_place_revisit(look, pose, yaw, info)
             if action is None:
@@ -1985,6 +2052,14 @@ class MissionExecutor:
             ):
                 skip(place, "energy_margin")
                 continue
+            self._fit_reapproach(
+                loop,
+                look,
+                allowed,
+                remaining - needed - (reserve if reserve <= remaining else 0),
+                seconds,
+                None if remaining_s is None else remaining_s - seconds,
+            )
             look["alert_look"] = True
             record = look["record"]
             record["kind"] = place["kind"]

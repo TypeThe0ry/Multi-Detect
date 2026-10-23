@@ -290,3 +290,51 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 ```
 
 已知限制（按代码推算，未在 SITL 中观察到）：监视/巡逻步骤的原语预算固定为 `travel_budget = 150`，本轮 SITL 约 3 s 一个原语，所以超过约 450 s 的监视（如套件里 900 s 的安全类任务）本身就会以 `step_budget` 结束，与本次修改无关；套件里这些任务都被监督器在 120 s 左右提前结束，所以没暴露。
+
+## 2026-10-24 补看视点几何：按光轴深度估框、到点仍小再接近、计数小框拒绝下降补看
+
+对象：`mission-suite-patrolrecall-20261023` 的 14 次监视/巡逻补看与计数拒绝补看。补看视点按“框到 14 px”规划，到点实测只有 6–11 px：monitor-backpacks d1d02c3b 的 A 11 px 判“不是”、B 6–7 px 和 C 9.5 px 未判；ecf0af51 的 A 9.5 px 未判；count-fire-hydrants 6a87070d 第 78 步拒绝补看飞到距 h2 21 m、17.2 m 高的视点，框 9 px，无法判断，计数 2/3 结束。
+
+**根因：尺寸模型用了斜距而不是光轴深度。** 框边长是 f × 尺寸 / 深度，深度沿光轴。旧代码把“最大一次观测”的边长按斜距反比缩放到视点（`seen_side × seen_slant / view_slant`）。本机相机 1280×960、fx≈540，水平视场约 100°；最大的那次观测几乎都在画面边缘（离轴 35–50°，深度只有斜距的 0.64–0.82），而到视点后目标被转到画面中部（离轴约 20°）。于是远处那次观测的“尺寸”被高估 22–56%，换算到视点的预测框偏大 15–50%。证据：
+
+- 逐帧核对（`_scratch/look-geometry/box_geometry.py`，真值位置来自世界 SDF、分割图核对框）：同一背包 side × 斜距 在 182–487 之间变化，side × 光轴深度 稳定在 170–320；A 第 2 步 9.7 px@34 m（离轴 41°）按斜距推到视点是 14.2 px，按深度是 11.7 px，实测 11.0 px。
+- 真值模型 f × （背包底面在视线垂直方向的宽度，取 SDF 尺寸与朝向）/ 光轴深度 预测全部 208 个背包框：实测/预测 中位 1.00（p10 0.78，p90 1.32）；消防栓 64 个框中位 0.85。
+- 14 次补看在实际视点的预测误差：旧模型中位 +50%（最大 +118%），光轴深度 + 观测中位数 +19%。剩余偏差主要来自朝向（背包宽 0.26–0.51 m，B 从窄面看，+60–70%）和远处小框的栅格化（真值模型 < 8 px 段实测偏大约 11%，8–20 px 段偏小约 13%），无法从远处观测消除。“背包最小边”本身没有算错。
+
+**修复**（`wt/look-geometry`）：
+
+1. 统一尺寸模型（`CameraModel.axis_depth / box_extent_m / facing_depth / side_px`）：每次查询相关观测按 框最小边 × 光轴深度 / f 估物体尺寸（航迹保留最近 32 个，`Track.small_relevant_extents`），地点取所有合并航迹观测的中位数 `extent_m`。`plan_small_unjudged_revisit` 按“正对目标时深度 = 水平距离·cos(俯仰) + 高度·sin(俯仰)”反解视点，三种补看共用：计数/区域搜索小而未判、巡逻/监视告警补看、计数小框拒绝补看。最低允许视点（`approach_min_altitude_m`、保持在画面内的最近距离）仍达不到目标但能到 `min_verdict_side_px` 时用最低视点，否则 `too_small_to_resolve`。记录新增 `extent_m`、`target_side_px`，`predicted_min_side_px` 按新模型。
+2. 到点仍小再接近（`LoopConfig.small_unjudged_reapproach_max = 1`）：视点保持结束时，若视点帧里该地点的框仍 < `min_verdict_side_px`，用视点上的框（目标已正对、距离已知）重估尺寸，沿同一方位（同一侧，宽度一致）重新规划更近/更低的视点，检查与首次相同：当前高度到新点的平飞腿、在新点从当前高度下降的三维线段（楼顶）、区域/禁飞区（执行器提供 `leg_allowed`）。预测框至少比当前大 15% 才走，否则记 `no_closer_view`。每次尝试记入 `reapproaches`（起点、实测框、尺寸、新视点、预测、outcome）。执行器只在步骤预算/剩余时长/能量余量还放得下一次再接近时保留这次机会，否则记 `reapproach_skipped: budget`，补看本身照常。只用视点帧（`view_step` 之后）的框，规划时那一帧的远处旧框不算。
+3. 计数小框拒绝补看：拒绝记录新增每次拒绝的斜距和尺寸估计。全部拒绝都 < `confirm_min_side_px` 且有尺寸估计的地点，改用同一套视点几何（目标 `small_unjudged_target_side_px` 14 px，且不小于被拒时的最大框，上限 20 px），可下降，到点重问被拒航迹（与原拒绝补看相同的清判断规则），只有正判断或视点上的新判断结束补看，然后爬回原高度；结果记入步骤历史 `rejection_revisits`。没有尺寸估计的旧记录仍走原来的巡航高度保持距离视点（`rejected_far_small_places` 本来就只返回全部 < 20 px 的拒绝，大框拒绝不补看，行为不变）。`plan_rejection_revisit` 改为返回 `(look, reason)`，跳过原因写进 `rejection_revisit_skipped`。
+
+**离线评估**（`_scratch/look-geometry/replay_looks.py`：用日志里补看开始前的航迹框、地面估计和位姿重建地点，以新规划器从补看开始时的位姿规划，世界静态障碍图做避障；新视点用上面的真值模型打分，按 8–20 px 段实测/真值 0.87 换成“预计实测”。该打分在旧视点上与 SITL 实测吻合：10.9/11.1、7.9/7.6、9.1/9.5、9.9/9.5、10.5/10.6、17.5/17.0 px 等）：
+
+| 架次 / 补看 | 旧视点（高度）实测 | 新视点 高度 / 水平距离 | 新视点预计实测 |
+|---|---|---|---|
+| d1d02c3b A | 11.9 m，11.1 px | 8.0 / 11.7 m | 18.7 px |
+| d1d02c3b B | 14.9 m，7.6 px | 11.2 / 19.2 m | 10.5 px |
+| d1d02c3b C | 13.3 m，9.5 px | 10.4 / 17.7 m | 11.7 px |
+| ecf0af51 A / B | 12.5 m，9.5 px / 8.7 m，未见 | 10.3 / 17.6 m，8.6 / 14.6 m | 11.7 / 11.4 px |
+| pause-resume 6e1bd6fa C | 17.6 m，8.1 px | 12.1 / 20.7 m | 9.7 px → 再接近 8.4 m 高，14.2 px |
+| pause-resume a8cb6d3f A / B | 10.6 m，13.0 px / 13.4 m，8.1 px | 9.9 / 16.9 m，11.6 / 19.8 m | 13.1 / 10.7 px |
+| patrol 6b8a6cf7 B / A / C | 17.4 m 7.8 px / 12.4 m 10.6 px / 8.0 m 17.0 px | 11.9 / 20.3，10.9 / 18.6，8.0 / 10.8 m | 10.8 / 11.9 / 19.1 px |
+| patrol bc4ca531 C / B / A | 8.0 m 17.2 px / 14.0 m 7.0 px / 12.5 m 10.6 px | 8.0 / 12.0，9.7 / 16.6，10.4 / 17.7 m | 18.4 / 10.9 / 12.3 px |
+| 计数 6a87070d h2 拒绝补看 | 17.2 m，21 m 外，9.0 px | 8.1 / 13.9 m | 18.5 px |
+
+旧视点 13 次见到目标里 7 次 < 10 px；新视点 14 次里 13 次预计 ≥ 10 px（最低 10.5），剩下 1 次由再接近补到 14 px。所有新视点的平飞腿、下降线与视线都无遮挡，绕行 3–38 m（计数拒绝补看从搜索结束点出发约 54 m，与旧视点相当）。
+
+无副作用检查（`_scratch/look-geometry/replay_side.py`：`fullsuite-20261023` 10 个任务按日志开环重放，YOLOE 检测与 r18 慢模型判断全部来自缓存，零缓存缺失；另用 `patrolrecall`/`queryfirst` 的 3 个消防栓计数架次）：count-cones、count-fire-hydrants、comms-free-count、operator-abort 与 3 个消防栓架次，新旧代码逐步动作、慢调用、计数（3/3/3、2/2/3）完全一致；其余 6 个巡逻/监视任务在第一次补看之前完全一致，第一次补看起视点按新模型更近更低（例如 monitor B 视点从 14.1 m 高、24.2 m 外改为 8.1 m 高、13.9 m 外），告警数不变（开环重放无法评估补看之后的判断）。
+
+**测试**：`tests/test_look_geometry.py`（11 项，全部用 SITL 日志真实几何）：尺寸按光轴深度（A 的远框预测近框 11 px，误差 < 8%）；三次补看（d1d02c3b A/C、ecf0af51 A）的新视点让 SITL 在旧视点量到的物体尺寸达到 ≥ 10.5 px 且比旧视点大 10% 以上，平飞与下降线避开 gen_cnt2_w0003 建筑；B 到点只有 8.6 px 时沿同一方位再接近到 8 m 高，判断并爬回 18.4 m，所有腿避障；再接近可关闭、只尝试一次；h2 拒绝补看视点下降到 8.1 m、按 SITL 实测尺寸 ≥ 13 px，避开公寓，到点重问并计数。去掉修复后 11 项全部失败（旧几何在这三次补看上只有 10.7/9.3/9.0 px，h2 只有 9.5 px，与 SITL 的 11/9.5/9.5/9 px 一致）。`test_small_unjudged_revisit.py` 与本文件加入 `tests/onboard_gate_files.py`。
+
+**仍存在的限制**：按 14 px 规划的视点预计实测多在 10.5–13 px（朝向与小框栅格化，见上），r18 对背包约 13 px 才较稳；再接近只在 < 10 px 时触发，10–13 px 的“不是”仍结束补看。若 SITL 复验仍有大量 10–13 px 被拒，可考虑把补看目标提到 16 px 或对小框拒绝也允许一次再接近。未跑 SITL（仿真锁被 10 架次复验占用）。复验命令（冻结工作树后）：
+
+```bash
+cd /d/Projects/mdwt/look-geometry && export PYTHONPATH="src;." PYTHONUTF8=1
+python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json \
+  --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-lookgeometry-20261024 \
+  --only monitor-backpacks patrol-fence-backpacks count-fire-hydrants count-cones \
+  --episodes 3 --retry-failed-episodes --min-free-disk-gb 8
+```
+
+复验看：各补看记录的 `predicted_min_side_px` 与 `seen_again_min_side_px`、`reapproaches` 的 outcome、计数步骤历史的 `rejection_revisits`；背包告警召回、消防栓/锥桶计数不退步、无误报。
