@@ -176,3 +176,78 @@ def test_a_descent_below_a_roof_under_the_start_altitude_is_not_clear() -> None:
     # Away from the block the same descent is clear.
     far = (-40.0, -40.0, -17.2)
     assert segment_clear_of_obstacles(far, (-38.0, -38.0, -13.2), 17.2, (apartment,))
+
+
+def _apartment():
+    from multidetect.sim_teacher.policies import SDFObstacle
+
+    return SDFObstacle(
+        north_m=-24.641,
+        east_m=-10.416,
+        height_m=14.8046,
+        size_north_m=22.2701,
+        size_east_m=20.2572,
+        yaw_rad=1.019681,
+    )
+
+
+def test_a_lane_blocked_only_below_the_search_altitude_climbs_instead_of_skipping() -> None:
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    # SITL count-fire-hydrants 54ef68e5 (gen_cnt2_w0001): the search altitude is
+    # the 14.8 m apartment + 2 m (16.8 m), but a closest-view climb back settled at
+    # 16.4 m, inside the loop's 1 m tolerance.  Below 16.8 m the roof is an
+    # obstacle with an 18 m ring, so the west lane over it was sidestepped three
+    # times, its waypoints skipped and the coverage "completed" 45 m short of the
+    # hydrant next to the block (2/3).  At 17.2 m (every other run) it is clear.
+    apartment = _apartment()
+    policy = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=apartment.height_m + 2.0,
+        obstacles=(apartment,),
+        search_radius_m=55.0,
+    )
+    leg = ActionPrimitive.translate(15.0, 0.0, 0.0)
+    low = (-28.52, 12.96, -16.41)
+    action = policy._safe_translation(low, leg, -93.5)
+    assert action.kind == "translate"
+    assert action.forward_m == 0.0 and action.right_m == 0.0
+    # Back above the planned altitude with a margin, not merely onto it.
+    assert -low[2] + action.up_m >= policy.altitude_m + 0.3
+    assert policy.skipped_waypoints == []
+    # From the climbed altitude the same lane is flown as planned.
+    high = (low[0], low[1], low[2] - action.up_m)
+    assert policy._safe_translation(high, leg, -93.5) == leg
+
+
+def test_a_lane_still_blocked_above_the_search_altitude_keeps_its_sidestep() -> None:
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    # A roof above the search altitude is not climbed over: the lane is
+    # sidestepped as before, and a vehicle that does not gain height after
+    # climbing goes back to sidesteps instead of climbing forever.
+    apartment = _apartment()
+    policy = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=12.0,
+        obstacles=(apartment,),
+        search_radius_m=55.0,
+    )
+    leg = ActionPrimitive.translate(15.0, 0.0, 0.0)
+    action = policy._safe_translation((-28.52, 12.96, -12.0), leg, -93.5)
+    assert not (action.kind == "translate" and action.up_m > 0.0)
+
+    stuck = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=apartment.height_m + 2.0,
+        obstacles=(apartment,),
+        search_radius_m=55.0,
+    )
+    climbs = 0
+    for _ in range(6):
+        action = stuck._safe_translation((-28.52, 12.96, -16.41), leg, -93.5)
+        climbs += action.kind == "translate" and action.up_m > 0.0
+    assert 1 <= climbs <= 2
