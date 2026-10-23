@@ -75,3 +75,9 @@ world 与 task-class×candidate-class 的 r19 表格将在 `eval-v1.json`、`eva
 结论：**不替换机载身份模型 r18**。r19 在仿真集 v3 和小目标召回上更好，但真实飞行集 v1 的干扰物拒绝下降 9.3 个百分点（pickup 任务把 SUV 当目标 184/209→107/209 拒绝；锥桶任务把 jersey barrier 当目标 40/41→23/41；16–20 px 层 0.927→0.696），机载误确认风险上升。r19 的规划指标优于当前规划模型 r14，可作为规划候选，需先做 SIM 闭环验证。下一轮补 pickup/SUV、锥桶/路障的成对拒绝样本，以及固定翼倾斜高空视角下救护车/大巴/SUV/消防车的正负样本（见 fixed-wing-vtol-sim-flight.md）。
 
 报告：`artifacts/r19-round/pipeline/r15-report.md`、`r19-vs-r18-r12.md`；评测 `eval-v1.json`、`eval-v3.json`（OOM 那次保留为 `eval-v1.oom-20261023.json`）。
+
+### r19 作为规划模型的离线对比（2026-10-23）
+
+用机载同一规划入口（`build_mission_from_text` + `labelled_refs`，b11552，temperature 0，strict json_schema，`--cache-ram 0`）对回归套件中实际走规划模型的 8 条任务和 3 条中文任务包 prompt 各跑 3 次（输出逐字节一致）：r14 与 r19 技能序列都是 11/11 正确，JSON 有效率 100%，单次规划 0.74–1.25 s。差异只在参数（inspect standoff 10/8 m、r14 多加 `max_count: 10`、find-suv-land 失败分支 r14 返航/r19 原地降落）。
+
+15 条“返航”说法探测两者都对 12/15，但 r19 会把“到大门看一下，然后返航”和“到大门检查位置，然后返回起飞前指定的 home”规划成 `goto → land`（落在目的地），r14 在这两条上是多余的 inspect/area_search 后仍 `return_home`。planning-v3 中 r19 也有 3 例该返航未返航（r14 1 例），并接受了地图上不存在的地点。**结论：维持 r14 为机载规划模型。**下一轮规划数据补“到 X 做事然后返航/回 home/回起飞点”与误规划 `goto→land` 的配对拒绝样本，以及未知地点必须拒绝的样本。对比脚本与结果在 `_scratch/plannercmp/`。
