@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import uuid
 from types import SimpleNamespace
 
@@ -338,3 +339,25 @@ def test_round_runs_sequentially_stops_at_invalid_and_saves_failure(tmp_path, mo
     assert "INVALID" in markdown
     assert not lock.exists()
     assert not (out / "planning.json").exists()
+
+
+def test_outputs_may_live_under_a_junctioned_artifacts_tree(tmp_path, monkeypatch):
+    """r19-eval: artifacts/ is a junction to a shared tree; planning output under it
+    resolves outside the worktree and was refused."""
+    worktree, shared = tmp_path / "worktree", tmp_path / "shared-artifacts"
+    worktree.mkdir()
+    shared.mkdir()
+    try:
+        (worktree / "artifacts").symlink_to(shared, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            pytest.skip("cannot create a directory link here")
+        import _winapi  # junctions need no symlink privilege
+
+        _winapi.CreateJunction(str(shared), str(worktree / "artifacts"))
+    monkeypatch.setattr(round_eval, "ROOT", worktree)
+    inside = round_eval.local_output(worktree / "artifacts" / "r19-eval-planning")
+    assert inside == (shared / "r19-eval-planning").resolve()
+    assert round_eval.local_output(worktree / "out") == (worktree / "out").resolve()
+    with pytest.raises(ValueError, match="inside this worktree"):
+        round_eval.local_output(tmp_path / "elsewhere")

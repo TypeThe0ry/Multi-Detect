@@ -403,6 +403,9 @@ def decision_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "distractor_rejection_count": correct_reject,
         "distractor_rejection_rate": correct_reject / len(rejects) if rejects else None,
         "invalid_count": len(results) - len(valid),
+        # Rows without any model answer (input/harness failures); a measurement
+        # with any of these is not a model result (main() exits non-zero).
+        "harness_error_count": sum(bool(row.get("harness_error")) for row in results),
         "expected_counts": {value: expected.count(value) for value in sorted(set(expected))},
         "predicted_counts": {value: predictions.count(value) for value in sorted(set(predictions))},
         "latency_s": {
@@ -446,6 +449,7 @@ def evaluate_predictor(
                 "decision": parsed["decision"] if parsed else None,
                 "parsed_output": parsed,
                 "failure": failure,
+                "harness_error": False,
                 "prompt_tokens": _usage_count(
                     getattr(predictor, "last_usage", None), "prompt_tokens"
                 ),
@@ -458,6 +462,8 @@ def evaluate_predictor(
             # crashed server into silently wrong metrics (or hours of timeouts).
             raise
         except Exception as exc:
+            # No model answer was obtained (unreadable input, bad request, ...):
+            # kept apart from invalid model output and refused by main().
             result = {
                 "sample_id": row["sample_id"],
                 "world": row["world"],
@@ -468,6 +474,7 @@ def evaluate_predictor(
                 "decision": None,
                 "parsed_output": None,
                 "failure": f"{type(exc).__name__}: {exc}",
+                "harness_error": True,
                 "prompt_tokens": None,
                 "completion_tokens": None,
             }
@@ -587,6 +594,8 @@ class LlamaServerRunner:
         identity_variant: str | None = None,
         cache_prompt: bool = True,
         wait_port_free: bool = False,
+        cache_ram_mib: int | None = None,
+        max_restarts: int = 0,
     ):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = (
             port,
@@ -605,6 +614,10 @@ class LlamaServerRunner:
             None,
         )
         self.wait_port_free = bool(wait_port_free)
+        # Evaluation only: a server that dies mid-run is restarted and the same
+        # request retried, so a crash never turns into rows of "model" output.
+        # The onboard runtime keeps 0 (systemd owns the server lifecycle there).
+        self.max_restarts, self.restarts = max(0, int(max_restarts)), []
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -619,7 +632,6 @@ class LlamaServerRunner:
         executable, model = Path(executable).resolve(), Path(model).resolve()
         mmproj = Path(mmproj).resolve() if mmproj is not None else None
         adapter = Path(adapter).resolve() if adapter else None
-        _cleanup_orphaned_windows_server(port, model)
         command = [str(executable), "-m", str(model)]
         if mmproj is not None:
             command.extend(["-mm", str(mmproj)])
@@ -643,13 +655,22 @@ class LlamaServerRunner:
                 "64",
             ]
         )
+        if cache_ram_mib is not None:
+            # llama-server keeps evicted slot states in host RAM (default 8 GiB).
+            # Every evaluation row carries a new image, so that cache only grows.
+            command.extend(["--cache-ram", str(int(cache_ram_mib))])
         if adapter:
             command.extend(["--lora", str(adapter)])
+        self._command, self._cwd, self._model = command, str(executable.parent), model
+        self._start()
+
+    def _start(self) -> None:
+        _cleanup_orphaned_windows_server(self.port, self._model)
         self.server_log = tempfile.NamedTemporaryFile(
             prefix="llama-server-", suffix=".log", delete=False
         )
         self.process = subprocess.Popen(
-            command, cwd=str(executable.parent), stdout=subprocess.DEVNULL, stderr=self.server_log
+            self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log
         )
         self._job_handle = None
         if sys.platform == "win32":
@@ -670,7 +691,10 @@ class LlamaServerRunner:
                 ]
                 raise RuntimeError(f"llama-server exited with {self.process.returncode}: {tail}")
             try:
-                if _http_json(f"http://127.0.0.1:{port}/health", timeout=2).get("status") == "ok":
+                if (
+                    _http_json(f"http://127.0.0.1:{self.port}/health", timeout=2).get("status")
+                    == "ok"
+                ):
                     return
             except (OSError, ValueError, urllib.error.URLError):
                 pass
@@ -813,28 +837,73 @@ class LlamaServerRunner:
         return response["choices"][0]["message"].get("content", ""), elapsed
 
     def _completion(self, body: dict[str, Any]) -> dict[str, Any]:
-        try:
-            response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
-        except (OSError, ValueError, urllib.error.URLError):
-            # On Windows a crashed server can linger (error reporting) and only
-            # time out; three connection failures in a row mean it is gone too.
-            self._connection_failures = getattr(self, "_connection_failures", 0) + 1
-            process = getattr(self, "process", None)
-            exited = process is not None and process.poll() is not None
-            if exited or self._connection_failures >= 3:
-                log = getattr(self, "server_log", None)
-                tail = ""
-                if log is not None:
-                    try:
-                        log.flush()
-                        tail = Path(log.name).read_text(encoding="utf-8", errors="replace")[-1500:]
-                    except (OSError, ValueError):
-                        tail = "(server log unavailable)"
-                state = f"exited with {process.returncode}" if exited else "stopped answering"
-                raise ServerDiedError(f"llama-server {state} mid-evaluation: {tail}") from None
-            raise
+        while True:
+            try:
+                response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+            except urllib.error.HTTPError as error:
+                # An HTTP status proves the server is alive: a 4xx is about this
+                # request, never a reason to restart (evaluation mode).
+                if (getattr(self, "max_restarts", 0) and error.code < 500) or not (
+                    self._transport_failure()
+                ):
+                    raise
+            except (OSError, ValueError, urllib.error.URLError):
+                if not self._transport_failure():
+                    raise
+            else:
+                self._connection_failures = 0
+                return response
+
+    def _transport_failure(self) -> bool:
+        """Account one failed request: True retries it, False re-raises its error.
+
+        Without a restart budget (onboard runtime) the error propagates as before.
+        With one (evaluation) the request is retried, and a dead server is
+        restarted, so a crash never shows up as a row without a model answer.
+        """
+        self._connection_failures = getattr(self, "_connection_failures", 0) + 1
+        process = getattr(self, "process", None)
+        exited = process is not None and process.poll() is not None
+        # On Windows a crashed server can linger (error reporting) and only
+        # time out; three connection failures in a row mean it is gone too.
+        if not exited and self._connection_failures < 3:
+            if not getattr(self, "max_restarts", 0):
+                return False
+            time.sleep(1.0)
+            return True
+        log = getattr(self, "server_log", None)
+        tail = ""
+        if log is not None:
+            try:
+                log.flush()
+                tail = Path(log.name).read_text(encoding="utf-8", errors="replace")[-1500:]
+            except (OSError, ValueError):
+                tail = "(server log unavailable)"
+        state = f"exited with {process.returncode}" if exited else "stopped answering"
+        restarts = getattr(self, "restarts", [])
+        if len(restarts) >= getattr(self, "max_restarts", 0):
+            raise ServerDiedError(f"llama-server {state} mid-evaluation: {tail}") from None
+        restarts.append(
+            {
+                "state": state,
+                "server_log": getattr(log, "name", None),
+                "log_tail": tail[-600:],
+                "time": time.time(),
+            }
+        )
+        print(
+            f"warning: llama-server {state}; restart {len(restarts)}/{self.max_restarts} "
+            "and retry the same request",
+            file=sys.stderr,
+            flush=True,
+        )
+        self.close(wait_port_free=True)
         self._connection_failures = 0
-        return response
+        try:
+            self._start()
+        except Exception as error:
+            raise ServerDiedError(f"llama-server restart failed: {error}") from error
+        return True
 
     def probe_health(self, timeout_s: float = 0.5) -> bool:
         """Cheap synchronous health probe used by the onboard state machine.
@@ -855,7 +924,7 @@ class LlamaServerRunner:
             _kernel32().CloseHandle(job)
             self._job_handle = None
 
-    def close(self) -> None:
+    def close(self, *, wait_port_free: bool | None = None) -> None:
         if self.process.poll() is None:
             self.process.terminate()
             try:
@@ -864,7 +933,9 @@ class LlamaServerRunner:
                 self.process.kill()
                 self.process.wait(timeout=10)
         self._close_job()
-        if not getattr(self, "wait_port_free", False):
+        if wait_port_free is None:
+            wait_port_free = getattr(self, "wait_port_free", False)
+        if not wait_port_free:
             return
         # A planner and identity server may reuse one port.  A failed connect
         # is not enough evidence: bind the port ourselves before returning.
@@ -881,6 +952,15 @@ class LlamaServerRunner:
         raise TimeoutError(f"llama-server port {self.port} did not become free")
 
 
+def missing_images(rows: list[dict[str, Any]]) -> list[str]:
+    """Image paths (already resolved against --data-root) that are not files."""
+    return [
+        str(row["image_path"])
+        for row in rows
+        if row.get("image_path") and not Path(str(row["image_path"])).is_file()
+    ]
+
+
 def run(args) -> dict[str, Any]:
     rows = load_jsonl(args.dataset / "test.jsonl", split="test")
     if getattr(args, "data_root", None) is not None:
@@ -891,6 +971,15 @@ def run(args) -> dict[str, Any]:
             for row in rows
         ]
     crop_policy = dataset_crop_policy(args.dataset, getattr(args, "crop_policy", None))
+    if args.backend != "fake":
+        missing = missing_images(rows)
+        if missing:
+            # r19: a --data-root without the benchmark frames turned 484 of 1,900
+            # rows into "invalid model output"; a model is never scored on that.
+            raise FileNotFoundError(
+                f"{len(missing)} of {len(rows)} dataset images are missing "
+                f"(--data-root {getattr(args, 'data_root', None)}); first: {missing[0]}"
+            )
     if args.backend == "fake":
 
         def predictor(row):
@@ -927,8 +1016,17 @@ def run(args) -> dict[str, Any]:
                 fast_identity=args.fast_identity,
                 identity_variant=getattr(args, "identity_variant", None),
                 cache_prompt=not getattr(args, "no_prompt_cache", False),
+                cache_ram_mib=getattr(args, "cache_ram_mib", None),
+                max_restarts=getattr(args, "max_server_restarts", 0),
             )
-        return evaluate_predictor(rows, runner)
+        result = evaluate_predictor(rows, runner)
+        if isinstance(runner, LlamaServerRunner):
+            result["harness"] = {
+                "cache_ram_mib": getattr(args, "cache_ram_mib", None),
+                "max_server_restarts": runner.max_restarts,
+                "server_restarts": runner.restarts,
+            }
+        return result
     finally:
         if isinstance(runner, LlamaServerRunner):
             runner.close()
@@ -958,6 +1056,19 @@ def main(argv=None) -> int:
         action="store_true",
         help="GGUF: disable per-request prompt caching for cold-prefill latency",
     )
+    parser.add_argument(
+        "--cache-ram-mib",
+        type=int,
+        default=0,
+        help="GGUF: llama-server --cache-ram (host prompt-state cache, MiB). 0 disables it: "
+        "every row has a new image, so the server default (8 GiB) only fills host RAM",
+    )
+    parser.add_argument(
+        "--max-server-restarts",
+        type=int,
+        default=3,
+        help="GGUF: restart a crashed llama-server and retry the same row up to N times",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--gguf-model", type=Path)
     parser.add_argument("--mmproj", type=Path)
@@ -981,6 +1092,14 @@ def main(argv=None) -> int:
     if args.output:
         args.output.write_text(payload + "\n", encoding="utf-8", newline="\n")
     print(payload)
+    harness_errors = result["metrics"].get("harness_error_count", 0)
+    if harness_errors:
+        print(
+            f"error: {harness_errors} rows have no model answer (harness errors, see their "
+            "'failure'); this is not a valid model measurement",
+            file=sys.stderr,
+        )
+        return 3
     return 0
 
 

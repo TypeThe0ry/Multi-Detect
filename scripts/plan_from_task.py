@@ -174,6 +174,11 @@ def main(argv: list[str] | None = None) -> int:
         "--no-prompt-cache", action="store_true",
         help="disable HTTP prompt caching for full-prefill latency measurements",
     )
+    parser.add_argument(
+        "--cache-ram-mib", type=int, default=0,
+        help="llama-server --cache-ram in MiB (0 disables the host prompt-state cache; the "
+        "server default of 8 GiB fills host RAM over a long evaluation)",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--sorted-keys",
@@ -195,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     server = LlamaServerRunner(
         args.gguf, None if args.no_mmproj else args.mmproj,
         executable=args.llama_server, port=args.port,
-        max_new_tokens=768, device=args.device,
+        max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
     )
     request_usage: list[dict[str, int | None]] = []
 
@@ -271,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         "mmproj_mode": "none" if args.no_mmproj else "configured",
         "prompt_variant": args.prompt_variant,
         "prompt_cache": not args.no_prompt_cache,
+        "cache_ram_mib": args.cache_ram_mib,
         "mean_latency_s": _mean_available(rows, "latency_s"),
         "mean_prompt_tokens": _mean_available(rows, "prompt_tokens"),
         "mean_prompt_tokens_total": _mean_available(rows, "prompt_tokens_total"),
