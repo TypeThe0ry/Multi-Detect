@@ -191,6 +191,84 @@ def top_up_negatives(
     return result
 
 
+COUNTERFACTUAL_POSITIVE_LABELS = frozenset({"counterfactual", "proposal_counterfactual"})
+
+
+def _proportional_pick(rows: list[dict], count: int, rng: random.Random) -> list[dict]:
+    """``count`` rows spread over world/label/decision strata in proportion to their size."""
+    groups: dict[tuple[str, str, str], list[dict]] = {}
+    for row in rows:
+        key = (
+            str(row.get("world") or "unknown"),
+            str(row.get("label_type") or "unknown"),
+            str((row.get("assistant_target") or {}).get("decision", "unknown")),
+        )
+        groups.setdefault(key, []).append(row)
+    keys = sorted(groups)
+    for key in keys:
+        groups[key].sort(key=row_key)
+        rng.shuffle(groups[key])
+    exact = {key: count * len(groups[key]) / max(1, len(rows)) for key in keys}
+    quota = {key: math.floor(exact[key]) for key in keys}
+    by_remainder = sorted(keys, key=lambda k: (-(exact[k] - quota[k]), k))
+    for key in by_remainder[: count - sum(quota.values())]:
+        quota[key] += 1
+    return [row for key in keys for row in groups[key][: quota[key]]]
+
+
+def trim_counterfactual_positives(
+    rows: list[dict], protected: set[str], max_positive_ratio: float, seed: int = 20261016
+) -> tuple[list[dict], dict]:
+    """Drop the round's renamed-task "yes" rows until the positive share is under the cap.
+
+    Used when the r12 pool has no held-back rejections left (``--r12-replay-fraction
+    1.0``), so ``top_up_negatives`` cannot rebalance.  Counterfactual positives
+    without a paired reject (same frame, same task) go first: they only ever teach
+    "the task names it, so yes", the r15/r16 failure.  Paired counterfactuals go
+    next; true-target rows and every ``protected`` (r12) row are never dropped,
+    so if those alone exceed the cap the dataset gate still fails.
+    """
+    positives = sum(1 for row in rows if _polarity(row) == "positive")
+    negatives = sum(1 for row in rows if _polarity(row) == "negative")
+    allowed = math.floor(max_positive_ratio * negatives / (1 - max_positive_ratio) + 1e-9)
+    excess = positives - allowed
+    report: dict = {"target_positive_ratio": max_positive_ratio, "dropped": 0}
+    if excess <= 0:
+        return rows, report
+    rejected = {
+        (row.get("image_path"), row.get("task_text"))
+        for row in rows
+        if _polarity(row) == "negative"
+    }
+    unpaired: list[dict] = []
+    paired: list[dict] = []
+    for row in rows:
+        if (
+            row_key(row) in protected
+            or row.get("label_type") not in COUNTERFACTUAL_POSITIVE_LABELS
+            or _polarity(row) != "positive"
+        ):
+            continue
+        (paired if (row.get("image_path"), row.get("task_text")) in rejected else unpaired).append(
+            row
+        )
+    rng = random.Random(seed)
+    dropped: list[dict] = []
+    for name, tier in (("unpaired_counterfactual", unpaired), ("paired_counterfactual", paired)):
+        picked = _proportional_pick(tier, min(excess - len(dropped), len(tier)), rng)
+        report[name] = len(picked)
+        dropped.extend(picked)
+        if len(dropped) >= excess:
+            break
+    drop_keys = {row_key(row) for row in dropped}
+    by_stratum: Counter = Counter(
+        f"{row.get('world')}|{row.get('label_type')}|{row['assistant_target']['decision']}"
+        for row in dropped
+    )
+    report.update(dropped=len(dropped), by_stratum=dict(sorted(by_stratum.items())))
+    return [row for row in rows if row_key(row) not in drop_keys], report
+
+
 def replay_key(row: dict) -> tuple[str, str, str]:
     decision = (row.get("assistant_target") or {}).get("decision", "unknown")
     side = row.get("candidate_short_side_px")
@@ -1117,14 +1195,24 @@ def merge_cli(args):
             base = stratified_replay(base, args.r12_replay_fraction, seed=args.seed)
         added = read_jsonl(args.additions / f"{split}.jsonl")
         rows = merge_without_copies(base, added)
+        trim_report = None
         if split == "train":
             replayed = {row_key(row) for row in base}
+            target_ratio = baseline_ratio + args.max_positive_ratio_delta / 2
+            before_top_up = len(rows)
             rows = top_up_negatives(
                 rows,
                 [row for row in full if row_key(row) not in replayed],
-                baseline_ratio + args.max_positive_ratio_delta / 2,
+                target_ratio,
                 seed=args.seed,
             )
+            top_up_count = len(rows) - before_top_up
+            # With a full replay there is nothing held back to top up from; drop the
+            # round's own unpaired renamed-task positives instead of loosening the gate.
+            rows, trim_report = trim_counterfactual_positives(
+                rows, {row_key(row) for row in full}, target_ratio, seed=args.seed
+            )
+            trim_report["r12_negative_top_up"] = top_up_count
         (out / f"{split}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows),
             encoding="utf-8",
@@ -1136,6 +1224,8 @@ def merge_cli(args):
             "merged": len(rows),
             "classes_size_polarity": distribution(rows),
         }
+        if trim_report is not None:
+            stats[split]["rebalance"] = trim_report
     pos = sum(
         v for k, v in stats["train"]["classes_size_polarity"].items() if k.endswith("|positive")
     )
@@ -1146,15 +1236,25 @@ def merge_cli(args):
     baseline_negative_ratio = baseline_neg / max(1, baseline_pos + baseline_neg)
     merged_negative_ratio = neg / max(1, pos + neg)
     expected_replay_neg = math.ceil(baseline_neg * args.r12_replay_fraction)
-    if (
-        abs(ratio - baseline_ratio) > args.max_positive_ratio_delta
-        or merged_negative_ratio < baseline_negative_ratio - args.max_negative_ratio_delta
-        or neg < expected_replay_neg
-    ):
+    failed = [
+        name
+        for name, bad in (
+            ("positive ratio", abs(ratio - baseline_ratio) > args.max_positive_ratio_delta),
+            (
+                "distractor ratio",
+                merged_negative_ratio < baseline_negative_ratio - args.max_negative_ratio_delta,
+            ),
+            ("replay negatives", neg < expected_replay_neg),
+        )
+        if bad
+    ]
+    if failed:
         raise SystemExit(
-            f"数据集门禁失败：positive ratio r12={baseline_ratio:.3f}, r15={ratio:.3f}; "
+            f"数据集门禁失败（{', '.join(failed)}）："
+            f"positive ratio r12={baseline_ratio:.3f}, r15={ratio:.3f}; "
             f"distractor ratio r12={baseline_negative_ratio:.3f}, r15={merged_negative_ratio:.3f}; "
-            f"expected replay negatives={expected_replay_neg}, merged={neg}"
+            f"expected replay negatives>={expected_replay_neg}, merged={neg}; "
+            f"rebalance={json.dumps(stats['train'].get('rebalance'), ensure_ascii=False)}"
         )
     manifest = {
         "round": "r15",
