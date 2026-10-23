@@ -320,3 +320,14 @@ server.config 的结构如果变了，容器启动会直接报错退出，不会
 回归测试（去掉修复后都会失败）：`test_fixed_wing_search_passes_a_waypoint_the_plane_keeps_circling`（用 w0016 实测位姿）、`test_fixed_wing_search_corrects_altitude_on_the_search_leg`、`test_fixed_wing_stops_restarting_passes_at_a_place_after_the_cap`；另加 `test_fixed_wing_search_does_not_skip_a_far_or_closing_waypoint` 防误跳。
 
 r19 数据建议：补固定翼视角的救护车正样本——坡度 20–40° 的倾斜画面、斜距 80–200 m、框短边 20–40 px、车顶/车尾/斜 45° 方位；补同条件下的大巴、SUV、消防车负样本（本次远处误 match：大巴 0.65–0.87、SUV 0.73–0.93、消防车 0.5–1.0）。如果要在逻辑层继续减小坡度影响，可以评估送慢模型前按滚转角把裁剪图转正，需要先离线对比再决定。
+
+### 2026-10-23 航点捕获修复后复验（95e4bfc）
+
+`_scratch/vtol-smoke/rc_cessna-gen_v2_w00{16,31}-fix2`，任务仍是 "Find the ambulance and return home."，两架次都在 141 步预算耗尽后自动返航，没有确认。步数分布与修复前对比：
+
+| 世界 | 搜索航段 | 原地升降 | 过顶 |
+|---|---|---|---|
+| w0016（有救护车） | 88（修复前 77，实为绕圈） | 0（修复前 42） | 救护车 24、SUV 14、大巴 14 |
+| w0031（无救护车） | 100（修复前 32） | 0（修复前 28） | 消防车 29（修复前 73）、“救护车”地点 11 |
+
+航线逻辑的问题已消失：原地升降降为 0，飞机沿航带飞，并对 w0016 的救护车做了 24 步过顶。仍未确认说明剩下的是慢模型在固定翼倾斜高空视角下对救护车的判断（参见上一节：18 次判断只有 3 次 match）。下一轮慢模型数据需补该视角的正负样本（坡度 20–40°、斜距 80–200 m、框短边 20–40 px，车顶/车尾/斜 45°，以及同条件的大巴、SUV、消防车负样本）；r19 的世界集已固定，不含这部分。
