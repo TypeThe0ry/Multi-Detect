@@ -187,6 +187,15 @@ From the Windows repository root, the equivalent SSH wrapper is
 `multidetect-jetson` SSH alias by default and asks for sudo only for an explicit state-changing
 operation.
 
+## Host prompt cache
+
+`llama-server.service` and the servers the policy starts run with `--cache-ram 0`
+(policy option `llama_cache_ram_mib`, default 0). llama-server otherwise keeps evicted prompt
+states in host RAM up to 8 GiB; identity calls carry a new image crop every time, so the cache never
+hits and only grows. On the Windows SITL host it reached ~8 GB and CUDA launches then failed with
+out-of-memory; the 8 GB Orin Nano cannot hold it at all. The flag needs a llama.cpp build that has
+`--cache-ram` (b11552 does); check `llama-server --help` on the Jetson build before deploying.
+
 ## Split planner/identity models
 
 The optional `planning_model` field belongs in the onboard JSON configuration next to `gguf`.

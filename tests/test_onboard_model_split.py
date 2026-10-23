@@ -38,6 +38,8 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
     events: list[tuple[str, str]] = []
     active = {"count": 0}
     builds = {"count": 0}
+    cache_ram = CACHE_RAM
+    cache_ram.clear()
 
     class FakeRunner:
         def __init__(self, model, mmproj=None, **kwargs):
@@ -47,6 +49,7 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
             events.append(("start", role))
             self.port = kwargs["port"]
             self.role = role
+            cache_ram.append(kwargs.get("cache_ram_mib"))
 
         def close(self):
             events.append(("close", self.role))
@@ -79,6 +82,16 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
         proposer=lambda frame: [],
     )
     return policy, events, active, builds
+
+
+CACHE_RAM: list = []
+
+
+def test_onboard_servers_run_without_the_host_prompt_cache(monkeypatch, tmp_path):
+    # llama-server's default 8 GiB host prompt cache never hits on per-frame crops
+    # and starved the SITL host; both onboard servers must turn it off.
+    _make(monkeypatch, tmp_path)
+    assert CACHE_RAM == [0, 0]
 
 
 def test_split_closes_planner_before_identity(monkeypatch, tmp_path):

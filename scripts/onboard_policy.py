@@ -999,6 +999,12 @@ class OnboardPolicy:
             "swap_completed_monotonic_s": None,
         }
 
+        # llama-server keeps evicted prompt states in host RAM (8 GiB by default).
+        # Every identity call carries a new crop, so the cache never hits and only
+        # grows: it starved a 32 GB SITL host until CUDA launches failed, and an
+        # 8 GB Jetson cannot hold it at all.  0 turns it off.
+        cache_ram_mib = int(options.get("llama_cache_ram_mib", 0))
+
         def make_identity_runner():
             return LlamaServerRunner(
                 Path(options["gguf"]),
@@ -1011,6 +1017,7 @@ class OnboardPolicy:
                 logprobs=True,
                 fast_identity=str(options.get("fast_identity", False)).lower()
                 in {"1", "true", "yes"},
+                cache_ram_mib=cache_ram_mib,
             )
 
         def start_identity_runner():
@@ -1045,6 +1052,7 @@ class OnboardPolicy:
                     identity_only=False,
                     logprobs=False,
                     wait_port_free=True,
+                    cache_ram_mib=cache_ram_mib,
                 )
             except Exception as exc:
                 planner_start_error = exc
