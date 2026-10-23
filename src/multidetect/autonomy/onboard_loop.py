@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import colorsys
 import math
+import statistics
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -156,6 +157,10 @@ def _min_side(box: Box) -> float:
     return min(box[2] - box[0], box[3] - box[1])
 
 
+# Size estimates kept per track for the closer looks (latest views).
+_EXTENT_VIEWS = 32
+
+
 def _wrap(degrees: float) -> float:
     return (degrees + 180.0) % 360.0 - 180.0
 
@@ -242,6 +247,38 @@ class CameraModel:
 
     def bearing_deg(self, u: float) -> float:
         return math.degrees(math.atan2(u - self.cx, self.fx))
+
+    # -- object size in the image ---------------------------------------------
+    # A box side is f * size / depth, where depth runs along the optical axis,
+    # not along the line of sight.  With this ~100 deg wide lens an object near
+    # the image edge (40-50 deg off axis) has a depth of 0.64-0.77 times its
+    # slant range, so a size model in the slant range overstates how small it
+    # is there and, scaled to a centred view, predicts a box 30-50 % too large
+    # (SITL mission-suite-patrolrecall-20261023: looks planned for 14 px saw
+    # 6-11 px).  These helpers are the one size model the closer looks share.
+    @property
+    def focal_px(self) -> float:
+        return (self.fx + self.fy) / 2.0
+
+    def axis_depth(self, u: float, v: float, slant_m: float) -> float:
+        """Depth along the optical axis of a point at ``slant_m`` seen at pixel (u, v)."""
+        x, y = (u - self.cx) / self.fx, (v - self.cy) / self.fy
+        return slant_m / math.sqrt(1.0 + x * x + y * y)
+
+    def box_extent_m(self, box: Box, slant_m: float) -> float:
+        """Size in metres across ``box``'s shorter side, for an object ``slant_m`` away."""
+        u, v = _center(box)
+        return _min_side(box) * self.axis_depth(u, v, slant_m) / self.focal_px
+
+    def facing_depth(self, horizontal_m: float, height_m: float) -> float:
+        """Axis depth of a ground point straight ahead, ``height_m`` below the camera."""
+        return horizontal_m * math.cos(self.pitch_down_rad) + height_m * math.sin(
+            self.pitch_down_rad
+        )
+
+    def side_px(self, extent_m: float, depth_m: float) -> float:
+        """Box side of an object ``extent_m`` across at axis depth ``depth_m``."""
+        return self.focal_px * extent_m / depth_m if depth_m > 1e-6 else math.inf
 
     def ray_ned(self, u: float, v: float, yaw_deg: float) -> tuple[float, float, float]:
         """Unit ray for the same level-flight model as ``ground_point``."""
@@ -377,6 +414,9 @@ class Track:
     small_relevant_view: tuple[float, float, int] | None = None
     small_relevant_label: str | None = None
     small_relevant_score: float = 0.0
+    # Object size (m) from each query-relevant view (CameraModel.box_extent_m),
+    # latest last; the closer looks size their viewpoint by the median.
+    small_relevant_extents: list[float] = field(default_factory=list)
     # Detector class label of the latest detection.
     label: str | None = None
 
@@ -511,6 +551,11 @@ class LoopConfig:
     small_unjudged_view_depression_deg: float = 20.0
     # Holds at the viewpoint waiting for a judgement before giving up.
     small_unjudged_look_holds: int = 2
+    # A closer look (small unjudged, patrol/monitor alert, small-box count
+    # rejection) whose box is still below min_verdict_side_px at the viewpoint
+    # re-sizes the object from that view and moves closer (and lower) along the
+    # same bearing this many times, when the legs and descent are clear.
+    small_unjudged_reapproach_max: int = 1
     # Patrol/monitor (set by MissionExecutor; None disables): a query-relevant
     # track whose latest real verdict was a rejection of a box smaller than
     # confirm_min_side_px is asked again as soon as its box has grown by this
@@ -808,6 +853,12 @@ class LoopConfig:
             or self.small_unjudged_look_holds < 0
         ):
             raise ValueError("small_unjudged_look_holds must be a non-negative integer")
+        if (
+            isinstance(self.small_unjudged_reapproach_max, bool)
+            or not isinstance(self.small_unjudged_reapproach_max, int)
+            or self.small_unjudged_reapproach_max < 0
+        ):
+            raise ValueError("small_unjudged_reapproach_max must be a non-negative integer")
         if self.grown_reject_reask_ratio is not None and (
             isinstance(self.grown_reject_reask_ratio, bool)
             or not isinstance(self.grown_reject_reask_ratio, (int, float))
@@ -967,6 +1018,9 @@ class OnboardLoop:
     # Closest-view holds/back-offs spent on the current focus.
     _closest_holds: int = 0
     _last_pose: tuple[float, float, float] | None = None
+    # step_index of the latest update_tracks frame (hosts that call next_action
+    # advance it after the update, patrol/monitor hosts before).
+    _frame_step: int = -1
     # Rejected candidates: ground point and where they were seen from.
     _rejections: list[dict[str, Any]] = field(default_factory=list)
     _revisit: dict[str, Any] | None = None
@@ -1078,6 +1132,7 @@ class OnboardLoop:
             self._last_yaw_deg = yaw_deg
         if pose_ned is not None:
             self._last_pose = tuple(pose_ned)
+        self._frame_step = self.step_index
         predicted = {}
         for tid, t in free.items():
             u, v = _center(t.bbox)
@@ -2014,12 +2069,17 @@ class OnboardLoop:
             return
         seen_from = (self._last_pose[0], self._last_pose[1])
         footprint = getattr(track.appearance, "footprint_m", None)
+        slant = math.hypot(math.dist(track.ground, seen_from), max(0.0, -self._last_pose[2]))
+        extent = self.camera.box_extent_m(track.bbox, slant) if slant > 1e-6 else None
         item = self._rejection_at(track)
         if item is not None:
             item["ground"] = track.ground
             item["views"].append(seen_from)
             item.setdefault("min_side_px", []).append(_min_side(track.bbox))
             item.setdefault("range_m", []).append(self._track_range(track))
+            item.setdefault("slant_m", []).append(slant)
+            if extent is not None:
+                item.setdefault("extent_m", []).append(extent)
             item["usable_seen"] = (
                 item.get("usable_seen", False)
                 or _min_side(track.bbox) >= self.config.confirm_min_side_px
@@ -2033,6 +2093,8 @@ class OnboardLoop:
                 "views": [seen_from],
                 "min_side_px": [_min_side(track.bbox)],
                 "range_m": [self._track_range(track)],
+                "slant_m": [slant],
+                "extent_m": [extent] if extent is not None else [],
                 "usable_seen": _min_side(track.bbox) >= self.config.confirm_min_side_px,
                 "revisited": False,
                 "confidence": confidence,
@@ -2074,11 +2136,51 @@ class OnboardLoop:
         return False
 
     def plan_rejection_revisit(
-        self, rejection: Mapping[str, Any], pose_ned
-    ) -> dict[str, Any] | None:
+        self,
+        rejection: Mapping[str, Any],
+        pose_ned,
+        allowed: Callable[[tuple[float, float]], bool] | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """A viewpoint to judge a rejected far/small place again: ``(look, reason)``.
+
+        A place rejected only from boxes below ``confirm_min_side_px`` with size
+        estimates gets the closer-look geometry: the viewpoint where its box
+        reaches ``small_unjudged_target_side_px`` (and no less than the largest
+        box it was rejected at), descending if needed, then the climb back.  A
+        cruise-altitude view at the keep-in-view standoff is about 21 m out,
+        farther than such a rejection was made from (SITL patrolrecall
+        6a87070d: a hydrant rejected at 11 px from 23 m was revisited from 27 m
+        at 9 px).  ``allowed`` filters the closer-look viewpoints.  Other places
+        keep the level standoff view.
+        """
         centre = rejection.get("ground")
         if centre is None:
-            return None
+            return None, "no_place"
+        sides = list(rejection.get("min_side_px") or ())
+        extents = [e for e in rejection.get("extent_m") or () if e]
+        if sides and extents and all(side < self.config.confirm_min_side_px for side in sides):
+            best = max(range(len(sides)), key=lambda i: sides[i])
+            slants = rejection.get("slant_m") or ()
+            place = {
+                "centre": (float(centre[0]), float(centre[1])),
+                "extent_m": statistics.median(extents),
+                "min_side_px": sides[best],
+                "slant_m": slants[best]
+                if best < len(slants)
+                else statistics.median(extents) * self.camera.focal_px / sides[best],
+                "target_side_px": min(
+                    self.config.confirm_min_side_px,
+                    max(self.config.small_unjudged_target_side_px, max(sides)),
+                ),
+                "track_ids": [rejection.get("track_id")],
+                "track": self._tracks.get(rejection.get("track_id")),
+            }
+            look, reason = self.plan_small_unjudged_revisit(place, pose_ned, allowed)
+            if look is None:
+                return None, reason
+            look.update(kind="count_rejection_revisit", rejection_look=True, rejection=rejection)
+            look["record"]["kind"] = "small_rejected"
+            return look, None
         standoff = max(
             self.config.second_look_standoff_m,
             self._keep_range(max(0.0, -pose_ned[2])) + self.config.min_translate_m,
@@ -2089,7 +2191,7 @@ class OnboardLoop:
             dn, de, distance = 1.0, 0.0, 1.0
         goal = (centre[0] + standoff * dn / distance, centre[1] + standoff * de / distance)
         if not self._segment_clear(pose_ned, goal[0], goal[1]):
-            return None
+            return None, "no_clear_viewpoint"
         return {
             "goal": goal,
             "centre": (float(centre[0]), float(centre[1])),
@@ -2097,7 +2199,7 @@ class OnboardLoop:
             "steps": 0,
             "kind": "count_rejection_revisit",
             "rejection": rejection,
-        }
+        }, None
 
     def _one_sided(self, item: dict[str, Any]) -> bool:
         """Every rejection so far came from within 60 deg of the first view direction."""
@@ -2146,7 +2248,7 @@ class OnboardLoop:
         info["second_look"] = {"centre": list(look["centre"]), "phase": look["phase"]}
         if look.get("kind"):
             info["second_look"]["kind"] = look["kind"]
-        small = look.get("kind") == "small_unjudged_revisit"
+        small = bool(look.get("staged"))
         if small:
             if look["steps"] > look["max_steps"] and look["phase"] != "climb":
                 return self._end_small_unjudged(look, "timeout", pose_ned)
@@ -2183,7 +2285,9 @@ class OnboardLoop:
                 if action.kind != "translate":
                     look["rejection"]["revisited"] = False
                     if small:
-                        look["record"]["outcome"] = "fly_blocked"
+                        # Below the starting altitude (a re-approach leg): climb back first.
+                        climb = self._end_small_unjudged(look, "fly_blocked", pose_ned)
+                        return climb if climb is not None else action
                     self._revisit = None
                 return action
             if small:
@@ -2198,36 +2302,7 @@ class OnboardLoop:
                 return ActionPrimitive.turn(delta)
             # Facing the far side: forget old verdicts near the centre so the slow
             # model is asked again from this view.
-            for track in self._tracks.values():
-                if track.ground is None:
-                    continue
-                footprint = look["rejection"].get("footprint_m") or getattr(
-                    track.appearance, "footprint_m", None
-                )
-                radius = (
-                    max(1.5, self.config.memory_footprint_factor * footprint)
-                    if footprint
-                    else self.config.count_dedupe_m
-                )
-                compatible = (
-                    look["rejection"].get("track_id") not in track.co_visible_with
-                    and track.track_id not in look["rejection"].get("co_visible_with", ())
-                    and (
-                        look["rejection"].get("appearance") is None
-                        or track.appearance is None
-                        or appearances_consistent(
-                            look["rejection"]["appearance"], track.appearance, self.config
-                        )
-                    )
-                )
-                if compatible and math.dist(track.ground, look["centre"]) <= radius:
-                    track.verdict, track.confirm_steps = None, []
-                    track.verdict_ground = None
-                    track.needs_fresh_verdict = True
-                    # A place revisit asks again but never re-opens a counted
-                    # or approach-exhausted track.
-                    if look.get("kind") != "place_revisit":
-                        track.exhausted = False
+            self._reask_place(look)
             look["phase"] = "look"
             return ActionPrimitive.hold(1.0)
         if look["phase"] == "look":
@@ -2246,6 +2321,39 @@ class OnboardLoop:
             self._revisits_done += 1
         self._revisit = None
         return None
+
+    def _reask_place(self, look: Mapping[str, Any]) -> None:
+        """Forget the verdicts of tracks at the place of ``look`` so they are asked again."""
+        for track in self._tracks.values():
+            if track.ground is None:
+                continue
+            footprint = look["rejection"].get("footprint_m") or getattr(
+                track.appearance, "footprint_m", None
+            )
+            radius = (
+                max(1.5, self.config.memory_footprint_factor * footprint)
+                if footprint
+                else self.config.count_dedupe_m
+            )
+            compatible = (
+                look["rejection"].get("track_id") not in track.co_visible_with
+                and track.track_id not in look["rejection"].get("co_visible_with", ())
+                and (
+                    look["rejection"].get("appearance") is None
+                    or track.appearance is None
+                    or appearances_consistent(
+                        look["rejection"]["appearance"], track.appearance, self.config
+                    )
+                )
+            )
+            if compatible and math.dist(track.ground, look["centre"]) <= radius:
+                track.verdict, track.confirm_steps = None, []
+                track.verdict_ground = None
+                track.needs_fresh_verdict = True
+                # A place revisit asks again but never re-opens a counted
+                # or approach-exhausted track.
+                if look.get("kind") != "place_revisit":
+                    track.exhausted = False
 
     def place_radius(self, track: Track) -> float:
         """Object-sized place radius, as used by rejection memory and count dedupe."""
@@ -2392,6 +2500,8 @@ class OnboardLoop:
         slant = math.hypot(math.dist(ground, pose_ned[:2]), max(0.0, -pose_ned[2]))
         if slant <= 1e-6 or not math.isfinite(slant):
             return
+        track.small_relevant_extents.append(self.camera.box_extent_m(detection.bbox, slant))
+        del track.small_relevant_extents[:-_EXTENT_VIEWS]
         prior = track.small_relevant_view
         if prior is None or side > prior[0]:
             track.small_relevant_view = (side, slant, self.step_index)
@@ -2418,6 +2528,46 @@ class OnboardLoop:
             if remembered is not None and remembered.verdicts:
                 return True
         return False
+
+    def _merge_small_place(self, places, track: Track, position, view, radius: float) -> None:
+        """Add ``track`` to the place within ``radius`` (not co-visible) or a new one.
+
+        A place is described by its largest view; its ``extent_m`` (the object
+        size the closer looks plan with) is the median over every view of its
+        tracks, so one box inflated at the image edge does not set it.
+        """
+        for place in places:
+            if math.dist(place["centre"], position) <= radius and not (
+                set(place["track_ids"]) & track.co_visible_with
+            ):
+                place["track_ids"].append(track.track_id)
+                place["extents"].extend(track.small_relevant_extents)
+                if view[0] > place["min_side_px"]:
+                    place.update(
+                        centre=(float(position[0]), float(position[1])),
+                        min_side_px=view[0],
+                        slant_m=view[1],
+                        step=view[2],
+                        label=track.small_relevant_label,
+                        score=track.small_relevant_score,
+                        track=track,
+                    )
+                break
+        else:
+            place = {
+                "centre": (float(position[0]), float(position[1])),
+                "track_ids": [track.track_id],
+                "min_side_px": view[0],
+                "slant_m": view[1],
+                "step": view[2],
+                "label": track.small_relevant_label,
+                "score": track.small_relevant_score,
+                "track": track,
+                "extents": list(track.small_relevant_extents),
+            }
+            places.append(place)
+        if place["extents"]:
+            place["extent_m"] = statistics.median(place["extents"])
 
     def small_unjudged_places(self) -> list[dict[str, Any]]:
         """Places of query-relevant tracks that were never judged.
@@ -2450,35 +2600,7 @@ class OnboardLoop:
                 continue
             if self._judged_near(track, position, radius):
                 continue
-            for place in places:
-                if math.dist(place["centre"], position) <= radius and not (
-                    set(place["track_ids"]) & track.co_visible_with
-                ):
-                    place["track_ids"].append(track.track_id)
-                    if view[0] > place["min_side_px"]:
-                        place.update(
-                            centre=(float(position[0]), float(position[1])),
-                            min_side_px=view[0],
-                            slant_m=view[1],
-                            step=view[2],
-                            label=track.small_relevant_label,
-                            score=track.small_relevant_score,
-                            track=track,
-                        )
-                    break
-            else:
-                places.append(
-                    {
-                        "centre": (float(position[0]), float(position[1])),
-                        "track_ids": [track.track_id],
-                        "min_side_px": view[0],
-                        "slant_m": view[1],
-                        "step": view[2],
-                        "label": track.small_relevant_label,
-                        "score": track.small_relevant_score,
-                        "track": track,
-                    }
-                )
+            self._merge_small_place(places, track, position, view, radius)
         return places
 
     def small_rejected_places(self) -> list[dict[str, Any]]:
@@ -2533,35 +2655,7 @@ class OnboardLoop:
             radius = max(self.place_radius(track), self.config.count_dedupe_m)
             if any(settled_by(other, track, position, radius) for other in self._tracks.values()):
                 continue
-            for place in places:
-                if math.dist(place["centre"], position) <= radius and not (
-                    set(place["track_ids"]) & track.co_visible_with
-                ):
-                    place["track_ids"].append(track.track_id)
-                    if view[0] > place["min_side_px"]:
-                        place.update(
-                            centre=(float(position[0]), float(position[1])),
-                            min_side_px=view[0],
-                            slant_m=view[1],
-                            step=view[2],
-                            label=track.small_relevant_label,
-                            score=track.small_relevant_score,
-                            track=track,
-                        )
-                    break
-            else:
-                places.append(
-                    {
-                        "centre": (float(position[0]), float(position[1])),
-                        "track_ids": [track.track_id],
-                        "min_side_px": view[0],
-                        "slant_m": view[1],
-                        "step": view[2],
-                        "label": track.small_relevant_label,
-                        "score": track.small_relevant_score,
-                        "track": track,
-                    }
-                )
+            self._merge_small_place(places, track, position, view, radius)
         return places
 
     @property
@@ -2581,57 +2675,82 @@ class OnboardLoop:
             return None
         return self._second_look_action(pose_ned, yaw_deg, info)
 
+    def _place_extent_m(self, place: Mapping[str, Any]) -> float:
+        """Object size (m) a closer look plans with."""
+        extent = place.get("extent_m")
+        if isinstance(extent, (int, float)) and math.isfinite(extent) and extent > 0:
+            return float(extent)
+        # A place without size estimates: its largest view, taken as centred.
+        return float(place["min_side_px"]) * float(place["slant_m"]) / self.camera.focal_px
+
     def plan_small_unjudged_revisit(
         self,
         place: Mapping[str, Any],
         pose_ned: tuple[float, float, float],
         allowed: Callable[[tuple[float, float]], bool] | None = None,
+        *,
+        bearings: Sequence[float] | None = None,
     ) -> tuple[dict[str, Any] | None, str | None]:
         """A viewpoint from which ``place``'s box reaches the judging size.
 
-        The box side scales with the inverse slant range, so the place's largest
-        small view gives the slant range at which it spans
-        ``small_unjudged_target_side_px``.  The view altitude puts the object
-        ``small_unjudged_view_depression_deg`` below the camera axis, bounded by
-        ``approach_min_altitude_m`` and the current altitude, and the horizontal
-        range keeps it above the image bottom.  Bearings are tried nearest the
-        current side first; a viewpoint needs a clear level leg at the current
-        altitude and a clear descent from the current altitude down to the view
-        altitude at the viewpoint (the 3-D leg, so a roof between the two
-        altitudes is seen).  Viewpoints whose sight line passes no obstacle
-        footprint are preferred.  Returns ``(look, None)`` or ``(None, reason)``.
+        The box side is f * size / depth with the depth along the optical axis
+        (CameraModel.box_extent_m / side_px), so the place's size estimate
+        (``extent_m``) gives the axis depth at which a faced object spans
+        ``target_side_px`` (default ``small_unjudged_target_side_px``).  The view
+        altitude puts the object ``small_unjudged_view_depression_deg`` below the
+        camera axis, bounded by ``approach_min_altitude_m`` and the current
+        altitude, and the horizontal range keeps it above the image bottom.  When
+        even the lowest such view is farther than that depth, the lowest view is
+        used as long as it reaches ``min_verdict_side_px``.  Bearings (radians,
+        from the object; default nearest the current side first) need a clear
+        level leg at the current altitude and a clear descent from the current
+        altitude down to the view altitude at the viewpoint (the 3-D leg, so a
+        roof between the two altitudes is seen).  Viewpoints whose sight line
+        passes no obstacle footprint are preferred.  Returns ``(look, None)`` or
+        ``(None, reason)``.
         """
         centre = (float(place["centre"][0]), float(place["centre"][1]))
-        side, slant = float(place["min_side_px"]), float(place["slant_m"])
-        reach = slant * side / self.config.small_unjudged_target_side_px
+        extent = self._place_extent_m(place)
+        target = float(place.get("target_side_px") or self.config.small_unjudged_target_side_px)
+        camera = self.camera
+        pitch = camera.pitch_down_rad
+        depth = camera.focal_px * extent / target
         altitude = max(0.0, -pose_ned[2])
         floor = self.config.approach_min_altitude_m
-        lowest = self.camera.pitch_down_rad + math.atan2(self.camera.cy, self.camera.fy)
+        lowest = pitch + math.atan2(camera.cy, camera.fy)
         keep = self.config.keep_in_view_margin / math.tan(lowest) if lowest < math.pi / 2 else 0.0
-        # Highest altitude at which the object still sits above the image bottom.
-        top = min(altitude, reach / math.hypot(1.0, keep))
+        # Highest altitude at which the object at that depth sits above the image bottom.
+        top = min(altitude, depth / camera.facing_depth(keep, 1.0))
         if top < floor - 1e-6:
-            return None, "too_small_to_resolve"
-        depression = self.camera.pitch_down_rad + math.radians(
-            self.config.small_unjudged_view_depression_deg
+            closest = camera.facing_depth(keep * floor, floor)
+            if (
+                altitude < floor - 1e-6
+                or camera.side_px(extent, closest) < self.config.min_verdict_side_px - 1e-6
+            ):
+                return None, "too_small_to_resolve"
+            depth, top = closest, floor
+        depression = pitch + math.radians(self.config.small_unjudged_view_depression_deg)
+        preferred = min(
+            top,
+            max(floor, depth / (math.cos(pitch) / math.tan(depression) + math.sin(pitch))),
         )
-        preferred = min(top, max(floor, reach * math.sin(depression)))
         heights = [preferred]
         for fraction in (0.5, 1.0):
             candidate = preferred + fraction * (top - preferred)
             if all(abs(candidate - h) > 0.5 for h in heights):
                 heights.append(candidate)
-        toward = math.atan2(pose_ned[1] - centre[1], pose_ned[0] - centre[0])
-        offsets = [0.0]
-        for k in range(1, 7):
-            offsets += [30.0 * k, -30.0 * k] if k < 6 else [180.0]
+        if bearings is None:
+            toward = math.atan2(pose_ned[1] - centre[1], pose_ned[0] - centre[0])
+            offsets = [0.0]
+            for k in range(1, 7):
+                offsets += [30.0 * k, -30.0 * k] if k < 6 else [180.0]
+            bearings = [toward + math.radians(offset) for offset in offsets]
         fallback = None
         for height in heights:
-            horizontal = math.sqrt(max(0.0, reach * reach - height * height))
+            horizontal = (depth - height * math.sin(pitch)) / math.cos(pitch)
             if horizontal < keep * height - 1e-6:
                 continue
-            for offset in offsets:
-                bearing = toward + math.radians(offset)
+            for bearing in bearings:
                 goal = (
                     centre[0] + horizontal * math.cos(bearing),
                     centre[1] + horizontal * math.sin(bearing),
@@ -2659,7 +2778,8 @@ class OnboardLoop:
         goal, height, horizontal, sight = candidate
         centre = (float(place["centre"][0]), float(place["centre"][1]))
         track = place.get("track")
-        view_slant = math.hypot(horizontal, height)
+        extent = self._place_extent_m(place)
+        target = float(place.get("target_side_px") or self.config.small_unjudged_target_side_px)
         vertical = max(0.0, -pose_ned[2] - height)
         legs = math.ceil(math.dist(pose_ned[:2], goal) / max(self.config.max_translate_m, 1e-6))
         vertical_steps = math.ceil(vertical / max(2.0 * self.config.descent_step_m, 1e-6))
@@ -2671,21 +2791,34 @@ class OnboardLoop:
             "seen_min_side_px": round(float(place["min_side_px"]), 1),
             "seen_slant_m": round(float(place["slant_m"]), 1),
             "seen_step": place.get("step"),
+            "extent_m": round(extent, 3),
+            "target_side_px": round(target, 1),
             "viewpoint": [round(goal[0], 2), round(goal[1], 2)],
             "view_altitude_m": round(height, 2),
             "view_range_m": round(horizontal, 2),
             "predicted_min_side_px": round(
-                float(place["min_side_px"]) * float(place["slant_m"]) / view_slant, 1
+                self.camera.side_px(extent, self.camera.facing_depth(horizontal, height)), 1
             ),
             "sight_line_clear": bool(sight),
             "outcome": None,
         }
+        # A re-approach from the viewpoint: turn, legs, the rest of the descent
+        # to the floor and back up, face and holds.
+        lower = max(0.0, height - self.config.approach_min_altitude_m)
+        reapproach_steps = (
+            2
+            + math.ceil(horizontal / max(self.config.max_translate_m, 1e-6))
+            + 2 * math.ceil(lower / max(2.0 * self.config.descent_step_m, 1e-6))
+            + self.config.small_unjudged_look_holds
+            + 1
+        )
         return {
             "goal": goal,
             "centre": centre,
             "phase": "fly",
             "steps": 0,
             "kind": "small_unjudged_revisit",
+            "staged": True,
             "view_down": -height,
             "return_down": pose_ned[2],
             "look_holds": 0,
@@ -2696,6 +2829,10 @@ class OnboardLoop:
             "vertical_m": vertical,
             "vertical_steps": vertical_steps,
             "legs": legs,
+            "target_side_px": target,
+            "reapproaches_left": self.config.small_unjudged_reapproach_max,
+            "reapproach_steps": reapproach_steps,
+            "reapproach_m": horizontal + 2.0 * lower,
             "record": record,
             "rejection": {
                 "ground": centre,
@@ -2724,9 +2861,11 @@ class OnboardLoop:
                 and math.dist(position[:2], centre) <= radius
             ):
                 return "counted"
-        # A patrol/monitor look already holds small rejections of this place: only
-        # a positive verdict, or a rejection from the viewpoint itself, resolves it.
-        view_step = look.get("view_step") if look.get("alert_look") else None
+        # A patrol/monitor look or a count rejection look already holds small
+        # rejections of this place: only a positive verdict, or a rejection from
+        # the viewpoint itself, resolves it.
+        rejudge = bool(look.get("alert_look") or look.get("rejection_look"))
+        view_step = look.get("view_step") if rejudge else None
         for track in self._tracks.values():
             place = self.target_position(track)
             if (
@@ -2735,7 +2874,7 @@ class OnboardLoop:
                 and track.verdict_step >= start
                 and math.dist(place, centre) <= radius
                 and (
-                    not look.get("alert_look")
+                    not rejudge
                     or track.verdict in {"approach", "confirm"}
                     or (view_step is not None and track.verdict_step >= view_step)
                 )
@@ -2781,10 +2920,15 @@ class OnboardLoop:
                 self._last_turn_deg = delta
                 return ActionPrimitive.turn(delta)
             look["phase"] = "look"
-            if look.get("alert_look"):
+            # Frames from the next one on are taken at the viewpoint.
+            look["view_step"] = self._frame_step + 1
+            if look.get("rejection_look"):
+                # A count rejection look: the rejected tracks there are asked
+                # again from this view, as the level rejection revisit does.
+                self._reask_place(look)
+            elif look.get("alert_look"):
                 # Ask again from here about every rejection at the place; only
                 # verdicts on frames from this view on can resolve the look.
-                look["view_step"] = self.step_index + 1
                 radius = self._small_unjudged_radius()
                 for track in self._tracks.values():
                     place = self.target_position(track)
@@ -2811,7 +2955,84 @@ class OnboardLoop:
             look["record"]["seen_again_min_side_px"] = round(
                 max(_min_side(track.bbox) for track in seen), 1
             )
+            # Only a box from the viewpoint itself sizes the object for a re-approach.
+            here = [track for track in seen if track.last_step >= look.get("view_step", 0)]
+            nearest = max(here, key=lambda track: _min_side(track.bbox), default=None)
+            if (
+                nearest is not None
+                and _min_side(nearest.bbox) < self.config.min_verdict_side_px
+                and self._reapproach(look, nearest, pose_ned, info)
+            ):
+                return self._second_look_action(pose_ned, yaw_deg, info)
         return self._end_small_unjudged(look, "still_unjudged" if seen else "not_seen", pose_ned)
+
+    def _reapproach(self, look: dict[str, Any], track: Track, pose_ned, info) -> bool:
+        """Re-plan ``look`` closer when its box is still too small to judge at the view.
+
+        The view is the best size measurement there is (the object is faced at
+        a known range), so the object is re-sized from it, and a viewpoint on
+        the same bearing (the same side of the object, whose width depends on
+        the side) is planned with the shared geometry and clearance checks: the
+        level leg at the current altitude and the descent from it at the new
+        viewpoint.  At most ``reapproaches_left`` times; every attempt is
+        recorded under the record's ``reapproaches`` with its outcome.
+        """
+        if look.get("reapproaches_left", 0) < 1:
+            return False
+        centre = look["centre"]
+        altitude = max(0.0, -pose_ned[2])
+        slant = math.hypot(math.dist(centre, pose_ned[:2]), altitude)
+        side = _min_side(track.bbox)
+        place = {
+            "centre": centre,
+            "extent_m": self.camera.box_extent_m(track.bbox, slant),
+            "min_side_px": side,
+            "slant_m": slant,
+            "target_side_px": look.get("target_side_px"),
+            "track_ids": [track.track_id],
+            "track": track,
+        }
+        attempt: dict[str, Any] = {
+            "from": [round(pose_ned[0], 2), round(pose_ned[1], 2), round(altitude, 2)],
+            "seen_min_side_px": round(side, 1),
+            "extent_m": round(place["extent_m"], 3),
+        }
+        look["record"].setdefault("reapproaches", []).append(attempt)
+        look["reapproaches_left"] -= 1
+        leg_allowed = look.get("leg_allowed")
+        start = (float(pose_ned[0]), float(pose_ned[1]))
+        allowed = (lambda goal: leg_allowed(start, goal)) if leg_allowed is not None else None
+        bearing = math.atan2(pose_ned[1] - centre[1], pose_ned[0] - centre[0])
+        planned, reason = self.plan_small_unjudged_revisit(
+            place, pose_ned, allowed, bearings=[bearing]
+        )
+        if planned is None:
+            attempt["outcome"] = reason
+            return False
+        predicted = planned["record"]["predicted_min_side_px"]
+        if predicted < 1.15 * side:
+            attempt["outcome"] = "no_closer_view"
+            return False
+        attempt.update(
+            viewpoint=planned["record"]["viewpoint"],
+            view_altitude_m=planned["record"]["view_altitude_m"],
+            view_range_m=planned["record"]["view_range_m"],
+            predicted_min_side_px=predicted,
+            outcome="started",
+        )
+        look.update(
+            goal=planned["goal"],
+            view_down=planned["view_down"],
+            phase="fly",
+            look_holds=0,
+            max_steps=look["steps"]
+            + 2 * planned["legs"]
+            + 2 * planned["vertical_steps"]
+            + self.config.small_unjudged_look_holds
+            + 6,
+        )
+        info["reapproach"] = attempt
+        return True
 
     def _touches_border(self, box: Box) -> bool:
         margin = self.config.border_margin_px
@@ -3424,7 +3645,7 @@ class OnboardLoop:
             look = self._revisit
             if (
                 look is not None
-                and look.get("kind") == "small_unjudged_revisit"
+                and look.get("staged")
                 and self.target_position(best) is not None
                 and math.dist(self.target_position(best), look["centre"])
                 <= self._small_unjudged_radius()
