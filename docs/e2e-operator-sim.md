@@ -118,10 +118,10 @@ python scripts/augment_sim_world.py simulation/gazebo/worlds/gen_cnt2_w0000.sdf 
 | run9 | a21ead8 | FAIL：计数 2，摘要只到第 1/2 页，电池误判提前返航 | 摘要分页共用 token → 每页独立传输；机载进程卡顿造成的链路断档不再计入电池年龄 |
 | run10 | 9125589 | FAIL：计数 1（budget_exhausted） | 会话漏传 `--rgb-size 1280x960`、包规划没带 ref_labels（规划成 zone:all）、任务文本停在占位句 |
 | run11 | 0fb2155 | **PASS**：计划签名审批 0.34 s；3 个 finding 到地面延迟 ≤0.8 s；完整两页摘要；coverage_complete 计数 3/3，位置误差 0.08–0.29 m；返航末帧离家 0.26 m | — |
+| run12 | 5cebc74 | **PASS**：计数 3/3，误报 0，`count_is_lower_bound=false`（区域外/已补看地点不再算未决）；机载 llama-server 关闭主机提示缓存后，可用内存中位数 858 MB（run10 为 637 MB），无 vehicle_telemetry_gap；启动阶段 1–2 分钟内可用内存仍会降到几十 MB（加载模型与 Gazebo，同时其他项目的 java、WSL 虚拟机占用大量内存） | — |
 
 ## 已知限制
 
-- run11 的摘要把计数标成下限（`count_is_lower_bound=true`），原因是区域外和已补看过的拒绝地点也被算作未处理，判定偏保守，修复中。
 - operator-link 规划用身份模型（r18），from_text 用规划模型（r14）；本任务两者结果一致，其他任务未验证。
 - GCS 审批按钮未和真实 SIM 会话联调；地面站联合验收由负责人执行。
 - 单架次结果不能当作稳定性或实机保证；回归基线见 `sim-mission-suite-regression-20261020.md`。
