@@ -351,6 +351,16 @@ class ExpertSearchPolicy:
     max_altitude_step_m: float = 8.0
     max_blocked_attempts: int = 3
     max_blocked_consecutive: int = 10
+    # A leg blocked only because the vehicle sits below the planned search
+    # altitude (which the host sets to clear the mapped obstacles) is flown after
+    # climbing to that altitude plus this margin, instead of being sidestepped and
+    # its waypoints skipped.  The host tolerates 1 m under its search altitude, and
+    # an obstacle 2 m under the planned altitude is cleared only at it (SITL
+    # gen_cnt2_w0001: 16.4 m under a 16.8 m plan, the lane over the 14.8 m block
+    # was skipped and a hydrant next to it never seen).
+    blocked_climb_margin_m: float = 0.5
+    # Climbs in a row without a clear leg before falling back to sidesteps.
+    max_blocked_climbs: int = 2
     # Re-adopt the measured yaw when it differs from the last commanded heading by
     # more than this (small differences are tracking noise and are ignored).
     resync_yaw_deg: float = 5.0
@@ -374,6 +384,15 @@ class ExpertSearchPolicy:
             raise ValueError("low_altitude_m must be positive and no higher than altitude_m")
         if not math.isfinite(self.max_altitude_step_m) or self.max_altitude_step_m <= 0:
             raise ValueError("max_altitude_step_m must be finite and positive")
+        if not math.isfinite(self.blocked_climb_margin_m) or self.blocked_climb_margin_m < 0:
+            raise ValueError("blocked_climb_margin_m must be finite and non-negative")
+        if (
+            isinstance(self.max_blocked_climbs, bool)
+            or not isinstance(self.max_blocked_climbs, int)
+            or self.max_blocked_climbs < 0
+        ):
+            raise ValueError("max_blocked_climbs must be a non-negative integer")
+        self._blocked_climbs = 0
         self._commanded_yaw_deg: float | None = None
         self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
@@ -508,6 +527,7 @@ class ExpertSearchPolicy:
         self._blocked_attempts = 0
         self._blocked_consecutive = 0
         self._blocked = False
+        self._blocked_climbs = 0
         self._search_outcome = "running"
 
     @property
@@ -613,6 +633,34 @@ class ExpertSearchPolicy:
             self.obstacles,
         )
 
+    def _climb_to_clear(self, pose_ned, end_n: float, end_e: float) -> ActionPrimitive | None:
+        """A climb in place that clears a leg blocked below the planned altitude.
+
+        Only when the vehicle is at least 0.2 m under the planned altitude plus
+        ``blocked_climb_margin_m``, the climb itself is clear and the leg is clear
+        from the raised altitude, and at most ``max_blocked_climbs`` times in a row.
+        """
+        if self._blocked_climbs >= self.max_blocked_climbs:
+            return None
+        planned = (
+            self.low_altitude_m
+            if self.search_pattern == "two_altitude"
+            and self._search_phase == "low"
+            and self.low_altitude_m is not None
+            else self.altitude_m
+        )
+        altitude = max(0.0, -float(pose_ned[2]))
+        up = min(float(planned) + self.blocked_climb_margin_m - altitude, self.max_altitude_step_m)
+        if up < 0.2:
+            return None
+        raised = (float(pose_ned[0]), float(pose_ned[1]), -(altitude + up))
+        if not segment_clear_of_obstacles(pose_ned, raised, altitude, self.obstacles):
+            return None
+        if not self._segment_safe(raised, end_n, end_e):
+            return None
+        self._blocked_climbs += 1
+        return ActionPrimitive.translate(0.0, 0.0, up)
+
     def _safe_translation(
         self, pose_ned, action: ActionPrimitive, yaw_deg: float
     ) -> ActionPrimitive:
@@ -620,8 +668,12 @@ class ExpertSearchPolicy:
         end_n = pose_ned[0] + action.forward_m * math.cos(yaw) - action.right_m * math.sin(yaw)
         end_e = pose_ned[1] + action.forward_m * math.sin(yaw) + action.right_m * math.cos(yaw)
         if self._segment_safe(pose_ned, end_n, end_e):
+            self._blocked_climbs = 0
             return action
         self._safety_replanned = True
+        climb = self._climb_to_clear(pose_ned, end_n, end_e)
+        if climb is not None:
+            return climb
         phase = self._search_phase
         waypoints = self._low_waypoints if phase == "low" else self._waypoints
         waypoint_key = (phase, self._waypoint_index)
