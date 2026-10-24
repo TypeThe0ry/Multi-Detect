@@ -17,6 +17,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -977,8 +978,13 @@ class OnboardPolicy:
         planning_spec = _planning_model_spec(
             options.get("planning_model"), identity_mmproj=options["mmproj"]
         )
-        split_planning = mission == "from_text" and planning_spec is not None
+        split_planning = mission in {"from_text", "operator_link"} and planning_spec is not None
+        startup_planning = mission == "from_text" and planning_spec is not None
         self._model_split = bool(split_planning)
+        self._model_lock = threading.RLock()
+        self._model_shutdown = threading.Event()
+        self._planning_model_path = planning_spec[0] if planning_spec else None
+        self._planning_mmproj = planning_spec[1] if planning_spec else None
         model_hash_cache = self.work_dir / ".model-hash-cache.json"
         self._model_runtime: dict[str, Any] = {
             "enabled": bool(split_planning),
@@ -1020,6 +1026,8 @@ class OnboardPolicy:
                 cache_ram_mib=cache_ram_mib,
             )
 
+        self._make_identity_runner = make_identity_runner
+
         def start_identity_runner():
             if slow_runner is not None:
                 return slow_runner
@@ -1040,7 +1048,7 @@ class OnboardPolicy:
                     time.sleep(0.1)
 
         planner_start_error: Exception | None = None
-        if split_planning:
+        if startup_planning:
             try:
                 self.slow = LlamaServerRunner(
                     Path(planning_spec[0]),
@@ -1445,6 +1453,7 @@ class OnboardPolicy:
             report: dict[str, Any] = {"error": None, "source": "package"}
         else:
             from scripts.eval_slow_system import _http_json
+            from scripts.eval_slow_system import LlamaServerRunner
 
             def post(prompt: str, schema: dict[str, Any]) -> str:
                 response = _http_json(
@@ -1467,7 +1476,70 @@ class OnboardPolicy:
                 )
                 return response["choices"][0]["message"].get("content", "")
 
-            plan, report = build_mission_from_text(
+            restore_model = None
+            if self._model_split:
+                with self._model_lock:
+                    started = time.monotonic()
+                    identity = self.slow
+                    planner = None
+                    try:
+                        identity.close()
+                        planner = LlamaServerRunner(
+                            Path(self._planning_model_path),
+                            Path(self._planning_mmproj) if self._planning_mmproj else None,
+                            executable=Path(self.config["llama_server"]), port=identity.port,
+                            max_new_tokens=768, crop_policy="none", identity_only=False,
+                            logprobs=False, wait_port_free=True,
+                            cache_ram_mib=int(self.config.get("llama_cache_ram_mib", 0)),
+                        )
+                        self.slow = planner
+                        self.health.runner = planner
+                        if self._model_shutdown.is_set():
+                            raise RuntimeError("operator package planning cancelled")
+                        plan, report = build_mission_from_text(
+                            str(package.document["task_text"]),
+                            labelled_refs(package.refs, package.document.get("ref_labels") or {}),
+                            post, capabilities=capabilities,
+                            plan_checker=lambda candidate: check_plan_against_package(
+                                candidate, package, capabilities=capabilities,
+                                executor_config=self.executor.config,
+                            ),
+                        )
+                        if report.get("error"):
+                            raise ValueError(f"operator task planning failed: {report['error']}")
+                        if self._model_shutdown.is_set():
+                            raise RuntimeError("operator package planning cancelled")
+                    except Exception:
+                        if self._model_shutdown.is_set():
+                            if planner is not None:
+                                planner.close()
+                                self.slow = None
+                            raise RuntimeError("operator package planning cancelled")
+                        self._model_runtime["planning_fallback_to_identity"] = True
+                        self.health.record_planning_failure()
+                        if planner is not None:
+                            planner.close()
+                        self.slow = self._make_identity_runner()
+                        self.health.runner = self.slow
+                        plan, report = build_mission_from_text(
+                            str(package.document["task_text"]),
+                            labelled_refs(package.refs, package.document.get("ref_labels") or {}),
+                            post, capabilities=capabilities,
+                            plan_checker=lambda candidate: check_plan_against_package(
+                                candidate, package, capabilities=capabilities,
+                                executor_config=self.executor.config,
+                            ),
+                        )
+                    else:
+                        planner.close()
+                        self.slow = self._make_identity_runner()
+                        self.health.runner = self.slow
+                    finally:
+                        completed = time.monotonic()
+                        self._model_runtime["swap_duration_s"] = completed - started
+                        self._model_runtime["swap_completed_monotonic_s"] = completed
+            else:
+                plan, report = build_mission_from_text(
                 str(package.document["task_text"]),
                 # The same labelled references as a start-up from_text mission.
                 # Bare names lost the link from the operator's words to the zone:
@@ -1483,7 +1555,7 @@ class OnboardPolicy:
                     capabilities=capabilities,
                     executor_config=self.executor.config,
                 ),
-            )
+                )
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
         # The same package policy as a package loaded at start-up, whether the
@@ -1554,6 +1626,7 @@ class OnboardPolicy:
         )
 
     def close(self) -> None:
+        self._model_shutdown.set()
         try:
             if self.supervisor is not None:
                 self.supervisor.finish()
@@ -1561,9 +1634,10 @@ class OnboardPolicy:
                 self.downlink.close()
         finally:
             try:
-                close = getattr(self.slow, "close", None)
-                if close is not None:  # injected runners may not own a process
-                    close()
+                with self._model_lock:
+                    close = getattr(self.slow, "close", None)
+                    if close is not None:  # injected runners may not own a process
+                        close()
             finally:
                 if self.executor is not None:
                     try:
@@ -1656,7 +1730,15 @@ class OnboardPolicy:
 
         started = time.perf_counter()
         try:
-            raw, latency = self.slow(row)
+            lock = getattr(self, "_model_lock", None)
+            shutdown = getattr(self, "_model_shutdown", None)
+            if lock is None:
+                raw, latency = self.slow(row)
+            else:
+                with lock:
+                    if shutdown is not None and shutdown.is_set():
+                        raise RuntimeError("onboard policy is shutting down")
+                    raw, latency = self.slow(row)
         except Exception as exc:  # timeouts or server faults leave the track unverified
             self._slow_failed_current = True
             health = getattr(self, "health", None)

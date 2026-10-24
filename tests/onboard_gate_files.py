@@ -30,6 +30,7 @@ _EXACT = {
     "test_onboard_main_operator_link.py",
     "test_onboard_health.py",
     "test_onboard_model_split.py",
+    "test_onboard_operator_model_split.py",
     "test_safety_envelope.py",
     "test_mission_planner.py",
     "test_mission_plan.py",
