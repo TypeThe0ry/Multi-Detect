@@ -8,6 +8,7 @@ with the constructor contract as that contract evolves.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,7 +82,12 @@ def make_policy(
 ) -> OnboardPolicy:
     """Construct an ``OnboardPolicy`` with model resources replaced by stubs."""
 
-    work_dir = Path.cwd() / ".pytest-onboard-policy" if work_dir is None else Path(work_dir)
+    if work_dir is None:
+        worker = os.environ.get("PYTEST_XDIST_WORKER")
+        suffix = f"-{worker}" if worker else ""
+        work_dir = Path.cwd() / f".pytest-onboard-policy{suffix}"
+    else:
+        work_dir = Path(work_dir)
     constructor_names = {
         "task_text", "world_path", "altitude_m", "camera_info", "image_size",
         "config", "proposer", "slow_runner", "ground_projector", "home_ned",
