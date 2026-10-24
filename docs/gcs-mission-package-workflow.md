@@ -78,6 +78,13 @@ server.start_background()
 
 ## 提示词任务的机上执行
 
+operator_link 上传的 prompt-only 任务包与 `from_text` 使用同一规划模型配置。若配置了
+`planning_model`，机载在等待审批期间暂停身份推理，依次关闭 identity llama-server、启动
+planner llama-server 完成计划，再关闭 planner 并恢复 identity；整个切换期间最多驻留一个
+server，且 `--cache-ram 0` 保持关闭主机 prompt cache。切换耗时写入 `model_runtime`。
+规划失败时记录 `planning_fallback_to_identity` 并用 identity 重试；收到中止或宿主关闭时会
+终止切换并关闭当前 server，不留下孤儿进程。监督器仍独立处理审批、失联、能量和中止评估。
+
 地面站上传只含 `task_text` 的已签名任务包后，机上会在飞行前重新校验边界，并使用与 onboard policy 相同的 `from_text` 编译路径生成计划，候选监督器使用与启动任务包相同的机载能量模型（`energy_model`）。计划以 `kind=plan` 回传，包含 `plan_sha256`、步骤和 `requires_approval`。`plan_sha256` 覆盖任务编号、完整任务包文档摘要、引用摘要和计划本身，换包或换任务编号都会得到不同摘要。
 
 要求批准时，监督器照常评估（中止、失联策略、能量与时间储备、监督区域都会生效），只把“继续”降级为悬停等待，不推进步骤；地面站以类型 37 发送带相同 `mission_id` 和 `plan_sha256` 的 `approve_plan` 后才开始执行。审批命令与其他地面命令走同一条 `ground_event` 路径：任务编号、速率限制和监督器地面锁始终生效；机上配置了地面命令密钥（真实模式为 `--operator-key`）时，命令必须是带 `sequence`、`timestamp`、`timestamp_version=1`、`timestamp_domain` 的签名文档，未签名、重放或过期的审批一律拒绝。类型 30–34 的定长控制由 TUNNEL 的 HMAC、MAVLink 签名和序号高水位认证，但审批永远不能经由这类控制下达。摘要不匹配、重复决定或任务编号不符都会被拒绝并记入日志；收到 `reject_plan` 会锁定 `land_now`，写出 `plan_rejected` 最终摘要，未起飞时保持在地面。
