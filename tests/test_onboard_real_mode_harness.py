@@ -18,7 +18,7 @@ from scripts import onboard_main
 
 def _signed_package(tmp_path: Path):
     key = AuthenticationKey("hmac-sha256", b"R" * 32, "default")
-    raw = json.loads(Path("configs/onboard/mission-package-count-cones-example.json").read_text())
+    raw = json.loads(Path("configs/onboard/mission-package-count-cones-example.json").read_text(encoding="utf-8"))
     signed = sign_document(raw, key)
     package_path, key_path = tmp_path / "mission.json", tmp_path / "operator.key"
     package_path.write_text(json.dumps(signed), encoding="utf-8")
