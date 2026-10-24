@@ -193,6 +193,7 @@ def _reason_zh(reason: str) -> str:
         "step_budget": "步骤预算耗尽",
         "search_exhausted": "搜索已结束，未证实完整覆盖",
         "coverage_complete": "已完成一次完整覆盖",
+        "coverage_partial": "存在跳过航点，覆盖不完整",
         "max_count": "达到计数上限",
         "no_recorded_completion": "未记录完成，状态未知",
         "full_search_not_established": "未证实完整搜索",

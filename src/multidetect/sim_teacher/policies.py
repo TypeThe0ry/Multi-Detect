@@ -420,7 +420,43 @@ class ExpertSearchPolicy:
         self._waypoint_attempts: dict[tuple[str, int], int] = {}
         self._waypoint_last_distance: dict[tuple[str, int], float] = {}
         self.skipped_waypoints: list[dict[str, Any]] = []
+        self._coverage_trace: list[tuple[float, float]] = []
         self._search_outcome = "running"
+
+    def _coverage_radius_m(self, phase: str) -> float:
+        from multidetect.search_coverage import CoverageCamera
+        altitude = self.low_altitude_m if phase == "low" and self.low_altitude_m else self.altitude_m
+        camera = CoverageCamera(
+            fx=float(self.intrinsics["fx"]), fy=float(self.intrinsics["fy"]),
+            cx=float(self.intrinsics.get("cx", self.image_size[0] / 2)),
+            cy=float(self.intrinsics.get("cy", self.image_size[1] / 2)),
+            width_px=int(self.image_size[0]), height_px=int(self.image_size[1]),
+            pitch_down_deg=math.degrees(self.camera_pitch_rad),
+        )
+        width, depth = camera.footprint(max(float(altitude), 1e-3))
+        return 0.5 * max(width, depth)
+
+    def _waypoint_covered(self, waypoint: tuple[float, float], phase: str) -> bool:
+        if not self._coverage_trace:
+            return False
+        radius = self._coverage_radius_m(phase)
+        if math.dist(waypoint, self._coverage_trace[-1]) <= radius:
+            return True
+        return any(self._segment_distance(a, b, waypoint) <= radius for a, b in zip(self._coverage_trace, self._coverage_trace[1:]))
+
+    def _coverage_report(self) -> dict[str, Any]:
+        routes = [("high", self._waypoints)]
+        if self._low_waypoints:
+            routes.append(("low", self._low_waypoints))
+        total = sum(len(points) for _, points in routes)
+        covered = sum(sum(self._waypoint_covered(point, phase) for point in points) for phase, points in routes)
+        return {"planned_waypoints": total, "covered_waypoints": covered,
+                "coverage_fraction": round(covered / total, 6) if total else 1.0,
+                "skipped_waypoints": len(self.skipped_waypoints)}
+
+    def _finish_search(self) -> None:
+        coverage = self._coverage_report()
+        self._search_outcome = "coverage_partial" if self.skipped_waypoints and coverage["covered_waypoints"] < coverage["planned_waypoints"] else "coverage_complete"
 
     def _build_spiral(self) -> list[tuple[float, float]]:
         # Space legs from the pitched camera ground swath, with overlap.
@@ -528,7 +564,9 @@ class ExpertSearchPolicy:
         self._blocked_consecutive = 0
         self._blocked = False
         self._blocked_climbs = 0
+        self.skipped_waypoints.clear()
         self._search_outcome = "running"
+        self._coverage_trace.clear()
 
     @property
     def search_outcome(self) -> str:
@@ -724,6 +762,8 @@ class ExpertSearchPolicy:
                                 "ned": tuple(waypoint),
                                 "phase": phase,
                                 "attempts": self._waypoint_attempts[waypoint_key],
+                                "reason": "obstacle",
+                                "covered_by_other_leg": self._waypoint_covered(tuple(waypoint), phase),
                             }
                         )
                         self._waypoint_index += 1
@@ -755,6 +795,8 @@ class ExpertSearchPolicy:
                         "ned": tuple(waypoint),
                         "phase": phase,
                         "attempts": attempts,
+                        "reason": "obstacle",
+                        "covered_by_other_leg": self._waypoint_covered(tuple(waypoint), phase),
                     }
                 )
             self._waypoint_index += 1
@@ -777,6 +819,9 @@ class ExpertSearchPolicy:
         return max(self.standoff_m, geometry)
 
     def next_action(self, *, pose_ned, yaw_deg: float = 0.0) -> ActionPrimitive:
+        point = (float(pose_ned[0]), float(pose_ned[1]))
+        if not self._coverage_trace or math.dist(point, self._coverage_trace[-1]) > 1e-6:
+            self._coverage_trace.append(point)
         if self._commanded_yaw_deg is None:
             self._commanded_yaw_deg = yaw_deg
         inside, bearing, rng = target_in_fov(
@@ -858,7 +903,7 @@ class ExpertSearchPolicy:
                 self._waypoint_index = 0
             else:
                 self.state = "done"
-                self._search_outcome = "coverage_complete"
+                self._finish_search()
                 return ActionPrimitive.stop()
         waypoint = waypoints[self._waypoint_index]
         if math.hypot(waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]) <= 0.5:
@@ -874,7 +919,7 @@ class ExpertSearchPolicy:
                     self._waypoint_index = 0
                 else:
                     self.state = "done"
-                    self._search_outcome = "coverage_complete"
+                    self._finish_search()
                     return ActionPrimitive.stop()
             waypoint = waypoints[self._waypoint_index]
         return self._search_leg_action(pose_ned, waypoint, yaw_deg)
@@ -898,6 +943,7 @@ class ExpertSearchPolicy:
             "safety_replanned": self._safety_replanned,
             "standoff_m": self.effective_standoff_m,
             "skipped_waypoints": [dict(item) for item in self.skipped_waypoints],
+            "coverage": self._coverage_report(),
             "search_pass_outcome": self._search_outcome,
         }
 
