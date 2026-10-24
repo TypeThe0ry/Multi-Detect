@@ -9,7 +9,7 @@ import pytest
 
 from multidetect.autonomy.mission_executor import ExecutorConfig, MissionExecutor
 from multidetect.autonomy.mission_plan import validate_mission_plan
-from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
+from multidetect.autonomy.onboard_loop import AppearanceSignature, CameraModel, Detection, LoopConfig, OnboardLoop
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 CAMERA = CameraModel(fx=540, fy=540, cx=640, cy=480, width=1280, height=960)
@@ -66,6 +66,23 @@ class Flight:
         elif action.kind == "turn":
             self.yaw = (self.yaw + action.yaw_delta_deg + 180) % 360 - 180
         return action, info
+
+
+def _colored_follow_tick(executor, flight, rgb, stamp):
+    import numpy as np
+
+    frame = np.zeros((960, 1280, 3), dtype=np.uint8)
+    frame[:, :] = rgb
+    tracks = executor.observe(
+        [BOX], pose_ned=tuple(flight.pose), yaw_deg=flight.yaw,
+        ground_point=lambda u, v: (30.0, 0.0), frame_rgb=frame,
+    )
+    for track in tracks:
+        executor.apply_verdict(track.track_id, "approach_track")
+    return executor.next_action(
+        pose_ned=tuple(flight.pose), yaw_deg=flight.yaw,
+        timestamp_s=stamp, frame_id="colored-frame",
+    )
 
 
 def test_monitor_raises_centre_view_to_cover_a_nadir_zone_within_altitude_limit():
@@ -356,6 +373,118 @@ def test_follow_repeated_blocked_standoff_legs_are_bounded_despite_intermittent_
         flight.tick(executor, detections=[BOX], ground=lambda u, v: (200, 0))
     assert executor.history[0]["state"] == "failed"
     assert executor.history[0]["reason"] == "blocked"
+
+
+def test_follow_does_not_cross_the_operating_area_to_reach_a_moving_target():
+    executor = _executor(
+        "follow", {"track_ref": "track:1", "query": "car"},
+    )
+    executor.operating_area = {
+        "north_min_m": -20.0, "north_max_m": 20.0,
+        "east_min_m": -20.0, "east_max_m": 20.0,
+    }
+    flight = Flight()
+    for _ in range(5):
+        action, _ = flight.tick(executor, detections=[BOX], ground=lambda u, v: (80.0, 0.0))
+        assert action.kind in {"hold", "turn", "translate"}
+        assert math.dist(flight.pose[:2], (0.0, 0.0)) <= 20.0
+
+
+def test_follow_stops_at_no_fly_boundary_and_keeps_observing_target():
+    executor = MissionExecutor(
+        validate_mission_plan({
+            "plan_version": 1, "goal": "follow", "report": [],
+            "steps": [{"id": "s", "skill": "follow",
+                       "params": {"track_ref": "track:1", "query": "car"},
+                       "on_success": "end", "on_fail": "end"},
+                      {"id": "end", "skill": "land", "params": {},
+                       "on_success": None, "on_fail": None}],
+        }),
+        config=ExecutorConfig(max_translate_m=5.0),
+        no_fly_zones=(((12.0, 0.0), 4.0),),
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA, search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            segment_clear=lambda pose, north, east: True, config=LoopConfig(**overrides),
+        ),
+    )
+    flight = Flight()
+    actions = []
+    for _ in range(8):
+        action, _ = flight.tick(executor, detections=[BOX], ground=lambda u, v: (80.0, 0.0))
+        actions.append(action.kind)
+        assert math.dist(flight.pose[:2], (0.0, 0.0)) <= 8.0 + 1e-6
+    assert executor.history == []
+    assert "translate" not in actions or all(
+        math.dist(flight.pose[:2], (0.0, 0.0)) <= 8.0 + 1e-6
+    )
+
+
+def test_follow_duration_success_transitions_to_return_home():
+    plan = validate_mission_plan({
+        "plan_version": 1,
+        "goal": "follow then return",
+        "steps": [
+            {"id": "follow", "skill": "follow",
+             "params": {"track_ref": "track:1", "query": "car", "duration_s": 2},
+             "on_success": "home", "on_fail": "home"},
+            {"id": "home", "skill": "return_home", "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+        "report": ["positions"],
+    })
+    executor = MissionExecutor(plan, loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+        camera=CAMERA, search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+        segment_clear=lambda pose, north, east: True, config=LoopConfig(**overrides),
+    ))
+    flight = Flight()
+    for stamp in range(5):
+        flight.tick(executor, stamp=stamp, detections=[BOX], ground=lambda u, v: (80.0, 0.0))
+        if len(executor.history):
+            break
+    assert executor.history[0]["reason"] == "duration_elapsed"
+    assert executor.current_step.skill == "return_home"
+
+
+def test_follow_stops_safely_when_target_speed_exceeds_configured_cap():
+    executor = _executor(
+        "follow", {"track_ref": "track:1", "query": "car"},
+        config=ExecutorConfig(follow_max_target_speed_mps=5.0),
+    )
+    flight = Flight()
+    flight.tick(executor, stamp=100, detections=[BOX], ground=lambda u, v: (30.0, 0.0))
+    action, info = flight.tick(
+        executor, stamp=101, detections=[BOX], ground=lambda u, v: (50.0, 0.0)
+    )
+    assert action.kind == "hold"
+    assert info["follow_state"] == "target_too_fast"
+    assert executor.history[0]["reason"] == "target_exceeds_follow_speed"
+
+
+def test_follow_keeps_a_stationary_target_at_standoff_without_chasing():
+    executor = _executor("follow", {"track_ref": "track:1", "query": "car"})
+    flight = Flight()
+    for stamp in range(30):
+        action, info = flight.tick(
+            executor, stamp=stamp, detections=[BOX], ground=lambda u, v: (30.0, 0.0)
+        )
+        if info.get("follow_state") == "tracking" and info.get("range_m", 0) <= info.get("standoff_m", 0) + 3:
+            assert action.kind == "hold"
+            break
+    else:
+        pytest.fail("stationary follow target never reached the standoff hold")
+
+
+def test_follow_does_not_accept_an_appearance_switch_on_the_locked_track():
+    executor = _executor("follow", {"track_ref": "track:1", "query": "car"})
+    flight = Flight()
+    _colored_follow_tick(executor, flight, (230, 20, 20), 100)
+    locked_id = executor._run.follow_track_id
+    assert executor._run.follow_finding is not None
+    executor._run.follow_finding["appearance"] = AppearanceSignature(99999.0, 1.0, 10.0)
+    action, info = _colored_follow_tick(executor, flight, (20, 20, 230), 101)
+    assert executor._run.follow_track_id == locked_id
+    assert info["follow_state"] in {"holding", "searching"}
+    assert action.kind in {"hold", "turn"}
 
 
 def test_return_home_climbs_out_of_obstacle_footprint_before_clearance_check():
