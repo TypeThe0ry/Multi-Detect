@@ -446,6 +446,35 @@ class MissionExecutor:
                 }
             )
         self.obstacle_source = obstacle_source
+        if self.airframe_adapter is not None and isinstance(self.operating_area, Mapping):
+            area = self.operating_area
+            polygon = (
+                (float(area["north_min_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_min_m"])),
+                (float(area["north_max_m"]), float(area["east_max_m"])),
+                (float(area["north_min_m"]), float(area["east_max_m"])),
+            )
+            existing = self.airframe_adapter.safety.config
+            package_zones = tuple(
+                tuple(
+                    (centre[0] + radius / math.cos(math.pi / 32) * math.cos(2 * math.pi * i / 32),
+                     centre[1] + radius / math.cos(math.pi / 32) * math.sin(2 * math.pi * i / 32))
+                    for i in range(32)
+                )
+                for centre, radius in self._inflated_no_fly_zones
+            )
+            self.airframe_adapter.safety.config = replace(
+                existing,
+                operating_polygon=polygon,
+                no_fly_polygons=(*existing.no_fly_polygons, *package_zones),
+                min_altitude_m=max(existing.min_altitude_m, float(area["min_altitude_m"])),
+                max_altitude_m=(
+                    float(area["max_altitude_m"])
+                    if existing.max_altitude_m is None
+                    else min(existing.max_altitude_m, float(area["max_altitude_m"]))
+                ),
+            )
+            self.airframe_adapter.safety.obstacle_source = self.obstacle_source
         self._steps = {step.id: step for step in self.plan.steps}
         # A probe loop gives the camera model and the configured clearance source.
         self._probe = self._make_loop("Find the object and record its position.")
@@ -1048,6 +1077,8 @@ class MissionExecutor:
         if self.home is None:
             self.home = (pose_ned[0], pose_ned[1])
             self.cruise_altitude_m = max(0.0, -pose_ned[2])
+            if self.airframe_adapter is not None:
+                self.airframe_adapter.safety.set_home(pose_ned)
 
     def next_action(
         self,
@@ -1106,6 +1137,15 @@ class MissionExecutor:
             # Never credit a commanded hold before its following observation.
             run.pending_elapsed_s = self.estimated_seconds(action, pose_ned)
             info.update(step=run.step.id, skill=run.step.skill, step_state=run.state)
+            if self.airframe_adapter is not None:
+                action, safety = self.airframe_adapter.guard_command(
+                    action,
+                    pose_ned=pose_ned,
+                    yaw_deg=yaw_deg,
+                    skill=run.step.skill,
+                )
+                if safety:
+                    info["safety"] = safety
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
 
@@ -1168,23 +1208,22 @@ class MissionExecutor:
     ) -> tuple[MotionCommand | ActionPrimitive, dict[str, Any]]:
         """Intent-facing entry point shared by SIM and real runtime adapters."""
         action, info = self.next_action(**kwargs)
-        if self.airframe_adapter is None or self.airframe_adapter.is_multirotor:
+        if self.airframe_adapter is None:
+            return action, info
+        if self.airframe_adapter.is_multirotor:
             return action, info
         pose = kwargs.get("pose_ned", (0.0, 0.0, 0.0))
         yaw = float(kwargs.get("yaw_deg", 0.0))
-        command = self.airframe_adapter.from_primitive(
-            action, pose_ned=pose, yaw_deg=yaw, metadata=info
+        command = self.airframe_adapter.from_primitive(action, pose_ned=pose, yaw_deg=yaw, metadata=info)
+        command, safety = self.airframe_adapter.guard_command(
+            command,
+            pose_ned=pose,
+            yaw_deg=yaw,
+            current_agl_m=kwargs.get("current_agl_m"),
+            skill=getattr(self.current_step, "skill", None),
         )
-        if isinstance(command, MotionCommand):
-            command, safety = self.airframe_adapter.guard_command(
-                command,
-                pose_ned=pose,
-                yaw_deg=yaw,
-                current_agl_m=kwargs.get("current_agl_m"),
-                skill=getattr(self.current_step, "skill", None),
-            )
-            if safety:
-                info = {**info, "safety": safety}
+        if safety:
+            info = {**info, "safety": safety}
         return command, info
 
     def _advance_time(self, run: _StepRun, timestamp_s: float | None) -> None:

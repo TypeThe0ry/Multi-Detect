@@ -407,7 +407,30 @@ class AirframeMotionAdapter:
         a partially clipped autopilot command, so the airframe recovery policy
         is used immediately (loiter for FW/VTOL).
         """
-        if self.is_multirotor or not isinstance(command, MotionCommand):
+        if self.is_multirotor and not isinstance(command, MotionCommand):
+            if not isinstance(command, ActionPrimitive):
+                return command, {}
+            pose = tuple(float(v) for v in pose_ned)
+            decision = self.safety.apply(
+                command,
+                pose_ned=pose,
+                yaw_deg=float(yaw_deg),
+                current_agl_m=current_agl_m,
+                phase=phase,
+                skill=skill,
+                mode="MC",
+            )
+            safety = decision.info().get("safety", {})
+            if decision.rejected or decision.status == "clipped":
+                # A primitive cannot carry a clipped target back to the caller.
+                # Hold in place and expose the exact refusal reasons to the log.
+                safety = {**safety, "status": "rejected", "rejected": True}
+                recovery = ActionPrimitive.stop() if decision.return_home else ActionPrimitive.hold(
+                    self.safety.config.hover_seconds
+                )
+                return recovery, safety
+            return command, safety
+        if not isinstance(command, MotionCommand):
             return command, {}
         if command.rejected:
             # A deliberate fail-closed command (currently fixed-wing delivery)

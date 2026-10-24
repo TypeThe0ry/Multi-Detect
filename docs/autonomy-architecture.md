@@ -242,6 +242,36 @@ perception model-set SHA-256；session 内的 `RuntimeStatusMessage`、mission a
 
 ## 4. 五个系统平面
 
+### 4.1 运动安全出口
+
+所有机载自主运动在最终下发前必须经过同一个安全出口。规划器、感知补看、计数再看、
+patrol/monitor 告警补看、follow、固定翼航点捕获/过顶盘旋和 VTOL 模式转换只能产生
+`ActionPrimitive` 或 `MotionCommand`，不能直接调用飞控。`MissionExecutor.next_motion_intent`
+和运行时动作仲裁都调用 `AirframeMotionAdapter.guard_command`；多旋翼 primitive 也在这里
+调用 `SafetyEnvelope.apply`，固定翼/VTOL 的 reposition、loiter/orbit 调用 `apply` 或
+`apply_orbit`。任务包的 operating_area 矩形、min/max_altitude_m、禁飞区（带 margin）
+在执行器构造时灌入 envelope；障碍物由同一个 `ObstacleSource` 检查。`apply_orbit` 采样
+整个圆和入圆航段，不能只检查当前点或圆心。
+
+安全出口对水平边界、禁飞区和障碍物检查完整三维航段，并检查最小/最大高度、min_agl
+和单步垂直变化上限。拒绝时保持（固定翼/VTOL 为 loiter，多旋翼为 hold；达到恢复阈值
+时按既有逻辑 stop/返航），同时在 `safety.reasons` 和 mission/runtime audit event 中
+记录原因；不会静默把目标截断成另一个目标。
+
+### 运动入口审计表
+
+| 入口 | 统一出口 | 检查项 | 覆盖结论 | 证据 |
+| --- | --- | --- | --- | --- |
+| `OnboardLoop` 搜索、接近、计数/告警补看、follow、爬升/下降 | `MissionExecutor.next_motion_intent` -> `guard_command` | 区域、min/max 高度、min_agl、禁飞区、障碍物、垂直步长 | 已覆盖；loop 内局部障碍检查仍保留作早拒绝 | `onboard_loop.py:3200-3205, 3300-3403, 3997-4028`; `mission_executor.py:1166-1191` |
+| `MissionExecutor._move_to` goto/return/follow 航段 | 同上；执行期再次检查 live pose 到目标的整段 | 区域、禁飞区、障碍物和高度 | 已覆盖；规划期筛选不作为执行期安全依据 | `mission_executor.py:2742-2828` |
+| 固定翼 `from_primitive` reposition/turn/loiter | `guard_command` -> `apply` | 空速、转弯半径、区域、禁飞区、障碍物、高度 | 已覆盖，拒绝恢复 loiter | `motion_intent.py:528-648`, `motion_intent.py:390-499` |
+| 固定翼过顶/观测 orbit | `guard_command` -> `apply_orbit` | 整个圆、入圆航段、区域、禁飞区、障碍物、目标高度 | 已覆盖 | `motion_intent.py:446-468`; `onboard_loop.py:3506-3614` |
+| VTOL MC `mc_reposition`/`mc_hold` | `guard_command` -> `apply` | 同多旋翼，另含模式/转换约束 | 已覆盖 | `motion_intent.py:534-581` |
+| `sim_teacher/policies.py` 与 `fw_search.py` 直接 primitive | 交由任务执行器/运行时最终安全出口 | 不再以策略内边界检查代替 envelope | 已覆盖；策略边界仅为规划优化 | `sim_teacher/policies.py:166-199, 560-711, 868-889`; `fw_search.py:117-137` |
+
+该表按源码入口维护；新增任何 `MotionCommand`、`translate`、`reposition`、`orbit`、
+`goto` 或 `target_ned` 产生点，都必须接入上述出口并为拒绝原因保留回归测试。
+
 ```text
 Mission Authoring Plane / MultiDetectGCS
     自然语言、地图消歧、计划预览、确认、取消、证据、审计
