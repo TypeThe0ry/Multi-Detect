@@ -29,18 +29,32 @@
       "stream_uri": "gazebo://gen_r20_w0008/airspeed"
     }
   ],
+  "task_intent": {
+    "kind": "find_and_observe",
+    "observation": {
+      "camera_altitude_m": 75.0,
+      "camera_pitch_rad": -0.18,
+      "observation_waypoint": {
+        "x_east_m": 60.0,
+        "y_north_m": 35.0,
+        "z_up_m": 0.0
+      }
+    }
+  },
   "vehicle": {
+    "airframe": "rc_cessna_runway",
     "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
     "model": "px4_fixed_wing_standard",
     "spawn_id": "gen_r20_w0008_runway",
     "spawn_pose": {
-      "pitch_rad": -0.18,
+      "pitch_rad": 0.0,
       "roll_rad": 0.0,
       "x_east_m": 0.0,
       "y_north_m": 0.0,
-      "yaw_rad": 0.5280744484263596,
-      "z_up_m": 75.0
-    }
+      "yaw_rad": 0.0,
+      "z_up_m": 0.2
+    },
+    "takeoff_method": "runway"
   },
   "world": {
     "dem_asset": "builtin://terrain/gen_r20_w0008.dem.json",

@@ -2,7 +2,7 @@
   "channels": {
     "runtime_input": {
       "path": "gen_r21id_w0021.runtime_input.json",
-      "sha256": "b2302704979ba06941f7e640215990e7caab138dddf3fe354bea504f4ede4639"
+      "sha256": "8cbb7efb67c6e40e475ad38956fafa0e69a08ceaf93810b14fa859051ea3771c"
     },
     "truth": {
       "path": "gen_r21id_w0021.truth.json",

@@ -10,6 +10,8 @@
 
 ## 生成与采集
 
+`view_geometry` 描述相机观察目标所需的高度、距离、像素层和视角序列，不是 vehicle spawn pose。所有多旋翼在地面以约 0.2 m、pitch 0 起飞；任何相机俯仰、高度/巡航高度和观察航点都应通过任务/teacher 参数表达并被实际消费。若生成 fixed-wing 场景，必须在 scenario/runtime 显式声明可解析的 airframe 与 profile 对应起飞方式；RGB、depth 和 segmentation overlay 要符合该 runtime model 的 suite 合约。Round collect 在启动 worker 前对完整场景集做静态校验，配置错误汇总失败且不重试；重试只用于瞬时运行故障。
+
 ```powershell
 $env:PYTHONPATH='src;.'
 $env:PYTHONUTF8='1'
@@ -25,6 +27,15 @@ bash _scratch/sitl_lock.sh -- bash -lc "PYTHONPATH=src:. PYTHONUTF8=1 python scr
 ```
 
 24 世界 × 4 视角 × 3 重复约 288 个 episode。按约 90 秒/episode 的短难例架次估计，纯飞行与保存约 4.5--5 小时；考虑启动、校验和低速磁盘写入，预留 6 小时。该计划不要求在本轮启动 SITL、Docker、llama-server 或训练。
+
+修复说明：先前生成器把相机观察高度/俯仰误写入 runtime spawn pose，令多旋翼出生在空中并倾斜，PX4 拒绝解锁；固定翼采集还会因缺少显式 airframe 而落到 x500 默认机型。重新生成时保留既有 world id、目标布局、holdout 与 seed，只调整出生配方、airframe 绑定和任务/teacher 观察意图。collector/teacher 必须读取这些观察意图，不允许只落入元数据。
+
+单架次 SITL 烟测命令（由后续排队者运行；一个多旋翼和一个固定翼各采 1 架次）：
+
+```bash
+PYTHONPATH=src:. PYTHONUTF8=1 bash _scratch/sitl_lock.sh -- bash -lc 'python scripts/collect_sim_teacher_episodes.py --scenario configs/scenarios/generated-r21id/gen_r21id_w0000.scenario.json --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 --out artifacts/smoke/r21id-multirotor'
+PYTHONPATH=src:. PYTHONUTF8=1 bash _scratch/sitl_lock.sh -- bash -lc 'python scripts/collect_sim_teacher_episodes.py --scenario configs/scenarios/generated-r20/gen_r20_w0005.scenario.json --airframe rc_cessna_runway --takeoff-method runway --episodes 1 --steps-per-episode 120 --out artifacts/smoke/r21id-fixed-wing'
+```
 
 ## 评测门槛
 

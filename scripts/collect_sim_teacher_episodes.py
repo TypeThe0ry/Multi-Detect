@@ -285,11 +285,24 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
     vehicle = runtime.get("vehicle", {})
     model = vehicle.get("model") if isinstance(vehicle, dict) else None
     requested = str(airframe).strip().lower().replace("-", "_")
+    profile = _airframe_profile(airframe)
+    category = str(getattr(profile, "category", "")) if profile is not None else ""
+    model_text = str(model or "").lower()
+    model_category = (
+        "fixed_wing" if "fixed_wing" in model_text else
+        "vtol" if "vtol" in model_text or "tiltrotor" in model_text else
+        "multirotor" if "multirotor" in model_text or "x500" in model_text else
+        "unknown"
+    )
     if requested in {"x500", "x500_mono_cam", "multirotor"}:
         if model and "multirotor" not in str(model).lower() and "x500" not in str(model).lower():
             raise ValueError("x500_mono_cam requires a multirotor/x500 runtime model")
     elif not model:
         raise ValueError(f"airframe {airframe!r} requires runtime.vehicle.model")
+    if category in {"fixed_wing", "multirotor", "vtol"} and model_category in {"fixed_wing", "multirotor", "vtol"} and category != model_category:
+        raise ValueError(
+            f"airframe {airframe!r} category={category} does not match runtime.vehicle.model={model!r}"
+        )
     for sensor in runtime.get("sensors", []):
         if isinstance(sensor, dict) and isinstance(sensor.get("stream_uri"), str):
             validate_local_endpoint(sensor["stream_uri"])
@@ -1516,10 +1529,39 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     )
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
     obstacles = load_sdf_obstacles(scenario_world_path(plan.runtime) or "")
+    # Generated campaigns may encode observation geometry as mission intent.
+    # Feed it into the expert's actual route and camera model, never vehicle spawn.
+    intent: dict[str, Any] = {}
+    try:
+        runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+        task_intent = runtime.get("task_intent", {}) if isinstance(runtime, dict) else {}
+        observation = task_intent.get("observation", {}) if isinstance(task_intent, dict) else {}
+        if isinstance(observation, dict):
+            intent = observation
+    except (OSError, ValueError):
+        pass
+    if intent.get("camera_altitude_m") is not None:
+        requested_altitude = float(intent["camera_altitude_m"])
+        if not math.isfinite(requested_altitude) or requested_altitude <= 0.0:
+            raise ValueError("task_intent.observation.camera_altitude_m must be finite and positive")
+        altitude_m = requested_altitude
+    waypoint = intent.get("observation_waypoint", {})
+    home_ned = None
+    if isinstance(waypoint, dict) and ("x_east_m" in waypoint or "y_north_m" in waypoint):
+        home_ned = (
+            float(waypoint.get("y_north_m", 0.0)),
+            float(waypoint.get("x_east_m", 0.0)),
+            -float(waypoint.get("z_up_m", 0.0)),
+        )
+    camera_pitch = float(intent.get("camera_pitch_rad", 0.18))
+    if not math.isfinite(camera_pitch):
+        raise ValueError("task_intent.observation.camera_pitch_rad must be finite")
     return ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
+        camera_pitch_rad=camera_pitch,
+        **({"home_ned": home_ned} if home_ned is not None else {}),
         obstacles=obstacles,
     ), label
 

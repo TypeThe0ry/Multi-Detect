@@ -15,6 +15,16 @@ def test_r21id_worlds_are_split_and_holdout_clean():
     assert {s: sum(x["split"] == s for x in index["worlds"]) for s in ("train", "val", "test")} == {"train": 18, "val": 3, "test": 3}
     counts = {name: 0 for name in ("fire_hydrant", "backpack", "construction_cone")}
     for entry in index["worlds"]:
+        runtime = json.loads(
+            (ROOT / "configs/scenarios/generated-r21id" / f"{entry['world_id']}.runtime_input.json").read_text()
+        )
+        spawn = runtime["vehicle"]["spawn_pose"]
+        assert spawn["z_up_m"] < 1.0
+        assert spawn["pitch_rad"] == 0.0
+        intent = runtime["task_intent"]["observation"]
+        assert intent["camera_altitude_m"] > 1.0
+        assert "camera_pitch_rad" in intent
+        assert set(intent["observation_waypoint"]) >= {"x_east_m", "y_north_m", "z_up_m"}
         truth = json.loads((ROOT / "configs/scenarios/generated-r21id" / f"{entry['world_id']}.truth.json").read_text())
         manifest_path = ROOT / "configs/scenarios/generated-r21id" / f"{entry['world_id']}.scenario.json"
         manifest = json.loads(manifest_path.read_text())
