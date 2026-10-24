@@ -35,7 +35,7 @@ def sha256(path: Path) -> str:
 def stage_outputs(name: str, out: Path) -> tuple[Path, ...]:
     mapping = {
         "data": (out / "dataset/manifest.json", out / "dataset/train.jsonl", out / "dataset/val.jsonl"),
-        "train": (out / "adapter/adapter_config.json", out / "training-report.json"),
+        "train": (out / "adapter/adapter/adapter_config.json", out / "adapter/training-report.json"),
         "export": (out / "slow-system-Q5_K_M.gguf",),
         "eval": (EVAL_ROOT / "candidate/planning-v3.json", EVAL_ROOT / "candidate/planning-v4.json", EVAL_ROOT / "baseline/planning-v3.json", EVAL_ROOT / "baseline/planning-v4.json", EVAL_ROOT / "probe-candidate.json", EVAL_ROOT / "probe-baseline.json"),
         "report": (out / "planner-round-report.md",),

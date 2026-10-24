@@ -54,3 +54,13 @@ def test_default_lock_is_the_shared_sitl_lock_directory():
     parser_source = open(mod.__file__, encoding="utf-8").read()
     assert r'_scratch\sitl.lock"' in parser_source
     assert "sitl_lock.sh\")" not in parser_source
+
+
+def test_train_outputs_match_the_trainer_layout(tmp_path: Path):
+    # train_slow_system_lora.py --output <out>/adapter saves the LoRA under
+    # <out>/adapter/adapter and its report beside it; the r21 round trained for
+    # two hours and then failed because this check looked one level up.
+    out = tmp_path / "round"
+    config, report = round_runner.stage_outputs("train", out)
+    assert config == out / "adapter" / "adapter" / "adapter_config.json"
+    assert report == out / "adapter" / "training-report.json"
