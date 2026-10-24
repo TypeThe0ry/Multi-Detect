@@ -20,6 +20,12 @@ r20 只做离线方案、世界生成和小规模 SFT 样例，不采集 SITL、
 
 观察几何与出生状态必须分开：`vehicle.spawn_pose` 表示地面上的物理初始状态，不得承载相机观察高度或观察俯仰。多旋翼从 `z_up_m=0.2`、`pitch_rad=0` 起飞；固定翼按其 airframe profile 的跑道/手抛/弹射配方出生，并在场景与采集参数中显式指定 profile 和起飞方式。相机高度、俯仰、巡航高度及观察航点属于任务/teacher 意图，必须由 teacher/采集器消费。
 
+### runtime 契约修复
+
+这次失败的根因是生成器把 `task_intent` 写入 `*.runtime_input.json`。`ScenarioRuntimeInput` 是仿真运行时的严格契约，未知字段会在 stack planner 入口直接拒绝；把 teacher 几何加进该 JSON 还会改变 runtime channel 的 provenance 哈希。采用方案 (a)：生成器把观察意图写到同目录、同 world id 的 `*.teacher_intent.json` sidecar。它不属于 scenario manifest 的三条受证据约束 channel，也不进入 runtime hash；collector 的 `expert_search` 只从该 sidecar 读取，缺失时保持旧的默认策略。没有修改 `configs/schemas/*.json`，后续若要把 sidecar 正式纳入清单，交给生成器/schema 流程处理。
+
+`run_r15_round.py collect` 现在在派发 worker 前，用每个场景实际的 `--airframe` 和 fixed-wing `--takeoff-method` 构造 collector 的 dry plan，调用同一 `docker_command`/stack planner。新增离线端到端测试覆盖 generated-r20（20 个）和 generated-r21id（24 个）全部场景，不启动 Docker。
+
 ## 世界与分布
 
 `scripts/generate_r15_worlds.py --profile r20` 是隔离开关，默认行为不变。正式集合使用仓库内资产，并按四类模板分层生成：成对干扰物、fixed-wing 高空斜视、背包远小斜视、建筑物遮挡消防栓/画面下沿截断。真目标坐标同步写入 SDF 与 truth，vehicle runtime 按场景配置高度/姿态。所有目标组合必须通过 held-out 检查。
@@ -47,7 +53,7 @@ r20 只做离线方案、世界生成和小规模 SFT 样例，不采集 SITL、
 
 所有真目标与 v2 held-out 组合无交集。r19 的两项回退中，pickup/SUV 的 SUV 和 pickup 均在 `generated-v2/index.json` 的 held-out 列表，不能直接作为 r20 真目标；因此以 catalog 中符合 target/distractor 资格且不在留出表的 hatchback_blue→ambulance 外观相近车辆对替代。锥桶/jersey barrier 不属于 held-out，故成对组以 construction_cone→jersey_barrier 为主：4 个世界同框近距配对，名义锥桶短边尺寸层 16–20 px；另保留 1 个 ambulance→bus。固定翼 5 个世界显式使用可解析的 `rc_cessna_runway` 与 runway 起飞，runtime 机型为固定翼标准模型，并使用该模型对应的 RGB/depth/segmentation assets。背包组的约 19 m 相机高度、约 28 m 地面距离及消防栓组的高位下俯观察均记录为任务/teacher 几何意图；出生仍按机型地面起飞配方配置。上述为配置几何验收，SITL 冒烟留待排队执行。
 
-逐世界 `build_stack_plan(scenario, repository_root=Path.cwd())` 预检 20/20 通过，SDF 可解析且三路 channel hashes 与内容一致。修复回归测试逐世界检查多旋翼地面 spawn 与水平姿态、固定翼 airframe/takeoff 可解析、观察意图字段及其 teacher/collector 消费路径，并覆盖 collect 派发前静态校验。此前 6284094c 与 07588147 的旧资产由本次重新生成资产覆盖；world id、布局、seed 与 holdout 保持不变，仅更新 spawn、airframe 和观察意图相关字段。
+逐世界 stack plan 预检通过，SDF 可解析且三路 channel hashes 与内容一致。此前版本在旧提交 `49bb467e` 的对照 worktree 中对 r20 20/20 场景全部复现 `ScenarioRuntimeInput has unknown field(s): task_intent`；修复后离线 collector plan 测试覆盖 r20 20/20 与 r21id 24/24。重新生成只把 teacher 意图从 runtime sidecar 移出，world id、seed、布局、划分和 holdout 保持不变；可用 `git diff --no-index` 对照生成前后对应 world/SDF/map/DEM，确认没有几何资产漂移。
 
 本次修复根因：旧生成器把 18–75 m 的相机观察高度和负俯仰直接写进多旋翼 spawn，PX4 因空中/倾斜出生拒绝解锁；此外 5 个固定翼场景未向 collector 传入固定翼 airframe，导致默认 `x500_mono_cam` 与 runtime model 不匹配。collect 现在应在派发 worker 前汇总并拒绝 runtime model/airframe 不一致、不可解析 airframe 及不贴地的多旋翼出生配置，确定性配置错误不进入重试；瞬时故障仍使用原重试次数。
 
@@ -56,6 +62,14 @@ r20 只做离线方案、世界生成和小规模 SFT 样例，不采集 SITL、
 ```bash
 PYTHONPATH=src:. PYTHONUTF8=1 bash _scratch/sitl_lock.sh -- bash -lc 'python scripts/collect_sim_teacher_episodes.py --scenario configs/scenarios/generated-r20/gen_r20_w0000.scenario.json --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 --out artifacts/smoke/r20-multirotor'
 PYTHONPATH=src:. PYTHONUTF8=1 bash _scratch/sitl_lock.sh -- bash -lc 'python scripts/collect_sim_teacher_episodes.py --scenario configs/scenarios/generated-r20/gen_r20_w0005.scenario.json --airframe rc_cessna_runway --takeoff-method runway --episodes 1 --steps-per-episode 120 --out artifacts/smoke/r20-fixed-wing'
+```
+
+提交 SITL 队列前可在离线环境执行同一 collector/stack-plan 构建覆盖（不会运行 Docker）：
+
+```powershell
+$env:PYTHONPATH='src;.'
+$env:PYTHONUTF8='1'
+python -m pytest -q tests/test_sim_teacher_stack_preflight.py
 ```
 
 整轮 dry-run 已实际运行（无采集/训练），退出码 0，命令阶段与低磁盘守卫均被打印。日志：`D:/Projects/mdwt/_scratch/cx-r20-worlds/dry-run-r20.log`；逐世界预检日志：`D:/Projects/mdwt/_scratch/cx-r20-worlds/preflight-r20.log`。可复用命令：

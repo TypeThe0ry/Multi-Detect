@@ -284,6 +284,14 @@ def _scenario_channels(scenario_path: Path) -> tuple[Path, Path]:
     return resolve("runtime_input"), resolve("truth")
 
 
+def _teacher_intent_path(scenario_path: Path) -> Path:
+    """Resolve the collector-only teacher intent sidecar, when present."""
+    path = scenario_path.with_name(scenario_path.name.removesuffix(".scenario.json") + ".teacher_intent.json")
+    if not path.is_file():
+        return path
+    return path
+
+
 def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> dict[str, Any]:
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
     if not isinstance(runtime, dict):
@@ -1579,8 +1587,12 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     # Feed it into the expert's actual route and camera model, never vehicle spawn.
     intent: dict[str, Any] = {}
     try:
-        runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
-        task_intent = runtime.get("task_intent", {}) if isinstance(runtime, dict) else {}
+        intent_path = _teacher_intent_path(Path(plan.scenario))
+        task_intent = (
+            json.loads(intent_path.read_text(encoding="utf-8"))
+            if intent_path.is_file()
+            else {}
+        )
         observation = task_intent.get("observation", {}) if isinstance(task_intent, dict) else {}
         if isinstance(observation, dict):
             intent = observation
