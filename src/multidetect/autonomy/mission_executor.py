@@ -95,6 +95,13 @@ class ExecutorConfig:
     hold_s: float = 1.0
     follow_stale_s: float = 3.0
     follow_stale_cycles: int = 2
+    # Follow-specific reacquisition is deliberately bounded.  A candidate
+    # must remain near the predicted last position and pass two identity votes
+    # before a new tracker id can take over the followed object.
+    follow_reacquire_s: float = 7.0
+    follow_reacquire_confirmations: int = 2
+    follow_max_target_speed_mps: float = 20.0
+    follow_speed_violation_cycles: int = 3
     # Patrol/monitor alerts require this many identity-positive votes.  The
     # default preserves the historical first-positive behaviour.
     alert_min_identity_matches: int = 1
@@ -213,6 +220,22 @@ class ExecutorConfig:
             or self.alert_same_place_m < 0
         ):
             raise ValueError("alert same place distance must be finite and non-negative")
+        for name in ("follow_reacquire_s", "follow_max_target_speed_mps"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if (
+            isinstance(self.follow_reacquire_confirmations, bool)
+            or not isinstance(self.follow_reacquire_confirmations, int)
+            or self.follow_reacquire_confirmations < 1
+        ):
+            raise ValueError("follow_reacquire_confirmations must be a positive integer")
+        if (
+            isinstance(self.follow_speed_violation_cycles, bool)
+            or not isinstance(self.follow_speed_violation_cycles, int)
+            or self.follow_speed_violation_cycles < 1
+        ):
+            raise ValueError("follow_speed_violation_cycles must be a positive integer")
         if (
             isinstance(self.count_rejection_revisit_range_m, bool)
             or not math.isfinite(self.count_rejection_revisit_range_m)
@@ -335,6 +358,14 @@ class _StepRun:
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
+    follow_last_position: tuple[float, float] | None = None
+    follow_velocity_ne: tuple[float, float] = (0.0, 0.0)
+    follow_speed_reference_position: tuple[float, float] | None = None
+    follow_speed_reference_s: float | None = None
+    follow_last_bearing_deg: float | None = None
+    follow_reacquire_track_id: str | None = None
+    follow_reacquire_votes: int = 0
+    follow_speed_violation_count: int = 0
     # Return-home geofence detour state.
     detour_waypoints: list[tuple[float, float]] = field(default_factory=list)
     detour_index: int = 0
@@ -2672,6 +2703,37 @@ class MissionExecutor:
         run.phase = "turn"
         return ActionPrimitive.hold(seconds), {"phase": "hold", "remaining_s": remaining - seconds}
 
+    def _follow_reacquire_candidate(self, run, pose):
+        """Choose a bounded, identity-consistent replacement track after loss."""
+        if run.follow_finding is None or run.last_ground_s is None:
+            return None
+        age = max(0.0, run.elapsed_s - run.last_ground_s)
+        if age > self.config.follow_reacquire_s:
+            return None
+        anchor = run.follow_last_position or run.follow_finding.get("position_ne")
+        if anchor is None:
+            return None
+        predicted = (
+            anchor[0] + run.follow_velocity_ne[0] * age,
+            anchor[1] + run.follow_velocity_ne[1] * age,
+        )
+        radius = max(5.0, self.config.max_translate_m * 1.5, self.config.follow_max_target_speed_mps * max(age, 0.5))
+        appearance = run.follow_finding.get("appearance")
+        if appearance is None:
+            return None
+        candidates = []
+        for candidate in self._current:
+            if candidate.verdict not in {"confirm", "approach"} or candidate.ground is None:
+                continue
+            if not appearances_consistent(appearance, candidate.appearance, run.loop.config):
+                continue
+            distance = math.dist(candidate.ground, predicted)
+            if distance <= radius:
+                candidates.append((distance, candidate))
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: item[0])[1]
+
     def _follow(self, run, pose, yaw, ground_point, frame_id):
         if run.follow_track_id is None and run.acquire_track:
             candidate = next(
@@ -2687,7 +2749,68 @@ class MissionExecutor:
                 run.follow_track_id = candidate.track_id
         track = next((t for t in self._current if t.track_id == run.follow_track_id), None)
         fresh = track is not None and track.track_id in run.fresh_ground_tracks
+        identity_ok = fresh
+        if fresh and run.follow_finding is not None:
+            prior_appearance = run.follow_finding.get("appearance")
+            identity_ok = (
+                prior_appearance is None
+                or appearances_consistent(prior_appearance, track.appearance, run.loop.config)
+            )
+        reacquired = False
+        if not identity_ok:
+            fresh = False
+            candidate = self._follow_reacquire_candidate(run, pose)
+            if candidate is not None:
+                if candidate.track_id == run.follow_reacquire_track_id:
+                    run.follow_reacquire_votes += 1
+                else:
+                    run.follow_reacquire_track_id = candidate.track_id
+                    run.follow_reacquire_votes = 1
+                if run.follow_reacquire_votes >= self.config.follow_reacquire_confirmations:
+                    run.follow_track_id = candidate.track_id
+                    run.follow_reacquire_track_id = None
+                    run.follow_reacquire_votes = 0
+                    track = candidate
+                    fresh = True
+                    reacquired = True
+                    run.follow_speed_reference_position = None
+                    run.follow_speed_reference_s = None
+                    run.follow_speed_violation_count = 0
+            else:
+                run.follow_reacquire_track_id = None
+                run.follow_reacquire_votes = 0
         if fresh:
+            previous = None if reacquired else (
+                run.follow_speed_reference_position or run.follow_last_position
+            )
+            previous_s = run.follow_speed_reference_s or run.last_ground_s
+            speed = 0.0
+            if previous is not None and previous_s is not None:
+                dt = max(1e-3, run.elapsed_s - previous_s)
+                displacement = math.dist(previous, track.ground)
+                speed = displacement / dt
+                run.follow_speed_reference_position = tuple(track.ground)
+                run.follow_speed_reference_s = run.elapsed_s
+                if speed > self.config.follow_max_target_speed_mps:
+                    run.follow_speed_violation_count += 1
+                    if run.follow_speed_violation_count >= self.config.follow_speed_violation_cycles:
+                        self.alerts.append(f"{run.step.id}:target_exceeds_follow_speed")
+                        self._finish("failed", "target_exceeds_follow_speed")
+                    return ActionPrimitive.hold(self.config.hold_s), {
+                        "track_id": track.track_id, "follow_state": "target_too_fast",
+                        "follow_confidence": 0.0, "target_speed_mps": speed,
+                        "speed_violation_cycles": run.follow_speed_violation_count,
+                    }
+                run.follow_speed_violation_count = 0
+                run.follow_velocity_ne = (
+                    (track.ground[0] - previous[0]) / dt,
+                    (track.ground[1] - previous[1]) / dt,
+                )
+            run.follow_speed_reference_position = tuple(track.ground)
+            run.follow_speed_reference_s = run.elapsed_s
+            run.follow_last_position = tuple(track.ground)
+            dn, de = track.ground[0] - pose[0], track.ground[1] - pose[1]
+            run.follow_last_bearing_deg = math.degrees(math.atan2(de, dn))
             run.lost_cycles = 0
             run.last_ground_s = run.elapsed_s
             if run.follow_finding is None:
@@ -2697,6 +2820,7 @@ class MissionExecutor:
                         "track_id": track.track_id,
                         "position_estimate_ne": track.ground,
                         "bbox": track.bbox,
+                        "appearance": track.appearance,
                     },
                     frame_id,
                 )
@@ -2708,13 +2832,13 @@ class MissionExecutor:
             return None
         if not fresh:
             run.lost_cycles += 1
-            if run.lost_cycles > 6:
+            age = None if run.last_ground_s is None else max(0.0, run.elapsed_s - run.last_ground_s)
+            if run.lost_cycles > 6 or (age is not None and age >= self.config.follow_reacquire_s):
                 if run.follow_finding is not None:
                     self._finish("succeeded", "target_lost_timeout")
                 else:
                     self._finish("failed", "target_not_found")
                 return None
-            age = None if run.last_ground_s is None else max(0.0, run.elapsed_s - run.last_ground_s)
             stale = run.lost_cycles >= self.config.follow_stale_cycles or (
                 age is not None and age >= self.config.follow_stale_s
             )
@@ -2736,11 +2860,15 @@ class MissionExecutor:
                 "follow_state": "searching" if stale else "holding",
             }
             # Reacquire locally instead of translating toward a retained fix.
-            action = (
-                ActionPrimitive.turn(30.0 if run.lost_cycles % 2 == 0 else -30.0)
-                if stale
-                else ActionPrimitive.hold(self.config.hold_s)
-            )
+            if stale:
+                bearing = run.follow_last_bearing_deg
+                if bearing is None:
+                    sweep = 30.0 if run.lost_cycles % 2 == 0 else -30.0
+                else:
+                    sweep = _wrap(bearing - yaw) + (15.0 if run.lost_cycles % 2 == 0 else -15.0)
+                action = ActionPrimitive.turn(max(-45.0, min(45.0, sweep)))
+            else:
+                action = ActionPrimitive.hold(self.config.hold_s)
             return action, info
         altitude = run.step.params.get("altitude_m")
         moved = self._move_to(
@@ -2781,9 +2909,14 @@ class MissionExecutor:
                 track.ground[1] - standoff * de / distance,
             )
             blocked_before = run.blocked
+            if isinstance(self.operating_area, Mapping) and not self._point_inside_area(goal, self.operating_area):
+                return ActionPrimitive.hold(self.config.hold_s), {**info, "follow_state": "boundary_observe"}
+            if any(self._segment_circle_distance((pose[0], pose[1]), goal, centre) < radius - 1e-9
+                   for centre, radius in self._inflated_no_fly_zones):
+                return ActionPrimitive.hold(self.config.hold_s), {**info, "follow_state": "no_fly_boundary_observe"}
             moved = self._move_to(run, pose, yaw, goal)
             if moved == "no_fly":
-                return None
+                return ActionPrimitive.hold(self.config.hold_s), {**info, "follow_state": "no_fly_boundary_observe"}
             if run.blocked > blocked_before:
                 run.follow_blocked_attempts += 1
             # Keep a separate obstruction budget: intermittent successful
