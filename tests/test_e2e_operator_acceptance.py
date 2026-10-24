@@ -309,6 +309,23 @@ def test_finding_missing_at_ground_fails_and_is_listed(tmp_path):
     assert report["count"]["matched"] == 1
 
 
+def test_precise_ground_clock_latency_uses_status_monotonic_alignment(tmp_path):
+    run = _synthetic_run(tmp_path)
+    path = run / "gcs-documents.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row.get("kind") == "status":
+            row["received_at_monotonic"] = row["t"] + 1000.0
+        elif row.get("kind") == "finding" and row.get("id") == "f1":
+            row["received_at_monotonic"] = 1022.5
+    _write(path, rows)
+    report = evaluate_run(run, truth=TRUTH)
+    finding = report["findings"][0]
+    assert finding["latency_s"] == pytest.approx(2.5)
+    assert finding["latency_method"] == "ground_clock_aligned"
+    assert report["timing_alignment"]["method"] == "status_median_offset"
+
+
 def test_cli_evaluate_writes_reports_and_exit_code(tmp_path, capsys):
     stem = tmp_path / "out" / "run10"
     assert main(["--evaluate", str(FIXTURES / "run10"), "--report", str(stem)]) == 1

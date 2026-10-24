@@ -322,10 +322,30 @@ def _plan(
     }
 
 
+def _clock_alignment(docs: list[dict[str, Any]]) -> dict[str, Any]:
+    samples = []
+    for doc in docs:
+        if doc.get("kind") != "status" or _num(doc.get("t")) is None:
+            continue
+        received = _num(doc.get("ground_received_monotonic_s"))
+        if received is None:
+            received = _num(doc.get("received_at_monotonic"))
+        if received is not None:
+            samples.append(received - float(doc["t"]))
+    if not samples:
+        return {"method": "status_bracket", "offset_s": None, "sample_count": 0}
+    return {
+        "method": "status_median_offset",
+        "offset_s": _round(sorted(samples)[len(samples) // 2]),
+        "sample_count": len(samples),
+    }
+
+
 def _findings(
     ground: list[dict[str, Any]],
     brackets: list[tuple[float | None, float | None]],
     onboard: list[dict[str, Any]],
+    alignment: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     out = []
     ground_by_seq: dict[Any, int] = {}
@@ -350,8 +370,17 @@ def _findings(
             "arrived_at_ground": index is not None,
             "latency_lower_s": None,
             "latency_upper_s": None,
+            "latency_s": None,
+            "latency_method": "status_bracket",
         }
         if index is not None and recorded is not None:
+            received = _num(ground[index].get("ground_received_monotonic_s"))
+            if received is None:
+                received = _num(ground[index].get("received_at_monotonic"))
+            if alignment and alignment.get("offset_s") is not None and received is not None:
+                item["latency_s"] = _round(max(0.0, received - alignment["offset_s"] - recorded))
+                item["latency_method"] = "ground_clock_aligned"
+                item["latency_source"] = "status_median_monotonic_offset"
             lower, upper = brackets[index]
             item["latency_lower_s"] = _round(max(0.0, (lower or recorded) - recorded))
             item["latency_upper_s"] = _round(None if upper is None else upper - recorded)
@@ -577,7 +606,8 @@ def evaluate_run(
     summary_view = _final_summary(ground)
     summary = summary_view.pop("summary")
     plan = _plan(ground, onboard, acks)
-    findings = _findings(ground, _arrival_brackets(ground), onboard)
+    timing_alignment = _clock_alignment(ground)
+    findings = _findings(ground, _arrival_brackets(ground), onboard, timing_alignment)
     count = _count(summary, ground, findings, truth_data, radius_m)
     termination = _termination(summary, ground, onboard)
     return_home = _return_home(summary, onboard, episode)
@@ -620,6 +650,7 @@ def evaluate_run(
         "count": count,
         "return_home": return_home,
         "link": link,
+        "timing_alignment": timing_alignment,
         "criteria": criteria,
         "verdict": verdict,
     }

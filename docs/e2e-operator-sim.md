@@ -67,7 +67,7 @@ python scripts/fake_gcs_console.py D:/Projects/mdwt/_scratch/e2e/package-count-c
   --auto-approve --log D:/Projects/mdwt/_scratch/e2e/gcs.jsonl --max-seconds 2400
 ```
 
-省略 `--auto-approve` 时，收到 plan 会停在 `approve with Enter`；`--max-seconds 0`（默认）持续到 Ctrl-C。控制台会打印上传结果、type-29 onboard ACK、计划、约每秒一次的 status v2、每条 finding，以及拆页后的 `final_summary_page`；只有收齐所有页才是最终摘要。`--log` 追加每份完整 JSON 文档。
+省略 `--auto-approve` 时，收到 plan 会停在 `approve with Enter`；`--max-seconds 0`（默认）持续到 Ctrl-C。控制台会打印上传结果、type-29 onboard ACK、计划、约每秒一次的 status v2、每条 finding，以及拆页后的 `final_summary_page`；只有收齐所有页才是最终摘要。`--log` 追加每份完整 JSON 文档，并记录 `received_at_wall`、`received_at_monotonic`、首片接收时间和 `completed_at_wall/monotonic`。
 
 自写 GCS 必须满足这些协议义务：
 
