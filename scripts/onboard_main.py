@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 import signal
@@ -386,6 +387,11 @@ def _shutdown(runtime, operator_server, policy, camera, vehicle) -> list[str]:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    # Cross-process hardware/model substitution is available only by explicit
+    # opt-in for the offline REAL-mode integration harness.
+    test_hook = __import__("os").environ.get("MULTIDETECT_ONBOARD_TEST_HOOK")
+    if test_hook:
+        importlib.import_module(test_hook).install(globals())
     package, package_options = _admit_package(args)
     if args.mode == "real":
         missing = [
