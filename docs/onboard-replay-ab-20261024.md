@@ -87,3 +87,11 @@ python -m pytest -q tests/test_replay_onboard_episode.py tests/test_motion_inten
 ```
 
 另行运行 `python -m pytest -q tests/test_fw_search.py`，9 passed。`run_onboard_gate.py` 未运行，因为没有代码修复；按任务约定，仅代码修复时要求执行完整 gate。
+
+## 更正：统一安全出口的 home 高度 bug（69fa6714）
+
+上一节统计的开环 3281 次、半闭环 4348 次安全拒绝（53/61 架次从某一步起每步都被拒、最长连续 135 步原地 hold）**不是“合理拒绝”，是误拒**：这些架次在真实 SITL 中都正常飞完并计数成功，说明被拒动作在实际飞行中是安全的。根因在执行器而不在重放：`MissionExecutor._init_home()` 把第一次拿到的位姿（已在巡航高度，例如 17.2 m）整个传给 `SafetyEnvelope.set_home()`，home 高度变成 -17.2 m，之后相对高度都≈0 m，`min_altitude`（5 m）与 hold/turn 的 `altitude` 检查几乎每步拒绝。local NED 以起飞点为原点（执行器自身用 `-z` 作巡航高度），所以 home 只取水平分量、高度保持 0。
+
+修复后用同一批 61 个架次开环重放（`_scratch/cx-replay-safety/all-open-fixed.json`）：安全拒绝 0 次，61/61 架次零拒绝。区分测试 `test_safety_home_stays_at_ground_level_when_the_first_pose_is_airborne` 在修复前失败（home 高度 -17.2）。
+
+教训：判断“误拒还是合理拒绝”要以真实飞行结果为准——日志里正常完成的动作被拒，首先怀疑坐标/基准，而不是按规则阈值认定合理。
