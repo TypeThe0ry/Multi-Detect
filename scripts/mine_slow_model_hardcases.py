@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 from collections import Counter, defaultdict
@@ -168,7 +169,7 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
                     continue
                 obj, distance = _truth_nearest(truth, ground, time_s)
                 pred = accepted(call)
-                if obj is None or distance is None or pred is None:
+                if obj is None or distance is None:
                     continue
                 task_kind = str(onboard.get("skill") or onboard.get("state") or "")
                 role = _truth_role(obj, role_map)
@@ -177,14 +178,20 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
                 if expected is not None:
                     eligible += 1
                 category = str(obj.get("class") or obj.get("category") or obj.get("asset_slug") or obj.get("label") or "unknown")
-                if expected is True and not pred:
+                if expected is True and pred is False:
                     kind = "false_reject"
-                elif expected is False and pred:
+                elif expected is False and pred is True:
                     kind = "false_accept"
-                elif expected is True and pred and float(call.get("confidence", 1.0)) <= low_confidence:
+                elif expected is True and pred is True and float(call.get("confidence", 1.0)) <= low_confidence:
                     kind = "low_conf_correct"
+                elif expected is None or pred is None:
+                    kind = "unknown"
+                elif expected and pred:
+                    kind = "correct_accept"
+                elif not expected and not pred:
+                    kind = "correct_reject"
                 else:
-                    kind = None
+                    kind = "unknown"
                 row = {
                     "kind": kind, "campaign": campaign, "episode_id": episode.name,
                     "episode": str(episode), "task": task, "step": step.get("step_index", line_no - 1),
@@ -197,24 +204,16 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
                     "frame": str((episode / frame).resolve()) if frame else None,
                     "frame_relative": frame, "line": line_no, "call_index": call_index,
                 }
-                row["hardcase_types"] = [kind] if kind else []
-                if expected is None:
-                    row["kind"] = "unknown"
-                    rows.append(row)
-                elif kind:
-                    rows.append(row)
-                # Keep correct decisions in the stream for flip detection, but remove them below.
-                else:
-                    row["kind"] = "_decision"
-                    rows.append(row)
+                row["hardcase_types"] = [kind] if kind in {"false_reject", "false_accept", "low_conf_correct"} else []
+                rows.append(row)
     _mark_flips(rows)
-    return [row for row in rows if row["kind"] != "_decision"], eligible
+    return rows, eligible
 
 
 def _mark_flips(rows: list[dict], radius_m: float = 2.0) -> None:
     by_episode: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if row.get("expected_positive") is not None and row.get("kind") in {"_decision", "false_reject", "false_accept", "low_conf_correct"}:
+        if row.get("expected_positive") is not None and row.get("kind") in {"correct_accept", "correct_reject", "false_reject", "false_accept", "low_conf_correct"}:
             by_episode[row["episode"]].append(row)
     for episode_rows in by_episode.values():
         clusters: list[list[dict]] = []
@@ -233,41 +232,60 @@ def _mark_flips(rows: list[dict], radius_m: float = 2.0) -> None:
             if len(group) > 1 and True in decisions and False in decisions:
                 for row in group:
                     row.setdefault("hardcase_types", []).append("decision_flip")
+                    row["hardcase_types"].append("decision_flip")
                     row["kind"] = "decision_flip"
 
 
-def _render(rows: list[dict], crop_dir: Path, sheet_path: Path) -> None:
+def hardcase_counts(rows: list[dict]) -> Counter:
+    """Count each hardcase label exactly once per JSONL call record."""
+    return Counter(tag for row in rows for tag in row.get("hardcase_types", []))
+
+
+def _render(rows: list[dict], crop_dir: Path, sheet_path: Path, max_per_sheet: int = 48) -> None:
     from PIL import Image, ImageDraw
     crop_dir.mkdir(parents=True, exist_ok=True)
-    thumbs = []
+    thumbs_by_class = defaultdict(list)
     for index, row in enumerate(rows):
+        if "false_reject" not in row.get("hardcase_types", []):
+            continue
         frame = Path(row["frame"])
         if not frame.is_file():
             continue
         with Image.open(frame) as src:
             image = src.convert("RGB")
             x1, y1, x2, y2 = (int(round(float(v))) for v in row["bbox"])
-            pad = max(8, int(max(x2 - x1, y2 - y1) * 0.25))
-            box = (max(0, x1-pad), max(0, y1-pad), min(image.width, x2+pad), min(image.height, y2+pad))
+            pad_x, pad_y = max(8, x2 - x1), max(8, y2 - y1)
+            box = (max(0, x1-pad_x), max(0, y1-pad_y), min(image.width, x2+pad_x), min(image.height, y2+pad_y))
             crop = image.crop(box)
-            ImageDraw.Draw(crop).rectangle((x1-box[0], y1-box[1], x2-box[0], y2-box[1]), outline="red", width=2)
+            draw = ImageDraw.Draw(crop)
+            draw.rectangle((x1-box[0], y1-box[1], x2-box[0], y2-box[1]), outline="red", width=2)
+            short_px = min(x2 - x1, y2 - y1)
+            label = f"{row['truth_class']} {short_px:.0f}px d={row['truth_distance_m']:.1f}m c={float(row['confidence'] or 0):.2f}"
+            draw.rectangle((0, 0, min(crop.width, max(220, len(label) * 7)), 16), fill="white")
+            draw.text((2, 2), label[:80], fill="black")
             dest = crop_dir / f"{index:04d}_{row['campaign']}_{row['episode_id']}_s{row['step']}_{row['track']}.jpg"
             crop.save(dest, quality=90)
             row["crop"] = str(dest)
-            if row["kind"] == "false_reject" and row.get("truth_class") == "fire_hydrant":
+            if "false_reject" in row.get("hardcase_types", []):
                 tile = crop.copy()
                 tile.thumbnail((220, 150))
-                thumbs.append((tile, f"{row['campaign']} {row['episode_id']} s{row['step']} {row['truth_distance_m']}m"))
-    if thumbs:
-        cols, tile_w, tile_h, label_h = 4, 240, 180, 28
-        sheet = Image.new("RGB", (cols * tile_w, math.ceil(len(thumbs) / cols) * (tile_h + label_h)), "white")
-        draw = ImageDraw.Draw(sheet)
-        for i, (im, label) in enumerate(thumbs):
-            x, y = (i % cols) * tile_w, (i // cols) * (tile_h + label_h)
-            sheet.paste(im, (x + (tile_w-im.width)//2, y + (tile_h-im.height)//2))
-            draw.text((x+4, y+tile_h), label[:42], fill="black")
-        sheet_path.parent.mkdir(parents=True, exist_ok=True)
-        sheet.save(sheet_path)
+                thumbs_by_class[row["truth_class"]].append((tile, f"{row['campaign']} {row['episode_id']} s{row['step']}"))
+    for cls, thumbs in thumbs_by_class.items():
+        if not thumbs:
+            continue
+        sheet_for_class = sheet_path.with_name(f"{sheet_path.stem}-{cls}.jpg")
+        for page, start in enumerate(range(0, len(thumbs), max_per_sheet)):
+            page_thumbs = thumbs[start:start + max_per_sheet]
+            output = sheet_for_class if len(thumbs) <= max_per_sheet else sheet_for_class.with_name(f"{sheet_for_class.stem}-{page+1}.jpg")
+            cols, tile_w, tile_h, label_h = 4, 240, 180, 28
+            sheet = Image.new("RGB", (cols * tile_w, math.ceil(len(page_thumbs) / cols) * (tile_h + label_h)), "white")
+            draw = ImageDraw.Draw(sheet)
+            for i, (im, label) in enumerate(page_thumbs):
+                x, y = (i % cols) * tile_w, (i // cols) * (tile_h + label_h)
+                sheet.paste(im, (x + (tile_w-im.width)//2, y + (tile_h-im.height)//2))
+                draw.text((x+4, y+tile_h), label[:42], fill="black")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            sheet.save(output)
 
 
 def main() -> int:
@@ -281,6 +299,7 @@ def main() -> int:
     parser.add_argument("--contact-sheet", type=Path)
     parser.add_argument("--low-confidence", type=float, default=0.70)
     parser.add_argument("--match-radius-m", type=float, default=10.0, help="truth association radius; matches scorer default")
+    parser.add_argument("--csv-output", type=Path, help="all known-semantic calls CSV")
     args = parser.parse_args()
     roots = sorted(path for path in args.benchmarks.iterdir() if path.is_dir() and re.search(r"2026102[3-9]|202610[3-9]\d", path.name))
     all_rows, eligible_by_task = [], Counter()
@@ -306,20 +325,30 @@ def main() -> int:
     with args.output.open("w", encoding="utf-8", newline="\n") as out:
         for row in all_rows:
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
-    counts = Counter(row["kind"] for row in all_rows if row["kind"] != "unknown")
+    counts = hardcase_counts(all_rows)
     unknown_count = sum(1 for row in all_rows if row["kind"] == "unknown")
     by_task = defaultdict(Counter)
     by_class = defaultdict(Counter)
+    hardcase_records_by_task = Counter()
     for row in all_rows:
-        if row["kind"] == "unknown":
+        if not row.get("hardcase_types"):
             continue
-        by_task[row["task"]][row["kind"]] += 1
-        by_class[row["truth_class"]][row["kind"]] += 1
+        hardcase_records_by_task[row["task"]] += 1
+        for tag in row["hardcase_types"]:
+            by_task[row["task"]][tag] += 1
+            by_class[row["truth_class"]][tag] += 1
     task_summary = {}
     for task, values in by_task.items():
         total = eligible_by_task[task]
-        task_summary[task] = {"eligible_calls": total, "hardcase_calls": sum(values.values()), "hardcase_rate": round(sum(values.values()) / total, 4) if total else 0.0, **dict(values)}
-    summary = {"campaigns": [p.name for p in roots], "eligible_calls": sum(eligible_by_task.values()), "eligible_by_task": dict(eligible_by_task), "unknown_calls": unknown_count, "hardcase_counts": dict(counts), "hardcase_rate": round(sum(counts.values()) / sum(eligible_by_task.values()), 4) if eligible_by_task else 0.0, "by_task": task_summary, "by_class": {k: dict(v) for k, v in by_class.items()}, "missing_truth_episodes": missing_truth, "jsonl": str(args.output)}
+        task_summary[task] = {"eligible_calls": total, "hardcase_calls": hardcase_records_by_task[task], "hardcase_label_count": sum(values.values()), "hardcase_rate": round(hardcase_records_by_task[task] / total, 4) if total else 0.0, **dict(values)}
+    csv_path = args.csv_output or args.output.with_suffix(".csv")
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=["episode", "step", "track", "truth_class", "truth_role", "expected_positive", "decision", "confidence", "bbox_width_px", "bbox_height_px", "bbox_short_side_px", "truth_distance_m", "frame"])
+        writer.writeheader()
+        for row in all_rows:
+            box = row["bbox"]
+            writer.writerow({"episode": row["episode"], "step": row["step"], "track": row["track"], "truth_class": row["truth_class"], "truth_role": row["truth_role"], "expected_positive": row["expected_positive"], "decision": row["decision"], "confidence": row["confidence"], "bbox_width_px": round(box[2]-box[0], 3), "bbox_height_px": round(box[3]-box[1], 3), "bbox_short_side_px": round(min(box[2]-box[0], box[3]-box[1]), 3), "truth_distance_m": row["truth_distance_m"], "frame": row["frame"]})
+    summary = {"campaigns": [p.name for p in roots], "jsonl_records": len(all_rows), "kind_counts": dict(Counter(row["kind"] for row in all_rows)), "eligible_calls": sum(eligible_by_task.values()), "eligible_by_task": dict(eligible_by_task), "unknown_calls": unknown_count, "hardcase_record_calls": sum(hardcase_records_by_task.values()), "hardcase_counts": dict(counts), "hardcase_rate": round(sum(hardcase_records_by_task.values()) / sum(eligible_by_task.values()), 4) if eligible_by_task else 0.0, "by_task": task_summary, "by_class": {k: dict(v) for k, v in by_class.items()}, "missing_truth_episodes": missing_truth, "jsonl": str(args.output), "csv": str(csv_path)}
     args.output.with_suffix(".summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
     return 0

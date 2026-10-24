@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.mine_slow_model_hardcases import expected_positive, mine_episode
+from scripts.mine_slow_model_hardcases import expected_positive, hardcase_counts, mine_episode
 
 
 def test_mine_four_hardcase_types(tmp_path: Path):
@@ -56,4 +56,18 @@ def test_count_member_is_positive_and_attribute_find_uses_task_equivalence(tmp_p
     row = {"step_index": 0, "labels": {"onboard": {"skill": "count", "tracks": [{"id": "tm", "bbox": [1, 1, 20, 20], "ground_ne": [10, 0]}], "slow_calls": [{"track_id": "tm", "decision": "match", "confidence": 0.99}]}}}
     (episode / "steps.jsonl").write_text(json.dumps(row), encoding="utf-8")
     records, _ = mine_episode(episode, count_truth, "synthetic")
-    assert records == []
+    assert len(records) == 1
+    assert records[0]["truth_role"] == "count_member"
+    assert records[0]["expected_positive"] is True
+    assert records[0]["hardcase_types"] == []
+
+
+def test_summary_counts_match_jsonl_record_labels():
+    rows = [
+        {"hardcase_types": ["false_reject"]},
+        {"hardcase_types": ["decision_flip", "false_reject"]},
+        {"hardcase_types": []},
+    ]
+    summary = dict(hardcase_counts(rows))
+    assert summary == {"false_reject": 2, "decision_flip": 1}
+    assert sum(summary.values()) == 3

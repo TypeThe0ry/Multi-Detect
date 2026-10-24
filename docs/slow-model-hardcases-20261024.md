@@ -2,7 +2,7 @@
 
 ## 范围与方法
 
-本次扫描 `artifacts/benchmarks` 下名称带 `20261023` 及以后日期的 benchmark，共 13 个目录、90 个 episode。脚本是只读处理器：逐个 episode 流式读取 `steps.jsonl`，只解析 `labels.onboard.tracks` 和 `labels.onboard.slow_calls`，不写入 `artifacts/`。每次慢模型调用按 `track.ground_ne` 与 episode 对应 truth 的目标位置做最近邻匹配；超过评分器默认 10 m 关联半径的调用标为 `unknown`，避免把远处物体误归因给最近 truth。输出记录保留架次、步号、track、bbox、判断、置信度、truth 类别、truth role、expected_positive、距离和 RGB 帧路径。
+本次扫描 `artifacts/benchmarks` 下名称带 `20261023` 及以后日期的 benchmark，共 13 个目录、90 个 episode。脚本是只读处理器：逐个 episode 流式读取 `steps.jsonl`，只解析 `labels.onboard.tracks` 和 `labels.onboard.slow_calls`，不写入 `artifacts/`。每个可解析的慢模型调用在 `hardcases.jsonl` 中恰好一行；`kind` 表示该调用的主状态，`hardcase_types` 表示可重叠难例标签。按 `track.ground_ne` 与 truth 最近邻匹配，超过评分器默认 10 m 关联半径的调用标为 `unknown`，避免把远处物体误归因给最近 truth。
 
 truth 角色来自对象字段和 `segmentation_labels`：`true_target`、`count_member`、`distractor`、`other`。count 任务中 `true_target/count_member` 为正；find/inspect 使用评分器的 `task_equivalent`（类别/语义词相同且颜色不冲突）；monitor/patrol 使用 onboard mission step 的 `params.query` 和评分器 `_object_matches_query`。显式 distractor 为负，其余无法确定的调用为 `expected_positive: null`，不进入难例统计。翻转定义为同一 episode 中、地面位置彼此不超过 2 m 的已知语义调用同时出现接受和拒绝。低置信正确定义为接受正样本且置信度不高于 0.70。一个调用可以同时属于“翻转”和“低置信正确”；JSONL 的 `hardcase_types` 保留所有标签，`kind` 取主标签。
 
@@ -16,33 +16,39 @@ python scripts/mine_slow_model_hardcases.py `
   --contact-sheet D:/Projects/mdwt/_scratch/cx-hardcase-mining/hydrant-false-reject-contact-sheet.jpg
 ```
 
-产物位于 `D:/Projects/mdwt/_scratch/cx-hardcase-mining/`：`hardcases.jsonl`、`hardcases.summary.json`、逐例 `crops/`，以及只含消防栓假拒的 `hydrant-false-reject-contact-sheet.jpg`。裁剪图通过 RGB 路径和 bbox 逐张读取、写出，未一次性装载图片。
+产物位于 `D:/Projects/mdwt/_scratch/cx-hardcase-mining/`：`hardcases.jsonl`（2029 行）、`hardcases.summary.json`、`all-known-calls.csv`（2030 行含表头；已知语义调用 1846 行）、逐例 `crops/`，以及按类别拆分的假拒拼图。每张裁剪图在 bbox 外扩一倍宽高，并标注短边像素、truth 距离和 confidence；每张拼图最多 48 张。
 
 ## 统计
 
-总计 1991 个已知语义慢模型调用，4 个调用为 unknown（包括超出 10 m 关联半径的记录），至少命中一种难例的调用 710 个，占 35.66%。
+JSONL 共 2029 个调用记录，其中 1846 个 `expected_positive` 已知、183 个 unknown。至少命中一种难例的调用为 **597**；四类标签出现次数相加为 1087。由于一个调用可以同时有多个标签，下面的四类数字不是互斥调用数。任务表的“难例调用”是去重后的 JSONL 行数，后面的假拒/翻转/低置信列是标签次数。
 
-| 难例 | 数量 | 占可匹配调用 |
+| 难例标签 | 标签出现次数 | 占已知语义调用 |
 |---|---:|---:|
-| 真目标假拒（false_reject） | 162 | 8.14% |
-| 同一实物判断翻转（decision_flip） | 339 | 17.03% |
-| 干扰物假接受（false_accept） | 4 | 0.20% |
-| 低置信正确接受（<=0.70） | 205 | 10.30% |
+| 真目标假拒（false_reject） | 125 | 6.77% |
+| 同一实物判断翻转（decision_flip） | 678 | 36.73% |
+| 干扰物假接受（false_accept） | 9 | 0.49% |
+| 低置信正确接受（<=0.70） | 275 | 14.90% |
 
 | 任务 | 可匹配调用 | 难例调用 | 难例比例 | 假拒 | 假接受 | 翻转 | 低置信正确 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 背包 | 324 | 163 | 50.31% | 82 | 0 | 70 | 11 |
-| 橙色交通锥 | 709 | 237 | 33.43% | 16 | 0 | 164 | 57 |
-| 消防栓 | 867 | 280 | 32.30% | 64 | 0 | 98 | 118 |
+| 背包 | 266 | 106 | 39.85% | 61 | 0 | 140 | 17 |
+| 橙色交通锥 | 733 | 239 | 32.61% | 41 | 0 | 328 | 99 |
+| 消防栓 | 751 | 217 | 28.89% | 22 | 0 | 196 | 138 |
 | 行人 | 4 | 4 | 100.00% | 0 | 4 | 0 | 0 |
 | SUV | 16 | 5 | 31.25% | 0 | 0 | 0 | 5 |
 | 邮筒 | 71 | 21 | 29.58% | 0 | 0 | 7 | 14 |
 
-按修正后的类别汇总，消防栓有 64 次假拒、98 次翻转、118 次低置信正确、0 次假接受；背包假拒 82 次，交通锥假拒 16 次。原先报告的 361 次假接受中，大量是合法 `count_member`，已从负样本统计中移除；剩余 4 次假接受均来自显式 distractor。消防栓假拒拼图只包含 10 m 内真实关联的样例。
+按统一口径，`hardcases.jsonl` 中 `hardcase_types` 含假拒的调用共 125：背包 61、消防栓 22、交通锥 41、邮筒 1。`kind` 为 `false_reject` 的记录只有 41 条，因为发生翻转的记录主状态被设置为 `decision_flip`；假拒标签计数必须读取 `hardcase_types`。消防栓假拒拼图包含全部 22 个关联样例；其余类别分别有独立拼图。原先报告的假接受数字来自旧版只写难例记录且把 `count_member` 当负样本；当前假接受仅 9 个，均为显式 distractor。
+
+## 尺寸与距离对比
+
+对 `all-known-calls.csv` 中 `expected_positive=true` 的调用按 scorer 的 accepted/rejected verdict 分组。假拒 125 条的 bbox 短边均值/中位数为 **15.49/13.00 px**，truth 距离均值/中位数为 **0.75/0.287 m**；正确接受 994 条的短边均值/中位数为 **18.03/14.60 px**，距离均值/中位数为 **0.25/0.195 m**。假拒短边更小、关联误差更大，支持“小目标和定位误差会增加假拒”的方向性证据，但两组范围明显重叠（假拒 10--47.1 px、正确接受 10--93.1 px），不能把距离单独当作充分原因。
+
+按类别，消防栓假拒短边均值/中位数为 13.54/13.80 px、距离 0.22/0.142 m；背包为 12.31/11.20 px、距离 0.35/0.242 m；交通锥为 21.34/19.00 px、距离 1.65/1.422 m。CSV 保留每个调用的 bbox 宽高、短边、距离、confidence 和 expected_positive，可用于下一轮按类别做分层采样。
 
 ## 典型外观
 
-`hydrant-false-reject-contact-sheet.jpg` 是消防栓假拒的人工检查入口，原始 crop 在 `crops/` 中按 `campaign_episode_step_track` 命名。样例呈现出几种稳定模式：
+`false-reject-contact-sheet-fire_hydrant.jpg` 是全部 22 个消防栓假拒的人工检查入口；另有 `...-backpack-1/2.jpg`、`...-traffic_cone.jpg`、`...-postbox.jpg`。原始 crop 在 `crops/` 中按 `campaign_episode_step_track` 命名。样例呈现出几种稳定模式：
 
 * 近距离/较大框：消防栓主体颜色明显，但框经常贴近画面下沿，顶部或底座被裁切；红色框与蓝色管线、黄色设施相邻时容易出现身份不确定。
 * 远距离/小框：目标只剩一个很小的红色块，背景占比高，像素高度不足以区分帽盖、立柱和相邻设施。
