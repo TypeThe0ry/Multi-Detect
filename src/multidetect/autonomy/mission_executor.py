@@ -329,6 +329,8 @@ class _StepRun:
     alert_look_skipped: list[dict[str, Any]] = field(default_factory=list)
     alert_look_active: bool = False
     alert_look_resume: tuple[float, float, float] | None = None
+    # Bounded, decision-only audit trail for offline revisit ranking analysis.
+    revisit_planning: list[dict[str, Any]] = field(default_factory=list)
     # Delivery is a host request/ack handshake, never a hardware operation.
     release_altitude_m: float | None = None
     release_request_id: str | None = None
@@ -656,6 +658,8 @@ class MissionExecutor:
                 status["alert_looks"] = run.alert_looks
             if run.alert_look_skipped:
                 status["alert_look_skipped"] = run.alert_look_skipped
+        if run.revisit_planning:
+            status["revisit_candidate_snapshots"] = run.revisit_planning
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -1322,6 +1326,61 @@ class MissionExecutor:
             return None
         return action, info
 
+    @staticmethod
+    def _round_num(value):
+        if value is None:
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return round(value, 3) if math.isfinite(value) else None
+
+    def _new_revisit_plan(self, run, kind, candidates, loop, here, remaining):
+        """Create a bounded audit record without changing planner inputs."""
+        rows = []
+        for place in list(candidates)[:24]:
+            if isinstance(place, Mapping):
+                centre = place.get("ground") or place.get("centre")
+                min_side = place.get("min_side_px")
+                predicted = place.get("predicted_min_side_px")
+            else:
+                centre = getattr(place, "ground", None)
+                min_side = getattr(place, "verdict_side_px", None)
+                predicted = None
+            if centre is None:
+                continue
+            priority_place = place if isinstance(place, Mapping) else {
+                "ground": centre, "track_id": getattr(place, "track_id", None),
+                "min_side_px": min_side,
+            }
+            key = self._revisit_priority(loop, priority_place, here) if kind != "alert_look" else (
+                math.dist(tuple(centre[:2]), here),
+            )
+            sides = min_side
+            if isinstance(sides, (list, tuple)):
+                sides = min(sides) if sides else None
+            rows.append({
+                "ground_ne": [self._round_num(centre[0]), self._round_num(centre[1])],
+                "kind": kind,
+                "priority_key": [self._round_num(v) for v in key],
+                "predicted_min_side_px": self._round_num(predicted or sides),
+                "selected": False,
+                "skip_reason": None,
+            })
+        record = {
+            "kind": kind,
+            "remaining_primitives": int(max(0, remaining)) if remaining is not None else None,
+            "energy_margin_s": self._round_num(self.energy_margin_s),
+            "candidates": rows,
+        }
+        run.revisit_planning.append(record)
+        return record
+
+    @staticmethod
+    def _finish_revisit_plan(run, plan, remaining):
+        plan["remaining_primitives_after"] = int(max(0, remaining))
+
     def _revisit_far_small_rejection(self, run, pose, yaw, info):
         loop = run.loop
         limit = self.config.count_rejection_revisit_attempts
@@ -1350,6 +1409,8 @@ class MissionExecutor:
             loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m),
             key=lambda item: self._revisit_priority(loop, item, here),
         )
+        remaining = self._budget(run.step, run) - run.primitives
+        plan = self._new_revisit_plan(run, "rejection", candidates, loop, here, remaining)
         # Why each pending place was passed over: a SITL count missed a hydrant
         # that qualified for a revisit with looks to spare, and nothing said why.
         skipped = []
@@ -1357,16 +1418,17 @@ class MissionExecutor:
         def skip(centre, reason):
             skipped.append({"centre": [round(float(v), 2) for v in centre[:2]], "reason": reason})
 
-        for rejection in candidates:
+        for index, rejection in enumerate(candidates[:24]):
+            snap = plan["candidates"][index]
             centre = tuple(rejection["ground"])
             if not allowed(centre):
-                skip(centre, "outside_region")
+                snap["skip_reason"] = "outside_region"; skip(centre, "outside_region")
                 continue
             if any(
                 math.dist(centre, place) <= loop.config.count_dedupe_m
                 for place in run.rejection_revisit_places
             ):
-                skip(centre, "already_revisited")
+                snap["skip_reason"] = "already_revisited"; skip(centre, "already_revisited")
                 continue
             if any(
                 record.get("position_estimate_ne") is not None
@@ -1374,31 +1436,31 @@ class MissionExecutor:
                 <= loop.config.count_dedupe_m
                 for record in loop.confirmations
             ):
-                skip(centre, "co_visible_with_counted")
+                snap["skip_reason"] = "co_visible_with_counted"; skip(centre, "co_visible_with_counted")
                 continue
             look, reason = loop.plan_rejection_revisit(rejection, pose, allowed=reachable)
             if look is None:
-                skip(centre, reason or "no_clear_viewpoint")
+                snap["skip_reason"] = reason or "no_clear_viewpoint"; skip(centre, reason or "no_clear_viewpoint")
                 continue
+            snap["predicted_min_side_px"] = self._round_num(look.get("record", {}).get("predicted_min_side_px"))
             if not allowed(look["goal"]):
-                skip(centre, "viewpoint_outside_region")
+                snap["skip_reason"] = "viewpoint_outside_region"; skip(centre, "viewpoint_outside_region")
                 continue
             if self._leg_enters_no_fly(here, look["goal"]):
-                skip(centre, "leg_enters_no_fly")
+                snap["skip_reason"] = "leg_enters_no_fly"; skip(centre, "leg_enters_no_fly")
                 continue
-            remaining = self._budget(run.step, run) - run.primitives
             if look.get("staged"):
                 # The closer look: as a small unjudged look, descent and climb included.
                 needed = self._staged_look_steps(loop, look)
                 seconds = self._staged_look_seconds(loop, look, here)
                 if needed > remaining:
-                    skip(centre, "budget")
+                    snap["skip_reason"] = "budget"; skip(centre, "budget")
                     continue
                 if (
                     self.energy_margin_s is not None
                     and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
                 ):
-                    skip(centre, "energy_margin")
+                    snap["skip_reason"] = "energy_margin"; skip(centre, "energy_margin")
                     continue
                 self._fit_reapproach(loop, look, allowed, remaining - needed, seconds)
             else:
@@ -1406,7 +1468,7 @@ class MissionExecutor:
                     math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6)
                 )
                 if legs + 3 > remaining:
-                    skip(centre, "budget")
+                    snap["skip_reason"] = "budget"; skip(centre, "budget")
                     continue
             rejection["revisited"] = True
             run.rejection_revisit_places.append(centre)
@@ -1414,18 +1476,21 @@ class MissionExecutor:
             if action is None:
                 rejection["revisited"] = False
                 run.rejection_revisit_places.pop()
-                skip(centre, "revisit_not_started")
+                snap["skip_reason"] = "revisit_not_started"; skip(centre, "revisit_not_started")
                 continue
+            snap["selected"] = True
             record = {"centre": list(look["centre"]), "track_id": rejection.get("track_id")}
             if look.get("staged"):
                 record = look["record"]
                 record["track_id"] = rejection.get("track_id")
                 run.rejection_revisits.append(record)
             info["count_rejection_revisit"] = record
+            self._finish_revisit_plan(run, plan, self._budget(run.step, run) - run.primitives)
             self.mission_log.append(
                 {"event": "count_rejection_revisit", "step_id": run.step.id, **record}
             )
             return action, info
+        self._finish_revisit_plan(run, plan, self._budget(run.step, run) - run.primitives)
         run.rejection_revisit_skipped = skipped
         if skipped:
             info["count_rejection_revisit_skipped"] = skipped
@@ -1495,31 +1560,41 @@ class MissionExecutor:
             loop.unresolved_positive_tracks(),
             key=lambda track: math.dist(loop.target_position(track), here),
         )
-        for track in candidates:
+        plan = self._new_revisit_plan(run, "revisit", candidates, loop, here, remaining)
+        for index, track in enumerate(candidates[:24]):
+            snap = plan["candidates"][index]
             centre = loop.target_position(track)
             radius = max(loop.place_radius(track), loop.config.count_dedupe_m)
             attempts = sum(math.dist(centre, place) <= radius for place in run.revisited_places)
             if attempts >= limit or not allowed(centre):
+                snap["skip_reason"] = "attempts_exhausted" if attempts >= limit else "outside_region"
                 continue
             look = loop.plan_place_revisit(track, pose)
             if look is None or not allowed(look["goal"]):
+                snap["skip_reason"] = "no_clear_viewpoint"
                 continue
             if self._leg_enters_no_fly(here, look["goal"]):
+                snap["skip_reason"] = "leg_enters_no_fly"
                 continue
             # Turn, legs, face and look; the confirmation itself runs on the remainder.
             legs = math.ceil(math.dist(here, look["goal"]) / max(loop.config.max_translate_m, 1e-6))
             if legs + 3 > remaining:
+                snap["skip_reason"] = "budget"
                 continue
             run.revisited_places.append(centre)
             action = loop.begin_place_revisit(look, pose, yaw, info)
             if action is None:
+                snap["skip_reason"] = "revisit_not_started"
                 continue
+            snap["selected"] = True
             record = {"track_id": track.track_id, "centre": list(look["centre"])}
             info["unresolved_revisit"] = record
+            self._finish_revisit_plan(run, plan, self._budget(run.step, run) - run.primitives)
             self.mission_log.append(
                 {"event": "unresolved_place_revisit", "step_id": run.step.id, **record}
             )
             return action, info
+        self._finish_revisit_plan(run, plan, remaining)
         return None
 
     def _in_step_area(self, run: _StepRun, point: Sequence[float]) -> bool:
@@ -1710,29 +1785,39 @@ class MissionExecutor:
             *(tuple(record["centre"]) for record in run.small_unjudged_revisits),
         ]
         remaining = self._budget(run.step, run) - run.primitives
-        for place in sorted(places, key=lambda item: self._revisit_priority(loop, item, here)):
+        places = sorted(places, key=lambda item: self._revisit_priority(loop, item, here))
+        plan = self._new_revisit_plan(run, "small_unjudged", places, loop, here, remaining)
+        for index, place in enumerate(places[:24]):
+            snap = plan["candidates"][index]
             centre = place["centre"]
             if not allowed(centre):
+                snap["skip_reason"] = "outside_region"
                 skip(place, "outside_region")
                 continue
             if any(math.dist(centre, point) <= loop.config.count_dedupe_m for point in looked):
+                snap["skip_reason"] = "already_revisited"
                 skip(place, "already_revisited")
                 continue
             if len(run.small_unjudged_revisits) >= limit:
+                snap["skip_reason"] = "attempts_exhausted"
                 skip(place, "attempts_exhausted")
                 continue
             used = len(run.small_unjudged_revisits) + (
                 len(run.rejection_revisit_places) if run.step.skill == "count" else 0
             )
             if used >= self.config.completion_revisit_max:
+                snap["skip_reason"] = "revisit_cap"
                 skip(place, "revisit_cap")
                 continue
             look, reason = loop.plan_small_unjudged_revisit(place, pose, allowed=reachable)
             if look is None:
+                snap["skip_reason"] = reason or "no_clear_viewpoint"
                 skip(place, reason or "no_clear_viewpoint")
                 continue
             needed = self._staged_look_steps(loop, look)
+            snap["predicted_min_side_px"] = self._round_num(look.get("record", {}).get("predicted_min_side_px"))
             if needed > remaining:
+                snap["skip_reason"] = "budget"
                 skip(place, "budget")
                 continue
             seconds = self._staged_look_seconds(loop, look, here)
@@ -1740,22 +1825,27 @@ class MissionExecutor:
                 self.energy_margin_s is not None
                 and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
             ):
+                snap["skip_reason"] = "energy_margin"
                 skip(place, "energy_margin")
                 continue
             self._fit_reapproach(loop, look, allowed, remaining - needed, seconds)
             record = look["record"]
             action = loop.begin_place_revisit(look, pose, yaw, info)
             if action is None:
+                snap["skip_reason"] = "revisit_not_started"
                 skip(place, "revisit_not_started")
                 continue
             run.small_unjudged_revisits.append(record)
+            snap["selected"] = True
             info["small_unjudged_revisit"] = record
+            self._finish_revisit_plan(run, plan, self._budget(run.step, run) - run.primitives)
             self.mission_log.append(
                 {"event": "small_unjudged_revisit", "step_id": run.step.id, **record}
             )
             if skipped:
                 run.small_unjudged_skipped = skipped
             return action, info
+        self._finish_revisit_plan(run, plan, remaining)
         run.small_unjudged_skipped = skipped
         if skipped:
             info["small_unjudged_revisit_skipped"] = skipped
@@ -2097,27 +2187,37 @@ class MissionExecutor:
             spent = run.held_s if run.step.skill == "monitor" else run.elapsed_s
             remaining_s = float(duration) - spent
         started = None
-        for place in sorted(places, key=lambda item: math.dist(item["centre"], here)):
+        places = sorted(places, key=lambda item: math.dist(item["centre"], here))
+        plan = self._new_revisit_plan(run, "alert_look", places, loop, here, remaining)
+        for index, place in enumerate(places[:24]):
+            snap = plan["candidates"][index]
             centre = place["centre"]
             if not allowed(centre):
+                snap["skip_reason"] = "outside_region"
                 skip(place, "outside_region")
                 continue
             if any(math.dist(centre, point) <= dedupe for point in looked):
+                snap["skip_reason"] = "already_looked"
                 skip(place, "already_looked")
                 continue
             if any(math.dist(centre, point) <= dedupe for point in run.alert_positions):
+                snap["skip_reason"] = "already_alerted"
                 skip(place, "already_alerted")
                 continue
             if started is not None:
+                snap["skip_reason"] = "another_candidate_selected"
                 continue
             if len(run.alert_looks) >= self.config.alert_look_attempts:
+                snap["skip_reason"] = "attempts_exhausted"
                 skip(place, "attempts_exhausted")
                 continue
             look, reason = loop.plan_small_unjudged_revisit(place, pose, allowed=reachable)
             if look is None:
+                snap["skip_reason"] = reason or "no_clear_viewpoint"
                 skip(place, reason or "no_clear_viewpoint")
                 continue
             if math.dist(here, look["goal"]) > self.config.alert_look_max_detour_m:
+                snap["skip_reason"] = "too_far"
                 skip(place, "too_far")
                 continue
             # Out: turns, legs, descent, face, holds, climb, two to judge; back: legs.
@@ -2132,6 +2232,7 @@ class MissionExecutor:
             # primitive) only needs room for the look itself.
             reserve = self._tracking_reserve(run, pose)
             if needed > remaining or (reserve <= remaining and needed + reserve > remaining):
+                snap["skip_reason"] = "budget"
                 skip(place, "budget")
                 continue
             seconds = (
@@ -2140,12 +2241,14 @@ class MissionExecutor:
                 loop.config.small_unjudged_look_holds + 3
             ) * self.config.hold_s
             if remaining_s is not None and seconds >= remaining_s:
+                snap["skip_reason"] = "duration"
                 skip(place, "duration")
                 continue
             if (
                 self.energy_margin_s is not None
                 and self.config.revisit_margin_factor * seconds >= self.energy_margin_s
             ):
+                snap["skip_reason"] = "energy_margin"
                 skip(place, "energy_margin")
                 continue
             self._fit_reapproach(
@@ -2162,14 +2265,18 @@ class MissionExecutor:
             info = {"phase": "alert_look"}
             action = loop.begin_place_revisit(look, pose, yaw, info)
             if action is None:
+                snap["skip_reason"] = "look_not_started"
                 skip(place, "look_not_started")
                 continue
             run.alert_looks.append(record)
+            snap["predicted_min_side_px"] = self._round_num(record.get("predicted_min_side_px"))
+            snap["selected"] = True
             run.alert_look_active = True
             run.alert_look_resume = (pose[0], pose[1], max(0.0, -pose[2]))
             info["alert_look"] = record
             self.mission_log.append({"event": "alert_look", "step_id": run.step.id, **record})
             started = (action, info)
+        self._finish_revisit_plan(run, plan, remaining)
         if skipped != run.alert_look_skipped:
             run.alert_look_skipped = skipped
             if skipped:

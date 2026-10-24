@@ -415,3 +415,25 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 计数任务的拒绝补看和小而未判地点现在按证据优先级选择：曾得到 `match`、`approach` 或 `confirm` 的地点优先，其次是检测器标签与 query 匹配的地点，再其次是更小的框，距离只在同一优先级内排序。这样 `gen_cnt2_w0001` 的 (18.5, 21.4)、(2.4, 23.9) 干扰物不会挤掉真实目标。
 
 同帧共视不再单独证明拒绝地点已解决；只有地点与已计数物体落在 `count_dedupe_m` 内才跳过，历史记录仍使用 `co_visible_with_counted` 原因名。`count_is_lower_bound` 与该判定保持一致。回归测试使用 hydrant10 7166ed2b 的 h0 `(8.76, -15.02)` 和 lookgeometry 3121ac38 的真实地点。
+
+### 2026-10-24 补看规划快照与离线轨迹分析
+
+为比较补看候选排序而不改变机上决策，步骤历史在每次补看规划时（而不是每个飞行原语）最多记录一组 `revisit_candidate_snapshots`。该字段位于对应步骤的结构化 history 记录中；没有发生规划时不写入。每个候选包含：
+
+- `kind`：`rejection`、`small_unjudged`、`alert_look`（以及通用未决地点补看时的 `revisit`）；`ground_ne` 为候选地面坐标；
+- `priority_key`：按 `[positive, query_match, min_side_px, distance_m]` 顺序记录的排序键分量（已有“是”证据、标签与查询匹配、历史最小框、距离）；
+- `predicted_min_side_px`：规划视点预计的最小框尺寸；
+- `selected`：本次规划是否选中；未选中候选带 `skip_reason`；
+- `remaining_primitives`、`energy_margin_s`：规划时剩余步数预算与能量余量（未知时为 `null`）。
+
+为控制日志体积，快照仅在规划入口写一次，候选数有上限，坐标/距离/框尺寸采用有限小数精度。快照只读取规划结果，不参与排序、预算或动作计算；关闭快照记录时，同一输入的动作与选择应保持一致。
+
+离线查看：
+
+```pwsh
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/analyze_revisit_trace.py D:/path/to/episode-or-campaign
+```
+
+脚本读取一个架次目录或递归查找其中的 `steps.jsonl`，按时间输出每架次候选、优先级键、选中/跳过原因与剩余预算；若能按 `score_onboard_loop.truth_for_episode` 找到世界真值，还会报告真目标在候选中的排名及候选选择结果。可用 `--json` 输出机器可读结果；脚本不会重放规划，也不会修改 `steps.jsonl`。
+
