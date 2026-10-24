@@ -108,6 +108,7 @@ markers = [
     "onboard: fast regression gate for onboard autonomy and mission-planning tests",
     "timing: depends on real threads and wall-clock timing; excluded from the default onboard gate",
     "optional: requires local external benchmark data when available",
+    "mutation_full: full mutation tests for deterministic mission-executor invariants",
 ]
 
 [tool.ruff]

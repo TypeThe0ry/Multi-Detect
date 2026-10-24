@@ -26,6 +26,7 @@ _EXACT = {
     "test_revisit_trace.py",
     "test_mission_executor_remaining_gaps.py",
     "test_mission_executor_no_fly.py",
+    "test_mission_executor_fuzz.py",
     "test_mission_package_preflight.py",
     "test_mission_security.py",
     "test_onboard_preflight.py",
