@@ -8,6 +8,13 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+from scripts.score_onboard_loop import _object_matches_query  # noqa: E402
+from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
 
 ACCEPT = {"match", "approach", "approach_track", "confirm", "confirm_target", "yes", "target"}
 REJECT = {"no_match", "reject", "reject_track", "false", "no"}
@@ -31,11 +38,60 @@ def _target_obj(truth: dict) -> dict | None:
     return next((obj for obj in truth.get("targets", []) if obj.get("true_target") or obj.get("role") == "target"), None)
 
 
-def _task_target(task: str, obj: dict) -> bool:
-    names = [obj.get(k) for k in ("label", "class", "category", "asset_slug") if obj.get(k)]
-    names.extend(obj.get("category_words") or [])
-    task_tokens = _tokens(task)
-    return any(_tokens(str(name)) & task_tokens for name in names)
+def _roles(truth: dict) -> dict[str, str]:
+    result = {}
+    for entry in (truth.get("segmentation_labels") or {}).values():
+        if isinstance(entry, dict) and entry.get("target_id") and entry.get("role"):
+            result[str(entry["target_id"])] = str(entry["role"])
+    return result
+
+
+def _truth_role(obj: dict, role_map: dict[str, str]) -> str:
+    if obj.get("true_target"):
+        return "true_target"
+    if obj.get("count_member"):
+        return "count_member"
+    role = role_map.get(str(obj.get("target_id"))) or obj.get("role")
+    if role in {"target", "count_member", "distractor", "confuser"}:
+        return "distractor" if role == "confuser" else str(role)
+    if obj.get("distractor") or obj.get("confuser"):
+        return "distractor"
+    return "other"
+
+
+def _query_for(onboard: dict, truth: dict, task: str) -> str:
+    query = onboard.get("query")
+    mission = onboard.get("mission") or {}
+    plan = mission.get("plan") or {}
+    step_id = onboard.get("step")
+    for step in plan.get("steps", []):
+        if not isinstance(step, dict) or (step_id and step.get("id") != step_id):
+            continue
+        query = (step.get("params") or {}).get("query") or query
+    if query:
+        return str(query)
+    target = _target_obj(truth) or {}
+    words = target.get("category_words") or target.get("semantic_words") or []
+    return str(words[0]) if words else task
+
+
+def expected_positive(task_kind: str | None, task: str, obj: dict, truth: dict, role: str, query: str | None = None) -> bool | None:
+    """Mirror the scorer's task semantics; unknown roles never become negatives by default."""
+    if role == "distractor":
+        return False
+    skill = (task_kind or "").casefold()
+    if skill == "count" or (not skill and re.search(r"count|counting|数一数|计数|数量", task, re.I)):
+        if role in {"true_target", "count_member"}:
+            return True
+        return False if role == "other" and obj.get("count_member") is False else None
+    if skill in {"find", "inspect"} or (not skill and re.search(r"find|inspect|找到|检查|确认", task, re.I)):
+        target = _target_obj(truth)
+        if target is None:
+            return None
+        return bool(task_equivalent(target, obj))
+    if skill in {"monitor", "patrol"} or (not skill and re.search(r"monitor|patrol|监视|巡逻", task, re.I)):
+        return bool(_object_matches_query(obj, query or task))
+    return True if role == "true_target" else None
 
 
 def _world_id(episode: Path, metadata: dict) -> str:
@@ -84,12 +140,13 @@ def _relative(episode: Path, name: str | None) -> str | None:
         return None
 
 
-def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: float = 0.70) -> tuple[list[dict], int]:
+def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: float = 0.70, match_radius_m: float = 10.0) -> tuple[list[dict], int]:
     metadata = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
     task = str(metadata.get("task_text") or "")
     rows: list[dict] = []
     eligible = 0
     true_target = _target_obj(truth)
+    role_map = _roles(truth)
     with (episode / "steps.jsonl").open(encoding="utf-8") as stream:
         for line_no, line in enumerate(stream, 1):
             if not line.strip():
@@ -113,14 +170,18 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
                 pred = accepted(call)
                 if obj is None or distance is None or pred is None:
                     continue
-                eligible += 1
-                is_target = bool(obj.get("true_target") or obj.get("role") == "target") or _task_target(task, obj)
+                task_kind = str(onboard.get("skill") or onboard.get("state") or "")
+                role = _truth_role(obj, role_map)
+                query = _query_for(onboard, truth, task)
+                expected = None if distance > match_radius_m else expected_positive(task_kind, task, obj, truth, role, query)
+                if expected is not None:
+                    eligible += 1
                 category = str(obj.get("class") or obj.get("category") or obj.get("asset_slug") or obj.get("label") or "unknown")
-                if is_target and not pred:
+                if expected is True and not pred:
                     kind = "false_reject"
-                elif not is_target and pred:
+                elif expected is False and pred:
                     kind = "false_accept"
-                elif pred and float(call.get("confidence", 1.0)) <= low_confidence:
+                elif expected is True and pred and float(call.get("confidence", 1.0)) <= low_confidence:
                     kind = "low_conf_correct"
                 else:
                     kind = None
@@ -130,13 +191,17 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
                     "track": track_id, "bbox": [round(float(v), 2) for v in box],
                     "decision": call.get("identity") or call.get("verdict") or call.get("decision"),
                     "confidence": call.get("confidence"), "truth_class": category,
-                    "truth_target": is_target, "nearest_truth_id": obj.get("target_id"),
+                    "truth_role": role, "expected_positive": expected,
+                    "nearest_truth_id": obj.get("target_id"),
                     "truth_distance_m": round(distance, 3), "ground_ne": [round(float(ground[0]), 3), round(float(ground[1]), 3)],
                     "frame": str((episode / frame).resolve()) if frame else None,
                     "frame_relative": frame, "line": line_no, "call_index": call_index,
                 }
                 row["hardcase_types"] = [kind] if kind else []
-                if kind:
+                if expected is None:
+                    row["kind"] = "unknown"
+                    rows.append(row)
+                elif kind:
                     rows.append(row)
                 # Keep correct decisions in the stream for flip detection, but remove them below.
                 else:
@@ -149,7 +214,7 @@ def mine_episode(episode: Path, truth: dict, campaign: str, low_confidence: floa
 def _mark_flips(rows: list[dict], radius_m: float = 2.0) -> None:
     by_episode: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if row.get("kind") in {"_decision", "false_reject", "false_accept", "low_conf_correct"}:
+        if row.get("expected_positive") is not None and row.get("kind") in {"_decision", "false_reject", "false_accept", "low_conf_correct"}:
             by_episode[row["episode"]].append(row)
     for episode_rows in by_episode.values():
         clusters: list[list[dict]] = []
@@ -215,6 +280,7 @@ def main() -> int:
     parser.add_argument("--crop-dir", type=Path, default=DEFAULT_CROPS)
     parser.add_argument("--contact-sheet", type=Path)
     parser.add_argument("--low-confidence", type=float, default=0.70)
+    parser.add_argument("--match-radius-m", type=float, default=10.0, help="truth association radius; matches scorer default")
     args = parser.parse_args()
     roots = sorted(path for path in args.benchmarks.iterdir() if path.is_dir() and re.search(r"2026102[3-9]|202610[3-9]\d", path.name))
     all_rows, eligible_by_task = [], Counter()
@@ -228,7 +294,7 @@ def main() -> int:
                 if truth is None:
                     missing_truth += 1
                     continue
-                rows, eligible = mine_episode(episode, truth, root.name, args.low_confidence)
+                rows, eligible = mine_episode(episode, truth, root.name, args.low_confidence, args.match_radius_m)
                 eligible_by_task[str(metadata.get("task_text") or "unknown")] += eligible
                 all_rows.extend(rows)
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -240,17 +306,20 @@ def main() -> int:
     with args.output.open("w", encoding="utf-8", newline="\n") as out:
         for row in all_rows:
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
-    counts = Counter(row["kind"] for row in all_rows)
+    counts = Counter(row["kind"] for row in all_rows if row["kind"] != "unknown")
+    unknown_count = sum(1 for row in all_rows if row["kind"] == "unknown")
     by_task = defaultdict(Counter)
     by_class = defaultdict(Counter)
     for row in all_rows:
+        if row["kind"] == "unknown":
+            continue
         by_task[row["task"]][row["kind"]] += 1
         by_class[row["truth_class"]][row["kind"]] += 1
     task_summary = {}
     for task, values in by_task.items():
         total = eligible_by_task[task]
         task_summary[task] = {"eligible_calls": total, "hardcase_calls": sum(values.values()), "hardcase_rate": round(sum(values.values()) / total, 4) if total else 0.0, **dict(values)}
-    summary = {"campaigns": [p.name for p in roots], "eligible_calls": sum(eligible_by_task.values()), "eligible_by_task": dict(eligible_by_task), "hardcase_counts": dict(counts), "hardcase_rate": round(sum(counts.values()) / sum(eligible_by_task.values()), 4) if eligible_by_task else 0.0, "by_task": task_summary, "by_class": {k: dict(v) for k, v in by_class.items()}, "missing_truth_episodes": missing_truth, "jsonl": str(args.output)}
+    summary = {"campaigns": [p.name for p in roots], "eligible_calls": sum(eligible_by_task.values()), "eligible_by_task": dict(eligible_by_task), "unknown_calls": unknown_count, "hardcase_counts": dict(counts), "hardcase_rate": round(sum(counts.values()) / sum(eligible_by_task.values()), 4) if eligible_by_task else 0.0, "by_task": task_summary, "by_class": {k: dict(v) for k, v in by_class.items()}, "missing_truth_episodes": missing_truth, "jsonl": str(args.output)}
     args.output.with_suffix(".summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
     return 0
