@@ -9,6 +9,7 @@ _EXACT = {
     "test_step_triangulation.py",
     "test_onboard_loop_step_triangulation.py",
     "test_onboard_policy_step_triangulation.py",
+    "test_llama_server_logs.py",
     "test_near_depth.py",
     "test_fast_identity.py",
     "test_build_flight_identity_eval.py",

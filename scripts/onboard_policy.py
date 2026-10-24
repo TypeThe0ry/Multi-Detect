@@ -1018,6 +1018,8 @@ class OnboardPolicy:
                 fast_identity=str(options.get("fast_identity", False)).lower()
                 in {"1", "true", "yes"},
                 cache_ram_mib=cache_ram_mib,
+                log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
+                keep_logs=int(options.get("llama_keep_logs", 3)),
             )
 
         def start_identity_runner():
@@ -1053,6 +1055,8 @@ class OnboardPolicy:
                     logprobs=False,
                     wait_port_free=True,
                     cache_ram_mib=cache_ram_mib,
+                    log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
+                    keep_logs=int(options.get("llama_keep_logs", 3)),
                 )
             except Exception as exc:
                 planner_start_error = exc
