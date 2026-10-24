@@ -29,7 +29,13 @@ def test_compare_reports_detects_regressions():
 
 def test_dry_run_prints_all_suites(tmp_path, capsys):
     assert run(["--dry-run", "--out", str(tmp_path)]) == 0
-    assert capsys.readouterr().out.count('"suite"') == 4
+    # The e2e operator suite joins the default plan once its runner and config exist.
+    import scripts.run_nightly_regression as mod
+
+    e2e = (mod.ROOT / "scripts/run_e2e_operator_suite.py").exists() and (
+        mod.ROOT / "configs/onboard/suite-e2e-operator.json"
+    ).exists()
+    assert capsys.readouterr().out.count('"suite"') == 4 + int(e2e)
 
 
 def test_failure_does_not_stop_following(tmp_path):
