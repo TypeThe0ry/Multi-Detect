@@ -342,3 +342,7 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 ## 2026-10-24 消防栓 10 架次（b0da50e，低于计划搜索高度时先爬升再飞航段）
 
 `mission-suite-hydrant10-20261024`：count-fire-hydrants 7/10 架次 3/3，3 架次 2/3，错误发现全为 0，步数 69–103。按事先约定的判据（10 架次漏检 ≥5 才判回退）不算回退；自 roofdescent 起累计 28 架次漏检 7 次（25%）。高度/避障阈值导致整片未飞到的那类失败已修，剩余失败的主要类型是慢模型在 10–14 px 下对同一目标先“是”后“不是”、拒绝地点补看视点太远拿不到可判框，后者由 b6ce76f（光轴深度视点几何 + 再接近）处理，复验见下一节。
+
+## 2026-10-24 光轴深度视点几何 + 再接近（b6ce76f）SITL 复验
+
+`mission-suite-lookgeometry-20261024`（各 3 架次，错误发现全为 0）：monitor-backpacks 2/3、3/3、3/3（58349a0 为 1/3、2/3，原始 fullsuite 2/3）；patrol-fence-backpacks 2/3、3/3、2/3（58349a0 为 3/3、2/3，原始 1/3）；count-cones 3/3 ×3；count-fire-hydrants 2/3、2/3、3/3。巡逻/监视告警召回从约 0.5 提到约 0.83，消防栓仍是最不稳定的一项。
