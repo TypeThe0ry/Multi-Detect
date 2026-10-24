@@ -50,6 +50,7 @@ class FixedWingSearch:
         abeam_deg: float = 45.0,
         progress_m: float = 5.0,
         circling_calls: int = 3,
+        stalled_calls: int = 6,
     ) -> None:
         if max_leg_m <= 0 or radius_m <= 0:
             raise ValueError("search radius and leg length must be positive")
@@ -62,7 +63,9 @@ class FixedWingSearch:
             max(float(turn_radius_m), 1.0),
         )
         # One waypoint every ~0.9 leg along the sampled lanes and turns.
-        spacing = 0.9 * float(max_leg_m)
+        turn_diameter = 2.0 * max(float(turn_radius_m), 1.0)
+        spacing = max(0.9 * float(max_leg_m), turn_diameter)
+        self.waypoint_spacing_m = spacing
         points = [p.position_ne for p in path.points]
         waypoints = [points[0]]
         travelled = 0.0
@@ -89,8 +92,10 @@ class FixedWingSearch:
         self.abeam_deg = float(abeam_deg)
         self.progress_m = float(progress_m)
         self.circling_calls = max(1, int(circling_calls))
+        self.stalled_calls = max(1, int(stalled_calls))
         self._closest = math.inf
         self._circling = 0
+        self._stalled = 0
         self.footprint_width_m = width
         self.passes = 0
         self._index = 0
@@ -101,21 +106,25 @@ class FixedWingSearch:
         if distance <= self.accept_m:
             return True
         if distance > self.capture_m:
-            self._circling = 0
+            self._circling, self._stalled = 0, 0
             return False
         if distance < self._closest - self.progress_m:
-            self._closest, self._circling = distance, 0
+            self._closest, self._circling, self._stalled = distance, 0, 0
             return False
         self._closest = min(self._closest, distance)
+        self._stalled += 1
         bearing = math.degrees(math.atan2(we - east, wn - north))
         off_nose = abs((bearing - float(yaw_deg) + 180.0) % 360.0 - 180.0)
         if off_nose >= self.abeam_deg:
             self._circling += 1
-        return self._circling >= self.circling_calls
+        return (
+            self._circling >= self.circling_calls
+            or self._stalled >= self.stalled_calls
+        )
 
     def _advance(self) -> None:
         self._index += 1
-        self._closest, self._circling = math.inf, 0
+        self._closest, self._circling, self._stalled = math.inf, 0, 0
         if self._index >= len(self.waypoints):
             self._index, self.passes = 0, self.passes + 1
 
