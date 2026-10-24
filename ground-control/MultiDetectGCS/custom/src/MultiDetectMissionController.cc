@@ -6,6 +6,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QRandomGenerator>
 #include <QtCore/QSaveFile>
+#include <QtCore/QtMath>
 #include <algorithm>
 #include <cmath>
 
@@ -403,6 +404,45 @@ bool MultiDetectMissionController::_planDecision(bool approve)
 bool MultiDetectMissionController::approvePlan() { return _planDecision(true); }
 bool MultiDetectMissionController::rejectPlan() { return _planDecision(false); }
 
+QVariantMap MultiDetectMissionController::coordinateForOffset(double northM, double eastM, double originLatitude,
+                                                               double originLongitude) const
+{
+    if (!std::isfinite(northM) || !std::isfinite(eastM) || !std::isfinite(originLatitude) ||
+        !std::isfinite(originLongitude) || std::abs(originLatitude) >= 90.0 || std::abs(originLongitude) > 180.0)
+        return {};
+    constexpr double a = 6378137.0;
+    constexpr double e2 = 0.0066943799901413165;
+    const double latitude = qDegreesToRadians(originLatitude);
+    const double sinLat = std::sin(latitude);
+    const double denominator = std::sqrt(1.0 - e2 * sinLat * sinLat);
+    const double primeVertical = a / denominator;
+    const double meridional = a * (1.0 - e2) / (denominator * denominator * denominator);
+    const double cosine = std::cos(latitude);
+    if (std::abs(cosine) < 1e-10)
+        return {};
+    const double resultLatitude = originLatitude + qRadiansToDegrees(northM / meridional);
+    const double resultLongitude = originLongitude + qRadiansToDegrees(eastM / (primeVertical * cosine));
+    if (std::abs(resultLatitude) > 90.0 || std::abs(resultLongitude) > 180.0)
+        return {};
+    return {{QStringLiteral("latitude"), resultLatitude}, {QStringLiteral("longitude"), resultLongitude}};
+}
+
+bool MultiDetectMissionController::geoProjectionSelfTest()
+{
+    MultiDetectMissionController controller;
+    const auto equator = controller.coordinateForOffset(100.0, 100.0, 0.0, 0.0);
+    const auto highLatitude = controller.coordinateForOffset(100.0, 100.0, 80.0, 0.0);
+    const double latitude = qDegreesToRadians(80.0);
+    const double primeVertical = 6378137.0 / std::sqrt(1.0 - 0.0066943799901413165 * std::sin(latitude) *
+                                                                  std::sin(latitude));
+    const double highEastM = qDegreesToRadians(highLatitude.value(QStringLiteral("longitude")).toDouble()) *
+                             primeVertical * std::cos(latitude);
+    return std::abs(equator.value(QStringLiteral("latitude")).toDouble() - 0.00090437) < 2e-7 &&
+           std::abs(equator.value(QStringLiteral("longitude")).toDouble() - 0.00089832) < 2e-7 &&
+           std::abs(highEastM - 100.0) < 0.02 &&
+           controller.coordinateForOffset(0.0, 0.0, 91.0, 0.0).isEmpty();
+}
+
 bool MultiDetectMissionController::telemetryFresh() const
 {
     return _lastStatusAt >= 0 && _clock.elapsed() - _lastStatusAt <= 5000;
@@ -411,6 +451,13 @@ bool MultiDetectMissionController::telemetryFresh() const
 void MultiDetectMissionController::_poll()
 {
     const auto now = _clock.elapsed();
+    if (_summaryDeadline >= 0 && !_finalSummaryComplete && now >= _summaryDeadline) {
+        _summaryPages.clear();
+        _summaryDeadline = -1;
+        _summaryAssemblyInvalid = true;
+        _finalSummaryState = QStringLiteral("摘要未完整接收（分页超时）");
+        emit telemetryChanged();
+    }
     if (busy() && _pending.awaitingVerdict) {
         if (now >= _pending.verdictDeadline) {
             _pending = {};
@@ -604,8 +651,11 @@ void MultiDetectMissionController::_beginMission(const QString& missionId)
     _findings.clear();
     _alerts.clear();
     _finalSummary.clear();
+    _finalSummaryState.clear();
     _summaryPages.clear();
     _summaryPageCount = 0;
+    _summaryDeadline = -1;
+    _summaryAssemblyInvalid = false;
     _finalSummaryComplete = false;
     _planDecisionState.clear();
     _lastStatusSequence = _lastLogSequence = 0;
@@ -653,18 +703,39 @@ bool MultiDetectMissionController::_adoptSummaryPage(const QJsonObject& page)
     _switchMission(page.value(QStringLiteral("mission_id")).toString());
     if (_finalSummaryComplete)
         return true;  // a late duplicate of an already assembled summary
-    const int pages = static_cast<int>(pageCount);
-    if (_summaryPageCount != pages) {
+    if (_summaryAssemblyInvalid) {
+        // A retransmitted first page may recover a malformed or conflicting
+        // assembly; never expose the previous partial bytes while retrying.
         _summaryPages.clear();
+        _summaryPageCount = 0;
+        _summaryAssemblyInvalid = false;
+        _summaryDeadline = -1;
+    }
+    const int pages = static_cast<int>(pageCount);
+    if (_summaryPageCount != 0 && _summaryPageCount != pages) {
+        _summaryPages.clear();
+        _summaryDeadline = -1;
+        _summaryAssemblyInvalid = true;
+        _finalSummaryState = QStringLiteral("摘要未完整接收（分页总数冲突）");
+        return true;
+    }
+    if (_summaryPageCount == 0) {
         _summaryPageCount = pages;
+        _summaryDeadline = _clock.elapsed() + 5000;
+        _finalSummary.clear();
+        _finalSummaryState = QStringLiteral("摘要接收中（%1 / %2 页）").arg(_summaryPages.size()).arg(pages);
     }
     const int number = static_cast<int>(pageNumber);
     const QByteArray body = bodyValue.toString().toUtf8();
     if (_summaryPages.contains(number) && _summaryPages.value(number) != body) {
-        // Pages of two different summaries: start over with this one.
         _summaryPages.clear();
+        _summaryDeadline = -1;
+        _summaryAssemblyInvalid = true;
+        _finalSummaryState = QStringLiteral("摘要未完整接收（重复页内容冲突）");
+        return true;
     }
     _summaryPages.insert(number, body);
+    _finalSummaryState = QStringLiteral("摘要接收中（%1 / %2 页）").arg(_summaryPages.size()).arg(pages);
     if (_summaryPages.size() < _summaryPageCount)
         return true;
     QByteArray joined;
@@ -675,11 +746,15 @@ bool MultiDetectMissionController::_adoptSummaryPage(const QJsonObject& page)
     if (!MultiDetectMissionPackage::parseStrictJson(joined, &summary, &error) || !summary.isObject()) {
         _summaryPages.clear();
         _summaryPageCount = 0;
-        _state = QStringLiteral("最终摘要分页拼接失败；完整摘要仍在机载日志中");
+        _summaryDeadline = -1;
+        _summaryAssemblyInvalid = true;
+        _finalSummaryState = QStringLiteral("摘要未完整接收（JSON 非法）");
         return true;
     }
     _finalSummary = summary.object().toVariantMap();
     _finalSummaryComplete = true;
+    _summaryDeadline = -1;
+    _finalSummaryState = QStringLiteral("摘要已完整接收");
     _logs.append(QVariantMap{{QStringLiteral("kind"), QStringLiteral("final_summary")},
                              {QStringLiteral("mission_id"), page.value(QStringLiteral("mission_id")).toString()},
                              {QStringLiteral("assembled_pages"), _summaryPageCount},
@@ -783,8 +858,11 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
             const QJsonValue inner = obj.value(QStringLiteral("summary"));
             _finalSummary = inner.isObject() ? inner.toObject().toVariantMap() : obj.toVariantMap();
             _finalSummaryComplete = true;
+            _finalSummaryState = QStringLiteral("摘要已完整接收");
             _summaryPages.clear();
             _summaryPageCount = 0;
+            _summaryDeadline = -1;
+            _summaryAssemblyInvalid = false;
         }
         while (_logs.size() > 50)
             _logs.removeFirst();

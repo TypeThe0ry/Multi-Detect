@@ -36,6 +36,8 @@ endif()
 
 add_executable(MultiDetectMissionSelfTest "${MULTIDETECT_CUSTOM_DIR}/tests/MultiDetectMissionSelfTest.cc")
 target_link_libraries(MultiDetectMissionSelfTest PRIVATE MultiDetectMissionPackageCheck)
+target_compile_definitions(MultiDetectMissionSelfTest PRIVATE
+    MISSION_SUMMARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../../../../../tests/fixtures/mission_summary/run11-summary-pair.json")
 
 add_executable(MultiDetectMissionSecuritySelfTest
     "${MULTIDETECT_CUSTOM_DIR}/tests/MultiDetectMissionSecuritySelfTest.cc"

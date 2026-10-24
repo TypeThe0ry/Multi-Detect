@@ -32,6 +32,8 @@ _EXACT = {
     "test_onboard_main.py",
     "test_onboard_main_operator_link.py",
     "test_onboard_real_mode_harness.py",
+    "test_onboard_real_process.py",
+    "test_onboard_test_hook_security.py",
     "test_onboard_health.py",
     "test_onboard_model_split.py",
     "test_onboard_operator_model_split.py",

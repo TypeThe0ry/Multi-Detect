@@ -8,6 +8,12 @@ Fly 和 Plan 页均有“任务包”入口，复用 QGC 的弹窗、控件、�
 
 地点、返航点和路线采用机载任务坐标系的 `[north_m, east_m]`，不是经纬度。地图中心取点要求操作员明确输入与机载一致的 WGS84 原点，不会自动使用飞机位置。原点仅用于地图换算，不加入任务包未知字段。移动原生地图到目标后，打开面板并选择“地图中心取点”。界面支持取点与圆形区域参数编辑，不提供任意多边形绘制。
 
+### 地图标注
+
+飞行视图收到任务包或下行记录后，会在地图上叠加作业区域矩形、普通 zone 圆、带 `no_fly` 风险标签的醒目禁飞圆以及 home。每条 finding 使用橙色编号标记，alert 使用红色标记；点击标记可查看类别、局部北/东位置、时间和 `evidence_frame`。最终摘要中的 `positions` 和 `findings[].position_ne` 会在摘要完成后继续保留，开始新任务时清空。
+
+地图换算只在 C++ 控制器中执行：使用 WGS-84 椭球的子午圈曲率半径和卯酉圈曲率半径，把任务 home 原点的局部 N/E 米偏移换成经纬度。没有有效 PX4 home 地理坐标时不绘制几何和标记，界面显示“等待 home 地理坐标，暂不显示任务标注”。离屏验收可显式设置 `MULTIDETECT_TEST_HOME_ENABLED=1`、`MULTIDETECT_TEST_HOME_LATITUDE` 和 `MULTIDETECT_TEST_HOME_LONGITUDE`；该开关默认关闭。
+
 `places` 的合同只允许坐标数组，风险标签属于 `zones`。地点的“为地点添加风险区域”会建立一个同中心的独立圆区，保留地点坐标格式；操作员在区域编辑器填写半径、风险标签与监督要求。已有区域不会被覆盖。
 
 | 风险等级 | 建议默认失联策略 |
@@ -111,6 +117,12 @@ server，且 `--cache-ram 0` 保持关闭主机 prompt cache。切换耗时写�
 例行记录（心跳、判定、估计、执行等）只 flush 不逐条 fsync，下行线程读取日志不持有追加锁，避免慢盘时控制循环和链路线程卡顿（run8 曾卡约 5.6 秒）；发现、计划、升级、地面命令和最终摘要仍在返回前 fsync。
 
 ### 最终摘要
+
+#### 摘要字段说明
+
+`final_summary` 保留原始审计字段，并增加 `operator_summary`、`summary_zh`、`summary_en` 供操作员阅读；机载 `mission_summary.json/.txt` 与这两个文本使用同一份报告历史、发现、计数、告警和终止字段。`count_is_lower_bound=true` 时显示“至少 N 个（原因：…）”，不得把部分搜索写成完整覆盖。`coverage_partial` 表示存在跳过航点；拒绝项或小目标补看跳过时应安排人工/近距离复核；慢模型不可用、跟踪预算耗尽或遥测断档时，应按文案恢复链路、核查预算或重新复核。过长摘要会保留状态、计数、告警和终止原因，裁减发现/证据等细节并设置 `detail_truncated` 与 `omitted`。分页每页完整 JSON 的 UTF-8 字节数不超过 1,536。
+
+GCS 任务结束卡片优先显示类型正确且非空的 `summary_zh`，否则依次回退到 `summary_en`、旧字段（状态、计数、发现数）拼出的文本；旧版机载不带新字段时仍按此回退规则显示。`count_lower_bounds` 中为 `true` 的步骤以醒目的“下限计数”标出，`detail_truncated=true` 时显示“细节已截断”及 `omitted` 中的省略条数；`operator_summary` 的状态、终止动作和终止原因单独显示为结构化行。分页必须按页号排序后一次性解析，重复页内容冲突、总页数冲突、缺页超时或 JSON 非法时清空可展示摘要并显示“摘要未完整接收”，不得显示半成品；类型错误的可选字段直接忽略。
 
 每个终止路径恰好写一条 `final_summary`：正常完成（`completed`）、监督器锁定返航／降落（含操作员中止、能量／时间储备、失联策略，状态 `ended_early`，在锁定时立即写，不等返航飞完）、计划被拒（`plan_rejected`）、宿主停止任务（`stopped`）。摘要包含已有历史、发现、报警、计数、每个计数步骤的 `count_lower_bounds`、`count_is_lower_bound`（计数步骤未完成覆盖即为 true）、`terminal_action`／`terminal_reason`。SIM 采集器在 `policy.close()` 之前调用 `_drain_sim_operator_link`：先补写摘要，再等待下行确认到日志末尾，最后在所有路径关闭地面链路服务器。
 
