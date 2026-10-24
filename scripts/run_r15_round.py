@@ -862,6 +862,8 @@ class Round:
             raise RuntimeError(
                 f"airframe-category filter {sorted(category_filter)} matched no scenarios"
             )
+        # Only the worlds that survived the category filter are planned and dispatched.
+        scenarios = [scenario for scenario in scenarios if scenario in collection_options]
         # Build the same collector/docker plan used by workers before dispatch,
         # including the resolved airframe and fixed-wing takeoff method.
         from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
