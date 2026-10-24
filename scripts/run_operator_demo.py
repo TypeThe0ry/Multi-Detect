@@ -75,7 +75,9 @@ def gcs_environment(link: dict[str, Any], base: dict[str, str] | None = None) ->
             "MULTIDETECT_GROUND_COMMAND_KEY": f"hmac:{hmac_hex}",
             "MULTIDETECT_OPERATOR_STREAM_ID": "camera-main",
             "MULTIDETECT_OPERATOR_STREAM_WIDTH": "1280",
-            "MULTIDETECT_OPERATOR_STREAM_HEIGHT": "960",
+            # Must match the camera-main geometry the onboard operator link registers
+            # (scripts/onboard_main.py: VideoGeometry("camera-main", 1280, 720)).
+            "MULTIDETECT_OPERATOR_STREAM_HEIGHT": "720",
             "MULTIDETECT_OPERATOR_STREAM_ROTATION": "0",
             "MULTIDETECT_OPERATOR_GCS_SYSTEM_ID": "255",
             "MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID": "1",

@@ -93,3 +93,17 @@ def test_dry_run_prints_redacted_config_without_launching(monkeypatch, tmp_path,
     assert "MULTIDETECT_OPERATOR_KEY" in output
     assert "0000...0000" in output
     assert "hmac:0000" not in output
+
+
+def test_gcs_stream_geometry_matches_the_onboard_operator_link():
+    # The GCS stream geometry must equal the onboard registration or selection
+    # commands are rejected (scripts/onboard_main.py registers 1280x720).
+    import inspect
+
+    import scripts.onboard_main as onboard_main
+    import scripts.run_operator_demo as demo
+
+    assert 'VideoGeometry("camera-main", 1280, 720)' in inspect.getsource(onboard_main)
+    source = inspect.getsource(demo)
+    assert '"MULTIDETECT_OPERATOR_STREAM_WIDTH": "1280"' in source
+    assert '"MULTIDETECT_OPERATOR_STREAM_HEIGHT": "720"' in source
