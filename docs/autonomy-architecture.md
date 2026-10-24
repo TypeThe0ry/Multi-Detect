@@ -258,6 +258,23 @@ patrol/monitor 告警补看、follow、固定翼航点捕获/过顶盘旋和 VTO
 时按既有逻辑 stop/返航），同时在 `safety.reasons` 和 mission/runtime audit event 中
 记录原因；不会静默把目标截断成另一个目标。
 
+坐标基准约定如下。任务包的 `home` 是任务局部 N/E 坐标，构造执行器时绑定为 envelope
+的水平 home，down 固定为 0；首次机载位姿只提供当前点，不能覆盖任务包 home。任务包的
+`operating_area`、`places`、`zones.*.centre_ne` 以及禁飞圆均使用同一局部 N/E 原点，禁飞
+圆的 `margin` 只在执行器灌入 envelope 时膨胀一次。飞行器位姿和 `MotionCommand.target_ned`
+使用 local NED（N/E 米，z/down 向下为正）；因此高度为 `-z`，`target_ned.z` 到 primitive
+的垂直量使用 `-delta_down`。`min_altitude_m`/`max_altitude_m` 是相对 envelope home
+的高度，`min_agl_m` 只接受同一时刻的显式 AGL 测量；DEM 的 MSL 高程用于地形/障碍射线，
+不会被当作 home 高程或隐式 AGL。PX4 local-position 原点变化时，运行时必须先完成任务包
+home 绑定再接受动作；operator_link 中途接管沿用该绑定。
+
+| 数据 | 坐标/基准 | 绑定点 |
+| --- | --- | --- |
+| package `home`、`operating_area`、places、zones、禁飞圆 | 任务局部 N/E（米） | `MissionExecutor` 构造、`SafetyEnvelope.set_home` |
+| pose / `target_ned` | local NED；down 为正 | `AirframeMotionAdapter.guard_command` |
+| home-relative altitude | `home_down - pose.z`，home down=0 | `SafetyEnvelope._altitude` |
+| AGL | 显式 telemetry AGL；DEM 仅 MSL terrain surface | `SafetyEnvelope.apply(current_agl_m=...)` |
+
 ### 运动入口审计表
 
 | 入口 | 统一出口 | 检查项 | 覆盖结论 | 证据 |

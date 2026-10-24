@@ -475,10 +475,25 @@ class MissionExecutor:
                 ),
             )
             self.airframe_adapter.safety.obstacle_source = self.obstacle_source
+        # A package home is authoritative for all package geometry.  Bind it
+        # before the first pose arrives; otherwise MissionSupervisor may seed
+        # ``self.home`` during a handover and _init_home would never anchor the
+        # envelope, leaving home-radius checks disabled or centred elsewhere.
+        if self.airframe_adapter is not None and package is not None:
+            package_home = getattr(package, "document", {}).get("home")
+            if isinstance(package_home, Sequence) and len(package_home) >= 2:
+                self.airframe_adapter.safety.set_home((float(package_home[0]), float(package_home[1])))
         self._steps = {step.id: step for step in self.plan.steps}
         # A probe loop gives the camera model and the configured clearance source.
         self._probe = self._make_loop("Find the object and record its position.")
-        self.home: tuple[float, float] | None = None
+        package_home = (
+            getattr(package, "document", {}).get("home") if package is not None else None
+        )
+        self.home: tuple[float, float] | None = (
+            (float(package_home[0]), float(package_home[1]))
+            if isinstance(package_home, Sequence) and len(package_home) >= 2
+            else None
+        )
         self.cruise_altitude_m: float | None = None
         self.findings: list[dict[str, Any]] = []
         self._finding_loops: dict[int, OnboardLoop] = {}
@@ -1077,7 +1092,7 @@ class MissionExecutor:
         if self.home is None:
             self.home = (pose_ned[0], pose_ned[1])
             self.cruise_altitude_m = max(0.0, -pose_ned[2])
-            if self.airframe_adapter is not None:
+            if self.airframe_adapter is not None and not self._package_backed:
                 # Local NED is takeoff-origin (cruise altitude is -z above), so the
                 # envelope's home stays at ground level.  The first pose arrives
                 # airborne; passing its altitude made every later altitude ~0 m and

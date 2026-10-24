@@ -241,6 +241,8 @@ class MissionSupervisor:
             self.recovery_policy = RecoveryPolicy(category=self.energy_estimator.params.category)
         self.energy_estimate: dict[str, Any] | None = None
         executor.home = tuple(package.document["home"])
+        if executor.airframe_adapter is not None:
+            executor.airframe_adapter.safety.set_home(executor.home)
         energy_model = asdict(self.energy_estimator.config)
         if self.energy_estimator.params.category == "multirotor":
             # Preserve the pre-profile mission log shape for the default path.
@@ -959,6 +961,8 @@ class MissionSupervisor:
                 obstacle_source=self.executor.obstacle_source,
             )
             self._recovery.home = tuple(self.package.document["home"])
+            if self._recovery.airframe_adapter is not None:
+                self._recovery.airframe_adapter.safety.set_home(self._recovery.home)
             self._recovery.cruise_altitude_m = self.executor.cruise_altitude_m or max(
                 0, -pose_ned[2]
             )
