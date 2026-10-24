@@ -67,6 +67,8 @@ def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
         if checkpoint is not None:
             ok, reason = _valid_checkpoint(checkpoint, now=now, max_age_s=max_age_s,
                                            mission_id=mission_id, package_digest=package_digest)
+            if ok and checkpoint.get("boot_time_ms") is not None and boot_time_ms is None:
+                return RecoveryDecision("monitor_failsafe", "PX4 boot time 未知，onboard 不接管，仅记录与监视", dict(checkpoint))
             if ok and boot_time_ms is not None and checkpoint.get("boot_time_ms") is not None and float(boot_time_ms) < float(checkpoint["boot_time_ms"]):
                 ok, reason = False, "PX4 已重启，boot time 不匹配"
             mode = nav_state.upper() if isinstance(nav_state, str) else None
