@@ -91,7 +91,8 @@ Item {
     function _missionStateText(state) {
         const labels = {"awaiting_approval": qsTr("等待审批"), "running": qsTr("执行中"),
             "finding": qsTr("发现目标"), "alert": qsTr("告警"), "completed": qsTr("已完成"),
-            "returning": qsTr("返航中"), "recovery_finished": qsTr("返航完成"), "stopped": qsTr("已停止")};
+            "returning": qsTr("返航中"), "return_home": qsTr("返航"), "return_now": qsTr("立即返航"),
+            "recovery_finished": qsTr("返航完成"), "stopped": qsTr("已停止")};
         return labels[String(state)] || String(state || qsTr("未知"));
     }
     function _missionEntryText(entry, kind) {
@@ -145,9 +146,9 @@ Item {
         if (!_missionController || !_missionController.finalSummaryComplete) return [];
         const s = _missionController.finalSummary || {};
         const lines = [];
-        lines.push(qsTr("结束状态：%1").arg(String(s.status || "--")));
+        lines.push(qsTr("结束状态：%1").arg(root._missionStateText(s.status || "--")));
         if (s.terminal_action)
-            lines.push(qsTr("终止动作：%1（%2）").arg(String(s.terminal_action)).arg(String(s.terminal_reason || "")));
+            lines.push(qsTr("终止动作：%1（%2）").arg(root._missionStateText(s.terminal_action)).arg(String(s.terminal_reason || "")));
         const counts = s.counts || {};
         const lower = s.count_lower_bounds || {};
         for (const key in counts) {
@@ -165,15 +166,31 @@ Item {
         function onTelemetryChanged() {
             if (root._missionPlan.requires_approval === true && !root._missionPlanSnapshotSent) {
                 root._missionPlanSnapshotSent = true
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    missionApprovalDialog.open()
                 if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("plan-dialog")
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    autoApprovePlanTimer.restart()
             }
             if (root._missionController.finalSummaryComplete && !root._missionSummarySnapshotSent) {
                 root._missionSummarySnapshotSent = true
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    missionSummaryDialog.open()
                 if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("final-summary-complete")
             }
+        }
+    }
+
+    Timer {
+        id: autoApprovePlanTimer
+        interval: 1000
+        repeat: false
+        onTriggered: {
             if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true &&
-                    root._missionController.planAwaitingDecision && !root._missionController.busy)
-                root._missionController.approvePlan();
+                    root._missionController.planAwaitingDecision && !root._missionController.busy) {
+                root._missionController.approvePlan()
+                missionApprovalDialog.close()
+            }
         }
     }
     // Keep the map-only uncertainty projection on the same WGS-84 ellipsoid
