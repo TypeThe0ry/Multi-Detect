@@ -14,6 +14,10 @@ DEFAULTS = {
     / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
     "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+    # Explicit conservative defaults bound llama.cpp prefill scratch on 8 GB
+    # unified-memory targets; can be raised per validated hardware profile.
+    "llama_batch_size": 512,
+    "llama_ubatch_size": 128,
     "near_depth": False,
     "near_depth_model_path": ROOT
     / "artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx",

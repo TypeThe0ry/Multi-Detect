@@ -595,6 +595,8 @@ class LlamaServerRunner:
         cache_prompt: bool = True,
         wait_port_free: bool = False,
         cache_ram_mib: int | None = None,
+        batch_size: int | None = None,
+        ubatch_size: int | None = None,
         max_restarts: int = 0,
     ):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = (
@@ -659,6 +661,10 @@ class LlamaServerRunner:
             # llama-server keeps evicted slot states in host RAM (default 8 GiB).
             # Every evaluation row carries a new image, so that cache only grows.
             command.extend(["--cache-ram", str(int(cache_ram_mib))])
+        if batch_size is not None:
+            command.extend(["--batch-size", str(int(batch_size))])
+        if ubatch_size is not None:
+            command.extend(["--ubatch-size", str(int(ubatch_size))])
         if adapter:
             command.extend(["--lora", str(adapter)])
         self._command, self._cwd, self._model = command, str(executable.parent), model

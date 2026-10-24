@@ -1004,6 +1004,8 @@ class OnboardPolicy:
         # grows: it starved a 32 GB SITL host until CUDA launches failed, and an
         # 8 GB Jetson cannot hold it at all.  0 turns it off.
         cache_ram_mib = int(options.get("llama_cache_ram_mib", 0))
+        llama_batch_size = options.get("llama_batch_size")
+        llama_ubatch_size = options.get("llama_ubatch_size")
 
         def make_identity_runner():
             return LlamaServerRunner(
@@ -1018,6 +1020,8 @@ class OnboardPolicy:
                 fast_identity=str(options.get("fast_identity", False)).lower()
                 in {"1", "true", "yes"},
                 cache_ram_mib=cache_ram_mib,
+                batch_size=llama_batch_size,
+                ubatch_size=llama_ubatch_size,
             )
 
         def start_identity_runner():
@@ -1053,6 +1057,8 @@ class OnboardPolicy:
                     logprobs=False,
                     wait_port_free=True,
                     cache_ram_mib=cache_ram_mib,
+                    batch_size=llama_batch_size,
+                    ubatch_size=llama_ubatch_size,
                 )
             except Exception as exc:
                 planner_start_error = exc

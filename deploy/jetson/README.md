@@ -196,6 +196,36 @@ hits and only grows. On the Windows SITL host it reached ~8 GB and CUDA launches
 out-of-memory; the 8 GB Orin Nano cannot hold it at all. The flag needs a llama.cpp build that has
 `--cache-ram` (b11552 does); check `llama-server --help` on the Jetson build before deploying.
 
+## Orin Nano 8 GB unified-memory budget
+
+Treat these as planning envelopes, not measured device peaks. Unified memory is shared by CUDA,
+CPU processes, display, and the kernel; retain at least 1.0 GiB for the OS, camera buffers, and
+short-lived allocations. Do not run planner and identity models concurrently: the policy closes
+the planner before binding the identity server to the same port.
+
+| Resident component | Planning envelope | Notes |
+| --- | ---: | --- |
+| Linux, display, camera/driver and safety reserve | 1.5–2.0 GiB | Keep at least 1.0 GiB available at runtime. |
+| YOLOE weights, CUDA context and 1280 inference scratch | 1.0–1.8 GiB | Measure peak on the target with its actual TensorRT/PyTorch stack. |
+| One Q5_K_M 2B-class VLM plus mmproj | 2.0–3.0 GiB | GGUF size is not the full resident peak; GPU layer placement and KV cache matter. |
+| llama.cpp context/KV, batch and transient prefill | 0.5–1.0 GiB | Context 4096; use bounded batch sizes below. |
+| Mission process, frames and telemetry | 0.3–0.7 GiB | Keep only latest frame/sample; avoid unbounded history. |
+| **Estimated total** | **5.3–8.5 GiB** | Upper end does not fit; profile each component and leave headroom before field use. |
+
+The SIM configuration defaults to `--cache-ram 0`, `--batch-size 512`, and `--ubatch-size 128`.
+The latter two bound llama.cpp prompt-processing scratch while preserving the existing 4096-token
+context and single parallel slot. For an 8 GB Orin Nano, start with `-c 4096 -b 512 -ub 128
+-np 1 --cache-ram 0`; only reduce context to 2048 or batch/ubatch further after checking plan
+quality, latency, peak memory, and the exact JetPack llama.cpp build. These flags do not make two
+large models fit simultaneously. `--mlock` pins pages and may worsen pressure; `--no-mmap` can
+increase load-time copying. Neither is recommended as a default memory optimization.
+
+On a Windows SITL host, stagger heavyweight startup: wait for the container/world to be ready
+before starting the collector, and avoid launching unrelated GPU/model jobs during model load.
+The policy currently constructs YOLOE before llama-server; the model split path already serializes
+planner and identity. Do not lower YOLOE precision or image size without a detector-quality
+qualification because its 1280 input is tied to the SIM camera calibration.
+
 ## Split planner/identity models
 
 The optional `planning_model` field belongs in the onboard JSON configuration next to `gguf`.

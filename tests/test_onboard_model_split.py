@@ -40,9 +40,11 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
     builds = {"count": 0}
     cache_ram = CACHE_RAM
     cache_ram.clear()
+    RUNNER_KWARGS.clear()
 
     class FakeRunner:
         def __init__(self, model, mmproj=None, **kwargs):
+            RUNNER_KWARGS.append(kwargs)
             role = "planner" if "r14" in str(model) else "identity"
             assert active["count"] == 0
             active["count"] += 1
@@ -85,6 +87,7 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
 
 
 CACHE_RAM: list = []
+RUNNER_KWARGS: list[dict] = []
 
 
 def test_onboard_servers_run_without_the_host_prompt_cache(monkeypatch, tmp_path):
@@ -92,6 +95,12 @@ def test_onboard_servers_run_without_the_host_prompt_cache(monkeypatch, tmp_path
     # and starved the SITL host; both onboard servers must turn it off.
     _make(monkeypatch, tmp_path)
     assert CACHE_RAM == [0, 0]
+
+
+def test_onboard_server_batch_limits_are_passed_to_both_model_slots(monkeypatch, tmp_path):
+    _make(monkeypatch, tmp_path)
+    assert [row["batch_size"] for row in RUNNER_KWARGS] == ["512", "512"]
+    assert [row["ubatch_size"] for row in RUNNER_KWARGS] == ["128", "128"]
 
 
 def test_split_closes_planner_before_identity(monkeypatch, tmp_path):
