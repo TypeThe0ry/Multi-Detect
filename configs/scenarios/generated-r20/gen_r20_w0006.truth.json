@@ -5,54 +5,54 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "fire_truck",
+      "asset_slug": "hatchback",
       "role": "distractor",
       "target_id": "distractor_0006_01"
     },
     "11": {
-      "asset_slug": "hatchback_red",
+      "asset_slug": "jersey_barrier",
       "role": "distractor",
       "target_id": "distractor_0006_02"
     },
     "2": {
-      "asset_slug": "house_1",
+      "asset_slug": "oak_tree",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "playground",
+      "asset_slug": "collapsed_house",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "lamp_post",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "gazebo",
+      "asset_slug": "apartment",
       "role": "obstacle",
       "target_id": "obstacle_04"
     },
     "6": {
-      "asset_slug": "pickup",
+      "asset_slug": "gazebo",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
+      "asset_slug": "fire_truck",
       "role": "target",
       "target_id": "target_true_gen_r20_w0006"
     },
-    "7": {
-      "asset_slug": "suv",
+    "8": {
+      "asset_slug": "ambulance",
       "role": "confuser",
       "target_id": "confuser_0006_00_00"
-    },
-    "8": {
-      "asset_slug": "jersey_barrier",
-      "role": "forced_distractor",
-      "target_id": "forced_0006_00"
     },
     "9": {
       "asset_slug": "dumpster",
@@ -62,113 +62,76 @@
   },
   "targets": [
     {
-      "asset_slug": "pickup",
+      "asset_slug": "fire_truck",
       "behavior": "stationary",
-      "bottom_offset_m": -0.932771,
+      "bottom_offset_m": -1.67753,
       "category_words": [
-        "pickup",
+        "fire truck",
         "truck"
       ],
-      "class": "pickup",
-      "color": null,
-      "label": "pickup truck",
+      "class": "fire_truck",
+      "color": "red",
+      "label": "fire truck truck",
       "measured_size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        3.54622,
+        12.42941,
+        3.35506
       ],
       "pose": {
-        "x_east_m": 50.941,
-        "y_north_m": -78.698,
-        "yaw_rad": 2.117236,
-        "z_up_m": 0.933
+        "x_east_m": 60.0,
+        "y_north_m": 35.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
       },
       "position": {
-        "altitude_m": 0.933,
+        "altitude_m": 0.0,
         "altitude_reference": "world",
-        "latitude_deg": 1.35139185,
-        "longitude_deg": 103.82025773
+        "latitude_deg": 1.35241494,
+        "longitude_deg": 103.82033914
       },
       "size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        3.54622,
+        12.42941,
+        3.35506
       ],
       "target_id": "target_true_gen_r20_w0006",
       "true_target": true
     },
     {
-      "asset_slug": "suv",
+      "asset_slug": "ambulance",
       "behavior": "stationary",
-      "bottom_offset_m": -1.078269,
+      "bottom_offset_m": -1.447059,
       "category_words": [
-        "car",
-        "suv"
+        "ambulance",
+        "emergency vehicle"
       ],
-      "class": "suv",
-      "color": null,
+      "class": "ambulance",
+      "color": "white",
       "confuser": true,
-      "label": "car suv",
+      "label": "ambulance emergency vehicle",
       "measured_size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "pose": {
-        "x_east_m": -27.568,
-        "y_north_m": -83.097,
-        "yaw_rad": 1.02953,
-        "z_up_m": 1.078
+        "x_east_m": -69.557,
+        "y_north_m": -72.364,
+        "yaw_rad": 1.661543,
+        "z_up_m": 1.447
       },
       "position": {
-        "altitude_m": 1.078,
+        "altitude_m": 1.447,
         "altitude_reference": "world",
-        "latitude_deg": 1.35135227,
-        "longitude_deg": 103.81955228
+        "latitude_deg": 1.35144885,
+        "longitude_deg": 103.81917499
       },
       "size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "target_id": "confuser_0006_00_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "jersey_barrier",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.5715,
-      "category_words": [
-        "jersey barrier",
-        "road barrier"
-      ],
-      "class": "jersey_barrier",
-      "color": null,
-      "forced_distractor": true,
-      "label": "jersey barrier road barrier",
-      "measured_size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "pose": {
-        "x_east_m": 57.751,
-        "y_north_m": -84.635,
-        "yaw_rad": -1.336615,
-        "z_up_m": 0.572
-      },
-      "position": {
-        "altitude_m": 0.572,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35133842,
-        "longitude_deg": 103.82031893
-      },
-      "size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "target_id": "forced_0006_00",
       "true_target": false
     },
     {
@@ -188,16 +151,16 @@
         1.773292
       ],
       "pose": {
-        "x_east_m": -89.362,
-        "y_north_m": -75.489,
-        "yaw_rad": 2.139557,
+        "x_east_m": 6.926,
+        "y_north_m": 85.899,
+        "yaw_rad": 1.583437,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.35142073,
-        "longitude_deg": 103.81899703
+        "latitude_deg": 1.35287294,
+        "longitude_deg": 103.81986223
       },
       "size_m": [
         2.505294,
@@ -208,43 +171,7 @@
       "true_target": false
     },
     {
-      "asset_slug": "fire_truck",
-      "behavior": "stationary",
-      "bottom_offset_m": -1.67753,
-      "category_words": [
-        "fire truck",
-        "truck"
-      ],
-      "class": "fire_truck",
-      "color": "red",
-      "label": "fire truck truck",
-      "measured_size_m": [
-        3.54622,
-        12.42941,
-        3.35506
-      ],
-      "pose": {
-        "x_east_m": 76.199,
-        "y_north_m": 77.524,
-        "yaw_rad": -1.418296,
-        "z_up_m": 1.678
-      },
-      "position": {
-        "altitude_m": 1.678,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35279758,
-        "longitude_deg": 103.82048469
-      },
-      "size_m": [
-        3.54622,
-        12.42941,
-        3.35506
-      ],
-      "target_id": "distractor_0006_01",
-      "true_target": false
-    },
-    {
-      "asset_slug": "hatchback_red",
+      "asset_slug": "hatchback",
       "behavior": "stationary",
       "bottom_offset_m": -0.783947,
       "category_words": [
@@ -252,7 +179,7 @@
         "hatchback"
       ],
       "class": "car",
-      "color": "red",
+      "color": null,
       "label": "car hatchback",
       "measured_size_m": [
         4.001102,
@@ -260,21 +187,57 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": 86.252,
-        "y_north_m": 15.962,
-        "yaw_rad": 2.242972,
+        "x_east_m": -77.681,
+        "y_north_m": 78.374,
+        "yaw_rad": -1.517953,
         "z_up_m": 0.784
       },
       "position": {
         "altitude_m": 0.784,
         "altitude_reference": "world",
-        "latitude_deg": 1.35224363,
-        "longitude_deg": 103.82057502
+        "latitude_deg": 1.35280523,
+        "longitude_deg": 103.81910199
       },
       "size_m": [
         4.001102,
         2.140463,
         1.567894
+      ],
+      "target_id": "distractor_0006_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 90.154,
+        "y_north_m": 3.391,
+        "yaw_rad": -1.14476,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35213051,
+        "longitude_deg": 103.82061009
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
       ],
       "target_id": "distractor_0006_02",
       "true_target": false

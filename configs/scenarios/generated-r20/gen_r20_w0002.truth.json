@@ -50,128 +50,127 @@
       "target_id": "obstacle_05"
     },
     "7": {
-      "asset_slug": "backpack",
+      "asset_slug": "ambulance",
       "role": "target",
       "target_id": "target_true_gen_r20_w0002"
     },
     "8": {
-      "asset_slug": "cardboard_box",
+      "asset_slug": "bus",
       "role": "confuser",
       "target_id": "confuser_0002_00_00"
     },
     "9": {
-      "asset_slug": "fire_hydrant",
+      "asset_slug": "jersey_barrier",
       "role": "forced_distractor",
       "target_id": "forced_0002_00"
     }
   },
   "targets": [
     {
-      "asset_slug": "backpack",
+      "asset_slug": "ambulance",
       "behavior": "stationary",
-      "bottom_offset_m": -0.261196,
+      "bottom_offset_m": -1.447059,
       "category_words": [
-        "backpack",
-        "bag"
+        "ambulance",
+        "emergency vehicle"
       ],
-      "class": "backpack",
-      "color": null,
-      "label": "backpack bag",
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
       "measured_size_m": [
-        0.441576,
-        0.263615,
-        0.522393
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "pose": {
-        "x_east_m": 43.057,
-        "y_north_m": 98.299,
-        "yaw_rad": 0.890865,
-        "z_up_m": 0.261
+        "x_east_m": 35.0,
+        "y_north_m": 28.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
       },
       "position": {
-        "altitude_m": 0.261,
+        "altitude_m": 0.0,
         "altitude_reference": "world",
-        "latitude_deg": 1.35298453,
-        "longitude_deg": 103.82018689
+        "latitude_deg": 1.35235195,
+        "longitude_deg": 103.8201145
       },
       "size_m": [
-        0.441576,
-        0.263615,
-        0.522393
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "target_id": "target_true_gen_r20_w0002",
       "true_target": true
     },
     {
-      "asset_slug": "cardboard_box",
+      "asset_slug": "bus",
       "behavior": "stationary",
-      "bottom_offset_m": -0.15,
+      "bottom_offset_m": -1.849149,
       "category_words": [
-        "cardboard box",
-        "box"
+        "bus"
       ],
-      "class": "cardboard_box",
-      "color": "brown",
+      "class": "bus",
+      "color": null,
       "confuser": true,
-      "label": "cardboard box box",
+      "label": "bus",
       "measured_size_m": [
-        0.5,
-        0.4,
-        0.3
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "pose": {
         "x_east_m": -118.245,
         "y_north_m": 20.43,
         "yaw_rad": 0.721136,
-        "z_up_m": 0.15
+        "z_up_m": 1.849
       },
       "position": {
-        "altitude_m": 0.15,
+        "altitude_m": 1.849,
         "altitude_reference": "world",
         "latitude_deg": 1.35228384,
         "longitude_deg": 103.81873749
       },
       "size_m": [
-        0.5,
-        0.4,
-        0.3
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "target_id": "confuser_0002_00_00",
       "true_target": false
     },
     {
-      "asset_slug": "fire_hydrant",
+      "asset_slug": "jersey_barrier",
       "behavior": "stationary",
-      "bottom_offset_m": -0.465647,
+      "bottom_offset_m": -0.5715,
       "category_words": [
-        "fire hydrant",
-        "hydrant"
+        "jersey barrier",
+        "road barrier"
       ],
-      "class": "fire_hydrant",
+      "class": "jersey_barrier",
       "color": null,
       "forced_distractor": true,
-      "label": "fire hydrant hydrant",
+      "label": "jersey barrier road barrier",
       "measured_size_m": [
-        0.423605,
-        0.423605,
-        0.931294
+        4.065567,
+        0.8128,
+        1.143
       ],
       "pose": {
         "x_east_m": 16.691,
         "y_north_m": -83.351,
         "yaw_rad": -1.787893,
-        "z_up_m": 0.466
+        "z_up_m": 0.572
       },
       "position": {
-        "altitude_m": 0.466,
+        "altitude_m": 0.572,
         "altitude_reference": "world",
         "latitude_deg": 1.35134998,
         "longitude_deg": 103.81994998
       },
       "size_m": [
-        0.423605,
-        0.423605,
-        0.931294
+        4.065567,
+        0.8128,
+        1.143
       ],
       "target_id": "forced_0002_00",
       "true_target": false

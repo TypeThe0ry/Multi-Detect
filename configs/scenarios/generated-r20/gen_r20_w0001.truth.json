@@ -20,32 +20,176 @@
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "construction_cone",
+      "asset_slug": "ambulance",
       "role": "target",
       "target_id": "target_true_gen_r20_w0001"
     },
     "5": {
-      "asset_slug": "jersey_barrier",
+      "asset_slug": "bus",
       "role": "confuser",
       "target_id": "confuser_0001_00_00"
     },
     "6": {
-      "asset_slug": "pickup",
+      "asset_slug": "jersey_barrier",
       "role": "forced_distractor",
       "target_id": "forced_0001_00"
     },
     "7": {
-      "asset_slug": "backpack",
+      "asset_slug": "bus",
       "role": "distractor",
       "target_id": "distractor_0001_00"
     },
     "8": {
-      "asset_slug": "casual_female",
+      "asset_slug": "construction_cone",
       "role": "distractor",
       "target_id": "distractor_0001_01"
     }
   },
   "targets": [
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": 35.0,
+        "y_north_m": 28.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35235195,
+        "longitude_deg": 103.8201145
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "target_true_gen_r20_w0001",
+      "true_target": true
+    },
+    {
+      "asset_slug": "bus",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.849149,
+      "category_words": [
+        "bus"
+      ],
+      "class": "bus",
+      "color": null,
+      "confuser": true,
+      "label": "bus",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "pose": {
+        "x_east_m": 103.889,
+        "y_north_m": 23.293,
+        "yaw_rad": 3.118886,
+        "z_up_m": 1.849
+      },
+      "position": {
+        "altitude_m": 1.849,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3523096,
+        "longitude_deg": 103.82073351
+      },
+      "size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "target_id": "confuser_0001_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "forced_distractor": true,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 64.989,
+        "y_north_m": -86.121,
+        "yaw_rad": 1.397984,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35132506,
+        "longitude_deg": 103.82038397
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "forced_0001_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "bus",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.849149,
+      "category_words": [
+        "bus"
+      ],
+      "class": "bus",
+      "color": null,
+      "label": "bus",
+      "measured_size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "pose": {
+        "x_east_m": -75.04,
+        "y_north_m": -28.057,
+        "yaw_rad": -2.658367,
+        "z_up_m": 1.849
+      },
+      "position": {
+        "altitude_m": 1.849,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35184753,
+        "longitude_deg": 103.81912572
+      },
+      "size_m": [
+        2.707656,
+        12.486131,
+        3.698298
+      ],
+      "target_id": "distractor_0001_00",
+      "true_target": false
+    },
     {
       "asset_slug": "construction_cone",
       "behavior": "stationary",
@@ -63,168 +207,21 @@
         1.088889
       ],
       "pose": {
-        "x_east_m": 105.201,
-        "y_north_m": -1.093,
-        "yaw_rad": 0.381513,
+        "x_east_m": -69.938,
+        "y_north_m": 86.636,
+        "yaw_rad": -2.04465,
         "z_up_m": 0.544
       },
       "position": {
         "altitude_m": 0.544,
         "altitude_reference": "world",
-        "latitude_deg": 1.35209017,
-        "longitude_deg": 103.82074529
+        "latitude_deg": 1.35287957,
+        "longitude_deg": 103.81917156
       },
       "size_m": [
         0.50292,
         0.50292,
         1.088889
-      ],
-      "target_id": "target_true_gen_r20_w0001",
-      "true_target": true
-    },
-    {
-      "asset_slug": "jersey_barrier",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.5715,
-      "category_words": [
-        "jersey barrier",
-        "road barrier"
-      ],
-      "class": "jersey_barrier",
-      "color": null,
-      "confuser": true,
-      "label": "jersey barrier road barrier",
-      "measured_size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "pose": {
-        "x_east_m": 103.889,
-        "y_north_m": 23.293,
-        "yaw_rad": 3.118886,
-        "z_up_m": 0.572
-      },
-      "position": {
-        "altitude_m": 0.572,
-        "altitude_reference": "world",
-        "latitude_deg": 1.3523096,
-        "longitude_deg": 103.82073351
-      },
-      "size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "target_id": "confuser_0001_00_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "pickup",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.932771,
-      "category_words": [
-        "pickup",
-        "truck"
-      ],
-      "class": "pickup",
-      "color": null,
-      "forced_distractor": true,
-      "label": "pickup truck",
-      "measured_size_m": [
-        5.66468,
-        2.472901,
-        1.865542
-      ],
-      "pose": {
-        "x_east_m": 64.989,
-        "y_north_m": -86.121,
-        "yaw_rad": 1.397984,
-        "z_up_m": 0.933
-      },
-      "position": {
-        "altitude_m": 0.933,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35132506,
-        "longitude_deg": 103.82038397
-      },
-      "size_m": [
-        5.66468,
-        2.472901,
-        1.865542
-      ],
-      "target_id": "forced_0001_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "backpack",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.261196,
-      "category_words": [
-        "backpack",
-        "bag"
-      ],
-      "class": "backpack",
-      "color": null,
-      "label": "backpack bag",
-      "measured_size_m": [
-        0.441576,
-        0.263615,
-        0.522393
-      ],
-      "pose": {
-        "x_east_m": -75.04,
-        "y_north_m": -28.057,
-        "yaw_rad": -2.658367,
-        "z_up_m": 0.261
-      },
-      "position": {
-        "altitude_m": 0.261,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35184753,
-        "longitude_deg": 103.81912572
-      },
-      "size_m": [
-        0.441576,
-        0.263615,
-        0.522393
-      ],
-      "target_id": "distractor_0001_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "casual_female",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.8928,
-      "category_words": [
-        "person",
-        "woman",
-        "pedestrian"
-      ],
-      "class": "person",
-      "color": null,
-      "label": "person woman",
-      "measured_size_m": [
-        0.76,
-        0.565892,
-        1.7856
-      ],
-      "pose": {
-        "x_east_m": -69.938,
-        "y_north_m": 86.636,
-        "yaw_rad": -2.04465,
-        "z_up_m": 0.893
-      },
-      "position": {
-        "altitude_m": 0.893,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35287957,
-        "longitude_deg": 103.81917156
-      },
-      "size_m": [
-        0.76,
-        0.565892,
-        1.7856
       ],
       "target_id": "distractor_0001_01",
       "true_target": false

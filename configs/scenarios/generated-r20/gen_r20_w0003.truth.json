@@ -5,42 +5,57 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "dumpster",
+      "asset_slug": "electrical_box",
       "role": "distractor",
       "target_id": "distractor_0003_01"
     },
+    "11": {
+      "asset_slug": "hatchback",
+      "role": "distractor",
+      "target_id": "distractor_0003_02"
+    },
+    "12": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0003_03"
+    },
+    "13": {
+      "asset_slug": "pickup",
+      "role": "distractor",
+      "target_id": "distractor_0003_04"
+    },
     "2": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "apartment",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "house_2",
+      "asset_slug": "office_building",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "house_1",
+      "asset_slug": "playground",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "water_tower",
+      "asset_slug": "oak_tree",
       "role": "obstacle",
       "target_id": "obstacle_04"
     },
     "6": {
-      "asset_slug": "pickup",
+      "asset_slug": "ambulance",
       "role": "target",
       "target_id": "target_true_gen_r20_w0003"
     },
     "7": {
-      "asset_slug": "suv",
+      "asset_slug": "bus",
       "role": "confuser",
       "target_id": "confuser_0003_00_00"
     },
@@ -50,81 +65,80 @@
       "target_id": "forced_0003_00"
     },
     "9": {
-      "asset_slug": "cardboard_box",
+      "asset_slug": "casual_female",
       "role": "distractor",
       "target_id": "distractor_0003_00"
     }
   },
   "targets": [
     {
-      "asset_slug": "pickup",
+      "asset_slug": "ambulance",
       "behavior": "stationary",
-      "bottom_offset_m": -0.932771,
+      "bottom_offset_m": -1.447059,
       "category_words": [
-        "pickup",
-        "truck"
+        "ambulance",
+        "emergency vehicle"
       ],
-      "class": "pickup",
-      "color": null,
-      "label": "pickup truck",
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
       "measured_size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "pose": {
-        "x_east_m": -6.177,
-        "y_north_m": -79.792,
-        "yaw_rad": 2.718594,
-        "z_up_m": 0.933
+        "x_east_m": 35.0,
+        "y_north_m": 28.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
       },
       "position": {
-        "altitude_m": 0.933,
+        "altitude_m": 0.0,
         "altitude_reference": "world",
-        "latitude_deg": 1.35138201,
-        "longitude_deg": 103.81974449
+        "latitude_deg": 1.35235195,
+        "longitude_deg": 103.8201145
       },
       "size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "target_id": "target_true_gen_r20_w0003",
       "true_target": true
     },
     {
-      "asset_slug": "suv",
+      "asset_slug": "bus",
       "behavior": "stationary",
-      "bottom_offset_m": -1.078269,
+      "bottom_offset_m": -1.849149,
       "category_words": [
-        "car",
-        "suv"
+        "bus"
       ],
-      "class": "suv",
+      "class": "bus",
       "color": null,
       "confuser": true,
-      "label": "car suv",
+      "label": "bus",
       "measured_size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "pose": {
-        "x_east_m": -89.788,
-        "y_north_m": -71.02,
-        "yaw_rad": -3.019879,
-        "z_up_m": 1.078
+        "x_east_m": -17.331,
+        "y_north_m": -108.084,
+        "yaw_rad": -2.512412,
+        "z_up_m": 1.849
       },
       "position": {
-        "altitude_m": 1.078,
+        "altitude_m": 1.849,
         "altitude_reference": "world",
-        "latitude_deg": 1.35146094,
-        "longitude_deg": 103.8189932
+        "latitude_deg": 1.35112742,
+        "longitude_deg": 103.81964427
       },
       "size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "target_id": "confuser_0003_00_00",
       "true_target": false
@@ -147,16 +161,16 @@
         1.143
       ],
       "pose": {
-        "x_east_m": -72.057,
-        "y_north_m": -52.217,
-        "yaw_rad": 1.486739,
+        "x_east_m": -80.353,
+        "y_north_m": -17.024,
+        "yaw_rad": -0.493357,
         "z_up_m": 0.572
       },
       "position": {
         "altitude_m": 0.572,
         "altitude_reference": "world",
-        "latitude_deg": 1.35163014,
-        "longitude_deg": 103.81915252
+        "latitude_deg": 1.35194681,
+        "longitude_deg": 103.81907798
       },
       "size_m": [
         4.065567,
@@ -167,75 +181,184 @@
       "true_target": false
     },
     {
-      "asset_slug": "cardboard_box",
+      "asset_slug": "casual_female",
       "behavior": "stationary",
-      "bottom_offset_m": -0.15,
+      "bottom_offset_m": -0.8928,
       "category_words": [
-        "cardboard box",
-        "box"
+        "person",
+        "woman",
+        "pedestrian"
       ],
-      "class": "cardboard_box",
-      "color": "brown",
-      "label": "cardboard box box",
+      "class": "person",
+      "color": null,
+      "label": "person woman",
       "measured_size_m": [
-        0.5,
-        0.4,
-        0.3
+        0.76,
+        0.565892,
+        1.7856
       ],
       "pose": {
-        "x_east_m": -62.902,
-        "y_north_m": -80.145,
-        "yaw_rad": -2.88184,
-        "z_up_m": 0.15
+        "x_east_m": 45.833,
+        "y_north_m": 86.355,
+        "yaw_rad": -0.856361,
+        "z_up_m": 0.893
       },
       "position": {
-        "altitude_m": 0.15,
+        "altitude_m": 0.893,
         "altitude_reference": "world",
-        "latitude_deg": 1.35137883,
-        "longitude_deg": 103.81923478
+        "latitude_deg": 1.35287705,
+        "longitude_deg": 103.82021184
       },
       "size_m": [
-        0.5,
-        0.4,
-        0.3
+        0.76,
+        0.565892,
+        1.7856
       ],
       "target_id": "distractor_0003_00",
       "true_target": false
     },
     {
-      "asset_slug": "dumpster",
+      "asset_slug": "electrical_box",
       "behavior": "stationary",
-      "bottom_offset_m": -0.886646,
+      "bottom_offset_m": -0.28,
       "category_words": [
-        "dumpster",
-        "trash container"
+        "electrical box",
+        "utility box"
       ],
-      "class": "dumpster",
+      "class": "electrical_box",
       "color": null,
-      "label": "dumpster trash container",
+      "label": "electrical box utility box",
       "measured_size_m": [
-        2.505294,
-        1.535287,
-        1.773292
+        0.43441,
+        0.331136,
+        0.56
       ],
       "pose": {
-        "x_east_m": 106.863,
-        "y_north_m": -2.547,
-        "yaw_rad": -0.351217,
-        "z_up_m": 0.887
+        "x_east_m": 92.885,
+        "y_north_m": 13.369,
+        "yaw_rad": 1.662987,
+        "z_up_m": 0.28
       },
       "position": {
-        "altitude_m": 0.887,
+        "altitude_m": 0.28,
         "altitude_reference": "world",
-        "latitude_deg": 1.35207708,
-        "longitude_deg": 103.82076023
+        "latitude_deg": 1.3522203,
+        "longitude_deg": 103.82063463
       },
       "size_m": [
-        2.505294,
-        1.535287,
-        1.773292
+        0.43441,
+        0.331136,
+        0.56
       ],
       "target_id": "distractor_0003_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": -4.414,
+        "y_north_m": -118.563,
+        "yaw_rad": -1.573192,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35103313,
+        "longitude_deg": 103.81976034
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0003_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": 47.554,
+        "y_north_m": -91.312,
+        "yaw_rad": -0.562511,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35127835,
+        "longitude_deg": 103.8202273
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0003_03",
+      "true_target": false
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": 110.073,
+        "y_north_m": -26.842,
+        "yaw_rad": 1.293915,
+        "z_up_m": 0.933
+      },
+      "position": {
+        "altitude_m": 0.933,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35185847,
+        "longitude_deg": 103.82078907
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "distractor_0003_04",
       "true_target": false
     }
   ]

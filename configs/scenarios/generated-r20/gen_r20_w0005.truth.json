@@ -10,12 +10,17 @@
       "target_id": "obstacle_00"
     },
     "10": {
+      "asset_slug": "hatchback_red",
+      "role": "distractor",
+      "target_id": "distractor_0005_02"
+    },
+    "11": {
       "asset_slug": "male_visitor",
       "role": "distractor",
       "target_id": "distractor_0005_03"
     },
     "2": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "office_building",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
@@ -25,143 +30,142 @@
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "backpack",
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "ambulance",
       "role": "target",
       "target_id": "target_true_gen_r20_w0005"
     },
-    "5": {
-      "asset_slug": "cardboard_box",
+    "6": {
+      "asset_slug": "bus",
       "role": "confuser",
       "target_id": "confuser_0005_00_00"
     },
-    "6": {
-      "asset_slug": "fire_hydrant",
+    "7": {
+      "asset_slug": "jersey_barrier",
       "role": "forced_distractor",
       "target_id": "forced_0005_00"
     },
-    "7": {
+    "8": {
       "asset_slug": "dumpster",
       "role": "distractor",
       "target_id": "distractor_0005_00"
     },
-    "8": {
+    "9": {
       "asset_slug": "fire_truck",
       "role": "distractor",
       "target_id": "distractor_0005_01"
-    },
-    "9": {
-      "asset_slug": "hatchback_red",
-      "role": "distractor",
-      "target_id": "distractor_0005_02"
     }
   },
   "targets": [
     {
-      "asset_slug": "backpack",
+      "asset_slug": "ambulance",
       "behavior": "stationary",
-      "bottom_offset_m": -0.261196,
+      "bottom_offset_m": -1.447059,
       "category_words": [
-        "backpack",
-        "bag"
+        "ambulance",
+        "emergency vehicle"
       ],
-      "class": "backpack",
-      "color": null,
-      "label": "backpack bag",
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
       "measured_size_m": [
-        0.441576,
-        0.263615,
-        0.522393
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "pose": {
-        "x_east_m": -36.006,
-        "y_north_m": 85.136,
-        "yaw_rad": 0.108516,
-        "z_up_m": 0.261
+        "x_east_m": 35.0,
+        "y_north_m": 28.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
       },
       "position": {
-        "altitude_m": 0.261,
+        "altitude_m": 0.0,
         "altitude_reference": "world",
-        "latitude_deg": 1.35286608,
-        "longitude_deg": 103.81947647
+        "latitude_deg": 1.35235195,
+        "longitude_deg": 103.8201145
       },
       "size_m": [
-        0.441576,
-        0.263615,
-        0.522393
+        2.968315,
+        7.535161,
+        2.894119
       ],
       "target_id": "target_true_gen_r20_w0005",
       "true_target": true
     },
     {
-      "asset_slug": "cardboard_box",
+      "asset_slug": "bus",
       "behavior": "stationary",
-      "bottom_offset_m": -0.15,
+      "bottom_offset_m": -1.849149,
       "category_words": [
-        "cardboard box",
-        "box"
+        "bus"
       ],
-      "class": "cardboard_box",
-      "color": "brown",
+      "class": "bus",
+      "color": null,
       "confuser": true,
-      "label": "cardboard box box",
+      "label": "bus",
       "measured_size_m": [
-        0.5,
-        0.4,
-        0.3
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "pose": {
-        "x_east_m": 43.502,
-        "y_north_m": -95.97,
-        "yaw_rad": 1.269026,
-        "z_up_m": 0.15
+        "x_east_m": -109.46,
+        "y_north_m": 9.657,
+        "yaw_rad": -2.550404,
+        "z_up_m": 1.849
       },
       "position": {
-        "altitude_m": 0.15,
+        "altitude_m": 1.849,
         "altitude_reference": "world",
-        "latitude_deg": 1.35123643,
-        "longitude_deg": 103.82019089
+        "latitude_deg": 1.35218689,
+        "longitude_deg": 103.81881643
       },
       "size_m": [
-        0.5,
-        0.4,
-        0.3
+        2.707656,
+        12.486131,
+        3.698298
       ],
       "target_id": "confuser_0005_00_00",
       "true_target": false
     },
     {
-      "asset_slug": "fire_hydrant",
+      "asset_slug": "jersey_barrier",
       "behavior": "stationary",
-      "bottom_offset_m": -0.465647,
+      "bottom_offset_m": -0.5715,
       "category_words": [
-        "fire hydrant",
-        "hydrant"
+        "jersey barrier",
+        "road barrier"
       ],
-      "class": "fire_hydrant",
+      "class": "jersey_barrier",
       "color": null,
       "forced_distractor": true,
-      "label": "fire hydrant hydrant",
+      "label": "jersey barrier road barrier",
       "measured_size_m": [
-        0.423605,
-        0.423605,
-        0.931294
+        4.065567,
+        0.8128,
+        1.143
       ],
       "pose": {
-        "x_east_m": -47.902,
-        "y_north_m": 108.506,
-        "yaw_rad": 0.461755,
-        "z_up_m": 0.466
+        "x_east_m": -109.435,
+        "y_north_m": -38.367,
+        "yaw_rad": -1.350546,
+        "z_up_m": 0.572
       },
       "position": {
-        "altitude_m": 0.466,
+        "altitude_m": 0.572,
         "altitude_reference": "world",
-        "latitude_deg": 1.35307637,
-        "longitude_deg": 103.81936957
+        "latitude_deg": 1.35175476,
+        "longitude_deg": 103.81881665
       },
       "size_m": [
-        0.423605,
-        0.423605,
-        0.931294
+        4.065567,
+        0.8128,
+        1.143
       ],
       "target_id": "forced_0005_00",
       "true_target": false
@@ -183,16 +187,16 @@
         1.773292
       ],
       "pose": {
-        "x_east_m": -109.46,
-        "y_north_m": 9.657,
-        "yaw_rad": -2.550404,
+        "x_east_m": 4.386,
+        "y_north_m": -105.114,
+        "yaw_rad": -2.322405,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.35218689,
-        "longitude_deg": 103.81881643
+        "latitude_deg": 1.35115415,
+        "longitude_deg": 103.81983941
       },
       "size_m": [
         2.505294,
@@ -219,16 +223,16 @@
         3.35506
       ],
       "pose": {
-        "x_east_m": -109.435,
-        "y_north_m": -38.367,
-        "yaw_rad": -1.350546,
+        "x_east_m": -29.265,
+        "y_north_m": -95.593,
+        "yaw_rad": -5.8e-05,
         "z_up_m": 1.678
       },
       "position": {
         "altitude_m": 1.678,
         "altitude_reference": "world",
-        "latitude_deg": 1.35175476,
-        "longitude_deg": 103.81881665
+        "latitude_deg": 1.35123983,
+        "longitude_deg": 103.81953703
       },
       "size_m": [
         3.54622,
@@ -255,16 +259,16 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": -36.129,
-        "y_north_m": -82.786,
-        "yaw_rad": 0.937426,
+        "x_east_m": -98.899,
+        "y_north_m": -46.854,
+        "yaw_rad": 0.189033,
         "z_up_m": 0.784
       },
       "position": {
         "altitude_m": 0.784,
         "altitude_reference": "world",
-        "latitude_deg": 1.35135506,
-        "longitude_deg": 103.81947536
+        "latitude_deg": 1.35167839,
+        "longitude_deg": 103.81891133
       },
       "size_m": [
         4.001102,
@@ -292,16 +296,16 @@
         1.774483
       ],
       "pose": {
-        "x_east_m": -66.759,
-        "y_north_m": 70.508,
-        "yaw_rad": 1.712043,
+        "x_east_m": 65.96,
+        "y_north_m": 55.545,
+        "yaw_rad": 1.954987,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.35273445,
-        "longitude_deg": 103.81920013
+        "latitude_deg": 1.35259981,
+        "longitude_deg": 103.82039269
       },
       "size_m": [
         0.307058,

@@ -5,170 +5,118 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "office_building",
+      "asset_slug": "house_2",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
-    "10": {
-      "asset_slug": "cardboard_box",
-      "role": "distractor",
-      "target_id": "distractor_0018_02"
-    },
-    "11": {
-      "asset_slug": "dumpster",
-      "role": "distractor",
-      "target_id": "distractor_0018_03"
-    },
     "2": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "collapsed_house",
+      "asset_slug": "apartment",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "fountain",
-      "role": "obstacle",
-      "target_id": "obstacle_03"
-    },
-    "5": {
-      "asset_slug": "pickup",
+      "asset_slug": "fire_hydrant",
       "role": "target",
       "target_id": "target_true_gen_r20_w0018"
     },
-    "6": {
-      "asset_slug": "suv",
+    "5": {
+      "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0018_00_00"
     },
-    "7": {
-      "asset_slug": "jersey_barrier",
-      "role": "forced_distractor",
-      "target_id": "forced_0018_00"
-    },
-    "8": {
+    "6": {
       "asset_slug": "stop_sign",
       "role": "distractor",
       "target_id": "distractor_0018_00"
     },
-    "9": {
+    "7": {
       "asset_slug": "ambulance",
       "role": "distractor",
       "target_id": "distractor_0018_01"
+    },
+    "8": {
+      "asset_slug": "cardboard_box",
+      "role": "distractor",
+      "target_id": "distractor_0018_02"
     }
   },
   "targets": [
     {
-      "asset_slug": "pickup",
+      "asset_slug": "fire_hydrant",
       "behavior": "stationary",
-      "bottom_offset_m": -0.932771,
+      "bottom_offset_m": -0.465647,
       "category_words": [
-        "pickup",
-        "truck"
+        "fire hydrant",
+        "hydrant"
       ],
-      "class": "pickup",
+      "class": "fire_hydrant",
       "color": null,
-      "label": "pickup truck",
+      "label": "fire hydrant hydrant",
       "measured_size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        0.423605,
+        0.423605,
+        0.931294
       ],
       "pose": {
-        "x_east_m": 59.901,
-        "y_north_m": -77.899,
-        "yaw_rad": 0.192244,
-        "z_up_m": 0.933
+        "x_east_m": 28.0,
+        "y_north_m": 22.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
       },
       "position": {
-        "altitude_m": 0.933,
+        "altitude_m": 0.0,
         "altitude_reference": "world",
-        "latitude_deg": 1.35139904,
-        "longitude_deg": 103.82033825
+        "latitude_deg": 1.35229796,
+        "longitude_deg": 103.8200516
       },
       "size_m": [
-        5.66468,
-        2.472901,
-        1.865542
+        0.423605,
+        0.423605,
+        0.931294
       ],
       "target_id": "target_true_gen_r20_w0018",
       "true_target": true
     },
     {
-      "asset_slug": "suv",
+      "asset_slug": "cardboard_box",
       "behavior": "stationary",
-      "bottom_offset_m": -1.078269,
+      "bottom_offset_m": -0.15,
       "category_words": [
-        "car",
-        "suv"
+        "cardboard box",
+        "box"
       ],
-      "class": "suv",
-      "color": null,
+      "class": "cardboard_box",
+      "color": "brown",
       "confuser": true,
-      "label": "car suv",
+      "label": "cardboard box box",
       "measured_size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        0.5,
+        0.4,
+        0.3
       ],
       "pose": {
-        "x_east_m": -5.813,
-        "y_north_m": -107.716,
-        "yaw_rad": 1.470278,
-        "z_up_m": 1.078
+        "x_east_m": 88.005,
+        "y_north_m": 17.13,
+        "yaw_rad": 1.236652,
+        "z_up_m": 0.15
       },
       "position": {
-        "altitude_m": 1.078,
+        "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35113074,
-        "longitude_deg": 103.81974776
+        "latitude_deg": 1.35225414,
+        "longitude_deg": 103.82059078
       },
       "size_m": [
-        5.020146,
-        2.603742,
-        2.156538
+        0.5,
+        0.4,
+        0.3
       ],
       "target_id": "confuser_0018_00_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "jersey_barrier",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.5715,
-      "category_words": [
-        "jersey barrier",
-        "road barrier"
-      ],
-      "class": "jersey_barrier",
-      "color": null,
-      "forced_distractor": true,
-      "label": "jersey barrier road barrier",
-      "measured_size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "pose": {
-        "x_east_m": -85.126,
-        "y_north_m": 8.267,
-        "yaw_rad": -0.844182,
-        "z_up_m": 0.572
-      },
-      "position": {
-        "altitude_m": 0.572,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35217439,
-        "longitude_deg": 103.81903509
-      },
-      "size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "target_id": "forced_0018_00",
       "true_target": false
     },
     {
@@ -188,16 +136,16 @@
         1.817596
       ],
       "pose": {
-        "x_east_m": -88.342,
-        "y_north_m": 37.401,
-        "yaw_rad": -0.703138,
+        "x_east_m": 68.167,
+        "y_north_m": -76.902,
+        "yaw_rad": 3.044778,
         "z_up_m": 0.909
       },
       "position": {
         "altitude_m": 0.909,
         "altitude_reference": "world",
-        "latitude_deg": 1.35243654,
-        "longitude_deg": 103.81900619
+        "latitude_deg": 1.35140801,
+        "longitude_deg": 103.82041252
       },
       "size_m": [
         0.593091,
@@ -224,16 +172,16 @@
         2.894119
       ],
       "pose": {
-        "x_east_m": 93.128,
-        "y_north_m": 25.324,
-        "yaw_rad": -2.798312,
+        "x_east_m": -61.156,
+        "y_north_m": -72.208,
+        "yaw_rad": 2.578168,
         "z_up_m": 1.447
       },
       "position": {
         "altitude_m": 1.447,
         "altitude_reference": "world",
-        "latitude_deg": 1.35232788,
-        "longitude_deg": 103.82063682
+        "latitude_deg": 1.35145025,
+        "longitude_deg": 103.81925047
       },
       "size_m": [
         2.968315,
@@ -260,16 +208,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": 38.6,
-        "y_north_m": 87.919,
-        "yaw_rad": 0.994035,
+        "x_east_m": 24.803,
+        "y_north_m": -82.442,
+        "yaw_rad": 0.18176,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35289113,
-        "longitude_deg": 103.82014685
+        "latitude_deg": 1.35135816,
+        "longitude_deg": 103.82002287
       },
       "size_m": [
         0.5,
@@ -277,42 +225,6 @@
         0.3
       ],
       "target_id": "distractor_0018_02",
-      "true_target": false
-    },
-    {
-      "asset_slug": "dumpster",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.886646,
-      "category_words": [
-        "dumpster",
-        "trash container"
-      ],
-      "class": "dumpster",
-      "color": null,
-      "label": "dumpster trash container",
-      "measured_size_m": [
-        2.505294,
-        1.535287,
-        1.773292
-      ],
-      "pose": {
-        "x_east_m": -69.602,
-        "y_north_m": -94.308,
-        "yaw_rad": -2.196855,
-        "z_up_m": 0.887
-      },
-      "position": {
-        "altitude_m": 0.887,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35125139,
-        "longitude_deg": 103.81917459
-      },
-      "size_m": [
-        2.505294,
-        1.535287,
-        1.773292
-      ],
-      "target_id": "distractor_0018_03",
       "true_target": false
     }
   ]
