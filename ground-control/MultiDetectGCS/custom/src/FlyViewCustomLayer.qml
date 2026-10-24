@@ -164,6 +164,7 @@ Item {
     Connections {
         target: root._missionController
         function onTelemetryChanged() {
+            if (!root._missionController) return
             if (root._missionPlan.requires_approval === true && !root._missionPlanSnapshotSent) {
                 root._missionPlanSnapshotSent = true
                 if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
@@ -187,7 +188,7 @@ Item {
         repeat: false
         onTriggered: {
             if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true &&
-                    root._missionController.planAwaitingDecision && !root._missionController.busy) {
+                    root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy) {
                 root._missionController.approvePlan()
                 missionApprovalDialog.close()
             }
@@ -1321,13 +1322,14 @@ Item {
                 Layout.fillWidth: true
                 color: qgcPal.warningText
                 text: qsTr("摘要不完整：已收到 %1 / %2 页，等待其余分页").arg(root._missionController ? root._missionController.summaryPagesReceived : 0).arg(root._missionController ? root._missionController.summaryPagesTotal : 0)
-                visible: root._missionController !== null && !root._missionController.finalSummaryComplete
+                visible: root._missionController && !root._missionController.finalSummaryComplete
             }
             QGCLabel {
                 Layout.fillWidth: true
                 visible: root._missionController && root._missionController.finalSummaryComplete
                 text: {
-                    const s = root._missionController.finalSummary || {};
+                    const controller = root._missionController;
+                    const s = controller && controller.finalSummary ? controller.finalSummary : {};
                     const findings = (s.findings || []).map(e => root._missionEntryText(e, qsTr("发现")));
                     const alerts = (s.alerts || []).map(e => root._missionEntryText(e, qsTr("告警")));
                     return findings.concat(alerts).join("\n");
