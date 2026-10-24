@@ -1,6 +1,6 @@
 # 机载 episode 离线重放
 
-`scripts/replay_onboard_episode.py` 读取 episode 的 `steps.jsonl`，将记录的姿态、时间戳、候选框和 slow-call 标签送入当前 checkout 的 `MissionExecutor`，输出逐步动作、调用统计、计数、告警及补看字段。
+`replay_onboard_episode.py` 将 `steps.jsonl` 的观测、姿态、候选框和 slow-call 标签送入当前 `MissionExecutor`。
 
 ```powershell
 $env:PYTHONPATH='src;.'
@@ -8,29 +8,31 @@ $env:PYTHONUTF8='1'
 python scripts/replay_onboard_episode.py --mode logged D:\data\episode-0000-abc
 ```
 
-`--mode logged` 不启动模型。`--mode cache --cache-file PATH` 从缓存取结果，未命中时用本次日志标签填充；`--mode real --cache-ram 0` 会明确报错“real 模式未实现”，因为此 CLI 尚未接入 YOLOE 与 llama-server provider。不要把 logged/cache 结果当作重新推理。
+默认模式是开环：每行独立使用 `obs_before`，搜索动作保持旧的 hold 占位，因此历史 slow-call/count 指标不受半闭环策略影响。传入 `--closed-loop-pose-approximation` 后，当前行的 `obs_after`（缺失时回退到下一行 `obs_before`）作为下一轮位姿；仅此模式接入 `ExpertSearchPolicy`，并按对象尺寸、episode 起飞高度和障碍物净空复刻搜索高度。它是“日志观测 + 当前代码决策”的半闭环，不积分动作或模拟物理执行。trace 的 `diagnostics` 记录状态、focus、确认计数、搜索高度、航点和策略状态。
 
-重放是开环：输出动作不会回灌到下一步，搜索动作使用 hold 占位，后续日志位姿仍然来自原架次。`--closed-loop-pose-approximation` 预留了把后续位姿视为动作执行结果的近似开关；它不等于物理闭环，也不能保证补看真正完成。
+第一个非搜索类动作类型不一致时写出 `metrics.diverged_at_step`，`pre_divergence_steps` 和对应一致率只统计该步之前；搜索动作差异单独归类。`revisit_replay_steps` 与 `revisit_logged_steps` 用于核对补看事件。
 
-`--compare CODE_A CODE_B` 会在两个子进程中把对应目录的 `src` 放到 `PYTHONPATH`，对同一 episode 分别重放并输出 `comparison.first_divergence`。例如：
+`--compare CODE_A CODE_B` 在两个 root 中分别运行同一 episode，并输出 `comparison.first_divergence`，例如：
 
 ```powershell
-python scripts/replay_onboard_episode.py EPISODE --compare D:\code\old D:\code\new --mode logged --output compare.json
+python scripts/replay_onboard_episode.py EPISODE --compare D:\code\old D:\code\new --mode logged --closed-loop-pose-approximation --output compare.json
 ```
-
-典型分析流程：先用 `--mode logged` 检查字段覆盖和当前动作差异，再通过稳定缓存重复比较，最后才对接真实模型 provider 做受控 A/B。动作类型、完整动作参数、slow-call 列表、计数、告警和补看计划都保留在 `trace`；搜索占位会使覆盖路线和后续闭环动作必然不同，应单独归类。
 
 ## SITL 回归样本
 
-2026-10-24 使用 `mission-suite-queryfirst-20261023` 的 `count-cones` 两个 episode，以及 `mission-suite-hydrant10-20261024` 的 `count-fire-hydrants` 两个 episode 做 `logged` 重放。step 0 的动作类型与参数均对齐；逐步打印见 scratch 下 `first10-stepwise.json`。汇总如下：
+2026-10-24 对 `mission-suite-queryfirst-20261023` 的 `e73ea9f4`、`a6b18b04` 和 `mission-suite-hydrant10-20261024` 的 `08dcb017`、`1df239e1` 做 logged 重放。完整 JSON 位于 `D:\Projects\mdwt\_scratch\cx-replay-search\open-final.json` 与 `closed-final.json`。slow-call 按 step、track id 和映射后的 decision 对照；动作一致率是首个非搜索分歧之前的类型一致率。
 
-| Episode | Steps | 动作类型/参数一致 | slow-call 一致 | 计数 replay/log | search hold 占位差异 | 告警 |
-|---|---:|---:|---:|---:|---:|---|
-| queryfirst `e73ea9f4` | 85 | 18.8% | 100% | 3 / 3 | 69 | 空 / 空 |
-| queryfirst `a6b18b04` | 107 | 16.8% | 96.6% | 3 / 3 | 89 | 空 / 空 |
-| hydrant10 `08dcb017` | 68 | 19.1% | 88.5% | 3 / 3 | 55 | 空 / 空 |
-| hydrant10 `1df239e1` | 90 | 14.4% | 100% | 3 / 3 | 77 | 空 / 空 |
+| Episode | 模式 | slow-call | 计数 replay/log | 首个非搜索分歧 | 分歧前动作 | 覆盖 replay/log | 补看 replay/log |
+|---|---|---:|---:|---:|---:|---|---|
+| `e73ea9f4` | 开环 | 100% | 3 / 3 | 4 | 100% (4) | 否 / 是 | 无 / 无 |
+| `e73ea9f4` | 半闭环 | 19.6% | 1 / 3 | 34 | 100% (34) | 否 / 是 | 无 / 无 |
+| `a6b18b04` | 开环 | 96.6% | 3 / 3 | 7 | 100% (7) | 否 / 是 | 无 / 87, 94 |
+| `a6b18b04` | 半闭环 | 14.9% | 1 / 3 | 4 | 100% (4) | 否 / 是 | 无 / 87, 94 |
+| `08dcb017` | 开环 | 88.5% | 3 / 3 | 9 | 100% (9) | 否 / 是 | 无 / 52, 57 |
+| `08dcb017` | 半闭环 | 37.0% | 1 / 3 | 14 | 100% (14) | 否 / 是 | 52 / 52, 57 |
+| `1df239e1` | 开环 | 100% | 3 / 3 | 8 | 100% (8) | 否 / 是 | 无 / 77 |
+| `1df239e1` | 半闭环 | 32.0% | 1 / 3 | 无 | 100% (90) | 否 / 是 | 76 / 77 |
 
-动作一致率是全步数上的严格值；低值主要来自 `search_action` 固定 hold，日志实际仍执行覆盖路线。这个差异不能解释为机载决策回归。slow-call 一致率按 step、track id、映射后的 decision 对照。当前 episode 的补看事件均未触发；覆盖完成后的重访闭环不能由这些样本验证。
+开环指标保持上一版范围（88.5%–100%，四架次均为 3/3）。e73 半闭环的首个分歧由第 4 步后移至第 34 步：第 0–3 步动作一致，第 4 步日志爬升 `3.293759m`、重放爬升 `3.293666m`。日志起飞高度为 `13.271817m`，世界障碍物最高 `9.271817m`，净空规则得到搜索高度 `11.271817m`；此前重放没有设置 Loop 的搜索高度，计数后错误转向。其余三架的早期分歧仍来自日志与当前决策输入状态差异；a6 在第 4 步、08d 在第 14 步，1df 在 90 步内没有非搜索类型分歧。半闭环尚未完成四架的整圈覆盖，计数均为 1/3；08d 补看第 52 步对齐日志第 52 步（日志另有第 57 步），1df 第 76/77 步相差一步，queryfirst 的日志补看未复现。episode 的 `episode.json`、`steps.jsonl` 和目录中没有生成代码提交/head 字段，因此不能归因于版本差异。
 
-`b7dcac29` 对 `5fa1e8ea` 在 `e73ea9f4` 上 compare 无分歧。代码差异是 count budget 估算/限制；该架次的配置预算 140 步未耗尽，补看排序没有进入活动路径，故开环 trace 不产生可观察差异。验证 JSON 和比较日志位于 `D:\Projects\mdwt\_scratch\cx-replay-tool\`。
+`dc917494`（历史重放版本）与当前 root 的半闭环 compare 在 step 2 首次出现 `action` 分歧，结果写入 `D:\Projects\mdwt\_scratch\cx-replay-search\compare-dc917494.json`。`b0da50e` 不含 replay 脚本，作为基线时本工具回退到当前脚本；e73 对比 trace 相同，因此不把它误报为有效行为差异演示。

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -56,6 +57,14 @@ def _decision(call: dict[str, Any]) -> str:
     )
 
 
+def first_non_search_divergence(trace: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for index, item in enumerate(trace):
+        expected_kind = (item.get("logged_action") or {}).get("kind")
+        if item.get("decision_class") != "search" and item["action"]["kind"] != expected_kind:
+            return {"index": index, "step": item["step"], "decision_class": item["decision_class"]}
+    return None
+
+
 def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = None,
            closed_loop: bool = False, detections_file: Path | None = None) -> dict[str, Any]:
     if mode == "real":
@@ -67,6 +76,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     from multidetect.autonomy.obstacle_source import StaticMapSource
     from multidetect.sim_teacher.policies import load_sdf_obstacles
     from multidetect.sim_teacher.primitives import ActionPrimitive
+    from multidetect.sim_teacher.policies import ExpertSearchPolicy
     from multidetect.simulator.camera_projection import pixel_camera_ray, pixel_ground_point
     from multidetect.simulator.task_semantics import typical_object_size
 
@@ -102,6 +112,20 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     world = Path(mission.get("world_sdf", "default.sdf")).stem
     sdf = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
     obstacle = StaticMapSource(load_sdf_obstacles(sdf)) if sdf.exists() else None
+    # Live onboard derives this target before constructing the loop.  Recreate
+    # the same size-aware and obstacle-clearance floor for pose-rebound replay.
+    takeoff_altitude = float(mission.get("takeoff_altitude_m", 0.0) or 0.0)
+    if takeoff_altitude <= 0.0:
+        takeoff_altitude = max(8.0, -float(rows[0]["obs_before"]["pose"]["local_ned_m"][2]))
+    obstacles = tuple(load_sdf_obstacles(sdf)) if sdf.exists() else ()
+    search_altitude = max(
+        8.0,
+        min(takeoff_altitude, (typical_object_size(query, default=0.0) or 0.0)
+            * float(info["fx"]) / 14.0 * math.sin(0.18 + math.radians(20.0))),
+    )
+    if obstacles:
+        search_altitude = max(search_altitude, min(takeoff_altitude,
+            max(float(item.height_m) for item in obstacles) + 2.0))
     loop_defaults = {
         "confirm_min_side_px": 20.0,
         "contradiction_relook_enabled": True,
@@ -110,12 +134,30 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         "ground_extent_size_m": typical_object_size(query, default=0.0) or None,
         **POSITION_DEFAULTS,
     }
+    if closed_loop:
+        loop_defaults["search_altitude_m"] = search_altitude
     loop_fields = {f.name for f in __import__("dataclasses").fields(LoopConfig)}
+    search_policy: ExpertSearchPolicy | None = None
     def make_loop(*_args: Any, **overrides: Any) -> OnboardLoop:
+        nonlocal search_policy
         overrides.pop("restart_route", None)
         config = {k: v for k, v in {**loop_defaults, **overrides}.items() if k in loop_fields}
-        return OnboardLoop(camera=camera, search_action=lambda pose, yaw: ActionPrimitive.hold(1.0),
-                           obstacle_source=obstacle, config=LoopConfig(**config))
+        if closed_loop:
+            search_policy = ExpertSearchPolicy(
+                target_ned=(1.0e7, 1.0e7, 0.0), intrinsics=info,
+                image_size=(camera.width, camera.height), altitude_m=takeoff_altitude,
+                obstacles=obstacles, home_ned=(0.0, 0.0, 0.0), search_radius_m=55.0,
+                restart_route=False,
+            )
+        else:
+            search_policy = None
+        return OnboardLoop(
+            camera=camera,
+            search_action=(lambda pose, yaw: search_policy.next_action(pose_ned=pose, yaw_deg=yaw))
+                if closed_loop else (lambda _pose, _yaw: ActionPrimitive.hold(1.0)),
+            search_outcome=lambda: search_policy.search_outcome if search_policy else None,
+            obstacle_source=obstacle, config=LoopConfig(**config),
+        )
     executor = MissionExecutor(plan, loop_factory=make_loop,
         refs={"zone:site": (0.0, 0.0, 55.0), "route:fence": [(-30., -30.), (-30., 30.), (30., 30.), (30., -30.), (-30., -30.)]},
         config=ExecutorConfig(step_budget=140),
@@ -128,11 +170,17 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     if detection_path.exists():
         detections_by_step = json.loads(detection_path.read_text(encoding="utf-8"))
     trace = []
-    for row in rows:
+    execution_obs = rows[0]["obs_before"]
+    for row_index, row in enumerate(rows):
         label = (row.get("labels") or {}).get("onboard") or {}
         if not label.get("skill"):
+            if closed_loop:
+                execution_obs = row.get("obs_after") or (
+                    rows[row_index + 1].get("obs_before", execution_obs)
+                    if row_index + 1 < len(rows) else execution_obs
+                )
             continue
-        obs = row["obs_before"]
+        obs = execution_obs if closed_loop else row["obs_before"]
         pose = tuple(float(x) for x in obs["pose"]["local_ned_m"])
         yaw = float(obs["attitude"]["yaw_deg"])
         stamp = obs.get("frame_sensor_stamp_ns")
@@ -162,23 +210,47 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
             calls.append({"track_id": track.track_id, "decision": verdict, "cache_hit": key in results.cache})
         action, detail = executor.next_action(pose_ned=pose, yaw_deg=yaw,
             ground_point=ground, frame_id=str(row.get("step_index")), timestamp_s=stamp_s)
-        if closed_loop and row.get("obs_after"):
-            # Approximation: the recorded next pose is treated as action execution.
-            pass
+        if closed_loop:
+            after = row.get("obs_after")
+            if after is not None:
+                execution_obs = after
+            else:
+                next_index = row_index + 1
+                if next_index < len(rows):
+                    execution_obs = rows[next_index].get("obs_before", execution_obs)
         action_obj = {"kind": action.kind, "forward_m": action.forward_m, "right_m": action.right_m,
                       "up_m": action.up_m, "yaw_delta_deg": action.yaw_delta_deg, "seconds": action.seconds}
-        trace.append({"step": row["step_index"], "action": action_obj, "logged_action": row.get("action"),
+        detail_class = "search" if detail.get("state_before") in {"searching", "search"} and not detail.get("focus") else "non_search"
+        if any(key in detail for key in ("count_rejection_revisit", "small_unjudged_revisit", "revisit", "alert_look")):
+            detail_class = "revisit"
+        trace.append({"step": row["step_index"], "pose_ned": list(pose), "action": action_obj, "logged_action": row.get("action"),
                       "calls": calls, "phase": detail.get("phase"), "counts": dict(executor.counts),
+                      "search_waypoint_index": search_policy._waypoint_index if search_policy else None,
+                      "decision_class": detail_class,
                       "alerts": list(executor.alerts), "revisit_plan": detail.get("alert_look"),
                       "detail": detail, "tracks": [{"id": t.track_id, "verdict": t.verdict, "label": t.label,
-                          "bbox": t.bbox, "ground": t.ground} for t in executor.current_tracks]})
+                          "bbox": t.bbox, "ground": t.ground} for t in executor.current_tracks],
+                      "diagnostics": {"state_before": detail.get("state_before"),
+                          "focus": detail.get("focus"), "bearing_deg": detail.get("bearing_deg"),
+                          "horizontal_range_m": detail.get("horizontal_range_m"),
+                          "min_side_px": detail.get("min_side_px"),
+                          "confirm_views": detail.get("confirm_views"),
+                          "match_views": detail.get("match_views"),
+                          "counted": detail.get("counted"),
+                          "search_altitude_m": loop_defaults.get("search_altitude_m"),
+                          "search_waypoint_index": search_policy._waypoint_index if search_policy else None,
+                          "search_commanded_yaw_deg": search_policy._commanded_yaw_deg if search_policy else None,
+                          "search_outcome": search_policy.search_outcome if search_policy else None}})
     results.save()
+    first_divergence = first_non_search_divergence(trace)
+    scored = trace if first_divergence is None else trace[:first_divergence["index"]]
     action_types = sum(item["action"]["kind"] == (item.get("logged_action") or {}).get("kind") for item in trace)
     search_placeholder_steps = sum(item["action"]["kind"] == "hold"
         and (item.get("logged_action") or {}).get("kind") not in {None, "hold"} for item in trace)
     exact_actions = sum(item["action"]["kind"] == (item.get("logged_action") or {}).get("kind") and all(
         round(float(item["action"].get(k, 0)), 1) == round(float((item.get("logged_action") or {}).get(k, 0)), 1)
         for k in ("forward_m", "right_m", "up_m", "yaw_delta_deg", "seconds")) for item in trace)
+    scored_action_types = sum(item["action"]["kind"] == (item.get("logged_action") or {}).get("kind") for item in scored)
     raw_by_step = {int(row["step_index"]): (row.get("labels") or {}).get("onboard") or {} for row in rows}
     call_equal = call_total = 0
     for item in trace:
@@ -188,15 +260,27 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         call_equal += len(actual_pairs & expected_pairs)
         call_total += max(len(actual_pairs), len(expected_pairs))
     logged_mission = (raw_by_step.get(int(trace[-1]["step"]), {}).get("mission") or {}) if trace else {}
+    coverage_history = [item for item in executor.history if item.get("reason") == "coverage_complete"]
     return {"episode": str(episode), "mode": mode, "open_loop": not closed_loop,
-            "limitations": ["actions are not fed back", "search action is a hold placeholder",
-                            "revisit completion requires closed-loop pose approximation"],
+            "limitations": ["半闭环只回灌日志执行后位姿，不模拟物理执行"],
             "metrics": {"steps": len(trace), "action_type_agreement": action_types / len(trace) if trace else 1.0,
+                        "pre_divergence_steps": len(scored),
+                        "pre_divergence_action_type_agreement": scored_action_types / len(scored) if scored else 1.0,
+                        "diverged_at_step": first_divergence["step"] if first_divergence else None,
+                        "divergence": first_divergence,
                         "exact_action_agreement": exact_actions / len(trace) if trace else 1.0,
                         "search_placeholder_mismatches": search_placeholder_steps,
                         "slow_call_agreement": call_equal / call_total if call_total else 1.0,
                         "count_replay": dict(executor.counts), "count_logged_final": logged_mission.get("counts", {}),
-                        "alerts_replay": list(executor.alerts), "alerts_logged_final": logged_mission.get("alerts", [])},
+                        "coverage_complete_replay": bool(coverage_history),
+                        "coverage_complete_logged": any(
+                            item.get("reason") == "coverage_complete"
+                            for item in (logged_mission.get("history") or [])
+                        ),
+                        "coverage_history": coverage_history,
+                        "alerts_replay": list(executor.alerts), "alerts_logged_final": logged_mission.get("alerts", []),
+                        "revisit_replay_steps": [x["step"] for x in trace if x.get("decision_class") == "revisit"],
+                        "revisit_logged_steps": [r["step_index"] for r in rows if (r.get("labels") or {}).get("onboard", {}).get("revisit_plan") or (r.get("labels") or {}).get("onboard", {}).get("count_rejection_revisit")]},
             "stats": results.stats, "trace": trace}
 
 
@@ -217,7 +301,6 @@ def compare_roots(episode: Path, roots: tuple[Path, Path], *, mode: str, closed_
                   detections_file: Path | None) -> dict[str, Any]:
     """Run the same CLI in isolated subprocesses with each code root on PYTHONPATH."""
     outputs: list[dict[str, Any]] = []
-    script = Path(__file__).resolve()
     for root in roots:
         env = os.environ.copy()
         env["REPLAY_CODE_ROOT"] = str(root.resolve())
@@ -225,6 +308,9 @@ def compare_roots(episode: Path, roots: tuple[Path, Path], *, mode: str, closed_
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
             output = Path(handle.name)
         try:
+            script = root.resolve() / "scripts" / "replay_onboard_episode.py"
+            if not script.is_file():
+                script = Path(__file__).resolve()
             cmd = [sys.executable, str(script), str(episode), "--mode", mode, "--output", str(output)]
             if closed_loop:
                 cmd.append("--closed-loop-pose-approximation")
