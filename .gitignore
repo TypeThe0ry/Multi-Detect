@@ -94,6 +94,8 @@ models/**/*.plan
 /.pytest-tmp*/
 /.pytest-sim-output.txt
 /.pytest-basetemp/
+/.pytest-onboard-policy/
+/.pytest-onboard-policy-*/
 
 # local gate run output
 .onboard-gate-*
