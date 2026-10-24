@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -448,7 +449,7 @@ def test_follow_duration_success_transitions_to_return_home():
 def test_follow_stops_safely_when_target_speed_exceeds_configured_cap():
     executor = _executor(
         "follow", {"track_ref": "track:1", "query": "car"},
-        config=ExecutorConfig(follow_max_target_speed_mps=5.0),
+        config=ExecutorConfig(follow_max_target_speed_mps=5.0, follow_speed_violation_cycles=3),
     )
     flight = Flight()
     flight.tick(executor, stamp=100, detections=[BOX], ground=lambda u, v: (30.0, 0.0))
@@ -457,7 +458,72 @@ def test_follow_stops_safely_when_target_speed_exceeds_configured_cap():
     )
     assert action.kind == "hold"
     assert info["follow_state"] == "target_too_fast"
+    assert executor.history == []
+
+
+def test_follow_ends_only_after_consecutive_speed_violations():
+    executor = _executor(
+        "follow", {"track_ref": "track:1", "query": "car"},
+        config=ExecutorConfig(follow_max_target_speed_mps=5.0, follow_speed_violation_cycles=3),
+    )
+    flight = Flight()
+    flight.tick(executor, stamp=100, detections=[BOX], ground=lambda u, v: (30.0, 0.0))
+    for stamp, north in ((101, 50.0), (102, 70.0)):
+        action, info = flight.tick(executor, stamp=stamp, detections=[BOX], ground=lambda u, v, n=north: (n, 0.0))
+        assert action.kind == "hold"
+        assert info["speed_violation_cycles"] in {1, 2}
+        assert executor.history == []
+    action, info = flight.tick(executor, stamp=103, detections=[BOX], ground=lambda u, v: (90.0, 0.0))
+    assert action.kind == "hold"
+    assert info["speed_violation_cycles"] == 3
     assert executor.history[0]["reason"] == "target_exceeds_follow_speed"
+
+
+def test_follow_speed_violation_limit_must_be_positive():
+    with pytest.raises(ValueError, match="follow_speed_violation_cycles"):
+        ExecutorConfig(follow_speed_violation_cycles=0)
+
+
+def test_follow_normal_sample_clears_a_speed_violation_streak():
+    executor = _executor(
+        "follow", {"track_ref": "track:1", "query": "car"},
+        config=ExecutorConfig(follow_max_target_speed_mps=5.0, follow_speed_violation_cycles=3),
+    )
+    flight = Flight()
+    flight.tick(executor, stamp=100, detections=[BOX], ground=lambda u, v: (30.0, 0.0))
+    flight.tick(executor, stamp=101, detections=[BOX], ground=lambda u, v: (50.0, 0.0))
+    action, info = flight.tick(executor, stamp=102, detections=[BOX], ground=lambda u, v: (51.0, 0.0))
+    assert action.kind in {"translate", "hold", "turn"}
+    assert info.get("speed_violation_cycles", 0) == 0
+    assert executor.history == []
+
+
+def test_follow_reacquisition_resets_cross_track_speed_baseline():
+    executor = _executor(
+        "follow", {"track_ref": "track:1", "query": "car"},
+        config=ExecutorConfig(max_translate_m=10.0, follow_max_target_speed_mps=20.0),
+    )
+    flight = Flight()
+    flight.tick(executor, stamp=100, detections=[BOX], ground=lambda u, v: (30.0, 0.0))
+    run = executor._run
+    appearance = AppearanceSignature(300.0, 1.0, 2.0)
+    run.follow_finding["appearance"] = appearance
+    run.follow_last_position = (0.0, 0.0)
+    run.last_ground_s = 0.0
+    run.elapsed_s = 0.5
+    replacement = SimpleNamespace(
+        track_id="replacement", verdict="approach", ground=(15.0, 0.0),
+        appearance=appearance, bbox=(620.0, 680.0, 660.0, 720.0),
+    )
+    executor._current = [replacement]
+    run.fresh_ground_tracks = {"replacement"}
+    executor._follow(run, tuple(flight.pose), flight.yaw, None, "replacement-1")
+    action, info = executor._follow(run, tuple(flight.pose), flight.yaw, None, "replacement-2")
+    assert run.follow_track_id == "replacement"
+    assert run.follow_speed_violation_count == 0
+    assert info["follow_state"] == "tracking"
+    assert action.kind != "stop"
+    assert executor.history == []
 
 
 def test_follow_keeps_a_stationary_target_at_standoff_without_chasing():

@@ -101,6 +101,7 @@ class ExecutorConfig:
     follow_reacquire_s: float = 7.0
     follow_reacquire_confirmations: int = 2
     follow_max_target_speed_mps: float = 20.0
+    follow_speed_violation_cycles: int = 3
     # Patrol/monitor alerts require this many identity-positive votes.  The
     # default preserves the historical first-positive behaviour.
     alert_min_identity_matches: int = 1
@@ -230,6 +231,12 @@ class ExecutorConfig:
         ):
             raise ValueError("follow_reacquire_confirmations must be a positive integer")
         if (
+            isinstance(self.follow_speed_violation_cycles, bool)
+            or not isinstance(self.follow_speed_violation_cycles, int)
+            or self.follow_speed_violation_cycles < 1
+        ):
+            raise ValueError("follow_speed_violation_cycles must be a positive integer")
+        if (
             isinstance(self.count_rejection_revisit_range_m, bool)
             or not math.isfinite(self.count_rejection_revisit_range_m)
             or self.count_rejection_revisit_range_m <= 0
@@ -353,9 +360,12 @@ class _StepRun:
     follow_blocked_attempts: int = 0
     follow_last_position: tuple[float, float] | None = None
     follow_velocity_ne: tuple[float, float] = (0.0, 0.0)
+    follow_speed_reference_position: tuple[float, float] | None = None
+    follow_speed_reference_s: float | None = None
     follow_last_bearing_deg: float | None = None
     follow_reacquire_track_id: str | None = None
     follow_reacquire_votes: int = 0
+    follow_speed_violation_count: int = 0
     # Return-home geofence detour state.
     detour_waypoints: list[tuple[float, float]] = field(default_factory=list)
     detour_index: int = 0
@@ -2731,6 +2741,7 @@ class MissionExecutor:
                 prior_appearance is None
                 or appearances_consistent(prior_appearance, track.appearance, run.loop.config)
             )
+        reacquired = False
         if not identity_ok:
             fresh = False
             candidate = self._follow_reacquire_candidate(run, pose)
@@ -2746,25 +2757,42 @@ class MissionExecutor:
                     run.follow_reacquire_votes = 0
                     track = candidate
                     fresh = True
+                    reacquired = True
+                    run.follow_speed_reference_position = None
+                    run.follow_speed_reference_s = None
+                    run.follow_speed_violation_count = 0
             else:
                 run.follow_reacquire_track_id = None
                 run.follow_reacquire_votes = 0
         if fresh:
-            previous = run.follow_last_position
-            if previous is not None and run.last_ground_s is not None:
-                dt = max(1e-3, run.elapsed_s - run.last_ground_s)
+            previous = None if reacquired else (
+                run.follow_speed_reference_position or run.follow_last_position
+            )
+            previous_s = run.follow_speed_reference_s or run.last_ground_s
+            speed = 0.0
+            if previous is not None and previous_s is not None:
+                dt = max(1e-3, run.elapsed_s - previous_s)
                 displacement = math.dist(previous, track.ground)
-                if displacement / dt > self.config.follow_max_target_speed_mps:
-                    self.alerts.append(f"{run.step.id}:target_exceeds_follow_speed")
-                    self._finish("failed", "target_exceeds_follow_speed")
+                speed = displacement / dt
+                run.follow_speed_reference_position = tuple(track.ground)
+                run.follow_speed_reference_s = run.elapsed_s
+                if speed > self.config.follow_max_target_speed_mps:
+                    run.follow_speed_violation_count += 1
+                    if run.follow_speed_violation_count >= self.config.follow_speed_violation_cycles:
+                        self.alerts.append(f"{run.step.id}:target_exceeds_follow_speed")
+                        self._finish("failed", "target_exceeds_follow_speed")
                     return ActionPrimitive.hold(self.config.hold_s), {
                         "track_id": track.track_id, "follow_state": "target_too_fast",
-                        "follow_confidence": 0.0, "target_speed_mps": displacement / dt,
+                        "follow_confidence": 0.0, "target_speed_mps": speed,
+                        "speed_violation_cycles": run.follow_speed_violation_count,
                     }
+                run.follow_speed_violation_count = 0
                 run.follow_velocity_ne = (
                     (track.ground[0] - previous[0]) / dt,
                     (track.ground[1] - previous[1]) / dt,
                 )
+            run.follow_speed_reference_position = tuple(track.ground)
+            run.follow_speed_reference_s = run.elapsed_s
             run.follow_last_position = tuple(track.ground)
             dn, de = track.ground[0] - pose[0], track.ground[1] - pose[1]
             run.follow_last_bearing_deg = math.degrees(math.atan2(de, dn))
