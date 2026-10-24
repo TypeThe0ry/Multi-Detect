@@ -5,54 +5,54 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "telephone_pole",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "casual_female",
+      "asset_slug": "backpack",
       "role": "distractor",
-      "target_id": "distractor_0019_02"
+      "target_id": "distractor_0019_01"
     },
     "2": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "playground",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "pine_tree",
+      "asset_slug": "office_building",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "house_1",
+      "asset_slug": "fountain",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "house_2",
+      "asset_slug": "apartment",
       "role": "obstacle",
       "target_id": "obstacle_04"
     },
     "6": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
       "asset_slug": "fire_hydrant",
       "role": "target",
       "target_id": "target_true_gen_r20_w0019"
     },
-    "7": {
+    "8": {
       "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0019_00_00"
     },
-    "8": {
+    "9": {
       "asset_slug": "suv",
       "role": "distractor",
       "target_id": "distractor_0019_00"
-    },
-    "9": {
-      "asset_slug": "backpack",
-      "role": "distractor",
-      "target_id": "distractor_0019_01"
     }
   },
   "targets": [
@@ -110,16 +110,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": 23.294,
-        "y_north_m": -96.222,
-        "yaw_rad": 2.088559,
+        "x_east_m": -50.468,
+        "y_north_m": 83.333,
+        "yaw_rad": 0.669084,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35123416,
-        "longitude_deg": 103.82000931
+        "latitude_deg": 1.35284986,
+        "longitude_deg": 103.81934651
       },
       "size_m": [
         0.5,
@@ -146,16 +146,16 @@
         2.156538
       ],
       "pose": {
-        "x_east_m": 93.208,
-        "y_north_m": -63.297,
-        "yaw_rad": -3.088059,
+        "x_east_m": 23.018,
+        "y_north_m": -94.572,
+        "yaw_rad": 2.175784,
         "z_up_m": 1.078
       },
       "position": {
         "altitude_m": 1.078,
         "altitude_reference": "world",
-        "latitude_deg": 1.35153043,
-        "longitude_deg": 103.82063753
+        "latitude_deg": 1.35124901,
+        "longitude_deg": 103.82000683
       },
       "size_m": [
         5.020146,
@@ -182,16 +182,16 @@
         0.522393
       ],
       "pose": {
-        "x_east_m": 102.455,
-        "y_north_m": -56.66,
-        "yaw_rad": 2.917916,
+        "x_east_m": -91.784,
+        "y_north_m": 13.105,
+        "yaw_rad": 1.843438,
         "z_up_m": 0.261
       },
       "position": {
         "altitude_m": 0.261,
         "altitude_reference": "world",
-        "latitude_deg": 1.35159016,
-        "longitude_deg": 103.82072062
+        "latitude_deg": 1.35221792,
+        "longitude_deg": 103.81897527
       },
       "size_m": [
         0.441576,
@@ -199,43 +199,6 @@
         0.522393
       ],
       "target_id": "distractor_0019_01",
-      "true_target": false
-    },
-    {
-      "asset_slug": "casual_female",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.8928,
-      "category_words": [
-        "person",
-        "woman",
-        "pedestrian"
-      ],
-      "class": "person",
-      "color": null,
-      "label": "person woman",
-      "measured_size_m": [
-        0.76,
-        0.565892,
-        1.7856
-      ],
-      "pose": {
-        "x_east_m": -22.418,
-        "y_north_m": -77.343,
-        "yaw_rad": -2.627529,
-        "z_up_m": 0.893
-      },
-      "position": {
-        "altitude_m": 0.893,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35140404,
-        "longitude_deg": 103.81959856
-      },
-      "size_m": [
-        0.76,
-        0.565892,
-        1.7856
-      ],
-      "target_id": "distractor_0019_02",
       "true_target": false
     }
   ]

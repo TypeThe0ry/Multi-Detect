@@ -5,32 +5,22 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
-    "10": {
-      "asset_slug": "hatchback_red",
-      "role": "distractor",
-      "target_id": "distractor_0005_02"
-    },
-    "11": {
-      "asset_slug": "male_visitor",
-      "role": "distractor",
-      "target_id": "distractor_0005_03"
-    },
     "2": {
-      "asset_slug": "office_building",
+      "asset_slug": "gas_station",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "water_tower",
+      "asset_slug": "office_building",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "pine_tree",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
@@ -45,16 +35,11 @@
       "target_id": "confuser_0005_00_00"
     },
     "7": {
-      "asset_slug": "jersey_barrier",
-      "role": "forced_distractor",
-      "target_id": "forced_0005_00"
-    },
-    "8": {
       "asset_slug": "dumpster",
       "role": "distractor",
       "target_id": "distractor_0005_00"
     },
-    "9": {
+    "8": {
       "asset_slug": "fire_truck",
       "role": "distractor",
       "target_id": "distractor_0005_01"
@@ -114,16 +99,16 @@
         3.698298
       ],
       "pose": {
-        "x_east_m": -109.46,
-        "y_north_m": 9.657,
-        "yaw_rad": -2.550404,
+        "x_east_m": 114.386,
+        "y_north_m": 34.376,
+        "yaw_rad": 1.552793,
         "z_up_m": 1.849
       },
       "position": {
         "altitude_m": 1.849,
         "altitude_reference": "world",
-        "latitude_deg": 1.35218689,
-        "longitude_deg": 103.81881643
+        "latitude_deg": 1.35240933,
+        "longitude_deg": 103.82082783
       },
       "size_m": [
         2.707656,
@@ -131,43 +116,6 @@
         3.698298
       ],
       "target_id": "confuser_0005_00_00",
-      "true_target": false
-    },
-    {
-      "asset_slug": "jersey_barrier",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.5715,
-      "category_words": [
-        "jersey barrier",
-        "road barrier"
-      ],
-      "class": "jersey_barrier",
-      "color": null,
-      "forced_distractor": true,
-      "label": "jersey barrier road barrier",
-      "measured_size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "pose": {
-        "x_east_m": -109.435,
-        "y_north_m": -38.367,
-        "yaw_rad": -1.350546,
-        "z_up_m": 0.572
-      },
-      "position": {
-        "altitude_m": 0.572,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35175476,
-        "longitude_deg": 103.81881665
-      },
-      "size_m": [
-        4.065567,
-        0.8128,
-        1.143
-      ],
-      "target_id": "forced_0005_00",
       "true_target": false
     },
     {
@@ -187,16 +135,16 @@
         1.773292
       ],
       "pose": {
-        "x_east_m": 4.386,
-        "y_north_m": -105.114,
-        "yaw_rad": -2.322405,
+        "x_east_m": -74.241,
+        "y_north_m": -47.272,
+        "yaw_rad": 2.82635,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.35115415,
-        "longitude_deg": 103.81983941
+        "latitude_deg": 1.35167463,
+        "longitude_deg": 103.8191329
       },
       "size_m": [
         2.505294,
@@ -223,16 +171,16 @@
         3.35506
       ],
       "pose": {
-        "x_east_m": -29.265,
-        "y_north_m": -95.593,
-        "yaw_rad": -5.8e-05,
+        "x_east_m": 89.931,
+        "y_north_m": 7.764,
+        "yaw_rad": 0.817697,
         "z_up_m": 1.678
       },
       "position": {
         "altitude_m": 1.678,
         "altitude_reference": "world",
-        "latitude_deg": 1.35123983,
-        "longitude_deg": 103.81953703
+        "latitude_deg": 1.35216987,
+        "longitude_deg": 103.82060808
       },
       "size_m": [
         3.54622,
@@ -240,79 +188,6 @@
         3.35506
       ],
       "target_id": "distractor_0005_01",
-      "true_target": false
-    },
-    {
-      "asset_slug": "hatchback_red",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.783947,
-      "category_words": [
-        "car",
-        "hatchback"
-      ],
-      "class": "car",
-      "color": "red",
-      "label": "car hatchback",
-      "measured_size_m": [
-        4.001102,
-        2.140463,
-        1.567894
-      ],
-      "pose": {
-        "x_east_m": -98.899,
-        "y_north_m": -46.854,
-        "yaw_rad": 0.189033,
-        "z_up_m": 0.784
-      },
-      "position": {
-        "altitude_m": 0.784,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35167839,
-        "longitude_deg": 103.81891133
-      },
-      "size_m": [
-        4.001102,
-        2.140463,
-        1.567894
-      ],
-      "target_id": "distractor_0005_02",
-      "true_target": false
-    },
-    {
-      "asset_slug": "male_visitor",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.887242,
-      "category_words": [
-        "person",
-        "man",
-        "pedestrian"
-      ],
-      "class": "person",
-      "color": null,
-      "label": "person man",
-      "measured_size_m": [
-        0.307058,
-        1.644424,
-        1.774483
-      ],
-      "pose": {
-        "x_east_m": 65.96,
-        "y_north_m": 55.545,
-        "yaw_rad": 1.954987,
-        "z_up_m": 0.887
-      },
-      "position": {
-        "altitude_m": 0.887,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35259981,
-        "longitude_deg": 103.82039269
-      },
-      "size_m": [
-        0.307058,
-        1.644424,
-        1.774483
-      ],
-      "target_id": "distractor_0005_03",
       "true_target": false
     }
   ]

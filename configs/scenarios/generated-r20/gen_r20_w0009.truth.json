@@ -5,22 +5,32 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "apartment",
+      "asset_slug": "collapsed_house",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0009_01"
+    },
+    "11": {
+      "asset_slug": "pickup",
+      "role": "distractor",
+      "target_id": "distractor_0009_02"
+    },
+    "12": {
       "asset_slug": "stop_sign",
       "role": "distractor",
       "target_id": "distractor_0009_03"
     },
     "2": {
-      "asset_slug": "pine_tree",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "fountain",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
@@ -30,29 +40,29 @@
       "target_id": "obstacle_03"
     },
     "5": {
+      "asset_slug": "oak_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "apartment",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
       "asset_slug": "fire_truck",
       "role": "target",
       "target_id": "target_true_gen_r20_w0009"
     },
-    "6": {
+    "8": {
       "asset_slug": "ambulance",
       "role": "confuser",
       "target_id": "confuser_0009_00_00"
     },
-    "7": {
+    "9": {
       "asset_slug": "hatchback",
       "role": "distractor",
       "target_id": "distractor_0009_00"
-    },
-    "8": {
-      "asset_slug": "jersey_barrier",
-      "role": "distractor",
-      "target_id": "distractor_0009_01"
-    },
-    "9": {
-      "asset_slug": "pickup",
-      "role": "distractor",
-      "target_id": "distractor_0009_02"
     }
   },
   "targets": [
@@ -110,16 +120,16 @@
         2.894119
       ],
       "pose": {
-        "x_east_m": 69.506,
-        "y_north_m": 42.153,
-        "yaw_rad": 0.420243,
+        "x_east_m": -15.217,
+        "y_north_m": 82.027,
+        "yaw_rad": -1.094782,
         "z_up_m": 1.447
       },
       "position": {
         "altitude_m": 1.447,
         "altitude_reference": "world",
-        "latitude_deg": 1.35247931,
-        "longitude_deg": 103.82042456
+        "latitude_deg": 1.3528381,
+        "longitude_deg": 103.81966327
       },
       "size_m": [
         2.968315,
@@ -146,16 +156,16 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": -23.788,
-        "y_north_m": -90.152,
-        "yaw_rad": -1.503999,
+        "x_east_m": 112.625,
+        "y_north_m": -38.275,
+        "yaw_rad": 1.872336,
         "z_up_m": 0.784
       },
       "position": {
         "altitude_m": 0.784,
         "altitude_reference": "world",
-        "latitude_deg": 1.35128878,
-        "longitude_deg": 103.81958625
+        "latitude_deg": 1.35175559,
+        "longitude_deg": 103.820812
       },
       "size_m": [
         4.001102,
@@ -182,16 +192,16 @@
         1.143
       ],
       "pose": {
-        "x_east_m": 46.294,
-        "y_north_m": -82.954,
-        "yaw_rad": 2.070509,
+        "x_east_m": -76.768,
+        "y_north_m": 40.985,
+        "yaw_rad": -2.51209,
         "z_up_m": 0.572
       },
       "position": {
         "altitude_m": 0.572,
         "altitude_reference": "world",
-        "latitude_deg": 1.35135355,
-        "longitude_deg": 103.82021598
+        "latitude_deg": 1.35246879,
+        "longitude_deg": 103.81911019
       },
       "size_m": [
         4.065567,
@@ -218,16 +228,16 @@
         1.865542
       ],
       "pose": {
-        "x_east_m": 87.083,
-        "y_north_m": -22.458,
-        "yaw_rad": -1.537973,
+        "x_east_m": 79.196,
+        "y_north_m": 29.27,
+        "yaw_rad": -2.700467,
         "z_up_m": 0.933
       },
       "position": {
         "altitude_m": 0.933,
         "altitude_reference": "world",
-        "latitude_deg": 1.35189792,
-        "longitude_deg": 103.82058249
+        "latitude_deg": 1.35236338,
+        "longitude_deg": 103.82051162
       },
       "size_m": [
         5.66468,
@@ -254,16 +264,16 @@
         1.817596
       ],
       "pose": {
-        "x_east_m": 96.266,
-        "y_north_m": 18.326,
-        "yaw_rad": 2.021872,
+        "x_east_m": 101.188,
+        "y_north_m": 58.388,
+        "yaw_rad": 0.948438,
         "z_up_m": 0.909
       },
       "position": {
         "altitude_m": 0.909,
         "altitude_reference": "world",
-        "latitude_deg": 1.3522649,
-        "longitude_deg": 103.82066501
+        "latitude_deg": 1.35262539,
+        "longitude_deg": 103.82070923
       },
       "size_m": [
         0.593091,

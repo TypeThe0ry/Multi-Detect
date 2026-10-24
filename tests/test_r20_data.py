@@ -28,6 +28,7 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
     )["held_out_target_combos"]
     held_keys = {(x["slug"], x["category"], x.get("color")) for x in held}
     cases = {}
+    paired_counts = {}
     assert index["count"] == 20
     assert sum(x["split"] == "train" for x in index["worlds"]) == 16
     assert sum(x["split"] == "val" for x in index["worlds"]) == 4
@@ -44,6 +45,18 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
         assert (target["asset_slug"], target["class"], target.get("color")) not in held_keys
         assert entry["target_combo"]["slug"] == target["asset_slug"]
         cases[entry["hard_case_profile"]] = cases.get(entry["hard_case_profile"], 0) + 1
+        if entry["hard_case_profile"] == "paired_confusers":
+            confuser = next(x for x in truth["targets"] if x.get("confuser"))
+            pair = (target["asset_slug"], confuser["asset_slug"])
+            paired_counts[pair] = paired_counts.get(pair, 0) + 1
+            assert confuser["pose"]["x_east_m"] - target["pose"]["x_east_m"] == 3.5 or pair != (
+                "construction_cone",
+                "jersey_barrier",
+            )
+            if pair == ("construction_cone", "jersey_barrier"):
+                assert target["pose"]["x_east_m"] == 20.0
+                assert target["pose"]["y_north_m"] == confuser["pose"]["y_north_m"] == 12.0
+                assert entry["view_geometry"]["target_short_side_px"] == [16, 20]
         sdf = (ROOT / "simulation/gazebo/worlds" / entry["world_file"]).read_text(encoding="utf-8")
         if entry["hard_case_profile"] == "hydrant_building_occlusion_truncation":
             assert (
@@ -62,6 +75,11 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
         "fixed_wing_oblique": 5,
         "backpack_small_oblique": 5,
         "hydrant_building_occlusion_truncation": 4,
+    }
+    assert paired_counts == {
+        ("construction_cone", "jersey_barrier"): 4,
+        ("hatchback_blue", "ambulance"): 1,
+        ("ambulance", "bus"): 1,
     }
 
 

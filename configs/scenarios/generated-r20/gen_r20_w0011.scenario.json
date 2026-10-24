@@ -6,7 +6,7 @@
     },
     "truth": {
       "path": "gen_r20_w0011.truth.json",
-      "sha256": "c702bc5d64dc2d49553cb43c66eaf31b5a9faa3319e7be97d2bdeef756b7cd73"
+      "sha256": "41cd183779faa82d56a08d25f60dfa066bf8b5b2f2b62efb8971a65bc37f1c0c"
     },
     "expectations": {
       "path": "gen_r20_w0011.expectations.json",

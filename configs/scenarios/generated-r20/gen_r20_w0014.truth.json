@@ -5,54 +5,49 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "pine_tree",
+      "asset_slug": "oak_tree",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
-    "10": {
-      "asset_slug": "standing_person",
-      "role": "distractor",
-      "target_id": "distractor_0014_01"
-    },
     "2": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "pine_tree",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "telephone_pole",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "house_2",
+      "asset_slug": "house_1",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "gas_station",
-      "role": "obstacle",
-      "target_id": "obstacle_04"
-    },
-    "6": {
       "asset_slug": "backpack",
       "role": "target",
       "target_id": "target_true_gen_r20_w0014"
     },
-    "7": {
+    "6": {
       "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0014_00_00"
     },
-    "8": {
+    "7": {
       "asset_slug": "fire_hydrant",
       "role": "forced_distractor",
       "target_id": "forced_0014_00"
     },
-    "9": {
+    "8": {
       "asset_slug": "male_visitor",
       "role": "distractor",
       "target_id": "distractor_0014_00"
+    },
+    "9": {
+      "asset_slug": "standing_person",
+      "role": "distractor",
+      "target_id": "distractor_0014_01"
     }
   },
   "targets": [
@@ -110,16 +105,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": -53.468,
-        "y_north_m": -75.217,
-        "yaw_rad": -1.679202,
+        "x_east_m": -11.352,
+        "y_north_m": 113.526,
+        "yaw_rad": 3.019021,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35142317,
-        "longitude_deg": 103.81931956
+        "latitude_deg": 1.35312154,
+        "longitude_deg": 103.819698
       },
       "size_m": [
         0.5,
@@ -147,16 +142,16 @@
         0.931294
       ],
       "pose": {
-        "x_east_m": 76.661,
-        "y_north_m": 28.758,
-        "yaw_rad": 1.559685,
+        "x_east_m": -48.466,
+        "y_north_m": -81.909,
+        "yaw_rad": -0.964996,
         "z_up_m": 0.466
       },
       "position": {
         "altitude_m": 0.466,
         "altitude_reference": "world",
-        "latitude_deg": 1.35235878,
-        "longitude_deg": 103.82048884
+        "latitude_deg": 1.35136296,
+        "longitude_deg": 103.8193645
       },
       "size_m": [
         0.423605,
@@ -184,16 +179,16 @@
         1.774483
       ],
       "pose": {
-        "x_east_m": 85.318,
-        "y_north_m": -6.579,
-        "yaw_rad": -1.083971,
+        "x_east_m": 67.855,
+        "y_north_m": -80.553,
+        "yaw_rad": 2.845934,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.3520408,
-        "longitude_deg": 103.82056664
+        "latitude_deg": 1.35137516,
+        "longitude_deg": 103.82040972
       },
       "size_m": [
         0.307058,
@@ -220,16 +215,16 @@
         1.926302
       ],
       "pose": {
-        "x_east_m": -104.326,
-        "y_north_m": -10.739,
-        "yaw_rad": -0.296083,
+        "x_east_m": 64.065,
+        "y_north_m": -95.521,
+        "yaw_rad": -0.930889,
         "z_up_m": 0.963
       },
       "position": {
         "altitude_m": 0.963,
         "altitude_reference": "world",
-        "latitude_deg": 1.35200336,
-        "longitude_deg": 103.81886257
+        "latitude_deg": 1.35124048,
+        "longitude_deg": 103.82037566
       },
       "size_m": [
         0.544229,

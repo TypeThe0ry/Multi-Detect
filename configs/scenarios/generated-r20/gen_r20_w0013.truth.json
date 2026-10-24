@@ -5,74 +5,64 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "office_building",
+      "asset_slug": "pine_tree",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "mailbox",
-      "role": "distractor",
-      "target_id": "distractor_0013_00"
-    },
-    "11": {
       "asset_slug": "postbox",
       "role": "distractor",
       "target_id": "distractor_0013_01"
     },
-    "12": {
+    "11": {
       "asset_slug": "suv",
       "role": "distractor",
       "target_id": "distractor_0013_02"
     },
-    "13": {
+    "12": {
       "asset_slug": "bus",
       "role": "distractor",
       "target_id": "distractor_0013_03"
     },
-    "14": {
-      "asset_slug": "construction_cone",
-      "role": "distractor",
-      "target_id": "distractor_0013_04"
-    },
     "2": {
-      "asset_slug": "fountain",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "lamp_post",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "pine_tree",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "house_2",
+      "asset_slug": "water_tower",
       "role": "obstacle",
       "target_id": "obstacle_04"
     },
     "6": {
-      "asset_slug": "apartment",
-      "role": "obstacle",
-      "target_id": "obstacle_05"
-    },
-    "7": {
       "asset_slug": "backpack",
       "role": "target",
       "target_id": "target_true_gen_r20_w0013"
     },
-    "8": {
+    "7": {
       "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0013_00_00"
     },
-    "9": {
+    "8": {
       "asset_slug": "fire_hydrant",
       "role": "forced_distractor",
       "target_id": "forced_0013_00"
+    },
+    "9": {
+      "asset_slug": "mailbox",
+      "role": "distractor",
+      "target_id": "distractor_0013_00"
     }
   },
   "targets": [
@@ -130,16 +120,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": 86.106,
-        "y_north_m": -1.055,
-        "yaw_rad": 2.26144,
+        "x_east_m": 38.197,
+        "y_north_m": 80.312,
+        "yaw_rad": -2.128734,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35209051,
-        "longitude_deg": 103.82057372
+        "latitude_deg": 1.35282267,
+        "longitude_deg": 103.82014322
       },
       "size_m": [
         0.5,
@@ -167,16 +157,16 @@
         0.931294
       ],
       "pose": {
-        "x_east_m": -94.839,
-        "y_north_m": 44.088,
-        "yaw_rad": -1.296151,
+        "x_east_m": -2.576,
+        "y_north_m": -119.765,
+        "yaw_rad": 2.423254,
         "z_up_m": 0.466
       },
       "position": {
         "altitude_m": 0.466,
         "altitude_reference": "world",
-        "latitude_deg": 1.35249671,
-        "longitude_deg": 103.81894781
+        "latitude_deg": 1.35102232,
+        "longitude_deg": 103.81977685
       },
       "size_m": [
         0.423605,
@@ -202,16 +192,16 @@
         1.067241
       ],
       "pose": {
-        "x_east_m": 89.295,
-        "y_north_m": 15.008,
-        "yaw_rad": 0.668386,
+        "x_east_m": 90.653,
+        "y_north_m": 36.851,
+        "yaw_rad": 0.166057,
         "z_up_m": 0.534
       },
       "position": {
         "altitude_m": 0.534,
         "altitude_reference": "world",
-        "latitude_deg": 1.35223505,
-        "longitude_deg": 103.82060237
+        "latitude_deg": 1.3524316,
+        "longitude_deg": 103.82061458
       },
       "size_m": [
         0.133416,
@@ -238,16 +228,16 @@
         1.524
       ],
       "pose": {
-        "x_east_m": 36.392,
-        "y_north_m": 111.75,
-        "yaw_rad": -3.032106,
+        "x_east_m": -1.957,
+        "y_north_m": -114.944,
+        "yaw_rad": 2.256501,
         "z_up_m": 0.762
       },
       "position": {
         "altitude_m": 0.762,
         "altitude_reference": "world",
-        "latitude_deg": 1.35310556,
-        "longitude_deg": 103.82012701
+        "latitude_deg": 1.3510657,
+        "longitude_deg": 103.81978242
       },
       "size_m": [
         0.681827,
@@ -274,16 +264,16 @@
         2.156538
       ],
       "pose": {
-        "x_east_m": -7.017,
-        "y_north_m": 82.3,
-        "yaw_rad": -2.834552,
+        "x_east_m": -61.604,
+        "y_north_m": 52.481,
+        "yaw_rad": 0.71162,
         "z_up_m": 1.078
       },
       "position": {
         "altitude_m": 1.078,
         "altitude_reference": "world",
-        "latitude_deg": 1.35284056,
-        "longitude_deg": 103.81973695
+        "latitude_deg": 1.35257224,
+        "longitude_deg": 103.81924645
       },
       "size_m": [
         5.020146,
@@ -309,16 +299,16 @@
         3.698298
       ],
       "pose": {
-        "x_east_m": -22.392,
-        "y_north_m": 83.261,
-        "yaw_rad": 0.515141,
+        "x_east_m": 86.106,
+        "y_north_m": -1.055,
+        "yaw_rad": 2.26144,
         "z_up_m": 1.849
       },
       "position": {
         "altitude_m": 1.849,
         "altitude_reference": "world",
-        "latitude_deg": 1.3528492,
-        "longitude_deg": 103.81959879
+        "latitude_deg": 1.35209051,
+        "longitude_deg": 103.82057372
       },
       "size_m": [
         2.707656,
@@ -326,42 +316,6 @@
         3.698298
       ],
       "target_id": "distractor_0013_03",
-      "true_target": false
-    },
-    {
-      "asset_slug": "construction_cone",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.544444,
-      "category_words": [
-        "traffic cone",
-        "cone"
-      ],
-      "class": "traffic_cone",
-      "color": "orange",
-      "label": "traffic cone cone",
-      "measured_size_m": [
-        0.50292,
-        0.50292,
-        1.088889
-      ],
-      "pose": {
-        "x_east_m": -101.449,
-        "y_north_m": 33.968,
-        "yaw_rad": -2.406447,
-        "z_up_m": 0.544
-      },
-      "position": {
-        "altitude_m": 0.544,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35240565,
-        "longitude_deg": 103.81888842
-      },
-      "size_m": [
-        0.50292,
-        0.50292,
-        1.088889
-      ],
-      "target_id": "distractor_0013_04",
       "true_target": false
     }
   ]

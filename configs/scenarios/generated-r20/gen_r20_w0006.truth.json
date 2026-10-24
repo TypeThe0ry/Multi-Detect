@@ -5,59 +5,54 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "house_3",
+      "asset_slug": "telephone_pole",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "hatchback",
-      "role": "distractor",
-      "target_id": "distractor_0006_01"
-    },
-    "11": {
       "asset_slug": "jersey_barrier",
       "role": "distractor",
       "target_id": "distractor_0006_02"
     },
     "2": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "house_1",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "collapsed_house",
+      "asset_slug": "playground",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "oak_tree",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "apartment",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_04"
     },
     "6": {
-      "asset_slug": "gazebo",
-      "role": "obstacle",
-      "target_id": "obstacle_05"
-    },
-    "7": {
       "asset_slug": "fire_truck",
       "role": "target",
       "target_id": "target_true_gen_r20_w0006"
     },
-    "8": {
+    "7": {
       "asset_slug": "ambulance",
       "role": "confuser",
       "target_id": "confuser_0006_00_00"
     },
-    "9": {
+    "8": {
       "asset_slug": "dumpster",
       "role": "distractor",
       "target_id": "distractor_0006_00"
+    },
+    "9": {
+      "asset_slug": "hatchback",
+      "role": "distractor",
+      "target_id": "distractor_0006_01"
     }
   },
   "targets": [
@@ -115,16 +110,16 @@
         2.894119
       ],
       "pose": {
-        "x_east_m": -69.557,
-        "y_north_m": -72.364,
-        "yaw_rad": 1.661543,
+        "x_east_m": 16.192,
+        "y_north_m": -96.984,
+        "yaw_rad": -2.784112,
         "z_up_m": 1.447
       },
       "position": {
         "altitude_m": 1.447,
         "altitude_reference": "world",
-        "latitude_deg": 1.35144885,
-        "longitude_deg": 103.81917499
+        "latitude_deg": 1.35122731,
+        "longitude_deg": 103.81994549
       },
       "size_m": [
         2.968315,
@@ -151,16 +146,16 @@
         1.773292
       ],
       "pose": {
-        "x_east_m": 6.926,
-        "y_north_m": 85.899,
-        "yaw_rad": 1.583437,
+        "x_east_m": -89.362,
+        "y_north_m": -75.489,
+        "yaw_rad": 2.139557,
         "z_up_m": 0.887
       },
       "position": {
         "altitude_m": 0.887,
         "altitude_reference": "world",
-        "latitude_deg": 1.35287294,
-        "longitude_deg": 103.81986223
+        "latitude_deg": 1.35142073,
+        "longitude_deg": 103.81899703
       },
       "size_m": [
         2.505294,
@@ -187,16 +182,16 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": -77.681,
-        "y_north_m": 78.374,
-        "yaw_rad": -1.517953,
+        "x_east_m": 76.199,
+        "y_north_m": 77.524,
+        "yaw_rad": -1.418296,
         "z_up_m": 0.784
       },
       "position": {
         "altitude_m": 0.784,
         "altitude_reference": "world",
-        "latitude_deg": 1.35280523,
-        "longitude_deg": 103.81910199
+        "latitude_deg": 1.35279758,
+        "longitude_deg": 103.82048469
       },
       "size_m": [
         4.001102,
@@ -223,16 +218,16 @@
         1.143
       ],
       "pose": {
-        "x_east_m": 90.154,
-        "y_north_m": 3.391,
-        "yaw_rad": -1.14476,
+        "x_east_m": 86.252,
+        "y_north_m": 15.962,
+        "yaw_rad": 2.242972,
         "z_up_m": 0.572
       },
       "position": {
         "altitude_m": 0.572,
         "altitude_reference": "world",
-        "latitude_deg": 1.35213051,
-        "longitude_deg": 103.82061009
+        "latitude_deg": 1.35224363,
+        "longitude_deg": 103.82057502
       },
       "size_m": [
         4.065567,

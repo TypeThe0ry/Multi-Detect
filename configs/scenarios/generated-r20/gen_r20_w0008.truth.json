@@ -5,64 +5,39 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "gas_station",
+      "asset_slug": "house_3",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
-    "10": {
-      "asset_slug": "hatchback_red",
-      "role": "distractor",
-      "target_id": "distractor_0008_01"
-    },
-    "11": {
-      "asset_slug": "male_visitor",
-      "role": "distractor",
-      "target_id": "distractor_0008_02"
-    },
-    "12": {
-      "asset_slug": "standing_person",
-      "role": "distractor",
-      "target_id": "distractor_0008_03"
-    },
     "2": {
-      "asset_slug": "lamp_post",
+      "asset_slug": "gas_station",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "water_tower",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "apartment",
-      "role": "obstacle",
-      "target_id": "obstacle_03"
-    },
-    "5": {
-      "asset_slug": "house_3",
-      "role": "obstacle",
-      "target_id": "obstacle_04"
-    },
-    "6": {
-      "asset_slug": "telephone_pole",
-      "role": "obstacle",
-      "target_id": "obstacle_05"
-    },
-    "7": {
       "asset_slug": "fire_truck",
       "role": "target",
       "target_id": "target_true_gen_r20_w0008"
     },
-    "8": {
+    "5": {
       "asset_slug": "ambulance",
       "role": "confuser",
       "target_id": "confuser_0008_00_00"
     },
-    "9": {
+    "6": {
       "asset_slug": "fire_hydrant",
       "role": "distractor",
       "target_id": "distractor_0008_00"
+    },
+    "7": {
+      "asset_slug": "hatchback_red",
+      "role": "distractor",
+      "target_id": "distractor_0008_01"
     }
   },
   "targets": [
@@ -120,16 +95,16 @@
         2.894119
       ],
       "pose": {
-        "x_east_m": -43.226,
-        "y_north_m": -80.029,
-        "yaw_rad": -1.256743,
+        "x_east_m": -14.901,
+        "y_north_m": 79.764,
+        "yaw_rad": -1.075565,
         "z_up_m": 1.447
       },
       "position": {
         "altitude_m": 1.447,
         "altitude_reference": "world",
-        "latitude_deg": 1.35137988,
-        "longitude_deg": 103.81941158
+        "latitude_deg": 1.35281774,
+        "longitude_deg": 103.8196661
       },
       "size_m": [
         2.968315,
@@ -156,16 +131,16 @@
         0.931294
       ],
       "pose": {
-        "x_east_m": -93.609,
-        "y_north_m": 30.003,
-        "yaw_rad": -1.646252,
+        "x_east_m": -48.098,
+        "y_north_m": -96.055,
+        "yaw_rad": -2.066035,
         "z_up_m": 0.466
       },
       "position": {
         "altitude_m": 0.466,
         "altitude_reference": "world",
-        "latitude_deg": 1.35236997,
-        "longitude_deg": 103.81895886
+        "latitude_deg": 1.35123567,
+        "longitude_deg": 103.81936781
       },
       "size_m": [
         0.423605,
@@ -192,16 +167,16 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": -6.548,
-        "y_north_m": 113.034,
-        "yaw_rad": -2.489979,
+        "x_east_m": 13.77,
+        "y_north_m": -90.963,
+        "yaw_rad": -1.32215,
         "z_up_m": 0.784
       },
       "position": {
         "altitude_m": 0.784,
         "altitude_reference": "world",
-        "latitude_deg": 1.35311711,
-        "longitude_deg": 103.81974116
+        "latitude_deg": 1.35128149,
+        "longitude_deg": 103.81992373
       },
       "size_m": [
         4.001102,
@@ -209,79 +184,6 @@
         1.567894
       ],
       "target_id": "distractor_0008_01",
-      "true_target": false
-    },
-    {
-      "asset_slug": "male_visitor",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.887242,
-      "category_words": [
-        "person",
-        "man",
-        "pedestrian"
-      ],
-      "class": "person",
-      "color": null,
-      "label": "person man",
-      "measured_size_m": [
-        0.307058,
-        1.644424,
-        1.774483
-      ],
-      "pose": {
-        "x_east_m": -8.389,
-        "y_north_m": -98.913,
-        "yaw_rad": -2.092359,
-        "z_up_m": 0.887
-      },
-      "position": {
-        "altitude_m": 0.887,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35120995,
-        "longitude_deg": 103.81972462
-      },
-      "size_m": [
-        0.307058,
-        1.644424,
-        1.774483
-      ],
-      "target_id": "distractor_0008_02",
-      "true_target": false
-    },
-    {
-      "asset_slug": "standing_person",
-      "behavior": "stationary",
-      "bottom_offset_m": -0.963151,
-      "category_words": [
-        "person",
-        "pedestrian"
-      ],
-      "class": "person",
-      "color": null,
-      "label": "person pedestrian",
-      "measured_size_m": [
-        0.544229,
-        0.35,
-        1.926302
-      ],
-      "pose": {
-        "x_east_m": -23.045,
-        "y_north_m": 80.403,
-        "yaw_rad": 0.551145,
-        "z_up_m": 0.963
-      },
-      "position": {
-        "altitude_m": 0.963,
-        "altitude_reference": "world",
-        "latitude_deg": 1.35282349,
-        "longitude_deg": 103.81959293
-      },
-      "size_m": [
-        0.544229,
-        0.35,
-        1.926302
-      ],
-      "target_id": "distractor_0008_03",
       "true_target": false
     }
   ]

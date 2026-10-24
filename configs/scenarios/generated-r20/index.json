@@ -52,132 +52,160 @@
       "world_id": "gen_r20_w0000",
       "split": "train",
       "seed": 20261024,
-      "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance and record its position.",
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "asset_mode": "fuel_v1",
       "target_combo": {
-        "slug": "ambulance",
-        "category": "ambulance",
-        "color": "white"
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
       },
       "world_file": "gen_r20_w0000.sdf",
       "true_target_id": "target_true_gen_r20_w0000",
       "task_kind": "find",
       "expected_count": 1,
-      "find_task_text": "找到白色救护车并记录位置",
-      "find_task_text_en": "Find the white ambulance and record its position.",
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
       "appearance": "noon_clear",
       "hard_case_profile": "paired_confusers",
       "paired_confusers": [
-        "bus"
+        "jersey_barrier"
       ],
       "view_geometry": {
-        "paired_same_world": true
+        "paired_same_world": true,
+        "pair_separation_m": 3.5,
+        "target_short_side_px": [
+          16,
+          20
+        ],
+        "camera_altitude_m": 22.0,
+        "camera_pitch_rad": -0.35
       }
     },
     {
       "world_id": "gen_r20_w0001",
       "split": "train",
       "seed": 20261025,
-      "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance and record its position.",
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "asset_mode": "fuel_v1",
       "target_combo": {
-        "slug": "ambulance",
-        "category": "ambulance",
-        "color": "white"
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
       },
       "world_file": "gen_r20_w0001.sdf",
       "true_target_id": "target_true_gen_r20_w0001",
       "task_kind": "find",
       "expected_count": 1,
-      "find_task_text": "找到白色救护车并记录位置",
-      "find_task_text_en": "Find the white ambulance and record its position.",
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
       "appearance": "noon_clear",
       "hard_case_profile": "paired_confusers",
       "paired_confusers": [
-        "bus"
+        "jersey_barrier"
       ],
       "view_geometry": {
-        "paired_same_world": true
+        "paired_same_world": true,
+        "pair_separation_m": 3.5,
+        "target_short_side_px": [
+          16,
+          20
+        ],
+        "camera_altitude_m": 22.0,
+        "camera_pitch_rad": -0.35
       }
     },
     {
       "world_id": "gen_r20_w0002",
       "split": "train",
       "seed": 20261026,
-      "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance and record its position.",
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "asset_mode": "fuel_v1",
       "target_combo": {
-        "slug": "ambulance",
-        "category": "ambulance",
-        "color": "white"
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
       },
       "world_file": "gen_r20_w0002.sdf",
       "true_target_id": "target_true_gen_r20_w0002",
       "task_kind": "find",
       "expected_count": 1,
-      "find_task_text": "找到白色救护车并记录位置",
-      "find_task_text_en": "Find the white ambulance and record its position.",
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
       "appearance": "noon_clear",
       "hard_case_profile": "paired_confusers",
       "paired_confusers": [
-        "bus"
+        "jersey_barrier"
       ],
       "view_geometry": {
-        "paired_same_world": true
+        "paired_same_world": true,
+        "pair_separation_m": 3.5,
+        "target_short_side_px": [
+          16,
+          20
+        ],
+        "camera_altitude_m": 22.0,
+        "camera_pitch_rad": -0.35
       }
     },
     {
       "world_id": "gen_r20_w0003",
       "split": "train",
       "seed": 20261027,
-      "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance and record its position.",
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
       "asset_mode": "fuel_v1",
       "target_combo": {
-        "slug": "ambulance",
-        "category": "ambulance",
-        "color": "white"
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
       },
       "world_file": "gen_r20_w0003.sdf",
       "true_target_id": "target_true_gen_r20_w0003",
       "task_kind": "find",
       "expected_count": 1,
-      "find_task_text": "找到白色救护车并记录位置",
-      "find_task_text_en": "Find the white ambulance and record its position.",
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
       "appearance": "noon_clear",
       "hard_case_profile": "paired_confusers",
       "paired_confusers": [
-        "bus"
+        "jersey_barrier"
       ],
       "view_geometry": {
-        "paired_same_world": true
+        "paired_same_world": true,
+        "pair_separation_m": 3.5,
+        "target_short_side_px": [
+          16,
+          20
+        ],
+        "camera_altitude_m": 22.0,
+        "camera_pitch_rad": -0.35
       }
     },
     {
       "world_id": "gen_r20_w0004",
       "split": "train",
       "seed": 20261028,
-      "task_text": "找到白色救护车并记录位置",
-      "task_text_en": "Find the white ambulance and record its position.",
+      "task_text": "找到蓝色轿车并记录位置",
+      "task_text_en": "Find the blue car and record its position.",
       "asset_mode": "fuel_v1",
       "target_combo": {
-        "slug": "ambulance",
-        "category": "ambulance",
-        "color": "white"
+        "slug": "hatchback_blue",
+        "category": "car",
+        "color": "blue"
       },
       "world_file": "gen_r20_w0004.sdf",
       "true_target_id": "target_true_gen_r20_w0004",
       "task_kind": "find",
       "expected_count": 1,
-      "find_task_text": "找到白色救护车并记录位置",
-      "find_task_text_en": "Find the white ambulance and record its position.",
+      "find_task_text": "找到蓝色轿车并记录位置",
+      "find_task_text_en": "Find the blue car and record its position.",
       "appearance": "noon_clear",
       "hard_case_profile": "paired_confusers",
       "paired_confusers": [
-        "bus"
+        "ambulance"
       ],
       "view_geometry": {
         "paired_same_world": true

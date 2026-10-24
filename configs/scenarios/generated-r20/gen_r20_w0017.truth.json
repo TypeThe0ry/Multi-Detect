@@ -5,36 +5,41 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "lamp_post",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "2": {
-      "asset_slug": "apartment",
+      "asset_slug": "gazebo",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "fountain",
+      "asset_slug": "collapsed_house",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
       "asset_slug": "fire_hydrant",
       "role": "target",
       "target_id": "target_true_gen_r20_w0017"
     },
-    "5": {
+    "6": {
       "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0017_00_00"
     },
-    "6": {
+    "7": {
       "asset_slug": "standing_person",
       "role": "distractor",
       "target_id": "distractor_0017_00"
     },
-    "7": {
+    "8": {
       "asset_slug": "walking_person",
       "role": "distractor",
       "target_id": "distractor_0017_01"
@@ -95,16 +100,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": 23.94,
-        "y_north_m": 113.788,
-        "yaw_rad": -2.775701,
+        "x_east_m": 23.528,
+        "y_north_m": -106.322,
+        "yaw_rad": 2.750243,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.3531239,
-        "longitude_deg": 103.82001512
+        "latitude_deg": 1.35114328,
+        "longitude_deg": 103.82001142
       },
       "size_m": [
         0.5,
@@ -131,16 +136,16 @@
         1.926302
       ],
       "pose": {
-        "x_east_m": -13.174,
-        "y_north_m": -90.454,
-        "yaw_rad": -1.743368,
+        "x_east_m": 99.389,
+        "y_north_m": -19.776,
+        "yaw_rad": 1.363426,
         "z_up_m": 0.963
       },
       "position": {
         "altitude_m": 0.963,
         "altitude_reference": "world",
-        "latitude_deg": 1.35128606,
-        "longitude_deg": 103.81968163
+        "latitude_deg": 1.35192205,
+        "longitude_deg": 103.82069307
       },
       "size_m": [
         0.544229,
@@ -168,16 +173,16 @@
         1.875731
       ],
       "pose": {
-        "x_east_m": -7.844,
-        "y_north_m": 106.582,
-        "yaw_rad": 1.633759,
+        "x_east_m": -68.665,
+        "y_north_m": 45.422,
+        "yaw_rad": 1.263125,
         "z_up_m": 0.938
       },
       "position": {
         "altitude_m": 0.938,
         "altitude_reference": "world",
-        "latitude_deg": 1.35305906,
-        "longitude_deg": 103.81972952
+        "latitude_deg": 1.35250872,
+        "longitude_deg": 103.819183
       },
       "size_m": [
         0.546086,

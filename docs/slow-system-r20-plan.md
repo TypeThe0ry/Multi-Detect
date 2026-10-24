@@ -38,14 +38,14 @@ r20 只做离线方案、世界生成和小规模 SFT 样例，不采集 SITL、
 
 | 场景类别 | 世界数 | 真目标→成对干扰物 |
 |---|---:|---|
-| 干扰物成对 | 6 | ambulance→bus（6） |
+| 干扰物成对 | 6 | construction_cone→jersey_barrier（4）；hatchback_blue→ambulance（1）；ambulance→bus（1） |
 | 固定翼高空斜视 | 5 | fire_truck→ambulance（5） |
 | 背包远小斜视 | 5 | backpack→cardboard_box（5） |
 | 消防栓建筑遮挡/下沿截断 | 4 | fire_hydrant→cardboard_box（4） |
 
-所有真目标与 v2 held-out 组合无交集；SUV/pickup 不作为真目标。固定翼组使用 fixed-wing-v2 已有的 `px4_fixed_wing_gazebo_v1` 机体和相机/深度/空速传感器，目标按约 101 m 斜距与高空 spawn/下俯姿态布置。背包组采用约 19 m 相机高度、约 28 m 地面距离；消防栓组在相机与目标视线中点放置 12 m 建筑实体，并配置高位下俯相机。上述为配置几何验收，未进行渲染或 SITL 采集验证。
+所有真目标与 v2 held-out 组合无交集。r19 的两项回退中，pickup/SUV 的 SUV 和 pickup 均在 `generated-v2/index.json` 的 held-out 列表，不能直接作为 r20 真目标；因此以 catalog 中符合 target/distractor 资格且不在留出表的 hatchback_blue→ambulance 外观相近车辆对替代。锥桶/jersey barrier 不属于 held-out，故成对组以 construction_cone→jersey_barrier 为主：4 个世界同框近距配对，名义锥桶短边尺寸层 16–20 px；另保留 1 个 ambulance→bus。固定翼组使用 fixed-wing-v2 已有的 `px4_fixed_wing_gazebo_v1` 机体和相机/深度/空速传感器，目标按约 101 m 斜距与高空 spawn/下俯姿态布置。背包组采用约 19 m 相机高度、约 28 m 地面距离；消防栓组在相机与目标视线中点放置 12 m 建筑实体，并配置高位下俯相机。上述为配置几何验收，未进行渲染或 SITL 采集验证。
 
-逐世界 `build_stack_plan(scenario, repository_root=Path.cwd())` 预检 20/20 通过，SDF 可解析且三路 channel hashes 与内容一致。新增回归测试逐真目标检查 held-out 泄漏并固化四类分布与几何断言。此前 6284094c 的旧三模板资产由本次新提交文件覆盖；历史提交未改写。
+逐世界 `build_stack_plan(scenario, repository_root=Path.cwd())` 预检 20/20 通过，SDF 可解析且三路 channel hashes 与内容一致。新增回归测试逐真目标检查 held-out 泄漏、四类分布、锥桶/路障真值配对和几何断言。此前 6284094c 与 07588147 的旧资产由本次新提交文件覆盖；历史提交未改写。
 
 整轮 dry-run 已实际运行（无采集/训练），退出码 0，命令阶段与低磁盘守卫均被打印。日志：`D:/Projects/mdwt/_scratch/cx-r20-worlds/dry-run-r20.log`；逐世界预检日志：`D:/Projects/mdwt/_scratch/cx-r20-worlds/preflight-r20.log`。可复用命令：
 
@@ -61,4 +61,4 @@ $env:PYTHONUTF8='1'
   --source-root D:/Projects/Multi-Detect
 ```
 
-本次 dry-run 退出码为 0，所有阶段命令与低磁盘守卫均打印。资源守卫报告可用磁盘约 32.8 GB；low-disk collect 估算峰值 8.77 GiB、结束后余量 2.77 GiB，训练阶段注明至少 30 GiB，export 阶段至少 15 GiB。onboard gate 完整结果记录于 `D:/Projects/mdwt/_scratch/cx-r20-worlds/onboard-gate-r20.log`：1516 passed、2 skipped、21 deselected，PASS（115 秒）。
+本次 dry-run 退出码为 0，所有阶段命令与低磁盘守卫均打印。资源守卫报告可用磁盘约 48.0 GB；low-disk collect 估算峰值 8.77 GiB，训练阶段注明至少 30 GiB，export 阶段至少 15 GiB。onboard gate 完整结果记录于 `D:/Projects/mdwt/_scratch/cx-r20-worlds/onboard-gate-r20.log`：1516 passed、2 skipped、21 deselected，PASS（202 秒）。

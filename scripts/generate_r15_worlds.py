@@ -42,18 +42,33 @@ def main(argv=None):
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
     if a.profile == "r20":
         # Four deterministic hard-case families. All true-target slugs are
-        # outside generated-v2's frozen holdout; pickup/SUV only occur as
-        # distractors in this round.
+        # outside generated-v2's frozen holdout. Cone/barrier is the primary
+        # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
         templates = (
+            *[
+                {
+                    "case": "paired_confusers",
+                    "target": "construction_cone",
+                    "confusers": ["jersey_barrier"],
+                    "appearance": "noon_clear",
+                }
+                for _ in range(4)
+            ],
+            *[
+                {
+                    "case": "paired_confusers",
+                    "target": "hatchback_blue",
+                    "confusers": ["ambulance"],
+                    "appearance": "noon_clear",
+                }
+            ],
             *[
                 {
                     "case": "paired_confusers",
                     "target": "ambulance",
                     "confusers": ["bus"],
-                    "forced_distractors": ["jersey_barrier"],
                     "appearance": "noon_clear",
                 }
-                for _ in range(6)
             ],
             *[
                 {
@@ -204,6 +219,19 @@ def main(argv=None):
                 }
             else:
                 tx, ty, tz, altitude, angle = 35.0, 28.0, 0.0, 30.0, -0.25
+            if case == "paired_confusers" and target["asset_slug"] == "construction_cone":
+                # 1.09 m cone at ~28 m slant range is about 18 px tall at
+                # 480 px / 15 m nominal focal length; barrier stays nearby.
+                tx, ty, tz, altitude, angle = 20.0, 12.0, 0.0, 22.0, -0.35
+                entry["view_geometry"].update(
+                    {
+                        "paired_same_world": True,
+                        "pair_separation_m": 3.5,
+                        "target_short_side_px": [16, 20],
+                        "camera_altitude_m": altitude,
+                        "camera_pitch_rad": angle,
+                    }
+                )
             target["pose"].update({"x_east_m": tx, "y_north_m": ty, "z_up_m": tz, "yaw_rad": 0.0})
             target["position"].update(
                 {
@@ -221,6 +249,33 @@ def main(argv=None):
             model.find(
                 "pose"
             ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 0"
+            if case == "paired_confusers" and target["asset_slug"] == "construction_cone":
+                pair = next(
+                    row
+                    for row in truth["targets"]
+                    if row.get("confuser") and row["asset_slug"] == "jersey_barrier"
+                )
+                pair["pose"].update(
+                    {"x_east_m": tx + 3.5, "y_north_m": ty, "z_up_m": 0.0}
+                )
+                pair["position"].update(
+                    {
+                        "altitude_m": 0.0,
+                        "latitude_deg": round(1.352100 + ty / 111_132.0, 8),
+                        "longitude_deg": round(
+                            103.819800
+                            + (tx + 3.5)
+                            / (111_320.0 * math.cos(math.radians(1.352100))),
+                            8,
+                        ),
+                    }
+                )
+                pair_model = root.find(".//model[@name='" + pair["target_id"] + "']")
+                if pair_model is None:
+                    raise RuntimeError(f"{wid}: paired jersey barrier SDF model not found")
+                pair_model.find("pose").text = (
+                    f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
+                )
             if case == "hydrant_building_occlusion_truncation":
                 building_xml = (
                     '<model name="r20_building_occluder"><static>true</static>'

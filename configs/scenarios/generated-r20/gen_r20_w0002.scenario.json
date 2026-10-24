@@ -2,11 +2,11 @@
   "channels": {
     "runtime_input": {
       "path": "gen_r20_w0002.runtime_input.json",
-      "sha256": "adca7e5d107380b32185336b201ec9e5e6ac068ba32881a2727c38b8b2aed2af"
+      "sha256": "68fc4032fb9dcafac89ffa0caf2abc239a30cf1e472e8121bcb01dedbe8deb8e"
     },
     "truth": {
       "path": "gen_r20_w0002.truth.json",
-      "sha256": "6b8fda892d85605a68686b13bd5c6b3102772f1eb4e383d759f913578e6cc67d"
+      "sha256": "40530d0aa3ac718241876c5164a4f2015cb9c4e7d0eebdd82820568107d9092c"
     },
     "expectations": {
       "path": "gen_r20_w0002.expectations.json",

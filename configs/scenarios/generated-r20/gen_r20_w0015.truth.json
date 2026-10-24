@@ -5,54 +5,59 @@
   "schema_version": 1,
   "segmentation_labels": {
     "1": {
-      "asset_slug": "oak_tree",
+      "asset_slug": "house_2",
       "role": "obstacle",
       "target_id": "obstacle_00"
     },
     "10": {
-      "asset_slug": "stop_sign",
+      "asset_slug": "ambulance",
       "role": "distractor",
-      "target_id": "distractor_0015_01"
+      "target_id": "distractor_0015_02"
+    },
+    "11": {
+      "asset_slug": "casual_female",
+      "role": "distractor",
+      "target_id": "distractor_0015_03"
     },
     "2": {
-      "asset_slug": "telephone_pole",
+      "asset_slug": "gas_station",
       "role": "obstacle",
       "target_id": "obstacle_01"
     },
     "3": {
-      "asset_slug": "fountain",
+      "asset_slug": "telephone_pole",
       "role": "obstacle",
       "target_id": "obstacle_02"
     },
     "4": {
-      "asset_slug": "office_building",
+      "asset_slug": "lamp_post",
       "role": "obstacle",
       "target_id": "obstacle_03"
     },
     "5": {
-      "asset_slug": "water_tower",
-      "role": "obstacle",
-      "target_id": "obstacle_04"
-    },
-    "6": {
       "asset_slug": "backpack",
       "role": "target",
       "target_id": "target_true_gen_r20_w0015"
     },
-    "7": {
+    "6": {
       "asset_slug": "cardboard_box",
       "role": "confuser",
       "target_id": "confuser_0015_00_00"
     },
-    "8": {
+    "7": {
       "asset_slug": "fire_hydrant",
       "role": "forced_distractor",
       "target_id": "forced_0015_00"
     },
-    "9": {
+    "8": {
       "asset_slug": "pickup",
       "role": "distractor",
       "target_id": "distractor_0015_00"
+    },
+    "9": {
+      "asset_slug": "stop_sign",
+      "role": "distractor",
+      "target_id": "distractor_0015_01"
     }
   },
   "targets": [
@@ -110,16 +115,16 @@
         0.3
       ],
       "pose": {
-        "x_east_m": 87.08,
-        "y_north_m": 16.893,
-        "yaw_rad": -0.143344,
+        "x_east_m": -41.487,
+        "y_north_m": 101.108,
+        "yaw_rad": 0.63362,
         "z_up_m": 0.15
       },
       "position": {
         "altitude_m": 0.15,
         "altitude_reference": "world",
-        "latitude_deg": 1.35225201,
-        "longitude_deg": 103.82058247
+        "latitude_deg": 1.3530098,
+        "longitude_deg": 103.81942722
       },
       "size_m": [
         0.5,
@@ -147,16 +152,16 @@
         0.931294
       ],
       "pose": {
-        "x_east_m": -85.858,
-        "y_north_m": 65.132,
-        "yaw_rad": -2.319028,
+        "x_east_m": -0.968,
+        "y_north_m": 89.345,
+        "yaw_rad": 1.819549,
         "z_up_m": 0.466
       },
       "position": {
         "altitude_m": 0.466,
         "altitude_reference": "world",
-        "latitude_deg": 1.35268607,
-        "longitude_deg": 103.81902851
+        "latitude_deg": 1.35290395,
+        "longitude_deg": 103.81979131
       },
       "size_m": [
         0.423605,
@@ -183,16 +188,16 @@
         1.865542
       ],
       "pose": {
-        "x_east_m": 73.503,
-        "y_north_m": -57.228,
-        "yaw_rad": -1.956443,
+        "x_east_m": -79.198,
+        "y_north_m": 58.788,
+        "yaw_rad": -3.015557,
         "z_up_m": 0.933
       },
       "position": {
         "altitude_m": 0.933,
         "altitude_reference": "world",
-        "latitude_deg": 1.35158504,
-        "longitude_deg": 103.82046047
+        "latitude_deg": 1.35262899,
+        "longitude_deg": 103.81908836
       },
       "size_m": [
         5.66468,
@@ -219,16 +224,16 @@
         1.817596
       ],
       "pose": {
-        "x_east_m": 81.098,
-        "y_north_m": -54.841,
-        "yaw_rad": -0.585175,
+        "x_east_m": 52.916,
+        "y_north_m": 82.98,
+        "yaw_rad": -0.522315,
         "z_up_m": 0.909
       },
       "position": {
         "altitude_m": 0.909,
         "altitude_reference": "world",
-        "latitude_deg": 1.35160652,
-        "longitude_deg": 103.82052871
+        "latitude_deg": 1.35284668,
+        "longitude_deg": 103.82027549
       },
       "size_m": [
         0.593091,
@@ -236,6 +241,79 @@
         1.817596
       ],
       "target_id": "distractor_0015_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": 35.595,
+        "y_north_m": 74.916,
+        "yaw_rad": 0.080118,
+        "z_up_m": 1.447
+      },
+      "position": {
+        "altitude_m": 1.447,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35277412,
+        "longitude_deg": 103.82011984
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "distractor_0015_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": 0.487,
+        "y_north_m": -115.065,
+        "yaw_rad": -1.016884,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35106461,
+        "longitude_deg": 103.81980438
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0015_03",
       "true_target": false
     }
   ]
