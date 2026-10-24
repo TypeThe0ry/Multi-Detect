@@ -34,13 +34,13 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
         "--profile",
-        choices=("default", "r20"),
+        choices=("default", "r20", "r21-identity"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
     a = p.parse_args(argv)
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
-    if a.profile == "r20":
+    if a.profile in ("r20", "r21-identity"):
         # Four deterministic hard-case families. All true-target slugs are
         # outside generated-v2's frozen holdout. Cone/barrier is the primary
         # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
@@ -99,12 +99,28 @@ def main(argv=None):
                 for _ in range(4)
             ],
         )
+        if a.profile == "r21-identity":
+            classes = ("fire_hydrant", "backpack", "construction_cone")
+            layers = ((12, 12, [8, 12]), (18, 20, [13, 20]), (24, 30, [21, 32]), (32, 40, [13, 20]),
+                      (18, 12, [8, 12]), (24, 20, [13, 20]), (32, 30, [21, 32]), (12, 40, [8, 12]))
+            templates = tuple(
+                {
+                    "case": "identity_multiview", "target": cls,
+                    "confusers": ["cardboard_box" if cls != "construction_cone" else "jersey_barrier"],
+                    "forced_distractors": ["electrical_box"],
+                    "appearance": ("noon_clear", "overcast_flat", "morning_low_sun")[i % 3],
+                    "height_m": layers[i][0], "distance_m": layers[i][1],
+                    "target_short_side_px": layers[i][2],
+                    "split": "train" if i < 6 else ("val" if i == 6 else "test"),
+                }
+                for cls in classes for i in range(8)
+            )
         cfg.update(
             {
-                "world_prefix": "gen_r20_w",
-                "seed": 20261024,
+                "world_prefix": "gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w",
+                "seed": 20261025 if a.profile == "r21-identity" else 20261024,
                 "count": len(templates),
-                "split_ratios": [0.8, 0.2, 0.0],
+                "split_ratios": [0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0],
                 "spread_m": [80.0, 120.0],
                 "count_copies": 1,
                 "confuser_copies": 1,
@@ -113,7 +129,7 @@ def main(argv=None):
             }
         )
         cfg["worlds"] = [
-            dict(t, split="train" if i < 16 else "val") for i, t in enumerate(templates)
+            dict(t, split=t.get("split", "train" if i < 16 else "val")) for i, t in enumerate(templates)
         ]
     if a.dry_run:
         print(
@@ -174,12 +190,23 @@ def main(argv=None):
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
     )
-    if a.profile == "r20":
-        doc["profile"] = "r20"
+    if a.profile in ("r20", "r21-identity"):
+        doc["profile"] = a.profile
         for entry, world in zip(doc["worlds"], cfg["worlds"], strict=True):
             entry["hard_case_profile"] = world["case"]
             entry["paired_confusers"] = list(world.get("confusers", ()))
             entry["view_geometry"] = {"paired_same_world": True}
+            if a.profile == "r21-identity":
+                entry["hard_case_profile"] = "identity_multiview"
+                entry["view_geometry"].update({
+                    "camera_altitude_m": world["height_m"], "ground_distance_m": world["distance_m"],
+                    "target_short_side_px": world["target_short_side_px"],
+                    "visible_fraction": [0.45, 0.65, 0.85, 1.0],
+                    "occlusion_types": ["none", "building", "guardrail", "pipe_line"],
+                    "view_angles_deg": [0, 35, 90, 145],
+                    "identity_sequence": ["front", "oblique", "edge_truncated", "recovery"],
+                    "target_id": entry["true_target_id"],
+                })
             wid = entry["world_id"]
             sc = a.out_scenarios
             scenario = json.loads((sc / f"{wid}.scenario.json").read_text(encoding="utf-8"))
@@ -192,7 +219,9 @@ def main(argv=None):
             # Place the target in a controlled camera-relative position and write
             # the same pose into SDF and truth, preserving asset and label identity.
             case = entry["hard_case_profile"]
-            if case == "backpack_small_oblique":
+            if a.profile == "r21-identity":
+                tx, ty, tz, altitude, angle = float(world["distance_m"]), 0.0, 0.0, float(world["height_m"]), -0.42
+            elif case == "backpack_small_oblique":
                 tx, ty, tz, altitude, angle = 21.0 + (int(wid[-4:]) % 2), 18.0, 0.0, 19.0, -0.42
                 entry["view_geometry"] = {
                     "slant_range_m": 32,
@@ -276,9 +305,9 @@ def main(argv=None):
                 pair_model.find("pose").text = (
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
-            if case == "hydrant_building_occlusion_truncation":
+            if case == "hydrant_building_occlusion_truncation" or a.profile == "r21-identity":
                 building_xml = (
-                    '<model name="r20_building_occluder"><static>true</static>'
+                    f'<model name="{a.profile.replace("-", "_")}_building_occluder"><static>true</static>'
                     f"<pose>{tx / 2:.3f} {ty / 2:.3f} 6 0 0 0</pose><link name=\"body\">"
                     '<collision name="collision"><geometry><box><size>12 8 12</size>'
                     "</box></geometry></collision>"

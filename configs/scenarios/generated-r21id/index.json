@@ -1,0 +1,1471 @@
+{
+  "schema_version": 1,
+  "generator": "multidetect.simulator.world_gen",
+  "asset_mode": "fuel_v1",
+  "seed": 20261025,
+  "count": 24,
+  "split_ratios": [
+    0.75,
+    0.125,
+    0.125
+  ],
+  "held_out_target_combos": [
+    {
+      "category": "stop_sign",
+      "color": "red",
+      "slug": "stop_sign",
+      "split": "test"
+    },
+    {
+      "category": "suv",
+      "color": null,
+      "slug": "suv",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "walking_person",
+      "split": "test"
+    },
+    {
+      "category": "pickup",
+      "color": null,
+      "slug": "pickup",
+      "split": "test"
+    },
+    {
+      "category": "postbox",
+      "color": null,
+      "slug": "postbox",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "standing_person",
+      "split": "test"
+    }
+  ],
+  "worlds": [
+    {
+      "world_id": "gen_r21id_w0000",
+      "split": "train",
+      "seed": 20261025,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0000.sdf",
+      "true_target_id": "target_true_gen_r21id_w0000",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0000"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0001",
+      "split": "train",
+      "seed": 20261026,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0001.sdf",
+      "true_target_id": "target_true_gen_r21id_w0001",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0001"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0002",
+      "split": "train",
+      "seed": 20261027,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0002.sdf",
+      "true_target_id": "target_true_gen_r21id_w0002",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0002"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0003",
+      "split": "train",
+      "seed": 20261028,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0003.sdf",
+      "true_target_id": "target_true_gen_r21id_w0003",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0003"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0004",
+      "split": "train",
+      "seed": 20261029,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0004.sdf",
+      "true_target_id": "target_true_gen_r21id_w0004",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0004"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0005",
+      "split": "train",
+      "seed": 20261030,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0005.sdf",
+      "true_target_id": "target_true_gen_r21id_w0005",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0005"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0006",
+      "split": "train",
+      "seed": 20261031,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0006.sdf",
+      "true_target_id": "target_true_gen_r21id_w0006",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0006"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0007",
+      "split": "train",
+      "seed": 20261032,
+      "task_text": "找到消防栓并记录位置",
+      "task_text_en": "Find the fire hydrant and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "fire_hydrant",
+        "category": "fire_hydrant",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0007.sdf",
+      "true_target_id": "target_true_gen_r21id_w0007",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0007"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0008",
+      "split": "train",
+      "seed": 20261033,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0008.sdf",
+      "true_target_id": "target_true_gen_r21id_w0008",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0008"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0009",
+      "split": "train",
+      "seed": 20261034,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0009.sdf",
+      "true_target_id": "target_true_gen_r21id_w0009",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0009"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0010",
+      "split": "train",
+      "seed": 20261035,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0010.sdf",
+      "true_target_id": "target_true_gen_r21id_w0010",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0010"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0011",
+      "split": "train",
+      "seed": 20261036,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0011.sdf",
+      "true_target_id": "target_true_gen_r21id_w0011",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0011"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0012",
+      "split": "train",
+      "seed": 20261037,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0012.sdf",
+      "true_target_id": "target_true_gen_r21id_w0012",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0012"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0013",
+      "split": "train",
+      "seed": 20261038,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0013.sdf",
+      "true_target_id": "target_true_gen_r21id_w0013",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0013"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0014",
+      "split": "train",
+      "seed": 20261039,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0014.sdf",
+      "true_target_id": "target_true_gen_r21id_w0014",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0014"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0015",
+      "split": "train",
+      "seed": 20261040,
+      "task_text": "找到背包并记录位置",
+      "task_text_en": "Find the backpack and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "backpack",
+        "category": "backpack",
+        "color": null
+      },
+      "world_file": "gen_r21id_w0015.sdf",
+      "true_target_id": "target_true_gen_r21id_w0015",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到背包并记录位置",
+      "find_task_text_en": "Find the backpack and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "cardboard_box"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0015"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0016",
+      "split": "train",
+      "seed": 20261041,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0016.sdf",
+      "true_target_id": "target_true_gen_r21id_w0016",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0016"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0017",
+      "split": "train",
+      "seed": 20261042,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0017.sdf",
+      "true_target_id": "target_true_gen_r21id_w0017",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0017"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0018",
+      "split": "val",
+      "seed": 20261043,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0018.sdf",
+      "true_target_id": "target_true_gen_r21id_w0018",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0018"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0019",
+      "split": "val",
+      "seed": 20261044,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0019.sdf",
+      "true_target_id": "target_true_gen_r21id_w0019",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0019"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0020",
+      "split": "val",
+      "seed": 20261045,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0020.sdf",
+      "true_target_id": "target_true_gen_r21id_w0020",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18,
+        "ground_distance_m": 12,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0020"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0021",
+      "split": "test",
+      "seed": 20261046,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0021.sdf",
+      "true_target_id": "target_true_gen_r21id_w0021",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24,
+        "ground_distance_m": 20,
+        "target_short_side_px": [
+          13,
+          20
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0021"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0022",
+      "split": "test",
+      "seed": 20261047,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0022.sdf",
+      "true_target_id": "target_true_gen_r21id_w0022",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32,
+        "ground_distance_m": 30,
+        "target_short_side_px": [
+          21,
+          32
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0022"
+      }
+    },
+    {
+      "world_id": "gen_r21id_w0023",
+      "split": "test",
+      "seed": 20261048,
+      "task_text": "找到橙色交通锥并记录位置",
+      "task_text_en": "Find the orange traffic cone and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "construction_cone",
+        "category": "traffic_cone",
+        "color": "orange"
+      },
+      "world_file": "gen_r21id_w0023.sdf",
+      "true_target_id": "target_true_gen_r21id_w0023",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到橙色交通锥并记录位置",
+      "find_task_text_en": "Find the orange traffic cone and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_multiview",
+      "paired_confusers": [
+        "jersey_barrier"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 12,
+        "ground_distance_m": 40,
+        "target_short_side_px": [
+          8,
+          12
+        ],
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_w0023"
+      }
+    }
+  ],
+  "appearance_presets": [
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat"
+  ],
+  "profile": "r21-identity"
+}
