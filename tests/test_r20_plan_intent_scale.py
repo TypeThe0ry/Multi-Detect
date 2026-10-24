@@ -54,7 +54,66 @@ def test_r20_scale_count_distribution_and_rule_contract(tmp_path):
             validate_mission_plan(plan, capabilities=frozenset(capabilities))
             assert not codes, (row["family"], row["task_text"], codes)
         else:
-            assert row["expected_findings"][0] in codes
+            candidate = row["rejected_candidate"]
+            candidate_codes = {finding.code for finding in check_plan_intent(candidate, row["task_text"], refs)} | {
+                finding["code"] for finding in capability_violations(candidate, capabilities,
+                    airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None)
+            }
+            assert row["expected_findings"][0] in candidate_codes
+            assert row["rejected_candidate"]
+            validate_mission_plan(plan, capabilities=frozenset(capabilities))
+            if row["family"] == "missing_payload_drop":
+                assert "Available aircraft capabilities:" not in row["prompt"]
+
+    deliver = [row for row in rows if row["family"] == "missing_payload_drop"]
+    positive = next(row for row in deliver if row["expected_valid"])
+    negative = next(row for row in deliver if not row["expected_valid"])
+    assert "Available aircraft capabilities: payload_drop." in positive["prompt"]
+    assert "deliver" in {step["skill"] for step in negative["rejected_candidate"]["steps"]}
+
+
+def test_train_admission_uses_each_rows_capabilities(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from train_slow_system_lora import admit_train_rows
+
+    def row(sample_id, capabilities):
+        return {
+            "sample_id": sample_id,
+            "kind": "mission_plan",
+            "world": "test",
+            "task_text": "Deliver a parcel and return home.",
+            "capabilities": capabilities,
+            "assistant_target": {
+                "plan_version": 1,
+                "goal": "deliver",
+                "steps": [
+                    {"id": "s1", "skill": "deliver", "params": {"target_ref": "poi:gate", "payload_ref": "payload:parcel"}, "on_success": "s2", "on_fail": "s2"},
+                    {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
+                ],
+                "report": [],
+            },
+            "split": "train",
+        }
+
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    rows = [row("with-payload", ["payload_drop"]), row("without-payload", [])]
+    (dataset / "train.jsonl").write_text("".join(json.dumps(item) + "\n" for item in rows), encoding="utf-8")
+    try:
+        admit_train_rows(dataset)
+    except ValueError as exc:
+        assert "without-payload" in str(exc)
+    else:
+        raise AssertionError("deliver without payload_drop must fail admission")
+    rows[1]["assistant_target"] = {
+        "plan_version": 1, "goal": "Reject delivery", "steps": [
+            {"id": "s1", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}
+        ], "report": ["rejected"],
+    }
+    (dataset / "train.jsonl").write_text("".join(json.dumps(item) + "\n" for item in rows), encoding="utf-8")
+    admitted, _ = admit_train_rows(dataset)
+    assert len(admitted) == 2
 
 
 def test_r20_mix_keeps_normal_backbone_rows(tmp_path):

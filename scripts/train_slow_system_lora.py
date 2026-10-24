@@ -133,9 +133,49 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             raise ValueError("duplicate sample_id in train")
         identifiers.add(row["sample_id"])
         if row.get("kind") == "mission_plan":
+            from multidetect.autonomy.capability_contract import (
+                capability_violations,
+                normalize_capabilities,
+            )
             from multidetect.autonomy.mission_plan import validate_mission_plan
+            from multidetect.autonomy.plan_intent import check_plan_intent
 
-            validate_mission_plan(row["assistant_target"])
+            capabilities = normalize_capabilities(row.get("capabilities", ()))
+            findings = capability_violations(
+                row["assistant_target"],
+                capabilities,
+                airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+            )
+            intent_codes = {
+                finding.code
+                for finding in check_plan_intent(
+                    row["assistant_target"], row.get("task_text", ""), tuple(row.get("refs", ()))
+                )
+            }
+            expected_valid = row.get("expected_valid", True)
+            expected_findings = set(row.get("expected_findings", ()))
+            if expected_valid is False:
+                candidate = row.get("rejected_candidate")
+                if not isinstance(candidate, dict) or not expected_findings:
+                    raise ValueError(f"rejected mission row {row['sample_id']} lacks its candidate audit record")
+                candidate_codes = {
+                    finding["code"]
+                    for finding in capability_violations(
+                        candidate, capabilities,
+                        airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+                    )
+                } | {
+                    finding.code
+                    for finding in check_plan_intent(candidate, row["task_text"], tuple(row.get("refs", ())))
+                }
+                if not expected_findings <= candidate_codes:
+                    raise ValueError(f"rejected candidate {row['sample_id']} does not match expected findings")
+            elif findings or intent_codes:
+                raise ValueError(
+                    f"valid mission row {row['sample_id']} violates planner contract: "
+                    f"{sorted({finding['code'] for finding in findings} | intent_codes)}"
+                )
+            validate_mission_plan(row["assistant_target"], capabilities=capabilities)
         else:
             parse_onboard_decision(row["assistant_target"])
         if not row.get("world") or not row.get("task_text"):
