@@ -119,6 +119,10 @@ class ExecutorConfig:
     small_unjudged_revisit_attempts: int = 2
     # Far/small rejection and small unjudged looks of one step share this cap.
     completion_revisit_max: int = 4
+    # Count loops: a small-box rejection of a track with two positive views
+    # cancels one of them instead of resetting the track, this many times per
+    # track (LoopConfig.small_reject_net_votes).  0 disables.
+    count_small_reject_net_votes: int = 1
     # With a supervisor energy/time margin, a small unjudged look is flown only
     # while this multiple of its estimated duration stays inside the margin.
     revisit_margin_factor: float = 2.0
@@ -141,6 +145,7 @@ class ExecutorConfig:
             "small_unjudged_revisit_attempts",
             "completion_revisit_max",
             "alert_look_attempts",
+            "count_small_reject_net_votes",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -535,6 +540,12 @@ class MissionExecutor:
             if isinstance(query, str) and hasattr(config, "small_unjudged_query"):
                 # Detector labels naming this query mark small unjudged tracks.
                 run.loop.config = replace(config, small_unjudged_query=query)
+        if step.skill == "count" and run.loop is not None:
+            config = run.loop.config
+            if hasattr(config, "small_reject_net_votes"):
+                run.loop.config = replace(
+                    config, small_reject_net_votes=self.config.count_small_reject_net_votes
+                )
         elif step.skill == "inspect":
             run.loop = self._loop(step)
         elif step.skill in {"patrol", "monitor"}:
@@ -611,6 +622,9 @@ class MissionExecutor:
             )
             if run.rejection_revisit_skipped:
                 status["rejection_revisit_skipped"] = run.rejection_revisit_skipped
+            netted = getattr(run.loop, "netted_rejections", None)
+            if netted:
+                status["small_rejects_netted"] = list(netted)
             if run.rejection_revisits:
                 for record in run.rejection_revisits:
                     if record.get("outcome") is None:
