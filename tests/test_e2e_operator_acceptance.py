@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.run_e2e_operator_acceptance import SitlLock, evaluate_run, main
+from scripts.run_e2e_operator_acceptance import SitlLock, _task_validation, evaluate_run, main
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "e2e_operator"
 REAL = Path("D:/Projects/mdwt/_scratch/e2e")
@@ -344,3 +344,42 @@ def test_sitl_lock_atomic_and_releases(tmp_path):
         SitlLock("other", tmp_path / "sitl.lock").acquire(wait_s=0)
     lock.release()
     assert not (tmp_path / "sitl.lock").exists()
+
+
+def test_non_count_task_validation_uses_alert_precision_recall():
+    kind, metrics, criteria = _task_validation(
+        ["monitor", "return_home"],
+        {"alerts": ["s1:alert:backpack@1,2", "s1:alert:unknown@3,4"]},
+        [],
+        {
+            "targets": [
+                {"alert_member": True, "label": "backpack"},
+            ]
+        },
+        10.0,
+    )
+    assert kind == "alerts"
+    assert metrics["precision"] == pytest.approx(0.5)
+    assert metrics["recall"] == pytest.approx(1.0)
+    assert criteria["alerts_match_truth"] is False
+
+
+def test_non_count_inspection_task_validation_matches_label_and_position():
+    kind, metrics, criteria = _task_validation(
+        ["inspect", "return_home"],
+        {},
+        [{"arrived_at_ground": True, "label": "mailbox", "n": 4.0, "e": 5.0}],
+        {
+            "targets": [
+                {
+                    "inspection_member": True,
+                    "label": "mailbox",
+                    "pose": {"y_north_m": 4.5, "x_east_m": 5.0},
+                },
+            ]
+        },
+        10.0,
+    )
+    assert kind == "inspection"
+    assert metrics["matched_inspections"] == 1
+    assert criteria["inspection_matches_truth"] is True

@@ -151,6 +151,30 @@ python scripts/run_mission_suite.py `
 | run12 | 5cebc74 | **PASS**：计数 3/3，误报 0，`count_is_lower_bound=false`（区域外/已补看地点不再算未决）；机载 llama-server 关闭主机提示缓存后，可用内存中位数 858 MB（run10 为 637 MB），无 vehicle_telemetry_gap；启动阶段 1–2 分钟内可用内存仍会降到几十 MB（加载模型与 Gazebo，同时其他项目的 java、WSL 虚拟机占用大量内存） | — |
 | run13 | ed3cbe7 | **PASS**：加入计划意图一致性检查（返航意图、查询目标依据、地点依据）后复验，7 项判据全部通过 | — |
 
+## 批量操作员 E2E 回归
+
+`configs/onboard/suite-e2e-operator.json` 把五条地面站 prompt 流程定义为一组回归：数交通锥、数消防栓、监视背包两分钟、沿围栏巡逻找背包、四向检查邮筒。每项指定世界、机型、任务包边界和预期技能/判据；控制台会自动签名并审批机载计划。每个任务的会话、下行记录和 `operator-acceptance` 报告分别放在 scratch 输出目录，套件结束后生成 `suite-results.json` 与 `suite-results.md`。
+
+先做纯命令预览，不取 SITL 锁，也不启动 Docker：
+
+```powershell
+$env:PYTHONPATH = 'src;.'
+$env:PYTHONUTF8 = '1'
+python scripts/run_e2e_operator_suite.py configs/onboard/suite-e2e-operator.json `
+  --output D:\Projects\mdwt\_scratch\cx-e2e-multi\dry-run --dry-run
+```
+
+实际批量运行会串行获取共享 `D:\Projects\mdwt\_scratch\sitl.lock`，与 `sitl_lock.sh` 的 mkdir/owner 锁互斥。每个任务最长会话等待为 90 分钟，五项连续运行按 30–120 分钟预留（取决于世界启动、机载模型加载和仿真结束时间）；结果日志仍写入 `D:\Projects\mdwt\_scratch\cx-e2e-multi\`：
+
+```powershell
+$env:PYTHONPATH = 'src;.'
+$env:PYTHONUTF8 = '1'
+python scripts/run_e2e_operator_suite.py configs/onboard/suite-e2e-operator.json `
+  --output D:\Projects\mdwt\_scratch\cx-e2e-multi\run
+```
+
+评估器按计划技能区分计数真值匹配、监视/巡逻告警精确率与召回率、巡检目标匹配，并保留返航、签名审批、下行完整性等公共门槛。历史 run9–run13 的计数判定与 verdict 维持原值。
+
 ## 已知限制
 
 - operator-link 规划用身份模型（r18），from_text 用规划模型（r14）；本任务两者结果一致，其他任务未验证。
