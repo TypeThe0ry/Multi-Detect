@@ -1,0 +1,287 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r20_w0009",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "collapsed_house",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0009_01"
+    },
+    "11": {
+      "asset_slug": "pickup",
+      "role": "distractor",
+      "target_id": "distractor_0009_02"
+    },
+    "12": {
+      "asset_slug": "stop_sign",
+      "role": "distractor",
+      "target_id": "distractor_0009_03"
+    },
+    "2": {
+      "asset_slug": "gazebo",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "office_building",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "oak_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "apartment",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
+      "asset_slug": "fire_truck",
+      "role": "target",
+      "target_id": "target_true_gen_r20_w0009"
+    },
+    "8": {
+      "asset_slug": "ambulance",
+      "role": "confuser",
+      "target_id": "confuser_0009_00_00"
+    },
+    "9": {
+      "asset_slug": "hatchback",
+      "role": "distractor",
+      "target_id": "distractor_0009_00"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "fire_truck",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.67753,
+      "category_words": [
+        "fire truck",
+        "truck"
+      ],
+      "class": "fire_truck",
+      "color": "red",
+      "label": "fire truck truck",
+      "measured_size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "pose": {
+        "x_east_m": 60.0,
+        "y_north_m": 35.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35241494,
+        "longitude_deg": 103.82033914
+      },
+      "size_m": [
+        3.54622,
+        12.42941,
+        3.35506
+      ],
+      "target_id": "target_true_gen_r20_w0009",
+      "true_target": true
+    },
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "confuser": true,
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": -15.217,
+        "y_north_m": 82.027,
+        "yaw_rad": -1.094782,
+        "z_up_m": 1.447
+      },
+      "position": {
+        "altitude_m": 1.447,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3528381,
+        "longitude_deg": 103.81966327
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "confuser_0009_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 112.625,
+        "y_north_m": -38.275,
+        "yaw_rad": 1.872336,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35175559,
+        "longitude_deg": 103.820812
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0009_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": -76.768,
+        "y_north_m": 40.985,
+        "yaw_rad": -2.51209,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35246879,
+        "longitude_deg": 103.81911019
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0009_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": 79.196,
+        "y_north_m": 29.27,
+        "yaw_rad": -2.700467,
+        "z_up_m": 0.933
+      },
+      "position": {
+        "altitude_m": 0.933,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35236338,
+        "longitude_deg": 103.82051162
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "distractor_0009_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "stop_sign",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.908798,
+      "category_words": [
+        "stop sign",
+        "road sign"
+      ],
+      "class": "stop_sign",
+      "color": "red",
+      "label": "stop sign road sign",
+      "measured_size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "pose": {
+        "x_east_m": 101.188,
+        "y_north_m": 58.388,
+        "yaw_rad": 0.948438,
+        "z_up_m": 0.909
+      },
+      "position": {
+        "altitude_m": 0.909,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35262539,
+        "longitude_deg": 103.82070923
+      },
+      "size_m": [
+        0.593091,
+        0.02282,
+        1.817596
+      ],
+      "target_id": "distractor_0009_03",
+      "true_target": false
+    }
+  ]
+}
