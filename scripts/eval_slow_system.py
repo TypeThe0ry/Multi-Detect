@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -572,6 +573,9 @@ def _http_json(
         return json.load(response)
 
 
+_RUNNER_LOGS: dict[str, deque[Path]] = defaultdict(deque)
+
+
 class LlamaServerRunner:
     fast_identity = False  # tests build bare instances
 
@@ -596,6 +600,8 @@ class LlamaServerRunner:
         wait_port_free: bool = False,
         cache_ram_mib: int | None = None,
         max_restarts: int = 0,
+        log_dir: Path | None = None,
+        keep_logs: int = 3,
     ):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = (
             port,
@@ -618,6 +624,10 @@ class LlamaServerRunner:
         # request retried, so a crash never turns into rows of "model" output.
         # The onboard runtime keeps 0 (systemd owns the server lifecycle there).
         self.max_restarts, self.restarts = max(0, int(max_restarts)), []
+        self.log_dir = Path(log_dir).resolve() if log_dir is not None else Path(tempfile.gettempdir())
+        self.keep_logs = max(0, int(keep_logs))
+        self._server_failed = False
+        self._closed = False
         # Rows that name a focus track only allow identity verdicts (constrained decoding).
         self.identity_only = identity_only
         # Optionally keep token log-probabilities of the last answer (decision confidence).
@@ -665,13 +675,22 @@ class LlamaServerRunner:
         self._start()
 
     def _start(self) -> None:
+        self._closed = False
+        self._server_failed = False
         _cleanup_orphaned_windows_server(self.port, self._model)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         self.server_log = tempfile.NamedTemporaryFile(
-            prefix="llama-server-", suffix=".log", delete=False
+            prefix="llama-server-", suffix=".log", delete=False, dir=self.log_dir
         )
-        self.process = subprocess.Popen(
-            self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log
-        )
+        try:
+            self.process = subprocess.Popen(
+                self._command, cwd=self._cwd, stdout=subprocess.DEVNULL, stderr=self.server_log
+            )
+        except OSError as error:
+            self._server_failed = True
+            log_path = self.server_log.name
+            self.close()
+            raise RuntimeError(f"failed to start llama-server; log: {log_path}: {error}") from error
         self._job_handle = None
         if sys.platform == "win32":
             try:
@@ -689,7 +708,12 @@ class LlamaServerRunner:
                 tail = Path(self.server_log.name).read_text(encoding="utf-8", errors="replace")[
                     -2000:
                 ]
-                raise RuntimeError(f"llama-server exited with {self.process.returncode}: {tail}")
+                self._server_failed = True
+                log_path = self.server_log.name
+                self.close()
+                raise RuntimeError(
+                    f"llama-server exited with {self.process.returncode}; log: {log_path}: {tail}"
+                )
             try:
                 if (
                     _http_json(f"http://127.0.0.1:{self.port}/health", timeout=2).get("status")
@@ -699,8 +723,10 @@ class LlamaServerRunner:
             except (OSError, ValueError, urllib.error.URLError):
                 pass
             time.sleep(1)
+        self._server_failed = True
+        log_path = self.server_log.name
         self.close()
-        raise TimeoutError("llama-server did not become healthy")
+        raise TimeoutError(f"llama-server did not become healthy; log: {log_path}")
 
     def _verdict_first_tokens(self, prefix: str) -> dict[str, int]:
         """Token id that starts each verdict right after ``prefix`` (BPE merges across the quote)."""
@@ -882,7 +908,10 @@ class LlamaServerRunner:
         state = f"exited with {process.returncode}" if exited else "stopped answering"
         restarts = getattr(self, "restarts", [])
         if len(restarts) >= getattr(self, "max_restarts", 0):
-            raise ServerDiedError(f"llama-server {state} mid-evaluation: {tail}") from None
+            self._server_failed = True
+            raise ServerDiedError(
+                f"llama-server {state} mid-evaluation; log: {getattr(log, 'name', '<unknown>')}: {tail}"
+            ) from None
         restarts.append(
             {
                 "state": state,
@@ -897,6 +926,7 @@ class LlamaServerRunner:
             file=sys.stderr,
             flush=True,
         )
+        self._server_failed = True
         self.close(wait_port_free=True)
         self._connection_failures = 0
         try:
@@ -925,7 +955,12 @@ class LlamaServerRunner:
             self._job_handle = None
 
     def close(self, *, wait_port_free: bool | None = None) -> None:
-        if self.process.poll() is None:
+        if getattr(self, "_closed", False):
+            return
+        process = getattr(self, "process", None)
+        if process is not None and process.poll() not in (None, 0):
+            self._server_failed = True
+        if process is not None and process.poll() is None:
             self.process.terminate()
             try:
                 self.process.wait(timeout=10)
@@ -933,6 +968,28 @@ class LlamaServerRunner:
                 self.process.kill()
                 self.process.wait(timeout=10)
         self._close_job()
+        log = getattr(self, "server_log", None)
+        if log is not None:
+            try:
+                log.flush()
+                log.close()
+            except (OSError, ValueError, AttributeError):
+                pass
+            if not getattr(self, "_server_failed", False):
+                owned_logs = _RUNNER_LOGS[str(getattr(self, "log_dir", Path(log.name).parent))]
+                owned_logs.append(Path(log.name).resolve())
+                while len(owned_logs) > getattr(self, "keep_logs", 3):
+                    old = owned_logs.popleft()
+                    try:
+                        old.unlink()
+                    except FileNotFoundError:
+                        pass
+                if getattr(self, "keep_logs", 3) == 0:
+                    try:
+                        Path(log.name).unlink()
+                    except FileNotFoundError:
+                        pass
+        self._closed = True
         if wait_port_free is None:
             wait_port_free = getattr(self, "wait_port_free", False)
         if not wait_port_free:
@@ -1018,6 +1075,8 @@ def run(args) -> dict[str, Any]:
                 cache_prompt=not getattr(args, "no_prompt_cache", False),
                 cache_ram_mib=getattr(args, "cache_ram_mib", None),
                 max_restarts=getattr(args, "max_server_restarts", 0),
+                log_dir=getattr(args, "log_dir", None) or (args.output.parent / "llama-server-logs" if args.output else None),
+                keep_logs=getattr(args, "keep_server_logs", 3),
             )
         result = evaluate_predictor(rows, runner)
         if isinstance(runner, LlamaServerRunner):
@@ -1076,6 +1135,8 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, default=9933)
     parser.add_argument("--context", type=int, default=4096)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--log-dir", type=Path, help="directory for llama-server logs")
+    parser.add_argument("--keep-server-logs", type=int, default=3)
     parser.add_argument(
         "--identity-only",
         action="store_true",

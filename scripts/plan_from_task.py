@@ -180,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         "server default of 8 GiB fills host RAM over a long evaluation)",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--log-dir", type=Path, help="directory for llama-server logs")
+    parser.add_argument("--keep-server-logs", type=int, default=3)
     parser.add_argument(
         "--sorted-keys",
         action="store_true",
@@ -201,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         args.gguf, None if args.no_mmproj else args.mmproj,
         executable=args.llama_server, port=args.port,
         max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
+        log_dir=args.log_dir or (args.output.parent / "llama-server-logs"),
+        keep_logs=args.keep_server_logs,
     )
     request_usage: list[dict[str, int | None]] = []
 
