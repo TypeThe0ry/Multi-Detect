@@ -2,7 +2,7 @@
 
 每个已完成的监督器控制步可写入 `crash_resume/checkpoint.json`。文件通过临时文件、`fsync`、`os.replace` 原子替换，最大 64 KiB。写入失败只记录 `checkpoint_error`，控制循环继续由既有安全层负责。默认只接受最近 60 秒的检查点；同时比较 PX4 `time_boot_ms`，PX4 重启或 boot time 回退即拒绝恢复。
 
-检查点格式为 `multidetect.crash-resume.v1`，包含 `mission_id`、`package_digest`（准入任务及计划摘要）、`step_id`、`phase`、单调递增 `sequence`、`saved_at`，以及 `counts`、带位置的 `alerts`、`visited`、`home`、`elapsed_s`、`energy` 和 `provenance`。恢复时身份、时间和序号均须有效；截断 JSON、任务包摘要不符和过期记录都不可信。告警与计数在恢复时回灌执行器，位置记录继续用于空间去重。
+检查点格式为 `multidetect.crash-resume.v1`，包含 `mission_id`、`package_digest`（准入任务及计划摘要）、`step_id`、`phase`、单调递增 `sequence`、`saved_at`、`boot_time_ms`，以及 `counts`、带位置的 `alerts`、`visited`、`home`、`elapsed_s`、`energy` 和 `provenance`。飞行模式只取 MAVLink HEARTBEAT 的 `custom_mode`，由 PX4 main/sub mode 解码为 `HOLD`、`OFFBOARD`、`RTL`、`LAND` 等；boot time 取 `LOCAL_POSITION_NED` 或 `ATTITUDE` 的 `time_boot_ms`，不从 HEARTBEAT 读取不存在的字段。恢复时身份、模式、boot time、时间和序号均须有效；截断 JSON、任务包摘要不符和过期记录都不可信。告警与计数在恢复时回灌执行器，位置记录继续用于空间去重。
 
 ## 启动决策
 
