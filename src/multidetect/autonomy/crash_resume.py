@@ -69,8 +69,13 @@ def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
                                            mission_id=mission_id, package_digest=package_digest)
             if ok and boot_time_ms is not None and checkpoint.get("boot_time_ms") is not None and float(boot_time_ms) < float(checkpoint["boot_time_ms"]):
                 ok, reason = False, "PX4 已重启，boot time 不匹配"
-            if ok and nav_state and nav_state.upper() in {"RTL", "LAND", "AUTO_RTL", "AUTO_LAND", "FAILSAFE"} and not resume_after_failsafe:
+            mode = nav_state.upper() if isinstance(nav_state, str) else None
+            if ok and (mode is None or mode.startswith("PX4(")):
+                return RecoveryDecision("monitor_failsafe", "飞行模式未知，onboard 不接管，仅记录与监视", dict(checkpoint))
+            if ok and mode in {"RTL", "LAND", "AUTO_RTL", "AUTO_LAND", "FAILSAFE"} and not resume_after_failsafe:
                 return RecoveryDecision("monitor_failsafe", "PX4 失效保护已接管，onboard 只记录与监视", dict(checkpoint))
+            if ok and mode not in {"HOLD", "LOITER", "AUTO_LOITER", "OFFBOARD"} and not resume_after_failsafe:
+                return RecoveryDecision("monitor_failsafe", "飞行模式不在允许恢复集合，onboard 仅记录与监视", dict(checkpoint))
             if ok:
                 return RecoveryDecision("resume", "飞机在空中且检查点有效，继续执行", dict(checkpoint))
         else:
