@@ -11,18 +11,29 @@ import sys
 def test_real_mode_process_loopback(tmp_path):
     env = os.environ.copy()
     env.update(PYTHONPATH="src;.", PYTHONUTF8="1", CX_REAL_HARNESS_SCRATCH=str(tmp_path))
-    result = subprocess.run(
-        [sys.executable, "scripts/run_real_mode_harness.py"],
-        env=env,
-        cwd=os.getcwd(),
-        capture_output=True,
-        text=True,
-        timeout=50,
-        check=False,
-    )
+    result = None
+    for _attempt in range(2):
+        result = subprocess.run(
+            [sys.executable, "scripts/run_real_mode_harness.py"],
+            env=env,
+            cwd=os.getcwd(),
+            capture_output=True,
+            text=True,
+            timeout=50,
+            check=False,
+        )
+        if result.returncode == 0 or "WinError 10013" not in result.stdout:
+            break
+    assert result is not None
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
     assert report["onboard_returncode"] == 0
     assert report["gcs_returncode"] in (0, 1, -15)
     assert report["final_log"]["kind"] == "final_summary"
+    assert report["final_log"]["summary"]["test_hook_active"] is True
+    assert "离线真实模式测试 hook" in report["final_log"]["summary"]["test_hook_message_zh"]
+    assert report["announced_plan"]["test_hook_active"] is True
     assert report["px4_commands"]
+    assert "警告：已启用离线真实模式测试 hook" in (
+        (tmp_path / "real-process-onboard.log").read_text(encoding="utf-8")
+    )

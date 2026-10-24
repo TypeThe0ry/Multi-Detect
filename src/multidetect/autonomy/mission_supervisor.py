@@ -1027,23 +1027,25 @@ class MissionSupervisor:
             self._time()
             executor = self.executor
             lower_bounds = count_lower_bounds(executor)
+            summary = {
+                "status": status,
+                "action": self.action,
+                "reason": self.reason,
+                "terminal_action": self._terminal,
+                "terminal_reason": self.reason if self._terminal is not None else None,
+                "report": asdict(executor.report()),
+                "findings": executor.findings,
+                "alerts": list(executor.alerts),
+                "history": executor.history,
+                "counts": executor.counts,
+                "count_lower_bounds": lower_bounds,
+                "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
+                "recovery_history": self._recovery.history if self._recovery else [],
+            }
+            summary.update(getattr(self, "test_hook_metadata", {}))
             self.log.finish(
                 self._now,
-                {
-                    "status": status,
-                    "action": self.action,
-                    "reason": self.reason,
-                    "terminal_action": self._terminal,
-                    "terminal_reason": self.reason if self._terminal is not None else None,
-                    "report": asdict(executor.report()),
-                    "findings": executor.findings,
-                    "alerts": list(executor.alerts),
-                    "history": executor.history,
-                    "counts": executor.counts,
-                    "count_lower_bounds": lower_bounds,
-                    "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
-                    "recovery_history": self._recovery.history if self._recovery else [],
-                },
+                summary,
             )
             self._finished = True
         if self.downlink is not None:

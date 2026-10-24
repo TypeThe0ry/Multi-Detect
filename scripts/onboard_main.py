@@ -5,15 +5,18 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import ipaddress
 import json
 import math
 import signal
 import sys
 import time
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+_ALLOWED_TEST_HOOK = "scripts.onboard_real_test_hook"
 if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
@@ -386,12 +389,59 @@ def _shutdown(runtime, operator_server, policy, camera, vehicle) -> list[str]:
     return errors
 
 
+def _is_loopback_test_endpoint(endpoint: str | None) -> bool:
+    if not isinstance(endpoint, str):
+        return False
+    value = endpoint.strip()
+    if "://" in value:
+        scheme, rest = value.split("://", 1)
+    else:
+        scheme, separator, rest = value.partition(":")
+        if not separator:
+            return False
+    scheme = scheme.lower()
+    if scheme not in {"udp", "udpout", "udpin", "tcp", "tcpout", "tcpin"}:
+        return False
+    try:
+        transport = "udp" if scheme.startswith("udp") else "tcp"
+        parsed = urlsplit(f"{transport}://{rest}")
+        host = parsed.hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    # Cross-process hardware/model substitution is available only by explicit
-    # opt-in for the offline REAL-mode integration harness.
+    # Cross-process hardware/model substitution is restricted to the local
+    # loopback harness.  Validate before importing any user-selected module or
+    # admitting a mission package.
     test_hook = __import__("os").environ.get("MULTIDETECT_ONBOARD_TEST_HOOK")
+    hook_metadata: dict[str, Any] | None = None
     if test_hook:
-        importlib.import_module(test_hook).install(globals())
+        if test_hook != _ALLOWED_TEST_HOOK:
+            raise ValueError(
+                "拒绝启用 onboard 测试 hook：MULTIDETECT_ONBOARD_TEST_HOOK 不是允许的模块"
+            )
+        if args.mode != "real" or not _is_loopback_test_endpoint(getattr(args, "endpoint", None)):
+            raise ValueError(
+                "拒绝启用 onboard 测试 hook：只允许 127.0.0.1、localhost 或 ::1 的 UDP/TCP endpoint"
+            )
+        print(
+            "警告：已启用离线真实模式测试 hook；仅允许回环 endpoint，禁止用于真机。",
+            file=sys.stderr,
+        )
+        hook_metadata = importlib.import_module(test_hook).install(globals()) or {
+            "test_hook_active": True,
+            "test_hook_name": test_hook,
+            "test_hook_message_zh": "离线真实模式测试 hook 已启用，仅允许回环 endpoint",
+        }
     package, package_options = _admit_package(args)
     if args.mode == "real":
         missing = [
@@ -497,6 +547,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 report=preflight,
                 apply_px4_params=bool(args.apply_px4_params),
             )
+            if hook_metadata:
+                log.append("test_hook_active", time.monotonic(), **hook_metadata)
             if not preflight["passed"]:
                 failures = ", ".join(preflight["blocking_failures"])
                 raise RuntimeError("PX4 preflight blocked arming: " + failures)
@@ -522,6 +574,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             mission_package=package,
             runtime_mode=args.mode,
         )
+        if hook_metadata:
+            raw_policy.test_hook_metadata = dict(hook_metadata)
+            supervisor = getattr(raw_policy, "supervisor", None)
+            if supervisor is not None:
+                supervisor.test_hook_metadata = dict(hook_metadata)
+                supervisor.log.append("test_hook_active", time.monotonic(), **hook_metadata)
         package_check = None
         if args.mode == "real":
 

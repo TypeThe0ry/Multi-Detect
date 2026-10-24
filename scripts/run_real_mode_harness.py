@@ -168,12 +168,13 @@ def main() -> int:
     for log_path in logs:
         records.extend(json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines())
     final_summary = next((row for row in reversed(records) if row.get("kind") == "final_summary"), None)
+    announced_plan = next((row for row in records if row.get("kind") == "plan"), None)
     if onboard.returncode != 0 or '"ok": true' not in output or final_summary is None:
         print(output)
         print("GCS:", gcs_output)
         return 1
     assert '"preflight": {' in output and "takeoff" in px4.commands or "400" in px4.commands
-    print(json.dumps({"onboard_returncode": onboard.returncode, "gcs_returncode": gcs.returncode, "px4_commands": px4.commands, "final_log": final_summary}, ensure_ascii=False))
+    print(json.dumps({"onboard_returncode": onboard.returncode, "gcs_returncode": gcs.returncode, "px4_commands": px4.commands, "announced_plan": announced_plan, "final_log": final_summary}, ensure_ascii=False))
     return 0
 
 

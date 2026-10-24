@@ -15,6 +15,12 @@ from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissi
 from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
+TEST_HOOK_METADATA = {
+    "test_hook_active": True,
+    "test_hook_name": "scripts.onboard_real_test_hook",
+    "test_hook_message_zh": "离线真实模式测试 hook 已启用，仅允许回环 endpoint",
+}
+
 
 class FakeCamera:
     def __init__(self, _source, calibration, **_kwargs):
@@ -59,12 +65,14 @@ class FakePolicy:
         )
         log = OnboardMissionLog(mission_log_dir, package.mission_id)
         downlink = DownlinkQueue(log, sender=None)
-        return MissionSupervisor(
+        supervisor = MissionSupervisor(
             executor, package, log=log, downlink=downlink,
             security_key=AuthenticationKey("hmac-sha256", b"R" * 32, "default"),
             runtime_mode="real", requires_approval=True,
             replay_state_path=mission_log_dir / "ground-replay-state.json",
         )
+        supervisor.test_hook_metadata = dict(TEST_HOOK_METADATA)
+        return supervisor
 
     def prepare_operator_package(self, package):
         return self._supervisor(package)
@@ -106,3 +114,4 @@ def install(namespace):
             return report
 
     namespace["PX4PreflightGate"] = HarnessPreflightGate
+    return dict(TEST_HOOK_METADATA)

@@ -315,6 +315,7 @@ class MissionOperatorAdapter:
             plan_sha256=supervisor.plan_sha256,
             task_text=supervisor.package.document.get("task_text") or supervisor.executor.plan.goal,
             requires_approval=supervisor.requires_approval,
+            **getattr(supervisor, "test_hook_metadata", {}),
             steps=[
                 {
                     "id": s.id,
@@ -923,6 +924,7 @@ class MissionOperatorAdapter:
             # Unknown gate is conservative, never proof of preflight permission.
             "flight_active": not self._preflight(),
         }
+        document.update(getattr(supervisor, "test_hook_metadata", {}))
         return document
 
     def tick(self, sender: Callable[[bytes], object] | None) -> None:
