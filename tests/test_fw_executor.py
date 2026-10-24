@@ -230,6 +230,7 @@ def test_fixed_wing_reposition_accepts_the_px4_loiter_capture_ring() -> None:
     assert _fixed_wing_reposition_complete(
         dn=81.2, de=0.0, leg_n=25.0, leg_e=0.0, distance_m=81.2,
         loiter_radius_m=80.0,
+        yaw_deg=90.0, centre_n=0.0, centre_e=0.0, angle_deg=90.0,
     )
 
 

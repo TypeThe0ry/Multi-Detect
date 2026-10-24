@@ -185,3 +185,33 @@ PX4 loiter 捕获环；多旋翼仍使用停止后的点到达判据。`tests/te
 `eval_onboard_loop_campaign.py` 对 wall-clock failed episode 不纳入 report，导致
 suite 行为 `missing`，`planned_skills/safety_pass` 都是 `None`，期望检查才统一记为
 false。它不是某个飞行安全子项失败，而是超时任务没有终态评分记录。
+
+## 第三次复验（c3985f94）与后续设计
+
+`c3985f94` 的 80 m 捕获圈修复过宽。w0016、w0031 都各跑满 151 步；前 150 步均是
+半径 80 m 的 FW reposition，最后一步才进入 `autopilot_return`。w0016 最终距 home
+`890.758 m`，超过该任务 `120 m` 门限；w0031 为 `996.831 m`，超过 `300 m` 门限。
+两者 `return_home_completed=true`、最低高度和地面接触均通过，所以两架的唯一失败安全
+子项都是 `safety_return_distance_pass=false`。80 m + 5 m 判定让下一观察立即 success，
+没有要求 loiter 建立，也没有要求相机覆盖，造成“全部 success 但区域未扫过”。
+
+后续实现已改为两个独立门槛：固定翼进入捕获圈还必须保持切向航向并累计至少 90°
+航向变化；搜索器另维护以相机投影足迹为半径的区域网格，按覆盖率阈值或搜索调用上限
+结束，并预留返航调用余量。小区域不再依赖密集短点：足迹覆盖达到阈值即可停止搜索交给
+`autopilot_return`。测试覆盖了 90° loiter 建立、网格覆盖和预算保留，并保留
+8292649b 的 w0016 观察路径对照。
+
+预期复验命令（锁释放后只跑两个 Cessna，各 1 架次）：
+
+```bash
+source /d/Projects/mdwt/_scratch/sitl_lock.sh
+sitl_acquire airframe-suite-20261025-fw-guidance
+trap sitl_release EXIT
+export PYTHONPATH='src;.'
+export PYTHONUTF8=1
+python scripts/run_mission_suite.py \
+  --suite configs/onboard/suite-airframes.json \
+  --out /d/Projects/Multi-Detect/artifacts/benchmarks/airframe-suite-20261025-fw-guidance \
+  --only rc-cessna-w0016-ambulance-known-limit rc-cessna-w0031-ambulance-negative \
+  --episodes 1 --min-free-disk-gb 8 --strict
+```

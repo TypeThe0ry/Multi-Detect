@@ -1505,11 +1505,17 @@ def _wait_motion_command(
         leg = math.hypot(leg_n, leg_e)
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(cruise_mps, 1.0) * 1.5 + 15.0)
         distance = leg
+        orbit_angle = 0.0
+        previous_yaw: float | None = None
         while time.monotonic() - started < timeout:
             reader.raise_if_failed()
             pose = _state_position(reader.state)
             dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
             distance = math.hypot(dn, de)
+            current_yaw = _state_yaw(reader.state)
+            if previous_yaw is not None:
+                orbit_angle += abs((current_yaw - previous_yaw + 180.0) % 360.0 - 180.0)
+            previous_yaw = current_yaw
             # A plane passes its target rather than stopping on it: the leg is done
             # once little of it remains along the original track (or it is close).
             if _fixed_wing_reposition_complete(
@@ -1519,6 +1525,10 @@ def _wait_motion_command(
                 leg_e=leg_e,
                 distance_m=distance,
                 loiter_radius_m=float(command.radius_m or FIXED_WING_LOITER_CAPTURE_M),
+                yaw_deg=current_yaw,
+                centre_n=command.target_ned[0],
+                centre_e=command.target_ned[1],
+                angle_deg=orbit_angle,
             ):
                 return {
                     "waited": "arrived",
@@ -1550,6 +1560,10 @@ def _fixed_wing_reposition_complete(
     leg_e: float,
     distance_m: float,
     loiter_radius_m: float | None = None,
+    yaw_deg: float | None = None,
+    centre_n: float | None = None,
+    centre_e: float | None = None,
+    angle_deg: float = 0.0,
 ) -> bool:
     """Return whether a fixed-wing leg has actually reached or passed its target.
 
@@ -1564,8 +1578,17 @@ def _fixed_wing_reposition_complete(
     # A fixed-wing reposition is captured when PX4 enters its loiter ring;
     # unlike a multirotor it cannot stop at the centre.  The Cessna's deployed
     # NAV_LOITER_RAD is 80 m, so a stable 81--84 m ring is a valid completion.
-    if loiter_radius_m is not None and MOTION_ARRIVAL_TOLERANCE_M < distance_m <= max(
+    if (
+        loiter_radius_m is not None
+        and yaw_deg is not None
+        and centre_n is not None
+        and centre_e is not None
+        and angle_deg >= 90.0
+        and MOTION_ARRIVAL_TOLERANCE_M < distance_m <= max(
         MOTION_ARRIVAL_TOLERANCE_M, float(loiter_radius_m) + 5.0
+        )
+        and distance_m >= max(0.0, float(loiter_radius_m) - 12.0)
+        and _fixed_wing_tangent_error_deg(dn, de, yaw_deg) <= 35.0
     ):
         return True
     leg = math.hypot(leg_n, leg_e)
@@ -1576,6 +1599,16 @@ def _fixed_wing_reposition_complete(
     return (
         along <= MOTION_ALONG_TRACK_DONE_M
         and cross <= MOTION_CROSS_TRACK_DONE_M
+    )
+
+
+def _fixed_wing_tangent_error_deg(dn: float, de: float, yaw_deg: float) -> float:
+    radial_bearing = math.degrees(math.atan2(-de, -dn))
+    tangent_a = radial_bearing + 90.0
+    tangent_b = radial_bearing - 90.0
+    return min(
+        abs((yaw_deg - tangent_a + 180.0) % 360.0 - 180.0),
+        abs((yaw_deg - tangent_b + 180.0) % 360.0 - 180.0),
     )
 
 

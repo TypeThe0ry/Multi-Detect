@@ -3384,7 +3384,7 @@ class OnboardLoop:
             outcome = self.search_outcome() if self.search_outcome is not None else None
             # Only a reported full pass is a completed coverage; any other stop
             # ends the search without claiming it (search_exhausted downstream).
-            self.state = "completed" if outcome == "coverage_complete" else "blocked"
+            self.state = "completed" if outcome in {"coverage_complete", "budget_reserve"} else "blocked"
             return action
         if self.obstacle_source is None:
             return action

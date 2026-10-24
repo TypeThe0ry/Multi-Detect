@@ -1576,8 +1576,15 @@ class MissionExecutor:
             if revisit is not None:
                 return revisit
             # The loop's own budget ended its search; flying home is the plan's job.
-            reason = "coverage_complete" if run.loop.state == "completed" else "search_exhausted"
-            self._finish("succeeded" if reason == "coverage_complete" else "failed", reason)
+            search_outcome = run.loop.search_outcome() if run.loop.search_outcome else None
+            reason = (
+                "coverage_complete"
+                if run.loop.state == "completed" and search_outcome == "coverage_complete"
+                else "search_budget_reserved"
+                if run.loop.state == "completed"
+                else "search_exhausted"
+            )
+            self._finish("succeeded" if reason in {"coverage_complete", "search_budget_reserved"} else "failed", reason)
             return None
         return action, info
 
