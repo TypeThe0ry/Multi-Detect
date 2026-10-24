@@ -897,6 +897,137 @@ def cx_r20_rows(args, held_out: set[str]) -> list[dict]:
     return rows
 
 
+def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
+    """Generate deterministic paired intent/capability examples at scale.
+
+    ``r20_plan_intent_count`` is the number of positive/negative pairs per
+    family.  Every accepted row is checked before it is emitted, and the
+    normalized task text is kept disjoint from the hand-written eval corpus.
+    """
+    pairs = int(getattr(args, "r20_plan_intent_count", 40))
+    if pairs < 1:
+        raise ValueError("r20 plan-intent pair count must be positive")
+    rng = random.Random(f"{args.seed}:r20-plan-intent")
+    places = [
+        ("poi:gate", "大门", "gate", "entrance"),
+        ("poi:pad", "起降坪", "landing pad", "pad"),
+        ("poi:tower", "水塔", "water tower", "tower"),
+        ("poi:shed", "仓库", "shed", "warehouse"),
+    ]
+    zones = [("zone:lot", "停车场", "parking lot"), ("zone:field", "场地", "field"),
+             ("zone:yard", "院子", "yard")]
+    fake_places = [("Raven Pier", "Raven码头"), ("North Annex", "北侧附楼"),
+                   ("Quartz Point", "Quartz观测点"), ("Cedar Wharf", "Cedar码头")]
+    rows = []
+
+    def refs_for(ref, zh, en, alias):
+        # The slash-separated alias is the same ref_labels representation used
+        # by mission packages; the task deliberately uses the alias term.
+        return (f"{ref} ({zh} / {en} / {alias})",) + tuple(
+            f"{z[0]} ({z[1]} / {z[2]})" for z in zones
+        )
+
+    def add_pair(index, family, positive, negative, expected_code=None):
+        for polarity, (text, plan, refs, capabilities, valid) in enumerate((positive, negative)):
+            # Keep each deterministic draw distinct even when a small place pool
+            # is cycled; the sortie marker is semantically inert for the checks.
+            text = f"{text}（第{index + 1}架次）" if re.search(r"[\u4e00-\u9fff]", text) else f"{text} (sortie {index + 1})"
+            normalized = normalize_task(text)
+            if normalized in held_out or any(normalized == row["_key"] for row in rows):
+                return False
+            if valid:
+                validate_mission_plan(plan, capabilities=frozenset(capabilities))
+            findings = check_plan_intent(plan, text, refs)
+            cap_findings = capability_violations(
+                plan, capabilities,
+                airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+            )
+            codes = {finding.code for finding in findings} | {finding["code"] for finding in cap_findings}
+            if valid and codes:
+                raise ValueError(f"r20 positive {family} violates contract: {text}: {sorted(codes)}")
+            if not valid and expected_code not in codes:
+                raise ValueError(f"r20 negative {family} not caught: {text}: {sorted(codes)}")
+            rows.append({
+                "sample_id": f"plan-cx-r20-{family}-{index:04d}-{polarity}",
+                "kind": "mission_plan", "world": "synthetic_plan_cx_r20",
+                "family": family, "task_text": text, "refs": list(refs),
+                "pair_role": "positive" if polarity == 0 else "paired_negative",
+                "capabilities": list(capabilities), "expected_valid": valid,
+                "expected_findings": [] if valid else [expected_code],
+                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                "assistant_target": plan, "_key": normalized,
+            })
+        return True
+
+    for index in range(pairs):
+        ref, zh, en, alias = places[index % len(places)]
+        zone, zone_zh, zone_en = zones[index % len(zones)]
+        fake_en, fake_zh = fake_places[index % len(fake_places)]
+        use_zh = index % 2 == 0
+        # Return-home wording has independent Chinese and English variants.
+        return_pos = (
+            (f"到{zh}核查入口，{rng.choice(['然后返航', '再回到起飞点', '完成后回家'])}。",
+             {"plan_version":1,"goal":"return","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]},
+             refs_for(ref, zh, en, alias), (), True)
+            if use_zh else
+            (f"Inspect the {en}, then {rng.choice(['return home', 'head back to the launch point', 'come back to base'])}.",
+             {"plan_version":1,"goal":"return","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]},
+             refs_for(ref, zh, en, alias), (), True)
+        )
+        return_neg = (
+            (f"到{zh}查看，不用返航，{rng.choice(['就地降落', '原地落地'])}。",
+             {"plan_version":1,"goal":"land","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),L("s2")],"report":[]}, refs_for(ref, zh, en, alias), (), True)
+            if use_zh else
+            (f"Go to the {en}; do not return home, {rng.choice(['land here', 'touch down on site'])}.",
+             {"plan_version":1,"goal":"land","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),L("s2")],"report":[]}, refs_for(ref, zh, en, alias), (), True)
+        )
+        add_pair(index, "return_intent", return_pos, return_neg)
+
+        unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
+        unknown_text = (f"去地图没有的{fake_zh}，不要替换成{zh}。" if use_zh else
+                        f"Fly to the nonexistent {fake_en}; do not substitute the {en}.")
+        unknown_pos = (f"到{zh}核查后返航。", return_pos[1], return_pos[2], (), True)
+        unknown_neg = (unknown_text, unknown_plan, refs_for(ref, zh, en, alias), (), False)
+        add_pair(index, "unknown_place", unknown_pos, unknown_neg, "ungrounded_place")
+
+        deliver_plan = {"plan_version":1,"goal":"deliver","steps":[S("s1","deliver",{"target_ref":ref,"payload_ref":"payload:parcel"},"s2","s2"),H("s2")],"report":[]}
+        deliver_ok = (f"把包裹投放到{zh}后返航。" if use_zh else f"Deliver the parcel to the {en} and return home.")
+        deliver_bad = (f"把包裹投放到{zh}，但本机没有载荷投送能力。" if use_zh else f"Deliver the parcel to the {en}; payload drop is unavailable.")
+        deliver_positive = (deliver_ok, deliver_plan, refs_for(ref, zh, en, alias), ("payload_drop",), True)
+        deliver_negative = (deliver_bad, deliver_plan, refs_for(ref, zh, en, alias), (), False)
+        add_pair(index, "missing_payload_drop", deliver_positive, deliver_negative, "missing_capability")
+
+        hover_plan = {"plan_version":1,"goal":"hover","steps":[S("s1","hover",{"region":zone},"s2","s2"),H("s2")],"report":[]}
+        fixed_safe = (f"固定翼飞越{zone_zh}后返航。" if use_zh else f"A fixed-wing aircraft flies over the {zone_en} and returns home.")
+        fixed_bad = (f"固定翼在{zone_zh}上空悬停。" if use_zh else f"A fixed-wing aircraft should hover over the {zone_en}.")
+        fixed_safe_plan = {"plan_version":1,"goal":"fixed wing transit","steps":[S("s1","goto",{"target_ref":zone},"s2","s2"),H("s2")],"report":[]}
+        fixed_positive = (fixed_safe, fixed_safe_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("airframe:fixed_wing",), True)
+        fixed_negative = (fixed_bad, hover_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
+        add_pair(index, "fixed_wing_constraint", fixed_positive, fixed_negative, "missing_capability")
+
+        land_plan = {"plan_version":1,"goal":"fixed wing landing","steps":[S("s1","land",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
+        land_safe = (f"固定翼飞到{zone_zh}上空后返航。" if use_zh else f"The fixed-wing aircraft flies over the {zone_en} and returns home.", fixed_safe_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("airframe:fixed_wing",), True)
+        land_bad = (f"固定翼飞到{zh}上方定点降落。" if use_zh else f"A fixed-wing aircraft should land precisely on the {en}.", land_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
+        add_pair(index, "fixed_wing_target_land", land_safe, land_bad, "missing_capability")
+
+        alias_text = (f"到{alias}确认位置，再回基地。" if use_zh else f"Go to the {alias}, verify it, and return to base.")
+        alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
+        alias_pair = (alias_text, alias_plan, refs_for(ref, zh, en, alias), (), True)
+        alias_bad = (f"到{fake_zh}确认位置，再回基地。" if use_zh else f"Go to the {fake_en}, verify it, and return to base.", alias_plan, refs_for(ref, zh, en, alias), (), False)
+        add_pair(index, "ref_alias", alias_pair, alias_bad, "ungrounded_place")
+
+        query = "red car" if index % 2 else "bicycle"
+        query_zh = "红色轿车" if query == "red car" else "自行车"
+        count_plan = {"plan_version":1,"goal":"count","steps":[S("s1","count",{"region":zone,"query":query,"max_count":10},"s2","s2"),H("s2")],"report":[]}
+        query_good = (f"数{zone_zh}里的{query_zh}，然后返航。" if use_zh else f"Count {query}s in the {zone_en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), True)
+        query_bad = (f"检查{zh}并返航。" if use_zh else f"Inspect the {en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), False)
+        add_pair(index, "query_grounding", query_good, query_bad, "ungrounded_query")
+
+    for row in rows:
+        row.pop("_key", None)
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -921,6 +1052,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="append offline r20 return-home/unknown-place intent pairs")
     parser.add_argument("--r20-plan-intent", action="store_true",
                         help="emit paired r20 intent, grounding, alias, and capability audit rows")
+    parser.add_argument(
+        "--r20-plan-intent-count", type=int, default=40,
+        help="positive/negative pairs per r20 intent family (default: 40)",
+    )
+    parser.add_argument(
+        "--r20-plan-intent-mix", action="store_true",
+        help="append the scalable r20 rows to the requested v4/v5 normal rows",
+    )
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -956,8 +1095,13 @@ def main(argv: list[str] | None = None) -> int:
         rows = r20_intent_rows(args, held_out, labels)
         args.rows, args.val_rows = len(rows), 0
     if args.r20_plan_intent:
-        rows = cx_r20_rows(args, held_out)
-        args.rows, args.val_rows = len(rows), 0
+        special_rows = r20_plan_intent_rows(args, held_out, labels)
+        if not args.r20_plan_intent_mix:
+            rows = special_rows
+            args.rows, args.val_rows = len(rows), 0
+        else:
+            rows = special_rows + rows
+            args.rows += len(special_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -986,6 +1130,9 @@ def main(argv: list[str] | None = None) -> int:
                 "assistant_target": plan,
             }
         )
+    if args.r20_plan_intent and args.r20_plan_intent_mix:
+        for row in rows:
+            row.setdefault("family", "v4_backbone")
     splits = {"train": rows[: args.rows], "val": rows[args.rows :]}
     manifest = {
         "version": args.version,
@@ -1007,6 +1154,12 @@ def main(argv: list[str] | None = None) -> int:
             name: {family: counts[family] for family in sorted(("v4_backbone", *V5_FAMILIES))}
             for name, part in splits.items()
             for counts in [Counter(row["family"] for row in part)]
+        }
+    if args.r20_plan_intent:
+        manifest["r20_plan_intent_pairs_per_family"] = args.r20_plan_intent_count
+        manifest["family_counts"] = {
+            name: dict(sorted(Counter(row["family"] for row in part).items()))
+            for name, part in splits.items()
         }
     for name, part in splits.items():
         sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
