@@ -50,6 +50,39 @@ PX4 ulog；因此本文不宣称风对飞行器已产生实测漂移，也不伪
 
 ## 2026-10-22 SITL 实测
 
+## 鲁棒性回归套件
+
+`configs/onboard/suite-robustness.json` 把 `count-cones`、`count-fire-hydrants` 和
+`monitor-backpacks` 各扩展为中风加阵风、黄昏、相机噪声加雾三种任务变体。每个任务的
+`variant` 字段由 `scripts/run_mission_suite.py` 在运行前传给
+`augment_sim_world.py`；生成的 SDF 和临时 scenario index 都留在仓库内，原始世界和
+原始 index 不会被改写。报告按“任务 × 变体”列出，并在每一行保留变体标签。
+
+先做不启动 SIM 的命令检查：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/run_mission_suite.py `
+  --suite configs/onboard/suite-robustness.json `
+  --out D:\Projects\mdwt\_scratch\cx-sim-variants\robustness-dry-run `
+  --dry-run
+```
+
+正式回归（每个任务一架次）命令如下；它会启动既有的 collector/SITL 流程，本文只给出
+命令，不在文档验证阶段启动它：
+
+```powershell
+python scripts/run_mission_suite.py `
+  --suite configs/onboard/suite-robustness.json `
+  --out D:\Projects\Multi-Detect\artifacts\benchmarks\mission-suite-robustness `
+  --episodes 1 --strict
+```
+
+世界生成通常是每个变体数秒；实际回归耗时由 SITL、模型冷启动和磁盘写入决定，按 9 个
+任务单元线性增长，单架次预计约 5–15 分钟，完整套件预留约 1–3 小时。`--fog` 仍遵循
+上文说明的 pinned Ogre2 renderer 限制，因此结果标签表示已请求雾变体，不把雾的视觉作用
+误报成已验证的动力学或渲染证据。
+
 风场变体前后踩了四个坑，都已修复：
 
 | 现象 | 原因 | 修复 |

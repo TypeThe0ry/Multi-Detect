@@ -12,6 +12,7 @@ import argparse
 import copy
 import json
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -32,6 +33,8 @@ METADATA = {
     "airframe",
     "takeoff_method",
     "not_found",
+    "variant",
+    "variant_label",
 }
 METRICS = {
     "alert_precision": "mission_alert_precision",
@@ -136,6 +139,92 @@ def build_command(
     return command
 
 
+VARIANT_OPTIONS = {
+    "wind_mps": "--wind-mps",
+    "gust_mps": "--gust-mps",
+    "gust_period": "--gust-period",
+    "time_of_day": "--time-of-day",
+    "camera_noise": "--camera-noise",
+    "fog": "--fog",
+    "actors": "--actors",
+    "terrain": "--terrain",
+}
+
+
+def variant_label(variant: dict[str, Any]) -> str:
+    """Stable human-readable label used in reports and directory names."""
+    bits = []
+    for key in (
+        "wind_mps",
+        "gust_mps",
+        "gust_period",
+        "time_of_day",
+        "camera_noise",
+        "fog",
+        "actors",
+        "terrain",
+    ):
+        value = variant.get(key)
+        if value is None or value is False:
+            continue
+        if value is True:
+            bits.append(key.replace("_", "-"))
+        elif isinstance(value, (int, float)):
+            bits.append(f"{key.replace('_', '-')}-{value:g}")
+        else:
+            bits.append(f"{key.replace('_', '-')}-{value}")
+    return "+".join(bits) or "base"
+
+
+def build_variant_command(mission: dict[str, Any], *, index: Path, out_dir: Path) -> list[str]:
+    variant = mission.get("variant")
+    if not variant:
+        return []
+    if not isinstance(variant, dict):
+        raise ValueError(f"{mission['id']}: variant must be an object")
+    command = [
+        sys.executable,
+        str(ROOT / "scripts/augment_sim_world.py"),
+        str(ROOT / "simulation/gazebo/worlds" / f"{mission['world']}.sdf"),
+        "--out-dir",
+        str(out_dir),
+        "--register-index",
+        str(index),
+    ]
+    for key, flag in VARIANT_OPTIONS.items():
+        value = variant.get(key)
+        if value is None or value is False:
+            continue
+        command.append(flag)
+        if value is not True:
+            command.append(str(value))
+    return command
+
+
+def _copy_variant_index(source: Path, destination: Path, *, world: str) -> None:
+    """Copy only the source index's referenced channels into a temporary index."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    destination.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    source_entry = next(
+        (w for w in payload.get("worlds", []) if Path(str(w.get("world_file", ""))).stem == world),
+        None,
+    )
+    if source_entry is None:
+        raise ValueError(f"scenario index has no worlds: {source}")
+    for binding in (source_entry.get("files") or {}).values():
+        relative = binding.get("path") if isinstance(binding, dict) else binding
+        if not relative:
+            continue
+        src = source.parent / relative
+        if src.is_file():
+            target = destination.parent / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, target)
+
+
 def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool]:
     checks = {"skills": row["plan_match"]}
     for key, threshold in expect.items():
@@ -195,6 +284,8 @@ def build_table(
                 **{key: episode.get(source) for key, source in METRICS.items()},
                 "step_outcomes": episode.get("mission_step_outcomes"),
             }
+            if mission.get("variant") or mission.get("variant_label", "base") != "base":
+                row["variant"] = mission.get("variant_label", "base")
             # Keep legacy suite rows byte-for-byte compatible in shape.
             if "supervisor" in mission["expect"]:
                 row["supervisor"] = episode.get("mission_supervisor") or {}
@@ -202,6 +293,9 @@ def build_table(
             row["expectations_passed"] = all(row["expectation_checks"].values())
             rows.append(row)
     total = len(rows)
+    if any("variant" in row for row in rows):
+        for row in rows:
+            row.setdefault("variant", "base")
     return {
         "summary": {
             "missions": len(missions),
@@ -270,6 +364,12 @@ def render_markdown(table: dict[str, Any]) -> str:
         "步数": "steps",
         "预期通过": "expectations_passed",
     }
+    if any("variant" in row for row in table["missions"]):
+        columns = {
+            "任务": "id",
+            "变体": "variant",
+            **{k: v for k, v in columns.items() if k != "任务"},
+        }
     lines += ["| " + " | ".join(columns) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
     for row in table["missions"]:
         lines.append("| " + " | ".join(_cell(row[key]) for key in columns.values()) + " |")
@@ -308,7 +408,12 @@ def write_json(path: Path, value: Any) -> None:
     )
 
 
-def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    runner: Callable[..., Any] | None = None,
+    generator_runner: Callable[..., Any] | None = None,
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--suite", type=Path, default=ROOT / "configs/onboard/mission-suite-v2-r12id-r14plan.json"
@@ -368,12 +473,70 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
     out = args.out.resolve()
     reports, errors = {}, []
     runner = runner or subprocess.run
+    generator_runner = generator_runner or subprocess.run
     scheduled = []
     for mission in missions:
         mission = {**mission, "episodes": args.episodes}
         scheduled.append(mission)
         directory = out / mission["id"]
         config_path, report_path = directory / "onboard.json", directory / "report.json"
+        variant = mission.get("variant")
+        if variant:
+            label = mission.get("variant_label") or variant_label(variant)
+            index_path = directory / "scenario-index.json"
+            _copy_variant_index(
+                repo_path(mission["index"]), index_path, world=Path(mission["world"]).stem
+            )
+            variant_command = build_variant_command(
+                mission,
+                index=index_path,
+                out_dir=ROOT / "simulation/gazebo/worlds",
+            )
+            if not variant_command:
+                raise ValueError(f"{mission['id']}: empty variant")
+            if not args.dry_run:
+                generator_runner(variant_command, cwd=ROOT, check=True)
+            mission["variant_label"] = label
+            # The generator's suffix is the canonical world id.  Keep this
+            # derivation in one place so dry-run and execution print the same
+            # collector command without importing private CLI helpers.
+            suffix = []
+            for key in (
+                "wind_mps",
+                "gust_mps",
+                "gust_period",
+                "camera_noise",
+                "time_of_day",
+                "fog",
+                "actors",
+                "terrain",
+            ):
+                value = variant.get(key)
+                if (
+                    value is None
+                    or value is False
+                    or key == "gust_mps"
+                    or (key == "gust_period" and variant.get("gust_mps") is None)
+                ):
+                    continue
+                if key == "gust_period":
+                    suffix.append(f"gust{variant['gust_mps']:g}p{value:g}")
+                elif key == "wind_mps":
+                    suffix.append(f"wind{value:g}")
+                elif key == "camera_noise":
+                    suffix.append(f"noise{value:g}")
+                elif key == "time_of_day":
+                    suffix.append(str(value))
+                elif key == "fog":
+                    suffix.append("fog")
+                elif key == "actors":
+                    suffix.append(f"actors{value}")
+                else:
+                    suffix.append(str(value))
+            mission["world"] = f"{Path(mission['world']).stem}__{'_'.join(suffix or ['base'])}"
+            mission["index"] = str(index_path)
+        else:
+            mission["variant_label"] = "base"
         config = merge_config(suite["defaults"], mission)
         write_json(config_path, config)
         command = build_command(
@@ -390,7 +553,13 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         if args.dry_run:
             print(
                 json.dumps(
-                    {"id": mission["id"], "command": command, "config": config},
+                    {
+                        "id": mission["id"],
+                        "variant": mission.get("variant_label", "base"),
+                        "variant_command": variant_command if variant else None,
+                        "command": command,
+                        "config": config,
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
