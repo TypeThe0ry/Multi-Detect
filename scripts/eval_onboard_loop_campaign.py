@@ -151,6 +151,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--segmentation", action="store_true", default=True)
     parser.add_argument("--radius-m", type=float, default=10.0)
     parser.add_argument("--onboard-config", type=Path, default=None)
+    parser.add_argument(
+        "--airframe",
+        default=None,
+        help="collector airframe profile; omitted preserves the legacy x500 path",
+    )
+    parser.add_argument(
+        "--takeoff-method",
+        choices=("runway", "hand", "catapult", "vtol"),
+        default=None,
+        help="airframe launch method (passed through to collect_sim_teacher_episodes.py)",
+    )
     parser.add_argument("--max-episode-s", type=int, default=2400)
     parser.add_argument("--retry-failed-episodes", action="store_true")
     parser.add_argument(
@@ -245,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
                 command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.airframe:
+                command += ["--airframe", str(args.airframe)]
+            if args.takeoff_method:
+                command += ["--takeoff-method", str(args.takeoff_method)]
             if args.min_free_disk_gb > 0:
                 # The collector otherwise applies its own 15 GB guard and aborts
                 # episodes that the campaign's lower --min-free-disk-gb allows.
@@ -321,6 +336,10 @@ def main(argv: list[str] | None = None) -> int:
                 command.append("--wind-vehicle-overlay")
             if args.onboard_config:
                 command += ["--onboard-config", str(args.onboard_config)]
+            if args.airframe:
+                command += ["--airframe", str(args.airframe)]
+            if args.takeoff_method:
+                command += ["--takeoff-method", str(args.takeoff_method)]
             if args.min_free_disk_gb > 0:
                 # The collector otherwise applies its own 15 GB guard and aborts
                 # episodes that the campaign's lower --min-free-disk-gb allows.
