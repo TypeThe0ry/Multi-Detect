@@ -76,6 +76,10 @@ def test_closed_loop_reports_pose_rebind_and_pre_divergence_metrics(tmp_path):
     assert result["open_loop"] is False
     assert result["trace"][1]["pose_ned"] == [waypoint[0], waypoint[1], -12.0]
     assert result["trace"][4]["search_waypoint_index"] > 0
+    assert result["trace"][4]["diagnostics"]["search_altitude_m"] > 8.0
     assert metrics["pre_divergence_steps"] <= metrics["steps"]
     assert "diverged_at_step" in metrics
     assert metrics["search_placeholder_mismatches"] < metrics["steps"]
+    open_result = replay(episode)
+    assert open_result["open_loop"] is True
+    assert all(item["action"]["kind"] == "hold" for item in open_result["trace"])

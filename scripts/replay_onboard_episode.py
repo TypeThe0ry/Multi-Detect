@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -111,6 +112,20 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     world = Path(mission.get("world_sdf", "default.sdf")).stem
     sdf = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
     obstacle = StaticMapSource(load_sdf_obstacles(sdf)) if sdf.exists() else None
+    # Live onboard derives this target before constructing the loop.  Recreate
+    # the same size-aware and obstacle-clearance floor for pose-rebound replay.
+    takeoff_altitude = float(mission.get("takeoff_altitude_m", 0.0) or 0.0)
+    if takeoff_altitude <= 0.0:
+        takeoff_altitude = max(8.0, -float(rows[0]["obs_before"]["pose"]["local_ned_m"][2]))
+    obstacles = tuple(load_sdf_obstacles(sdf)) if sdf.exists() else ()
+    search_altitude = max(
+        8.0,
+        min(takeoff_altitude, (typical_object_size(query, default=0.0) or 0.0)
+            * float(info["fx"]) / 14.0 * math.sin(0.18 + math.radians(20.0))),
+    )
+    if obstacles:
+        search_altitude = max(search_altitude, min(takeoff_altitude,
+            max(float(item.height_m) for item in obstacles) + 2.0))
     loop_defaults = {
         "confirm_min_side_px": 20.0,
         "contradiction_relook_enabled": True,
@@ -119,23 +134,27 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         "ground_extent_size_m": typical_object_size(query, default=0.0) or None,
         **POSITION_DEFAULTS,
     }
+    if closed_loop:
+        loop_defaults["search_altitude_m"] = search_altitude
     loop_fields = {f.name for f in __import__("dataclasses").fields(LoopConfig)}
     search_policy: ExpertSearchPolicy | None = None
     def make_loop(*_args: Any, **overrides: Any) -> OnboardLoop:
         nonlocal search_policy
         overrides.pop("restart_route", None)
         config = {k: v for k, v in {**loop_defaults, **overrides}.items() if k in loop_fields}
-        search_policy = ExpertSearchPolicy(
-            target_ned=(1.0e7, 1.0e7, 0.0), intrinsics=info,
-            image_size=(camera.width, camera.height),
-            altitude_m=max(8.0, -float(rows[0]["obs_before"]["pose"]["local_ned_m"][2])),
-            obstacles=tuple(load_sdf_obstacles(sdf)) if sdf.exists() else (),
-            home_ned=(0.0, 0.0, 0.0), search_radius_m=55.0,
-            restart_route=False,
-        )
+        if closed_loop:
+            search_policy = ExpertSearchPolicy(
+                target_ned=(1.0e7, 1.0e7, 0.0), intrinsics=info,
+                image_size=(camera.width, camera.height), altitude_m=takeoff_altitude,
+                obstacles=obstacles, home_ned=(0.0, 0.0, 0.0), search_radius_m=55.0,
+                restart_route=False,
+            )
+        else:
+            search_policy = None
         return OnboardLoop(
             camera=camera,
-            search_action=lambda pose, yaw: search_policy.next_action(pose_ned=pose, yaw_deg=yaw),
+            search_action=(lambda pose, yaw: search_policy.next_action(pose_ned=pose, yaw_deg=yaw))
+                if closed_loop else (lambda _pose, _yaw: ActionPrimitive.hold(1.0)),
             search_outcome=lambda: search_policy.search_outcome if search_policy else None,
             obstacle_source=obstacle, config=LoopConfig(**config),
         )
@@ -210,7 +229,18 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
                       "decision_class": detail_class,
                       "alerts": list(executor.alerts), "revisit_plan": detail.get("alert_look"),
                       "detail": detail, "tracks": [{"id": t.track_id, "verdict": t.verdict, "label": t.label,
-                          "bbox": t.bbox, "ground": t.ground} for t in executor.current_tracks]})
+                          "bbox": t.bbox, "ground": t.ground} for t in executor.current_tracks],
+                      "diagnostics": {"state_before": detail.get("state_before"),
+                          "focus": detail.get("focus"), "bearing_deg": detail.get("bearing_deg"),
+                          "horizontal_range_m": detail.get("horizontal_range_m"),
+                          "min_side_px": detail.get("min_side_px"),
+                          "confirm_views": detail.get("confirm_views"),
+                          "match_views": detail.get("match_views"),
+                          "counted": detail.get("counted"),
+                          "search_altitude_m": loop_defaults.get("search_altitude_m"),
+                          "search_waypoint_index": search_policy._waypoint_index if search_policy else None,
+                          "search_commanded_yaw_deg": search_policy._commanded_yaw_deg if search_policy else None,
+                          "search_outcome": search_policy.search_outcome if search_policy else None}})
     results.save()
     first_divergence = first_non_search_divergence(trace)
     scored = trace if first_divergence is None else trace[:first_divergence["index"]]
