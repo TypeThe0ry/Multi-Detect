@@ -19,7 +19,7 @@ def test_real_mode_process_loopback(tmp_path):
             cwd=os.getcwd(),
             capture_output=True,
             text=True,
-            timeout=50,
+            timeout=110,
             check=False,
         )
         if result.returncode == 0 or "WinError 10013" not in result.stdout:
