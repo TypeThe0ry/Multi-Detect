@@ -39,7 +39,7 @@ python scripts/run_e2e_operator_acceptance.py D:/Projects/mdwt/_scratch/e2e/pack
 ## 输出字段
 
 - `plan`：地面是否收到计划；`signed_command_accepted`（机载记录了 `approve_plan` 地面事件或 type-37 签名命令 ACK 被接受）；`approved`（`plan_approved.plan_sha256` 与计划一致）；`approval_latency_s`＝机载 plan 记录到 plan_approved 记录的时间差（含计划下行、操作员决定、签名命令上行）。
-- `findings[]`：每个机载 finding 是否到达地面，以及到达延迟区间 `latency_lower_s`/`latency_upper_s`。控制台不给文档打接收时间戳；下行是单队列 stop-and-wait，status 只在没有在途传输时才生成（`t` 为机载时钟），所以 finding 的地面到达时刻落在「它之前收到的 status 的 `t`」与「它之后收到的第一个 status 的 `t`」之间。延迟都按机载时钟计。
+- `findings[]`：每个机载 finding 是否到达地面。新日志含 `received_at_monotonic`，评估器用 status 的机载 `t` 与地面单调接收时间取中位数偏移（`timing_alignment`），输出精确 `latency_s`；`latency_lower_s`/`latency_upper_s` 仍保留。旧日志缺字段时回退到 stop-and-wait 的 status 前后区间算法。
 - `final_summary`：`complete`、来源（`final_summary`＝控制台直接收到或已拼好；`final_summary_pages_assembled_here`＝评估器自己按页拼成）、`pages_total`、`pages_received`、重复页数、机载是否记录了摘要。只收到部分 `final_summary_page` 即为不完整。
 - `termination`：`status`（`completed` / `ended_early` / `unknown`）、`action`、`reason`、来源（地面完整摘要 → 地面 escalation → 机载摘要），以及机载自己记录的 `onboard_status` 作交叉核对。
 - `count`：报告计数（地面完整摘要 → 最后一条带 counts 的 status → 地面 finding 数）、`is_lower_bound`、count 步骤原因（如 `budget_exhausted`）、真值数、匹配数、误报数和位置误差。匹配直接调用 `score_onboard_loop._count_metrics`（一对一最近邻，半径内才算），输入是地面收到的 finding 全精度位置。

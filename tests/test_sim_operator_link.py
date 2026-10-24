@@ -422,3 +422,13 @@ def test_console_sequence_starts_from_the_clock_and_package_is_signed() -> None:
 
     with pytest.raises(ValueError, match="unsigned"):
         fake_gcs_console.signed_package_bytes(raw, None)
+
+
+def test_signed_command_sequence_state_advances_and_unsigned_mode_is_inert(tmp_path) -> None:
+    from scripts import fake_gcs_console
+
+    state = tmp_path / "command-sequence-state.txt"
+    assert fake_gcs_console.load_command_sequence(state, 1) == 1
+    fake_gcs_console.persist_command_sequence(state, 7)
+    assert fake_gcs_console.load_command_sequence(state, 1) == 8
+    assert fake_gcs_console.load_command_sequence(None, 1) == 1

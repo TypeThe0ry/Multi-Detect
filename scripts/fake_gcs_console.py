@@ -59,19 +59,26 @@ class DocumentAssembler:
 
     def __init__(self) -> None:
         self._parts: dict[tuple[int, bytes], dict[int, bytes]] = {}
+        self.first_received: dict[tuple[int, bytes], tuple[float, float]] = {}
 
     def add(self, body: bytes) -> bytes | None:
         token, index, count, length, digest = CHUNK.unpack_from(body)
         data = body[CHUNK.size : CHUNK.size + CHUNK_DATA_BYTES]
-        parts = self._parts.setdefault((token, digest), {})
+        key = (token, digest)
+        self.first_received.setdefault(key, (time.time(), time.monotonic()))
+        parts = self._parts.setdefault(key, {})
         parts[index] = data
         if len(parts) < count:
             return None
         document = b"".join(parts[i] for i in range(count))[:length]
-        del self._parts[(token, digest)]
+        del self._parts[key]
         if hashlib.sha256(document).digest() != digest:
             return None
         return document
+
+    def take_first_received(self, body: bytes) -> tuple[float, float] | None:
+        token, _index, _count, _length, digest = CHUNK.unpack_from(body)
+        return self.first_received.pop((token, digest), None)
 
 
 def initial_sequence(now_s: float | None = None) -> int:
@@ -79,6 +86,25 @@ def initial_sequence(now_s: float | None = None) -> int:
     ahead of the onboard sequence high-water instead of "expired" at 1."""
     now_s = time.time() if now_s is None else now_s
     return (int(now_s * 1000) & 0xFFFFFFFF) or 1
+
+
+def load_command_sequence(path: Path | None, default: int) -> int:
+    if path is None:
+        return default
+    try:
+        value = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return default
+    return max(default, value + 1)
+
+
+def persist_command_sequence(path: Path | None, sequence: int) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(str(sequence), encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def new_token() -> int:
@@ -99,6 +125,7 @@ class PlanDecisions:
         command_sequence: int = 1,
         clock: Callable[[], float] = time.time,
         prompt: Callable[[str], None] = lambda text: print(text, flush=True),
+        persist_sequence: Callable[[int], None] | None = None,
     ) -> None:
         self.mission_id = mission_id
         self.send_command = send_command
@@ -107,6 +134,7 @@ class PlanDecisions:
         self.command_sequence = command_sequence
         self.clock = clock
         self.prompt = prompt
+        self.persist_sequence = persist_sequence
         self.pending: str | None = None
         self.decided: set[str] = set()
         self.inputs: queue.Queue[str] = queue.Queue()
@@ -155,6 +183,8 @@ class PlanDecisions:
                 timestamp_version=1,
                 timestamp_domain="unix",
             )
+            if self.persist_sequence is not None:
+                self.persist_sequence(self.command_sequence)
             self.command_sequence += 1
             command = sign_document(command, self.command_key)
         self.send_command(command)
@@ -194,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--package-key-hex", help="32-byte HMAC package signing key, hex")
     parser.add_argument("--command-key", type=Path, help="ground command signing key file")
     parser.add_argument("--command-sequence", type=int, default=1)
+    parser.add_argument("--state", type=Path, help="signed command sequence state file")
     parser.add_argument("--auto-approve", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="0 runs until Ctrl-C")
     parser.add_argument("--log", type=Path, help="append every received document as JSON lines")
@@ -242,24 +273,38 @@ def main(argv: list[str] | None = None) -> int:
             sequence = (sequence + 1) & 0xFFFFFFFF or 1
             return link.wrap_authenticated_operator_payload(payload)
 
-        def send(message_type: int, document: bytes, token: int) -> None:
-            for chunk in document_chunks(document, token, message_type=message_type):
+        def send_chunks(chunks, message_type: int = 28) -> None:
+            for chunk in chunks:
                 sock.sendto(frame(message_type, chunk.body), (args.host, args.port))
                 # Onboard rate-limits each message type to a burst of 20 and 20/s
                 # (operator_udp.DEFAULT_COMMAND_*) and drops excess chunks without
                 # an ACK; a ~1 KB prompt package is ~25 chunks, so pace below that.
                 time.sleep(0.06)
 
+        def send(message_type: int, document: bytes, token: int) -> None:
+            send_chunks(document_chunks(document, token, message_type=message_type), message_type)
+
         def send_command(command: dict[str, Any]) -> None:
             encoded = json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode()
             send(37, encoded, new_token())
 
+        command_state = args.state
+        if command_state is None and args.link and args.command_key:
+            command_state = args.link.parent / "command-sequence-state.txt"
+        command_sequence = (
+            load_command_sequence(command_state, args.command_sequence)
+            if args.command_key
+            else args.command_sequence
+        )
         decisions = PlanDecisions(
             mission_id,
             send_command,
             auto_approve=args.auto_approve,
             command_key=load_key(args.command_key) if args.command_key else None,
-            command_sequence=args.command_sequence,
+            command_sequence=command_sequence,
+            persist_sequence=(lambda value: persist_command_sequence(command_state, value))
+            if args.command_key
+            else None,
         )
         if not args.auto_approve:
 
@@ -270,7 +315,11 @@ def main(argv: list[str] | None = None) -> int:
             threading.Thread(target=read_keyboard, name="gcs-keyboard", daemon=True).start()
 
         upload_token = new_token()
-        send(28, raw, upload_token)
+        upload_chunks = list(document_chunks(raw, upload_token, message_type=28))
+        beat = CONTROL.pack(mission_token(mission_id), 1)
+        sock.sendto(frame(34, beat), (args.host, args.port))
+        sock.sendto(frame(28, upload_chunks[0].body), (args.host, args.port))
+        upload_tail_sent = False
         last_upload = time.monotonic()
         heard = False
         last_heartbeat = 0.0
@@ -287,8 +336,8 @@ def main(argv: list[str] | None = None) -> int:
                 beat = CONTROL.pack(mission_token(mission_id), heartbeat_count)
                 sock.sendto(frame(34, beat), (args.host, args.port))
                 last_heartbeat = time.monotonic()
-            if not heard and time.monotonic() - last_upload > 5.0:
-                send(28, raw, upload_token)
+            if not upload_tail_sent and time.monotonic() - last_upload >= 1.0:
+                sock.sendto(frame(28, upload_chunks[0].body), (args.host, args.port))
                 last_upload = time.monotonic()
             decisions.poll()
             try:
@@ -308,6 +357,15 @@ def main(argv: list[str] | None = None) -> int:
                         f"onboard ack kind={kind} index={index} accepted={bool(accepted)} {detail}",
                         flush=True,
                     )
+                if kind == 28 and not accepted and "必须从首个分块开始上传" in detail:
+                    upload_token = new_token()
+                    upload_chunks = list(document_chunks(raw, upload_token, message_type=28))
+                    sock.sendto(frame(28, upload_chunks[0].body), (args.host, args.port))
+                    upload_tail_sent = False
+                    last_upload = time.monotonic()
+                elif kind == 28 and accepted and index == 0 and not upload_tail_sent:
+                    send_chunks(upload_chunks[1:])
+                    upload_tail_sent = True
                 continue
             if packet.message_type != 35:
                 continue
@@ -315,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
             # Onboard telemetry is stop-and-wait: each chunk is resent every second
             # until the ground acknowledges (token, index) with a type-36 message.
             token, index = CHUNK.unpack_from(packet.message.body)[:2]
+            received_wall = time.time()
+            received_mono = time.monotonic()
             sock.sendto(frame(36, TELEMETRY_ACK.pack(token, index)), (args.host, args.port))
             document_bytes = assembler.add(packet.message.body)
             if document_bytes is None:
@@ -324,6 +384,21 @@ def main(argv: list[str] | None = None) -> int:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
             documents = [document]
+            first_received = assembler.take_first_received(packet.message.body)
+            document["ground_received_wall_time"] = received_wall
+            document["received_at_wall"] = received_wall
+            document["ground_received_wall_iso"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(received_wall))
+            document["ground_received_monotonic_s"] = received_mono
+            document["received_at_monotonic"] = received_mono
+            if first_received is not None:
+                document["first_chunk_received_wall_time"] = first_received[0]
+                document["first_chunk_received_monotonic_s"] = first_received[1]
+                document["first_chunk_received_at_wall"] = first_received[0]
+                document["first_chunk_received_at_monotonic"] = first_received[1]
+            document["document_completed_wall_time"] = received_wall
+            document["document_completed_monotonic_s"] = received_mono
+            document["completed_at_wall"] = received_wall
+            document["completed_at_monotonic"] = received_mono
             if document.get("kind") == "final_summary_page":
                 # A large final summary arrives as ordered pages of JSON text;
                 # show it once every page is here.
@@ -344,6 +419,17 @@ def main(argv: list[str] | None = None) -> int:
                             }
                         )
             for item in documents:
+                if item is not document:
+                    for key in (
+                        "ground_received_wall_time", "received_at_wall", "ground_received_wall_iso",
+                        "ground_received_monotonic_s", "received_at_monotonic",
+                        "first_chunk_received_wall_time", "first_chunk_received_monotonic_s",
+                        "first_chunk_received_at_wall", "first_chunk_received_at_monotonic",
+                        "document_completed_wall_time", "document_completed_monotonic_s",
+                        "completed_at_wall", "completed_at_monotonic",
+                    ):
+                        if key in document:
+                            item[key] = document[key]
                 print(json.dumps(item, ensure_ascii=False), flush=True)
                 if args.log:
                     with args.log.open("a", encoding="utf-8") as handle:
