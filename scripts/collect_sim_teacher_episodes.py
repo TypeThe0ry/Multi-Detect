@@ -9,6 +9,7 @@ planned launch without starting Docker.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import io
 import json
 import math
@@ -143,6 +144,11 @@ MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
 MOTION_ARRIVAL_TOLERANCE_M = 8.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
+# A fixed-wing reposition may complete by flying past its waypoint, but a
+# projection crossing alone is insufficient: the aircraft can cross the target
+# bearing tens of metres away while circling.  Bound the cross-track error by
+# the same tolerance used for a direct arrival.
+MOTION_CROSS_TRACK_DONE_M = MOTION_ARRIVAL_TOLERANCE_M
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
 # Hover-mode (MC) VTOL legs settle on their target and heading before the next frame.
@@ -1497,8 +1503,13 @@ def _wait_motion_command(
             distance = math.hypot(dn, de)
             # A plane passes its target rather than stopping on it: the leg is done
             # once little of it remains along the original track (or it is close).
-            remaining = (dn * leg_n + de * leg_e) / leg if leg > 1e-6 else 0.0
-            if distance <= MOTION_ARRIVAL_TOLERANCE_M or remaining <= MOTION_ALONG_TRACK_DONE_M:
+            if _fixed_wing_reposition_complete(
+                dn=dn,
+                de=de,
+                leg_n=leg_n,
+                leg_e=leg_e,
+                distance_m=distance,
+            ):
                 return {
                     "waited": "arrived",
                     "distance_m": distance,
@@ -1519,6 +1530,41 @@ def _wait_motion_command(
             time.sleep(0.2)
         return {"waited": "duration", "elapsed_s": time.monotonic() - started}
     return {"waited": "none", "elapsed_s": 0.0}
+
+
+def _fixed_wing_reposition_complete(
+    *, dn: float, de: float, leg_n: float, leg_e: float, distance_m: float
+) -> bool:
+    """Return whether a fixed-wing leg has actually reached or passed its target.
+
+    PX4 fixed-wing guidance normally flies through a reposition waypoint, so a
+    direct ``distance`` check is too strict.  The old projection-only check was
+    too permissive: any crossing of the target's perpendicular plane counted,
+    even with a large cross-track error.  Require either a close arrival or a
+    bounded cross-track pass through the target plane.
+    """
+    if distance_m <= MOTION_ARRIVAL_TOLERANCE_M:
+        return True
+    leg = math.hypot(leg_n, leg_e)
+    if leg <= 1e-6:
+        return False
+    along = (dn * leg_n + de * leg_e) / leg
+    cross = abs(leg_n * de - leg_e * dn) / leg
+    return (
+        along <= MOTION_ALONG_TRACK_DONE_M
+        and cross <= MOTION_CROSS_TRACK_DONE_M
+    )
+
+
+def _apply_motion_wait_result(executed: Any, motion_wait: Mapping[str, Any]) -> Any:
+    """Fold telemetry completion into the primitive result recorded by a step."""
+    if motion_wait.get("waited") != "timeout" or getattr(executed, "status", None) != "success":
+        return executed
+    return dataclasses.replace(
+        executed,
+        status="timeout",
+        elapsed_s=float(executed.elapsed_s) + float(motion_wait.get("elapsed_s", 0.0)),
+    )
 
 
 def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
@@ -3575,13 +3621,20 @@ def run_episode(
                     try:
                         executed = executor.execute(action)  # noqa: B023
                         if motion is not None and executed.status == "success":  # noqa: B023
-                            executed.ack["motion_wait"] = _wait_motion_command(
+                            motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
                                 mav_reader,
                                 cruise_mps=getattr(
                                     _airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0
                                 ),
                             )
+                            executed.ack["motion_wait"] = motion_wait
+                            # COMMAND_ACK acceptance only proves that PX4 took
+                            # the command.  A guided fixed-wing leg is complete
+                            # only after telemetry reaches the target/pass
+                            # geometry; propagate a bounded wait timeout into the
+                            # recorded result instead of reporting success.
+                            executed = _apply_motion_wait_result(executed, motion_wait)
                         result_box.append(executed)  # noqa: B023
                     except BaseException as exc:
                         execute_error.append(exc)  # noqa: B023

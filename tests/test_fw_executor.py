@@ -5,6 +5,11 @@ import pytest
 from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.sim_teacher.primitives import ActionPrimitive
+from scripts.collect_sim_teacher_episodes import (
+    _apply_motion_wait_result,
+    _fixed_wing_reposition_complete,
+)
+from multidetect.sim_teacher.executor import ExecutionResult
 
 
 class FakeVehicle:
@@ -195,3 +200,34 @@ def test_motion_command_over_command_long_waits_for_the_ack() -> None:
     )
     assert result.status == "success"
     assert vehicle.mav.commands[-1][2] == 192
+
+
+def test_fixed_wing_reposition_does_not_accept_cross_track_plane_crossing() -> None:
+    # This is the logged Cessna failure shape: the target plane was crossed
+    # along-track, but the aircraft was about 32 m off to the side.
+    leg_n, leg_e = 28.5, -0.9
+    dn, de = 1.2, 31.8
+    distance = (dn**2 + de**2) ** 0.5
+    assert not _fixed_wing_reposition_complete(
+        dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance
+    )
+
+
+def test_fixed_wing_reposition_accepts_a_bounded_fly_through() -> None:
+    leg_n, leg_e = 40.0, 0.0
+    # Five metres beyond the target and three metres cross-track is a valid
+    # fixed-wing pass even though it is not a point arrival.
+    dn, de = -5.0, 3.0
+    distance = (dn**2 + de**2) ** 0.5
+    assert _fixed_wing_reposition_complete(
+        dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance
+    )
+
+
+def test_fixed_wing_motion_wait_timeout_is_not_recorded_as_success() -> None:
+    result = ExecutionResult("success", 0.05, ack={})
+    updated = _apply_motion_wait_result(
+        result, {"waited": "timeout", "elapsed_s": 18.9, "distance_m": 81.4}
+    )
+    assert updated.status == "timeout"
+    assert updated.elapsed_s == pytest.approx(18.95)
