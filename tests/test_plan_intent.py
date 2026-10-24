@@ -232,6 +232,40 @@ def test_named_places_are_grounded(text, ref):
     assert place_grounded(ref, labels[ref], text)
 
 
+@pytest.mark.parametrize(
+    "text", ["飞到入口悬停。", "到门口看一下。", "Fly to the entrance and hold."]
+)
+def test_builtin_gate_aliases_ground_place(text):
+    plan = _plan(("goto", {"target_ref": "poi:gate"}))
+    assert not [
+        f for f in check_plan_intent(plan, text, ("poi:gate (大门 / gate)",)) if f.blocking
+    ]
+
+
+def test_builtin_alias_conflict_is_nonblocking_and_disabled():
+    plan = _plan(("goto", {"target_ref": "poi:gate"}))
+    refs = ("poi:gate (大门 / gate)", "poi:entrance (入口 / entrance)")
+    findings = check_plan_intent(plan, "到入口悬停。", refs)
+    assert any(f.code == "place_alias_conflict" and not f.blocking for f in findings)
+    assert any(f.code == "ungrounded_place" and f.blocking for f in findings)
+
+
+def test_slash_separated_aliases_are_prompt_and_intent_compatible():
+    from scripts.onboard_policy import labelled_refs
+
+    refs = {"poi:gate": [40.0, 0.0]}
+    labels = {"poi:gate": "门 / 大门 / 入口 / entrance / gate"}
+    rendered = labelled_refs(refs, labels)
+    assert rendered == ("poi:gate (门 / 大门 / 入口 / entrance / gate)",)
+    assert not [
+        f
+        for f in check_plan_intent(
+            _plan(("goto", {"target_ref": "poi:gate"})), "飞到入口", rendered
+        )
+        if f.blocking
+    ]
+
+
 def _scripted(*documents):
     responses = iter(json.dumps(doc) for doc in documents)
     prompts = []

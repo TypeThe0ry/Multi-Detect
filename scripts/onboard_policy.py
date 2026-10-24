@@ -308,8 +308,17 @@ def perception_task_text(step: MissionStep, original: str) -> str:
 def labelled_refs(
     refs: Mapping[str, Any] | Sequence[str] | None, labels: Mapping[str, Any]
 ) -> tuple[str, ...]:
-    """Planner reference list: ``"zone:site (the site)"`` when a label is known."""
-    return tuple(f"{ref} ({labels[ref]})" if ref in labels else str(ref) for ref in refs or ())
+    """Planner refs with slash-separated aliases kept in the package string."""
+    rendered = []
+    for ref in refs or ():
+        if ref not in labels:
+            rendered.append(str(ref))
+            continue
+        value = labels[ref]
+        if isinstance(value, (list, tuple)):
+            value = " / ".join(str(item).strip() for item in value if str(item).strip())
+        rendered.append(f"{ref} ({value})")
+    return tuple(rendered)
 
 
 def build_mission_from_text(
