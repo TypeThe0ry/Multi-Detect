@@ -156,6 +156,22 @@ def test_cache_ram_flag_reaches_the_server_command(monkeypatch, tmp_path):
     assert evaluation.max_restarts == 3 and evaluation.restarts == []
 
 
+def test_batch_flags_are_omitted_by_default_and_passed_when_configured(monkeypatch, tmp_path):
+    monkeypatch.setattr(slow.LlamaServerRunner, "_start", lambda self: None)
+    model = tmp_path / "m.gguf"
+    default = slow.LlamaServerRunner(model, executable=tmp_path / "llama-server.exe")
+    assert "--batch-size" not in default._command
+    assert "--ubatch-size" not in default._command
+    configured = slow.LlamaServerRunner(
+        model,
+        executable=tmp_path / "llama-server.exe",
+        batch_size=512,
+        ubatch_size=128,
+    )
+    assert configured._command[configured._command.index("--batch-size") + 1] == "512"
+    assert configured._command[configured._command.index("--ubatch-size") + 1] == "128"
+
+
 def test_cli_defaults_disable_the_host_cache_and_allow_restarts(monkeypatch, tmp_path):
     seen = {}
 
@@ -166,6 +182,22 @@ def test_cli_defaults_disable_the_host_cache_and_allow_restarts(monkeypatch, tmp
     monkeypatch.setattr(slow, "run", fake_run)
     assert slow.main(["--backend", "gguf", "--output", str(tmp_path / "o.json")]) == 0
     assert seen["cache_ram_mib"] == 0 and seen["max_server_restarts"] == 3
+    assert seen["batch_size"] is None and seen["ubatch_size"] is None
+
+
+def test_cli_accepts_explicit_batch_and_ubatch(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(args):
+        seen.update(vars(args))
+        return {"metrics": {"harness_error_count": 0}, "rows": []}
+
+    monkeypatch.setattr(slow, "run", fake_run)
+    assert slow.main([
+        "--backend", "gguf", "--output", str(tmp_path / "o.json"),
+        "--batch-size", "512", "--ubatch-size", "128",
+    ]) == 0
+    assert seen["batch_size"] == 512 and seen["ubatch_size"] == 128
 
 
 def test_rows_without_a_model_answer_are_harness_errors(tmp_path, monkeypatch):

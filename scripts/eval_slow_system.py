@@ -599,6 +599,8 @@ class LlamaServerRunner:
         cache_prompt: bool = True,
         wait_port_free: bool = False,
         cache_ram_mib: int | None = None,
+        batch_size: int | None = None,
+        ubatch_size: int | None = None,
         max_restarts: int = 0,
         log_dir: Path | None = None,
         keep_logs: int = 3,
@@ -669,6 +671,10 @@ class LlamaServerRunner:
             # llama-server keeps evicted slot states in host RAM (default 8 GiB).
             # Every evaluation row carries a new image, so that cache only grows.
             command.extend(["--cache-ram", str(int(cache_ram_mib))])
+        if batch_size is not None:
+            command.extend(["--batch-size", str(int(batch_size))])
+        if ubatch_size is not None:
+            command.extend(["--ubatch-size", str(int(ubatch_size))])
         if adapter:
             command.extend(["--lora", str(adapter)])
         self._command, self._cwd, self._model = command, str(executable.parent), model
@@ -1077,6 +1083,8 @@ def run(args) -> dict[str, Any]:
                 max_restarts=getattr(args, "max_server_restarts", 0),
                 log_dir=getattr(args, "log_dir", None) or (args.output.parent / "llama-server-logs" if args.output else None),
                 keep_logs=getattr(args, "keep_server_logs", 3),
+                batch_size=getattr(args, "batch_size", None),
+                ubatch_size=getattr(args, "ubatch_size", None),
             )
         result = evaluate_predictor(rows, runner)
         if isinstance(runner, LlamaServerRunner):
@@ -1134,6 +1142,8 @@ def main(argv=None) -> int:
     parser.add_argument("--llama-server", type=Path, default=DEFAULT_LLAMA)
     parser.add_argument("--port", type=int, default=9933)
     parser.add_argument("--context", type=int, default=4096)
+    parser.add_argument("--batch-size", type=int, help="llama.cpp prompt batch size (default: build default)")
+    parser.add_argument("--ubatch-size", type=int, help="llama.cpp micro-batch size (default: build default)")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--log-dir", type=Path, help="directory for llama-server logs")
     parser.add_argument("--keep-server-logs", type=int, default=3)

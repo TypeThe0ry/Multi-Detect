@@ -386,7 +386,10 @@ class OnboardPolicy:
         frame_quality: int = 90,
         mission_package: MissionPackage | None = None,
     ) -> None:
-        options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        options = {
+            **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
+            **(config or {}),
+        }
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(
@@ -1010,6 +1013,8 @@ class OnboardPolicy:
         # grows: it starved a 32 GB SITL host until CUDA launches failed, and an
         # 8 GB Jetson cannot hold it at all.  0 turns it off.
         cache_ram_mib = int(options.get("llama_cache_ram_mib", 0))
+        llama_batch_size = options.get("llama_batch_size")
+        llama_ubatch_size = options.get("llama_ubatch_size")
 
         def make_identity_runner():
             return LlamaServerRunner(
@@ -1026,6 +1031,8 @@ class OnboardPolicy:
                 cache_ram_mib=cache_ram_mib,
                 log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
                 keep_logs=int(options.get("llama_keep_logs", 3)),
+                batch_size=llama_batch_size,
+                ubatch_size=llama_ubatch_size,
             )
 
         self._make_identity_runner = make_identity_runner
@@ -1065,6 +1072,8 @@ class OnboardPolicy:
                     cache_ram_mib=cache_ram_mib,
                     log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
                     keep_logs=int(options.get("llama_keep_logs", 3)),
+                    batch_size=llama_batch_size,
+                    ubatch_size=llama_ubatch_size,
                 )
             except Exception as exc:
                 planner_start_error = exc
