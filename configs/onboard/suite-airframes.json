@@ -31,7 +31,7 @@
       "airframe": "rc_cessna_runway",
       "takeoff_method": "runway",
       "task_text": "Find the white ambulance and return home.",
-      "expect": {"skills": ["area_search", "return_home"]},
+      "expect": {"skills": ["area_search", "return_home"], "confirmed": false, "min_safety_pass": true},
       "safety": {"min_relative_altitude_m": 5, "max_return_distance_m": 300},
       "steps": 160,
       "max_episode_s": 900
