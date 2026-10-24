@@ -68,7 +68,9 @@ def main(argv: list[str]) -> int:
             shutil.rmtree(old, ignore_errors=True)
     base_temp = temp_root / f"onboard-{os.getpid()}-{int(time.time())}"
     # CPU-only so the gate never competes with a training or eval job for the GPU.
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "-1"}
+    # UTF-8 mode makes the result independent of the caller's shell: on a
+    # Chinese Windows locale a bare read_text() decodes mission logs as GBK.
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "-1", "PYTHONUTF8": "1"}
     marker = "onboard" if with_timing else "onboard and not timing"
     started = time.monotonic()
     parallel_args = ["-n", workers] if workers != "1" else []

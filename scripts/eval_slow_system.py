@@ -604,6 +604,7 @@ class LlamaServerRunner:
         max_restarts: int = 0,
         log_dir: Path | None = None,
         keep_logs: int = 3,
+        startup_timeout_s: float = 180.0,
     ):
         self.port, self.max_new_tokens, self.crop_policy, self.max_side = (
             port,
@@ -626,6 +627,9 @@ class LlamaServerRunner:
         # request retried, so a crash never turns into rows of "model" output.
         # The onboard runtime keeps 0 (systemd owns the server lifecycle there).
         self.max_restarts, self.restarts = max(0, int(max_restarts)), []
+        self.startup_timeout_s = float(startup_timeout_s)
+        if not math.isfinite(self.startup_timeout_s) or self.startup_timeout_s <= 0:
+            raise ValueError("startup_timeout_s must be positive and finite")
         self.log_dir = Path(log_dir).resolve() if log_dir is not None else Path(tempfile.gettempdir())
         self.keep_logs = max(0, int(keep_logs))
         self._server_failed = False
@@ -706,7 +710,7 @@ class LlamaServerRunner:
                 # will not die with this process (the start-up orphan check
                 # still clears it next time).
                 print(f"warning: llama-server not bound to a kill-on-close job: {error}")
-        deadline = time.monotonic() + 180
+        deadline = time.monotonic() + self.startup_timeout_s
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 self._close_job()
@@ -871,7 +875,11 @@ class LlamaServerRunner:
     def _completion(self, body: dict[str, Any]) -> dict[str, Any]:
         while True:
             try:
-                response = _http_json(f"http://127.0.0.1:{self.port}/v1/chat/completions", body)
+                response = _http_json(
+                    f"http://127.0.0.1:{self.port}/v1/chat/completions",
+                    body,
+                    timeout=float(getattr(self, "request_timeout_s", 180.0)),
+                )
             except urllib.error.HTTPError as error:
                 # An HTTP status proves the server is alive: a 4xx is about this
                 # request, never a reason to restart (evaluation mode).

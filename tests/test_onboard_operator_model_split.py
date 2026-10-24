@@ -131,3 +131,56 @@ def test_operator_prompt_cancel_during_planner_start_closes_without_orphan(
     assert failures and "cancelled" in str(failures[0])
     assert events[-1][:2] == ("close", "planner")
     assert active["count"] == 0 and active["maximum"] == 1
+
+
+def test_operator_planning_waits_for_restart_thread_before_using_identity_port(
+    monkeypatch, tmp_path
+):
+    entered, release = threading.Event(), threading.Event()
+    restart_closed = threading.Event()
+    policy, package, events, active, _ = _setup(monkeypatch, tmp_path)
+
+    class RestartRunner:
+        def __init__(self):
+            self.port = policy._identity_port
+            self.role = "identity"
+
+        def __call__(self, row):
+            raise RuntimeError("unexpected call")
+
+        def close(self, **kwargs):
+            restart_closed.set()
+            events.append(("close", "identity", None))
+
+    def rebuild():
+        entered.set()
+        release.wait(2)
+        policy._slow_restart_result = RestartRunner()
+
+    policy.slow.close()
+    policy.slow = None
+    policy.health.runner = None
+    policy._slow_restart_thread = threading.Thread(target=rebuild)
+    policy._slow_restart_thread.start()
+    assert entered.wait(1)
+    worker = threading.Thread(target=lambda: policy.prepare_operator_package(package))
+    worker.start()
+    release.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert restart_closed.is_set()
+    assert any(event[:2] == ("start", "planner") for event in events)
+    assert policy.slow is not None and policy.slow.role == "identity"
+    policy.close()
+
+
+def test_operator_planning_supports_missing_identity_runner(monkeypatch, tmp_path):
+    policy, package, events, active, _ = _setup(monkeypatch, tmp_path)
+    policy.slow.close()
+    policy.slow = None
+    policy.health.runner = None
+    policy.prepare_operator_package(package)
+    assert any(event[:2] == ("start", "planner") for event in events)
+    assert policy.slow is not None and policy.slow.role == "identity"
+    policy.close()
+    assert active["count"] == 0

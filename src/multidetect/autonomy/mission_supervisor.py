@@ -22,6 +22,7 @@ from .mission_executor import MissionExecutor
 from .mission_package import POLICIES, MissionPackage, number, parse_policy
 from .mission_plan import validate_mission_plan
 from .mission_security import load_key, verify_document
+from .mission_summary import summarize_mission
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
 from .crash_resume import CheckpointStore, checkpoint_from_state
@@ -957,6 +958,15 @@ class MissionSupervisor:
         """
         self._record("perception_error", track_id=track_id, error=str(error))
 
+    def record_slow_model_unavailable(self, error_type: str, error: str) -> None:
+        """Record a transport/runtime fault without creating an identity vote."""
+        self._time()
+        self._record(
+            "slow_model_unavailable",
+            reason=f"慢模型不可用: {error_type}: {error}",
+            at_s=self._now,
+        )
+
     def _recover(self, pose_ned) -> MissionExecutor:
         skill = "land" if self.action == "land_now" else "return_home"
         if self._recovery is None or self._recovery_kind != skill:
@@ -1067,23 +1077,44 @@ class MissionSupervisor:
             self._time()
             executor = self.executor
             lower_bounds = count_lower_bounds(executor)
+            report = asdict(executor.report())
+            report.update(history=executor.history, counts=executor.counts, findings=executor.findings,
+                          alerts=list(executor.alerts), final_summary={
+                              "status": status,
+                              "terminal_action": self._terminal,
+                              "terminal_reason": self.reason,
+                          })
+            try:
+                operator_summary, summary_zh, summary_en = summarize_mission(
+                    report, executor.plan,
+                    self.package.document.get("task_text") or executor.plan.goal,
+                )
+            except Exception as exc:  # the final record must be written regardless
+                operator_summary = {"error": f"{type(exc).__name__}: {exc}"}
+                summary_zh = f"任务结束（{status}），摘要生成失败：{type(exc).__name__}"
+                summary_en = f"Mission finished ({status}); summary rendering failed: {type(exc).__name__}"
+            summary = {
+                "status": status,
+                "action": self.action,
+                "reason": self.reason,
+                "terminal_action": self._terminal,
+                "terminal_reason": self.reason if self._terminal is not None else None,
+                "report": asdict(executor.report()),
+                "findings": executor.findings,
+                "alerts": list(executor.alerts),
+                "history": executor.history,
+                "counts": executor.counts,
+                "count_lower_bounds": lower_bounds,
+                "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
+                "recovery_history": self._recovery.history if self._recovery else [],
+                "operator_summary": operator_summary,
+                "summary_zh": summary_zh,
+                "summary_en": summary_en,
+            }
+            summary.update(getattr(self, "test_hook_metadata", {}))
             self.log.finish(
                 self._now,
-                {
-                    "status": status,
-                    "action": self.action,
-                    "reason": self.reason,
-                    "terminal_action": self._terminal,
-                    "terminal_reason": self.reason if self._terminal is not None else None,
-                    "report": asdict(executor.report()),
-                    "findings": executor.findings,
-                    "alerts": list(executor.alerts),
-                    "history": executor.history,
-                    "counts": executor.counts,
-                    "count_lower_bounds": lower_bounds,
-                    "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
-                    "recovery_history": self._recovery.history if self._recovery else [],
-                },
+                summary,
             )
             self._finished = True
         if self.downlink is not None:

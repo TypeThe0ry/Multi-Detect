@@ -4,22 +4,24 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import importlib
+import ipaddress
 import json
 import math
 import signal
 import sys
 import time
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+_ALLOWED_TEST_HOOK = "scripts.onboard_real_test_hook"
 if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
-from multidetect.autonomy.crash_resume import CheckpointStore, decide_recovery  # noqa: E402
 from multidetect.autonomy.mission_security import AuthenticationKey, load_key  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
 from multidetect.onboard_runtime.bench import (  # noqa: E402
@@ -387,7 +389,59 @@ def _shutdown(runtime, operator_server, policy, camera, vehicle) -> list[str]:
     return errors
 
 
+def _is_loopback_test_endpoint(endpoint: str | None) -> bool:
+    if not isinstance(endpoint, str):
+        return False
+    value = endpoint.strip()
+    if "://" in value:
+        scheme, rest = value.split("://", 1)
+    else:
+        scheme, separator, rest = value.partition(":")
+        if not separator:
+            return False
+    scheme = scheme.lower()
+    if scheme not in {"udp", "udpout", "udpin", "tcp", "tcpout", "tcpin"}:
+        return False
+    try:
+        transport = "udp" if scheme.startswith("udp") else "tcp"
+        parsed = urlsplit(f"{transport}://{rest}")
+        host = parsed.hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    # Cross-process hardware/model substitution is restricted to the local
+    # loopback harness.  Validate before importing any user-selected module or
+    # admitting a mission package.
+    test_hook = __import__("os").environ.get("MULTIDETECT_ONBOARD_TEST_HOOK")
+    hook_metadata: dict[str, Any] | None = None
+    if test_hook:
+        if test_hook != _ALLOWED_TEST_HOOK:
+            raise ValueError(
+                "拒绝启用 onboard 测试 hook：MULTIDETECT_ONBOARD_TEST_HOOK 不是允许的模块"
+            )
+        if args.mode != "real" or not _is_loopback_test_endpoint(getattr(args, "endpoint", None)):
+            raise ValueError(
+                "拒绝启用 onboard 测试 hook：只允许 127.0.0.1、localhost 或 ::1 的 UDP/TCP endpoint"
+            )
+        print(
+            "警告：已启用离线真实模式测试 hook；仅允许回环 endpoint，禁止用于真机。",
+            file=sys.stderr,
+        )
+        hook_metadata = importlib.import_module(test_hook).install(globals()) or {
+            "test_hook_active": True,
+            "test_hook_name": test_hook,
+            "test_hook_message_zh": "离线真实模式测试 hook 已启用，仅允许回环 endpoint",
+        }
     package, package_options = _admit_package(args)
     if args.mode == "real":
         missing = [
@@ -468,45 +522,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     failure: str | None = None
     try:
         vehicle.start()
-        resume_decision = None
-        resume_checkpoint = None
         camera.start()
         state, frame = _ready(
             vehicle,
             camera,
             config,
             getattr(args, "startup_timeout", 3),
-            require_ground=False,
+            require_ground=args.mode == "real",
         )
-        if args.mode == "real":
-            deadline = time.monotonic() + getattr(args, "startup_timeout", 3)
-            while (state.armed is None or state.landed is None) and time.monotonic() < deadline:
-                time.sleep(0.01)
-                state = vehicle.snapshot()
-        if args.mode == "real" and package is not None:
-            digest = hashlib.sha256(json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-            resume_checkpoint = CheckpointStore(args.work_dir / "crash_resume" / "checkpoint.json").load()
-            resume_decision = decide_recovery(landed=state.landed, armed=state.armed,
-                landed_state=getattr(state, "landed_state", None), nav_state=getattr(state, "nav_state", None),
-                boot_time_ms=getattr(state, "time_boot_ms", None), checkpoint=resume_checkpoint,
-                mission_id=package.mission_id, package_digest=digest,
-                rtl_available=hasattr(vehicle, "rtl"), resume_after_failsafe=bool(package.document.get("resume_after_failsafe", False)))
-            if (state.armed is None or state.landed is None) and resume_checkpoint is None:
-                raise RuntimeError("telemetry did not establish armed/landed state; ground admission refused")
-            report["recovery"] = {"action": resume_decision.action, "reason_zh": resume_decision.reason_zh}
-            log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
-            if resume_decision.action in {"return_home", "land"}:
-                log.append("crash_resume", time.monotonic(), action=resume_decision.action, reason_zh=resume_decision.reason_zh)
-                log.finish(time.monotonic(), {"status": "safety_action", "action": resume_decision.action, "reason": resume_decision.reason_zh})
-                getattr(vehicle, "rtl" if resume_decision.action == "return_home" else "land")()
-                return {**report, "ok": True, "recovery_action": resume_decision.action}
-            if resume_decision.action == "monitor_failsafe":
-                log.append("crash_resume", time.monotonic(), action="monitor_failsafe", reason_zh=resume_decision.reason_zh)
-                log.finish(time.monotonic(), {"status": "px4_failsafe", "action": "monitor", "reason": resume_decision.reason_zh, "counts": resume_checkpoint.get("counts", {}) if resume_checkpoint else {}, "alerts": resume_checkpoint.get("alerts", []) if resume_checkpoint else []})
-                return {**report, "ok": True, "recovery_action": "monitor_failsafe"}
         if args.mode == "real" and state.home_ned is None:
             raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
-        if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (state.armed is not False or state.landed is not True):
+        if args.mode == "real" and (state.armed is not False or state.landed is not True):
             raise RuntimeError("real runtime must start on the ground, disarmed")
         if args.mode == "real":
             if package is None:
@@ -521,6 +547,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 report=preflight,
                 apply_px4_params=bool(args.apply_px4_params),
             )
+            if hook_metadata:
+                log.append("test_hook_active", time.monotonic(), **hook_metadata)
             if not preflight["passed"]:
                 failures = ", ".join(preflight["blocking_failures"])
                 raise RuntimeError("PX4 preflight blocked arming: " + failures)
@@ -546,6 +574,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             mission_package=package,
             runtime_mode=args.mode,
         )
+        if hook_metadata:
+            raw_policy.test_hook_metadata = dict(hook_metadata)
+            supervisor = getattr(raw_policy, "supervisor", None)
+            if supervisor is not None:
+                supervisor.test_hook_metadata = dict(hook_metadata)
+                supervisor.log.append("test_hook_active", time.monotonic(), **hook_metadata)
         package_check = None
         if args.mode == "real":
 
@@ -566,19 +600,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             args, raw_policy, vehicle, package_check=package_check
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
-        if resume_decision and resume_decision.action == "resume" and resume_checkpoint is not None:
-            supervisor = getattr(raw_policy, "supervisor", None)
-            if supervisor is not None:
-                supervisor.restore_checkpoint(resume_checkpoint)
         # Model startup may take minutes. Recheck input freshness before streaming.
         ready_state, _frame = _ready(
             vehicle,
             camera,
             config,
             getattr(args, "startup_timeout", 3),
-            require_ground=args.mode == "real" and not (resume_decision and resume_decision.action == "resume"),
+            require_ground=args.mode == "real",
         )
-        if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (
+        if args.mode == "real" and (
             ready_state.armed is not False or ready_state.landed is not True
         ):
             raise RuntimeError("vehicle must remain disarmed and landed during model startup")
@@ -622,7 +652,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous_signals[sig] = signal.getsignal(sig)
             signal.signal(sig, lambda _sig, _frame: runtime.request_stop())
-        if not takeover and not (resume_decision and resume_decision.action == "resume"):
+        if not takeover:
             try:
                 if operator_server is not None:
                     # HomeRelativePolicy has no supervisor: wait on the policy
