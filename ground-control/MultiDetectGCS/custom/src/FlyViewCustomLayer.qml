@@ -88,6 +88,20 @@ Item {
         const n = value.count !== undefined ? value.count : value.total !== undefined ? value.total : value;
         return (lower ? qsTr("至少 ") : "") + String(n);
     }
+    function _missionStateText(state) {
+        const labels = {"awaiting_approval": qsTr("等待审批"), "running": qsTr("执行中"),
+            "finding": qsTr("发现目标"), "alert": qsTr("告警"), "completed": qsTr("已完成"),
+            "returning": qsTr("返航中"), "return_home": qsTr("返航"), "return_now": qsTr("立即返航"),
+            "recovery_finished": qsTr("返航完成"), "stopped": qsTr("已停止")};
+        return labels[String(state)] || String(state || qsTr("未知"));
+    }
+    function _missionEntryText(entry, kind) {
+        const e = entry || {};
+        const label = e.label || e.type || e.id || qsTr("未命名");
+        const location = e.n !== undefined && e.e !== undefined ? qsTr(" · 北 %1 / 东 %2 米").arg(e.n).arg(e.e) : "";
+        const note = e.note || e.reason || e.message || "";
+        return qsTr("%1：%2%3%4").arg(kind).arg(String(label)).arg(location).arg(note ? qsTr(" · %1").arg(note) : "");
+    }
     function _missionLinkText() {
         const fresh = _missionController && _missionController.telemetryFresh;
         const timeout = Number(_missionField(["timeout_s", "link_loss.timeout_s"], 0));
@@ -132,9 +146,9 @@ Item {
         if (!_missionController || !_missionController.finalSummaryComplete) return [];
         const s = _missionController.finalSummary || {};
         const lines = [];
-        lines.push(qsTr("结束状态：%1").arg(String(s.status || "--")));
+        lines.push(qsTr("结束状态：%1").arg(root._missionStateText(s.status || "--")));
         if (s.terminal_action)
-            lines.push(qsTr("终止动作：%1（%2）").arg(String(s.terminal_action)).arg(String(s.terminal_reason || "")));
+            lines.push(qsTr("终止动作：%1（%2）").arg(root._missionStateText(s.terminal_action)).arg(String(s.terminal_reason || "")));
         const counts = s.counts || {};
         const lower = s.count_lower_bounds || {};
         for (const key in counts) {
@@ -152,11 +166,30 @@ Item {
         function onTelemetryChanged() {
             if (root._missionPlan.requires_approval === true && !root._missionPlanSnapshotSent) {
                 root._missionPlanSnapshotSent = true
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    missionApprovalDialog.open()
                 if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("plan-dialog")
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    autoApprovePlanTimer.restart()
             }
             if (root._missionController.finalSummaryComplete && !root._missionSummarySnapshotSent) {
                 root._missionSummarySnapshotSent = true
+                if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true)
+                    missionSummaryDialog.open()
                 if (typeof multiDetectUiSnapshotController !== "undefined") multiDetectUiSnapshotController.requestSnapshot("final-summary-complete")
+            }
+        }
+    }
+
+    Timer {
+        id: autoApprovePlanTimer
+        interval: 1000
+        repeat: false
+        onTriggered: {
+            if (typeof multiDetectUiAutoApprovePlan !== "undefined" && multiDetectUiAutoApprovePlan === true &&
+                    root._missionController.planAwaitingDecision && !root._missionController.busy) {
+                root._missionController.approvePlan()
+                missionApprovalDialog.close()
             }
         }
     }
@@ -1154,7 +1187,7 @@ Item {
                 QGCLabel {
                     Layout.fillWidth: true
                     text: qsTr("状态：%1 · 步骤 %2/%3 · %4\n查询：%5")
-                        .arg(String(root._missionField(["state", "mission_state", "status"], "未知")))
+                        .arg(root._missionStateText(root._missionField(["state", "mission_state", "status"], "未知")))
                         .arg(root._missionField(["step.index", "current_step", "step_index"], "--"))
                         .arg(root._missionField(["step.total", "step_count", "total_steps"], "--"))
                         .arg(String(root._missionField(["step.skill", "skill"], "--")))
@@ -1181,6 +1214,13 @@ Item {
                     Layout.fillWidth: true
                     color: root._missionController && root._missionController.telemetryFresh ? qgcPal.colorGreen : qgcPal.warningText
                     text: qsTr("%1\n最近身份决策：%2").arg(root._missionLinkText()).arg(String(root._missionField(["identity_decision", "last_identity_decision", "decision"], "--")))
+                    wrapMode: Text.WordWrap
+                }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    visible: root._missionFindings.length > 0 || root._missionAlerts.length > 0
+                    text: root._missionFindings.map(e => root._missionEntryText(e, qsTr("发现"))).concat(
+                              root._missionAlerts.map(e => root._missionEntryText(e, qsTr("告警")))).join("\n")
                     wrapMode: Text.WordWrap
                 }
                 RowLayout {
@@ -1282,6 +1322,17 @@ Item {
                 color: qgcPal.warningText
                 text: qsTr("摘要不完整：已收到 %1 / %2 页，等待其余分页").arg(root._missionController ? root._missionController.summaryPagesReceived : 0).arg(root._missionController ? root._missionController.summaryPagesTotal : 0)
                 visible: root._missionController !== null && !root._missionController.finalSummaryComplete
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: root._missionController && root._missionController.finalSummaryComplete
+                text: {
+                    const s = root._missionController.finalSummary || {};
+                    const findings = (s.findings || []).map(e => root._missionEntryText(e, qsTr("发现")));
+                    const alerts = (s.alerts || []).map(e => root._missionEntryText(e, qsTr("告警")));
+                    return findings.concat(alerts).join("\n");
+                }
+                wrapMode: Text.WordWrap
             }
         }
     }
