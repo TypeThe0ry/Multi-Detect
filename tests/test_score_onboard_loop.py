@@ -398,3 +398,39 @@ def test_plural_alert_query_matches_singular_truth_words() -> None:
     assert metrics["mission_alert_precision"] == 1.0
     assert metrics["mission_alert_eligible_count"] == 2
     assert metrics["mission_alert_recall"] == 0.5
+
+
+def test_flight_safety_metrics_detect_ground_strike_and_return_distance() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    def row(n, e, alt):
+        return {"obs_before": {"pose": {"local_ned_m": [n, e, -alt]}},
+                "obs_after": {"pose": {"local_ned_m": [n, e, -alt]}},
+                "labels": {"onboard": {"home_ne": [0.0, 0.0]}}}
+
+    safe = _flight_safety_metrics(
+        [row(0, 0, 30), row(2, 3, 29)],
+        {"mission_completed": True},
+        {"safety": {"min_relative_altitude_m": 10, "max_return_distance_m": 10}},
+    )
+    assert safe["ground_contact_detected"] is False
+    assert safe["return_home_distance_m"] == 3.606
+    assert safe["safety_pass"] is True
+
+    crashed = _flight_safety_metrics(
+        [row(0, 0, 30), row(4, 4, 0.2)],
+        {"mission_completed": True},
+        {"safety": {"min_relative_altitude_m": 10}},
+    )
+    assert crashed["ground_contact_detected"] is True
+    assert crashed["safety_pass"] is False
+
+
+def test_flight_safety_metrics_accepts_expect_safety_alias() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    row = {"obs_before": {"pose": {"local_ned_m": [0, 0, -20]}}}
+    result = _flight_safety_metrics(
+        [row], {"mission_completed": True}, {"expect": {"safety": {"min_relative_altitude_m": 5}}}
+    )
+    assert result["safety_min_altitude_pass"] is True

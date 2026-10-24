@@ -322,6 +322,87 @@ def _moving_track_metrics(
     }
 
 
+
+def _flight_safety_metrics(
+    rows: list[dict[str, Any]],
+    mission_metrics: dict[str, Any] | None = None,
+    mission_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Derive airframe-agnostic flight safety facts from recorded poses.
+
+    ``local_ned_m[2]`` is down, therefore relative altitude is ``-z``.  The
+    metrics intentionally use every recorded step (including the final one),
+    so a transient ground strike cannot be hidden by a later return-home row.
+    Thresholds are configurable per mission under ``expect.safety`` or
+    ``safety``; old multirotor callers retain the same report shape and no
+    safety gate is applied unless requested.
+    """
+    poses = []
+    for row in rows:
+        for key in ("obs_before", "obs_after"):
+            pose = (row.get(key) or {}).get("pose") or {}
+            ned = pose.get("local_ned_m")
+            if isinstance(ned, (list, tuple)) and len(ned) >= 3:
+                try:
+                    n, e, down = (float(ned[0]), float(ned[1]), float(ned[2]))
+                except (TypeError, ValueError):
+                    continue
+                if all(math.isfinite(v) for v in (n, e, down)):
+                    poses.append((n, e, -down))
+    if not poses:
+        return {
+            "safety_data_available": False,
+            "safety_pass": False,
+            "ground_contact_detected": None,
+            "min_relative_altitude_m": None,
+            "max_relative_altitude_m": None,
+            "return_home_distance_m": None,
+        }
+    alts = [p[2] for p in poses]
+    # Mission labels carry the authoritative completion state when present.
+    completed = bool((mission_metrics or {}).get("mission_completed"))
+    home = (0.0, 0.0)
+    for row in reversed(rows):
+        onboard = ((row.get("labels") or {}).get("onboard") or {})
+        candidate = onboard.get("home_ne")
+        if isinstance(candidate, (list, tuple)) and len(candidate) >= 2:
+            try:
+                home = (float(candidate[0]), float(candidate[1]))
+                break
+            except (TypeError, ValueError):
+                pass
+    final_n, final_e, _ = poses[-1]
+    return_distance = math.hypot(final_n - home[0], final_e - home[1])
+    safety_cfg: dict[str, Any] = {}
+    if isinstance(mission_config, dict):
+        candidate = mission_config.get("safety")
+        if not isinstance(candidate, dict):
+            candidate = (mission_config.get("expect") or {}).get("safety")
+        if isinstance(candidate, dict):
+            safety_cfg = candidate
+    ground_limit = float(safety_cfg.get("ground_contact_altitude_m", 1.0))
+    min_required = safety_cfg.get("min_relative_altitude_m")
+    max_return = safety_cfg.get("max_return_distance_m")
+    min_required = float(min_required) if min_required is not None else None
+    max_return = float(max_return) if max_return is not None else None
+    ground = min(alts) <= ground_limit
+    return {
+        "safety_data_available": True,
+        "min_relative_altitude_m": round(min(alts), 3),
+        "max_relative_altitude_m": round(max(alts), 3),
+        "ground_contact_altitude_m": ground_limit,
+        "ground_contact_detected": ground,
+        "return_home_distance_m": round(return_distance, 3),
+        "return_home_completed": completed,
+        "safety_min_altitude_pass": min_required is None or min(alts) >= min_required,
+        "safety_return_distance_pass": max_return is None or return_distance <= max_return,
+        "safety_pass": bool(
+            not ground
+            and (min_required is None or min(alts) >= min_required)
+            and (max_return is None or return_distance <= max_return)
+        ),
+    }
+
 def _mission_metrics(
     rows: list[dict[str, Any]],
     truth: dict[str, Any],
@@ -729,7 +810,29 @@ def score_episode(
     members = [t for t in truth["targets"] if t.get("count_member")]
     if members:
         result.update(_count_metrics(rows, members, radius_m))
-    result.update(_mission_metrics(rows, truth, radius_m, mission_config))
+    mission_metrics = _mission_metrics(rows, truth, radius_m, mission_config)
+    result.update(mission_metrics)
+    result.update(_flight_safety_metrics(rows, mission_metrics, mission_config))
+    # A negative area-search task is successful when the requested object was
+    # not confirmed and the vehicle completed a safe return.  This is opt-in so
+    # legacy suites keep their original confirmation-only semantics.
+    expect = mission_config.get("expect") if isinstance(mission_config, dict) else None
+    if not isinstance(expect, dict):
+        expect = {}
+    negative = bool(
+        expect.get("not_found")
+        or expect.get("target_found") is False
+        or (isinstance(mission_config, dict) and mission_config.get("not_found"))
+    )
+    if negative:
+        result["negative_task"] = True
+        result["negative_task_passed"] = bool(
+            not result["confirmed"]
+            and result.get("mission_alert_correct_count", 0) == 0
+            and result.get("mission_completed") is True
+            and result.get("safety_pass") is True
+        )
+        result["success"] = result["negative_task_passed"]
     if mission_config and mission_config.get("mission_package") is not None:
         evidence = _supervisor_evidence(episode)
         result["mission_supervisor"] = evidence

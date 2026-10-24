@@ -211,6 +211,31 @@ server.config 的结构如果变了，容器启动会直接报错退出，不会
 
 目标：让 `standard_vtol`（4+1 复合翼）和 `quadtailsitter`（尾座式）在有目标的生成世界里跑通机上闭环“找目标 → 确认 → 返航降落”，与多旋翼/固定翼同一套机上 AI。场景用 `scripts/derive_fixed_wing_scenario.py --airframe standard_vtol|quadtailsitter` 从固定翼版 w0031（消防车，离 home 45 m）和 w0016（救护车，离 home 102 m）派生（`configs/scenarios/vtol-v2/<机型>/`，世界、真值、任务不变，只换飞机，在 home 垂直起飞）。
 
+## SIM 回归套件
+
+固定翼和 VTOL 任务可以与多旋翼任务一起由任务套件定期回归。套件条目可设置
+`airframe`、`takeoff_method` 和 `split`；未设置时保持 `x500_mono_cam` 的历史行为。
+当前示例在 `configs/onboard/suite-airframes.json`，覆盖 standard_vtol 的 w0016
+救护车返航、rc_cessna 的 w0016 已知模型限制，以及 w0031 中不存在救护车时的安全
+负任务（未确认目标并安全返航）。
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/run_mission_suite.py --suite configs/onboard/suite-airframes.json `
+  --out .tmp/suite-airframes --strict
+```
+
+只检查命令和生成的 onboard 配置，不启动 SITL：
+
+```powershell
+python scripts/run_mission_suite.py --suite configs/onboard/suite-airframes.json `
+  --out .tmp/suite-airframes-dry --dry-run
+```
+
+计分器从 `steps.jsonl` 的 NED 位姿和 MAVLink 派生最低相对高度、接地/坠毁迹象和
+返航终点距离；`expect.not_found`（或顶层 `not_found`）任务要求未确认、任务完成且
+安全判据通过。
+
 **改之前的实际行为**（读代码 + 第 1 架次）：VTOL 被当成“不能悬停的飞机”——割草机搜索、接近时“转向/前进一步”被换成 22 m 的 FW 重定位（就是固定翼“飞过头”的老问题），而过顶盘旋只对 `fixed_wing` 开；悬停相关的命令也有缺陷：`mc_hold` 被执行成按固定翼盘旋半径绕圈，`stop` 被换成“在目标处降落”。
 
 **方案**（VTOL 能悬停，所以接近和确认用多旋翼那套）：

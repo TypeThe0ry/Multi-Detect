@@ -19,7 +19,20 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-METADATA = {"id", "index", "world", "expect", "steps", "max_episode_s", "episodes"}
+METADATA = {
+    "id",
+    "index",
+    "world",
+    "split",
+    "expect",
+    "steps",
+    "max_episode_s",
+    "episodes",
+    # Execution selectors belong to the suite scheduler, not onboard config.
+    "airframe",
+    "takeoff_method",
+    "not_found",
+}
 METRICS = {
     "alert_precision": "mission_alert_precision",
     "alert_recall": "mission_alert_recall",
@@ -31,6 +44,11 @@ METRICS = {
     "inspect_match_fraction": "mission_inspect_match_fraction",
     "survey_coverage": "mission_survey_coverage",
     "steps": "steps",
+    "confirmed": "confirmed",
+    "safety_pass": "safety_pass",
+    "min_relative_altitude_m": "min_relative_altitude_m",
+    "ground_contact_detected": "ground_contact_detected",
+    "return_home_distance_m": "return_home_distance_m",
 }
 
 
@@ -71,7 +89,7 @@ def build_command(
         "--index",
         str(repo_path(mission["index"])),
         "--split",
-        "test",
+        str(mission.get("split", "test")),
         "--worlds",
         mission["world"],
         "--episodes",
@@ -97,6 +115,13 @@ def build_command(
         "--disk-check-every",
         str(disk_check_every),
     ]
+    # Keep the historical x500 command byte-for-byte unchanged when a mission
+    # does not opt into an airframe.  Fixed-wing/VTOL missions pass these
+    # selectors through the campaign to the collector.
+    if mission.get("airframe"):
+        command += ["--airframe", str(mission["airframe"])]
+    if mission.get("takeoff_method"):
+        command += ["--takeoff-method", str(mission["takeoff_method"])]
     return command
 
 
