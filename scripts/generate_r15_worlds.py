@@ -274,15 +274,41 @@ def main(argv=None):
             # Observation geometry is a mission/teacher input, never a vehicle
             # spawn pose.  Keep the vehicle on the ground in a neutral attitude;
             # PX4 rejects airborne or tilted initial states during arming.
+            # The generated target is placed at the requested ground-distance
+            # ring from home.  Observation waypoints are camera positions, so
+            # they must stay on that ring instead of being the target pose.
+            waypoint_east = 0.0
+            waypoint_north = 0.0
             observation_intent = {
                 "camera_altitude_m": altitude,
                 "camera_pitch_rad": angle,
                 "observation_waypoint": {
-                    "x_east_m": tx,
-                    "y_north_m": ty,
+                    "x_east_m": waypoint_east,
+                    "y_north_m": waypoint_north,
                     "z_up_m": 0.0,
                 },
             }
+            if a.profile == "r21-identity":
+                target_radius = math.hypot(tx, ty)
+                radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
+                perpendicular = (-radial[1], radial[0])
+                views = []
+                for view_name, angle_deg in zip(
+                    ("front", "oblique", "edge_truncated", "recovery"), (180.0, 145.0, 90.0, 35.0), strict=True
+                ):
+                    angle_rad = math.radians(angle_deg)
+                    offset_e = target_radius * (math.cos(angle_rad) * radial[0] + math.sin(angle_rad) * perpendicular[0])
+                    offset_n = target_radius * (math.cos(angle_rad) * radial[1] + math.sin(angle_rad) * perpendicular[1])
+                    views.append({
+                        "view": view_name,
+                        "observation_waypoint": {
+                            "x_east_m": round(tx - offset_e, 3),
+                            "y_north_m": round(ty - offset_n, 3),
+                            "z_up_m": 0.0,
+                        },
+                    })
+                observation_intent["observation_frames"] = 8
+                observation_intent["views"] = views
             teacher_intent = {
                 "kind": "find_and_observe",
                 "observation": observation_intent,
@@ -322,9 +348,15 @@ def main(argv=None):
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
             if case == "hydrant_building_occlusion_truncation" or a.profile == "r21-identity":
+                # Keep the occluder on the target ray while placing its nearest
+                # footprint edge outside the multirotor takeoff clearance ring.
+                # The old midpoint (tx/2, ty/2) put the 12x8 m building over
+                # the home position for close r21 identity views (for example
+                # target=(12, 0) -> building=(6, 0)).
+                building_x, building_y = (2.0 * tx, 2.0 * ty)
                 building_xml = (
                     f'<model name="{a.profile.replace("-", "_")}_building_occluder"><static>true</static>'
-                    f"<pose>{tx / 2:.3f} {ty / 2:.3f} 6 0 0 0</pose><link name=\"body\">"
+                    f"<pose>{building_x:.3f} {building_y:.3f} 6 0 0 0</pose><link name=\"body\">"
                     '<collision name="collision"><geometry><box><size>12 8 12</size>'
                     "</box></geometry></collision>"
                     '<visual name="visual"><geometry><box><size>12 8 12</size></box>'
