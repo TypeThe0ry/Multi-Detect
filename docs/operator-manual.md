@@ -106,9 +106,13 @@ python scripts/mission_package_tool.py validate D:\Projects\mdwt\_scratch\cx-ope
 
 地面站收到 `decision=clarify` 时不会起飞。先阅读 `questions_zh`（最多 3 个问题），在任务描述或计划中补足目标类别、跟随对象或数量上限，再用同一任务编号重新提交签名任务包；不要直接点击批准旧的 `plan_sha256`。常见问题是“是否移除上限或确认具体数量？”和“需要跟随什么目标？请描述类别、颜色或可识别特征。”重新提交仍会经过准入、计划校验和审批。规则和示例见 [计划校验与澄清](plan-validation-clarification.md)。
 
+任务卡会同时列出 `reasons_zh` 和问题；机载以 `mission_refused.violations` 回传时，使用其中的 `message_zh` 与 `questions_zh`。澄清时“批准计划”按钮是禁用状态，只保留“修改任务并重新提交”；拒绝时显示拒绝原因且同样不能批准。`decision=repair` 会列出 `repairs` 自动修复项并允许负责人核对后批准。旧版机载没有 `validation` 或字段类型不正确时，地面站继续按原有 `requires_approval` 流程处理。
+
 ### 3.2 飞行中怎么发改派
 
 当前地面站改派入口固定为 `replace`：发送已签名的候选任务包，等待 `retask_received`、`retask_validated` 和规划结果；需要审批时，核对候选 `plan_sha256` 后发送签名 `approve_retask`，拒绝则发送 `reject_retask`。改派规划期间飞机保持原计划的安全行为；规划/校验/审批超时或拒绝时原计划继续，不要重复点击造成并发候选。`append` 仅供机载 API，当前地面站没有模式选择。切换成功后摘要的 `plan_history` 会保留版本、模式和摘要，计数/发现/告警不会清空。详见 [飞行中改派设计](mid-mission-retask.md)。
+
+任务卡状态依次显示“已受理”（收到 `retask_received`）、“规划中”（`retask_planning`）、“校验结论”（`retask_validated`）、“待审批”（`retask_approval` 且等待批准）、“已切换”（`retask_switched`）或“已拒绝”（`retask_rejected`，同时显示中文原因）。待审批时卡片显示候选 `plan_sha256`，批准或拒绝均绑定这一摘要；摘要不一致时机载会拒绝命令。上传入口明确写作“上传改派任务包（替换剩余步骤）”，仅在飞行中出现。最终摘要卡片的 `plan_history` 用于核对每个版本的序号、模式和摘要，不能把改派后的计数当成新任务。
 
 ### 3.3 机载崩溃恢复时地面站会看到什么
 

@@ -38,6 +38,7 @@ class MultiDetectMissionController final : public QObject
     Q_PROPERTY(bool onboardCompiling READ onboardCompiling NOTIFY stateChanged)
     Q_PROPERTY(bool planAwaitingDecision READ planAwaitingDecision NOTIFY stateChanged)
     Q_PROPERTY(QString planDecisionState READ planDecisionState NOTIFY stateChanged)
+    Q_PROPERTY(QVariantMap retaskStatus READ retaskStatus NOTIFY telemetryChanged)
 
 public:
     explicit MultiDetectMissionController(QObject* parent = nullptr);
@@ -83,6 +84,7 @@ public:
     // decision in flight.
     bool planAwaitingDecision() const;
     QString planDecisionState() const { return _planDecisionState; }
+    QVariantMap retaskStatus() const { return _retaskStatus; }
 
     void setSender(std::function<bool(int, const QByteArray&)> sender) { _sender = std::move(sender); }
 
@@ -97,12 +99,15 @@ public:
     Q_INVOKABLE bool loadEnvironmentPackage();
     Q_INVOKABLE bool saveFile(const QUrl& url);
     Q_INVOKABLE bool upload();
+    Q_INVOKABLE bool uploadRetask();
     Q_INVOKABLE bool abortMission();
     Q_INVOKABLE bool pauseMission();
     Q_INVOKABLE bool resumeMission();
     Q_INVOKABLE bool tightenPolicy(const QString& policy, double timeout);
     Q_INVOKABLE bool approvePlan();
     Q_INVOKABLE bool rejectPlan();
+    Q_INVOKABLE bool approveRetask();
+    Q_INVOKABLE bool rejectRetask();
     Q_INVOKABLE QVariantMap coordinateForOffset(double northM, double eastM, double originLatitude,
                                                  double originLongitude) const;
     static bool geoProjectionSelfTest();
@@ -141,6 +146,7 @@ private:
 
     bool _control(int type, const QString& policy = {}, double timeout = 0);
     bool _planDecision(bool approve);
+    bool _retaskDecision(bool approve);
     bool _prepareCommand(QJsonObject* command, QString* error);
     void _beginMission(const QString& missionId);
     void _switchMission(const QString& missionId);
@@ -170,7 +176,9 @@ private:
     QString _uploadMissionId;
     QSet<QString> _decidedPlans;
     QString _planDecisionState;
+    QVariantMap _retaskStatus;
     bool _requireMissionSignature = false;
+    bool _allowAirborneUpload = false;
     Pending _pending;
     quint64 _uploadToken = 0;
     QVariantMap _telemetry;

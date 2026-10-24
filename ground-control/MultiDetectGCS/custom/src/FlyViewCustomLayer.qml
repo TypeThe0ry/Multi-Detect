@@ -1289,6 +1289,13 @@ Item {
                               root._missionAlerts.map(e => root._missionEntryText(e, qsTr("告警")))).join("\n")
                     wrapMode: Text.WordWrap
                 }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    visible: root.currentRetaskStatus().length > 0
+                    text: qsTr("改派状态：%1%2").arg(root.currentRetaskStatus())
+                        .arg(root._missionPlan.plan_sha256 ? qsTr("\n候选 plan_sha256：%1").arg(root._missionPlan.plan_sha256) : "")
+                    wrapMode: Text.WordWrap
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     QGCButton { text: qsTr("中止"); enabled: root._missionController && root._missionController.activeMissionId !== ""; onClicked: root._missionController.abortMission() }
@@ -1335,6 +1342,51 @@ Item {
                 text: qsTr("计划摘要 SHA-256：%1…").arg(String(root._missionPlan.plan_sha256 || "--").substring(0, 16))
                 font.family: ScreenTools.fixedFontFamily
             }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: ["accept", "repair", "clarify", "reject"].indexOf(String(root._missionPlan.validation_decision || "")) >= 0
+                text: qsTr("机载校验结论：%1").arg(String(root._missionPlan.validation_decision || ""))
+                wrapMode: Text.WordWrap
+            }
+            Repeater {
+                model: root._missionPlan.reasons_zh || []
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    text: qsTr("原因：%1").arg(modelData)
+                    wrapMode: Text.WordWrap
+                }
+            }
+            Repeater {
+                model: root._missionPlan.repairs || []
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    text: qsTr("自动修复：%1").arg(modelData)
+                    wrapMode: Text.WordWrap
+                }
+            }
+            Repeater {
+                model: (root._missionPlan.questions_zh || []).slice(0, 3)
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    text: qsTr("待澄清问题：%1").arg(modelData)
+                    wrapMode: Text.WordWrap
+                }
+            }
+            Repeater {
+                model: Array.isArray(root._missionPlan.reasons_zh) ? root._missionPlan.reasons_zh : []
+                delegate: QGCLabel { required property string modelData; Layout.fillWidth: true; text: qsTr("原因：%1").arg(modelData); wrapMode: Text.WordWrap }
+            }
+            Repeater {
+                model: Array.isArray(root._missionPlan.repairs) ? root._missionPlan.repairs : []
+                delegate: QGCLabel { required property string modelData; Layout.fillWidth: true; text: qsTr("自动修复：%1").arg(modelData); wrapMode: Text.WordWrap }
+            }
+            Repeater {
+                model: Array.isArray(root._missionPlan.questions_zh) ? root._missionPlan.questions_zh.slice(0, 3) : []
+                delegate: QGCLabel { required property string modelData; Layout.fillWidth: true; text: qsTr("待澄清问题：%1").arg(modelData); wrapMode: Text.WordWrap }
+            }
             Repeater {
                     model: root._missionPlan.steps || root._missionField(["plan.steps", "steps"], [])
                 delegate: QGCLabel {
@@ -1349,13 +1401,23 @@ Item {
                 Layout.fillWidth: true
                 QGCButton {
                     text: qsTr("批准")
-                    enabled: root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy
+                    enabled: root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy &&
+                             ["clarify", "reject"].indexOf(String(root._missionPlan.validation_decision || "")) < 0
                     onClicked: { root._missionController.approvePlan(); missionApprovalDialog.close(); }
                 }
                 QGCButton {
                     text: qsTr("拒绝")
                     enabled: root._missionController && root._missionController.planAwaitingDecision && !root._missionController.busy
                     onClicked: { root._missionController.rejectPlan(); missionApprovalDialog.close(); }
+                }
+            }
+            QGCButton {
+                Layout.fillWidth: true
+                visible: String(root._missionPlan.validation_decision || "") === "clarify"
+                text: qsTr("修改任务并重新提交")
+                onClicked: {
+                    missionApprovalDialog.close()
+                    missionPackageDialogFactory.open()
                 }
             }
             QGCLabel {

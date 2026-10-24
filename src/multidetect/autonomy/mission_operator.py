@@ -332,6 +332,16 @@ class MissionOperatorAdapter:
 
     def announce_plan(self, supervisor: MissionSupervisor) -> None:
         """Log (and so downlink) the plan the operator approves or rejects."""
+        validation = getattr(supervisor, "plan_report", None)
+        validation_fields = {}
+        if isinstance(validation, dict):
+            decision = validation.get("decision")
+            if decision in {"accept", "repair", "clarify", "reject"}:
+                validation_fields["decision"] = decision
+            for key in ("reasons_zh", "questions_zh", "repairs"):
+                value = validation.get(key)
+                if isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    validation_fields[key] = value[:3] if key == "questions_zh" else value
         supervisor.log.append(
             "plan",
             supervisor.clock(),
@@ -354,6 +364,7 @@ class MissionOperatorAdapter:
                 if "origin" in supervisor.package.document
                 else {}
             ),
+            **({"validation": validation_fields} if validation_fields else {}),
         )
         if supervisor.downlink is not None:
             supervisor.downlink.notify()

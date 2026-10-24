@@ -4,6 +4,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QJsonDocument>
+#include <QtCore/QJsonArray>
 #include <QtCore/QRandomGenerator>
 #include <QtCore/QSaveFile>
 #include <QtCore/QtMath>
@@ -215,8 +216,9 @@ bool MultiDetectMissionController::upload()
         return _fail(QStringLiteral("请等待当前请求确认"));
     if (!validate())
         return _fail(_validation);
-    if ((_uploadGuard && !_uploadGuard()) || (_telemetry.value("flight_active").toBool() && telemetryFresh()))
-        return _fail(QStringLiteral("飞行中不能替换任务包"));
+    if ((!_allowAirborneUpload && _telemetry.value("flight_active").toBool() && telemetryFresh()) ||
+        (_uploadGuard && !_uploadGuard()))
+        return _fail(QStringLiteral("当前状态不允许上传任务包"));
     if (!_keyError.isEmpty())
         return _fail(_keyError);
     QJsonObject signedDocument = _document;
@@ -238,6 +240,14 @@ bool MultiDetectMissionController::upload()
     _pending.token = _uploadToken;
     _beginChunk();
     return _sendPending();
+}
+
+bool MultiDetectMissionController::uploadRetask()
+{
+    _allowAirborneUpload = true;
+    const bool result = upload();
+    _allowAirborneUpload = false;
+    return result;
 }
 
 void MultiDetectMissionController::_beginChunk()
@@ -382,6 +392,10 @@ bool MultiDetectMissionController::_planDecision(bool approve)
         return _fail(QStringLiteral("计划所属任务与当前任务不一致，不能审批"));
     if (_decidedPlans.contains(digest))
         return _fail(QStringLiteral("该计划已作出决定"));
+    const QString validationDecision = _plan.value(QStringLiteral("validation_decision")).toString();
+    if (approve && (validationDecision == QStringLiteral("clarify") || validationDecision == QStringLiteral("reject")))
+        return _fail(validationDecision == QStringLiteral("clarify") ? QStringLiteral("计划需要澄清，不能批准")
+                                                                      : QStringLiteral("计划已被机载拒绝，不能批准"));
     if (busy())
         return _fail(QStringLiteral("请等待当前请求确认"));
     QJsonObject command{{QStringLiteral("mission_id"), missionId},
@@ -403,6 +417,39 @@ bool MultiDetectMissionController::_planDecision(bool approve)
 }
 bool MultiDetectMissionController::approvePlan() { return _planDecision(true); }
 bool MultiDetectMissionController::rejectPlan() { return _planDecision(false); }
+
+bool MultiDetectMissionController::_retaskDecision(bool approve)
+{
+    const QString digest = _retaskStatus.value(QStringLiteral("plan_sha256")).toString();
+    const QString missionId = _activeMissionId;
+    if (digest.isEmpty() || missionId.isEmpty())
+        return _fail(QStringLiteral("尚未收到待审批的改派计划"));
+    if (_retaskStatus.value(QStringLiteral("status")).toString() != QStringLiteral("retask_approval"))
+        return _fail(QStringLiteral("当前没有待审批改派"));
+    if (busy())
+        return _fail(QStringLiteral("请等待当前请求确认"));
+    QJsonObject command{{QStringLiteral("mission_id"), missionId},
+                        {QStringLiteral("type"), approve ? QStringLiteral("approve_retask") : QStringLiteral("reject_retask")},
+                        {QStringLiteral("plan_sha256"), digest}};
+    QString signingError;
+    if (!_prepareCommand(&command, &signingError))
+        return _fail(signingError);
+    _commandDocument = MultiDetectMissionSecurity::canonicalJson(command);
+    _pending = {};
+    _pending.type = 37;
+    _pending.commandType = approve ? 40 : 41;
+    _pending.token = token();
+    _pending.planDigest = digest;
+    _beginChunk();
+    _retaskStatus.insert(QStringLiteral("status"), QStringLiteral("retask_approval"));
+    _retaskStatus.insert(QStringLiteral("decision_sent"), approve ? QStringLiteral("approve") : QStringLiteral("reject"));
+    _state = approve ? QStringLiteral("已发送改派批准") : QStringLiteral("已发送改派拒绝");
+    emit telemetryChanged();
+    return _sendPending();
+}
+
+bool MultiDetectMissionController::approveRetask() { return _retaskDecision(true); }
+bool MultiDetectMissionController::rejectRetask() { return _retaskDecision(false); }
 
 QVariantMap MultiDetectMissionController::coordinateForOffset(double northM, double eastM, double originLatitude,
                                                                double originLongitude) const
@@ -839,6 +886,28 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
         _logs.append(obj.toVariantMap());
         if (kind == QStringLiteral("plan")) {
             _plan = obj.toVariantMap();
+            const QJsonValue validationValue = obj.value(QStringLiteral("validation"));
+            if (validationValue.isObject()) {
+                const QJsonObject validation = validationValue.toObject();
+                const QString decision = validation.value(QStringLiteral("decision")).isString()
+                                             ? validation.value(QStringLiteral("decision")).toString()
+                                             : QString();
+                if (QStringList({QStringLiteral("accept"), QStringLiteral("repair"), QStringLiteral("clarify"),
+                                 QStringLiteral("reject")})
+                        .contains(decision))
+                    _plan.insert(QStringLiteral("validation_decision"), decision);
+                for (const QString& key : {QStringLiteral("reasons_zh"), QStringLiteral("questions_zh"),
+                                            QStringLiteral("repairs")}) {
+                    const QJsonValue value = validation.value(key);
+                    if (!value.isArray())
+                        continue;
+                    QVariantList strings;
+                    for (const QJsonValue& entry : value.toArray())
+                        if (entry.isString())
+                            strings.append(entry.toString());
+                    _plan.insert(key, strings);
+                }
+            }
             const QString digest = obj.value(QStringLiteral("plan_sha256")).toString();
             _planDecisionState = _decidedPlans.contains(digest)  ? QStringLiteral("该计划已作出决定")
                                  : obj.value(QStringLiteral("requires_approval")).toBool()
@@ -847,12 +916,60 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
         } else if (kind == QStringLiteral("finding") || kind == QStringLiteral("alert")) {
             auto& list = kind == QStringLiteral("finding") ? _findings : _alerts;
             list.append(obj.toVariantMap());
+        } else if (kind == QStringLiteral("mission_refused")) {
+            QVariantList reasons;
+            QVariantList questions;
+            const QJsonValue violations = obj.value(QStringLiteral("violations"));
+            if (violations.isArray()) {
+                for (const QJsonValue& entry : violations.toArray()) {
+                    if (!entry.isObject())
+                        continue;
+                    const QJsonObject violation = entry.toObject();
+                    if (violation.value(QStringLiteral("message_zh")).isString())
+                        reasons.append(violation.value(QStringLiteral("message_zh")).toString());
+                    const QJsonValue qs = violation.value(QStringLiteral("questions_zh"));
+                    if (qs.isArray())
+                        for (const QJsonValue& question : qs.toArray())
+                            if (question.isString() && questions.size() < 3)
+                                questions.append(question.toString());
+                }
+            }
+            if (!reasons.isEmpty() || !questions.isEmpty()) {
+                _plan.insert(QStringLiteral("validation_decision"),
+                             obj.value(QStringLiteral("reason")).toString() == QStringLiteral("package_policy_violation")
+                                 ? QStringLiteral("reject")
+                                 : QStringLiteral("clarify"));
+                _plan.insert(QStringLiteral("reasons_zh"), reasons);
+                _plan.insert(QStringLiteral("questions_zh"), questions);
+            }
+            _planDecisionState = QStringLiteral("机载拒绝任务包：%1").arg(obj.value(QStringLiteral("reason")).toString());
         } else if (kind == QStringLiteral("plan_approved") || kind == QStringLiteral("plan_rejected")) {
             const QString digest = obj.value(QStringLiteral("plan_sha256")).toString();
             if (!digest.isEmpty())
                 _decidedPlans.insert(digest);
             _planDecisionState = kind == QStringLiteral("plan_approved") ? QStringLiteral("机载记录：计划已批准")
                                                                          : QStringLiteral("机载记录：计划已拒绝");
+        } else if (kind.startsWith(QStringLiteral("retask_"))) {
+            const QStringList statuses = {QStringLiteral("retask_received"), QStringLiteral("retask_planning"),
+                                          QStringLiteral("retask_validated"), QStringLiteral("retask_approval"),
+                                          QStringLiteral("retask_switched"), QStringLiteral("retask_rejected")};
+            if (statuses.contains(kind)) {
+                _retaskStatus.insert(QStringLiteral("status"), kind);
+                for (const QString& key : {QStringLiteral("reason"), QStringLiteral("reason_zh"),
+                                            QStringLiteral("plan_sha256"), QStringLiteral("mode")}) {
+                    const QJsonValue value = obj.value(key);
+                    if (value.isString())
+                        _retaskStatus.insert(key == QStringLiteral("reason") ? QStringLiteral("retask_reason_zh") : key,
+                                             value.toString());
+                }
+                const QJsonValue version = obj.value(QStringLiteral("plan_version"));
+                if (version.isDouble() && std::floor(version.toDouble()) == version.toDouble())
+                    _retaskStatus.insert(QStringLiteral("plan_version"), version.toInt());
+                _plan.insert(QStringLiteral("retask_status"), kind);
+                _plan.insert(QStringLiteral("retask_reason_zh"), _retaskStatus.value(QStringLiteral("retask_reason_zh")));
+                if (_retaskStatus.contains(QStringLiteral("plan_sha256")))
+                    _plan.insert(QStringLiteral("plan_sha256"), _retaskStatus.value(QStringLiteral("plan_sha256")));
+            }
         } else if (kind == QStringLiteral("final_summary")) {
             // A summary that fits one transfer: the log record wraps it.
             const QJsonValue inner = obj.value(QStringLiteral("summary"));

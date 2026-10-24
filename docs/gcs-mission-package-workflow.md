@@ -86,6 +86,12 @@ server.start_background()
 
 飞行中仍用签名任务包承载新任务内容，机载将其作为改派候选交给现有规划与准入路径。当前地面站入口固定使用 `replace`，没有可由操作员选择的 `retask_mode` 字段；`append` 仅是机载 API 能力，见 [飞行中改派设计](mid-mission-retask.md)。改派请求绑定任务编号和单调递增的 `plan_version`；审批字段为 `approve_retask`／`reject_retask` 和候选 `plan_sha256`，必须走签名地面命令 chunk。机载状态/日志事件包括 `retask_received`、`retask_planning`、`retask_validated`、`retask_approval`、`retask_switched`、`retask_rejected`，建议带 `mode`、`plan_version`、`plan_sha256`、`reason_zh`、`remaining_energy_wh`、`remaining_time_s`。规划超时保持原计划，飞行中安全保持与 abort/pause/链路安全出口优先。最终摘要的 `plan_history` 标识每个结果所来自的计划版本；计数、发现、告警不因切换清空。
 
+地面站按上述事件在任务卡显示“改派状态”：`retask_received` 为“已受理”，`retask_planning` 为“规划中”，`retask_validated` 为“校验结论”，`retask_approval` 且 `status=awaiting` 为“待审批”，`retask_switched` 为“已切换”，`retask_rejected` 为“已拒绝”。状态字段不是必需字段：事件类型正确但可选字段缺失时仍显示事件对应的中文状态；`reason_zh`、`plan_version`、`plan_sha256` 类型不正确时忽略。候选摘要和按钮只在飞行中显示，入口文案固定为“上传改派任务包（替换剩余步骤）”。待审批卡片必须同时显示候选 `plan_sha256`，批准/拒绝命令分别为签名 JSON `{"type":"approve_retask"...}` / `{"type":"reject_retask"...}`，并携带完全相同的 `mission_id` 与 `plan_sha256`；摘要不一致时机载拒绝。规划或审批失败不会替换原计划。
+
+### 计划校验与澄清
+
+`kind=plan` 的 `validation`（以及机载拒绝时 `mission_refused.violations` 中的同类信息）仅接受对象类型。其 `decision` 为 `accept`、`repair`、`clarify` 或 `reject` 时，任务卡分别显示“可批准”、“已自动修复”、“需要澄清”或“已拒绝”。`repair` 展示字符串数组 `repairs` 并保留批准按钮；`clarify` 展示 `reasons_zh` 和 `questions_zh` 中最多三条字符串，批准按钮禁用，只提供“修改任务并重新提交”，该入口复用任务包编辑、签名和上传流程；`reject` 展示 `reasons_zh`，批准按钮禁用。字段缺失、数组元素类型错误或未知 decision 均按旧版计划处理，不阻断既有审批流程。`clarify`/`reject` 由机载在起飞前拒绝，不能用旧 `plan_sha256` 强行批准。
+
 ## 提示词任务的机上执行
 
 operator_link 上传的 prompt-only 任务包与 `from_text` 使用同一规划模型配置。若配置了
