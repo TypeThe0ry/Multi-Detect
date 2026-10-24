@@ -615,11 +615,11 @@ class MissionOperatorAdapter:
 
     def _receive_chunk(self, body: bytes, now: float) -> tuple[bool, str]:
         token, index, count, total, digest = CHUNK.unpack_from(body)
-        if self.package_loader is None or not self._preflight():
+        if self.package_loader is None or (not self._preflight() and self.supervisor is None):
             raise ValueError("仅可在机载确认的飞行前状态上传任务包")
         if self._package_key is None:
             raise ValueError("机载未配置任务包验证密钥，拒绝上传")
-        if self._sealed:
+        if self._sealed and self._preflight():
             raise ValueError("任务已锁定起飞，拒绝替换")
         if self._compiling is not None:
             raise ValueError("机载正在编译上一任务包")
@@ -652,7 +652,7 @@ class MissionOperatorAdapter:
             require_signature=True,
             mode=self.runtime_mode,
         )
-        if not self._preflight():
+        if not self._preflight() and self.supervisor is None:
             raise ValueError("飞行状态已变化，拒绝替换任务")
         # Frozen dataclasses still contain mutable dictionaries. Snapshot before
         # invoking aircraft code so in-place mutation cannot change the proof.
@@ -718,6 +718,14 @@ class MissionOperatorAdapter:
             or (job.plan is not None and supervisor.executor.plan != job.plan)
         ):
             raise ValueError("机载加载器未安装对应任务监督器")
+        if self.supervisor is not None and not self._preflight():
+            if not self.supervisor.request_retask(
+                supervisor,
+                mode="replace",
+                requires_approval=bool(self.requires_approval),
+            ):
+                raise ValueError("改派被机载拒绝")
+            return
         supervisor.package.validate_plan(supervisor.executor.plan)
         # Planning can take minutes: the aircraft must still be on the ground,
         # and the host must not have sealed the approved mission for take-off.

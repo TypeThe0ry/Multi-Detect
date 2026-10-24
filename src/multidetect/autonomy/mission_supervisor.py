@@ -19,7 +19,7 @@ from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
 from .energy_estimator import EnergyConfig, OnboardEnergyEstimator
 from .mission_executor import MissionExecutor
-from .mission_package import POLICIES, MissionPackage, number, parse_policy
+from .mission_package import POLICIES, MissionPackage, check_plan_against_package, number, parse_policy
 from .mission_plan import validate_mission_plan
 from .mission_security import load_key, verify_document
 from .mission_summary import summarize_mission
@@ -27,7 +27,7 @@ from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
 from .crash_resume import CheckpointStore, checkpoint_from_state
 
-PLAN_COMMANDS = frozenset({"approve_plan", "reject_plan"})
+PLAN_COMMANDS = frozenset({"approve_plan", "reject_plan", "approve_retask", "reject_retask"})
 # Fixed-layout TUNNEL controls carry no document signature; the operator
 # tunnel's HMAC, MAVLink signing and sequence high-water authenticate them.
 # Plan decisions never take this path: they must be signed documents.
@@ -237,6 +237,13 @@ class MissionSupervisor:
         self.plan_rejected = False
         self._last_envelope_violation: tuple[str, str] | None = None
         self._last_envelope_violation_event_s: float | None = None
+        self.plan_version = 1
+        self.plan_history: list[dict[str, Any]] = [{"version": 1, "mode": "initial", "plan_sha256": self.plan_sha256}]
+        self._pending_retask_approval: tuple[Any, ...] | None = None
+        self._retask_lock = threading.RLock()
+        self._retask_planning = False
+        self._retask_job: dict[str, Any] | None = None
+        self.planned_model_switch = False
         # An existing mission log means this is a restart.  A missing replay
         # file in that case is evidence loss and must fail closed.
         self._had_prior_log = self.log.path.exists()
@@ -262,6 +269,103 @@ class MissionSupervisor:
             energy_model=energy_model,
         )
         self._ensure_replay_state(admission=True)
+
+    def _retask_envelope_ok(self, candidate: MissionPackage) -> tuple[bool, str]:
+        old, new = self.package.document, candidate.document
+        oa, na = old["operating_area"], candidate.document["operating_area"]
+        if any(float(na[k]) < float(oa[k]) for k in ("north_min_m", "east_min_m", "min_altitude_m")) or any(
+            float(na[k]) > float(oa[k]) for k in ("north_max_m", "east_max_m", "max_altitude_m")
+        ):
+            return False, "改派区域或高度扩大了原任务包络"
+        if not set(new.get("zones", {})) <= set(old.get("zones", {})):
+            return False, "改派引用了原任务包络外区域"
+        return True, "改派包络校验通过"
+
+    def request_retask(self, candidate, *, mode="replace", planner=None, timeout_s=30.0, requires_approval=False, approval_timeout_s=600.0):
+        if mode not in {"append", "replace"}:
+            raise ValueError("retask mode must be append or replace")
+        with self._retask_lock:
+            if self._retask_job is not None or self._retask_planning or self._pending_retask_approval is not None:
+                self._record("retask_rejected", mode=mode, reason="已有改派正在处理")
+                return False
+            self._record("retask_received", mode=mode)
+            self._retask_planning = True
+            self.planned_model_switch = True
+            result: dict[str, Any] = {}
+        def work():
+            try:
+                result["candidate"] = planner() if planner else candidate
+            except Exception as exc:
+                result["error"] = exc
+        thread = threading.Thread(target=work, name="mission-retask-planner", daemon=True)
+        deadline = time.monotonic() + max(0.001, float(timeout_s))
+        self._retask_job = {"thread": thread, "result": result, "candidate": candidate,
+                            "mode": mode, "deadline": deadline,
+                            "requires_approval": bool(requires_approval or self.requires_approval),
+                            "approval_timeout_s": approval_timeout_s}
+        thread.start()
+        return True
+
+    def _finish_retask_planning(self) -> None:
+        job = self._retask_job
+        if job is None:
+            return
+        thread = job["thread"]
+        if thread.is_alive() and time.monotonic() < job["deadline"]:
+            return
+        self._retask_job = None
+        self._retask_planning = False
+        self.planned_model_switch = False
+        mode = job["mode"]
+        if thread.is_alive():
+            self._record("retask_planning", status="timeout", reason="改派规划超时，保持原计划")
+            self._record("retask_rejected", mode=mode, reason="改派规划超时，保持原计划")
+            return
+        result = job["result"]
+        if "error" in result:
+            self._record("retask_rejected", mode=mode, reason=f"改派规划失败：{result['error']}")
+            return
+        value = result.get("candidate")
+        package = getattr(value, "package", value if isinstance(value, MissionPackage) else None)
+        plan = getattr(getattr(value, "executor", None), "plan", getattr(value, "plan", None))
+        try:
+            if not isinstance(package, MissionPackage) or plan is None:
+                raise ValueError("改派缺少有效签名任务包或计划")
+            package.validate_plan(plan)
+            violations = check_plan_against_package(plan, package, executor_config=self.executor.config)
+            if violations:
+                raise ValueError(violations[0].get("message_zh", "改派计划校验失败"))
+            ok, reason = self._retask_envelope_ok(package)
+            if not ok:
+                raise ValueError(reason)
+            budget = package.document["budget"]
+            if self._remaining_energy is not None and self._remaining_energy < budget["energy_wh"] + budget["reserve_energy_wh"]:
+                raise ValueError("剩余能量不足以完成改派并返航，拒绝改派")
+            if self._remaining_time is not None and self._remaining_time < budget["time_s"] + budget["reserve_time_s"]:
+                raise ValueError("剩余时间不足以完成改派并返航，拒绝改派")
+            self._record("retask_validated", mode=mode, status="accepted", reason="计划、包络及预算校验通过")
+            version = self.plan_version + 1
+            digest = plan_digest(package, plan)
+            if job["requires_approval"] or getattr(value, "requires_approval", False):
+                self._pending_retask_approval = (plan, package, mode, version, digest)
+                self._record("retask_approval", status="awaiting", plan_version=version, plan_sha256=digest)
+                def expire() -> None:
+                    with self._ground_lock:
+                        if self._pending_retask_approval and self._pending_retask_approval[4] == digest:
+                            self._pending_retask_approval = None
+                            self._record("retask_rejected", reason="改派审批超时", plan_version=version)
+                timer = threading.Timer(max(0.001, float(job["approval_timeout_s"])), expire)
+                timer.daemon = True
+                timer.start()
+                return True
+            self.executor.request_retask(plan, mode=mode, version=version)
+            self.plan_version = version
+            self.plan_history.append({"version": version, "mode": mode, "plan_sha256": digest})
+            self._record("retask_switched", mode=mode, plan_version=version, plan_sha256=digest)
+            return
+        except Exception as exc:
+            self._record("retask_rejected", mode=mode, reason=str(exc))
+            return
 
     def __getattr__(self, name):
         return getattr(self.executor, name)
@@ -597,7 +701,8 @@ class MissionSupervisor:
         try:
             if kind in PLAN_COMMANDS:
                 digest = event.get("plan_sha256")
-                if not isinstance(digest, str) or digest != self.plan_sha256:
+                expected = self._pending_retask_approval[4] if kind in {"approve_retask", "reject_retask"} and self._pending_retask_approval else self.plan_sha256
+                if not isinstance(digest, str) or digest != expected:
                     raise ValueError("plan digest mismatch or stale")
                 if self.plan_rejected or (kind == "reject_plan" and self.plan_approved):
                     raise ValueError("plan decision already made")
@@ -690,6 +795,21 @@ class MissionSupervisor:
         if kind == "approve_plan":
             self.plan_approved = True
             self._record("plan_approved", plan_sha256=self.plan_sha256)
+        elif kind in {"approve_retask", "reject_retask"}:
+            pending = self._pending_retask_approval
+            if pending is None:
+                self._record("retask_rejected", reason="无待审批改派")
+                return False
+            plan, _package, mode, version, digest = pending
+            self._pending_retask_approval = None
+            if kind == "approve_retask":
+                self.executor.request_retask(plan, mode=mode, version=version)
+                self.plan_version = version
+                self.plan_history.append({"version": version, "mode": mode, "plan_sha256": digest})
+                self._record("retask_switched", mode=mode, plan_version=version, plan_sha256=digest)
+                self._record("retask_approval", status="approved", plan_version=version)
+            else:
+                self._record("retask_rejected", reason="操作员拒绝改派", plan_version=version)
         elif kind == "reject_plan":
             # A rejected plan never runs: latch land_now so the host lands (or
             # stays on the ground) and the mission reaches a terminal state.
@@ -799,6 +919,7 @@ class MissionSupervisor:
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
+        self._finish_retask_planning()
         doc = self.package.document
         silence = self._now - (
             self.last_heartbeat if self.last_heartbeat is not None else self.started
@@ -911,6 +1032,8 @@ class MissionSupervisor:
             # Every check above still ran: abort, link loss, energy and
             # reserves latch while the plan waits; only progress is held.
             action, reason = "hold", "awaiting operator plan approval"
+        elif action == "continue" and self._retask_planning:
+            action, reason = "hold", "改派规划中，保持当前位置"
         self.action, self.reason = action, reason
         if self.downlink is not None:
             self.downlink.set_connected(self.connected)
@@ -1079,10 +1202,11 @@ class MissionSupervisor:
             lower_bounds = count_lower_bounds(executor)
             report = asdict(executor.report())
             report.update(history=executor.history, counts=executor.counts, findings=executor.findings,
-                          alerts=list(executor.alerts), final_summary={
+                          alerts=list(executor.alerts), plan_history=list(self.plan_history), final_summary={
                               "status": status,
                               "terminal_action": self._terminal,
                               "terminal_reason": self.reason,
+                              "plan_history": list(self.plan_history),
                           })
             try:
                 operator_summary, summary_zh, summary_en = summarize_mission(
@@ -1106,6 +1230,7 @@ class MissionSupervisor:
                 "counts": executor.counts,
                 "count_lower_bounds": lower_bounds,
                 "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
+                "plan_history": list(self.plan_history),
                 "recovery_history": self._recovery.history if self._recovery else [],
                 "operator_summary": operator_summary,
                 "summary_zh": summary_zh,

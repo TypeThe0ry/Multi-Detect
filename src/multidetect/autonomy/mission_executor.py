@@ -552,6 +552,23 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+        self.plan_version = 1
+        self._pending_retask: tuple[MissionPlan, str, int] | None = None
+
+    def request_retask(self, plan: MissionPlan, *, mode: str = "replace", version: int | None = None) -> None:
+        if mode not in {"append", "replace"}:
+            raise ValueError("retask mode must be append or replace")
+        next_version = int(version or self.plan_version + 1)
+        if next_version <= self.plan_version:
+            raise ValueError("retask plan version must increase")
+        self._pending_retask = (plan, mode, next_version)
+
+    def _apply_retask(self, plan: MissionPlan, version: int) -> None:
+        self.plan = plan
+        self._steps = {step.id: step for step in plan.steps}
+        self.plan_version = version
+        self._run = self._start(plan.steps[0])
+        self.done = False
 
     def _make_loop(self, task_text: str, **overrides: Any) -> OnboardLoop:
         """Create a loop while threading the optional typed obstacle source."""
@@ -761,6 +778,8 @@ class MissionExecutor:
                 status["alert_look_skipped"] = run.alert_look_skipped
         if run.revisit_planning:
             status["revisit_candidate_snapshots"] = run.revisit_planning
+        if self.plan_version > 1:
+            status["plan_version"] = self.plan_version
         self.history.append(status)
         if run.step.id not in self._completed_step_ids:
             self._completed_step_ids.append(run.step.id)
@@ -769,8 +788,19 @@ class MissionExecutor:
         if state == "failed":
             self.alerts.append(f"{run.step.id}:{reason or 'failed'}")
         following = run.step.on_success if state == "succeeded" else run.step.on_fail
+        pending = self._pending_retask
+        if pending is not None and pending[1] == "replace":
+            plan, _mode, version = pending
+            self._pending_retask = None
+            self._apply_retask(plan, version)
+            return
         if following is None:
-            self.done, self._run = True, None
+            if pending is not None and pending[1] == "append":
+                plan, _mode, version = pending
+                self._pending_retask = None
+                self._apply_retask(plan, version)
+            else:
+                self.done, self._run = True, None
         else:
             self._run = self._start(self._steps[following])
 
