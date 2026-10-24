@@ -24,8 +24,6 @@ from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
-pytestmark = pytest.mark.onboard
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRATCH = Path("D:/Projects/mdwt/_scratch/cx-executor-fuzz")
 CAMERA = CameraModel(fx=540, fy=540, cx=640, cy=480, width=1280, height=960)
@@ -145,7 +143,13 @@ def _plan(s: Scenario):
     )
 
 
-def _executor(s: Scenario) -> MissionExecutor:
+def _executor(
+    s: Scenario,
+    *,
+    package_backed: bool = True,
+    runtime_step_limit: int | None = None,
+    step_budget: int | None = None,
+) -> MissionExecutor:
     def make(_text, region=None, **overrides):
         overrides.pop("static_ground_veto", None)
         overrides.pop("stop_on_confirm", None)
@@ -170,11 +174,18 @@ def _executor(s: Scenario) -> MissionExecutor:
             max_altitude_m=s.area["max_altitude_m"],
             vehicle=adapter.safety.vehicle,
         ),
-        home_ned=(*s.home, 0.0),
+        # Deliberately seed a different home so the package-binding mutation is
+        # observable; non-package initialization overwrites this on first pose.
+        home_ned=(0.0, 0.0, 0.0),
     )
-    package = SimpleNamespace(
-        document={"home": list(s.home), "operating_area": s.area}, no_fly_zones=s.zones
+    package = (
+        SimpleNamespace(
+            document={"home": list(s.home), "operating_area": s.area}, no_fly_zones=s.zones
+        )
+        if package_backed
+        else None
     )
+    selected_step_budget = (1 if s.force_failure else 18) if step_budget is None else step_budget
     return MissionExecutor(
         _plan(s),
         loop_factory=make,
@@ -183,11 +194,13 @@ def _executor(s: Scenario) -> MissionExecutor:
             "route:r": [(s.home[0], s.home[1]), (s.pose[0], s.pose[1])],
         },
         config=ExecutorConfig(
-            step_budget=1 if s.force_failure else 18,
+            step_budget=selected_step_budget,
             travel_budget=24,
             tracking_budget_max=24,
             count_budget_max=24,
             max_translate_m=8,
+            runtime_step_limit=runtime_step_limit,
+            runtime_tail_reserve=3,
         ),
         mission_package=package,
         airframe_adapter=adapter,
@@ -212,10 +225,11 @@ def _inside(p: tuple[float, float], area: dict[str, float]) -> bool:
     )
 
 
-def _run(seed: int) -> None:
+def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | None = None) -> None:
     s = _scenario(seed)
-    ex = _executor(s)
-    assert tuple(ex.airframe_adapter.safety.home_ned[:2]) == s.home
+    ex = _executor(s, package_backed=package_backed, runtime_step_limit=runtime_step_limit)
+    if package_backed:
+        assert tuple(ex.airframe_adapter.safety.home_ned) == (*s.home, 0.0)
     pose = list(s.pose)
     yaw = 0.0
     trace = []
@@ -324,6 +338,137 @@ def _run(seed: int) -> None:
     )
 
 
+@pytest.mark.onboard
 def test_mission_executor_random_invariants():
     for seed in _seeds():
         _run(seed)
+
+
+def _normal_cruise_trace(ex: MissionExecutor, s: Scenario, limit: int = 30):
+    pose = list(s.pose)
+    yaw = 0.0
+    trace = []
+    for tick in range(limit):
+        action, info = ex.next_action(
+            pose_ned=tuple(pose), yaw_deg=yaw, timestamp_s=float(tick), frame_id=f"mutation-{tick}"
+        )
+        trace.append((action, info, tuple(pose)))
+        yaw = _apply(pose, yaw, action)
+        if ex.done:
+            break
+    return pose, trace
+
+
+@pytest.mark.onboard
+def test_mutation_home_altitude_is_caught(monkeypatch):
+    """69fa6714 mutation: an airborne first pose must not become envelope home."""
+    s = _scenario(1)
+    s.skill = "monitor"
+    s.force_failure = False
+    ex = _executor(s, package_backed=False)
+    original = MissionExecutor._init_home
+
+    def airborne_home(self, pose):
+        original(self, pose)
+        self.airframe_adapter.safety.set_home((pose[0], pose[1], pose[2]))
+
+    monkeypatch.setattr(MissionExecutor, "_init_home", airborne_home)
+    _pose, trace = _normal_cruise_trace(ex, s)
+    rejected = sum(bool(info.get("safety", {}).get("rejected")) for _a, info, _p in trace)
+    with pytest.raises(AssertionError, match="systematic min_altitude"):
+        assert rejected / max(1, len(trace)) <= 0.2, "airborne home mutation caused systematic min_altitude refusal"
+
+
+@pytest.mark.mutation_full
+def test_mutation_package_home_binding_is_caught(monkeypatch):
+    s = _scenario(2)
+    original = MissionExecutor.__init__
+
+    def unbound(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.airframe_adapter.safety.home_ned = (self.home[0], self.home[1], -30.0)
+
+    monkeypatch.setattr(MissionExecutor, "__init__", unbound)
+    with pytest.raises(AssertionError, match="home_ned"):
+        ex = _executor(s)
+        assert tuple(ex.airframe_adapter.safety.home_ned) == (*s.home, 0.0), "home_ned package binding lost"
+
+
+@pytest.mark.mutation_full
+def test_mutation_runtime_count_budget_is_caught(monkeypatch):
+    s = _scenario(3)
+    s.skill = "count"
+    s.force_failure = False
+    ex = _executor(s, runtime_step_limit=12, step_budget=140)
+    def unbounded_count(self, step, run):
+        return self.config.count_budget_max
+
+    monkeypatch.setattr(MissionExecutor, "_count_budget", unbounded_count)
+    pose, trace = _normal_cruise_trace(ex, s, limit=20)
+    with pytest.raises(AssertionError, match="runtime step limit"):
+        assert len(trace) <= ex.config.runtime_step_limit, "count mutation exceeded runtime step limit"
+
+
+@pytest.mark.onboard
+def test_mutation_follow_boundary_is_caught(monkeypatch):
+    s = _scenario(4)
+    s.skill = "follow"
+    s.force_failure = False
+    s.duration = 100.0
+    ex = _executor(s)
+    original = ex.airframe_adapter.guard_command
+
+    def no_follow_boundary(command, **kwargs):
+        if kwargs.get("skill") == "follow":
+            return command, {}
+        return original(command, **kwargs)
+
+    def unsafe_follow(self, run, pose, yaw, ground_point, frame_id):
+        return ActionPrimitive.translate(100.0, 0.0, 0.0), {"mutation": "follow_boundary_removed"}
+
+    monkeypatch.setattr(ex.airframe_adapter, "guard_command", no_follow_boundary)
+    monkeypatch.setattr(MissionExecutor, "_follow", unsafe_follow)
+    pose = list(s.pose)
+    with pytest.raises(AssertionError, match="follow boundary"):
+        action, _info = ex.next_action(pose_ned=tuple(pose), yaw_deg=0.0)
+        _apply(pose, 0.0, action)
+        assert _inside((pose[0], pose[1]), s.area), "follow boundary mutation left operating area"
+
+
+@pytest.mark.mutation_full
+def test_mutation_no_fly_segment_is_caught(monkeypatch):
+    s = _scenario(5)
+    s.skill = "area_search"
+    s.zones = (((0.0, 0.0), 3.0),)
+    s.pose = [-8.0, 0.0, -20.0]
+    ex = _executor(s)
+    monkeypatch.setattr(ex, "_translate_enters_no_fly", lambda *_args: False)
+    monkeypatch.setattr(ex.airframe_adapter, "guard_command", lambda command, **_kwargs: (command, {}))
+    pose = list(s.pose)
+    action, _ = ex.next_action(pose_ned=tuple(pose), yaw_deg=0.0)
+    _apply(pose, 0.0, action)
+    with pytest.raises(AssertionError, match="no-fly segment"):
+        assert math.dist((pose[0], pose[1]), (0.0, 0.0)) >= 6.0, "no-fly segment mutation entered the zone"
+
+
+@pytest.mark.mutation_full
+def test_mutation_failure_link_is_caught(monkeypatch):
+    s = _scenario(6)
+    s.skill = "area_search"
+    s.force_failure = True
+    ex = _executor(s)
+    ex.active_loop.state = "blocked"
+    original = MissionExecutor._finish
+
+    def no_failure_link(self, state, reason=None):
+        if state == "failed":
+            self.history.append({"step": self.current_step.id, "skill": self.current_step.skill, "state": state, "reason": reason})
+            self.done = True
+            self._run = None
+            return
+        return original(self, state, reason)
+
+    monkeypatch.setattr(MissionExecutor, "_finish", no_failure_link)
+    _pose, trace = _normal_cruise_trace(ex, s)
+    with pytest.raises(AssertionError, match="return_home"):
+        assert any(row["skill"] == "return_home" for row in ex.history), "failure path did not link to return_home"
