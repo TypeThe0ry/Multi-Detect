@@ -1192,7 +1192,23 @@ def _validate_spawn_clearance(plan: CollectionPlan) -> dict[str, Any] | None:
     if not isinstance(spawn, dict):
         raise ValueError("generated r20/r21id runtime is missing vehicle.spawn_pose")
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
-    return require_spawn_clearance(world_path, spawn, climb_altitude_m=altitude_m)
+    route_points = []
+    try:
+        intent_path = _teacher_intent_path(Path(plan.scenario))
+        intent = json.loads(intent_path.read_text(encoding="utf-8")) if intent_path.is_file() else {}
+        observation = intent.get("observation", {}) if isinstance(intent, dict) else {}
+        views = observation.get("views") or []
+        for view in views:
+            point = view.get("observation_waypoint", {}) if isinstance(view, dict) else {}
+            if isinstance(point, dict):
+                route_points.append(point)
+        if not route_points and isinstance(observation.get("observation_waypoint"), dict):
+            route_points.append(observation["observation_waypoint"])
+    except (OSError, ValueError, TypeError):
+        route_points = []
+    return require_spawn_clearance(
+        world_path, spawn, climb_altitude_m=altitude_m, route_points=route_points
+    )
 
 
 def _truth_target(
@@ -1678,6 +1694,12 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         obstacles=obstacles,
         observation_frames=frames if observation_waypoints else 0,
         observation_waypoints=tuple(observation_waypoints),
+        fixed_wing_orbit_radius_m=(
+            _airframe_profile(plan.airframe, plan.takeoff_method).orbit_radius(80.0)
+            if _airframe_profile(plan.airframe, plan.takeoff_method)
+            and _airframe_profile(plan.airframe, plan.takeoff_method).category == "fixed_wing"
+            else None
+        ),
     ), label
 
 

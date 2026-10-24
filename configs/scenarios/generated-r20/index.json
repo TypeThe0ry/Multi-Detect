@@ -263,8 +263,8 @@
       ],
       "view_geometry": {
         "fixed_wing": true,
-        "slant_range_m": 101,
-        "camera_altitude_m": 75.0,
+        "slant_range_m": 91,
+        "camera_altitude_m": 30.0,
         "camera_pitch_rad": -0.18,
         "target_short_side_px": [
           20,
@@ -297,8 +297,8 @@
       ],
       "view_geometry": {
         "fixed_wing": true,
-        "slant_range_m": 101,
-        "camera_altitude_m": 75.0,
+        "slant_range_m": 91,
+        "camera_altitude_m": 30.0,
         "camera_pitch_rad": -0.18,
         "target_short_side_px": [
           20,
@@ -331,8 +331,8 @@
       ],
       "view_geometry": {
         "fixed_wing": true,
-        "slant_range_m": 101,
-        "camera_altitude_m": 75.0,
+        "slant_range_m": 91,
+        "camera_altitude_m": 30.0,
         "camera_pitch_rad": -0.18,
         "target_short_side_px": [
           20,
@@ -365,8 +365,8 @@
       ],
       "view_geometry": {
         "fixed_wing": true,
-        "slant_range_m": 101,
-        "camera_altitude_m": 75.0,
+        "slant_range_m": 91,
+        "camera_altitude_m": 30.0,
         "camera_pitch_rad": -0.18,
         "target_short_side_px": [
           20,
@@ -399,8 +399,8 @@
       ],
       "view_geometry": {
         "fixed_wing": true,
-        "slant_range_m": 101,
-        "camera_altitude_m": 75.0,
+        "slant_range_m": 91,
+        "camera_altitude_m": 30.0,
         "camera_pitch_rad": -0.18,
         "target_short_side_px": [
           20,

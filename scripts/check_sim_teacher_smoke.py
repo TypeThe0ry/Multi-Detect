@@ -60,6 +60,9 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
         )
         for index, view in enumerate(views)
     }
+    if intent.get("airframe") == "rc_cessna_runway" or observation.get("orbit_radius_m"):
+        orbit_distance = float(observation.get("ground_distance_m", 55.0))
+        designed_distances = {name: orbit_distance for name in designed_distances}
     steps_path = episode_dir / "steps.jsonl"
     steps = [json.loads(line) for line in steps_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     valid = []

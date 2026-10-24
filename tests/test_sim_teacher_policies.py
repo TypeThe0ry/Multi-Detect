@@ -64,14 +64,14 @@ def test_expert_search_state_machine() -> None:
     assert {"phase", "target_in_fov", "target_bearing_deg", "target_range_m"} <= set(labels)
 
 
-def test_intent_observation_climbs_routes_then_captures_requested_frames() -> None:
+def test_intent_observation_climbs_routes_then_captures_each_view() -> None:
     policy = ExpertSearchPolicy(
         target_ned=(20.0, 40.0, 0.0),
         intrinsics={"fx": 540.0, "fy": 540.0},
         altitude_m=22.0,
         home_ned=(20.0, 0.0, 0.0),
         observation_frames=3,
-        observation_waypoints=((20.0, 0.0, -22.0),),
+        observation_waypoints=((20.0, 0.0, -22.0), (20.0, 10.0, -22.0)),
     )
     pose = [0.0, 0.0, 0.0]
     yaw = 0.0
@@ -88,8 +88,57 @@ def test_intent_observation_climbs_routes_then_captures_requested_frames() -> No
     assert policy._observation_count == 1
     for expected in (2, 3):
         action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
-        assert policy._observation_count == expected
+        if expected == 2:
+            assert policy._observation_count == expected and action.kind == "hold"
+        else:
+            assert policy._observation_count == 0 and policy._observation_index == 1
+            assert action.kind == "hold"
+    # The next view is routed before its frames are counted; it cannot silently
+    # reuse the first view's orbit position.
+    action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+    assert policy._observation_index == 1
+    assert policy._observation_count == 0
+    assert action.kind == "translate"
+    pose[1] = 10.0
+    seen = 0
+    while seen == 0:
+        action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+        if policy._observation_sample_index == 1:
+            seen += 1
+        elif action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+    for expected in (2, 3):
+        action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+        assert policy._observation_index == 1
         assert action.kind == ("stop" if expected == 3 else "hold")
+
+
+def test_fixed_wing_observation_orbits_center_and_counts_only_fov_frames() -> None:
+    from multidetect.autonomy.motion_intent import MotionCommand
+
+    policy = ExpertSearchPolicy(
+        target_ned=(0.0, 55.0, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+        image_size=(1280, 960),
+        altitude_m=30.0,
+        camera_pitch_rad=0.18,
+        observation_frames=3,
+        observation_waypoints=((0.0, 0.0, -30.0),),
+        fixed_wing_orbit_radius_m=80.0,
+    )
+    pose = (0.0, 0.0, -30.0)
+    outside = policy.next_action(pose_ned=pose, yaw_deg=0.0)
+    assert isinstance(outside, MotionCommand)
+    assert outside.kind == "orbit"
+    assert outside.target_ned == (0.0, 0.0, -30.0)
+    assert policy._observation_count == 0
+    for expected in (1, 2, 3):
+        action = policy.next_action(pose_ned=pose, yaw_deg=90.0)
+        if expected < 3:
+            assert isinstance(action, MotionCommand) and action.kind == "orbit"
+        else:
+            assert action.kind == "stop"
+        assert policy._observation_count == expected
 
 
 def test_intent_observation_records_each_view_before_advancing() -> None:

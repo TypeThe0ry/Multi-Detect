@@ -53,6 +53,12 @@ def test_collector_rejects_airframe_runtime_category_mismatch(tmp_path: Path):
         _validate_runtime(runtime, "x500_mono_cam")
 
 
+def test_round_rejects_unknown_runtime_vehicle_category(tmp_path: Path):
+    scenario = _scenario(tmp_path, z=0.2, pitch=0.0, model="px4_rover_standard")
+    with pytest.raises(ValueError, match="unsupported runtime vehicle model category"):
+        Round._collection_airframe(scenario)
+
+
 def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, monkeypatch):
     import scripts.collect_sim_teacher_episodes as collector
 
@@ -98,6 +104,34 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
     assert policy.observation_waypoints == ((34.0, 12.0, -24.0),)
 
 
+def test_fixed_wing_intent_uses_camera_altitude_and_observation_route(tmp_path: Path, monkeypatch):
+    import scripts.collect_sim_teacher_episodes as collector
+
+    runtime = tmp_path / "runtime.json"
+    runtime.write_text(
+        json.dumps({"task_intent": {"observation": {
+            "camera_altitude_m": 75.0,
+            "camera_pitch_rad": -0.18,
+            "observation_waypoint": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.0},
+        }}, "vehicle": {"model": "px4_fixed_wing_standard"}}), encoding="utf-8"
+    )
+    scenario = tmp_path / "gen_r20_w0006.scenario.json"
+    scenario.write_text(json.dumps({"channels": {}}), encoding="utf-8")
+    plan = collector.CollectionPlan(
+        scenario=str(scenario), runtime=str(runtime), truth="truth.json", teacher="expert_search",
+        episodes=1, steps_per_episode=60, seed=1, out=str(tmp_path), airframe="rc_cessna_runway",
+    )
+    assert collector._takeoff_altitude_for_plan(plan) == (75.0, "teacher_intent_camera_altitude")
+    monkeypatch.setattr(collector, "_truth_target", lambda *args, **kwargs: ((30.0, 0.0, 0.0), "target"))
+    monkeypatch.setattr(collector, "scenario_world_path", lambda runtime: None)
+    monkeypatch.setattr(collector, "load_sdf_obstacles", lambda path: ())
+    policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
+    assert policy.altitude_m == 75.0
+    assert policy.observation_waypoints == ((0.0, 0.0, -75.0),)
+    action = policy.next_action(pose_ned=(0.0, 0.0, 0.0), yaw_deg=0.0)
+    assert action.kind == "translate" and action.up_m > 0
+
+
 def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_path: Path):
     import types
     import scripts.run_r15_round as round_script
@@ -120,3 +154,59 @@ def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_
     result = runner._collect_one("world:0", cmd, tmp_path)
     assert result["attempts"] == 1
     assert len(calls) == 1
+
+
+def test_collect_one_does_not_merge_failed_episode_as_complete(monkeypatch, tmp_path: Path):
+    import types
+    import scripts.run_r15_round as round_script
+
+    attempt = tmp_path / "target" / "attempt-0" / "episodes" / "episode-0000"
+    attempt.mkdir(parents=True)
+    (attempt / "episode.json").write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+
+    monkeypatch.setattr(round_script.subprocess, "run", lambda *args, **kwargs: types.SimpleNamespace(
+        returncode=0, stdout="", stderr=""
+    ))
+    monkeypatch.setattr(round_script, "_remove_worker_containers", lambda prefix: None)
+    runner = Round.__new__(Round)
+    runner.a = type("Args", (), {"retries": 0})()
+    result = runner._collect_one(
+        "world:0",
+        ["python", "collect.py", "--container-prefix", "w", "--out", str(tmp_path / "target")],
+        tmp_path / "target",
+    )
+    assert result["status"] == "failed"
+
+
+def test_round_state_merge_keeps_verified_completion_over_later_failure():
+    previous = {"status": "complete", "path": "episode.json", "sha256": "abc", "attempts_total": 1}
+    failed = {"status": "failed", "attempts": 3, "failure": "timeout"}
+    merged = Round.merge_episode_status(previous, failed)
+    assert merged["status"] == "complete"
+    assert merged["sha256"] == "abc"
+    assert merged["last_attempt_status"] == "failed"
+    assert merged["last_attempts"] == 3
+
+
+def test_round_state_merge_replaces_failure_with_new_verified_completion():
+    merged = Round.merge_episode_status(
+        {"status": "failed", "attempts_total": 2},
+        {"status": "complete", "path": "episode.json", "sha256": "new", "attempt": 1},
+    )
+    assert merged["status"] == "complete"
+    assert merged["sha256"] == "new"
+    assert merged["attempts_total"] == 4
+
+
+def test_airframe_category_filter_selects_only_matching_scenario_options(tmp_path: Path):
+    from scripts.run_r15_round import filter_collection_options
+
+    mc = tmp_path / "mc.scenario.json"
+    fw = tmp_path / "fw.scenario.json"
+    options = {
+        mc: ("x500_mono_cam", None, "multirotor"),
+        fw: ("rc_cessna_runway", "runway", "fixed_wing"),
+    }
+    assert list(filter_collection_options(options, {"fixed_wing"})) == [fw]
+    assert filter_collection_options(options) == options
+    assert filter_collection_options(options, {"vtol"}) == {}

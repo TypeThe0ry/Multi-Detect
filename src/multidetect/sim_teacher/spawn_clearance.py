@@ -62,6 +62,7 @@ def spawn_clearance_report(
     safety_radius_m: float = 15.0,
     climb_altitude_m: float | None = None,
     margin_m: float = 1.0,
+    route_points: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     """Check spawn exclusion and vertical climb corridor, returning a report.
 
@@ -80,6 +81,7 @@ def spawn_clearance_report(
     climb_to = spawn_z if climb_altitude_m is None else float(climb_altitude_m)
     blockers: list[dict[str, Any]] = []
     climb_blockers: list[dict[str, Any]] = []
+    route_blockers: list[dict[str, Any]] = []
     for item in _model_footprints(world_path):
         distance = math.hypot(float(item["east_m"]) - east, float(item["north_m"]) - north)
         edge_distance = distance - float(item["radius_m"])
@@ -88,15 +90,35 @@ def spawn_clearance_report(
             blockers.append(hit)
             if float(item["top_m"]) < climb_to - margin:
                 climb_blockers.append(hit)
+    route = []
+    for point in route_points or ():
+        route.append((float(point.get("x_east_m", 0.0)), float(point.get("y_north_m", 0.0))))
+    for item in _model_footprints(world_path):
+        # Route points are flown at the resolved observation altitude; a ground
+        # footprint below that altitude cannot collide with the vehicle.
+        if float(item["top_m"]) <= climb_to - margin:
+            continue
+        samples = list(route)
+        for start, end in zip(route, route[1:]):
+            length = math.dist(start, end)
+            samples.extend(
+                ((start[0] + (end[0] - start[0]) * i / max(1, int(length / 2.0)),
+                  start[1] + (end[1] - start[1]) * i / max(1, int(length / 2.0)))
+                 for i in range(max(1, int(length / 2.0)) + 1)
+            )
+            )
+        if any(math.dist((float(item["east_m"]), float(item["north_m"])), p) - float(item["radius_m"]) <= margin for p in samples):
+            route_blockers.append(item)
     return {
         "world_path": str(Path(world_path)),
         "spawn": {"x_east_m": east, "y_north_m": north, "z_up_m": spawn_z},
         "safety_radius_m": radius,
         "margin_m": margin,
         "climb_altitude_m": climb_to,
-        "clear": not blockers and not climb_blockers,
+        "clear": not blockers and not climb_blockers and not route_blockers,
         "blockers": blockers,
         "climb_blockers": climb_blockers,
+        "route_blockers": route_blockers,
     }
 
 

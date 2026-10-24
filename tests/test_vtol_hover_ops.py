@@ -413,6 +413,26 @@ def test_sim_executor_holds_a_hovering_vtol_in_place_instead_of_orbiting() -> No
     assert all(call[0] != "orbit" for call in vehicle.calls)
 
 
+def test_fixed_wing_expert_observation_hold_executes_an_orbit() -> None:
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    vehicle = _Vehicle()
+    executor = FixedWingVtolExecutor(
+        vehicle, airframe="fixed_wing", position=lambda: (12.0, 4.0, -75.0)
+    )
+    executor._invoke = lambda name, *args, **kwargs: (
+        vehicle.calls.append((name, args, kwargs)) or type("R", (), {"ok": True})()
+    )
+    executor._wait_state = lambda state: (True, {"state": state})
+    result = executor.execute(ActionPrimitive.hold(2.0))
+    assert result.status == "success"
+    name, args, kwargs = vehicle.calls[-1]
+    assert name == "orbit"
+    assert tuple(args[0]) == (12.0, 4.0)
+    assert args[1] == executor.loiter_radius_m
+    assert kwargs["alt"] == pytest.approx(75.0)
+
+
 def test_hover_mission_vtol_takes_off_as_a_multicopter_and_stays_in_mc() -> None:
     vehicle = _Vehicle()
     executor = FixedWingVtolExecutor(vehicle, airframe="vtol", transition_after_takeoff=False)

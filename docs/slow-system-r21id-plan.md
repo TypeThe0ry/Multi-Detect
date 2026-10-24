@@ -51,6 +51,24 @@ PYTHONPATH=src:. PYTHONUTF8=1 bash _scratch/sitl_lock.sh -- bash -lc 'python scr
 
 ## 评测门槛
 
+每个 r21id 世界的一个架次依次访问 front、oblique、edge_truncated、recovery 四个
+观察位，每个位至少 8 帧；观察高度误差不超过 3 m，目标地面距离相对设计值不超过
+25%。起飞前预检同时检查 15 m 出生净空、爬升廊道，以及观察位和相邻观察航段的
+碰撞 footprint；观察位不能落在建筑、护栏、管线或干扰物内。
+
+本轮冒烟命令（不并行运行 SITL）：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/run_r15_round.py collect --scenarios configs/scenarios/generated-r21id --r15-index configs/scenarios/generated-r21id/index.json --airframe-category multirotor --out D:/Projects/Multi-Detect/artifacts/smoke/r21id-multirotor --episodes D:/Projects/Multi-Detect/artifacts/r21id-episodes
+python scripts/run_r15_round.py collect --scenarios configs/scenarios/generated-r20 --r15-index configs/scenarios/generated-r20/index.json --airframe-category fixed_wing --out D:/Projects/Multi-Detect/artifacts/smoke/r20-fixed-wing --episodes D:/Projects/Multi-Detect/artifacts/r20-episodes
+```
+
+冒烟时将 `--r15-index` 指向只含两个 r21id 世界（必须含 `gen_r21id_w0000`）的临时
+index，固定翼 index 只含一个世界；两次 collect 共用 round-state.json，按 world key
+合并完成状态。固定翼烟测通过 `scripts/check_sim_teacher_smoke.py` 时使用
+`--minimum-frames 8`，其距离档位为 80 m orbit 对应的 55 m 目标视线设计值。
+
 * 实例级跨视角一致率：按 `target_id` 聚合四视角 verdict，>= 0.90；同一实例不得因一次 no_match 永久终止。
 * 拒绝后恢复率：edge_truncated 后 recovery 再次接受同一实例的比例 >= 0.85，且平均恢复观察次数 <= 2。
 * 真目标拒绝率：所有正目标调用的 false-reject <= 0.08；消防栓小目标层单独 <= 0.12。
