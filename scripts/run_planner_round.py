@@ -138,7 +138,7 @@ def main(argv=None) -> int:
     parser.add_argument("--min-memory-gb", type=float, default=8)
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--no-skip-completed", action="store_true")
-    parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl_lock.sh"))
+    parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
     args = parser.parse_args(argv)
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1:
         parser.error("row counts must be positive (val rows may be zero)")
