@@ -87,6 +87,29 @@ def _byte_pages(body: str, mission_id: Any) -> list[str]:
     return pages
 
 
+def _bounded_final_summary(summary: Any) -> Any:
+    """Trim verbose evidence before paging while retaining operator conclusions."""
+    if not isinstance(summary, dict):
+        return summary
+    result = deepcopy(summary)
+    if len(_compact(result)) <= 24_000:
+        return result
+    result["detail_truncated"] = True
+    # Findings and evidence are supporting detail; terminal state, counts,
+    # alerts and the bilingual operator summary are conclusions.
+    for key in ("findings", "evidence", "history", "recovery_history"):
+        value = result.get(key)
+        if isinstance(value, list):
+            original = len(value)
+            result[key] = value[:3]
+            result.setdefault("omitted", {})[key] = original - len(result[key])
+    for key in ("summary_zh", "summary_en"):
+        value = result.get(key)
+        if isinstance(value, str) and len(value.encode("utf-8")) > 1800:
+            result[key] = value.encode("utf-8")[:1800].decode("utf-8", "ignore") + "…（细节已截断）"
+    return result
+
+
 def _clip(value: Any, limit: int) -> Any:
     if isinstance(value, str) and len(value.encode("utf-8")) > limit:
         return value.encode("utf-8")[:limit].decode("utf-8", errors="ignore") + "…"
@@ -754,7 +777,7 @@ class MissionOperatorAdapter:
             # The summary body is intentionally split as JSON text.  Ground
             # stations concatenate pages in order and parse only once all
             # pages have arrived, so no partial result is displayed.
-            summary = document.get("summary", document)
+            summary = _bounded_final_summary(document.get("summary", document))
             body = json.dumps(summary, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
             chunks = _byte_pages(body, document.get("mission_id"))
             pages = len(chunks)

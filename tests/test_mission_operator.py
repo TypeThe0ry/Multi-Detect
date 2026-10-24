@@ -784,7 +784,19 @@ def test_final_summary_pages_fit_the_byte_budget_for_chinese_text(tmp_path):
         pages.append(json.loads(raw))
         offset += count
     assert len(pages) > 1 and {page["pages"] for page in pages} == {len(pages)}
+    assert all(len(json.dumps(page, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) <= MAX_LOG_DOCUMENT_BYTES for page in pages)
     assert json.loads("".join(page["body"] for page in pages)) == summary
+
+
+def test_oversized_summary_trims_details_and_keeps_conclusion():
+    from multidetect.autonomy.mission_operator import _bounded_final_summary
+
+    summary = {"status": "ended_early", "counts": {"s1": 5}, "terminal_reason": "battery",
+               "findings": ["发现" * 5000] * 10, "summary_zh": "结果：至少 5 个"}
+    bounded = _bounded_final_summary(summary)
+    assert bounded["status"] == "ended_early" and bounded["counts"] == {"s1": 5}
+    assert bounded["detail_truncated"] is True
+    assert bounded["omitted"]["findings"] == 7
 
 
 def test_paged_final_summary_completes_when_ground_acks_chunk_headers(tmp_path):

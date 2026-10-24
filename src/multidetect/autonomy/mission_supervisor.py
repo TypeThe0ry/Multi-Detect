@@ -22,6 +22,7 @@ from .mission_executor import MissionExecutor
 from .mission_package import POLICIES, MissionPackage, number, parse_policy
 from .mission_plan import validate_mission_plan
 from .mission_security import load_key, verify_document
+from .mission_summary import summarize_mission
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
 
@@ -1023,6 +1024,17 @@ class MissionSupervisor:
             self._time()
             executor = self.executor
             lower_bounds = count_lower_bounds(executor)
+            report = asdict(executor.report())
+            report.update(history=executor.history, counts=executor.counts, findings=executor.findings,
+                          alerts=list(executor.alerts), final_summary={
+                              "status": status,
+                              "terminal_action": self._terminal,
+                              "terminal_reason": self.reason if self._terminal is not None else self.reason,
+                          })
+            operator_summary, summary_zh, summary_en = summarize_mission(
+                report, executor.plan,
+                self.package.document.get("task_text") or executor.plan.goal,
+            )
             self.log.finish(
                 self._now,
                 {
@@ -1039,6 +1051,9 @@ class MissionSupervisor:
                     "count_lower_bounds": lower_bounds,
                     "count_is_lower_bound": any(lower_bounds.values()) if lower_bounds else None,
                     "recovery_history": self._recovery.history if self._recovery else [],
+                    "operator_summary": operator_summary,
+                    "summary_zh": summary_zh,
+                    "summary_en": summary_en,
                 },
             )
             self._finished = True
