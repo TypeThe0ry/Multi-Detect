@@ -275,36 +275,92 @@ def _mission_area(
     return None
 
 
+def _follow_target_visible(row: dict[str, Any], target: dict[str, Any]) -> bool:
+    """Read explicit SIM visibility, falling back to a recorded confirmation."""
+    onboard = ((row.get("labels") or {}).get("onboard") or {})
+    confirmed = onboard.get("confirmed")
+    for source in (onboard, confirmed if isinstance(confirmed, dict) else {}):
+        for key in ("target_visible", "target_in_frame", "visible_target"):
+            if key in source:
+                return bool(source[key])
+    return isinstance(confirmed, dict) and (
+        isinstance(confirmed.get("position_estimate_ne"), (list, tuple))
+        or bool(confirmed.get("bbox"))
+    )
+
+
+def _follow_false_confirm(row: dict[str, Any], target: dict[str, Any]) -> bool:
+    """Detect explicit association to a distractor while following."""
+    confirmed = (((row.get("labels") or {}).get("onboard") or {}).get("confirmed"))
+    if not isinstance(confirmed, dict):
+        return False
+    expected = target.get("target_id")
+    for key in ("target_id", "track_target_id", "object_id"):
+        if confirmed.get(key) is not None and expected is not None:
+            return str(confirmed[key]) != str(expected)
+    for key in ("true_target", "is_target"):
+        if key in confirmed:
+            return not bool(confirmed[key])
+    for key in ("object_label", "label", "class"):
+        value = confirmed.get(key)
+        if value is not None and target.get("label") is not None:
+            return str(value).casefold() != str(target["label"]).casefold()
+    return False
+
+
 def _moving_track_metrics(
-    rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float
+    rows: list[dict[str, Any]], target: dict[str, Any], radius_m: float, task_duration_s: float,
+    *, visibility_threshold: float = 0.8, max_lost_count: int = 3,
+    max_reacquire_s: float = 5.0,
 ) -> dict[str, Any]:
-    """Score only SIM-timestamped target estimates; host timestamps are rejected."""
+    """Score a moving-target track using simulation timestamps and truth."""
     samples = []
     for row in rows:
         time_s = _row_sim_time(row)
         confirmed = ((row.get("labels") or {}).get("onboard") or {}).get("confirmed") or {}
         estimate = confirmed.get("position_estimate_ne") if isinstance(confirmed, dict) else None
-        if time_s is None or not isinstance(estimate, (list, tuple)) or len(estimate) < 2:
+        if time_s is None:
             continue
-        try:
-            north, east = float(estimate[0]), float(estimate[1])
-            pose = target_pose_at_time(target, time_s)
-            distance = math.hypot(north - float(pose["y_north_m"]), east - float(pose["x_east_m"]))
-        except (TypeError, ValueError, KeyError):
-            continue
+        visible = _follow_target_visible(row, target)
+        distance = None
+        if isinstance(estimate, (list, tuple)) and len(estimate) >= 2:
+            try:
+                north, east = float(estimate[0]), float(estimate[1])
+                pose = target_pose_at_time(target, time_s)
+                distance = math.hypot(north - float(pose["y_north_m"]), east - float(pose["x_east_m"]))
+            except (TypeError, ValueError, KeyError):
+                distance = None
+        false_follow = _follow_false_confirm(row, target)
         samples.append(
-            {"time_s": time_s, "distance_m": distance, "within_radius": distance <= radius_m}
+            {"time_s": time_s, "distance_m": distance, "within_radius": distance is not None and distance <= radius_m,
+             "target_visible": visible, "false_follow": false_follow}
         )
     samples.sort(key=lambda item: item["time_s"])
     times = [s["time_s"] for s in samples]
     covered = max(0.0, min(task_duration_s, (times[-1] - times[0]) if times else 0.0))
     gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
+    visible_samples = [s for s in samples if s["target_visible"]]
+    distances = [s["distance_m"] for s in samples if s["distance_m"] is not None]
+    lost_count, reacquire_times, lost_started = 0, [], None
+    for sample in samples:
+        if sample["target_visible"]:
+            if lost_started is not None:
+                reacquire_times.append(max(0.0, sample["time_s"] - lost_started))
+                lost_started = None
+        elif lost_started is None and visible_samples:
+            lost_count += 1
+            lost_started = sample["time_s"]
+    visibility_fraction = len(visible_samples) / len(samples) if samples else 0.0
+    mean_distance = sum(distances) / len(distances) if distances else None
+    max_distance = max(distances) if distances else None
+    false_count = sum(bool(s["false_follow"]) for s in samples)
+    max_reacquire = max(reacquire_times, default=None)
     return {
         "moving_track_samples": samples,
-        "moving_distance_mean_m": (
-            sum(s["distance_m"] for s in samples) / len(samples) if samples else None
-        ),
-        "moving_distance_max_m": (max(s["distance_m"] for s in samples) if samples else None),
+        "moving_distance_mean_m": mean_distance,
+        "moving_distance_max_m": max_distance,
+        "follow_mean_horizontal_distance_m": mean_distance,
+        "follow_max_horizontal_distance_m": max_distance,
         "moving_track_continuity": (
             sum(s["within_radius"] for s in samples) / len(samples) if samples else None
         ),
@@ -312,12 +368,27 @@ def _moving_track_metrics(
         "moving_task_duration_s": task_duration_s,
         "moving_time_coverage": covered / task_duration_s if task_duration_s > 0 else 0.0,
         "moving_max_gap_s": max(gaps, default=float("inf")),
+        "follow_target_in_frame_fraction": visibility_fraction,
+        "follow_frame_target_fraction": visibility_fraction,
+        "follow_lost_count": lost_count,
+        "follow_reacquire_times_s": reacquire_times,
+        "follow_reacquire_max_s": max_reacquire,
+        "follow_false_confirm_count": false_count,
+        "follow_visibility_pass": visibility_fraction >= visibility_threshold,
+        "follow_distance_pass": mean_distance is not None and mean_distance <= radius_m and (max_distance is None or max_distance <= radius_m * 2),
+        "follow_lost_pass": lost_count <= max_lost_count and (max_reacquire is None or max_reacquire <= max_reacquire_s),
+        "follow_identity_pass": false_count == 0,
         "moving_track_eligible": bool(
             samples
             and covered / task_duration_s >= 0.8
             and max(gaps, default=float("inf")) <= 5.0
-            and sum(s["distance_m"] for s in samples) / len(samples) <= radius_m
+            and distances
+            and sum(distances) / len(distances) <= radius_m
             and sum(s["within_radius"] for s in samples) / len(samples) >= 0.8
+            and visibility_fraction >= visibility_threshold
+            and lost_count <= max_lost_count
+            and (max_reacquire is None or max_reacquire <= max_reacquire_s)
+            and false_count == 0
         ),
     }
 
@@ -577,7 +648,25 @@ def _mission_metrics(
     }
     if any(obj.get("trajectory") for obj in targets):
         duration = 120.0 if _true_target(truth).get("class") == "person" else 300.0
-        result.update(_moving_track_metrics(rows, _true_target(truth), radius_m, duration))
+        follow_cfg = {}
+        if isinstance(mission_config, dict):
+            expected_cfg = mission_config.get("expect")
+            if not isinstance(expected_cfg, dict):
+                expected_cfg = {}
+            candidate = mission_config.get("follow") or expected_cfg.get("follow")
+            if isinstance(candidate, dict):
+                follow_cfg = candidate
+        result.update(
+            _moving_track_metrics(
+                rows,
+                _true_target(truth),
+                radius_m,
+                duration,
+                visibility_threshold=float(follow_cfg.get("min_target_in_frame_fraction", 0.8)),
+                max_lost_count=int(follow_cfg.get("max_lost_count", 3)),
+                max_reacquire_s=float(follow_cfg.get("max_reacquire_s", 5.0)),
+            )
+        )
     return result
 
 
