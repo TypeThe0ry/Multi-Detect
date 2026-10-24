@@ -1042,6 +1042,7 @@ class OnboardPolicy:
         llama_ubatch_size = options.get("llama_ubatch_size")
 
         def make_identity_runner():
+            health_opts = options.get("health") if isinstance(options.get("health"), dict) else {}
             return LlamaServerRunner(
                 Path(options["gguf"]),
                 Path(options["mmproj"]),
@@ -1056,6 +1057,7 @@ class OnboardPolicy:
                 cache_ram_mib=cache_ram_mib,
                 log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
                 keep_logs=int(options.get("llama_keep_logs", 3)),
+                startup_timeout_s=float(health_opts.get("slow_startup_timeout_s", 5.0)),
                 batch_size=llama_batch_size,
                 ubatch_size=llama_ubatch_size,
             )
@@ -1109,12 +1111,26 @@ class OnboardPolicy:
         else:
             self.slow = slow_runner
         health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
-        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 180.0))
+        self._health_labels_enabled = bool(health_options.get("enabled", False))
+        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 5.0))
+        # Seconds to keep trying to revive the identity runner after a slow
+        # call failed (transport fault or crash).  0 keeps the previous
+        # behaviour: the failure propagates immediately.
+        self.slow_restart_budget_s = float(health_options.get("slow_restart_budget_s", 2.0))
+        self.slow_restart_limit = max(0, int(health_options.get("slow_restart_limit", 1)))
+        self.slow.max_restarts = self.slow_restart_limit
+        self.slow.request_timeout_s = self.slow_call_timeout_s
+        health_defaults = {
+            "enabled": True,
+            "slow_failure_limit": 1,
+            "escalate_after_s": 10.0,
+        }
+        health_defaults.update(health_options)
         self.health = HealthMonitor(
             config=HealthConfig(
                 **{
                     k: v
-                    for k, v in health_options.items()
+                    for k, v in health_defaults.items()
                     if k in HealthConfig.__dataclass_fields__
                 }
             ),
@@ -1123,6 +1139,7 @@ class OnboardPolicy:
         )
         self._slow_failed_current = False
         self._slow_skipped_current = False
+        self._slow_unavailable_reason = None
         self._health_recovery_executor = None
         self.mission_plan: MissionPlan | None = None
         self.mission_plan_report: dict[str, Any] | None = None
@@ -1715,6 +1732,20 @@ class OnboardPolicy:
         }
         if self._model_split:
             report_input["model_runtime"] = dict(self._model_runtime)
+        health = getattr(self, "health", None)
+        if health is not None:
+            state = health.state
+            report_input["health"] = {
+                "slow_unavailable": not state.slow_available,
+                "slow_unavailable_since_s": state.unavailable_since,
+                "slow_unavailable_reason": self._slow_unavailable_reason,
+                "consecutive_slow_failures": state.consecutive_slow_failures,
+                "slow_latencies_s": list(state.slow_latencies),
+                "planning_failures": state.planning_failures,
+                "resource_pressure": state.pressure_active,
+                "low_disk": state.low_disk,
+                "active_reasons": sorted(state.active_reasons),
+            }
         summary, chinese, english = summarize_mission(
             report_input,
             executor.plan,
@@ -1775,18 +1806,69 @@ class OnboardPolicy:
         try:
             lock = getattr(self, "_model_lock", None)
             shutdown = getattr(self, "_model_shutdown", None)
-            if lock is None:
-                raw, latency = self.slow(row)
-            else:
-                with lock:
+
+            def call_once():
+                if lock is not None:
                     if shutdown is not None and shutdown.is_set():
                         raise RuntimeError("onboard policy is shutting down")
-                    raw, latency = self.slow(row)
+                    return self.slow(row)
+                return self.slow(row)
+
+            def restart_runner():
+                close = getattr(self.slow, "close", None)
+                if close is not None:
+                    try:
+                        close(wait_port_free=True)
+                    except TypeError:
+                        close()
+                self.slow = self._make_identity_runner()
+                health = getattr(self, "health", None)
+                if health is not None:
+                    health.runner = self.slow
+
+            try:
+                raw, latency = call_once()
+            except Exception as exc:
+                budget = float(getattr(self, "slow_restart_budget_s", 0.0) or 0.0)
+                if budget <= 0:
+                    raise
+                deadline = time.monotonic() + budget
+                last_error: Exception = exc
+                recovered = False
+                restart_count = 0
+                while time.monotonic() < deadline and restart_count < getattr(
+                    self, "slow_restart_limit", 1
+                ):
+                    try:
+                        if lock is not None:
+                            with lock:
+                                restart_runner()
+                        else:
+                            restart_runner()
+                    except Exception as restart_error:
+                        last_error = restart_error
+                    else:
+                        restart_count += 1
+                        try:
+                            raw, latency = call_once()
+                        except Exception as retry_error:
+                            last_error = retry_error
+                        else:
+                            recovered = True
+                            break
+                    time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+                if not recovered:
+                    raise last_error from exc
         except Exception as exc:  # timeouts or server faults leave the track unverified
             self._slow_failed_current = True
+            self._slow_unavailable_reason = f"慢模型不可用: {type(exc).__name__}: {exc}"
             health = getattr(self, "health", None)
             if health is not None:
                 health.record_slow_call(time.perf_counter() - started, ok=False)
+            supervisor = getattr(self, "supervisor", None)
+            record_unavailable = getattr(supervisor, "record_slow_model_unavailable", None)
+            if callable(record_unavailable):
+                record_unavailable(type(exc).__name__, str(exc))
             return {
                 "track_id": focus.track_id,
                 "identity": None,
@@ -2257,12 +2339,12 @@ class OnboardPolicy:
             )
             if self._slow_failed_current:
                 labels = {"state": "health_hold"}
-                if self.health.config.enabled:
+                if self._health_labels_enabled:
                     labels["health"] = {"decision": "hold", "reason": "slow_call_failed"}
                 return ActionPrimitive.hold(1.0), {"onboard": labels}
             if self._slow_skipped_current:
                 labels = {"state": "health_hold"}
-                if self.health.config.enabled:
+                if self._health_labels_enabled:
                     labels["health"] = {"reason": "low_disk"}
                 return ActionPrimitive.hold(1.0), {"onboard": labels}
             return result
@@ -2281,6 +2363,13 @@ class OnboardPolicy:
                 verdict = self.loop.remembered_verdict(track.track_id)
                 if verdict is None:
                     verdict = self._slow_identity(frame_path, current, track)
+                if verdict.get("error"):
+                    self._slow_failed_current = True
+                    record_error = getattr(self.supervisor, "record_perception_error", None)
+                    if callable(record_error):
+                        record_error(track.track_id, verdict["error"])
+                    slow.append(verdict)
+                    break
                 self.loop.apply_verdict(
                     track.track_id,
                     verdict.get("decision"),
@@ -2670,6 +2759,15 @@ class OnboardPolicy:
             if verdict.get("remembered", False):
                 executor.apply_verdict(track.track_id, verdict["decision"], remembered=True)
             else:
+                if verdict.get("error"):
+                    self._slow_failed_current = True
+                    record_error = getattr(
+                        getattr(self, "supervisor", None), "record_perception_error", None
+                    )
+                    if callable(record_error):
+                        record_error(track.track_id, verdict["error"])
+                    slow.append(verdict)
+                    break
                 executor.apply_verdict(
                     track.track_id, verdict.get("decision"), verdict.get("confidence")
                 )
