@@ -1,168 +1,185 @@
-# 机载 AI 无人机操作手册
+# Multi-Detect 操作员手册
 
-完整的 SIM prompt-to-flight 操作步骤见 [SIM 操作员端到端指南](e2e-operator-sim.md)。
+这份手册面向飞手、地面站操作员和 SIM 联合验收负责人，覆盖任务包准备、签名与审批、飞行中监控、最终摘要和 SIM 演示。当前证据主要来自 Gazebo/PX4 SIM；SIM 通过不等于真实飞机、Jetson Orin Nano、真实相机或真实降落区已获准飞行。
 
-这是一份给飞手和地面站操作员看的手册。它描述当前软件能做什么、怎样准备任务、失联时会怎样，以及怎样读结果。当前能力来自 Gazebo + PX4 仿真；尚未在 Jetson Orin Nano 或真实飞机上实测，不能把仿真结果当成飞行安全保证。
+完整端到端流程见 [SIM 操作员端到端指南](e2e-operator-sim.md)，协议和生命周期细节见 [GCS 任务包流程](gcs-mission-package-workflow.md)。
 
-## 能做什么
+## 1. 写任务包
 
-机载系统支持 13 个技能：`goto` 前往地点、`area_search` 区域搜索、`count` 计数、`inspect` 多角度检查、`patrol` 巡逻、`survey` 网格测绘、`follow` 跟随、`monitor` 定点监视、`record` 记录证据、`deliver` 投递（默认关闭且尚未完成授权）、`hover` 悬停、`return_home` 返航、`land` 降落。
+### 1.1 字段和边界
 
-可以这样下达一句话任务：
+地点使用机载本地坐标系的 `[north_m, east_m]` 米，不填原始经纬度；地图原点由地面站明确设置。任务包的核心字段如下：
 
-| 中文 | English |
-|---|---|
-| 数一数场地里有几个交通锥，然后返航。 | Count the traffic cones in the field, then return home. |
-| 找到邮筒，从四个方向拍照，然后返航。 | Find the mailbox, inspect it from four directions, then return home. |
-| 监视场地五分钟，发现背包就报警。 | Monitor the field for five minutes and alert on backpacks. |
-| 沿围栏巡逻一圈，注意有没有背包。 | Patrol one loop along the fence and watch for backpacks. |
+| 字段 | 写法与检查 |
+| --- | --- |
+| `mission_id` | 稳定且唯一；审批和控制命令都绑定它。 |
+| `task_text` 或 `plan` | 至少一个。只有 `task_text` 时，机载上传后编译计划并回传 `kind=plan`。 |
+| `places` | 命名地点到坐标数组，例如 `{"poi:gate": [40, 0]}`。风险标签放在 `zones`。 |
+| `zones` | `centre_ne`、`radius_m`，可带 `risk_tag`、`oversight_required`。 |
+| `routes` | 命名航路点集合，供 `patrol` 等步骤引用。 |
+| `ref_labels` | 地点/区域的人类可读标签和别名，参与意图检查。 |
+| `operating_area` | 北/东最小最大值和 `min_altitude_m`、`max_altitude_m`；每步高度必须在内。 |
+| `home` | `[north_m, east_m]`，必须在 `operating_area` 内。 |
+| `budget` | `time_s`、`reserve_time_s`、`energy_wh`、`reserve_energy_wh`，总量必须大于储备量。 |
+| `risk_level` | `low`、`medium`、`high`，只是策略建议。 |
+| `link_loss_policy` | `continue`、`continue_then_return`、`hold_then_return`、`return_now`、`land_now`。带计时的策略还要给非负 `timeout_s`。 |
+| `heartbeat_timeout_s` | 地面心跳静默判定，至少 `0.001` 秒；不是 `timeout_s` 的替代品。 |
+| `oversight_steps` | 必须保持地面监督的步骤 ID。 |
+| `capabilities` | 可选的收紧声明；只能是机载 `AirframeProfile` 能力的子集，不能增加能力。 |
 
-当前诚实的仿真基准：单目标判断准确率 94.1%，干扰物拒绝率 89.9%；任务语义判定 8/12，任务规划 30 条较难新任务中中文 21/30、英文 25/30 完全正确。端到端仿真示例中，交通锥任务数到 2 个（0 次误报）并返航；这些数字不是实机保证。小目标、高处俯视、相似物体（例如电箱被当作背包）和中文任务仍会出错。
+计划步骤使用 `goto`、`area_search`、`count`、`inspect`、`patrol`、`survey`、`follow`、`monitor`、`record`、`deliver`、`hover`、`return_home`、`land`。每步有合法的 `on_success`/`on_fail` 引用，最终走返航、降落或最终悬停；`query` 最多 8 个词。
 
-`deliver` 需要单独授权，当前不要用于真实投递。真实飞行、Orin Nano 性能、真实相机和真实降落区仍是待验证项目；相关功能目前只能视为 SIM-only。
+### 1.2 地点依据、返航意图和能力
 
-## 机型与作业方式
+`goto`、带目标的 `land`、`deliver` 的 `target_ref` 必须由任务文字或标签别名提供依据。未知引用会带已知列表拒绝。别名用 `/` 分隔，例如：
 
-机上 AI 的搜索、接近和确认会按机型选择动作方式：
-
-| 机型 | 作业方式 | 起飞/返航要点 |
-|---|---|---|
-| 多旋翼 | 原地转向、前进、最近视角确认；确认后按任务计划返航 | 使用多旋翼搜索和接近流程 |
-| 固定翼 | 按相机覆盖和转弯半径飞割草机搜索；发现候选后飞过目标边缘的顺时针过顶盘旋，每圈在目标前方取得一次视角 | 支持跑道、手抛、弹射起飞；确认后停止机上接近，由 PX4 RTL 返航并降落 |
-| eVTOL 4+1、尾座式 | 默认 `vtol_hover_ops: true`，全程留在多旋翼（MC）模式，用多旋翼流程搜索、接近和确认 | 确认后由 PX4 RTL 返航并垂直降落 |
-| 能悬停的 VTOL（可选混合） | `vtol_search_mode: "fw"` 先用固定翼割草机搜索，发现候选后回切 MC 接近和确认；候选被拒后在 MC 至少停留 3 步，条件满足时继续原固定翼航线。MissionExecutor 按当前步骤使用对应的区域搜索器；area_search/count/survey/patrol/monitor 可用 FW，inspect/land/return_home/deliver 始终用 MC | 每个任务最多回切固定翼 3 次；默认 `vtol_search_mode: "mc"` 不变 |
-
-混合模式下，`vtol_fw_reentry_min_mc_steps` 调整被拒后的 MC 最少驻留步数，`vtol_fw_transition_budget` 调整允许回切 FW 的次数。`vtol_search_mode: "fw"` 只适用于能悬停的 VTOL；转换期间不推进机上 AI 循环。MissionExecutor 切换步骤时会清空混合状态，拒绝回切会退避且不消耗预算。
-
-固定翼的单次确认不是“看到一次就算”：只有同一位置（跨航迹编号）的真实确认票多于拒绝票时，过顶的单次确认才算数；否则要等两次确认。尾座式在悬停时相机光轴比地平线抬高 20°，远处看得到、近处容易把目标放出画面，这是当前机型限制。
-
-## 计数任务
-
-计数搜索路线完成一整轮覆盖后结束，摘要原因显示为 `coverage_complete`，随后按计划返航。已完成一整轮覆盖时，数量不是“至少”值；若摘要原因是 `budget_exhausted`（步数预算用完）、`max_count` 或覆盖完成时仍有未回访的待确认目标，数量是下限（摘要里 `count_is_lower_bound` 为 true），因为还有区域或候选没有得到完整检查。
-
-去重按位置记忆，而不是只看航迹编号：同一个地点换了新航迹编号不会再次接近；远处重见时也先按位置判断。两条航迹同框只有在之后都没有移开、且画面框没有嵌套时才作为两个目标的证据。摘要中的 `count_is_lower_bound`、`reason` 和证据帧要一起看。
-
-## 定位精度
-
-报告里的位置是目标在本地 N/E 平面上的估计位置，误差是该估计点到目标真值的水平距离，不是飞机位置，也不是目标边界框的像素坐标。单视 ground 定位通常打到大型目标的近边；`ground_extent_correction` 默认开启，但只有任务提供典型尺寸时才会沿底部射线把报告点推向预期中心。行人、标志、电线杆等“尺寸主要是高度”的目标，以及锥桶等小目标不做这项平移；多视角融合结果也不重复平移，关联仍使用原始地面锚点。
-
-2026-10-20 的 SITL 结果可作为当前参考，不是实机保证：
-
-| 场景 | 位置误差 |
-|---|---:|
-| 固定翼 w0016 救护车（两架） | 1.7 m、6.4 m |
-| 固定翼 w0031 消防车（单视大目标修正后） | 3.2 m、2.7 m |
-| standard_vtol（4+1） | 3.1 m |
-| quadtailsitter（尾座式） | 4.8 m |
-| standard_vtol 混合搜索（`vtol_search_mode: "fw"`），w0016 救护车 | 1.7 m；被拒后回固定翼版本 0.94 m |
-
-## 地面站与签名
-
-地面站任务包在真实/飞行/HIL 运行时要求签名。Ed25519 签名必须使用 **MSVC 版 OpenSSL**；MSYS2 的 MinGW OpenSSL 不能替代。便携包随带 `libcrypto-3-x64.dll`，部署时要与地面站一起保留。构建时可通过 `-OpenSSLRoot` 或 `MULTIDETECT_OPENSSL_ROOT` 指向 MSVC OpenSSL 目录。签名自测通过才可把该构建用于签名任务上传。
-
-## Orin 上板一键命令
-
-拿到 Orin 的 IP 和用户名后，在 Windows 开发机执行：
-
-```powershell
-$env:PYTHONPATH="src;."; python scripts/bringup_orin.py --host <板子IP> --user <用户名> --key $HOME/.ssh/id_ed25519
+```json
+"ref_labels": {
+  "poi:gate": "门 / 大门 / 入口 / entrance / gate"
+}
 ```
 
-这条命令会刷新上板包、用 `tar | ssh` 传到板上、安装并运行 benchmark，再把结果收回 `artifacts/orin/<UTC时间>/`。只支持 SSH 公钥，不用密码；开发机公钥必须已经写入板子的 `~/.ssh/authorized_keys`。安装脚本用 `sudo -n`，所以板上该用户必须能免密 sudo，否则安装会直接失败。先检查命令、不连接板子时加 `--dry-run`。
+“飞到门口”和“到 gate”都可依据 `poi:gate`；同一别名属于多个 ref 时会产生 `place_alias_conflict` 并停用该别名。任务说“返航/回家/RTL”而没有明确降落时，终止步骤不能凭空变成 `land`。`area_search`、`count`、`inspect`、`record`、`follow` 的查询对象必须在任务中出现依据；`patrol`/`monitor` 没有对象时按任务是否确实要求巡逻/监视分别告警或拒绝。
 
-## 已知限制与需要所有者的验收
+能力只能收紧：`capabilities` 与机载能力取交集。`deliver` 需要 `payload_drop`，带目标的 `land` 需要 `landing_on_target`，固定翼不具备 `hover` 或定点降落能力。最后一次仍违反时计划被拒，报告包含 `intent_violations`，不会改写成别的动作。
 
-- 以上固定翼、eVTOL 和定位数字来自 PX4/Gazebo SITL；HIL、真实飞行、真实相机视角和真实降落区仍需所有者验收。
-- 尾座式悬停相机抬高 20°，30 m 高度主要看到约 75 m 以外的地面；当前适合先远后近，云台或下视相机才能根本改善。
-- 在不锁屏、没人操作的桌面上，于主仓库运行联合 PX4/Gazebo/QGC 验收：
+### 1.3 失联策略、预算和可飞时长
 
-```powershell
-python scripts/run_release_pre9.py --only-stage combined_px4_gazebo_qgc_acceptance --run-dir artifacts/release-pre9-runs/20261020-final
-```
+风险默认建议是低风险 `continue`、中风险 `continue_then_return`、高风险 `return_now`。`hold_then_return` 先悬停，`land_now` 仅在确认安全降落区并获负责人批准时使用。监督器只能收紧策略，返航/降落锁定后恢复链路也不能改回继续。
 
-- 联合验收通过后仍要做 HIL/实飞和 QGC 人工目视检查；Orin 要按上一节的一键命令实测。仿真通过不等于可以跳过飞手的起飞、链路、返航和降落检查。
+命令行工具的演示估算为 `min(time_s - reserve_time_s, (energy_wh - reserve_energy_wh) * 3600 / 500)`。`500 W` 是 SIM 保守功率下限，不是实机续航标定。预算、电量、监督区域和连续低置信度都可能提前返航；没有新鲜能源样本时界面显示“尚未收到”。
 
-## 任务包：逐项填写
+## 2. 下发、签名与审批
 
-任务包是起飞前的边界和计划。所有地点使用名字，不填写原始经纬度；例如 `poi:gate`、`zone:field`、`route:fence`、`home`。上传后先做校验，校验失败不得起飞。
-
-1. 填 `mission_id`，再填一句 `task_text`，或填经过校验的 `plan`。
-2. 在 `places` 写点位，在 `zones` 写区域中心和半径，在 `routes` 写航路点；给它们起清楚的名字。区域可写 `risk_tag`，人员等高风险区域写 `oversight_required: true`。
-3. 在 `operating_area` 写北、东方向的最小/最大范围和 `min_altitude_m`、`max_altitude_m`。每个步骤的高度必须在这个范围内。
-4. 写 `budget`：总 `time_s`、总 `energy_wh`，以及返航保留的 `reserve_time_s`、`reserve_energy_wh`。总量必须大于保留量；任何一项到保留线，监督器会升级到返航。
-5. 写 `home`，它必须位于 operating area 内。
-6. 选 `risk_level`：`low`、`medium` 或 `high`。它只提供建议，不会替你改策略。
-7. 明确写 `link_loss_policy`。可选项如下：
-
-| 策略 | 失联后的动作 | 适合情况 | 风险等级建议 |
-|---|---|---|---|
-| `continue` | 继续执行 | 开阔、低风险、任务很短且现场允许无人看管 | `low` 默认 |
-| `continue_then_return` + `timeout_s` | 先继续，静默达到时间后返航 | 低至中风险，想给链路短暂恢复机会 | `medium` 默认 |
-| `hold_then_return` + `timeout_s` | 先悬停等待，达到时间后返航 | 目标需要等待确认，但不能继续向前 | 中风险或有人员区域 |
-| `return_now` | 判定失联后返航 | 高风险、靠近障碍/人员或不应继续搜索 | `high` 默认 |
-| `land_now` | 判定失联后请求降落 | 已确认下面是可安全降落区，且必须尽快落地 | 只在现场明确批准时用 |
-
-`heartbeat_timeout_s` 是判定地面心跳静默的时间，默认 5 秒；它不是 `timeout_s` 的替代品。监督器还会因为电量/时间保留量、连续低置信度、需要地面监督的步骤或高风险区域而升级。飞机只能变得更保守：例如从继续变为悬停、返航或降落，不能在这些触发后自行放宽策略。
-
-8. `oversight_steps` 列出必须有地面链路的步骤 ID。最后在 `plan` 中用 13 个技能串成步骤；每步有 `on_success` 和 `on_fail`，计划必须以返航、降落或最终悬停结束。`query` 最多 8 个词。
-
-## 起飞前
-
-### 从一句话到机上计划
-
-地面站可以上传只包含 `task_text` 的任务包。机上会重新编译并回传 `plan`，操作员先检查步骤、区域和返航路径；若计划要求批准，必须发送“批准计划”，且摘要必须与机上 `plan_sha256` 完全一致。批准前飞机保持未起飞，拒绝或摘要不匹配不会启动任务。无通信预期的任务可在包中关闭 `requires_approval`，但仍会执行机上边界校验。
-
-- 在地面站加载任务包并运行校验；确认点、区域、路线引用都能找到，计划终点是返航/降落/悬停，且高度、区域和预算合法。
-- 检查电池、电量计、返航所需余量和 home 点；预留量不能被任务消耗。
-- 按任务包策略核对 PX4 failsafe 参数。`continue`/定时策略通常由机上监督器管理，PX4 不应另行抢先执行相反动作；`return_now` 可用 PX4 Return 作同方向后备，`land_now` 只能在降落区确认后设置。PX4 的 `COM_DL_LOSS_T` 只是飞控超时，不等同于任务包计时。
-- 检查相机画面、焦点、曝光、时间戳和存储卡；确认目标在允许高度能看清。
-- Orin Nano 选择已批准的电源模式，确认散热和供电稳定；当前没有 Orin 实测基准。
-- 确认日志盘有空间。每个任务目录会写 `mission.jsonl`、`summary.json`，并可能写 `downlink-cursor.json`。
-
-## 飞行中
-
-地面站应显示任务 ID、当前步骤和状态、连接/心跳、位置与高度、剩余时间/能量及保留量、监督器动作和原因、发现/计数/证据帧 ID/告警。报告只采用实际观测，不把模型的一句文字直接当作事实。状态中的 `count.lower_bound=true` 表示搜索未证明完整，不能当作精确总数。最终摘要可能分多页到达，显示“摘要不完整”前不要引用其中的部分结果。
-
-操作员可发出暂停、继续和中止。暂停时监督器保持悬停；按策略达到暂停上限会返航。中止会进入安全恢复（返航或降落）。链路丢失时按任务包策略行动；重新连线可恢复等待中的 `hold_then_return`，不会把已经触发的更保守动作改回继续。
-
-## 降落后
-
-在任务日志目录查看 `mission.jsonl`：每行一个有递增序号的事件，如决策、执行、感知结果和最终摘要。`summary.json` 是最后一条 `final_summary` 的原子保存版本；`downlink-cursor.json` 只表示地面站已经确认收到的日志位置。
-
-先看 `summary.status`、`action`、`reason`，再看 `report`、`findings`、`counts`、`history` 和 `recovery_history`。计数要结合证据帧 ID 和告警复核；链路中断期间的记录仍在本地，恢复后会按序补发。
-
-## 常见故障
-
-| 现象 | 先查什么 | 处理 |
-|---|---|---|
-| 上传即提示缺字段/未知字段 | JSON 拼写、必填字段 | 对照任务包字段；不要删掉 `oversight_steps`、`budget` 或策略。 |
-| 高度超出或区域越界 | operating area 与步骤参数 | 降低/调整步骤高度或扩大已批准区域，重新校验。 |
-| 计划无法结束 | `on_success`/`on_fail` 引用 | 确保存在 `return_home`、`land` 或最终 `hover`，且引用的步骤 ID 存在。 |
-| 失联后动作比预期更保守 | `reason`、电量/时间余量、`oversight_steps`、高风险 zone | 这是安全升级；恢复链路后按现场决定是否结束任务，不要强行降级。 |
-| 计数偏少/偏多 | 证据帧、目标大小、相似物体、光照 | 暂停或返航，人工复核；不要把一次计数当作精确测量。 |
-| 日志无法打开 | 文件尾部、磁盘空间、mission_id | 保留原文件，不要截断；先复制出来检查最后一行和空间。 |
-| Orin 推理慢、温度高或重启 | 电源模式、散热、空间 | 结束任务并返航；当前 Orin 性能尚未实测。 |
-
-## 可直接试用的示例
-
-`configs/onboard/mission-package-count-cones-example.json` 对应任务“数一数场地里有几个交通锥，然后返航”，使用 `zone:field`、15 m 高度、低风险 `continue`，无论计数成功还是失败都会执行 `return_home`。
-
-用仓库的校验器验证：
+### 2.1 本地生成、校验和摘要
 
 ```powershell
-python -c "from pathlib import Path; from src.multidetect.autonomy.mission_package import load_mission_package; p=load_mission_package(Path('configs/onboard/mission-package-count-cones-example.json')); print(p.mission_id, 'VALID')"
+$env:PYTHONPATH='src;.'
+$env:PYTHONUTF8='1'
 ```
 
-校验通过只表示任务包结构和边界合法，不表示目标一定能识别，也不表示可以跳过飞手的起飞检查。
+`new` 的 `--zone` 格式是“名称:北,东,半径[:标签]”，`--budget` 是“任务秒,预留秒,能量 Wh,预留 Wh”：
 
-## 地面站任务监控卡片
+```powershell
+python scripts/mission_package_tool.py new --id cones-demo --prompt '数交通锥后返航' `
+  --zone field:25,0,20:open_field --home 0,0 --budget 600,180,120,30 `
+  -o D:\Projects\mdwt\_scratch\cx-operator-manual\cones-demo.json
+python scripts/mission_package_tool.py validate configs/onboard/mission-package-count-cones-example.json
+python scripts/mission_package_tool.py show configs/onboard/mission-package-count-cones-example.json
+```
 
-飞行视图右侧会常驻显示可折叠的“任务监控”卡片。卡片展示任务状态、当前步骤（技能和查询）、进度、原语/预算、剩余时间和能量、计数与发现/告警总数，以及最近一次身份判定。计数带 `lower_bound` 时显示“至少 N”，表示仍可能有未覆盖区域。
+`validate` 调用机载 `load_mission_package`，有内置 `plan` 时还调用 `check_plan_intent`；只证明结构、边界和意图通过，不证明目标一定能识别。`show` 显示风险、策略、地点/区域/路线计数、预算和 500 W 估算。
 
-链路栏显示当前连接状态、静默倒计时和到时将执行的失联策略。暂停、恢复和中止按钮直接发送经过现有签名操作员通道的指令；按钮反馈以机载确认和后续状态为准。
+### 2.2 签名、上传和拒绝原因
 
-计划包含 `requires_approval` 时，地面站弹出计划预览，列出技能、参数和区域。确认步骤与区域无误后点击批准；拒绝会将 `reject_plan` 与任务编号及计划摘要发送给机载端。审批窗口关闭不等于批准。
+真实运行和飞行/HIL 只接受已签名任务包。签名可用会话 `operator-link.json` 的 `operator_package_key_hex`，或 32 字节 HMAC 十六进制 key；默认另存，覆盖需显式 `--in-place`：
 
-地图会自动绘制计划区域、路线以及机载上报的发现和告警。发现标记包含标签、置信度和 sigma 误差圆；本地北/东坐标优先使用计划中的 WGS84 原点，没有原点时回退到飞机 HOME，不需要手工输入经纬度。
+```powershell
+python scripts/mission_package_tool.py sign configs/onboard/mission-package-count-cones-example.json `
+  --key-hex ('00' * 32) `
+  -o D:\Projects\mdwt\_scratch\cx-operator-manual\cones-demo.signed.json
+python scripts/mission_package_tool.py validate D:\Projects\mdwt\_scratch\cx-operator-manual\cones-demo.signed.json `
+  --key-hex ('00' * 32)
+```
 
-任务结束后，监控卡片显示分页重组的完整摘要，包括计数下限说明、发现及证据帧编号和步骤历史。摘要页缺失时只显示“摘要不完整，等待重传”，不会把不完整内容当作最终结果。
+生产签名的 Ed25519 必须使用 MSVC 版 OpenSSL，不能用 MSYS2 MinGW OpenSSL；便携包的 `libcrypto-3-x64.dll` 要和地面站一起保留。不要把 key 写入日志。
+
+在地面站 Fly 或 Plan 页点击“任务包”选择文件。上传“已接收，机载编译中”不等于批准、解锁或起飞；要等最终 ACK 和 `kind=plan`。当 `requires_approval=true` 时，负责人必须在真实地面站界面核对步骤、查询、地点、范围、预算和 `plan_sha256`，再点击“批准计划”。批准命令绑定相同 `mission_id`/`plan_sha256`，并通过签名、序号和时间戳检查后才执行。点击“拒绝”会写入 `plan_rejected`，锁定 `land_now`；未起飞时保持地面。窗口关闭不等于批准。
+
+拒绝原因按三类排查：
+
+1. **意图**：返航/降落冲突，查询对象无文本依据，或地点未被任务提及。
+2. **能力**：需要机体没有的 `payload_drop`、`landing_on_target`、`hover` 等；包声明不能放大能力。
+3. **未知地点/引用**：`target_ref` 不在引用表，或别名冲突后失去依据。
+
+地面站没有自动审批；`MULTIDETECT_UI_AUTO_APPROVE_PLAN` 仅用于离屏测试。
+
+## 3. 飞行中能看到和能做的事
+
+任务卡约每秒更新 `status`：任务编号、步骤/技能、进度、监督器动作与原因、剩余时间/能量、有效失联策略和链路状态。每个 `finding`、`alert` 单独下行，发现带标签、置信度、位置和证据帧 ID。`count.lower_bound=true` 或 `count_is_lower_bound=true` 必须显示为“至少 N”。状态超过 1,200 字节会截短并标 `truncated=true`，超过 5 秒无更新则过期；未知能量不以名义预算代替。
+
+负责人只能在真实地面站界面点击“暂停”“恢复”“中止”。暂停保持悬停并受暂停上限、能量和失联策略约束；恢复仅恢复仍在等待的任务；中止进入安全恢复。失联按包策略继续、定时继续后返航、悬停后返航、立即返航或请求降落。统一 `SafetyEnvelope` 会约束运动；链路不健康进入 `waiting_for_link`，GPS 过期进入 `waiting_for_gps`，未解锁可能为 `blocked`。恢复链路不能解除已锁定的返航/降落。
+
+离线不暂停机载日志或执行；恢复后按任务和序号去重补发。最终摘要是分页的 `final_summary_page`，每页最多 1,536 个 UTF-8 字节，必须收齐后才可引用。
+
+## 4. 最终摘要怎么读
+
+任务目录有 `mission.jsonl`、`summary.json`，可能有 `downlink-cursor.json`。先看 `status`、`terminal_action`、`terminal_reason`，再看 `findings`、`alerts`、`counts`、`history`、`recovery_history`、`not_done`、`omitted`。机载日志是完整审计，游标只表示地面站确认位置。
+
+| 字段/标记 | 含义 |
+| --- | --- |
+| `completed` | 计划正常结束，例如完整覆盖 `coverage_complete`。 |
+| `ended_early` | 监督器已锁定返航/降落，包括中止、时间/能量储备和失联。 |
+| `plan_rejected` | 审批拒绝、摘要不匹配或意图/能力/引用检查失败；未起飞时留在地面。 |
+| `stopped` | 宿主停止任务。 |
+| `count_is_lower_bound=true` | 未证明完整覆盖或仍有候选未补看，只能读“至少”。 |
+| `coverage_partial` | 有跳过航点或覆盖未完整；与计数下限一起读。 |
+| 补看跳过 | `outside_region`、`already_revisited`、`attempts_exhausted`、`revisit_cap`、`no_clear_viewpoint`、`too_small_to_resolve`、`budget`、`energy_margin`；不是“没有目标”。 |
+| 补看结果 | `judged_*`、`counted`、`still_unjudged`、`not_seen`、`descent_blocked`、`fly_blocked`、`timeout`、`interrupted`；拒绝补看写 `rejection_revisit_skipped`。 |
+| 慢模型不可用 | 超时、无效 JSON、OOM 或进程故障；可能有 `planning_fallback_to_identity`，保留安全 sub-goal 并悬停/返航。 |
+| 遥测断档 | `vehicle_telemetry_gap`/`vehicle_telemetry_gaps_s`；不计入电池时效，恢复后 5 秒内仍无遥测则返航。 |
+| 长时监视 | `duration_elapsed` 表示请求时长到达；`tracking_budget_exhausted` 表示触及默认 4096 跟踪预算。 |
+
+其他常见 `terminal_reason`：`budget_exhausted`/`step_budget`（预算用完，未证实完整覆盖）、`search_exhausted`、`max_count`、`target_lost_timeout`、`region_covered` 和 `*_blocked`。计数必须结合 `count_lower_bounds`、证据帧和告警复核。
+
+## 5. SIM 演示与联合验收
+
+### 5.1 不启动 SITL 的检查
+
+```powershell
+$env:PYTHONPATH='src;.'
+$env:PYTHONUTF8='1'
+python scripts/mission_package_tool.py --help
+python scripts/run_operator_demo.py --help
+pwsh scripts/run_operator_demo.ps1 --dry-run
+```
+
+`--dry-run` 只打印锁、SIM/GCS 命令和脱敏环境变量，不启动 SITL、GCS、Docker 或 noVNC。日志目录是 `D:\Projects\mdwt\_scratch\cx-demo-launcher\`。
+
+### 5.2 一键启动和必须人工操作的步骤
+
+真实联合验收（会启动 SIM，本次未执行）在仓库根目录运行：
+
+```powershell
+$env:PYTHONPATH='src;.'
+$env:PYTHONUTF8='1'
+pwsh scripts/run_operator_demo.ps1 --gcs-exe build/windows-v0.2.0-release/portable-v0.2.0/bin/MultiDetectGCS.exe
+```
+
+启动器拿 `D:\Projects\mdwt\_scratch\sitl.lock`，等待 `operator-link.json` 后启动 GCS。浏览器打开 `http://127.0.0.1:6080/vnc.html?autoconnect=1` 看 noVNC。传 `--task-package <包.json>` 会用会话 key 生成签名副本，但仍需负责人在地面站点击“任务包”。负责人必须人工：加载并核对计划、点击批准；另载包点击拒绝；执行中点击暂停/恢复/中止；确认 ACK、状态、发现/告警和收齐后的摘要；保存 `mission.jsonl`、`summary.json` 和会话日志。
+
+启动器只清理自己记录的 session/GCS PID、子进程和唯一容器名；按 PID 检查现场，不要按名称批量结束 `python`、`bash` 或 `docker`。
+
+### 5.3 离屏生命周期
+
+不连接 SITL/Docker 的审批、分页和断链流程见 [GCS 任务包流程](gcs-mission-package-workflow.md) 的“离屏全生命周期联调”。离屏测试可设置 `MULTIDETECT_UI_AUTO_APPROVE_PLAN=1`，但它不替代真实地面站人工操作。
+
+## 6. Jetson 配置边界
+
+`planning_model` 是可选 planner GGUF 路径；planner 完成后关闭，再在同一端口启动 identity，不并发驻留。`--cache-ram 0`（`llama_cache_ram_mib=0`）用于避免 prompt cache 占满主机 RAM；部署前在目标机运行 `llama-server --help` 确认支持。Orin Nano 8 GB 表格是规划包络而非实测峰值；详见 [Jetson 部署说明](../deploy/jetson/README.md)。
+
+## 7. 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 缺字段/未知字段 | 对照字段表，保留 `budget`、`oversight_steps`、策略和签名字段。 |
+| 返航意图被拒 | 检查是否错误生成 `land`；未明确降落应走 `return_home`。 |
+| 地点无依据 | 检查 `target_ref`、任务文字和唯一别名“门 / 大门 / 入口 / gate”。 |
+| 能力被拒 | `capabilities` 只能收紧，核对机型能力。 |
+| 数量偏少 | 看 `coverage_partial`、`count_is_lower_bound`、`not_done` 和补看跳过原因，必要时暂停/返航人工复核。 |
+| 摘要不完整 | 等所有 `final_summary_page` 收齐，检查链路、序号和 `downlink-cursor.json`。 |
+| 状态过期/断档 | 超过 5 秒按过期处理；恢复后等按序补发，不能当作“没有发现”。 |
+| 慢模型不可用 | 查 `planning_fallback_to_identity`、模型运行时、OOM/超时，保持安全 sub-goal。 |
+| 演示找不到 GCS | 显式传 `--gcs-exe`，先跑 `run_operator_demo.py --dry-run`。 |
+| 端口或锁忙 | 只按 PID 清理自己的会话，不删别人的锁。 |
+| Orin 慢/热/重启 | 结束任务并返航，检查供电、散热、磁盘和 `--cache-ram 0`。 |
+
+## 8. 证据入口
+
+- [任务包协议、审批、分页摘要和离屏生命周期](gcs-mission-package-workflow.md)
+- [多用途任务设计、意图/地点/能力检查](onboard-multipurpose-mission-design.md)
+- [SIM 操作员端到端流程](e2e-operator-sim.md)
+- [自主架构中的安全出口和长时监视预算](autonomy-architecture.md)
+- [2026-10-20 SIM 任务套件回归](sim-mission-suite-regression-20261020.md)
+- [Jetson/llama 配置](../deploy/jetson/README.md)
+- [一键演示与任务包工具说明](operator-demo.md)
