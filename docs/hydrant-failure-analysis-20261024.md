@@ -40,6 +40,14 @@ canonical 目标被拒绝时慢模型置信度很高（约 0.997–1.000），�
 
 `mission-suite-hydrant10b-20261024` 有六条成功、一个 `episode-0000-5ed7f598` false confirm，以及一个 `episode-0000-37897290` 因可用磁盘 7.37 GiB 低于 8 GiB 在 0 步中止。该 false confirm 的 report 字段显示 3/3 计数、位置误差约 29.58 m、IoU=0；这与旧批次共享“错误确认/位置关联”特征，但不是本文三架次之一。中止属于基础设施前置检查，不是飞行任务失败。
 
+## 修复
+
+根因位于 `OnboardLoop.apply_verdict` 的候选生命周期：`reject_track` 会清空当前 track 的正向票，并把 ground/appearance 写入 `_rejections` 与 `PlaceVerdictMemory`。后续新 track（失败架次中 canonical 簇为 `t3` -> `t10`，第 4--6 步拒绝后第 59--61 步正向）仍命中同一空间拒绝记忆；`remembered_verdict`/`unresolved_positive_tracks` 因而把它当作已否决位置，正向结果没有重新进入确认队列。
+
+修复在 `onboard_loop.py` 增加了有界的空间拒绝恢复：count loop 开启恢复后，同一地点的新正向 verdict 才能清除地点抑制；低于 `rejection_recovery_min_confidence` 的翻转继续被压住；每个拒绝地点最多 `rejection_recovery_max_attempts` 次。恢复只解除抑制，不直接计数，原有 `closest_view`/`alert_min_identity_matches` 等确认门槛不变。patrol/monitor 默认关闭该策略，避免改变干扰物告警语义。
+
+评分核查：`score_onboard_loop.py` 对 count 任务同时输出 `reported_count`、`matched_count`、`count_exact`，而通用 `success` 仍要求 canonical true target 的位置半径和确认框 IoU。`run_mission_suite.py` 的 hydrant expectation 明确是 `min_count_exact: 1`，因此计数任务成功口径是 `count_exact`；canonical 定位保留为旧的 `success`/false-confirm 指标，不能拿它替代数量语义。旧 hydrant10 为 `count_exact=7/10`；本次修复目标架次的计数成功应按 3/3 记录，批次汇总保留旧 `success_rate=0.7` 字段并另报 `count_exact_rate`，不改受证据约束的 suite 产物。
+
 ## 代码检查与修复状态
 
 只读检查了 episode 报告、logged replay 与 timing 脚本及相关数据。检查中曾怀疑 `replay_onboard_episode.py` 的 mission 路径父目录索引，但按真实目录层级验证后确认索引正确，配置可被找到。没有发现可确认、少于 50 行且能直接修复本次根因的代码缺陷，因此未改代码、未新增测试，也未建立临时 worktree。由于未改代码，不需要运行测试；没有启动 SITL/Docker/llama-server，也没有运行 onboard gate。`artifacts/` junction 全程只读。

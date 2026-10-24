@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
+from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop, Track
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +171,60 @@ def test_reject_resets_votes_and_unconfirmed_focus_is_dropped() -> None:
             break
     assert info.get("reason") == "approach_exhausted" and loop.state == "searching"
     assert loop.tracks["t1"].exhausted and loop.tracks_needing_verdict(tracks) == []
+
+
+def test_rejected_place_reopens_on_confident_positive_without_counting() -> None:
+    loop = _loop(stop_on_confirm=False, rejection_recovery_min_confidence=0.75,
+                 rejection_recovery_enabled=True)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.9)],
+        pose_ned=(0.0, 0.0, -20.0),
+        ground_point=lambda _u, _v: (8.7, -15.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track", confidence=0.99)
+    track.verdict = None
+    track.needs_fresh_verdict = False
+    loop.apply_verdict(track.track_id, "approach_track", confidence=0.9)
+    assert track.verdict == "approach"
+    assert loop._rejections[0]["recovery_attempts"] == 1
+    assert loop.confirmed is None
+
+
+def test_low_confidence_positive_cannot_reopen_rejected_place() -> None:
+    loop = _loop(stop_on_confirm=False, rejection_recovery_min_confidence=0.75,
+                 rejection_recovery_enabled=True)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.9)],
+        pose_ned=(0.0, 0.0, -20.0),
+        ground_point=lambda _u, _v: (8.7, -15.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track", confidence=0.99)
+    track.verdict = None
+    track.needs_fresh_verdict = False
+    loop.apply_verdict(track.track_id, "approach_track", confidence=0.2)
+    assert track.verdict is None
+    assert loop._rejections
+
+
+def test_rejected_place_recovery_is_bounded() -> None:
+    loop = _loop(stop_on_confirm=False, rejection_recovery_min_confidence=0.0,
+                 rejection_recovery_max_attempts=1, rejection_recovery_enabled=True)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.9)],
+        pose_ned=(0.0, 0.0, -20.0),
+        ground_point=lambda _u, _v: (8.7, -15.0),
+    )
+    loop.apply_verdict(track.track_id, "reject_track", confidence=0.99)
+    track.verdict = None
+    track.needs_fresh_verdict = False
+    loop.apply_verdict(track.track_id, "approach_track", confidence=0.9)
+    track.verdict = None
+    track.needs_fresh_verdict = False
+    loop._remember_rejection(track, confidence=0.99)
+    replacement = Track("t2", track.bbox, 1, 1, ground=track.ground)
+    loop._tracks[replacement.track_id] = replacement
+    loop.apply_verdict(replacement.track_id, "approach_track", confidence=0.9)
+    assert replacement.verdict is None and replacement.needs_fresh_verdict
 
 
 def test_tiny_boxes_are_not_sent_to_the_slow_model() -> None:

@@ -674,7 +674,9 @@ class MissionExecutor:
             config = run.loop.config
             if hasattr(config, "small_reject_net_votes"):
                 run.loop.config = replace(
-                    config, small_reject_net_votes=self.config.count_small_reject_net_votes
+                    config,
+                    small_reject_net_votes=self.config.count_small_reject_net_votes,
+                    rejection_recovery_enabled=True,
                 )
         elif step.skill == "inspect":
             run.loop = self._loop(step)
