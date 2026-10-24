@@ -1,0 +1,1 @@
+{"step_index":0,"task_text":"count cone","obs_before":{"camera_info":{"fx":500,"fy":500,"cx":320,"cy":240,"width":640,"height":480},"pose":{"local_ned_m":[0,0,-12]},"attitude":{"yaw_deg":0},"frame_sensor_stamp_ns":1000000000},"action":{"kind":"hold"},"labels":{"onboard":{"skill":"count","tracks":[],"slow_calls":[]}}}
