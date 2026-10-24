@@ -149,6 +149,7 @@ MOTION_ALONG_TRACK_DONE_M = 5.0
 # bearing tens of metres away while circling.  Bound the cross-track error by
 # the same tolerance used for a direct arrival.
 MOTION_CROSS_TRACK_DONE_M = MOTION_ARRIVAL_TOLERANCE_M
+FIXED_WING_LOITER_CAPTURE_M = 80.0
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
 # Hover-mode (MC) VTOL legs settle on their target and heading before the next frame.
@@ -1517,6 +1518,7 @@ def _wait_motion_command(
                 leg_n=leg_n,
                 leg_e=leg_e,
                 distance_m=distance,
+                loiter_radius_m=float(command.radius_m or FIXED_WING_LOITER_CAPTURE_M),
             ):
                 return {
                     "waited": "arrived",
@@ -1541,7 +1543,13 @@ def _wait_motion_command(
 
 
 def _fixed_wing_reposition_complete(
-    *, dn: float, de: float, leg_n: float, leg_e: float, distance_m: float
+    *,
+    dn: float,
+    de: float,
+    leg_n: float,
+    leg_e: float,
+    distance_m: float,
+    loiter_radius_m: float | None = None,
 ) -> bool:
     """Return whether a fixed-wing leg has actually reached or passed its target.
 
@@ -1552,6 +1560,13 @@ def _fixed_wing_reposition_complete(
     bounded cross-track pass through the target plane.
     """
     if distance_m <= MOTION_ARRIVAL_TOLERANCE_M:
+        return True
+    # A fixed-wing reposition is captured when PX4 enters its loiter ring;
+    # unlike a multirotor it cannot stop at the centre.  The Cessna's deployed
+    # NAV_LOITER_RAD is 80 m, so a stable 81--84 m ring is a valid completion.
+    if loiter_radius_m is not None and MOTION_ARRIVAL_TOLERANCE_M < distance_m <= max(
+        MOTION_ARRIVAL_TOLERANCE_M, float(loiter_radius_m) + 5.0
+    ):
         return True
     leg = math.hypot(leg_n, leg_e)
     if leg <= 1e-6:

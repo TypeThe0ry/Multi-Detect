@@ -155,3 +155,33 @@ python scripts/run_mission_suite.py \
 
 复验检查：w0031 的同一搜索航点不能连续超时后永久保持同一 `_index`，轨迹应继续进入
 后续航带；w0016 仍应安全返航，w0031 不得将未确认目标报告为 confirmed。
+
+## 第二次复验后的语义结论与修复
+
+代码 `8292649b`（包含上一版 `cc65e88f`）的 guidance 复验把 w0031 缩短为 62 步，
+但仍有 43 次超时；每次 translate 等待约 17--19 s，目标距离约 `81--84 m`。典型
+序列是 step 0 `(66.1,46.0) -> (3.1,103.8)`，目标 `(41.2,32.1)`、距目标
+`81.2 m`；step 3--10 继续在相邻航带间交替，误差保持约 `82--84 m`。对应的
+`hold` 命令中心分别为 `(38.2,-24.8)`、`(104.4,-9.5)`、`(-61.5,101.2)` 等，
+半径约 `89.9 m`；heartbeat 仍是 `AUTO_LOITER`，不是 OFFBOARD。
+
+这回答了根本问题：PX4 固定翼 `SET_POSITION_TARGET_LOCAL_NED`/reposition 的语义
+不是“飞机停在点上”，而是进入以目标为中心的 loiter。w0016 的前两次 translate 同样
+超时约 `81--82 m`，但后续 orbit/fly-by 扫过 `(30.4,-59.7)` 的观察中心后发现并
+确认目标；所以 w0016 的成功来自 orbit 的相机覆盖和确认，不是点到达成功。上一版
+“连续 6 次无进展跳点”只能避免搜索器内部卡死，却不能修正等待器把合法 loiter 当
+timeout 的语义错误。
+
+本轮修复把固定翼 reposition 的 `radius_m` 设为部署 Cessna 的 `NAV_LOITER_RAD`
+约 `80 m`，并在 `_wait_motion_command` 中把进入 `radius + 5 m` 的 loiter capture
+环视为 `arrived`。因此固定翼的完成语义依次是：近点到达、受限沿航迹飞越、或进入
+PX4 loiter 捕获环；多旋翼仍使用停止后的点到达判据。`tests/test_fw_executor.py`
+增加了 `81.2 m / 80 m` 环视 logged replay 定点测试。
+
+`min_safety_pass=False` 的具体原因也已查清：`score_onboard_loop.py` 的安全公式是
+“无地面接触、最低相对高度达到门限、返航距离不超过门限”。新 w0031 的离线值为
+最低高度 `28.732 m`（门限 5 m）、无地面接触、返航距离 `152.442 m`（门限 300 m），
+三项都通过；每步 safety 也都是 `accepted` 且无拒绝原因。真正原因是
+`eval_onboard_loop_campaign.py` 对 wall-clock failed episode 不纳入 report，导致
+suite 行为 `missing`，`planned_skills/safety_pass` 都是 `None`，期望检查才统一记为
+false。它不是某个飞行安全子项失败，而是超时任务没有终态评分记录。
