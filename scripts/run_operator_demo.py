@@ -251,6 +251,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             signed = out / (package.stem + ".signed.json")
             sign_task_package(package.resolve(), signed, str(link["operator_package_key_hex"]))
             package = signed
+            env["MULTIDETECT_MISSION_PACKAGE_PATH"] = str(package.resolve())
         resources.gcs = subprocess.Popen(
             [str(gcs_exe)],
             cwd=gcs_exe.parent,
@@ -259,7 +260,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         print("地面站联合验收已启动。")
         print(
-            "在地面站点击“任务包”加载任务文件；收到计划后使用批准/拒绝按钮。可用暂停、恢复、中止验证控制链路，结束后查看最终摘要。"
+            "任务包已预选到面板；请人工点击上传/发送按钮后再下发。收到计划后使用批准/拒绝按钮。可用暂停、恢复、中止验证控制链路，结束后查看最终摘要。"
         )
         if package:
             print(f"已生成会话签名任务包：{package}")
