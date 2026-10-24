@@ -189,6 +189,22 @@ Item {
         if (!_missionController || !_missionController.finalSummaryComplete) return [];
         const s = _missionController.finalSummary || {};
         const lines = [];
+        const summaryText = typeof s.summary_zh === "string" && s.summary_zh.length > 0 ? s.summary_zh :
+            (typeof s.summary_en === "string" && s.summary_en.length > 0 ? s.summary_en : "");
+        if (summaryText)
+            lines.push(summaryText);
+        const operator = s.operator_summary && typeof s.operator_summary === "object" ? s.operator_summary : {};
+        const operatorTerminal = operator.terminal && typeof operator.terminal === "object" ? operator.terminal : {};
+        const operatorStatus = typeof operatorTerminal.status === "string" ? operatorTerminal.status :
+            (typeof operator.status === "string" ? operator.status : "");
+        const operatorAction = typeof operatorTerminal.action === "string" ? operatorTerminal.action :
+            (typeof operator.terminal_action === "string" ? operator.terminal_action : "");
+        const operatorReason = typeof operatorTerminal.reason === "string" ? operatorTerminal.reason :
+            (typeof operator.terminal_reason === "string" ? operator.terminal_reason : "");
+        if (operatorStatus || operatorAction || operatorReason)
+            lines.push([operatorStatus ? qsTr("操作员状态：%1").arg(operatorStatus) : "",
+                        operatorAction ? qsTr("操作员终止动作：%1").arg(operatorAction) : "",
+                        operatorReason ? qsTr("操作员终止原因：%1").arg(operatorReason) : ""].filter(part => part.length > 0).join("；"));
         lines.push(qsTr("结束状态：%1").arg(root._missionStateText(s.status || "--")));
         if (s.terminal_action)
             lines.push(qsTr("终止动作：%1（%2）").arg(root._missionStateText(s.terminal_action)).arg(String(s.terminal_reason || "")));
@@ -200,6 +216,12 @@ Item {
         }
         lines.push(qsTr("发现 %1 个，报警 %2 个").arg((s.findings || []).length).arg((s.alerts || []).length));
         lines.push(qsTr("步骤记录 %1 条").arg((s.history || []).length));
+        if (s.detail_truncated === true) {
+            const omitted = s.omitted && typeof s.omitted === "object" ? s.omitted : {};
+            const omittedText = Object.keys(omitted).filter(key => typeof omitted[key] === "number")
+                .map(key => key + " " + omitted[key] + " 条").join("、");
+            lines.push(qsTr("细节已截断%1").arg(omittedText ? qsTr("（省略：%1）").arg(omittedText) : ""));
+        }
         return lines;
     }
     property bool _missionPlanSnapshotSent: false
