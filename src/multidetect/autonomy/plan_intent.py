@@ -372,10 +372,38 @@ _PLACE_STOPWORDS = frozenset({"the", "a", "an", "of", "route", "area", "zone", "
 # Built-in references that are not named places.
 _BUILTIN_PREFIXES = frozenset({"finding", "track"})
 
+# Common operator vocabulary.  These are deliberately attached to a reference
+# whose slug or existing label identifies the same concept; they are never a
+# global synonym list.  A term owned by more than one reference is suppressed
+# below so it cannot make two places interchangeable.
+_PLACE_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "gate": ("门", "大门", "入口", "门口", "entrance", "gate"),
+    "entrance": ("门", "大门", "入口", "门口", "entrance", "gate"),
+    "pier": ("码头", "pier", "dock"),
+    "dock": ("码头", "pier", "dock"),
+    "pad": ("停机坪", "起降坪", "landing pad", "pad"),
+    "landing": ("停机坪", "起降坪", "landing pad", "pad"),
+    "warehouse": ("仓库", "库房", "warehouse", "shed"),
+    "shed": ("仓库", "库房", "warehouse", "shed"),
+}
+
 
 def parse_ref_labels(refs: Iterable[str] | Mapping[str, Any] | None) -> dict[str, list[str]]:
-    """``"poi:gate (大门 / the gate)"`` -> ``{"poi:gate": ["大门", "the gate"]}``."""
+    """Parse labelled refs and the legacy slash-separated label convention.
+
+    Mission packages keep ``ref_labels`` values as strings for schema and GCS
+    compatibility; ``/`` separates aliases (for example ``"入口 / entrance"``).
+    A mapping is also accepted directly for callers that already have the
+    package field parsed.
+    """
     labels: dict[str, list[str]] = {}
+    if isinstance(refs, Mapping):
+        for name, value in refs.items():
+            if isinstance(value, str):
+                labels[str(name)] = [part.strip() for part in value.split("/") if part.strip()]
+            elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                labels[str(name)] = [str(part).strip() for part in value if str(part).strip()]
+        return labels
     for ref in refs or ():
         name, _, rest = str(ref).partition(" ")
         rest = rest.strip()
@@ -383,6 +411,25 @@ def parse_ref_labels(refs: Iterable[str] | Mapping[str, Any] | None) -> dict[str
             rest = rest[1:-1]
         labels[name] = [part.strip() for part in rest.split("/") if part.strip()]
     return labels
+
+
+def _builtin_place_aliases(ref: str, labels: Sequence[str]) -> tuple[str, ...]:
+    """Return semantic aliases implied by a ref slug or its explicit labels."""
+    haystack = " ".join((ref, *labels)).lower()
+    aliases: list[str] = []
+    for key, values in _PLACE_ALIAS_GROUPS.items():
+        if key in ref.partition(":")[2].lower() or key in haystack:
+            aliases.extend(values)
+    return tuple(dict.fromkeys(aliases))
+
+
+def _alias_conflicts(refs: Mapping[str, Sequence[str]]) -> dict[str, set[str]]:
+    owners: dict[str, set[str]] = {}
+    for ref, labels in refs.items():
+        for alias in _builtin_place_aliases(ref, labels):
+            key = _stem(alias) if re.fullmatch(r"[a-zA-Z0-9 -]+", alias) else alias.strip().lower()
+            owners.setdefault(key, set()).add(ref)
+    return {term: refs for term, refs in owners.items() if len(refs) > 1}
 
 
 def _place_terms(ref: str, labels: Sequence[str]) -> tuple[set[str], set[str]]:
@@ -402,11 +449,17 @@ def _place_terms(ref: str, labels: Sequence[str]) -> tuple[set[str], set[str]]:
     return english, chinese
 
 
-def place_grounded(ref: str, labels: Sequence[str], task_text: str) -> bool:
+def place_grounded(
+    ref: str,
+    labels: Sequence[str],
+    task_text: str,
+    *,
+    aliases: Sequence[str] = (),
+) -> bool:
     """True when the task names ``ref`` (by its name or a label) outside an exclusion."""
     clauses = [c for c in _clauses(task_text) if not PLACE_EXCLUSION.search(c)]
     body = " ".join(clauses)
-    english, chinese = _place_terms(ref, labels)
+    english, chinese = _place_terms(ref, [*labels, *aliases])
     stems = {_stem(w) for w in _words(body)}
     return bool(english & stems) or any(term in body for term in chinese)
 
@@ -481,6 +534,17 @@ def check_plan_intent(
     reachable = reachable_steps(plan)
     labels = parse_ref_labels(refs)
     if labels:
+        conflicts = _alias_conflicts(labels)
+        if conflicts:
+            for term, owners in sorted(conflicts.items()):
+                findings.append(
+                    IntentFinding(
+                        "place_alias_conflict",
+                        "",
+                        f"place alias '{term}' is shared by {', '.join(sorted(owners))}; alias disabled",
+                        blocking=False,
+                    )
+                )
         for step in reachable:
             if _get(step, "skill") not in PLACE_SKILLS:
                 continue
@@ -489,7 +553,20 @@ def check_plan_intent(
                 not isinstance(ref, str)
                 or ref in {"home", "zone:all"}
                 or ref.partition(":")[0] in _BUILTIN_PREFIXES
-                or place_grounded(ref, labels.get(ref, ()), task_text)
+                or place_grounded(
+                    ref,
+                    labels.get(ref, ()),
+                    task_text,
+                    aliases=[
+                        alias
+                        for alias in _builtin_place_aliases(ref, labels.get(ref, ()))
+                        if (
+                            _stem(alias) if re.fullmatch(r"[a-zA-Z0-9 -]+", alias)
+                            else alias.strip().lower()
+                        )
+                        not in conflicts
+                    ],
+                )
             ):
                 continue
             findings.append(

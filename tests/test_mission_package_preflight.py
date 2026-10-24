@@ -14,6 +14,7 @@ from multidetect.autonomy.mission_package import (
     load_mission_package,
 )
 from multidetect.autonomy.mission_plan import MissionPlan, MissionStep, validate_mission_plan
+from multidetect.autonomy.mission_supervisor import plan_digest
 
 
 def _document() -> dict:
@@ -82,6 +83,16 @@ def _goto_home() -> list[dict]:
 def test_clean_plan_passes_package_preflight() -> None:
     package = _package(_plan(_goto_home()))
     assert check_plan_against_package(package.plan, package) == []
+
+
+def test_legacy_ref_label_string_and_plan_digest_are_stable() -> None:
+    document = _document()
+    document["ref_labels"] = {"poi:gate": "大门 / gate"}
+    package = _package(_plan(_goto_home()), raw=document)
+    assert package.document["ref_labels"]["poi:gate"] == "大门 / gate"
+    first = plan_digest(package, package.plan)
+    second = plan_digest(load_mission_package(deepcopy(document) | {"plan": _plan(_goto_home())}), package.plan)
+    assert first == second
 
 
 @pytest.mark.parametrize(
