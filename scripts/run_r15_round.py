@@ -636,6 +636,83 @@ class Round:
         value = getattr(self.a, "collector_min_free_gb", None)
         return self.a.min_free_gb if value is None else value
 
+    @staticmethod
+    def _collection_airframe(scenario: Path) -> tuple[str, str | None, dict]:
+        """Resolve and validate the collector contract before worker dispatch.
+
+        Generated runtime channels may carry an explicit collector airframe as
+        ``airframe``/``airframe_id`` (or under ``vehicle``).  Older generated
+        worlds only identify the PX4 stack model, so fixed-wing stacks retain
+        the documented rc_cessna runway profile and multirotors use x500.
+        """
+        from scripts.collect_sim_teacher_episodes import _airframe_profile, _validate_runtime
+
+        document = json.loads(scenario.read_text(encoding="utf-8"))
+        channels = document.get("channels", {})
+        runtime_ref = channels.get("runtime_input", {})
+        if not isinstance(runtime_ref, dict) or not isinstance(runtime_ref.get("path"), str):
+            raise ValueError("scenario channels.runtime_input.path is missing")
+        runtime_path = (scenario.parent / runtime_ref["path"]).resolve()
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        vehicle = runtime.get("vehicle", {}) if isinstance(runtime, dict) else {}
+        model = str(vehicle.get("model", "")) if isinstance(vehicle, dict) else ""
+        explicit = (
+            runtime.get("airframe")
+            or runtime.get("airframe_id")
+            or (vehicle.get("airframe") if isinstance(vehicle, dict) else None)
+            or (vehicle.get("airframe_id") if isinstance(vehicle, dict) else None)
+        )
+        fixed_wing = "fixed_wing" in model.lower() or "fixed_wing" in str(
+            vehicle.get("airframe_profile_id", "") if isinstance(vehicle, dict) else ""
+        ).lower()
+        airframe = str(explicit or ("rc_cessna_runway" if fixed_wing else "x500_mono_cam"))
+        profile_error = None
+        try:
+            profile = _airframe_profile(airframe)
+        except Exception as exc:
+            profile = None
+            profile_error = str(exc)
+        category = str(getattr(profile, "category", "")) if profile is not None else ""
+        errors: list[str] = []
+        if profile_error:
+            errors.append(f"airframe {airframe!r} cannot be resolved: {profile_error}")
+        try:
+            _validate_runtime(runtime_path, airframe)
+        except Exception as exc:
+            errors.append(str(exc))
+        expected_category = (
+            "fixed_wing" if fixed_wing else
+            "vtol" if "vtol" in model.lower() or "tiltrotor" in model.lower() else
+            "multirotor"
+        )
+        if not model:
+            errors.append("runtime.vehicle.model is missing")
+        if category and category != expected_category:
+            errors.append(
+                f"runtime {expected_category} model requires matching airframe, got {airframe!r}"
+            )
+        if not fixed_wing and expected_category == "multirotor" and category in {"fixed_wing", "vtol"}:
+            errors.append(f"runtime multirotor model cannot use {category} airframe {airframe!r}")
+        pose = vehicle.get("spawn_pose", {}) if isinstance(vehicle, dict) else {}
+        if expected_category == "multirotor" and isinstance(pose, dict):
+            try:
+                z_up = float(pose.get("z_up_m", 0.2))
+                pitch = float(pose.get("pitch_rad", 0.0))
+                if z_up >= 1.0:
+                    errors.append(f"multirotor spawn z_up_m={z_up:g} m is not ground-level (<1 m)")
+                if abs(pitch) > 1e-9:
+                    errors.append(f"multirotor spawn pitch_rad={pitch:g} must be 0")
+            except (TypeError, ValueError):
+                errors.append("multirotor spawn_pose z_up_m/pitch_rad must be numeric")
+        if errors:
+            raise ValueError("; ".join(errors))
+        takeoff = (
+            str(vehicle.get("takeoff_method") or "runway")
+            if category == "fixed_wing"
+            else None
+        )
+        return airframe, takeoff, runtime
+
     def stage_current(self, name: str, outputs) -> bool:
         """True when a complete stage's recorded output hashes still match."""
         prior = self.state["stages"].get(name)
@@ -656,7 +733,13 @@ class Round:
             attempt_dir = target / f"attempt-{attempt}"
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
-            rc = subprocess.run(attempt_cmd, cwd=ROOT).returncode
+            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
+            output = "\n".join(
+                part for part in (getattr(completed, "stdout", ""), getattr(completed, "stderr", "")) if part
+            )
+            if output:
+                print(output, end="" if output.endswith("\n") else "\n")
+            rc = completed.returncode
             if rc == 0:
                 episodes = sorted(attempt_dir.rglob("episode-*/episode.json"))
                 valid = [
@@ -672,6 +755,20 @@ class Round:
                         "sha256": sha256(path),
                         "attempt": attempt,
                     }
+            deterministic_markers = (
+                "requires a multirotor/x500 runtime model",
+                "does not match runtime.vehicle.model",
+                "unknown airframe profile",
+                "spawn z_up_m=",
+                "spawn pitch_rad=",
+                "requires runtime.vehicle.model",
+            )
+            if any(marker in output for marker in deterministic_markers):
+                return {
+                    "status": "failed",
+                    "attempts": attempt + 1,
+                    "failure": "deterministic configuration error",
+                }
             if attempt == self.a.retries:
                 return {"status": "failed", "attempts": attempt + 1}
             time.sleep(min(2**attempt, 30))
@@ -689,6 +786,18 @@ class Round:
         missing = [str(path) for path in scenarios if not path.is_file()]
         if missing:
             raise RuntimeError(f"collection plan 缺少场景文件：{missing}")
+        # Deterministic configuration failures are collected in one report and
+        # abort before any worker/container/retry is started.
+        collection_options: dict[Path, tuple[str, str | None]] = {}
+        config_errors: list[str] = []
+        for scenario in scenarios:
+            try:
+                airframe, takeoff, _ = self._collection_airframe(scenario)
+                collection_options[scenario] = (airframe, takeoff)
+            except Exception as exc:
+                config_errors.append(f"{scenario.name}: {exc}")
+        if config_errors:
+            raise RuntimeError("collect 启动前配置校验失败：\n- " + "\n- ".join(config_errors))
         if not self.a.dry_run:
             # The collector only accepts scenarios, worlds, maps and DEMs inside this
             # checkout; check every world once here instead of failing each episode.
@@ -705,6 +814,7 @@ class Round:
         jobs: list[tuple[str, list[str], Path]] = []
         for scenario in scenarios:
             world = scenario.name.removesuffix(".scenario.json")
+            airframe, takeoff_method = collection_options[scenario]
             for idx in range(R15_EPISODES_PER_WORLD):
                 key = f"{world}:{idx}"
                 if self.state["episodes"].get(key, {}).get("status") == "complete":
@@ -749,9 +859,13 @@ class Round:
                     str(R15_BASE_TELEMETRY_PORT + worker * 10),
                     "--teacher-target",
                     self.a.teacher_target,
+                    "--airframe",
+                    airframe,
                     "--out",
                     str(target),
                 ]
+                if takeoff_method is not None:
+                    cmd[-2:-2] = ["--takeoff-method", takeoff_method]
                 if getattr(self.a, "low_disk", False):
                     # JPEG RGB (every reader decodes by content), no depth (nothing in
                     # this round reads it), gzip MAVLink (replay/energy readers accept

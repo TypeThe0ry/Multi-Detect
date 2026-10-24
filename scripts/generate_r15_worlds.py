@@ -271,6 +271,22 @@ def main(argv=None):
                     ),
                 }
             )
+            # Observation geometry is a mission/teacher input, never a vehicle
+            # spawn pose.  Keep the vehicle on the ground in a neutral attitude;
+            # PX4 rejects airborne or tilted initial states during arming.
+            observation_intent = {
+                "camera_altitude_m": altitude,
+                "camera_pitch_rad": angle,
+                "observation_waypoint": {
+                    "x_east_m": tx,
+                    "y_north_m": ty,
+                    "z_up_m": 0.0,
+                },
+            }
+            runtime["task_intent"] = {
+                "kind": "find_and_observe",
+                "observation": observation_intent,
+            }
             root = ET.parse(a.out_worlds / f"{wid}.sdf")
             model = root.find(f".//model[@name='{target['target_id']}']")
             if model is None:
@@ -325,14 +341,16 @@ def main(argv=None):
                 runtime["vehicle"] = {
                     "model": "px4_fixed_wing_standard",
                     "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+                    "airframe": "rc_cessna_runway",
+                    "takeoff_method": "runway",
                     "spawn_id": f"{wid}_runway",
                     "spawn_pose": {
                         "x_east_m": 0.0,
                         "y_north_m": 0.0,
-                        "z_up_m": altitude,
+                        "z_up_m": 0.2,
                         "roll_rad": 0.0,
-                        "pitch_rad": angle,
-                        "yaw_rad": math.atan2(ty, tx),
+                        "pitch_rad": 0.0,
+                        "yaw_rad": 0.0,
                     },
                 }
                 telemetry = [s for s in runtime["sensors"] if s["kind"] == "mavlink_telemetry"]
@@ -362,9 +380,9 @@ def main(argv=None):
                     {
                         "x_east_m": 0.0,
                         "y_north_m": 0.0,
-                        "z_up_m": altitude,
-                        "pitch_rad": angle,
-                        "yaw_rad": math.atan2(ty, tx),
+                        "z_up_m": 0.2,
+                        "pitch_rad": 0.0,
+                        "yaw_rad": 0.0,
                     }
                 )
             for name, value in channels.items():

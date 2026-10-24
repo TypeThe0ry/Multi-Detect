@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import build_plan_sft  # noqa: E402
 import generate_r15_worlds  # noqa: E402
+from scripts.collect_sim_teacher_episodes import _airframe_profile  # noqa: E402
 
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 
@@ -36,6 +37,18 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
     assert index["held_out_target_combos"] == held
     for entry in index["worlds"]:
         wid = entry["world_id"]
+        runtime = json.loads(
+            (ROOT / "configs/scenarios/generated-r20" / f"{wid}.runtime_input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        spawn = runtime["vehicle"]["spawn_pose"]
+        assert spawn["z_up_m"] < 1.0
+        assert spawn["pitch_rad"] == 0.0
+        intent = runtime["task_intent"]["observation"]
+        assert intent["camera_altitude_m"] > 1.0
+        assert "camera_pitch_rad" in intent
+        assert set(intent["observation_waypoint"]) >= {"x_east_m", "y_north_m", "z_up_m"}
         truth = json.loads(
             (ROOT / "configs/scenarios/generated-r20" / f"{wid}.truth.json").read_text(
                 encoding="utf-8"
@@ -63,12 +76,12 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
                 "r20_building_occluder" in sdf and entry["view_geometry"]["image_bottom_truncation"]
             )
         if entry["hard_case_profile"] == "fixed_wing_oblique":
-            runtime = json.loads(
-                (ROOT / "configs/scenarios/generated-r20" / f"{wid}.runtime_input.json").read_text(
-                    encoding="utf-8"
-                )
-            )
             assert runtime["vehicle"]["airframe_profile_id"] == "px4_fixed_wing_gazebo_v1"
+            assert runtime["vehicle"]["airframe"] == "rc_cessna_runway"
+            assert runtime["vehicle"]["takeoff_method"] == "runway"
+            assert _airframe_profile(
+                runtime["vehicle"]["airframe"], runtime["vehicle"]["takeoff_method"]
+            ) is not None
             assert entry["view_geometry"]["slant_range_m"] >= 80
     assert cases == {
         "paired_confusers": 6,

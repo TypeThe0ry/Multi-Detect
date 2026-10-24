@@ -23,17 +23,29 @@
       "stream_uri": "udp://127.0.0.1:14541"
     }
   ],
+  "task_intent": {
+    "kind": "find_and_observe",
+    "observation": {
+      "camera_altitude_m": 18.0,
+      "camera_pitch_rad": -0.42,
+      "observation_waypoint": {
+        "x_east_m": 20.0,
+        "y_north_m": 0.0,
+        "z_up_m": 0.0
+      }
+    }
+  },
   "vehicle": {
     "airframe_profile_id": "px4_multirotor_gazebo_v1",
     "model": "px4_multirotor_standard",
     "spawn_id": "gen_r21id_w0009_home",
     "spawn_pose": {
-      "pitch_rad": -0.42,
+      "pitch_rad": 0.0,
       "roll_rad": 0.0,
       "x_east_m": 0.0,
       "y_north_m": 0.0,
       "yaw_rad": 0.0,
-      "z_up_m": 18.0
+      "z_up_m": 0.2
     }
   },
   "world": {
