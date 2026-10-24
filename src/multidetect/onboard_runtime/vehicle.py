@@ -85,6 +85,8 @@ class VehicleState:
     battery_consumed_mah: float | None = None
     vtol_state: int | None = None
     landed_state: int | None = None
+    nav_state: str | None = None
+    time_boot_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +307,8 @@ class PymavlinkVehicle:
                     updates.update(position_ned=position,
                                    velocity_ned=_vector(message, ("vx", "vy", "vz")),
                                    pose_monotonic=stamp)
+                if message.get("time_boot_ms") is not None:
+                    updates["time_boot_ms"] = int(message["time_boot_ms"])
             elif kind == "ATTITUDE":
                 angles = _vector(message, ("roll", "pitch", "yaw"))
                 if angles is not None and (
@@ -312,6 +316,8 @@ class PymavlinkVehicle:
                 ):
                     updates.update(attitude_deg=tuple(math.degrees(x) for x in angles),
                                    attitude_monotonic=stamp)
+                if message.get("time_boot_ms") is not None:
+                    updates["time_boot_ms"] = int(message["time_boot_ms"])
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
                 if state.home_monotonic is None or stamp >= state.home_monotonic:
