@@ -35,6 +35,7 @@ if __package__ in {None, ""}:
 
 from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     MAV_CMD_NAV_LAND,
@@ -2948,6 +2949,16 @@ def run_episode(
     recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
     recorder.meta["world_sdf"] = str(world_path) if world_path else None
+    config_snapshot = snapshot_config(plan.onboard_config, recorder.episode_dir / "config")
+    recorder.meta["provenance"] = build_provenance(
+        root=ROOT,
+        config_paths=[plan.onboard_config] if plan.onboard_config else [],
+        model_paths=model_paths_from_config(plan.onboard_config),
+        world_paths=[world_path] if world_path else [],
+        command=sys.argv,
+        model_cache=Path(plan.out) / f"{episode_id}-onboard-frames" / ".model-hash-cache.json",
+    )
+    recorder.meta["provenance"]["config_snapshot"] = config_snapshot
     recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     started = time.monotonic()
     telemetry_connection = None

@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
+from multidetect.provenance import build_provenance
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
@@ -1257,6 +1258,7 @@ def merge_cli(args):
             f"rebalance={json.dumps(stats['train'].get('rebalance'), ensure_ascii=False)}"
         )
     manifest = {
+        "provenance": build_provenance(root=ROOT, command=sys.argv),
         "round": "r15",
         "base": str(args.r12_dataset),
         "additions": str(args.additions),

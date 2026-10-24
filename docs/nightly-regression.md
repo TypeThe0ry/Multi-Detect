@@ -15,4 +15,6 @@ python scripts/run_nightly_regression.py --out D:\Projects\mdwt\_scratch\cx-nigh
 
 输出目录包含每套原始 `suite-report.md/json`，以及合并的 `nightly-report.md/json`。JSON 保存每套起止时间、退出码、错误、预期通过率、计划准确率、完成率、计数精确率、告警召回、安全判据、跟随指标和变体 × 任务汇总表。若上一次报告存在（默认读取输出父目录的 `nightly-report.json`，也可用 `--previous-report` 指定），合并报告会列出通过率/计划准确率下降和误报增加。
 
+`suite-report.json`、夜间报告、e2e suite 结果行和训练轮 `manifest.json` 附加 `provenance`。字段包含代码 commit/dirty/分支/worktree、输入配置路径及 SHA-256、命令行 argv；架次记录另含配置快照、模型摘要和世界文件摘要。所有字段均为新增字段，不替换既有指标。训练轮 manifest 以顶层 `provenance` 记录生成该轮数据的代码状态。
+
 预计耗时取决于每套任务数和 `max_episode_s`：默认主套件 14 条加 airframes 3 条、follow 1 条、robustness 9 条，单架次通常需要数小时；dry-run 不启动 SITL、Docker 或 llama-server，只打印完整命令。

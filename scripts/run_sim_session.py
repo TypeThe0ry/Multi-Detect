@@ -23,6 +23,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.provenance import build_provenance
 for _path in (ROOT, ROOT / "src"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
@@ -665,6 +667,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
     snapshot_dir = args.snapshot_dir.resolve() if args.snapshot_dir else None
+    if snapshot_dir:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        (snapshot_dir / "session-provenance.json").write_text(
+            json.dumps(build_provenance(root=ROOT, world_paths=[world], command=sys.argv), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     session_log = args.session_log.resolve() if args.session_log else None
     _session_log(session_log, "plan_built", world=str(world), container=plan.container_name)
     print(f"Gazebo world: {world}")
@@ -718,6 +726,10 @@ def main(argv: Iterable[str] | None = None) -> int:
                 raise RuntimeError(f"no MAVLink HEARTBEAT received on UDP {heartbeat_port}")
             _session_log(session_log, "heartbeat", port=heartbeat_port, **details)
             if snapshot_dir:
+                details = {**details, "provenance": build_provenance(
+                    root=ROOT, config_paths=[args.onboard_out / "onboard-config.json"],
+                    world_paths=[world], command=sys.argv,
+                )}
                 (snapshot_dir / "heartbeat.json").write_text(
                     json.dumps(details, indent=2) + "\n", encoding="utf-8"
                 )

@@ -14,6 +14,7 @@ from typing import Any
 
 ROOT = Path(os.environ.get("REPLAY_CODE_ROOT", Path(__file__).resolve().parents[1])).resolve()
 sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+from multidetect.provenance import build_provenance, replay_version_record  # noqa: E402
 
 
 def read_rows(episode: Path) -> list[dict[str, Any]]:
@@ -261,7 +262,9 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         call_total += max(len(actual_pairs), len(expected_pairs))
     logged_mission = (raw_by_step.get(int(trace[-1]["step"]), {}).get("mission") or {}) if trace else {}
     coverage_history = [item for item in executor.history if item.get("reason") == "coverage_complete"]
+    current_provenance = build_provenance(root=ROOT, command=sys.argv)
     return {"episode": str(episode), "mode": mode, "open_loop": not closed_loop,
+            "provenance": replay_version_record((mission.get("provenance") or {}).get("code"), current_provenance.get("code")),
             "limitations": ["半闭环只回灌日志执行后位姿，不模拟物理执行"],
             "metrics": {"steps": len(trace), "action_type_agreement": action_types / len(trace) if trace else 1.0,
                         "pre_divergence_steps": len(scored),

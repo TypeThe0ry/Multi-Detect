@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.provenance import build_provenance
 METADATA = {
     "id",
     "index",
@@ -580,6 +582,7 @@ def main(
         return 0
     table = build_table(scheduled, reports)
     table["errors"] = errors
+    table["provenance"] = build_provenance(root=ROOT, config_paths=[args.suite], command=sys.argv)
     write_json(out / "suite-report.json", table)
     markdown = render_markdown(table)
     (out / "suite-report.md").write_text(markdown, encoding="utf-8", newline="\n")
