@@ -82,3 +82,12 @@ python scripts/run_mission_suite.py \
 复验重点是：每个 `reposition` 的 `motion_wait` 不再以大横向误差返回
 `arrived`；timeout 要出现在步骤 outcome；w0016 的期望是安全通过但不要求确认，
 w0031 仍不得确认目标。
+
+## SITL 复验（2026-10-25 01:34，代码 49bb467e）
+
+| 任务 | 结果 | 说明 |
+|---|---|---|
+| rc-cessna-w0016-ambulance-known-limit | 10 步完成，确认救护车，位置误差 0.43 m，正常返航 | 完成判定修复后不再空转；原先“已知限制”期望（confirmed: false）已不成立，改回 `confirmed: true` |
+| rc-cessna-w0031-ambulance-negative | 107 步后 900 s 超时；37 步 `motion_wait` 超时，始终停在 area_search | 完成判定已如实报告超时，但飞机到不了搜索航点，属于固定翼航点引导问题，需继续排查 |
+
+结果目录：`artifacts/benchmarks/airframe-suite-20261025-fw-search/`。
