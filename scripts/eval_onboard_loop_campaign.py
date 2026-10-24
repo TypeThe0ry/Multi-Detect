@@ -20,7 +20,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
+from multidetect.provenance import build_provenance  # noqa: E402
 from scripts.model_round_guard import ensure_free_disk  # noqa: E402
 from scripts.score_onboard_loop import score_episode  # noqa: E402
 
@@ -492,7 +494,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
-        json.dumps({"summary": summary, "episodes": rows}, ensure_ascii=False, indent=2),
+        json.dumps({"summary": summary, "episodes": rows,
+                    "provenance": build_provenance(root=ROOT, config_paths=[args.onboard_config] if args.onboard_config else [], command=sys.argv)}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))

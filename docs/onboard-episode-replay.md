@@ -12,6 +12,10 @@ python scripts/replay_onboard_episode.py --mode logged D:\data\episode-0000-abc
 
 第一个非搜索类动作类型不一致时写出 `metrics.diverged_at_step`，`pre_divergence_steps` 和对应一致率只统计该步之前；搜索动作差异单独归类。`revisit_replay_steps` 与 `revisit_logged_steps` 用于核对补看事件。
 
+新采集的 `episode.json` 顶层 `provenance` 保存 `code`（完整/短 commit、dirty、变更文件数、分支或 detached、worktree 根）、`config`（机载 JSON 路径与 SHA-256）、`config_snapshot`（架次目录 `config/` 内的快照路径）、`models`（模型路径、SHA-256、大小和缓存 mtime）、`worlds`（世界 SDF 路径与 SHA-256）及 `command`（采集器 argv）。GGUF/权重摘要通过架次目录 `.model-hash-cache.json` 按文件大小和 mtime_ns 复用；模型不复制进架次目录。旧 episode 可没有该字段。
+
+Replay 输出的每个 episode 都含 `provenance.recorded_code`、`provenance.current_code` 与 `provenance.version_mismatch`。版本不同时该值为 `true`；旧 episode 或 Git 不可用时不会推断版本差异。
+
 `--compare CODE_A CODE_B` 在两个 root 中分别运行同一 episode，并输出 `comparison.first_divergence`，例如：
 
 ```powershell

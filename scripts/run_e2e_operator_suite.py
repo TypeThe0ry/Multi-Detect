@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.provenance import build_provenance
 SCRATCH = Path(os.environ.get("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-e2e-multi"))
 LOCK_DIR = Path(os.environ.get("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock"))
 
@@ -326,8 +328,9 @@ def run_suite(
             )
     finally:
         lock.release()
+    provenance = build_provenance(root=ROOT, command=sys.argv)
     (output_root / "suite-results.json").write_text(
-        json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps({"results": results, "provenance": provenance}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     lines = [
         "# Operator E2E Suite",

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.provenance import build_provenance
 DEFAULT_LOCK = Path(r"D:\Projects\mdwt\_scratch\sitl.lock")
 DEFAULT_SUITES = {
     "main": ROOT / "configs/onboard/suite-main.json",
@@ -192,7 +194,8 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
             rp = suite_out / "suite-report.json"
             if rp.exists(): report = load_suite_report(rp)
             records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "report": str(rp)})
-    merged = {"generated_at": now_iso(), "suites": records}
+    merged = {"generated_at": now_iso(), "suites": records,
+              "provenance": build_provenance(root=ROOT, config_paths=[DEFAULT_SUITES[n] for n in args.suites if DEFAULT_SUITES[n].is_file()], command=sys.argv)}
     previous = load_suite_report(previous_path) if previous_path.exists() else None
     merged["regressions"] = compare_reports(merged, previous)
     (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
