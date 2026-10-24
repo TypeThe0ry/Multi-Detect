@@ -1366,3 +1366,5 @@ RTSP helper sha256: F6F8AC6DD87DAA6BA7CF477AC62BDE5889B724885AE5C9DB285A485050FE
 | 模型切换窗口失败 | 切换异常走空 verdict 路径 | 视为服务错误并冻结身份动作 | 否 | 一次 | 持续不可用则返航，计数下限 |
 
 `count`、`monitor` 与 `operator_link` 共用同一身份错误语义。门禁使用假 runner，不启动真实服务；Jetson 实际推理延时和 recovery 动作仍需 SITL/HIL 验证。
+
+后台重建 runner 与关机/模型切换使用代际号协调。关机先置停止标志并最多等待 `slow_restart_shutdown_timeout_s`（默认 5 秒）；即使启动超出等待上限，线程在 ready 后发现代际失效也必须自行关闭 runner。operator 规划会先作废并等待重建线程，再用配置的 identity 端口切换；等待超时则拒绝本次规划，不与后台线程争端口。切换期间身份调用持有同一模型锁，且所有空 runner 状态统一按慢模型不可用处理。

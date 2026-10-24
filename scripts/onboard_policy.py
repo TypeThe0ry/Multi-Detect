@@ -12,6 +12,7 @@ map used for search legs and obstacle clearance; it never reads scenario truth.
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 import io
 import json
 import math
@@ -1003,6 +1004,7 @@ class OnboardPolicy:
         from scripts.eval_slow_system import LlamaServerRunner
 
         identity_port = int(options.get("port", 9941))
+        self._identity_port = identity_port
         planning_spec = _planning_model_spec(
             options.get("planning_model"), identity_mmproj=options["mmproj"]
         )
@@ -1011,6 +1013,7 @@ class OnboardPolicy:
         self._model_split = bool(split_planning)
         self._model_lock = threading.RLock()
         self._model_shutdown = threading.Event()
+        self._model_switching = False
         self._planning_model_path = planning_spec[0] if planning_spec else None
         self._planning_mmproj = planning_spec[1] if planning_spec else None
         model_hash_cache = self.work_dir / ".model-hash-cache.json"
@@ -1136,6 +1139,11 @@ class OnboardPolicy:
         self._slow_restart_thread = None
         self._slow_restart_result = None
         self._slow_restart_error = None
+        self._slow_restart_generation = 0
+        self._slow_restart_shutdown_timeout_s = float(
+            ((options.get("health") or {}).get("slow_restart_shutdown_timeout_s", 5.0))
+            if isinstance(options.get("health"), dict) else 5.0
+        )
         # The policy owns retry decisions so a request timeout cannot trigger
         # LlamaServerRunner's generic three-failure restart behavior.
         self.slow.max_restarts = 0
@@ -1360,7 +1368,9 @@ class OnboardPolicy:
                         package_violations = report.get("package_violations", [])
                         if package_violations:
                             self._refuse_package_plan(package_violations)
-                        self.slow.close()
+                        close = getattr(self.slow, "close", None)
+                        if callable(close):
+                            close()
                         raise ValueError(
                             f"mission package plan compilation failed: {report['error']}"
                         )
@@ -1379,7 +1389,9 @@ class OnboardPolicy:
                 try:
                     self.mission_package.validate_plan(plan)
                 except ValueError:
-                    self.slow.close()
+                    close = getattr(self.slow, "close", None)
+                    if callable(close):
+                        close()
                     raise
             self.executor = MissionExecutor(
                 plan,
@@ -1535,9 +1547,14 @@ class OnboardPolicy:
             from scripts.eval_slow_system import _http_json
             from scripts.eval_slow_system import LlamaServerRunner
 
+            planning_runner = None
+
             def post(prompt: str, schema: dict[str, Any]) -> str:
+                runner = planning_runner or self.slow
+                if runner is None:
+                    raise ConnectionRefusedError("慢模型不可用: planner runner unavailable")
                 response = _http_json(
-                    f"http://127.0.0.1:{self.slow.port}/v1/chat/completions",
+                    f"http://127.0.0.1:{runner.port}/v1/chat/completions",
                     {
                         "model": "local",
                         "temperature": 0,
@@ -1559,20 +1576,31 @@ class OnboardPolicy:
             restore_model = None
             if self._model_split:
                 with self._model_lock:
+                    self._model_switching = True
+                self._cancel_slow_restart()
+                restart_thread = self._slow_restart_thread
+                if restart_thread is not None and restart_thread.is_alive():
+                    with self._model_lock:
+                        self._model_switching = False
+                    raise RuntimeError("慢模型重建仍在运行，暂不切换规划模型")
+                with self._model_lock:
                     started = time.monotonic()
                     identity = self.slow
                     planner = None
                     try:
-                        identity.close()
+                        identity_close = getattr(identity, "close", None)
+                        if callable(identity_close):
+                            identity_close()
                         planner = LlamaServerRunner(
                             Path(self._planning_model_path),
                             Path(self._planning_mmproj) if self._planning_mmproj else None,
-                            executable=Path(self.config["llama_server"]), port=identity.port,
+                            executable=Path(self.config["llama_server"]), port=self._identity_port,
                             max_new_tokens=768, crop_policy="none", identity_only=False,
                             logprobs=False, wait_port_free=True,
                             cache_ram_mib=int(self.config.get("llama_cache_ram_mib", 0)),
                         )
                         self.slow = planner
+                        planning_runner = planner
                         self.health.runner = planner
                         if self._model_shutdown.is_set():
                             raise RuntimeError("operator package planning cancelled")
@@ -1598,8 +1626,11 @@ class OnboardPolicy:
                         self._model_runtime["planning_fallback_to_identity"] = True
                         self.health.record_planning_failure()
                         if planner is not None:
-                            planner.close()
+                            planner_close = getattr(planner, "close", None)
+                            if callable(planner_close):
+                                planner_close()
                         self.slow = self._make_identity_runner()
+                        planning_runner = self.slow
                         self.health.runner = self.slow
                         plan, report = build_mission_from_text(
                             str(package.document["task_text"]),
@@ -1611,13 +1642,17 @@ class OnboardPolicy:
                             ),
                         )
                     else:
-                        planner.close()
+                        planner_close = getattr(planner, "close", None)
+                        if callable(planner_close):
+                            planner_close()
                         self.slow = self._make_identity_runner()
+                        planning_runner = self.slow
                         self.health.runner = self.slow
                     finally:
                         completed = time.monotonic()
                         self._model_runtime["swap_duration_s"] = completed - started
                         self._model_runtime["swap_completed_monotonic_s"] = completed
+                        self._model_switching = False
             else:
                 plan, report = build_mission_from_text(
                 str(package.document["task_text"]),
@@ -1707,6 +1742,7 @@ class OnboardPolicy:
 
     def close(self) -> None:
         self._model_shutdown.set()
+        self._cancel_slow_restart(wait=True)
         try:
             if self.supervisor is not None:
                 self.supervisor.finish()
@@ -1718,6 +1754,12 @@ class OnboardPolicy:
                     close = getattr(self.slow, "close", None)
                     if close is not None:  # injected runners may not own a process
                         close()
+                    self.slow = None
+                    result = self._slow_restart_result
+                    self._slow_restart_result = None
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
             finally:
                 if self.executor is not None:
                     try:
@@ -1727,6 +1769,23 @@ class OnboardPolicy:
                 near_depth = getattr(self, "near_depth", None)
                 if near_depth is not None:
                     near_depth.close()
+
+    def _cancel_slow_restart(self, *, wait: bool = True) -> None:
+        lock = getattr(self, "_model_lock", None)
+        context = lock if lock is not None else nullcontext()
+        with context:
+            self._slow_restart_generation = getattr(self, "_slow_restart_generation", 0) + 1
+            thread = getattr(self, "_slow_restart_thread", None)
+        if thread is not None and thread.is_alive() and wait:
+            thread.join(timeout=max(0.0, getattr(self, "_slow_restart_shutdown_timeout_s", 5.0)))
+        with context:
+            if thread is not None and not thread.is_alive():
+                self._slow_restart_thread = None
+            result = getattr(self, "_slow_restart_result", None)
+            self._slow_restart_result = None
+        close = getattr(result, "close", None)
+        if callable(close):
+            close()
 
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
@@ -1831,26 +1890,34 @@ class OnboardPolicy:
                 restart_thread = getattr(self, "_slow_restart_thread", None)
                 if restart_thread is not None and not restart_thread.is_alive():
                     restart_thread.join(timeout=0)
-                    self._slow_restart_thread = None
-                    if self._slow_restart_result is not None:
-                        self.slow = self._slow_restart_result
-                        self._slow_restart_result = None
-                        self.health.runner = self.slow
-                    elif self._slow_restart_error is not None:
-                        self._slow_restart_error = None
-                        self._slow_restart_next_retry = time.monotonic() + self.slow_restart_interval_s
-                if self.slow is None:
-                    raise ConnectionRefusedError("slow runner unavailable; restart pending")
-                if lock is not None:
+                    context = lock if lock is not None else nullcontext()
+                    with context:
+                        self._slow_restart_thread = None
+                        if self._slow_restart_result is not None:
+                            self.slow = self._slow_restart_result
+                            self._slow_restart_result = None
+                            self.health.runner = self.slow
+                        elif self._slow_restart_error is not None:
+                            self._slow_restart_error = None
+                            self._slow_restart_next_retry = time.monotonic() + self.slow_restart_interval_s
+                context = lock if lock is not None else nullcontext()
+                with context:
                     if shutdown is not None and shutdown.is_set():
                         raise RuntimeError("onboard policy is shutting down")
-                    return self.slow(row)
-                return self.slow(row)
+                    runner = self.slow
+                    if runner is None:
+                        raise ConnectionRefusedError("慢模型不可用: restart pending")
+                    return runner(row)
 
             def restart_runner():
-                old_runner = self.slow
-                self.slow = None
-                self._slow_restart_attempts += 1
+                context = lock if lock is not None else nullcontext()
+                with context:
+                    if self._model_switching:
+                        raise RuntimeError("慢模型正在切换，跳过身份重建")
+                    old_runner = self.slow
+                    self.slow = None
+                    self._slow_restart_attempts += 1
+                    generation = self._slow_restart_generation
 
                 def build_runner():
                     try:
@@ -1863,7 +1930,11 @@ class OnboardPolicy:
                         runner = self._make_identity_runner()
                         runner.request_timeout_s = self.slow_call_timeout_s
                         runner.max_restarts = 0
-                        if shutdown is not None and shutdown.is_set():
+                        stale = (
+                            (shutdown is not None and shutdown.is_set())
+                            or generation != self._slow_restart_generation
+                        )
+                        if stale:
                             close = getattr(runner, "close", None)
                             if callable(close):
                                 close()
@@ -1871,7 +1942,17 @@ class OnboardPolicy:
                     except Exception as error:
                         self._slow_restart_error = error
                     else:
-                        self._slow_restart_result = runner
+                        with context:
+                            stale = (
+                                (shutdown is not None and shutdown.is_set())
+                                or generation != self._slow_restart_generation
+                            )
+                            if stale:
+                                close = getattr(runner, "close", None)
+                                if callable(close):
+                                    close()
+                            else:
+                                self._slow_restart_result = runner
 
                 self._slow_restart_result = None
                 self._slow_restart_error = None

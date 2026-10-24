@@ -116,6 +116,62 @@ def test_process_exit_rebuilds_once(monkeypatch, tmp_path):
     policy.close()
 
 
+def test_shutdown_during_restart_closes_runner_created_after_shutdown(tmp_path):
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+    created = []
+
+    class BlockingRunner(FaultRunner):
+        def __init__(self):
+            super().__init__("ok")
+            self.closed = 0
+
+        def close(self, **kwargs):
+            self.closed += 1
+
+    policy = make_policy(work_dir=tmp_path, slow_runner=FaultRunner("process_exit"))
+    policy.slow_restart_budget_s = 1.0
+    policy.slow_restart_limit = 1
+    policy._slow_restart_shutdown_timeout_s = 0.01
+
+    def build():
+        entered.set()
+        release.wait(2)
+        runner = BlockingRunner()
+        created.append(runner)
+        return runner
+
+    policy._make_identity_runner = build
+    track = SimpleNamespace(track_id="candidate", bbox=(20, 20, 80, 80))
+    policy._slow_identity(tmp_path / "frame.png", [track], track)
+    assert entered.wait(1)
+    policy.close()
+    release.set()
+    policy._slow_restart_thread.join(2)
+    assert not policy._slow_restart_thread.is_alive()
+    assert len(created) == 1 and created[0].closed == 1
+
+
+def test_shutdown_closes_completed_restart_result_not_yet_adopted(tmp_path):
+    created = []
+
+    class TrackedRunner(FaultRunner):
+        def __init__(self):
+            super().__init__("ok")
+            self.closed = 0
+
+        def close(self, **kwargs):
+            self.closed += 1
+
+    policy = make_policy(work_dir=tmp_path)
+    created.append(TrackedRunner())
+    policy._slow_restart_result = created[0]
+    policy.close()
+    assert created[0].closed == 1
+
+
+
 def test_failed_rebuild_retries_next_cycle_then_escalates(tmp_path):
     runner = FaultRunner("process_exit")
     policy = make_policy(work_dir=tmp_path, slow_runner=runner)
