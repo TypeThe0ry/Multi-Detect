@@ -91,6 +91,36 @@ python scripts/augment_sim_world.py simulation/gazebo/worlds/gen_cnt2_w0000.sdf 
 
 可选项是 `--wind-mps`、`--gust-mps`/`--gust-period`、`--time-of-day dawn|noon|dusk`、`--actors N`、`--terrain dem|procedural`、`--camera-noise [STDDEV]`、`--fog` 和 `--register-index`。风只写 world `<wind>` 与阵风元数据；容器启动时依据 server config 注入 `WindEffects`，不能把 XML 存在当作动力学证据。相机噪声只修改世界中明确存在的 camera/depth/segmentation sensor；PX4 `mono_cam` 需要相应 model overlay。演员使用本地 mesh，不依赖 Fuel。具体限制和验证方法见 [仿真真实感变体](sim-realism.md)。
 
+## 移动目标跟随回归
+
+仓库内置的 `configs/scenarios/generated-movers` 已包含由仿真时间驱动的移动目标。`gen_mov_w0000` 是穿红衣服的人，真值文件提供闭环航迹；SDF 中的目标模型由 `scripts/gz_mover_driver.py` 按轨迹更新，因此不需要另造 world 或启动 SITL 才能做套件接线检查。
+
+跟随任务套件为 `configs/onboard/suite-follow.json`，任务要求计划技能严格为 `[follow, return_home]`。计分器从 `steps.jsonl` 的仿真时间戳与目标真值轨迹配对，输出目标在画面内比例、平均/最大水平跟随距离、跟丢次数、每次及最大重新获取时间、误跟对象次数，并要求默认目标在框率和时间覆盖率至少 0.8、平均距离不超过 10 m、最大距离不超过 20 m、最多丢失 3 次、最大重获时间不超过 5 s、误跟为 0。套件可用 `expect` 中的 `min_`/`max_` 字段收紧这些门槛。
+
+先做不启动仿真的 dry-run：
+
+```powershell
+$env:PYTHONPATH = 'src;.'
+$env:PYTHONUTF8 = '1'
+python scripts/run_mission_suite.py `
+  --suite configs/onboard/suite-follow.json `
+  --out D:\Projects\mdwt\_scratch\cx-follow-suite\dry-run `
+  --dry-run
+```
+
+实际 SITL（需要已配置 PX4/Gazebo、模型和磁盘空间）命令：
+
+```powershell
+$env:PYTHONPATH = 'src;.'
+$env:PYTHONUTF8 = '1'
+python scripts/run_mission_suite.py `
+  --suite configs/onboard/suite-follow.json `
+  --out D:\Projects\mdwt\_scratch\cx-follow-suite\run `
+  --strict
+```
+
+计分器也可对单个 episode 直接运行；`--truth` 指向相应 `gen_mov_w0000.truth.json`。不启动 SITL 的单元覆盖见 `tests/test_score_onboard_loop.py`。
+
 ## 故障排查
 
 | 现象 | 原因/处理 |

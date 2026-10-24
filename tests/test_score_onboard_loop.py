@@ -85,6 +85,34 @@ def test_hovering_target_does_not_meet_time_coverage_or_mean_distance_gate() -> 
     assert metrics["moving_track_eligible"] is False
 
 
+def test_follow_metrics_report_visibility_loss_reacquire_and_false_follow() -> None:
+    from scripts.score_onboard_loop import _moving_track_metrics
+
+    target = {
+        "target_id": "red-person",
+        "pose": {"x_east_m": 0.0, "y_north_m": 0.0},
+        "trajectory": {"speed_mps": 1.0, "waypoints": [[0, 0], [20, 0]]},
+    }
+    rows = []
+    for index, (visible, target_id) in enumerate(
+        [(True, "red-person"), (False, None), (True, "red-person"), (True, "blue-car")]
+    ):
+        confirmed = {"position_estimate_ne": [0.0, float(index)], "target_visible": visible}
+        if target_id is not None:
+            confirmed["target_id"] = target_id
+        rows.append(
+            {"frame_sensor_stamp_ns": index * 1_000_000_000,
+             "labels": {"onboard": {"confirmed": confirmed}}}
+        )
+    metrics = _moving_track_metrics(rows, target, 2.0, 3.0)
+    assert metrics["follow_target_in_frame_fraction"] == 0.75
+    assert metrics["follow_lost_count"] == 1
+    assert metrics["follow_reacquire_max_s"] == 1.0
+    assert metrics["follow_false_confirm_count"] == 1
+    assert metrics["follow_identity_pass"] is False
+    assert metrics["moving_track_eligible"] is False
+
+
 def test_mission_alert_matches_mover_at_observation_sim_time() -> None:
     from scripts.score_onboard_loop import _mission_metrics
 

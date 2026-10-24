@@ -1,0 +1,36 @@
+{
+  "defaults": {
+    "gguf": "artifacts/r18-round/merged-gguf/slow-system-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 180,
+    "size_aware_search": true,
+    "fast_identity": true,
+    "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+    "near_depth": false
+  },
+  "missions": [
+    {
+      "id": "follow-red-person-return",
+      "index": "configs/scenarios/generated-movers/index.json",
+      "split": "train",
+      "world": "gen_mov_w0000",
+      "task_text": "Find the person in red, follow them for two minutes, then return home.",
+      "expect": {
+        "skills": ["follow", "return_home"],
+        "min_follow_target_in_frame_fraction": 0.8,
+        "max_moving_distance_mean_m": 10.0,
+        "max_moving_distance_max_m": 20.0,
+        "min_moving_track_continuity": 0.8,
+        "min_moving_time_coverage": 0.8,
+        "max_follow_lost_count": 3,
+        "max_follow_reacquire_max_s": 5.0,
+        "max_follow_false_confirm_count": 0
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    }
+  ]
+}

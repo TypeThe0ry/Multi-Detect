@@ -49,6 +49,17 @@ METRICS = {
     "min_relative_altitude_m": "min_relative_altitude_m",
     "ground_contact_detected": "ground_contact_detected",
     "return_home_distance_m": "return_home_distance_m",
+    "moving_distance_mean_m": "moving_distance_mean_m",
+    "moving_distance_max_m": "moving_distance_max_m",
+    "moving_track_continuity": "moving_track_continuity",
+    "moving_time_coverage": "moving_time_coverage",
+    "follow_target_in_frame_fraction": "follow_target_in_frame_fraction",
+    "follow_lost_count": "follow_lost_count",
+    "follow_reacquire_max_s": "follow_reacquire_max_s",
+    "follow_false_confirm_count": "follow_false_confirm_count",
+    "follow_mean_horizontal_distance_m": "follow_mean_horizontal_distance_m",
+    "follow_max_horizontal_distance_m": "follow_max_horizontal_distance_m",
+    "follow_frame_target_fraction": "follow_frame_target_fraction",
 }
 
 
@@ -248,6 +259,14 @@ def render_markdown(table: dict[str, Any]) -> str:
         "错误发现": "false_findings",
         "检查匹配率": "inspect_match_fraction",
         "测绘覆盖率": "survey_coverage",
+        "跟随在框率": "follow_target_in_frame_fraction",
+        "跟随平均距": "moving_distance_mean_m",
+        "跟随最大距": "moving_distance_max_m",
+        "跟随连续性": "moving_track_continuity",
+        "跟随时间覆盖": "moving_time_coverage",
+        "丢失次数": "follow_lost_count",
+        "最大重获秒": "follow_reacquire_max_s",
+        "误跟次数": "follow_false_confirm_count",
         "步数": "steps",
         "预期通过": "expectations_passed",
     }
