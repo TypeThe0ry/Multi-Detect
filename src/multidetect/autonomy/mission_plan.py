@@ -153,7 +153,8 @@ def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities:
         skill = require_text(item["skill"], f"steps[{i}].skill")
         spec = SKILLS.get(skill)
         if spec is None: raise AutonomyContractError(f"unknown skill {skill!r}")
-        if spec.gated and "payload" not in capabilities: raise AutonomyContractError("deliver requires payload capability")
+        if spec.gated and not ({"payload", "payload_drop"} & set(capabilities)):
+            raise AutonomyContractError("deliver requires payload capability (payload_drop)")
         params = strict_object(item["params"], name=f"steps[{i}].params", required=spec.required_params, optional=spec.allowed_params - spec.required_params)
         parsed = {key: _param(value, spec.param_types[key], f"steps[{i}].params.{key}") for key, value in params.items()}
         ons = item["on_success"]; onf = item["on_fail"]

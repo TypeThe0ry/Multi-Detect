@@ -29,6 +29,11 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.energy_estimator import EnergyConfig  # noqa: E402
+from multidetect.autonomy.capability_contract import (  # noqa: E402
+    capabilities_for_airframe,
+    effective_capabilities,
+    normalize_capabilities,
+)
 from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m  # noqa: E402
 from multidetect.autonomy.ground_model import ground_projection_from_config  # noqa: E402
 from multidetect.autonomy.mission_executor import (  # noqa: E402
@@ -330,6 +335,7 @@ def build_mission_from_text(
     plan_checker: Callable[[MissionPlan], Sequence[Mapping[str, Any]]] | None = None,
     attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
+    airframe: Any = None,
 ) -> tuple[MissionPlan, dict[str, Any]]:
     """Compile a free task sentence, falling back to a validated return-home plan."""
     schema = plan_json_schema(capabilities=capabilities)
@@ -346,6 +352,7 @@ def build_mission_from_text(
         attempts=attempts,
         plan_checker=plan_checker,
         capabilities=capabilities,
+        airframe=airframe,
     )
     if plan is None:
         plan = validate_mission_plan(
@@ -516,10 +523,19 @@ class OnboardPolicy:
             area = package.document["operating_area"]
             if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
                 raise ValueError("launch altitude outside mission package limits")
+        configured_capabilities = set(options.get("capabilities", ()))
+        if _enabled(options.get("payload_capability")):
+            configured_capabilities.add("payload_drop")
+        self.airframe_capabilities = capabilities_for_airframe(
+            self.airframe_profile, configured_capabilities
+        )
         package_capabilities = (
-            frozenset(self.mission_package.document.get("capabilities", ()))
+            normalize_capabilities(self.mission_package.document.get("capabilities", ()))
             if self.mission_package is not None
-            else frozenset()
+            else None
+        )
+        effective_airframe_capabilities = effective_capabilities(
+            self.airframe_capabilities, package_capabilities
         )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
@@ -1144,9 +1160,7 @@ class OnboardPolicy:
             deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
             deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
         )
-        capabilities = frozenset(package_capabilities) | (
-            frozenset({"payload"}) if _enabled(options.get("payload_capability")) else frozenset()
-        )
+        capabilities = effective_airframe_capabilities
         if mission:
             if mission == "operator_link":
                 # Keep a valid executor shape for the collector while the
@@ -1473,7 +1487,10 @@ class OnboardPolicy:
         """
         if self.executor is None:
             raise RuntimeError("operator package arrived before policy initialization")
-        capabilities = frozenset(package.document.get("capabilities", ()))
+        capabilities = effective_capabilities(
+            getattr(self, "airframe_capabilities", frozenset()),
+            normalize_capabilities(package.document.get("capabilities", ())),
+        )
         if package.plan is not None:
             plan = package.plan
             report: dict[str, Any] = {"error": None, "source": "package"}
