@@ -238,10 +238,10 @@ def main(argv=None):
                     "camera_pitch_rad": angle,
                 }
             elif case in ("fixed_wing_oblique",):
-                tx, ty, tz, altitude, angle = 60.0, 35.0, 0.0, 75.0, -0.18
+                tx, ty, tz, altitude, angle = 60.0, 35.0, 0.0, 30.0, -0.18
                 entry["view_geometry"] = {
                     "fixed_wing": True,
-                    "slant_range_m": 101,
+                    "slant_range_m": 91,
                     "camera_altitude_m": altitude,
                     "camera_pitch_rad": angle,
                     "target_short_side_px": [20, 40],
@@ -288,6 +288,17 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 },
             }
+            if case == "fixed_wing_oblique":
+                observation_intent["orbit_radius_m"] = 80.0
+                heading = math.atan2(tx, ty)
+                center_north = ty - 80.0 * math.sin(heading)
+                center_east = tx + 80.0 * math.cos(heading)
+                observation_intent["observation_waypoint"] = {
+                    "x_east_m": round(center_east, 3),
+                    "y_north_m": round(center_north, 3),
+                    "z_up_m": 0.0,
+                }
+                observation_intent["ground_distance_m"] = 80.0
             if a.profile == "r21-identity":
                 target_radius = math.hypot(tx, ty)
                 radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
@@ -353,7 +364,17 @@ def main(argv=None):
                 # The old midpoint (tx/2, ty/2) put the 12x8 m building over
                 # the home position for close r21 identity views (for example
                 # target=(12, 0) -> building=(6, 0)).
-                building_x, building_y = (2.0 * tx, 2.0 * ty)
+                # r21 identity views occupy a full ring around the target.  A
+                # building at twice the target radius lands on the front view
+                # waypoint; keep its near footprint beyond every view's 15 m
+                # clearance ring while remaining on the target ray.
+                target_radius = math.hypot(tx, ty)
+                if a.profile == "r21-identity":
+                    building_radius = 2.0 * target_radius + 24.0
+                    scale = building_radius / max(target_radius, 1e-6)
+                else:
+                    scale = 2.0
+                building_x, building_y = (scale * tx, scale * ty)
                 building_xml = (
                     f'<model name="{a.profile.replace("-", "_")}_building_occluder"><static>true</static>'
                     f"<pose>{building_x:.3f} {building_y:.3f} 6 0 0 0</pose><link name=\"body\">"

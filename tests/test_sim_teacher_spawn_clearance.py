@@ -32,6 +32,19 @@ def test_spawn_clearance_accepts_objects_beyond_safety_radius(tmp_path):
     assert spawn_clearance_report(world, {"z_up_m": 0.2}, climb_altitude_m=12)["clear"]
 
 
+def test_spawn_clearance_checks_observation_route(tmp_path):
+    world = tmp_path / "world.sdf"
+    _write_world(world, east=10, north=5, height=20.0)
+    report = spawn_clearance_report(
+        world,
+        {"z_up_m": 0.2},
+        climb_altitude_m=12,
+        route_points=[{"x_east_m": 10, "y_north_m": 5}],
+    )
+    assert not report["clear"]
+    assert [row["name"] for row in report["route_blockers"]] == ["obstacle_fence"]
+
+
 def test_generated_r21id_spawn_clearance_all_worlds():
     import json
     from pathlib import Path
@@ -46,6 +59,9 @@ def test_generated_r21id_spawn_clearance_all_worlds():
             root / "simulation/gazebo/worlds" / entry["world_file"],
             {"x_east_m": 0, "y_north_m": 0, "z_up_m": 0.2},
             climb_altitude_m=max(12.0, float(intent["observation"]["camera_altitude_m"])),
+            route_points=[
+                view["observation_waypoint"] for view in intent["observation"].get("views", [])
+            ],
         )
         assert report["clear"], (entry["world_id"], report)
 

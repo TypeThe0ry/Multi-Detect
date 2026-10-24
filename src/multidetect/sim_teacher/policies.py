@@ -366,6 +366,7 @@ class ExpertSearchPolicy:
     resync_yaw_deg: float = 5.0
     observation_frames: int = 0
     observation_waypoints: tuple[tuple[float, float, float], ...] = ()
+    fixed_wing_orbit_radius_m: float | None = None
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -395,6 +396,7 @@ class ExpertSearchPolicy:
         ):
             raise ValueError("max_blocked_climbs must be a non-negative integer")
         self._blocked_climbs = 0
+        self._observation_orbit_active = False
         self._commanded_yaw_deg: float | None = None
         self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
         self._scan_remaining = 0
@@ -577,6 +579,8 @@ class ExpertSearchPolicy:
         self._observation_count = 0
         self._observation_sample_index = None
         self._observation_sample_count = None
+        if not hasattr(self, "_observation_orbit_active"):
+            self._observation_orbit_active = False
 
     @property
     def search_outcome(self) -> str:
@@ -856,7 +860,9 @@ class ExpertSearchPolicy:
                 )
             dn, de = waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]
             distance = math.hypot(dn, de)
-            if distance > 2.0:
+            if self.fixed_wing_orbit_radius_m is not None and self._observation_orbit_active:
+                pass
+            elif distance > 2.0:
                 yaw = math.radians(yaw_deg)
                 return self._safe_translation(
                     pose_ned,
@@ -867,23 +873,35 @@ class ExpertSearchPolicy:
                     ),
                     yaw_deg,
                 )
-            target_bearing = math.degrees(math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0]))
-            turn = self._wrap(target_bearing - yaw_deg)
-            if abs(turn) > 4.0:
-                return ActionPrimitive.turn(turn)
-            self.state = "observe"
-            self._observation_count += 1
-            self._observation_sample_index = self._observation_index
-            self._observation_sample_count = self._observation_count
+            if self.fixed_wing_orbit_radius_m is None:
+                target_bearing = math.degrees(math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0]))
+                turn = self._wrap(target_bearing - yaw_deg)
+                if abs(turn) > 4.0:
+                    return ActionPrimitive.turn(turn)
+            if inside:
+                self.state = "observe"
+                self._observation_count += 1
+                self._observation_sample_index = self._observation_index
+                self._observation_sample_count = self._observation_count
+            else:
+                self.state = "search"
             if self._observation_count >= self.observation_frames:
                 if self._observation_index + 1 < len(self.observation_waypoints):
                     self._observation_index += 1
                     self._observation_count = 0
+                    self._observation_orbit_active = False
                     self.state = "search"
                 else:
                     self.state = "done"
                     self._search_outcome = "done"
                     return ActionPrimitive.stop()
+            if self.fixed_wing_orbit_radius_m is not None:
+                from multidetect.autonomy.motion_intent import MotionCommand
+                self._observation_orbit_active = True
+                return MotionCommand(
+                    "orbit", target_ned=waypoint, radius_m=self.fixed_wing_orbit_radius_m,
+                    duration_s=self.hold_seconds, speed_mps=15.0,
+                )
             return ActionPrimitive.hold(self.hold_seconds)
         if self.state == "done":
             return ActionPrimitive.stop()

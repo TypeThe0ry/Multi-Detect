@@ -496,6 +496,14 @@ def round_world_ids(index: Path) -> list[str]:
     return [str(item["world_id"]) for item in doc.get("worlds", []) if item.get("world_id")]
 
 
+def filter_collection_options(options: dict, categories: set[str] | None = None) -> dict:
+    """Select scenario options by resolved airframe category."""
+    selected = set(categories or ())
+    if not selected:
+        return dict(options)
+    return {scenario: value for scenario, value in options.items() if value[2] in selected}
+
+
 def frame_key_root(episodes: Path) -> Path:
     """The directory build_slow_system_sft makes frame paths relative to.
 
@@ -529,6 +537,27 @@ class Round:
             json.dumps(self.state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         os.replace(tmp, self.state_path)
+
+    @staticmethod
+    def merge_episode_status(previous: dict | None, current: dict) -> dict:
+        """Merge a retry/resume result without regressing verified completion."""
+        previous = previous or {}
+        if previous.get("status") == "complete" and current.get("status") != "complete":
+            merged = dict(previous)
+            merged["last_attempt_status"] = current.get("status")
+            merged["last_attempts"] = current.get("attempts")
+            if current.get("failure"):
+                merged["last_failure"] = current["failure"]
+            return merged
+        merged = {**previous, **current}
+        merged["attempts_total"] = int(previous.get("attempts_total", 0)) + int(
+            current.get("attempts", current.get("attempt", 0) + 1)
+        )
+        if current.get("status") == "complete":
+            merged.pop("last_attempt_status", None)
+            merged.pop("last_attempts", None)
+            merged.pop("last_failure", None)
+        return merged
 
     def data_path(self, configured: Path, relative: str) -> Path:
         if configured.exists():
@@ -623,7 +652,8 @@ class Round:
             done = sum(
                 1 for item in self.state["episodes"].values() if item.get("status") == "complete"
             )
-            remaining = max(0, 20 * R15_EPISODES_PER_WORLD - done)
+            world_count = len(round_world_ids(self.a.r15_index))
+            remaining = max(0, world_count * R15_EPISODES_PER_WORLD - done)
             per_step = LOW_DISK_BYTES_PER_STEP if low_disk else NORMAL_BYTES_PER_STEP
             return remaining * self.a.steps_per_episode * per_step / GIB
         if stage == "export":
@@ -688,18 +718,23 @@ class Round:
             _validate_runtime(runtime_path, airframe)
         except Exception as exc:
             errors.append(str(exc))
-        expected_category = (
-            "fixed_wing" if fixed_wing else
-            "vtol" if "vtol" in model.lower() or "tiltrotor" in model.lower() else
-            "multirotor"
-        )
+        model_key = model.lower()
+        if fixed_wing:
+            expected_category = "fixed_wing"
+        elif any(token in model_key for token in ("vtol", "tiltrotor", "tailsitter")):
+            expected_category = "vtol"
+        elif any(token in model_key for token in ("x500", "multirotor", "quadcopter")):
+            expected_category = "multirotor"
+        else:
+            errors.append(f"unsupported runtime vehicle model category: {model!r}")
+            expected_category = "unknown"
         if not model:
             errors.append("runtime.vehicle.model is missing")
         if category and category != expected_category:
             errors.append(
                 f"runtime {expected_category} model requires matching airframe, got {airframe!r}"
             )
-        if not fixed_wing and expected_category == "multirotor" and category in {"fixed_wing", "vtol"}:
+        if expected_category == "multirotor" and category in {"fixed_wing", "vtol"}:
             errors.append(f"runtime multirotor model cannot use {category} airframe {airframe!r}")
         pose = vehicle.get("spawn_pose", {}) if isinstance(vehicle, dict) else {}
         if expected_category == "multirotor" and isinstance(pose, dict):
@@ -753,7 +788,7 @@ class Round:
                 valid = [
                     p
                     for p in episodes
-                    if json.loads(p.read_text(encoding="utf-8")).get("status") in (None, "complete")
+                    if json.loads(p.read_text(encoding="utf-8")).get("status") == "complete"
                 ]
                 if len(valid) == 1:
                     path = valid[0]
@@ -787,30 +822,53 @@ class Round:
         # prefix (for example ``gen_r19_w``) without touching r15 worlds.
         world_ids = round_world_ids(self.a.r15_index)
         scenarios = sorted(self.a.scenarios / f"{world_id}.scenario.json" for world_id in world_ids)
-        if len(scenarios) != 20:
+        expected_world_count = len(world_ids)
+        if len(scenarios) != expected_world_count:
             raise RuntimeError(
-                f"collection plan 期望 20 个 world，实际 {len(scenarios)}：{self.a.scenarios}"
+                f"collection plan 期望 {expected_world_count} 个 world，实际 {len(scenarios)}：{self.a.scenarios}"
             )
         missing = [str(path) for path in scenarios if not path.is_file()]
         if missing:
             raise RuntimeError(f"collection plan 缺少场景文件：{missing}")
         # Deterministic configuration failures are collected in one report and
         # abort before any worker/container/retry is started.
-        collection_options: dict[Path, tuple[str, str | None]] = {}
+        collection_options: dict[Path, tuple[str, str | None, str]] = {}
         config_errors: list[str] = []
+        category_filter = set(getattr(self.a, "airframe_category", None) or ())
         for scenario in scenarios:
             try:
                 airframe, takeoff, _ = self._collection_airframe(scenario)
-                collection_options[scenario] = (airframe, takeoff)
+                from scripts.collect_sim_teacher_episodes import _airframe_profile
+
+                profile = _airframe_profile(airframe, takeoff)
+                category = str(getattr(profile, "category", ""))
+                if not category:
+                    normalized_airframe = airframe.lower().replace("-", "_")
+                    category = (
+                        "multirotor" if normalized_airframe in {"x500", "x500_mono_cam", "multirotor"}
+                        else "fixed_wing" if normalized_airframe in {"fixed_wing", "fw"}
+                        else "vtol" if normalized_airframe == "vtol"
+                        else ""
+                    )
+                if category not in {"multirotor", "fixed_wing", "vtol"}:
+                    raise ValueError(f"airframe {airframe!r} has unsupported category {category!r}")
+                collection_options[scenario] = (airframe, takeoff, category)
             except Exception as exc:
                 config_errors.append(f"{scenario.name}: {exc}")
         if config_errors:
             raise RuntimeError("collect 启动前配置校验失败：\n- " + "\n- ".join(config_errors))
+        collection_options = filter_collection_options(collection_options, category_filter)
+        if not collection_options:
+            raise RuntimeError(
+                f"airframe-category filter {sorted(category_filter)} matched no scenarios"
+            )
+        # Only the worlds that survived the category filter are planned and dispatched.
+        scenarios = [scenario for scenario in scenarios if scenario in collection_options]
         # Build the same collector/docker plan used by workers before dispatch,
         # including the resolved airframe and fixed-wing takeoff method.
         from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
         for scenario in scenarios:
-            airframe, takeoff_method = collection_options[scenario]
+            airframe, takeoff_method, _category = collection_options[scenario]
             document = json.loads(scenario.read_text(encoding="utf-8"))
             runtime_path = (scenario.parent / document["channels"]["runtime_input"]["path"]).resolve()
             truth_path = (scenario.parent / document["channels"]["truth"]["path"]).resolve()
@@ -826,7 +884,7 @@ class Round:
         jobs: list[tuple[str, list[str], Path]] = []
         for scenario in scenarios:
             world = scenario.name.removesuffix(".scenario.json")
-            airframe, takeoff_method = collection_options[scenario]
+            airframe, takeoff_method, _category = collection_options[scenario]
             for idx in range(R15_EPISODES_PER_WORLD):
                 key = f"{world}:{idx}"
                 if self.state["episodes"].get(key, {}).get("status") == "complete":
@@ -903,7 +961,9 @@ class Round:
             for future in concurrent.futures.as_completed(futures):
                 key = futures[future]
                 result = future.result()
-                self.state["episodes"][key] = result
+                self.state["episodes"][key] = self.merge_episode_status(
+                    self.state["episodes"].get(key), result
+                )
                 self.save()
                 if result["status"] != "complete":
                     # One stubborn world must not stop the whole round; the report lists it.
@@ -1408,6 +1468,12 @@ def merge_cli(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--stage", choices=("all", *STAGES), default="all")
+    p.add_argument(
+        "--airframe-category",
+        action="append",
+        choices=("multirotor", "fixed_wing", "vtol"),
+        help="collect only scenarios resolved to these airframe categories; repeatable",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--out", type=Path, default=ROOT / "artifacts/r15-round")
     p.add_argument("--scenarios", type=Path, default=ROOT / "configs/scenarios/generated-r15")
@@ -1542,7 +1608,7 @@ def main():
         for label, low in (("normal", False), ("low-disk", True)):
             est = estimate_round_disk_gib(low_disk=low, steps=a.steps_per_episode)
             print(
-                f"[dry-run] {label}: 20 worlds x 4 episodes x {a.steps_per_episode} steps 上限 -> "
+                f"[dry-run] {label}: {len(round_world_ids(a.r15_index))} worlds x {R15_EPISODES_PER_WORLD} episodes x {a.steps_per_episode} steps 上限 -> "
                 f"episodes {est['episodes_gib']:.2f} GiB，峰值 {est['peak_gib']:.2f} GiB，"
                 f"结束后 {est['after_round_gib']:.2f} GiB"
             )
