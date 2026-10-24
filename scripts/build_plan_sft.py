@@ -32,6 +32,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
     check_plan_refs,
     plan_prompt,
 )
+from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 
 OBJECTS = [  # (english query, chinese)
     ("car", "轿车"),
@@ -792,6 +793,40 @@ def v5_rows(args, held_out: set[str], labels) -> list[dict]:
     return rows
 
 
+def r20_intent_rows(args, held_out: set[str], labels) -> list[dict]:
+    """Small paired intent set: return-home corrections and unknown-place rejects."""
+    refs = ("poi:gate (大门 / the gate)", "poi:pad (起降坪 / the pad)")
+    cases = [
+        ("到大门检查位置，然后返航", "Go to the gate, inspect the position, then return home.",
+         [S("s1", "goto", {"target_ref": "poi:gate"}, "s2", "s2"),
+          S("s2", "land", {"target_ref": "poi:gate"}, None, None)], "bad_return"),
+        ("到大门检查位置，然后返航", "Go to the gate, inspect the position, then return home.",
+         [S("s1", "goto", {"target_ref": "poi:gate"}, "s2", "s2"), H("s2")], "good_return"),
+        ("去一个地图没有的Raven Pier，不要把它替换成大门", "Go to the unknown Raven Pier; do not substitute the gate.",
+         [S("s1", "goto", {"target_ref": "poi:gate"}, None, None)], "bad_unknown_place"),
+        ("去大门查看，然后回到起飞点", "Go to the gate, check it, then return to the launch point.",
+         [S("s1", "goto", {"target_ref": "poi:gate"}, "s2", "s2"), H("s2")], "good_return_alias"),
+    ]
+    rows = []
+    for index, (zh, en, steps, family) in enumerate(cases):
+        text = zh if index % 2 == 0 else en
+        plan = {"plan_version": 1, "goal": en, "steps": steps, "report": ["status"]}
+        findings = check_plan_intent(plan, text, refs)
+        expected_bad = family.startswith("bad_")
+        if expected_bad and not findings:
+            raise ValueError(f"r20 intent case was not rejected: {family}")
+        if not expected_bad and findings:
+            raise ValueError(f"r20 intent case was rejected: {family}: {findings}")
+        if normalize_task(text) in held_out:
+            continue
+        rows.append({"sample_id": f"plan-r20-intent-{index}", "kind": "mission_plan",
+                     "world": "synthetic_plan_r20", "family": family,
+                     "task_text": text,
+                     "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                     "assistant_target": plan})
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -812,6 +847,8 @@ def main(argv: list[str] | None = None) -> int:
         help="required training skills (default: all except deliver for v2/v4/v5, none for v3; "
         "pass without values to disable)",
     )
+    parser.add_argument("--r20-intent-pairs", action="store_true",
+                        help="append offline r20 return-home/unknown-place intent pairs")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -841,6 +878,11 @@ def main(argv: list[str] | None = None) -> int:
     rows, seen = [], set()
     if args.version == "v5":
         rows = v5_rows(args, held_out, labels)
+    if args.r20_intent_pairs:
+        # This mode is an explicit offline audit corpus, so keep every pair in
+        # the requested output instead of mixing it into the normal backbone.
+        rows = r20_intent_rows(args, held_out, labels)
+        args.rows, args.val_rows = len(rows), 0
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission

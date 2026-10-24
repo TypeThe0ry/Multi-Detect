@@ -26,8 +26,27 @@ def main(argv=None):
     p.add_argument("--catalog", type=Path, help="override asset catalog path")
     p.add_argument("--resolved-root", type=Path, help="override resolved asset root")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--profile", choices=("default", "r20"), default="default",
+                   help="optional hard-case profile; default preserves the r15 config")
     a = p.parse_args(argv)
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
+    if a.profile == "r20":
+        # Keep r20 isolated and deterministic: paired confusers are explicit in
+        # the world table, while the generator still owns placement/truth output.
+        cfg.update({"world_prefix": "gen_r20_w", "seed": 20261024,
+                    "count": 3, "split_ratios": [1.0, 0.0, 0.0],
+                    "spread_m": [80.0, 120.0], "count_copies": 1,
+                    "confuser_copies": 1, "segmentation_labels": True,
+                    "unambiguous_tasks": True})
+        cfg["worlds"] = [
+            {"split": "train", "target": "pickup", "confusers": ["suv"],
+             "forced_distractors": ["jersey_barrier"], "appearance": "noon_clear"},
+            {"split": "train", "target": "construction_cone", "confusers": ["jersey_barrier"],
+             "forced_distractors": ["pickup"], "appearance": "overcast_flat"},
+            {"split": "train", "target": "backpack", "confusers": ["cardboard_box"],
+             "forced_distractors": ["fire_hydrant"], "appearance": "haze",
+             "view_profile": "small_oblique_10_13px"},
+        ]
     if a.dry_run:
         print(
             json.dumps(
@@ -87,6 +106,23 @@ def main(argv=None):
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
     )
+    if a.profile == "r20":
+        doc["profile"] = "r20"
+        for entry, world in zip(doc["worlds"], cfg["worlds"]):
+            entry["hard_case_profile"] = world.get("view_profile", "paired_identity")
+            entry["paired_confusers"] = list(world.get("confusers", ()))
+            entry["view_geometry"] = {
+                "fixed_wing_oblique": True,
+                "slope_deg": [20, 40],
+                "slant_range_m": [80, 200],
+                "short_side_px": [20, 40],
+            } if entry["hard_case_profile"] == "paired_identity" else {
+                "fixed_wing_oblique": False, "slant_range_m": [25, 35],
+                "short_side_px": [10, 13], "altitude_m": [18, 20],
+            }
+        (a.out_scenarios / "index.json").write_text(
+            json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     # Preserve the human-authored world table and add a machine-generated summary beside it.
     summary = {
         "schema_version": 1,
