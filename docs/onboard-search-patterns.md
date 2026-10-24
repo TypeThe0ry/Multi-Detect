@@ -6,6 +6,12 @@
 
 `two_altitude` 已在运行时实现：高空 lawnmower 扫描完成后，状态机以最多 8 m 一次的垂直动作下降到 `low_search_altitude_m`，然后执行低空 lawnmower 确认 pass。它是 opt-in，默认仍是 `current`。
 
+## 跳过航点与覆盖报告
+
+多旋翼专家搜索在障碍物挡住航段时会记录 `skipped_waypoints`，每条记录包含航点位置、搜索阶段、尝试次数和 `reason: "obstacle"`。策略同时按相机地面覆盖半径合并已飞轨迹；如果其它航段已经覆盖被跳航点附近区域，该航点不会制造重复缺口。
+
+单次搜索结束时，未被其它航段覆盖的跳点会将 `search_pass_outcome` 设为 `coverage_partial`，并输出 `coverage`（计划航点数、已覆盖航点数、覆盖比例）。无跳点或跳点已被其它航段覆盖时，原有 `coverage_complete` 行为保持不变。`coverage_partial` 会沿用任务摘要的下限语义，旧 GCS 客户端可忽略新增字段。
+
 相机来自记录/运行时的 `DEFAULT_CAMERA_INFO`：1280x960、`fx=fy=539.936368`、`cx=640`、`cy=480`，安装俯角为 `0.18 rad`（10.3132°）。模拟器也可用 `CoverageCamera.from_runtime` 从同一 mapping 构造。
 
 ## 三道尺寸 gate
@@ -51,3 +57,10 @@
 - 需要小目标确认时，显式选择 `two_altitude`，并设置合理的 `low_search_altitude_m`；它能把 0.5 m 目标从 candidate（约 7.7 px）推进到 slow/confirmation，但时间约为单次高空扫描的数倍。
 - `lawnmower` 是区域覆盖率稳定的通用候选路线；`spiral` 飞行时间短，但在大半径边缘的覆盖明显下降。
 - 100 m 区域应拆分 zone 或提高预算；任何 pattern 都会因步数/slow-call预算成为瓶颈，不能只看单次几何覆盖率。\n
+# 跳过航点与覆盖报告
+
+多旋翼专家搜索在障碍物挡住航段时会记录 `skipped_waypoints`，每条记录包含航点位置、搜索阶段、尝试次数和 `reason: "obstacle"`。策略同时按相机地面覆盖半径合并已飞轨迹；如果其它航段已经覆盖被跳航点附近区域，该航点不会制造重复缺口。
+
+单次搜索结束时，未被其它航段覆盖的跳点会将 `search_pass_outcome` 设为 `coverage_partial`，并输出 `coverage`（计划航点数、已覆盖航点数、覆盖比例）。无跳点或跳点已被其它航段覆盖时，原有 `coverage_complete` 行为保持不变。`coverage_partial` 会沿用任务摘要的下限语义，旧 GCS 客户端可忽略新增字段。
+
+离线审计脚本：scripts/analyze_coverage_honesty.py。2026-10-24 对近期 mission-suite-patrolrecall count 架次统计为 4 条，其中 54ef68e5 检出第 49、51、53 步障碍横移，修复后改判 coverage_partial/下限，另外 3 条保持原报告。

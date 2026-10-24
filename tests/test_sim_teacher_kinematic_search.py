@@ -280,7 +280,7 @@ def test_blocked_boundary_sidesteps_terminate_instead_of_holding_forever() -> No
 def test_sidesteps_without_progress_skip_waypoint_and_are_reported() -> None:
     policy = _policy((80.0, 0.0, -5.0))
     policy.state = "search"
-    policy._waypoints = [(10.0, 0.0)]
+    policy._waypoints = [(100.0, 0.0)]
     policy._waypoint_index = 0
     policy._segment_safe = lambda _pose, n, e: abs(n) < 1e-6 and abs(e) > 1e-6
     pose = (0.0, 0.0, -5.0)
@@ -289,6 +289,27 @@ def test_sidesteps_without_progress_skip_waypoint_and_are_reported() -> None:
     labels = policy.labels(pose_ned=pose)
     assert labels["skipped_waypoints"][0]["waypoint_index"] == 0
     assert labels["skipped_waypoints"][0]["phase"] == "high"
+    assert labels["skipped_waypoints"][0]["reason"] == "obstacle"
+
+
+def test_skipped_uncovered_waypoint_reports_partial_coverage() -> None:
+    policy = _policy((80.0, 0.0, -5.0))
+    policy._waypoints = [(100.0, 0.0)]
+    policy._coverage_trace[:] = [(0.0, 0.0)]
+    policy.skipped_waypoints.append({"waypoint_index": 0, "ned": (100.0, 0.0), "phase": "high", "reason": "obstacle"})
+    policy._finish_search()
+    labels = policy.labels(pose_ned=(0.0, 0.0, -5.0))
+    assert labels["search_pass_outcome"] == "coverage_partial"
+    assert labels["coverage"]["coverage_fraction"] < 1.0
+
+
+def test_skipped_waypoint_covered_by_other_leg_keeps_complete_outcome() -> None:
+    policy = _policy((80.0, 0.0, -5.0))
+    policy._waypoints = [(10.0, 0.0)]
+    policy._coverage_trace[:] = [(0.0, 0.0), (10.0, 0.0)]
+    policy.skipped_waypoints.append({"waypoint_index": 0, "ned": (10.0, 0.0), "phase": "high", "reason": "obstacle"})
+    policy._finish_search()
+    assert policy.search_outcome == "coverage_complete"
 
 
 @pytest.mark.parametrize("phase", ["high", "low"])
