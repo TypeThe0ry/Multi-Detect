@@ -43,3 +43,14 @@ def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, cap
     assert "D:\\Projects\\Multi-Detect\\.venv-vlm\\Scripts\\python.exe" in output
     assert "run_planner_probe.py" in output
     assert not (out / "round-state.json").exists()
+
+
+def test_default_lock_is_the_shared_sitl_lock_directory():
+    # The lock is the mkdir directory sitl.lock; sitl_lock.sh is the shell helper.
+    # Pointing SitlLock at the script made mkdir fail forever (or a stale reclaim
+    # touch the helper itself).
+    import scripts.run_planner_round as mod
+
+    parser_source = open(mod.__file__, encoding="utf-8").read()
+    assert r'_scratch\sitl.lock"' in parser_source
+    assert "sitl_lock.sh\")" not in parser_source
