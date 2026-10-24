@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from multidetect.sim_teacher.streams import (
     LatestWinsBuffer,
@@ -96,6 +97,28 @@ def test_pose_sim_stamp_helper_converts_px4_boot_time() -> None:
 def test_simulation_stamp_skew_helper() -> None:
     assert simulation_stamp_skew_ms(7_160_000_000, 7_000) == 160.0
     assert simulation_stamp_skew_ms(7_160_000_000, None) is None
+
+
+def test_fresh_sensor_snapshot_keeps_both_watermark_gates() -> None:
+    collector = _collector_module()
+
+    class Reader:
+        def __init__(self) -> None:
+            self.latest = SimpleNamespace(received_monotonic_ns=11, sensor_stamp_ns=99)
+            self.requests: list[int] = []
+
+        def request(self, stamp: int) -> None:
+            self.requests.append(stamp)
+
+        def raise_if_failed(self) -> None:
+            return None
+
+    reader = Reader()
+    assert collector._fresh_sensor_snapshot(reader, 10, 0.1, min_sensor_stamp_ns=99, poll_interval_s=0.001) is reader.latest
+    assert reader.requests == [99]
+    reader.latest = SimpleNamespace(received_monotonic_ns=9, sensor_stamp_ns=100)
+    with pytest.raises(TimeoutError):
+        collector._fresh_sensor_snapshot(reader, 10, 0.01, min_sensor_stamp_ns=99, poll_interval_s=0.001)
 
 
 def test_stop_action_is_terminal() -> None:

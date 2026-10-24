@@ -79,6 +79,20 @@ def test_default_recorder_metadata_has_legacy_shape_and_fallback(tmp_path: Path)
     assert json.loads(path.read_text(encoding="utf-8")) == {"legacy": 1}
 
 
+def test_async_metadata_drains_all_completed_steps_on_close(tmp_path: Path) -> None:
+    recorder = EpisodeRecorder(tmp_path, "async", async_metadata=True)
+    recorder.record_step({"depth": np.ones((2, 2), dtype=np.float32)}, {})
+    recorder.record_step({"depth": np.full((2, 2), 2, dtype=np.float32)}, {})
+    recorder.mark_finished(status="complete")
+    episode = recorder.episode_dir
+    meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+    rows = [json.loads(line) for line in (episode / "steps.jsonl").read_text().splitlines()]
+    assert meta["step_count"] == 2
+    assert meta["status"] == "complete"
+    assert [row["step_index"] for row in rows] == [0, 1]
+    assert all((episode / row["obs_before"]["depth_path"]).is_file() for row in rows)
+
+
 def _obs(value: float = 1.0) -> dict:
     return {
         "rgb": b"not-a-real-png",
