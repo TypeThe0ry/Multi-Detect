@@ -346,3 +346,66 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 ## 2026-10-24 光轴深度视点几何 + 再接近（b6ce76f）SITL 复验
 
 `mission-suite-lookgeometry-20261024`（各 3 架次，错误发现全为 0）：monitor-backpacks 2/3、3/3、3/3（58349a0 为 1/3、2/3，原始 fullsuite 2/3）；patrol-fence-backpacks 2/3、3/3、2/3（58349a0 为 3/3、2/3，原始 1/3）；count-cones 3/3 ×3；count-fire-hydrants 2/3、2/3、3/3。巡逻/监视告警召回从约 0.5 提到约 0.83，消防栓仍是最不稳定的一项。
+
+## 2026-10-24 消防栓残余漏检：逐架次定位、判断分布与修复（`wt/hydrant-h2`）
+
+对象：hydrant10（b0da50e）3 个失败架次、lookgeometry（b6ce76f）2 个失败架次。真值 h0 = `target_true`（N 8.76, E -15.02），h1 = `count_member_0001_01`（37.88, -19.55），h2 = `count_member_0001_02`（-35.44, -31.80，公寓楼西南 10.4 m）。工具：`_scratch/hydrant-h2/h2_trace.py`（逐步 h2/h0 航迹、分割框、慢调用、补看记录）、`collect_verdicts.py`、`collect_all_tracks.py`。
+
+**漏的不全是 h2**：5 个失败里 3 个漏 h2、2 个漏 h0。
+
+| 架次 | 漏 | 判断序列（px，置信度） | 丢失环节 |
+|---|---|---|---|
+| hydrant10 5416eb1a | h0 | 起点 17 m：-14（0.998） | 旧拒绝补看在巡航高度 19.8 m 外只看到 9.7 px，无新判断。b6ce76f 的下降补看已覆盖这一类 |
+| hydrant10 7166ed2b | h0 | 起点：+12.5 +11.0 -11.0（0.98） | 两次“approach”后一次小框“不是”重置航迹；拒绝补看又被 `co_visible_with_counted` 跳过（拒绝航迹与 30 m 外后来计数的 h1 航迹同帧共视） |
+| hydrant10 f517d76c | h2 | 最近视角（楼顶上方 17.1 m、水平 17 m）：+15.1 +11.5 -11.1（0.96） | 同上，一次 11 px“不是”重置；第 83 步才开始 h2 拒绝补看，途中步骤预算用完（9.8 px 未判） |
+| lookgeometry 2435e7b9 | h2 | 第 48 步 -15.6（框底贴图像下沿，0.998）；补看途中 +12.0（0.94）；-10.5（0.9996） | `rejection_revisits` 触发（目标 15.6 px，视点 (-20.86, -36.82)、9.1 m 高、15.6 m 外，`predicted_min_side_px` 15.6）。第 75 步仍在巡航高度 17.2 m、24 m 外时 12 px 判“approach”，补看以 `judged_approach` 结束交给常规接近；常规接近朝东北直线前进被楼挡、没下降，第 77 步 10.5 px“不是”，计数结束。没到视点，所以没有 `seen_again_min_side_px`、`reapproaches`；`small_unjudged_revisits` 未触发 |
+| lookgeometry 3121ac38 | h2 | -15.5、-17.2（贴边）；补看途中 +18.1（贴边）；同帧另一航迹 -20.5（31×20 贴边，0.74）；后续 +10.7 +10.6 +10.5 +14.0、C22.8（0.57）、+20.5 +21.6 +21.9 | 补看依次给了干扰物 (41.2, 0.2)（`not_seen`）、(18.6, 21.3)（预测 16.9 px、到点 10.0 px，`still_unjudged`），h2 排第三。途中 18.1 px 交接给常规接近；同一消防栓的第二条航迹 t22 在 31×20 的贴边框上被判“不是”，按 ≥ 20 px 记成可用拒绝票；第 104 步 22.8 px 未贴边的 confirm 与它构成矛盾，矛盾复看清空判断，最近视角保持里只得到 approach，`approach_exhausted`，计数预算用完（下限 true） |
+
+b6ce76f 的三项新机制在这两架次里：拒绝补看两次都触发、视点规划正确（预测与 SITL 模型一致），但两次都在飞到视点之前被途中的较小/贴边正判断结束；`reapproaches` 和 `small_unjudged_revisits` 都没触发；10–13 px“不是”后补看结束的情况没有出现（结束原因是交接后常规接近里的单次“不是”和贴边拒绝引起的矛盾）。
+
+**慢模型对消防栓的判断分布**（roofdescent、verdictshift、smallrevisit、queryfirst、fullsuite、patrolrecall、hydrant10、lookgeometry 共 28 架次、417 次慢调用；“正”= approach 或 confirm）：
+
+| 目标 | 全部 | 未贴边 <12 px | 12–14 | 14–16 | 16–20 | ≥ 20 | 贴边 |
+|---|---|---|---|---|---|---|---|
+| h0 | 192/201（96%） | 72/78 | 41/42 | 12/13 | 19/19 | 45/45 | 3/4 |
+| h1 | 102/102 | 25/25 | 17/17 | 2/2 | — | 57/57 | 1/1 |
+| h2 | 103/114（90%） | 46/49 | 15/16 | 17/20 | 2/2 | 9/9 | 14/18 |
+
+h2 的 114 次判断里 97 次来自 ≥ 15 m 高度；11 次“不是”有 10 次在 17.2 m 高、水平 16–17 m、从东北方位（目标指向飞机 59–64°，即楼顶上方的航线点 (-27, -17)）；高度 < 10 m 时 10/10、水平 < 12 m 时 11/11 为正。正判率在 10–16 px 内不随框变小而下降，“不是”的置信度 0.96–1.0。结论：剩余问题主要是逻辑，不是尺寸极限。最近视角计数要连续约 3 次正判断（途中 1 次、最近视角保持 2 次），任何一次“不是”都终结航迹：0.9³ ≈ 0.73，与 25–30% 的漏检率吻合。把补看目标提到 16–18 px 帮助不大（14–16 px 的正判率并不更高），关键是别让单次小框“不是”和途中的较差视角结束判断。
+
+**修复**：
+
+1. 计数小框单次否决净票（`LoopConfig.small_reject_net_votes`，执行器 `count_small_reject_net_votes = 1`，只对 count 打开）：航迹自上次重置以来已有 ≥ 2 次真实正判断时，框 < `confirm_min_side_px` 的一次真实“不是”只抵消最近一次正判断（同时撤掉对应的 confirm 票），航迹保持正判断、下一视角重问，计数需要多一次正判断；每航迹最多一次，第二次“不是”照常重置；不写拒绝记忆。可用尺寸（≥ 20 px）的“不是”、只有 1 次正判断后的“不是”不变。计数步骤历史写 `small_rejects_netted`（航迹、步、框、置信度、剩余正票）。按航迹回放 84 个近期计数架次（1373 条航迹，消防栓/锥桶/comms-free-count）：规则作用于 14 条目标航迹（其中 7 个物体当轮漏计），非目标航迹 0 条（非目标航迹从来没有过 2 次正判断）。
+2. 计数补看不被途中更小的框结束（`_judged_short_of_view`）：计数补看（小而未判、小框拒绝）在到达视点之前，来自比补看目标（`target_side_px`）更小的框的判断不结束补看，也不交接给常规接近；补看飞到视点，到点后这些航迹重新判断（视点帧上的判断照常结束补看）。巡逻/监视补看（`alert_look`）不变：首个正判断就是告警。
+3. 贴图像边框的“不是”不是可用票：被边框截断的框只是物体的一部分，原本就不能确认；现在它的“不是”也不算可用拒绝票，不触发矛盾复看，矛盾复看期间也不计票。拒绝记忆的 `usable_seen` 不变（否则大的贴边干扰框会变成远小拒绝补看候选）。
+
+**发现但未改**：`_revisit_far_small_rejection` / `_pending_rejection_places` 把“与已计数航迹同帧共视”的拒绝地点当作已解决（`co_visible_with_counted`），而同帧共视只说明两者是不同物体，不说明拒绝地点不是目标；7166ed2b 的 h0 因此没有拒绝补看。近期（20261020 起）计数架次里该跳过落在 h0/h2/锥桶真值上 17 次（多数该物体已由别的航迹计上）。没改的原因：这类 h0 漏检全是“+ + -”模式，修复 1 已覆盖；放开后每架次会多出 1–4 个干扰物地点（锥桶世界 (9.6, -7.5)、(-26.7, 34)、(-36, 27)，消防栓世界 (18.5, 21.4)、(2.4, 23.9)）参与补看，需要先给补看排序（有过正判断的地点优先）再放开。另外拒绝补看按距离排序，消防栓世界的两个干扰物常占掉前两个名额（3121ac38、f517d76c）。
+
+**离线重放**（`_scratch/hydrant-h2/replay_ep.py`：日志位姿/帧驱动 MissionExecutor，YOLOE 重检，r18 GGUF 实时调用并缓存；搜索动作是占位，覆盖不会完成，所以补看在开环重放里不触发）：5 个失败架次、2 个消防栓成功架次、3 个锥桶架次，新旧代码逐步动作与慢调用：
+
+| 架次 | 结果 |
+|---|---|
+| f517d76c | 第 53 步 11.1 px“不是”被净票抵消，第 54 步（日志帧）重问 13.4 px“approach”（0.958），h2 按 `identity_at_closest_view` 计上，重放计数 2 → 3 |
+| 7166ed2b | 第 5 步不再回到搜索，继续向 h0 前进 4.5 m、下降 4 m（之后开环帧不再跟随，无法评估计数） |
+| 3121ac38 | 第 105 步 t22 不再处于矛盾复看，重问得到 confirm（0.634） |
+| 2435e7b9、5416eb1a、08dcb017、7a295471、锥桶 2fc9e32a / c69644a1 / d3fcb27f | 逐步动作、慢调用、计数完全一致 |
+
+`fullsuite-20261023` 10 个任务（监视、巡逻、操作员暂停/中止、链路丢失、预算返航、comms-free 巡逻/计数、锥桶、消防栓）用缓存开环重放：新旧代码逐步动作、慢调用、告警、步骤历史完全一致，零缓存缺失。修复 2 无法开环重放，用测试按 2435e7b9 的几何闭环模拟。
+
+**测试与门禁**：`tests/test_count_small_reject_votes.py`（17 项）：f517d76c 第 51–54 步日志帧，净票后 h2 按最近视角计上，关闭净票则与 SITL 一样丢掉；7166ed2b 第 3–5 步继续向 h0 平飞下降；净票只作用于“≥ 2 次正判断后的小框否决”、第二次否决照常重置、只对 count 打开、配置校验、步骤历史记录；2435e7b9 几何下拒绝补看越过途中 12 px 的正判断飞到 9.1 m 视点再判断并计数（旧代码在 16.8 m 巡航高度就交接）；计数补看与告警补看对途中小框正判断的不同处理；3121ac38 的 31×20 贴边“不是”不再与 22.8 px confirm 构成矛盾（未贴边的可用“不是”仍触发矛盾复看，对照）。去掉修复后 17 项中 15 项失败（2 项对照通过）。加入 `tests/onboard_gate_files.py`。`python scripts/run_onboard_gate.py` PASS。
+
+**未验证**：未跑 SITL。复验命令（冻结工作树后）：
+
+```bash
+cd /d/Projects/mdwt/hydrant-h2 && export PYTHONPATH="src;." PYTHONUTF8=1
+python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json \
+  --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-hydrantvotes-20261025 \
+  --only count-fire-hydrants --episodes 10 --retry-failed-episodes --min-free-disk-gb 8
+python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-defaults.json \
+  --out D:/Projects/Multi-Detect/artifacts/benchmarks/mission-suite-hydrantvotes-side-20261025 \
+  --only count-cones monitor-backpacks --episodes 2 --retry-failed-episodes --min-free-disk-gb 8
+```
+
+复验看：消防栓 10 架次 3/3 的比例（hydrant10 为 7/10，自 roofdescent 起累计 25%）、错误发现保持 0；计数步骤历史的 `small_rejects_netted`（应只落在真值附近）、`rejection_revisits` 的 outcome（途中不再出现巡航高度的 `judged_approach`）；锥桶 3/3、监视告警召回不降、无误报。
+
+**模型/数据建议**（次要）：h2 唯一的失败视角是东北方向、17 m 高、水平 16–17 m 的斜视（11–16 px，框常贴图像下沿），模型约 10% 给出高置信“不是”。身份模型数据可补 11–16 px、45–50° 俯视、从楼体一侧看的消防栓正样本，以及被图像下沿截断的消防栓正样本（截断框 18 次中 4 次“不是”），按测试世界留出。

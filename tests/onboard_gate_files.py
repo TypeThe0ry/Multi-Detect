@@ -20,6 +20,7 @@ _EXACT = {
     "test_alert_closer_look.py",
     "test_small_unjudged_revisit.py",
     "test_look_geometry.py",
+    "test_count_small_reject_votes.py",
     "test_mission_executor_remaining_gaps.py",
     "test_mission_executor_no_fly.py",
     "test_mission_package_preflight.py",

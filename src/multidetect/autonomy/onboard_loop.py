@@ -397,6 +397,8 @@ class Track:
     needs_fresh_verdict: bool = False
     # Number of small-box rejection rechecks already scheduled for this track.
     small_reject_rechecks: int = 0
+    # Small-box rejections that cancelled a positive view (small_reject_net_votes).
+    small_rejects_netted: int = 0
     # Independent of the bottom-pixel ground anchor used by tracking and memory.
     position_views: list[ViewObservation] = field(default_factory=list)
     position_estimate: PositionEstimate | None = None
@@ -466,6 +468,14 @@ class LoopConfig:
     # size gate is reached before asking the slow model once more.
     small_reject_recheck_px: float | None = None
     small_reject_recheck_max: int = 1
+    # Count (set by MissionExecutor; 0 disables): a real rejection of a box below
+    # confirm_min_side_px, on a track with at least two real positive views since
+    # its last reset, cancels one of those views instead of resetting the track,
+    # at most this many times per track.  SITL gen_cnt2_w0001: hydrants judged
+    # "approach" at 11-15 px from their closest view were dropped by one "no" at
+    # 11 px (+15 +11 -11, +12 +11 -11): 7 missed objects in 84 recent count
+    # episodes, while no non-target track there ever drew two positive views.
+    small_reject_net_votes: int = 0
     verdict_ttl_steps: int = 12
     max_slow_per_step: int = 3
     min_box_side_px: float = 6.0
@@ -854,6 +864,12 @@ class LoopConfig:
         ):
             raise ValueError("small_unjudged_look_holds must be a non-negative integer")
         if (
+            isinstance(self.small_reject_net_votes, bool)
+            or not isinstance(self.small_reject_net_votes, int)
+            or self.small_reject_net_votes < 0
+        ):
+            raise ValueError("small_reject_net_votes must be a non-negative integer")
+        if (
             isinstance(self.small_unjudged_reapproach_max, bool)
             or not isinstance(self.small_unjudged_reapproach_max, int)
             or self.small_unjudged_reapproach_max < 0
@@ -1006,6 +1022,8 @@ class OnboardLoop:
     cruise_altitude_m: float | None = None
     confirmed: dict[str, Any] | None = None
     confirmations: list[dict[str, Any]] = field(default_factory=list)
+    # Small-box rejections that cancelled a positive view (small_reject_net_votes).
+    netted_rejections: list[dict[str, Any]] = field(default_factory=list)
     _tracks: dict[str, Track] = field(default_factory=dict)
     _next_id: int = 1
     _focus: str | None = None
@@ -1723,6 +1741,15 @@ class OnboardLoop:
             track.confirm_steps or track.match_steps or track.verdict in {"approach", "confirm"}
         ):
             return
+        if (
+            not remembered
+            and verdict == "no_match"
+            and track.small_rejects_netted < self.config.small_reject_net_votes
+            and len(track.match_steps) >= 2
+            and _min_side(track.bbox) < self.config.confirm_min_side_px
+        ):
+            self._net_small_reject(track, confidence)
+            return
         track.verdict, track.verdict_step = verdict, self.step_index
         track.verdict_ground = track.ground
         track.verdict_side_px = None if remembered else _min_side(track.bbox)
@@ -1758,9 +1785,18 @@ class OnboardLoop:
                 self._remember_rejection(track, confidence)
         if not remembered and verdict in {"confirm", "no_match"} and track.ground is not None:
             view_range = self._track_range(track)
-            usable = _min_side(track.bbox) >= self.config.confirm_min_side_px and (
-                self.config.confirm_max_range_m is None
-                or (view_range is not None and view_range <= self.config.confirm_max_range_m)
+            usable = (
+                _min_side(track.bbox) >= self.config.confirm_min_side_px
+                and (
+                    self.config.confirm_max_range_m is None
+                    or (view_range is not None and view_range <= self.config.confirm_max_range_m)
+                )
+                # A box cut off by the image border shows only part of the object:
+                # it never confirms, and its "no" is no usable vote against a
+                # confirm either (SITL lookgeometry 3121ac38: a hydrant clipped
+                # to 31x20 px at the image bottom, rejected at 0.74, outvoted a
+                # 23 px unclipped confirm into a relook and was never counted).
+                and not (verdict == "no_match" and self._touches_border(track.bbox))
             )
             self._place_votes.append(
                 {
@@ -1814,6 +1850,39 @@ class OnboardLoop:
                     if place_key is not None:
                         self._contradiction_relook_places[place_key] = place_used + 1
 
+    def _net_small_reject(self, track: Track, confidence: float | None) -> None:
+        """A small-box "no" cancels the latest positive view of ``track`` (count).
+
+        The track keeps its positive verdict, is asked again from the next view
+        (the approach focus is re-verified every step), and needs one more
+        positive view than before to count; a second "no" resets it as usual.
+        The rejection is not remembered as a place rejection.
+        """
+        track.small_rejects_netted += 1
+        dropped = track.match_steps.pop()
+        if dropped in track.confirm_steps:
+            track.confirm_steps.remove(dropped)
+        track.verdict = "confirm" if track.confirm_steps else "approach"
+        track.verdict_step = self.step_index
+        track.verdict_ground = track.ground
+        track.verdict_side_px = _min_side(track.bbox)
+        track.needs_fresh_verdict = False
+        track.verdict_remembered = False
+        track.identity_reject_matches += 1
+        track.identity_verdict_history.append("no_match")
+        self.netted_rejections.append(
+            {
+                "track_id": track.track_id,
+                "step": self.step_index,
+                "min_side_px": round(_min_side(track.bbox), 1),
+                "confidence": None if confidence is None else round(float(confidence), 4),
+                "ground": None
+                if track.ground is None
+                else [round(float(track.ground[0]), 2), round(float(track.ground[1]), 2)],
+                "positive_views_left": len(track.match_steps),
+            }
+        )
+
     def _view_bearing(self, track: Track) -> float | None:
         if track.ground is None or self._last_pose is None:
             return None
@@ -1829,9 +1898,14 @@ class OnboardLoop:
 
     def _apply_contradiction_vote(self, track: Track, verdict: str) -> None:
         view_range = self._track_range(track)
-        if _min_side(track.bbox) < self.config.confirm_min_side_px or (
-            self.config.confirm_max_range_m is not None
-            and (view_range is None or view_range > self.config.confirm_max_range_m)
+        if (
+            _min_side(track.bbox) < self.config.confirm_min_side_px
+            or (
+                self.config.confirm_max_range_m is not None
+                and (view_range is None or view_range > self.config.confirm_max_range_m)
+            )
+            # A clipped box's "no" is not a usable vote (see apply_verdict).
+            or (verdict == "no_match" and self._touches_border(track.bbox))
         ):
             track.verdict = None
             track.verdict_step = -1
@@ -2873,6 +2947,7 @@ class OnboardLoop:
                 and track.verdict is not None
                 and track.verdict_step >= start
                 and math.dist(place, centre) <= radius
+                and not self._judged_short_of_view(look, track)
                 and (
                     not rejudge
                     or track.verdict in {"approach", "confirm"}
@@ -2881,6 +2956,27 @@ class OnboardLoop:
             ):
                 return f"judged_{track.verdict}"
         return None
+
+    def _judged_short_of_view(self, look: Mapping[str, Any], track: Track) -> bool:
+        """``track``'s verdict came from a smaller box than a count look plans, before its view.
+
+        A count closer look (small unjudged or small rejected place) was planned
+        so the box reaches ``target_side_px`` at a viewpoint clear of obstacles;
+        an answer from a smaller box on the way there is no better than the
+        views the place already had.  SITL lookgeometry 2435e7b9: a hydrant
+        judged "approach" at 12 px from the cruise altitude 24 m out ended a
+        look planned for 15.6 px from 9 m, the plain approach toward it was
+        blocked by the apartment block, and one "no" at 10 px dropped it.  Patrol
+        and monitor looks (``alert_look``) are unchanged: their first positive
+        answer is the alert.
+        """
+        if look.get("alert_look") or track.verdict_side_px is None:
+            return False
+        view_step = look.get("view_step")
+        if view_step is not None and track.verdict_step >= view_step:
+            return False
+        target = look.get("target_side_px")
+        return target is not None and track.verdict_side_px < float(target) - 1e-6
 
     def _end_small_unjudged(self, look: dict[str, Any], outcome: str, pose_ned):
         """Record ``outcome`` and climb back to the altitude the look started from."""
@@ -2922,6 +3018,18 @@ class OnboardLoop:
             look["phase"] = "look"
             # Frames from the next one on are taken at the viewpoint.
             look["view_step"] = self._frame_step + 1
+            if not look.get("alert_look"):
+                # Answers given on the way, from smaller boxes, are asked again here.
+                radius = self._small_unjudged_radius()
+                for track in self._tracks.values():
+                    place = self.target_position(track)
+                    if (
+                        place is not None
+                        and track.verdict is not None
+                        and math.dist(place, look["centre"]) <= radius
+                        and self._judged_short_of_view(look, track)
+                    ):
+                        track.needs_fresh_verdict = True
             if look.get("rejection_look"):
                 # A count rejection look: the rejected tracks there are asked
                 # again from this view, as the level rejection revisit does.
@@ -3643,6 +3751,21 @@ class OnboardLoop:
                     # track at the same place keeps the running plan and budget.
                     self._end_fw_pass()
             look = self._revisit
+            if (
+                look is not None
+                and look.get("staged")
+                and look["phase"] != "climb"
+                and self.target_position(best) is not None
+                and math.dist(self.target_position(best), look["centre"])
+                <= self._small_unjudged_radius()
+                and self._judged_short_of_view(look, best)
+            ):
+                # Judged a match from a smaller box than the look plans, before
+                # its viewpoint: keep flying the look and judge it from there.
+                action = self._second_look_action(pose_ned, yaw_deg, info)
+                if action is not None:
+                    return action, info
+                look = self._revisit
             if (
                 look is not None
                 and look.get("staged")
