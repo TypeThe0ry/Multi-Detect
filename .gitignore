@@ -100,4 +100,3 @@ models/**/*.plan
 
 # Robustness-suite world variants generated at run time by scripts/augment_sim_world.py
 simulation/gazebo/worlds/*__*.sdf
-simulation/gazebo/worlds/variants/
