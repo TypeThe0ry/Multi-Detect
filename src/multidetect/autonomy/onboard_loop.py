@@ -395,6 +395,9 @@ class Track:
     # remaining history is incomplete, so this track must not be ground-reid.
     covis_truncated: bool = False
     needs_fresh_verdict: bool = False
+    # Bounded recovery attempts after a spatially associated rejection.  A
+    # positive answer must clear this gate before it can train confirmation.
+    rejection_recovery_attempts: int = 0
     # Number of small-box rejection rechecks already scheduled for this track.
     small_reject_rechecks: int = 0
     # Small-box rejections that cancelled a positive view (small_reject_net_votes).
@@ -573,6 +576,11 @@ class LoopConfig:
     # (fullsuite 20261023): a backpack rejected at 12 px grew to 19 px within
     # four steps and was never asked again; the same model says "approach" there.
     grown_reject_reask_ratio: float | None = None
+    # A later positive at a previously rejected place may reopen the candidate,
+    # but only when the model supplies a sufficiently confident answer.
+    rejection_recovery_min_confidence: float = 0.75
+    rejection_recovery_max_attempts: int = 2
+    rejection_recovery_enabled: bool = False
     # Search below the cruise altitude (e.g. for small objects), when the map is clear.
     search_altitude_m: float | None = None
     # At the closest view, this many views whose verdict says "this is the task's
@@ -882,6 +890,18 @@ class LoopConfig:
             or self.grown_reject_reask_ratio <= 1.0
         ):
             raise ValueError("grown_reject_reask_ratio must be finite and > 1, or None")
+        if not math.isfinite(self.rejection_recovery_min_confidence) or not (
+            0 <= self.rejection_recovery_min_confidence <= 1
+        ):
+            raise ValueError("rejection_recovery_min_confidence must be in [0, 1]")
+        if (
+            isinstance(self.rejection_recovery_max_attempts, bool)
+            or not isinstance(self.rejection_recovery_max_attempts, int)
+            or self.rejection_recovery_max_attempts < 1
+        ):
+            raise ValueError("rejection_recovery_max_attempts must be a positive integer")
+        if not isinstance(self.rejection_recovery_enabled, bool):
+            raise ValueError("rejection_recovery_enabled must be a boolean")
 
 
 @dataclass(slots=True)
@@ -1710,6 +1730,44 @@ class OnboardLoop:
         ):
             self._apply_contradiction_vote(track, verdict)
             return
+        # A spatial rejection is a suppressor, not a permanent identity label.
+        # A later positive observation must explicitly reopen the place before
+        # it can contribute confirmation evidence.  Unknown confidence is kept
+        # for logged legacy traces; when confidence is present, low-confidence
+        # flips remain suppressed and do not start confirmation.
+        rejection = (
+            self._rejection_at(track)
+            if not remembered
+            and self.config.rejection_recovery_enabled
+            and verdict in {"confirm", "approach"}
+            and track.rejection_recovery_attempts == 0
+            else None
+        )
+        if rejection is not None:
+            attempts = int(rejection.get("recovery_attempts", 0))
+            if attempts >= self.config.rejection_recovery_max_attempts:
+                track.needs_fresh_verdict = True
+                return
+            rejection["recovery_attempts"] = attempts + 1
+            track.rejection_recovery_attempts = attempts + 1
+            if (
+                confidence is not None
+                and confidence < self.config.rejection_recovery_min_confidence
+            ):
+                track.needs_fresh_verdict = True
+                track.verdict = None
+                track.verdict_step = -1
+                track.identity_verdict_history.append("recovery_suppressed")
+                return
+            # This positive is the bounded recovery event.  Remove only the
+            # place-level negative memory; normal confirmation thresholds still
+            # decide whether the candidate is counted.
+            # Keep the record as a bounded per-place retry counter.  The
+            # recovered track itself is exempt from this gate; a new track at
+            # the same place still consumes the remaining retry budget.
+            for place in self._place_memory.places:
+                if self._same_place({"ground": place.center, "appearance": place.appearance}, track):
+                    place.verdicts = [v for v in place.verdicts if v != "reject_track"]
         small_recheck = (
             not remembered
             and decision == "reject_track"
