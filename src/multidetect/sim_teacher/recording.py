@@ -9,6 +9,7 @@ import json
 import math
 import threading
 import time
+from queue import Queue
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ class EpisodeRecorder:
         record_depth: bool = True,
         deduplicate_depth: bool = False,
         compress_mavlink: bool = False,
+        async_metadata: bool = False,
     ):
         self.episode_dir = Path(root) / "episodes" / episode_id
         self.rgb_dir = self.episode_dir / "rgb"
@@ -59,6 +61,19 @@ class EpisodeRecorder:
         self.record_depth = bool(record_depth)
         self.deduplicate_depth = deduplicate_depth
         self.compress_mavlink = compress_mavlink
+        self.async_metadata = bool(async_metadata)
+        self._metadata_queue: Queue[tuple[str, dict[str, Any]] | None] | None = (
+            Queue() if self.async_metadata else None
+        )
+        self._metadata_thread: threading.Thread | None = None
+        self._metadata_error: BaseException | None = None
+        if self._metadata_queue is not None:
+            self._metadata_thread = threading.Thread(
+                target=self._metadata_writer,
+                name="sim-teacher-metadata-writer",
+                daemon=True,
+            )
+            self._metadata_thread.start()
         self._previous_depth: Any = None
         self._previous_depth_path: str | None = None
         self.episode_path = self.episode_dir / "episode.json"
@@ -96,6 +111,39 @@ class EpisodeRecorder:
             )
         self.episode_path.write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
 
+    def _metadata_writer(self) -> None:
+        assert self._metadata_queue is not None
+        while True:
+            item = self._metadata_queue.get()
+            try:
+                if item is None:
+                    return
+                path, payload = item
+                try:
+                    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                except BaseException as exc:
+                    self._metadata_error = exc
+            finally:
+                self._metadata_queue.task_done()
+
+    def _write_metadata(self) -> None:
+        payload = dict(self.meta)
+        if self._metadata_queue is None:
+            self.episode_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        else:
+            self._metadata_queue.put((str(self.episode_path), payload))
+
+    def _finish_metadata_writer(self) -> None:
+        if self._metadata_queue is None or self._metadata_thread is None:
+            return
+        self._metadata_queue.join()
+        self._metadata_queue.put(None)
+        self._metadata_queue.join()
+        self._metadata_thread.join(timeout=5.0)
+        self._metadata_thread = None
+        if self._metadata_error is not None:
+            raise RuntimeError("asynchronous episode metadata write failed") from self._metadata_error
+
     def begin_mavlink_stream(self) -> None:
         with self._mavlink_lock:
             if self._mavlink_file is None:
@@ -122,7 +170,8 @@ class EpisodeRecorder:
         if failure:
             self.meta["failure"] = failure
         self.close_mavlink_stream()
-        self.episode_path.write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
+        self._write_metadata()
+        self._finish_metadata_writer()
 
     def _observation(self, obs: dict[str, Any] | None, prefix: str) -> dict[str, Any] | None:
         if obs is None:
@@ -263,7 +312,7 @@ class EpisodeRecorder:
             f.write(json.dumps(row, default=_json_default) + "\n")
         self.index += 1
         self.meta["step_count"] = self.index
-        self.episode_path.write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
+        self._write_metadata()
 
     def record_mavlink(self, message: Any) -> None:
         row = message if isinstance(message, dict) else {"message": str(message)}

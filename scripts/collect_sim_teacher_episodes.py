@@ -232,6 +232,8 @@ class CollectionPlan:
     compress_mavlink: bool = False
     onboard_frame_format: str = "png"
     onboard_frame_quality: int = 90
+    async_metadata: bool = False
+    sensor_poll_interval_s: float = 0.02
     min_free_gb: float = 15.0
     disk_check_interval_steps: int = 10
     video_hz: float = 0.0
@@ -2669,6 +2671,7 @@ def _fresh_sensor_snapshot(
     timeout_s: float,
     *,
     min_sensor_stamp_ns: int | None = None,
+    poll_interval_s: float = 0.02,
 ):
     """Wait for a fresh frame at or beyond a requested simulation timestamp.
 
@@ -2692,7 +2695,7 @@ def _fresh_sensor_snapshot(
             )
         ):
             return sample
-        time.sleep(0.02)
+        time.sleep(max(0.001, float(poll_interval_s)))
     raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
 
 
@@ -2929,6 +2932,7 @@ def run_episode(
         rgb_format=plan.rgb_format,
         rgb_quality=plan.rgb_quality,
         record_depth=plan.capture_depth,
+        async_metadata=plan.async_metadata,
     )
     video_writer = (
         ContinuousVideoWriter(
@@ -3423,6 +3427,7 @@ def run_episode(
                     time.monotonic_ns(),
                     SENSOR_FRAME_WAIT_S,
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
+                    poll_interval_s=plan.sensor_poll_interval_s,
                 )
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
                 before = build_observation(
@@ -3607,6 +3612,7 @@ def run_episode(
                     primitive_end_ns,
                     SENSOR_FRAME_WAIT_S,
                     min_sensor_stamp_ns=after_pose_sim_stamp_ns,
+                    poll_interval_s=plan.sensor_poll_interval_s,
                 )
                 after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
                 after = build_observation(
@@ -3866,6 +3872,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compress-mavlink", action="store_true")
     parser.add_argument("--onboard-frame-format", choices=("png", "jpeg"), default="png")
     parser.add_argument("--onboard-frame-quality", type=int, default=90)
+    parser.add_argument(
+        "--async-metadata-writes",
+        action="store_true",
+        help="write episode.json snapshots on a background thread; steps and images remain synchronous",
+    )
+    parser.add_argument(
+        "--sensor-poll-interval-s",
+        type=float,
+        default=0.02,
+        help="frame wait polling interval; freshness and simulation timestamp gates are unchanged",
+    )
     parser.add_argument("--min-free-gb", type=float, default=DEFAULT_MIN_FREE_GB)
     parser.add_argument(
         "--disk-check-interval-steps", type=int, default=DEFAULT_DISK_CHECK_INTERVAL_STEPS
@@ -3957,6 +3974,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
         raise SystemExit("--video-hz must be non-negative and --video-max-gb positive")
+    if not 0.001 <= args.sensor_poll_interval_s <= 1.0:
+        raise SystemExit("--sensor-poll-interval-s must be between 0.001 and 1.0")
     if not 1 <= args.rgb_quality <= 100:
         raise SystemExit("--rgb-quality must be between 1 and 100")
     if not 1.0 <= args.timeout_s <= 86400.0:
@@ -4010,6 +4029,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         compress_mavlink=args.compress_mavlink,
         onboard_frame_format=args.onboard_frame_format,
         onboard_frame_quality=args.onboard_frame_quality,
+        async_metadata=args.async_metadata_writes,
+        sensor_poll_interval_s=args.sensor_poll_interval_s,
         min_free_gb=args.min_free_gb,
         disk_check_interval_steps=args.disk_check_interval_steps,
         video_hz=args.video_hz,
