@@ -116,6 +116,8 @@ server，且 `--cache-ram 0` 保持关闭主机 prompt cache。切换耗时写�
 
 `final_summary` 保留原始审计字段，并增加 `operator_summary`、`summary_zh`、`summary_en` 供操作员阅读；机载 `mission_summary.json/.txt` 与这两个文本使用同一份报告历史、发现、计数、告警和终止字段。`count_is_lower_bound=true` 时显示“至少 N 个（原因：…）”，不得把部分搜索写成完整覆盖。`coverage_partial` 表示存在跳过航点；拒绝项或小目标补看跳过时应安排人工/近距离复核；慢模型不可用、跟踪预算耗尽或遥测断档时，应按文案恢复链路、核查预算或重新复核。过长摘要会保留状态、计数、告警和终止原因，裁减发现/证据等细节并设置 `detail_truncated` 与 `omitted`。分页每页完整 JSON 的 UTF-8 字节数不超过 1,536。
 
+GCS 任务结束卡片优先显示类型正确且非空的 `summary_zh`，否则依次回退到 `summary_en`、旧字段（状态、计数、发现数）拼出的文本；旧版机载不带新字段时仍按此回退规则显示。`count_lower_bounds` 中为 `true` 的步骤以醒目的“下限计数”标出，`detail_truncated=true` 时显示“细节已截断”及 `omitted` 中的省略条数；`operator_summary` 的状态、终止动作和终止原因单独显示为结构化行。分页必须按页号排序后一次性解析，重复页内容冲突、总页数冲突、缺页超时或 JSON 非法时清空可展示摘要并显示“摘要未完整接收”，不得显示半成品；类型错误的可选字段直接忽略。
+
 每个终止路径恰好写一条 `final_summary`：正常完成（`completed`）、监督器锁定返航／降落（含操作员中止、能量／时间储备、失联策略，状态 `ended_early`，在锁定时立即写，不等返航飞完）、计划被拒（`plan_rejected`）、宿主停止任务（`stopped`）。摘要包含已有历史、发现、报警、计数、每个计数步骤的 `count_lower_bounds`、`count_is_lower_bound`（计数步骤未完成覆盖即为 true）、`terminal_action`／`terminal_reason`。SIM 采集器在 `policy.close()` 之前调用 `_drain_sim_operator_link`：先补写摘要，再等待下行确认到日志末尾，最后在所有路径关闭地面链路服务器。
 
 界面主要显示中文判定、原因和日志摘要。勾选“显示机载原始审计字段”可以查看机器原文。地面站离线不暂停机载日志，也不引入正常步骤的地面批准要求。

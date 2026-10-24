@@ -32,6 +32,7 @@ class MultiDetectMissionController final : public QObject
     Q_PROPERTY(QVariantList alerts READ alerts NOTIFY telemetryChanged)
     Q_PROPERTY(QVariantMap finalSummary READ finalSummary NOTIFY telemetryChanged)
     Q_PROPERTY(bool finalSummaryComplete READ finalSummaryComplete NOTIFY telemetryChanged)
+    Q_PROPERTY(QString finalSummaryState READ finalSummaryState NOTIFY telemetryChanged)
     Q_PROPERTY(int summaryPagesReceived READ summaryPagesReceived NOTIFY telemetryChanged)
     Q_PROPERTY(int summaryPagesTotal READ summaryPagesTotal NOTIFY telemetryChanged)
     Q_PROPERTY(bool onboardCompiling READ onboardCompiling NOTIFY stateChanged)
@@ -72,6 +73,7 @@ public:
     QVariantList alerts() const { return _alerts; }
     QVariantMap finalSummary() const { return _finalSummary; }
     bool finalSummaryComplete() const { return _finalSummaryComplete; }
+    QString finalSummaryState() const { return _finalSummaryState; }
     int summaryPagesReceived() const { return static_cast<int>(_summaryPages.size()); }
     int summaryPagesTotal() const { return _summaryPageCount; }
     // The last package chunk was received and the aircraft is still planning;
@@ -175,8 +177,11 @@ private:
     QVariantList _alerts;
     QVariantMap _finalSummary;
     bool _finalSummaryComplete = false;
+    QString _finalSummaryState;
     QHash<int, QByteArray> _summaryPages;
     int _summaryPageCount = 0;
+    qint64 _summaryDeadline = -1;
+    bool _summaryAssemblyInvalid = false;
     quint64 _lastStatusSequence = 0;
     quint64 _lastLogSequence = 0;
     QHash<quint64, Assembly> _assemblies;
