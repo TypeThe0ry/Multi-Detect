@@ -1041,7 +1041,18 @@ class OnboardPolicy:
         llama_batch_size = options.get("llama_batch_size")
         llama_ubatch_size = options.get("llama_ubatch_size")
 
-        def make_identity_runner():
+        initial_startup_timeout_s = float(
+            (options.get("health") or {}).get("slow_initial_startup_timeout_s", 180.0)
+            if isinstance(options.get("health"), dict)
+            else 180.0
+        )
+        restart_startup_timeout_s = float(
+            (options.get("health") or {}).get("slow_restart_startup_timeout_s", 30.0)
+            if isinstance(options.get("health"), dict)
+            else 30.0
+        )
+
+        def make_identity_runner(startup_timeout_s: float):
             health_opts = options.get("health") if isinstance(options.get("health"), dict) else {}
             return LlamaServerRunner(
                 Path(options["gguf"]),
@@ -1057,12 +1068,12 @@ class OnboardPolicy:
                 cache_ram_mib=cache_ram_mib,
                 log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
                 keep_logs=int(options.get("llama_keep_logs", 3)),
-                startup_timeout_s=float(health_opts.get("slow_startup_timeout_s", 5.0)),
+                startup_timeout_s=startup_timeout_s,
                 batch_size=llama_batch_size,
                 ubatch_size=llama_ubatch_size,
             )
 
-        self._make_identity_runner = make_identity_runner
+        self._make_identity_runner = lambda: make_identity_runner(restart_startup_timeout_s)
 
         def start_identity_runner():
             if slow_runner is not None:
@@ -1070,7 +1081,7 @@ class OnboardPolicy:
             deadline = time.monotonic() + 10.0
             while True:
                 try:
-                    return make_identity_runner()
+                    return make_identity_runner(initial_startup_timeout_s)
                 except Exception as exc:
                     address_busy = (
                         "address already in use" in str(exc).lower()
@@ -1107,18 +1118,27 @@ class OnboardPolicy:
                 self._model_runtime["planning_fallback_to_identity"] = True
                 self.slow = start_identity_runner()
         elif slow_runner is None:
-            self.slow = make_identity_runner()
+            self.slow = make_identity_runner(initial_startup_timeout_s)
         else:
             self.slow = slow_runner
         health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
         self._health_labels_enabled = bool(health_options.get("enabled", False))
-        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 5.0))
+        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 15.0))
         # Seconds to keep trying to revive the identity runner after a slow
         # call failed (transport fault or crash).  0 keeps the previous
         # behaviour: the failure propagates immediately.
         self.slow_restart_budget_s = float(health_options.get("slow_restart_budget_s", 2.0))
         self.slow_restart_limit = max(0, int(health_options.get("slow_restart_limit", 1)))
-        self.slow.max_restarts = self.slow_restart_limit
+        self.slow_restart_interval_s = float(health_options.get("slow_restart_interval_s", 5.0))
+        self._slow_restart_attempts = 0
+        self._slow_restart_next_retry = 0.0
+        self._slow_restart_startup_timeout_s = restart_startup_timeout_s
+        self._slow_restart_thread = None
+        self._slow_restart_result = None
+        self._slow_restart_error = None
+        # The policy owns retry decisions so a request timeout cannot trigger
+        # LlamaServerRunner's generic three-failure restart behavior.
+        self.slow.max_restarts = 0
         self.slow.request_timeout_s = self.slow_call_timeout_s
         health_defaults = {
             "enabled": True,
@@ -1808,6 +1828,19 @@ class OnboardPolicy:
             shutdown = getattr(self, "_model_shutdown", None)
 
             def call_once():
+                restart_thread = getattr(self, "_slow_restart_thread", None)
+                if restart_thread is not None and not restart_thread.is_alive():
+                    restart_thread.join(timeout=0)
+                    self._slow_restart_thread = None
+                    if self._slow_restart_result is not None:
+                        self.slow = self._slow_restart_result
+                        self._slow_restart_result = None
+                        self.health.runner = self.slow
+                    elif self._slow_restart_error is not None:
+                        self._slow_restart_error = None
+                        self._slow_restart_next_retry = time.monotonic() + self.slow_restart_interval_s
+                if self.slow is None:
+                    raise ConnectionRefusedError("slow runner unavailable; restart pending")
                 if lock is not None:
                     if shutdown is not None and shutdown.is_set():
                         raise RuntimeError("onboard policy is shutting down")
@@ -1815,30 +1848,71 @@ class OnboardPolicy:
                 return self.slow(row)
 
             def restart_runner():
-                close = getattr(self.slow, "close", None)
-                if close is not None:
+                old_runner = self.slow
+                self.slow = None
+                self._slow_restart_attempts += 1
+
+                def build_runner():
                     try:
-                        close(wait_port_free=True)
-                    except TypeError:
-                        close()
-                self.slow = self._make_identity_runner()
+                        close = getattr(old_runner, "close", None)
+                        if callable(close):
+                            try:
+                                close(wait_port_free=False)
+                            except TypeError:
+                                close()
+                        runner = self._make_identity_runner()
+                        runner.request_timeout_s = self.slow_call_timeout_s
+                        runner.max_restarts = 0
+                        if shutdown is not None and shutdown.is_set():
+                            close = getattr(runner, "close", None)
+                            if callable(close):
+                                close()
+                            return
+                    except Exception as error:
+                        self._slow_restart_error = error
+                    else:
+                        self._slow_restart_result = runner
+
+                self._slow_restart_result = None
+                self._slow_restart_error = None
+                self._slow_restart_thread = threading.Thread(
+                    target=build_runner, name="onboard-slow-restart", daemon=True
+                )
+                self._slow_restart_thread.start()
                 health = getattr(self, "health", None)
                 if health is not None:
-                    health.runner = self.slow
+                    health.runner = None
+
+            def service_is_gone(error: Exception) -> bool:
+                runner = getattr(self, "slow", None)
+                process = getattr(runner, "process", None) if runner is not None else None
+                if process is not None and process.poll() is not None:
+                    return True
+                if isinstance(error, ConnectionRefusedError):
+                    return True
+                reason = getattr(error, "reason", None)
+                if isinstance(reason, ConnectionRefusedError):
+                    return True
+                return getattr(error, "errno", None) in {10061, 111}
 
             try:
                 raw, latency = call_once()
             except Exception as exc:
                 budget = float(getattr(self, "slow_restart_budget_s", 0.0) or 0.0)
-                if budget <= 0:
+                gone = service_is_gone(exc)
+                restart_limit = getattr(self, "slow_restart_limit", 1)
+                next_retry = getattr(self, "_slow_restart_next_retry", 0.0)
+                if (
+                    not gone
+                    or budget <= 0
+                    or self._slow_restart_attempts >= restart_limit
+                    or time.monotonic() < next_retry
+                ):
                     raise
                 deadline = time.monotonic() + budget
                 last_error: Exception = exc
                 recovered = False
-                restart_count = 0
-                while time.monotonic() < deadline and restart_count < getattr(
-                    self, "slow_restart_limit", 1
-                ):
+                while time.monotonic() < deadline and self._slow_restart_attempts < restart_limit:
                     try:
                         if lock is not None:
                             with lock:
@@ -1847,8 +1921,12 @@ class OnboardPolicy:
                             restart_runner()
                     except Exception as restart_error:
                         last_error = restart_error
+                        self.slow = None
+                        if self._slow_restart_thread is None:
+                            self._slow_restart_next_retry = time.monotonic() + self.slow_restart_interval_s
+                        if self.health is not None:
+                            self.health.runner = None
                     else:
-                        restart_count += 1
                         try:
                             raw, latency = call_once()
                         except Exception as retry_error:
@@ -1882,6 +1960,11 @@ class OnboardPolicy:
             health.record_slow_call(float(latency), ok=decision is not None)
         if decision is None:
             self._slow_failed_current = True
+            self._slow_unavailable_reason = f"慢模型不可用: invalid output: {error}"
+            supervisor = getattr(self, "supervisor", None)
+            record_unavailable = getattr(supervisor, "record_slow_model_unavailable", None)
+            if callable(record_unavailable):
+                record_unavailable("invalid_output", str(error))
         identity = identity_of(decision["decision"]) if decision else None
         return {
             "track_id": focus.track_id,
