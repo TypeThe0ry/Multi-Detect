@@ -30,6 +30,7 @@ public:
 
     static bool signDocument(QJsonObject* document, const SigningKey& key, const QString& keyId,
                              QString* error);
+    static bool verifyDocument(const QJsonObject& document, const SigningKey& key, QString* error);
     static bool signGroundCommand(QJsonObject* command, const SigningKey& key, const QString& keyId,
                                   QString* error);
 

@@ -241,6 +241,24 @@ bool MultiDetectMissionSecurity::signDocument(QJsonObject* document, const Signi
     return sign(document, key, keyId, error);
 }
 
+bool MultiDetectMissionSecurity::verifyDocument(const QJsonObject& document, const SigningKey& key, QString* error)
+{
+    const QString algorithm = document.value(QStringLiteral("signature_alg")).toString();
+    const QByteArray encoded = document.value(QStringLiteral("signature")).toString().toLatin1();
+    const QByteArray signature = QByteArray::fromBase64(encoded);
+    if (algorithm.isEmpty() || signature.isEmpty() || !key.isValid() || algorithm != key.algorithm) {
+        if (error) *error = QStringLiteral("任务包签名缺失或签名算法与配置不匹配");
+        return false;
+    }
+    const QByteArray payload = canonicalJson(document, {QStringLiteral("signature"), QStringLiteral("signature_alg")});
+    if (algorithm == QStringLiteral("hmac-sha256")) {
+        const QByteArray expected = QMessageAuthenticationCode::hash(payload, key.material, QCryptographicHash::Sha256);
+        if (expected == signature) return true;
+    }
+    if (error) *error = QStringLiteral("任务包签名校验失败");
+    return false;
+}
+
 bool MultiDetectMissionSecurity::signGroundCommand(QJsonObject* command, const SigningKey& key,
                                                    const QString& keyId, QString* error)
 {

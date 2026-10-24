@@ -29,6 +29,10 @@ def test_gcs_environment_maps_session_keys_and_disables_automation():
     assert "MULTIDETECT_UI_AUTO_EXIT_S" not in env
     assert env["KEEP"] == "yes"
 
+def test_task_package_environment_is_available_for_gcs(monkeypatch, tmp_path):
+    env = demo.gcs_environment(sample_link(), {"MULTIDETECT_MISSION_PACKAGE_PATH": str(tmp_path / "old.json")})
+    assert env["MULTIDETECT_MISSION_PACKAGE_PATH"].endswith("old.json")
+
 
 def test_cleanup_targets_only_recorded_resources(monkeypatch):
     calls = []

@@ -90,6 +90,9 @@ MultiDetectMissionController::MultiDetectMissionController(QObject* parent) : QO
     _missionKeyId = qEnvironmentVariable("MULTIDETECT_OPERATOR_KEY_ID", "default").trimmed();
     _requireMissionSignature = qEnvironmentVariable("MULTIDETECT_EXPECTED_RUNTIME_MODE").trimmed().toUpper() ==
                                QStringLiteral("REAL");
+    const QString configuredPackage = qEnvironmentVariable("MULTIDETECT_MISSION_PACKAGE_PATH").trimmed();
+    if (!configuredPackage.isEmpty())
+        loadEnvironmentPackage();
     _timer.setInterval(250);
     connect(&_timer, &QTimer::timeout, this, &MultiDetectMissionController::_poll);
     _timer.start();
@@ -166,6 +169,29 @@ bool MultiDetectMissionController::loadFile(const QUrl& url)
     _state = QStringLiteral("任务包已载入；尚未上传");
     emit stateChanged();
     return _valid;
+}
+
+bool MultiDetectMissionController::loadEnvironmentPackage()
+{
+    const QString path = qEnvironmentVariable("MULTIDETECT_MISSION_PACKAGE_PATH").trimmed();
+    if (path.isEmpty())
+        return false;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return _fail(QStringLiteral("预选任务包不存在或无法读取：%1").arg(path));
+    if (file.size() > MultiDetectMissionWire::kMaximumDocumentBytes)
+        return _fail(QStringLiteral("预选任务包超过 64 KiB 传输上限"));
+    const QByteArray data = file.readAll();
+    QJsonObject document;
+    QString error;
+    if (!MultiDetectMissionPackage::parse(data, &document, &error))
+        return _fail(QStringLiteral("预选任务包校验失败：%1").arg(error));
+    if (!MultiDetectMissionSecurity::verifyDocument(document, _packageKey, &error))
+        return _fail(QStringLiteral("预选任务包签名校验失败：%1").arg(error));
+    setPackageJson(QString::fromUtf8(data));
+    _state = QStringLiteral("已预选任务包；尚未上传");
+    emit stateChanged();
+    return true;
 }
 
 bool MultiDetectMissionController::saveFile(const QUrl& url)

@@ -171,6 +171,34 @@ int main(int argc, char** argv)
                   .size() == 128,
           "full fragment fits 128 bytes");
 
+    const QByteArray preloadKey(32, 'p');
+    const QString preloadPath = QDir::temp().filePath(QStringLiteral("multidetect-preselected-package.json"));
+    QJsonObject signedPackage = document;
+    check(MultiDetectMissionSecurity::signDocument(&signedPackage,
+          MultiDetectMissionSecurity::SigningKey{QStringLiteral("hmac-sha256"), preloadKey},
+          QStringLiteral("default"), &error), "preselected fixture signed");
+    QFile preloadFile(preloadPath);
+    check(preloadFile.open(QIODevice::WriteOnly) && preloadFile.write(QJsonDocument(signedPackage).toJson()) > 0,
+          "preselected fixture written");
+    preloadFile.close();
+    qunsetenv("MULTIDETECT_MISSION_PACKAGE_PATH");
+    { MultiDetectMissionController absent; check(!absent.valid(), "path absent leaves draft unchanged"); }
+    qputenv("MULTIDETECT_MISSION_PACKAGE_PATH", preloadPath.toUtf8());
+    qputenv("MULTIDETECT_OPERATOR_SIGNING_KEY", QByteArray("hmac:") + preloadKey.toHex());
+    { MultiDetectMissionController loaded; check(loaded.valid() && loaded.uploadState().contains(QStringLiteral("预选")), "signed package preselected"); }
+    qputenv("MULTIDETECT_MISSION_PACKAGE_PATH", (preloadPath + QStringLiteral(".missing")).toUtf8());
+    qputenv("MULTIDETECT_OPERATOR_SIGNING_KEY", QByteArray("hmac:") + preloadKey.toHex());
+    { MultiDetectMissionController missing; check(missing.uploadState().contains(QStringLiteral("不存在")), "missing package reported"); }
+    signedPackage[QStringLiteral("signature")] = QStringLiteral("bad");
+    check(preloadFile.open(QIODevice::WriteOnly) && preloadFile.write(QJsonDocument(signedPackage).toJson()) > 0,
+          "invalid signature fixture written");
+    preloadFile.close();
+    qputenv("MULTIDETECT_MISSION_PACKAGE_PATH", preloadPath.toUtf8());
+    qputenv("MULTIDETECT_OPERATOR_SIGNING_KEY", QByteArray("hmac:") + preloadKey.toHex());
+    { MultiDetectMissionController bad; check(bad.uploadState().contains(QStringLiteral("签名校验失败")), "bad signature reported"); }
+    qunsetenv("MULTIDETECT_MISSION_PACKAGE_PATH");
+    qunsetenv("MULTIDETECT_OPERATOR_SIGNING_KEY");
+
     MultiDetectMissionController controller;
     check(!controller.valid(), "blank draft cannot upload");
     controller.setPackageJson(QString::fromUtf8(package));

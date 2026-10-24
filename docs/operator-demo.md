@@ -11,7 +11,7 @@ pwsh scripts/run_operator_demo.ps1 --gcs-exe build/windows-v0.2.0-release/portab
 
 ## 验收步骤
 
-1. 地面站出现操作员链路后，点击“任务包”，选择启动器生成的 `*.signed.json`（传入 `--task-package` 时会自动生成）。
+1. 若传入 `--task-package`，启动器会用会话密钥生成 `*.signed.json`，并通过 `MULTIDETECT_MISSION_PACKAGE_PATH` 让地面站启动后自动预选并校验该文件。文件只载入面板，不会自动上传；请人工点击上传/发送按钮后再下发。
 2. 等待计划卡和摘要信息出现，核对任务 ID、计划哈希和风险提示；点击批准，确认机载开始执行。
 3. 重复加载一个任务并点击拒绝，确认任务不解锁并进入安全状态。
 4. 执行中分别点击暂停、恢复、中止，确认状态和 ACK 在摘要中可见。
@@ -19,7 +19,7 @@ pwsh scripts/run_operator_demo.ps1 --gcs-exe build/windows-v0.2.0-release/portab
 
 ## 配置映射与限制
 
-`operator_bind_host/port` 映射为 `MULTIDETECT_OPERATOR_UDP_HOST/PORT`；本地接收端口使用 `operator_port + 1`。`operator_hmac_key_hex` 映射为 `MULTIDETECT_OPERATOR_KEY` 和 `hmac:` 格式的 `MULTIDETECT_GROUND_COMMAND_KEY`；`operator_mavlink_signing_key_hex` 映射为 `MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX`；`operator_package_key_hex` 映射为 `MULTIDETECT_OPERATOR_SIGNING_KEY=hmac:<hex>`。地面站没有通过环境变量自动加载任务包的能力，所以仍需在界面点击“任务包”。
+`operator_bind_host/port` 映射为 `MULTIDETECT_OPERATOR_UDP_HOST/PORT`；本地接收端口使用 `operator_port + 1`。`operator_hmac_key_hex` 映射为 `MULTIDETECT_OPERATOR_KEY` 和 `hmac:` 格式的 `MULTIDETECT_GROUND_COMMAND_KEY`；`operator_mavlink_signing_key_hex` 映射为 `MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX`；`operator_package_key_hex` 映射为 `MULTIDETECT_OPERATOR_SIGNING_KEY=hmac:<hex>`。`MULTIDETECT_MISSION_PACKAGE_PATH` 仅负责预选并校验文件，上传仍由操作员触发；路径不存在或签名错误会在任务包面板显示错误。
 
 演示不会设置 UI 自动退出或自动审批变量。日志写入 `D:\Projects\mdwt\_scratch\cx-demo-launcher\sim-session.log`。先用 `--dry-run` 查看命令和打码后的环境变量：
 

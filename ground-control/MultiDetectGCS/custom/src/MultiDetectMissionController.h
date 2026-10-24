@@ -92,6 +92,7 @@ public:
     Q_INVOKABLE QString defaultPolicy(const QString& risk) const;
     Q_INVOKABLE bool validate();
     Q_INVOKABLE bool loadFile(const QUrl& url);
+    Q_INVOKABLE bool loadEnvironmentPackage();
     Q_INVOKABLE bool saveFile(const QUrl& url);
     Q_INVOKABLE bool upload();
     Q_INVOKABLE bool abortMission();
