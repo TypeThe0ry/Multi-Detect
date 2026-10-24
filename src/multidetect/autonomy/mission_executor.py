@@ -64,6 +64,9 @@ class ExecutorConfig:
     step_budget: int = 60
     # Flying skills are bounded separately from searches.
     travel_budget: int = 150
+    # Patrol/monitor use a duration/route-derived primitive budget.  This is
+    # only a fail-safe ceiling; normal completion is owned by duration/loops.
+    tracking_budget_max: int = 4096
     max_translate_m: float = 15.0
     arrive_tolerance_m: float = 3.0
     # Flown yaw lands within ~15 deg of the command; the camera sees +-50 deg.
@@ -142,6 +145,12 @@ class ExecutorConfig:
     alert_grown_reask_ratio: float | None = 1.25
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.tracking_budget_max, bool)
+            or not isinstance(self.tracking_budget_max, int)
+            or self.tracking_budget_max < 1
+        ):
+            raise ValueError("tracking_budget_max must be a positive integer")
         for name in (
             "small_unjudged_revisit_attempts",
             "completion_revisit_max",
@@ -1030,7 +1039,7 @@ class MissionExecutor:
             if run is None:
                 return ActionPrimitive.stop(), {"mission": "done"}
             self._advance_time(run, timestamp_s)
-            if run.primitives >= self._budget(run.step):
+            if run.primitives >= self._budget(run.step, run):
                 self._budget_end(run)
                 continue
             result = self._act(run, pose_ned, yaw_deg, ground_point, frame_id)
@@ -1180,16 +1189,60 @@ class MissionExecutor:
         if run.observation_start_s is None:
             run.observation_start_s = run.elapsed_s
 
-    def _budget(self, step: MissionStep) -> int:
+    def _budget(self, step: MissionStep, run: _StepRun | None = None) -> int:
         if step.skill == "land":
             return max(1, self.config.landing_timeout_steps + 1)
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
-        if step.skill in {"goto", "inspect", "return_home", "survey", "deliver"} | _TRACKING_SKILLS:
+        if step.skill in {"patrol", "monitor"}:
+            # A fixed 150 primitive ceiling truncates long observations.  Use
+            # measured seconds/primitive once available, with hold_s as the
+            # conservative first-cycle estimate, and retain a generous,
+            # configurable ceiling for fail-closed behavior.
+            required = max(1, self.config.travel_budget)
+            if run is not None:
+                duration = step.params.get("duration_s")
+                if duration is not None:
+                    duration = max(0.0, float(duration))
+                    spent = run.held_s if step.skill == "monitor" else run.elapsed_s
+                    observed = (
+                        run.elapsed_s / run.primitives
+                        if run.primitives > 0 and run.elapsed_s > 0
+                        else self.config.hold_s
+                    )
+                    rate = max(0.1, float(observed), float(self.config.hold_s))
+                    required = max(
+                        required,
+                        run.primitives + math.ceil(max(0.0, duration - spent) / rate) + 2,
+                    )
+                if step.skill == "patrol":
+                    waypoints = run.waypoints or self.route_of(str(step.params.get("route_ref", ""))) or []
+                    if not waypoints:
+                        return min(required, self.config.tracking_budget_max)
+                    total = len(waypoints) * max(1, int(step.params.get("loops", 1)))
+                    here = (0.0, 0.0)
+                    legs = 0
+                    for index in range(run.waypoint_index, total):
+                        point = waypoints[index % len(waypoints)]
+                        legs += math.ceil(math.dist(here, point) / max(self.config.max_translate_m, 1e-6)) + 2
+                        here = point
+                    required = max(required, run.primitives + legs + 2)
+            return min(max(required, self.config.travel_budget), self.config.tracking_budget_max)
+        if step.skill in {"goto", "inspect", "return_home", "survey", "deliver"} | {"follow"}:
             return self.config.travel_budget
         return self.config.step_budget
 
     def _budget_end(self, run: _StepRun) -> None:
+        if run.step.skill in {"patrol", "monitor"} and self._duration_reached(run):
+            self._finish("succeeded", "duration_elapsed")
+            return
+        if run.step.skill in {"patrol", "monitor"}:
+            # The dynamic budget is capped only as a safety valve.  Reaching
+            # that cap must be visible to the mission log instead of looking
+            # like the legacy fixed-budget truncation.
+            self.alerts.append(f"{run.step.id}:tracking_budget_exhausted")
+            self._finish("failed", "tracking_budget_exhausted")
+            return
         if run.step.skill == "count":
             self._report_count(run)
             self._finish("succeeded", "budget_exhausted")
@@ -1333,7 +1386,7 @@ class MissionExecutor:
             if self._leg_enters_no_fly(here, look["goal"]):
                 skip(centre, "leg_enters_no_fly")
                 continue
-            remaining = self._budget(run.step) - run.primitives
+            remaining = self._budget(run.step, run) - run.primitives
             if look.get("staged"):
                 # The closer look: as a small unjudged look, descent and climb included.
                 needed = self._staged_look_steps(loop, look)
@@ -1437,7 +1490,7 @@ class MissionExecutor:
                 area is None or self._point_inside_area(point, area)
             )
 
-        remaining = self._budget(run.step) - run.primitives
+        remaining = self._budget(run.step, run) - run.primitives
         candidates = sorted(
             loop.unresolved_positive_tracks(),
             key=lambda track: math.dist(loop.target_position(track), here),
@@ -1656,7 +1709,7 @@ class MissionExecutor:
             *run.rejection_revisit_places,
             *(tuple(record["centre"]) for record in run.small_unjudged_revisits),
         ]
-        remaining = self._budget(run.step) - run.primitives
+        remaining = self._budget(run.step, run) - run.primitives
         for place in sorted(places, key=lambda item: self._revisit_priority(loop, item, here)):
             centre = place["centre"]
             if not allowed(centre):
@@ -2037,7 +2090,7 @@ class MissionExecutor:
 
         dedupe = loop.config.count_dedupe_m
         looked = [tuple(record["centre"]) for record in run.alert_looks]
-        remaining = self._budget(run.step) - run.primitives
+        remaining = self._budget(run.step, run) - run.primitives
         duration = run.step.params.get("duration_s")
         remaining_s = None
         if duration is not None:

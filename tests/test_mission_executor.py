@@ -638,6 +638,77 @@ def test_monitor_scans_with_holds_and_turns_then_completes():
     assert len(executor.findings) == 1
 
 
+def test_monitor_long_duration_is_not_cut_off_by_fixed_step_budget():
+    """A 15-minute watch must run until its duration, past 150 primitives."""
+    executor = MissionExecutor(
+        _skill_plan(
+            "monitor",
+            {"region": "zone:look", "query": "truck", "duration_s": 900.0},
+        ),
+        loop_factory=_factory(),
+        refs={"zone:look": (0.0, 10.0, 12.0)},
+        # Three-second holds keep this regression test reasonably small while
+        # still exercising the duration-derived budget (>150 primitives).
+        config=ExecutorConfig(hold_s=3.0),
+    )
+    sim = Sim()
+    run = executor._run
+    for index in range(700):
+        _cycle(executor, sim, frame=f"long-monitor-{index}")
+        if executor.history:
+            break
+    assert executor.history, "monitor should finish at the requested duration"
+    assert executor.history[0]["reason"] == "duration_elapsed"
+    assert executor.history[0]["reason"] != "step_budget"
+    assert run is not None
+    assert run.elapsed_s >= 900.0
+    assert run.primitives > 150
+
+
+def test_patrol_large_loop_budget_runs_to_duration_without_step_budget():
+    route = [(0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]
+    executor = MissionExecutor(
+        _skill_plan(
+            "patrol",
+            {
+                "route_ref": "route:a",
+                "query": "smoke",
+                "loops": 100,
+                "duration_s": 900.0,
+            },
+        ),
+        loop_factory=_factory(),
+        refs={"route:a": route},
+    )
+    sim = Sim()
+    run = executor._run
+    for index in range(900):
+        _cycle(executor, sim, frame=f"long-patrol-{index}")
+        if executor.history:
+            break
+    assert executor.history, "patrol should finish at the requested duration"
+    assert executor.history[0]["reason"] == "duration_elapsed"
+    assert executor.history[0]["reason"] != "step_budget"
+    assert run is not None
+    assert run.elapsed_s >= 900.0
+    assert run.primitives > 150
+
+
+def test_count_keeps_step_budget_behavior():
+    executor = MissionExecutor(
+        _count_plan(100),
+        loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 100.0)},
+        config=ExecutorConfig(step_budget=3),
+    )
+    sim = Sim()
+    for index in range(20):
+        _cycle(executor, sim, frame=f"count-budget-{index}")
+        if executor.history:
+            break
+    assert executor.history[0]["reason"] == "budget_exhausted"
+
+
 def test_monitor_accepts_point_ref_and_keeps_separate_small_objects_distinct():
     executor = MissionExecutor(
         _skill_plan(

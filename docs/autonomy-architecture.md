@@ -1299,3 +1299,8 @@ RTSP helper sha256: F6F8AC6DD87DAA6BA7CF477AC62BDE5889B724885AE5C9DB285A485050FE
 在 Orin Nano 上，预期缩放主要由静态图构建阶段的顶点数平方项和运行时端点连接的线性项决定；缓存图后，连续控制周期不会重复顶点间相交测试。设备上的实际耗时仍应以启动时记录的 `visibility_graph_build_ms` 和运行时重规划计时为准，不能把开发机的毫秒数直接当成飞行保证。
 
 任务包准入使用 `ExecutorConfig.visibility_graph_build_limit_ms`（默认 2000 ms）作为构建上限；超过上限的包在起飞前拒绝。该上限覆盖 Orin Nano 相对开发机的约 4 倍慢速余量，实际构建时间仍写入 mission log 供设备校准。
+# 长时监视与巡逻原语预算
+
+`monitor` 和 `patrol` 的执行边界由任务的 `duration_s`、巡逻路线和 `loops` 推导，运行中还会用已观测的每个原语实际耗时更新剩余预算。`travel_budget=150` 仍作为初始下限，但不再作为这两类技能的固定终止条件；到达请求时长时，步骤历史记录 `duration_elapsed`。
+
+动态预算另有 `ExecutorConfig.tracking_budget_max` 安全上限，默认 4096 个原语并可按机型配置。若任务在请求时长前触及该上限，执行器会记录 `tracking_budget_exhausted` 告警和失败原因，避免静默截断。任务包的时间/能源准入及监督器的返航余量检查仍是更高优先级的预算门；`count`、`area_search`、`survey` 等技能继续使用原有 `step_budget`/`travel_budget` 行为。
