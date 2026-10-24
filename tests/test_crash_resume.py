@@ -34,3 +34,10 @@ def test_checkpoint_torn_json_and_sequence_rollback_fail_closed(tmp_path):
         pass
     else:
         raise AssertionError("sequence rollback accepted")
+
+
+def test_failsafe_mode_and_boot_restart_are_fail_closed():
+    checkpoint = checkpoint_from_state(mission_id="m", package_digest="d", step_id="s", phase="x", sequence=1, boot_time_ms=500)
+    assert decide_recovery(landed=False, armed=True, nav_state="RTL", boot_time_ms=600, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "monitor_failsafe"
+    assert decide_recovery(landed=False, armed=True, nav_state="OFFBOARD", boot_time_ms=400, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "return_home"
+    assert decide_recovery(landed=False, armed=True, nav_state="RTL", boot_time_ms=600, resume_after_failsafe=True, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "resume"

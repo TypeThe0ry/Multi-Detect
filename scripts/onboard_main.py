@@ -470,28 +470,40 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         vehicle.start()
         resume_decision = None
         resume_checkpoint = None
-        if args.mode == "real" and package is not None:
-            digest = hashlib.sha256(json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-            resume_checkpoint = CheckpointStore(args.work_dir / "crash_resume" / "checkpoint.json").load()
-            initial = vehicle.snapshot() if callable(getattr(vehicle, "snapshot", None)) else None
-            if initial is not None:
-                resume_decision = decide_recovery(landed=initial.landed, armed=initial.armed, landed_state=initial.landed_state, checkpoint=resume_checkpoint, mission_id=package.mission_id, package_digest=digest, rtl_available=hasattr(vehicle, "rtl"))
-            else:
-                resume_decision = None
-            if resume_decision is not None:
-                report["recovery"] = {"action": resume_decision.action, "reason_zh": resume_decision.reason_zh}
-            if resume_decision is not None and resume_decision.action in {"return_home", "land"}:
-                OnboardMissionLog(args.work_dir / "mission_log", package.mission_id).append("crash_resume", time.monotonic(), action=resume_decision.action, reason_zh=resume_decision.reason_zh)
-                getattr(vehicle, "rtl" if resume_decision.action == "return_home" else "land")()
-                return {**report, "ok": True, "recovery_action": resume_decision.action}
         camera.start()
         state, frame = _ready(
             vehicle,
             camera,
             config,
             getattr(args, "startup_timeout", 3),
-            require_ground=args.mode == "real" and not (resume_decision and resume_decision.action == "resume"),
+            require_ground=False,
         )
+        if args.mode == "real":
+            deadline = time.monotonic() + getattr(args, "startup_timeout", 3)
+            while (state.armed is None or state.landed is None) and time.monotonic() < deadline:
+                time.sleep(0.01)
+                state = vehicle.snapshot()
+        if args.mode == "real" and package is not None:
+            digest = hashlib.sha256(json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+            resume_checkpoint = CheckpointStore(args.work_dir / "crash_resume" / "checkpoint.json").load()
+            resume_decision = decide_recovery(landed=state.landed, armed=state.armed,
+                landed_state=getattr(state, "landed_state", None), nav_state=getattr(state, "nav_state", None),
+                boot_time_ms=getattr(state, "time_boot_ms", None), checkpoint=resume_checkpoint,
+                mission_id=package.mission_id, package_digest=digest,
+                rtl_available=hasattr(vehicle, "rtl"), resume_after_failsafe=bool(package.document.get("resume_after_failsafe", False)))
+            if (state.armed is None or state.landed is None) and resume_checkpoint is None:
+                raise RuntimeError("telemetry did not establish armed/landed state; ground admission refused")
+            report["recovery"] = {"action": resume_decision.action, "reason_zh": resume_decision.reason_zh}
+            log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
+            if resume_decision.action in {"return_home", "land"}:
+                log.append("crash_resume", time.monotonic(), action=resume_decision.action, reason_zh=resume_decision.reason_zh)
+                log.finish(time.monotonic(), {"status": "safety_action", "action": resume_decision.action, "reason": resume_decision.reason_zh})
+                getattr(vehicle, "rtl" if resume_decision.action == "return_home" else "land")()
+                return {**report, "ok": True, "recovery_action": resume_decision.action}
+            if resume_decision.action == "monitor_failsafe":
+                log.append("crash_resume", time.monotonic(), action="monitor_failsafe", reason_zh=resume_decision.reason_zh)
+                log.finish(time.monotonic(), {"status": "px4_failsafe", "action": "monitor", "reason": resume_decision.reason_zh, "counts": resume_checkpoint.get("counts", {}) if resume_checkpoint else {}, "alerts": resume_checkpoint.get("alerts", []) if resume_checkpoint else []})
+                return {**report, "ok": True, "recovery_action": "monitor_failsafe"}
         if args.mode == "real" and state.home_ned is None:
             raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
         if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (state.armed is not False or state.landed is not True):

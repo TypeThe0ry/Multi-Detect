@@ -1,6 +1,6 @@
 # 机载进程崩溃恢复
 
-每个已完成的监督器控制步可写入 `crash_resume/checkpoint.json`。文件通过临时文件、`fsync`、`os.replace` 原子替换，最大 64 KiB。写入失败只记录 `checkpoint_error`，控制循环继续由既有安全层负责。
+每个已完成的监督器控制步可写入 `crash_resume/checkpoint.json`。文件通过临时文件、`fsync`、`os.replace` 原子替换，最大 64 KiB。写入失败只记录 `checkpoint_error`，控制循环继续由既有安全层负责。默认只接受最近 60 秒的检查点；同时比较 PX4 `time_boot_ms`，PX4 重启或 boot time 回退即拒绝恢复。
 
 检查点格式为 `multidetect.crash-resume.v1`，包含 `mission_id`、`package_digest`（准入任务及计划摘要）、`step_id`、`phase`、单调递增 `sequence`、`saved_at`，以及 `counts`、带位置的 `alerts`、`visited`、`home`、`elapsed_s`、`energy` 和 `provenance`。恢复时身份、时间和序号均须有效；截断 JSON、任务包摘要不符和过期记录都不可信。告警与计数在恢复时回灌执行器，位置记录继续用于空间去重。
 
@@ -10,11 +10,12 @@
 |---|---|---|---|
 | 地面、未解锁 | 任意（旧文件保留） | 新任务 | 飞机在地面，按正常新任务流程启动 |
 | 空中 | 有效且 mission_id/摘要一致、未过期 | 恢复 | 飞机在空中且检查点有效，继续执行；不得 arm/takeoff |
+| 空中 | PX4 已处于 RTL/LAND/FAILSAFE | 只记录与监视 | PX4 失效保护已接管，onboard 不重新接管；任务包显式 `resume_after_failsafe: true` 且模式允许时才可恢复 |
 | 空中 | 缺失、损坏、序号回退、摘要不符或过期 | RTL | 无法证明任务状态，返航 |
 | 空中 | 同上，且机型无 RTL | 降落 | 按机型 recovery policy 降落 |
 | 状态未知 | 任意 | RTL/降落 | 状态未知，无法安全恢复 |
 
-每个分支写入 mission log，结束时写 `final_summary`。旧检查点只归档，不删除。
+启动先等待有效的 armed/landed telemetry；等待超时且没有检查点时按原有地面准入失败，不发送 RTL。每个分支写入 mission log，结束时写 `final_summary`（含中文原因）。旧检查点只归档，不删除。`resume_after_failsafe` 是可选任务包字段，默认 `false`，由签名任务包绑定。
 
 ## SITL 验证
 

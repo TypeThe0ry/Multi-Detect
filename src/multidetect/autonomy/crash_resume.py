@@ -45,9 +45,11 @@ def _valid_checkpoint(value: Any, *, now: float, max_age_s: float,
 def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
                     checkpoint: Mapping[str, Any] | None, mission_id: str,
                     package_digest: str | None = None, package_sha256: str | None = None,
-                    now: float | None = None, max_age_s: float = 3600.0,
+                    now: float | None = None, max_age_s: float = 60.0,
                     rtl_available: bool = True, recovery_available: bool | None = None,
-                    landed_state: int | None = None, vehicle: Any | None = None) -> RecoveryDecision:
+                    landed_state: int | None = None, vehicle: Any | None = None,
+                    nav_state: str | None = None, boot_time_ms: int | float | None = None,
+                    resume_after_failsafe: bool = False) -> RecoveryDecision:
     """Pure restart policy. Unknown vehicle state is treated as airborne risk."""
     now = time.time() if now is None else float(now)
     if vehicle is not None:
@@ -65,6 +67,10 @@ def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
         if checkpoint is not None:
             ok, reason = _valid_checkpoint(checkpoint, now=now, max_age_s=max_age_s,
                                            mission_id=mission_id, package_digest=package_digest)
+            if ok and boot_time_ms is not None and checkpoint.get("boot_time_ms") is not None and float(boot_time_ms) < float(checkpoint["boot_time_ms"]):
+                ok, reason = False, "PX4 已重启，boot time 不匹配"
+            if ok and nav_state and nav_state.upper() in {"RTL", "LAND", "AUTO_RTL", "AUTO_LAND", "FAILSAFE"} and not resume_after_failsafe:
+                return RecoveryDecision("monitor_failsafe", "PX4 失效保护已接管，onboard 只记录与监视", dict(checkpoint))
             if ok:
                 return RecoveryDecision("resume", "飞机在空中且检查点有效，继续执行", dict(checkpoint))
         else:
@@ -116,10 +122,11 @@ def checkpoint_from_state(*, mission_id: str, package_digest: str, step_id: str,
                           alerts: list[Mapping[str, Any]] | None = None,
                           visited: list[Any] | None = None, home: Any = None,
                           elapsed_s: float = 0.0, energy: Mapping[str, Any] | None = None,
-                          provenance: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                          provenance: Mapping[str, Any] | None = None,
+                          boot_time_ms: int | float | None = None) -> dict[str, Any]:
     return {"schema": "multidetect.crash-resume.v1", "mission_id": mission_id,
             "package_digest": package_digest, "step_id": step_id, "phase": phase,
-            "sequence": int(sequence), "saved_at": time.time(),
+            "sequence": int(sequence), "saved_at": time.time(), "boot_time_ms": boot_time_ms,
             "counts": dict(counts or {}), "alerts": list(alerts or []),
             "visited": list(visited or []), "home": home, "elapsed_s": float(elapsed_s),
             "energy": dict(energy or {}), "provenance": dict(provenance or {})}

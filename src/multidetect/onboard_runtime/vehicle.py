@@ -85,6 +85,8 @@ class VehicleState:
     battery_consumed_mah: float | None = None
     vtol_state: int | None = None
     landed_state: int | None = None
+    nav_state: str | None = None
+    time_boot_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +298,8 @@ class PymavlinkVehicle:
                     return
                 updates.update(armed=bool(int(message.get("base_mode", 0)) & 128),
                                mode=_mode_name(message.get("custom_mode")),
+                               nav_state=message.get("nav_state"),
+                               time_boot_ms=message.get("time_boot_ms"),
                                heartbeat_monotonic=stamp)
             elif kind == "LOCAL_POSITION_NED":
                 position = _vector(message, ("x", "y", "z"))
