@@ -72,8 +72,9 @@ def test_append_is_queued_after_current_graph(tmp_path):
 def test_planning_timeout_keeps_original_plan(tmp_path):
     sup, _, log = build(tmp_path)
     original = sup.executor.plan
-    assert sup.request_retask(None, planner=lambda: time.sleep(0.05), timeout_s=0.001)
-    time.sleep(0.01)
+    # Margins well above the ~15.6 ms tick of time.monotonic() on Windows.
+    assert sup.request_retask(None, planner=lambda: time.sleep(1.0), timeout_s=0.05)
+    time.sleep(0.2)
     sup.evaluate()
     assert sup.executor.plan is original
     assert any(r.get("kind") == "retask_rejected" for r in map(json.loads, log.path.read_text(encoding="utf-8").splitlines()))
