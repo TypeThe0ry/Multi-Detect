@@ -42,6 +42,7 @@ _EXACT = {
     "test_mission_planner.py",
     "test_mission_plan.py",
     "test_plan_validation.py",
+    "test_suite_airframes_resolve.py",
     "test_mission_planning.py",
     "test_mission_loop_timing.py",
     "test_mission_energy_window_audit.py",
