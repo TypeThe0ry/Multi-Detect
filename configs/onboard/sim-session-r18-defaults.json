@@ -6,6 +6,8 @@
     "plan_sorted_keys": true,
     "confirm_max_range_m": 40,
     "step_budget": 140,
+    "count_budget_max": 4096,
+    "runtime_step_limit": 220,
     "size_aware_search": true,
     "fast_identity": true,
     "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",

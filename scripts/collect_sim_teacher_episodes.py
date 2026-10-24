@@ -1220,6 +1220,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         frame_format=plan.onboard_frame_format,
         frame_quality=plan.onboard_frame_quality,
         airframe=_onboard_airframe_id(plan),
+        runtime_step_limit=plan.steps_per_episode,
     )
     _start_sim_operator_link(plan, policy)
     return policy

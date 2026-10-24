@@ -72,6 +72,10 @@ def merge_config(defaults: dict[str, Any], mission: dict[str, Any]) -> dict[str,
     """Copy shared onboard options; suite scheduling/expectations never reach the model."""
     config = copy.deepcopy(defaults)
     config.setdefault("mission", "from_text")
+    # The collector also injects this value, but keeping it in the generated
+    # mission config makes the outer step envelope explicit and inspectable.
+    if "steps" in mission:
+        config["runtime_step_limit"] = int(mission["steps"])
     for key, value in mission.items():
         if key in METADATA:
             continue

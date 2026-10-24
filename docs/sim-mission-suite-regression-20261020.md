@@ -437,3 +437,10 @@ python scripts/analyze_revisit_trace.py D:/path/to/episode-or-campaign
 
 脚本读取一个架次目录或递归查找其中的 `steps.jsonl`，按时间输出每架次候选、优先级键、选中/跳过原因与剩余预算；若能按 `score_onboard_loop.truth_for_episode` 找到世界真值，还会报告真目标在候选中的排名及候选选择结果。可用 `--json` 输出机器可读结果；脚本不会重放规划，也不会修改 `steps.jsonl`。
 
+### 2026-10-24 计数/区域搜索自适应步数预算
+
+`count` 与 `area_search` 不再对有界区域无条件使用固定 `step_budget`。执行器按区域半径、相机航带间距和每步最大平移重建蛇形覆盖航线，给每个航点的转向、观测和控制周期留出余量，再按已登记的拒绝、小框和未决正判断地点追加补看预算。总预算受 `ExecutorConfig.count_budget_max`（机载默认 4096）限制；任务包监督器提供的 `energy_margin_s` 会扣除返航余量，余量不足以支付补看时不扩张预算。每步参数中的 `step_budget` 仍是硬上限，历史 count 到预算末尾仍记录 `budget_exhausted`，并保持 `count_is_lower_bound=true`。
+
+离线统计脚本与日志位于 `D:\Projects\mdwt\_scratch\cx-count-budget\offline_eval.py` 和 `offline_eval.log`。近期数据中，queryfirst 为 6 架次/550 个计数步/11 个补看步，hydrant10 为 10 架次/799 个计数步/17 个补看步，lookgeometry 为 6 架次/576 个计数步/13 个补看步；这些数字用于覆盖航线与补看预算的余量校准，未运行 SITL。
+
+本次复核同时按套件的 `steps` 外层上限重新计算：套件任务把上限传入 `runtime_step_limit`，交互会话传入 220；计数预算最多使用上限扣除返航尾部余量（默认 10 个原语），没有运行时上限时保持原固定 `step_budget`。因此上述离线步数只能用于覆盖/补看余量校准，不能把自适应预算直接扩到 4096。
