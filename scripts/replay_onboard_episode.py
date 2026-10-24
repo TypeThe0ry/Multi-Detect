@@ -24,6 +24,119 @@ def read_rows(episode: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
+def _json_file(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def recover_recorded_mission_plan(episode: Path, rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Recover the recorded plan and package snapshot without inventing provenance.
+
+    Collector versions differ: newer rows contain a complete plan, while older
+    rows contain the planner's ``skills`` summary.  The latter is still the
+    recorded decision and is expanded with deterministic task parameters.
+    """
+    rows = rows if rows is not None else read_rows(episode)
+    onboard = ((rows[0].get("labels") or {}).get("onboard") or {}) if rows else {}
+    recorded = None
+    for row in rows:
+        candidate = (((row.get("labels") or {}).get("onboard") or {}).get("mission") or {}).get("plan")
+        if isinstance(candidate, dict) and (candidate.get("steps") or candidate.get("skills")):
+            recorded = candidate
+            break
+    summary = _json_file(episode / "mission_summary.json")
+    if recorded is None and isinstance(summary.get("steps"), list):
+        recorded = {"steps": summary["steps"], "skills": summary.get("skills")}
+    task = str((rows[0] if rows else {}).get("task_text") or _json_file(episode / "episode.json").get("task_text") or "")
+    skills = recorded.get("skills") if isinstance(recorded, dict) else None
+    if not isinstance(skills, list):
+        skills = [s.get("skill") for s in (recorded or {}).get("steps", []) if isinstance(s, dict)]
+    skills = [str(s) for s in skills if s]
+    package_document: dict[str, Any] | None = None
+    package_source = None
+    episode_meta = _json_file(episode / "episode.json")
+    # A package/config snapshot is preferred over the live repository config.
+    for candidate in sorted((episode / "config").glob("**/*.json")) if (episode / "config").is_dir() else ():
+        value = _json_file(candidate)
+        if "operating_area" in value and ("plan" in value or "steps" in value):
+            package_document, package_source = value, str(candidate)
+            break
+    if package_document is None:
+        for candidate in (episode / "mission_package.json", episode / "package.json"):
+            value = _json_file(candidate)
+            if "operating_area" in value:
+                package_document, package_source = value, str(candidate)
+                break
+    # Recover the suite/package context used by the collector.  The suite is
+    # keyed by the mission directory immediately below its root.
+    suite_config: dict[str, Any] = {}
+    mission_id = episode.parents[3].name if len(episode.parents) > 3 else ""
+    for suite_path in sorted((ROOT / "configs/onboard").glob("*.json")):
+        suite = _json_file(suite_path)
+        for entry in suite.get("missions", []):
+            if isinstance(entry, dict) and entry.get("id") == mission_id:
+                suite_config = {**suite.get("defaults", {}), **entry}
+                break
+        if suite_config:
+            break
+    package_setting = suite_config.get("mission_package")
+    if package_document is None and isinstance(package_setting, dict):
+        package_document, package_source = package_setting, "suite.mission_package"
+    elif package_document is None and isinstance(package_setting, str):
+        package_path = Path(package_setting)
+        if not package_path.is_absolute(): package_path = ROOT / package_path
+        package_document = _json_file(package_path)
+        if package_document: package_source = str(package_path)
+    # Preserve a complete recorded plan verbatim.  Summary-only rows receive
+    # stable params from the task text and the suite's refs where available.
+    complete_steps = (recorded.get("steps") if recorded else None)
+    if complete_steps and all(isinstance(s, dict) and all(k in s for k in ("id", "skill", "params", "on_success", "on_fail")) for s in complete_steps):
+        plan = {"plan_version": recorded.get("plan_version", 1), "goal": recorded.get("goal", task),
+                "steps": complete_steps, "report": recorded.get("report", ["findings", "positions"])}
+        source = "labels.onboard.mission.plan.steps" if recorded is not summary else "mission_summary.steps"
+    elif skills:
+        query = task
+        lower = task.lower()
+        if "backpack" in lower: query = "backpack"
+        elif "person" in lower: query = "person"
+        elif "hydrant" in lower: query = "fire hydrant"
+        elif "cone" in lower: query = "orange traffic cone"
+        steps = []
+        for index, skill in enumerate(skills):
+            params: dict[str, Any] = {}
+            if skill in {"count", "monitor", "area_search"}:
+                params = {"region": "zone:site", "query": query}
+            if skill == "search": params = {"region": "zone:site", "query": query}
+            if skill == "inspect": params = {"target_ref": "poi:target", "query": query, "views": 4, "standoff_m": 8.0}
+            if skill == "monitor": params["duration_s"] = 300
+            if skill == "follow": params["duration_s"] = 120
+            if skill == "follow": params = {"track_ref": "track:target", "query": query, "duration_s": 120}
+            if skill == "patrol": params = {"route_ref": "route:fence", "query": query, "loops": 1}
+            steps.append({"id": f"s{index + 1}", "skill": skill, "params": params,
+                          "on_success": f"s{index + 2}" if index + 1 < len(skills) else None,
+                          "on_fail": f"s{index + 2}" if index + 1 < len(skills) else None})
+        plan = {"plan_version": 1, "goal": task, "steps": steps, "report": ["findings", "positions"]}
+        source = "labels.onboard.mission.plan.skills" if recorded else "mission_summary.skills"
+    else:
+        fallback_query = "target"
+        if "backpack" in task.lower(): fallback_query = "backpack"
+        elif "person" in task.lower(): fallback_query = "person"
+        elif "hydrant" in task.lower(): fallback_query = "fire hydrant"
+        elif "cone" in task.lower(): fallback_query = "orange traffic cone"
+        plan = {"plan_version": 1, "goal": episode.parent.parent.name,
+                "steps": [{"id": "s1", "skill": "count", "params": {"region": "zone:site", "query": fallback_query}, "on_success": "s2", "on_fail": "s2"},
+                          {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}],
+                "report": ["findings", "positions"]}
+        source = "fallback_count"
+    return {"plan": plan, "plan_source": source, "skills": [s.get("skill") for s in plan["steps"]],
+            "package_document": package_document or suite_config.get("mission_package"), "package_source": package_source,
+            "suite_config": suite_config,
+            "episode": episode_meta}
+
+
 class Results:
     def __init__(self, mode: str, cache_file: Path | None):
         self.mode, self.cache_file = mode, cache_file
@@ -86,31 +199,19 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     rows = read_rows(episode)
     if not rows:
         raise ValueError(f"empty episode: {episode}")
+    restored = recover_recorded_mission_plan(episode, rows)
     onboard = (rows[0].get("labels") or {}).get("onboard") or {}
-    mission = json.loads((episode / "episode.json").read_text(encoding="utf-8")) if (episode / "episode.json").exists() else {}
-    task = rows[0].get("task_text", "")
-    query = task
-    # Mission suite metadata/config may provide the normalized task query.
-    config_path = next(iter(episode.parents[3].glob("*.json")), None) if len(episode.parents) > 3 else None
-    onboard_config: dict[str, Any] = {}
-    if config_path:
-        try:
-            onboard_config = json.loads(config_path.read_text(encoding="utf-8"))
-            query = onboard_config.get("task_text", query)
-        except (OSError, ValueError, TypeError):
-            onboard_config = {}
+    mission = restored["episode"]
+    onboard_config = restored["suite_config"]
+    query = str(onboard_config.get("task_text") or (rows[0].get("task_text", "")))
     # The free-form logged task can be Chinese or exceed the mission-plan
     # eight-word contract; benchmark directory names are the stable fallback.
     if len(query.split()) > 8 or any(ord(ch) > 127 for ch in query):
         query = episode.parents[2].name.replace("count-", "").replace("-", " ")
     # Keep the same plan wording and references as the known-good replay.
     query = {"cones": "orange traffic cone", "fire hydrants": "fire hydrant"}.get(query, query)
-    goal = episode.parents[2].name
-    plan = validate_mission_plan({"plan_version": 1, "goal": goal, "steps": [
-        {"id": "s1", "skill": "count", "params": {"region": "zone:site", "query": query},
-         "on_success": "s2", "on_fail": "s2"},
-        {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}],
-        "report": ["findings", "positions"]})
+    goal = restored["plan"].get("goal") or episode.parent.parent.name
+    plan = validate_mission_plan(restored["plan"], capabilities=frozenset({"payload"}))
     info = rows[0]["obs_before"]["camera_info"]
     camera = CameraModel(float(info["fx"]), float(info["fy"]), float(info["cx"]), float(info["cy"]),
                          int(info["width"]), int(info["height"]), pitch_down_rad=0.18)
@@ -134,7 +235,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
 
         adapter = AirframeMotionAdapter(str(airframe_name), base_dir=ROOT)
         envelope_source: dict[str, Any] = {}
-        for source in (onboard_config, mission):
+        for source in (onboard_config, mission, restored.get("package_document") or {}):
             if isinstance(source, dict):
                 envelope_source.update(source)
                 nested = source.get("safety_envelope")
@@ -237,8 +338,11 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
             search_outcome=lambda: search_policy.search_outcome if search_policy else None,
             obstacle_source=obstacle, config=LoopConfig(**config),
         )
+    refs = dict(onboard_config.get("refs") or {})
+    refs.setdefault("zone:site", (0.0, 0.0, 55.0))
+    refs.setdefault("route:fence", [(-30., -30.), (-30., 30.), (30., 30.), (30., -30.), (-30., -30.)])
     executor = MissionExecutor(plan, loop_factory=make_loop,
-        refs={"zone:site": (0.0, 0.0, 55.0), "route:fence": [(-30., -30.), (-30., 30.), (30., 30.), (30., -30.), (-30., -30.)]},
+        refs=refs,
         config=ExecutorConfig(step_budget=140),
         obstacle_source=obstacle, airframe_adapter=adapter,
         no_fly_zones=(envelope_source.get("no_fly_zones", ()) if safety_exit else ()))
@@ -349,10 +453,21 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         call_total += max(len(actual_pairs), len(expected_pairs))
     logged_mission = (raw_by_step.get(int(trace[-1]["step"]), {}).get("mission") or {}) if trace else {}
     coverage_history = [item for item in executor.history if item.get("reason") == "coverage_complete"]
+    skill_by_step = {step["id"]: step["skill"] for step in restored["plan"]["steps"]}
+    by_task: dict[str, dict[str, int]] = {}
+    for item in trace:
+        key = str(skill_by_step.get(item.get("detail", {}).get("step") or item.get("detail", {}).get("step_id"), "unknown"))
+        counts = by_task.setdefault(key, {"steps": 0, "exact_action_matches": 0})
+        counts["steps"] += 1
+        logged = item.get("logged_action") or {}
+        counts["exact_action_matches"] += int(item["action"].get("kind") == logged.get("kind") and all(
+            round(float(item["action"].get(k, 0)), 1) == round(float(logged.get(k, 0)), 1)
+            for k in ("forward_m", "right_m", "up_m", "yaw_delta_deg", "seconds")))
     current_provenance = build_provenance(root=ROOT, command=sys.argv)
     return {"episode": str(episode), "mode": mode, "open_loop": not closed_loop,
             "provenance": replay_version_record((mission.get("provenance") or {}).get("code"), current_provenance.get("code")),
-            "safety_exit": safety_exit,
+            "safety_exit": safety_exit, "plan_source": restored["plan_source"],
+            "plan_skills": restored["skills"], "package_source": restored["package_source"],
             "limitations": ["半闭环只回灌日志执行后位姿，不模拟物理执行"],
             "metrics": {"steps": len(trace), "action_type_agreement": action_types / len(trace) if trace else 1.0,
                         "pre_divergence_steps": len(scored),
@@ -360,6 +475,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
                         "diverged_at_step": first_divergence["step"] if first_divergence else None,
                         "divergence": first_divergence,
                         "exact_action_agreement": exact_actions / len(trace) if trace else 1.0,
+                        "action_agreement_by_task": {key: {**value, "exact_action_agreement": value["exact_action_matches"] / value["steps"] if value["steps"] else 1.0} for key, value in by_task.items()},
                         "search_placeholder_mismatches": search_placeholder_steps,
                         "slow_call_agreement": call_equal / call_total if call_total else 1.0,
                         "count_replay": dict(executor.counts), "count_logged_final": logged_mission.get("counts", {}),

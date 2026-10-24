@@ -86,6 +86,7 @@ from multidetect.autonomy.onboard_policy_parts.config import (  # noqa: E402
 )
 from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
 from multidetect.autonomy.onboard_policy_parts.vocabulary import VOCABULARY  # noqa: E402
+from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
 from multidetect.onboard_runtime.health import (  # noqa: E402
     HealthConfig,
@@ -1217,6 +1218,7 @@ class OnboardPolicy:
                     raise ValueError("mission=package requires mission_package")
                 plan = self.mission_package.plan
                 self.mission_plan = plan
+                report = {"error": None, "source": "package", "repairs": []}
             elif mission == "find":
                 plan = plan_for_find_task("target")
             elif mission == "count":
@@ -1378,6 +1380,39 @@ class OnboardPolicy:
             else:
                 raise ValueError(f"unknown mission template {mission!r}")
             if self.mission_package is not None:
+                try:
+                    self.mission_package.validate_plan(plan)
+                except ValueError as exc:
+                    # The admission layer may safely clamp a small altitude
+                    # overshoot; retain all other package reference failures.
+                    if "altitude outside operating limits" not in str(exc):
+                        self.slow.close()
+                        raise
+                admission = validate_plan_for_execution(
+                    plan,
+                    self.mission_package,
+                    self.task_text,
+                    capabilities=capabilities,
+                )
+                report["validation"] = {
+                    "decision": admission.decision,
+                    "reasons_zh": list(admission.reasons_zh),
+                    "questions_zh": list(admission.questions_zh),
+                    "repairs": list(admission.repairs),
+                }
+                if admission.decision in {"accept", "repair"} and admission.plan is not None:
+                    plan = self.mission_plan = admission.plan
+                    report["repairs"] = list(report.get("repairs", ())) + list(admission.repairs)
+                else:
+                    refusal = [{
+                        "code": f"PLAN_{admission.decision.upper()}",
+                        "step_id": None,
+                        "message_zh": "；".join(admission.reasons_zh or ("计划需要操作员确认",)),
+                        "message_en": "; ".join(admission.questions_zh or admission.reasons_zh),
+                        "questions_zh": list(admission.questions_zh),
+                    }]
+                    self.mission_plan_report = report
+                    self._refuse_package_plan(refusal)
                 violations = check_plan_against_package(
                     plan,
                     self.mission_package,

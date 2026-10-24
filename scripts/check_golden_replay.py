@@ -116,12 +116,17 @@ def check(
     replay_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     replay_fn = replay_fn or replay
+    if data_root is None and not all(resolve_episode(entry["path"]).is_dir() for entry in load_manifest()["episodes"]):
+        configured_root = __import__("os").environ.get("MULTIDETECT_DATA_ROOT")
+        if configured_root:
+            data_root = Path(configured_root).expanduser()
     manifest = load_manifest()
     baseline = (
         json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else {"episodes": {}}
     )
     results: list[dict[str, Any]] = []
     missing = 0
+    plan_sources: dict[str, int] = {}
     for entry in manifest["episodes"]:
         episode = resolve_episode(entry["path"], data_root)
         row = {"id": entry["id"], "path": entry["path"], "status": "ok"}
@@ -139,7 +144,10 @@ def check(
             )
             results.append(row)
             continue
-        actual = fingerprint(replay_fn(episode, mode="logged", safety_exit=True))
+        replayed = replay_fn(episode, mode="logged", safety_exit=True)
+        source = str(replayed.get("plan_source", "unknown"))
+        plan_sources[source] = plan_sources.get(source, 0) + 1
+        actual = fingerprint(replayed)
         expected = baseline.get("episodes", {}).get(entry["id"])
         if update:
             baseline.setdefault("episodes", {})[entry["id"]] = {
@@ -171,6 +179,8 @@ def check(
         "episodes": len(results),
         "checked": len(results) - missing,
         "missing": missing,
+        "plan_sources": plan_sources,
+        "fallback_count": plan_sources.get("fallback_count", 0),
         "divergences": len(divergences),
         "results": results,
     }
@@ -201,6 +211,7 @@ def main() -> int:
     print(
         f"golden replay: checked={summary['checked']} missing={summary['missing']} "
         f"divergences={summary['divergences']}"
+        f" fallback_count={summary['fallback_count']}"
     )
     return code
 

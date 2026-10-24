@@ -815,6 +815,7 @@ def load_mission_package(
             "signature", "signature_alg", "key_id",
             "accepted_px4_overrides",
             "px4_offboard_loss_action",
+            "resume_after_failsafe",
             "capabilities",
         },
     )
@@ -836,6 +837,8 @@ def load_mission_package(
     offboard_action = obj.get("px4_offboard_loss_action")
     if offboard_action is not None and offboard_action not in {3, 4, 5}:
         raise ValueError("px4_offboard_loss_action must be PX4 Return/Land/Hold enum 3, 4 or 5")
+    if not isinstance(obj.get("resume_after_failsafe", False), bool):
+        raise ValueError("resume_after_failsafe must be boolean")
     parse_policy(obj["link_loss_policy"])
     obj["heartbeat_timeout_s"] = number(
         obj.get("heartbeat_timeout_s", 5), "heartbeat_timeout_s", minimum=0.001

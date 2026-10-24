@@ -10,7 +10,7 @@ import secrets
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,7 @@ from .mission_security import load_key, verify_document
 from .mission_summary import summarize_mission
 from .onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from .serialization import strict_json_loads
+from .crash_resume import CheckpointStore, checkpoint_from_state
 
 PLAN_COMMANDS = frozenset({"approve_plan", "reject_plan", "approve_retask", "reject_retask"})
 # Fixed-layout TUNNEL controls carry no document signature; the operator
@@ -157,6 +158,7 @@ class MissionSupervisor:
         require_signature: bool | None = None,
         ground_command_verify_key: bytes | None = None,
         requires_approval: bool | None = None,
+        checkpoint_path: str | Path | None = None,
     ) -> None:
         package.validate_plan(executor.plan)
         self.executor, self.package, self.log, self.downlink = executor, package, log, downlink
@@ -226,6 +228,11 @@ class MissionSupervisor:
         self._finish_lock = threading.Lock()
         self.requires_approval = bool(requires_approval)
         self.plan_sha256 = plan_digest(package, executor.plan)
+        self.package_digest = hashlib.sha256(
+            json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        ).hexdigest()
+        self.checkpoint_store = CheckpointStore(checkpoint_path) if checkpoint_path is not None else None
+        self._checkpoint_sequence = 0
         self.plan_approved = not self.requires_approval
         self.plan_rejected = False
         self._last_envelope_violation: tuple[str, str] | None = None
@@ -474,6 +481,24 @@ class MissionSupervisor:
         self.log.append(kind, self._now, **payload)
         if self.downlink is not None:
             self.downlink.notify()
+
+    def restore_checkpoint(self, checkpoint: Mapping[str, Any]) -> None:
+        """Restore bounded mission state after admission; caller made the safety decision."""
+        if checkpoint.get("mission_id") != self.package.mission_id or checkpoint.get("package_digest") != self.package_digest:
+            raise ValueError("checkpoint identity does not match admitted mission")
+        step_id = checkpoint.get("step_id")
+        step = next((item for item in self.executor.plan.steps if item.id == step_id), None)
+        if step is None:
+            raise ValueError("checkpoint step is not in admitted plan")
+        self.executor._run = self.executor._start(step)
+        self.executor.counts = dict(checkpoint.get("counts", {}))
+        self.executor.alerts = list(checkpoint.get("alerts", []))
+        self.executor.history = list(checkpoint.get("history", []))
+        self.executor.findings = list(checkpoint.get("findings", []))
+        if getattr(self.executor, "_run", None) is not None and checkpoint.get("phase"):
+            self.executor._run.phase = str(checkpoint["phase"])
+        self._checkpoint_sequence = int(checkpoint.get("sequence", 0))
+        self._record("crash_resume", action="resume", reason_zh="从有效检查点恢复", step_id=step_id)
 
     def _time(self) -> None:
         now = self.clock()
@@ -1116,6 +1141,21 @@ class MissionSupervisor:
             history=self.executor.history,
             counts=self.executor.counts,
         )
+        if self.checkpoint_store is not None and self.executor.current_step is not None:
+            self._checkpoint_sequence += 1
+            document = checkpoint_from_state(
+                mission_id=self.package.mission_id, package_digest=self.package_digest,
+                step_id=self.executor.current_step.id, phase=getattr(self.executor._run, "phase", "running"),
+                sequence=self._checkpoint_sequence, counts=self.executor.counts,
+                alerts=[{"value": alert} for alert in self.executor.alerts],
+                visited=getattr(self.executor._run, "coverage_points", []), home=self.executor.home,
+                elapsed_s=getattr(self.executor._run, "elapsed_s", 0.0), energy=self.energy_estimate,
+                provenance={"source": "mission_supervisor", "plan_sha256": self.plan_sha256},
+            )
+            try:
+                self.checkpoint_store.save(document)
+            except (OSError, ValueError, TypeError) as exc:
+                self._record("checkpoint_error", reason_zh=f"检查点写入失败：{exc}")
         for event in self.executor.drain_protocol_events():
             self._record(event.pop("kind", "finding"), **event)
         if self.done and not self._finished:
