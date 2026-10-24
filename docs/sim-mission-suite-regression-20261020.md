@@ -415,3 +415,9 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 计数任务的拒绝补看和小而未判地点现在按证据优先级选择：曾得到 `match`、`approach` 或 `confirm` 的地点优先，其次是检测器标签与 query 匹配的地点，再其次是更小的框，距离只在同一优先级内排序。这样 `gen_cnt2_w0001` 的 (18.5, 21.4)、(2.4, 23.9) 干扰物不会挤掉真实目标。
 
 同帧共视不再单独证明拒绝地点已解决；只有地点与已计数物体落在 `count_dedupe_m` 内才跳过，历史记录仍使用 `co_visible_with_counted` 原因名。`count_is_lower_bound` 与该判定保持一致。回归测试使用 hydrant10 7166ed2b 的 h0 `(8.76, -15.02)` 和 lookgeometry 3121ac38 的真实地点。
+
+### 2026-10-24 计数/区域搜索自适应步数预算
+
+`count` 与 `area_search` 不再对有界区域无条件使用固定 `step_budget`。执行器按区域半径、相机航带间距和每步最大平移重建蛇形覆盖航线，给每个航点的转向、观测和控制周期留出余量，再按已登记的拒绝、小框和未决正判断地点追加补看预算。总预算受 `ExecutorConfig.count_budget_max`（机载默认 4096）限制；任务包监督器提供的 `energy_margin_s` 会扣除返航余量，余量不足以支付补看时不扩张预算。每步参数中的 `step_budget` 仍是硬上限，历史 count 到预算末尾仍记录 `budget_exhausted`，并保持 `count_is_lower_bound=true`。
+
+离线统计脚本与日志位于 `D:\Projects\mdwt\_scratch\cx-count-budget\offline_eval.py` 和 `offline_eval.log`。近期数据中，queryfirst 为 6 架次/550 个计数步/11 个补看步，hydrant10 为 10 架次/799 个计数步/17 个补看步，lookgeometry 为 6 架次/576 个计数步/13 个补看步；这些数字用于覆盖航线与补看预算的余量校准，未运行 SITL。

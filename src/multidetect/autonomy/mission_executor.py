@@ -62,6 +62,10 @@ def task_text_for(step: MissionStep) -> str:
 @dataclass(frozen=True, slots=True)
 class ExecutorConfig:
     step_budget: int = 60
+    # Count/area-search budgets are derived from the bounded region and the
+    # generated coverage route.  ``step_budget`` remains the legacy fallback
+    # (and an explicit per-step value remains a hard ceiling).
+    count_budget_max: int = 4096
     # Flying skills are bounded separately from searches.
     travel_budget: int = 150
     # Patrol/monitor use a duration/route-derived primitive budget.  This is
@@ -151,6 +155,12 @@ class ExecutorConfig:
             or self.tracking_budget_max < 1
         ):
             raise ValueError("tracking_budget_max must be a positive integer")
+        if (
+            isinstance(self.count_budget_max, bool)
+            or not isinstance(self.count_budget_max, int)
+            or self.count_budget_max < 1
+        ):
+            raise ValueError("count_budget_max must be a positive integer")
         for name in (
             "small_unjudged_revisit_attempts",
             "completion_revisit_max",
@@ -1228,9 +1238,99 @@ class MissionExecutor:
                         here = point
                     required = max(required, run.primitives + legs + 2)
             return min(max(required, self.config.travel_budget), self.config.tracking_budget_max)
+        if step.skill in {"count", "area_search"}:
+            return self._count_budget(step, run)
         if step.skill in {"goto", "inspect", "return_home", "survey", "deliver"} | {"follow"}:
             return self.config.travel_budget
         return self.config.step_budget
+
+    def _count_budget(self, step: MissionStep, run: _StepRun | None) -> int:
+        """Estimate the coverage route plus registered closer-look work.
+
+        The estimate intentionally mirrors the multirotor survey route: two
+        endpoints per lane, a turn at each endpoint, and translations broken
+        into ``max_translate_m`` primitives.  It is a planning bound, while
+        the loop still owns the exact route and all safety checks.
+        """
+        region = self.region_of(step)
+        if region is None:
+            base = max(1, self.config.step_budget)
+        else:
+            _north, _east, radius = region
+            loop = run.loop if run is not None else None
+            camera = self._probe.camera
+            altitude = (
+                step.params.get("altitude_m")
+                or (getattr(loop.config, "search_altitude_m", None) if loop else None)
+                or (getattr(loop, "cruise_altitude_m", None) if loop else None)
+                or 20.0
+            )
+            altitude = max(float(altitude), self.config.min_altitude_m)
+            hfov = 2.0 * math.atan2(camera.width, camera.fx)
+            vfov = 2.0 * math.atan2(camera.height, camera.fy)
+            depression = max(0.35, camera.pitch_down_rad - vfov / 2.0)
+            far_range = altitude / max(1e-6, math.tan(depression))
+            near_depression = min(math.pi / 2.0, camera.pitch_down_rad + vfov / 2.0)
+            near_range = altitude / max(1e-6, math.tan(near_depression))
+            slant_mid = altitude / max(1e-6, math.sin(math.atan2(altitude, (near_range + far_range) / 2.0)))
+            swath = 2.0 * slant_mid * math.tan(hfov / 2.0)
+            overlap = float(step.params.get("overlap", 0.0))
+            spacing = max(3.0, min(60.0, swath * (1.0 - overlap)))
+            lanes = max(3, math.ceil(2.0 * radius / spacing))
+            # Reconstruct the same serpentine endpoints used by survey and
+            # charge every inter-view leg, including the lane change.  A
+            # translate can be no longer than max_translate_m; each endpoint
+            # also costs a turn and an observation/hold primitive.
+            waypoints: list[tuple[float, float]] = []
+            for lane in range(lanes):
+                offset = -radius + (lane + 0.5) * 2.0 * radius / lanes
+                half_length = math.sqrt(max(0.0, radius**2 - offset**2))
+                ends = [(-half_length, offset), (half_length, offset)]
+                waypoints.extend(ends if lane % 2 == 0 else reversed(ends))
+            here = (0.0, 0.0)
+            route_primitives = 0
+            for point in waypoints:
+                route_primitives += math.ceil(math.dist(here, point) / max(self.config.max_translate_m, 1e-6)) + 2
+                here = point
+            # Search control cycles include detector/tracker settling and
+            # heading corrections between nominal route legs.  SITL traces
+            # show roughly three primitives per geometric route primitive;
+            # keep that conservative multiplier here so a full pass does not
+            # consume the historical 140-step ceiling by construction.
+            base = max(1, 3 * route_primitives + 2)
+
+        pending = 0
+        if run is not None and run.loop is not None:
+            pending += len(self._pending_rejection_places(run))
+            pending += len(self._pending_small_unjudged_places(run))
+            pending += len(run.loop.unresolved_positive_tracks())
+        look_cost = max(4, math.ceil(self.config.count_rejection_revisit_range_m / max(self.config.max_translate_m, 1e-6)) + 4)
+        desired = base + pending * look_cost
+
+        # A supervisor margin is a hard gate for speculative closer looks.  A
+        # zero/negative margin also preserves the historical fixed budget.
+        if self.energy_margin_s is not None:
+            if self.energy_margin_s <= 0:
+                desired = min(desired, max(1, self.config.step_budget))
+            else:
+                # A margin that cannot pay for even one closer look must not
+                # turn the adaptive estimate into an expansion over legacy
+                # step_budget; the supervisor will still protect return home.
+                if self.energy_margin_s < self.config.revisit_margin_factor * self.config.hold_s * look_cost:
+                    desired = min(desired, max(1, self.config.step_budget))
+                allowed_extra = math.floor(
+                    self.energy_margin_s / max(1e-6, self.config.revisit_margin_factor * self.config.hold_s)
+                )
+                desired = min(desired, base + max(0, allowed_extra) * look_cost)
+
+        explicit = step.params.get("step_budget")
+        if explicit is not None:
+            desired = min(desired, max(1, int(explicit)))
+        elif self.config.step_budget < 140:
+            # Existing callers use small step_budget values as a deliberate
+            # test/safety cap; retain that compatibility.
+            desired = min(desired, self.config.step_budget)
+        return max(1, min(desired, self.config.count_budget_max))
 
     def _budget_end(self, run: _StepRun) -> None:
         if run.step.skill in {"patrol", "monitor"} and self._duration_reached(run):

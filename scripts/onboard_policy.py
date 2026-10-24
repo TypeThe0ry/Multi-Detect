@@ -1100,6 +1100,7 @@ class OnboardPolicy:
         self.downlink: DownlinkQueue | None = None
         executor_config = ExecutorConfig(
             step_budget=int(options.get("step_budget", 60)),
+            count_budget_max=int(options.get("count_budget_max", 4096)),
             alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
             alert_require_majority=(
                 options.get("alert_require_majority", False)
