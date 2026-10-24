@@ -89,6 +89,10 @@ def test_image_association_rejects_low_overlap_and_does_not_use_ground():
 
 def test_replay_prefers_segmentation_and_records_default_equivalence(tmp_path, monkeypatch):
     from PIL import Image
+    import cv2
+
+    # OpenCV's native worker pool competes with xdist workers under load.
+    cv2.setNumThreads(1)
 
     import scripts.replay_ground_projection as replay
 

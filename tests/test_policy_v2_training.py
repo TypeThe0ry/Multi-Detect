@@ -79,27 +79,34 @@ def _write_dataset(root: Path, *, sensor_status: str = "live") -> None:
 
 
 def test_training_script_runs_two_epoch_synthetic_smoke(tmp_path: Path) -> None:
+    import torch
+
+    previous_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
     dataset = tmp_path / "dataset"
     output = tmp_path / "output"
-    _write_dataset(dataset)
-    assert main(
-        [
-            "--dataset-root",
-            str(dataset),
-            "--output-dir",
-            str(output),
-            "--epochs",
-            "2",
-            "--batch-size",
-            "2",
-            "--device",
-            "cpu",
-        ]
-    ) == 0
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
-    assert len(report["metrics"]["history"]) == 2
-    assert (output / "policy_v2_bc.pt").is_file()
-    assert (output / "policy_v2_bc.onnx").is_file()
+    try:
+        _write_dataset(dataset)
+        assert main(
+            [
+                "--dataset-root",
+                str(dataset),
+                "--output-dir",
+                str(output),
+                "--epochs",
+                "2",
+                "--batch-size",
+                "1",
+                "--device",
+                "cpu",
+            ]
+        ) == 0
+        report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+        assert len(report["metrics"]["history"]) == 2
+        assert (output / "policy_v2_bc.pt").is_file()
+        assert (output / "policy_v2_bc.onnx").is_file()
+    finally:
+        torch.set_num_threads(previous_threads)
 
 
 def test_non_live_episode_is_refused(tmp_path: Path) -> None:
