@@ -218,3 +218,34 @@ def test_fixed_wing_search_does_not_skip_a_far_or_closing_waypoint() -> None:
     for north in (-60.0, -80.0, -100.0, -120.0):
         search.next_action(pose_ned=(north, -75.0, -30.0), yaw_deg=180.0)
     assert search._index == 0
+
+
+def test_fixed_wing_search_spacing_respects_turn_diameter() -> None:
+    search = FixedWingSearch(
+        home_ned=(0.0, 0.0, 0.0),
+        radius_m=55.0,
+        footprint_width_m=30.0,
+        turn_radius_m=21.2,
+        max_leg_m=30.0,
+    )
+    # A 27 m sampling stride would put successive fixed-wing targets inside
+    # the 42.4 m turn diameter and make every short reposition a loiter.
+    assert search.waypoint_spacing_m == pytest.approx(42.4)
+
+
+def test_fixed_wing_search_advances_a_stalled_capture() -> None:
+    search = FixedWingSearch(
+        home_ned=(0.0, 0.0, 0.0),
+        radius_m=55.0,
+        footprint_width_m=30.0,
+        turn_radius_m=21.2,
+        max_leg_m=30.0,
+        stalled_calls=3,
+    )
+    target = search.waypoints[0]
+    for _ in range(4):
+        search.next_action(
+            pose_ned=(target[0] + 50.0, target[1], -30.0),
+            yaw_deg=0.0,
+        )
+    assert search._index == 1
