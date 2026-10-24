@@ -409,3 +409,9 @@ python scripts/run_mission_suite.py --suite D:/Projects/mdwt/_scratch/suite-r18-
 复验看：消防栓 10 架次 3/3 的比例（hydrant10 为 7/10，自 roofdescent 起累计 25%）、错误发现保持 0；计数步骤历史的 `small_rejects_netted`（应只落在真值附近）、`rejection_revisits` 的 outcome（途中不再出现巡航高度的 `judged_approach`）；锥桶 3/3、监视告警召回不降、无误报。
 
 **模型/数据建议**（次要）：h2 唯一的失败视角是东北方向、17 m 高、水平 16–17 m 的斜视（11–16 px，框常贴图像下沿），模型约 10% 给出高置信“不是”。身份模型数据可补 11–16 px、45–50° 俯视、从楼体一侧看的消防栓正样本，以及被图像下沿截断的消防栓正样本（截断框 18 次中 4 次“不是”），按测试世界留出。
+
+### 2026-10-24 计数拒绝补看优先级
+
+计数任务的拒绝补看和小而未判地点现在按证据优先级选择：曾得到 `match`、`approach` 或 `confirm` 的地点优先，其次是检测器标签与 query 匹配的地点，再其次是更小的框，距离只在同一优先级内排序。这样 `gen_cnt2_w0001` 的 (18.5, 21.4)、(2.4, 23.9) 干扰物不会挤掉真实目标。
+
+同帧共视不再单独证明拒绝地点已解决；只有地点与已计数物体落在 `count_dedupe_m` 内才跳过，历史记录仍使用 `co_visible_with_counted` 原因名。`count_is_lower_bound` 与该判定保持一致。回归测试使用 hydrant10 7166ed2b 的 h0 `(8.76, -15.02)` 和 lookgeometry 3121ac38 的真实地点。
