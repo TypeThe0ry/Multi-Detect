@@ -33,6 +33,12 @@ def _plan(skill="goto", params=None):
              "on_success": None, "on_fail": None}], "report": ["status"]})
 
 
+def _return_plan():
+    return validate_mission_plan({"plan_version": 1, "goal": "Return safely",
+        "steps": [{"id": "home", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}], "report": ["status"]})
+
+
 def test_valid_plan_is_accepted_without_mutation():
     plan = _plan()
     result = validate_plan_for_execution(plan, _package(), "Find the gate")
@@ -67,6 +73,59 @@ def test_r18_real_output_missing_record_is_flagged_for_clarification():
     )
     assert result.decision == "clarify"
     assert any("影像" in question for question in result.questions_zh)
+
+
+def test_conditional_or_for_return_does_not_clarify():
+    result = validate_plan_for_execution(
+        _return_plan(), _package(), "电量低或者丢失信号就返航"
+    )
+    assert result.decision == "accept"
+
+
+def test_conditional_or_for_hover_does_not_clarify():
+    plan = {"plan_version": 1, "goal": "hold", "report": [], "steps": [
+        {"id": "hold", "skill": "hover", "params": {"duration_s": 20},
+         "on_success": "home", "on_fail": "home"},
+        {"id": "home", "skill": "return_home", "params": {},
+         "on_success": None, "on_fail": None}]}
+    result = validate_plan_for_execution(
+        plan, _package(), "发现异常或者遇到障碍就悬停"
+    )
+    assert result.decision == "accept"
+
+
+def test_negated_place_alternatives_do_not_clarify():
+    result = validate_plan_for_execution(
+        _return_plan(), _package(), "Do not substitute the bridge or pad"
+    )
+    assert result.decision == "accept"
+
+
+def test_two_colors_of_same_category_do_not_clarify():
+    plan = _plan("count", {"region": "zone:yard", "query": "car"})
+    result = validate_plan_for_execution(plan, _package(), "统计红色或白色的车")
+    assert result.decision == "accept"
+
+
+def test_two_known_target_categories_with_one_selected_clarifies():
+    plan = _plan("area_search", {"region": "zone:all", "query": "traffic cone"})
+    result = validate_plan_for_execution(plan, _package(), "找一个消防栓或者锥桶")
+    assert result.decision == "clarify"
+
+
+def test_count_limit_only_clarifies_when_smaller_than_explicit_quantity():
+    plan = _plan("count", {"region": "zone:yard", "query": "car", "max_count": 8})
+    mismatch = validate_plan_for_execution(plan, _package(), "统计 12 辆车")
+    enough = validate_plan_for_execution(
+        _plan("count", {"region": "zone:yard", "query": "car", "max_count": 12}),
+        _package(), "统计 12 辆车"
+    )
+    all_with_cap = validate_plan_for_execution(
+        plan, _package(), "统计所有车辆"
+    )
+    assert mismatch.decision == "clarify"
+    assert enough.decision == "accept"
+    assert all_with_cap.decision == "clarify"
 
 
 def test_unknown_skill_is_rejected_even_for_hand_built_plan():

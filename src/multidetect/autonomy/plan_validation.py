@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 
 from .mission_package import MissionPackage, check_plan_against_package
 from .mission_plan import MissionPlan, validate_mission_plan
-from .plan_intent import check_plan_intent
+from .onboard_policy_parts.vocabulary import VOCABULARY
+from .plan_intent import check_plan_intent, query_grounding
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,9 +152,22 @@ def validate_plan_for_execution(
 
     lower_prompt = prompt.lower()
     count_steps = [s for s in checked.steps if s.skill == "count"]
-    if count_steps and ("所有" in prompt or "全部" in prompt or "all " in lower_prompt):
-        if any("max_count" in s.params for s in count_steps):
-            questions.append("您要求统计全部目标，但计划设置了数量上限；是否移除上限或指定具体数量？")
+    if count_steps:
+        explicit_counts = [
+            int(value) for value in re.findall(r"(?<!\w)(\d{1,5})(?!\w)", prompt)
+        ]
+        asks_all = any(
+            token in prompt for token in ("所有", "全部")
+        ) or any(token in lower_prompt for token in ("all ", "every "))
+        if any(
+            "max_count" in step.params
+            and (
+                (explicit_counts and int(step.params["max_count"]) < max(explicit_counts))
+                or asks_all
+            )
+            for step in count_steps
+        ):
+            questions.append("您要求统计全部或指定数量，但计划设置的数量上限不足；是否移除上限或确认数量？")
     for step in checked.steps:
         if step.skill == "follow" and not str(step.params.get("query", "")).strip():
             questions.append("需要跟随什么目标？请描述类别、颜色或可识别特征。")
@@ -178,13 +193,42 @@ def validate_plan_for_execution(
         questions.append(
             "任务要求保留影像，但计划没有 record/inspect 步骤；是否需要拍照或检查目标？"
         )
-    if any(
-        token in lower_prompt
-        for token in (" or ", "或者", "或")
-    ):
-        questions.append(
-            "提示包含多个可能的目标类别；请确认要搜索哪一个目标。"
-        )
+    object_skills = {"area_search", "count", "inspect", "record", "follow"}
+    if any(step.skill in object_skills for step in checked.steps):
+        for clause in re.split(r"[，。；！？,;!?]|\bthen\b|\bbut\b", prompt):
+            alternatives = re.split(r"\s+or\s+|或者|或", clause, flags=re.IGNORECASE)
+            if len(alternatives) != 2:
+                continue
+            left, right = (part.strip() for part in alternatives)
+            if not left or not right:
+                continue
+            categories = [
+                label for label in VOCABULARY
+                if query_grounding(label, left) == "grounded"
+                or query_grounding(label, right) == "grounded"
+            ]
+            left_categories = {
+                label for label in categories if query_grounding(label, left) == "grounded"
+            }
+            right_categories = {
+                label for label in categories if query_grounding(label, right) == "grounded"
+            }
+            if not left_categories or not right_categories or left_categories == right_categories:
+                continue
+            selected = [
+                step.params.get("query", "") for step in checked.steps
+                if step.skill in object_skills
+            ]
+            selected_categories = {
+                label for label in categories
+                if any(query_grounding(label, str(query)) == "grounded" for query in selected)
+            }
+            if selected_categories and (
+                not left_categories.issubset(selected_categories)
+                or not right_categories.issubset(selected_categories)
+            ):
+                questions.append("提示给出了两个目标类别，但计划只选择了其中一个；请确认要搜索哪一类。")
+                break
     questions = questions[:3]
     if questions:
         return PlanValidationResult("clarify", checked,
