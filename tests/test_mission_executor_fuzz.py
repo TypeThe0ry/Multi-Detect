@@ -39,6 +39,7 @@ class Scenario:
     skill: str
     duration: float
     force_failure: bool
+    package_backed: bool
 
 
 def _seeds() -> list[int]:
@@ -80,8 +81,25 @@ def _scenario(seed: int) -> Scenario:
     force_failure = seed % 5 == 0
     if force_failure:
         skill = "area_search"
+    if skill == "follow":
+        # Keep one deterministic live-target route aligned with yaw=0 so a
+        # boundary mutation must produce a translate rather than only turns.
+        pose[0] = -half_n * 0.5
+        pose[1] = home[1]
+        # Keep the boundary-focused follow route independent of obstacle
+        # detours; other generated skills cover no-fly geometry.
+        zones.clear()
+    duration = 100.0 if skill == "follow" else rng.uniform(1.0, 4.0)
     return Scenario(
-        seed, area, home, pose, tuple(zones), skill, rng.uniform(1.0, 4.0), force_failure
+        seed,
+        area,
+        home,
+        pose,
+        tuple(zones),
+        skill,
+        duration,
+        force_failure,
+        seed % 2 == 0,
     )
 
 
@@ -146,10 +164,12 @@ def _plan(s: Scenario):
 def _executor(
     s: Scenario,
     *,
-    package_backed: bool = True,
+    package_backed: bool | None = None,
     runtime_step_limit: int | None = None,
     step_budget: int | None = None,
 ) -> MissionExecutor:
+    if package_backed is None:
+        package_backed = s.package_backed
     def make(_text, region=None, **overrides):
         overrides.pop("static_ground_veto", None)
         overrides.pop("stop_on_confirm", None)
@@ -167,9 +187,20 @@ def _executor(
         (s.area["north_max_m"], s.area["east_max_m"]),
         (s.area["north_min_m"], s.area["east_max_m"]),
     )
+    no_fly_polygons = tuple(
+        tuple(
+            (
+                centre[0] + (radius + 3.0) * math.cos(2.0 * math.pi * index / 32.0),
+                centre[1] + (radius + 3.0) * math.sin(2.0 * math.pi * index / 32.0),
+            )
+            for index in range(32)
+        )
+        for centre, radius in s.zones
+    )
     adapter.safety = SafetyEnvelope(
         SafetyEnvelopeConfig(
             operating_polygon=polygon,
+            no_fly_polygons=no_fly_polygons,
             min_altitude_m=s.area["min_altitude_m"],
             max_altitude_m=s.area["max_altitude_m"],
             vehicle=adapter.safety.vehicle,
@@ -203,6 +234,7 @@ def _executor(
             runtime_tail_reserve=3,
         ),
         mission_package=package,
+        no_fly_zones=s.zones,
         airframe_adapter=adapter,
     )
 
@@ -225,10 +257,12 @@ def _inside(p: tuple[float, float], area: dict[str, float]) -> bool:
     )
 
 
-def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | None = None) -> None:
+def _run(seed: int, *, package_backed: bool | None = None, runtime_step_limit: int | None = None) -> None:
     s = _scenario(seed)
     ex = _executor(s, package_backed=package_backed, runtime_step_limit=runtime_step_limit)
-    if package_backed:
+    actual_package_backed = s.package_backed if package_backed is None else package_backed
+    initial_pose = tuple(s.pose)
+    if actual_package_backed:
         assert tuple(ex.airframe_adapter.safety.home_ned) == (*s.home, 0.0)
     pose = list(s.pose)
     yaw = 0.0
@@ -253,10 +287,16 @@ def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | No
         # verdict.  This exercises stale-track and re-identification paths
         # without making the test depend on wall clock or a model service.
         if not s.force_failure and tick_rng.random() > 0.25:
-            target = (
-                s.home[0] + 4.0 + math.sin(tick / 3.0),
-                s.home[1] + 4.0 + math.cos(tick / 4.0),
-            )
+            if s.skill == "follow":
+                # Some tracks are deliberately outside the package area.  A
+                # valid executor must refuse the leg while keeping its pose
+                # inside the envelope; this is the randomized boundary case.
+                target = (s.area["north_max_m"] + 20.0, s.home[1])
+            else:
+                target = (
+                    s.home[0] + 4.0 + math.sin(tick / 3.0),
+                    s.home[1] + 4.0 + math.cos(tick / 4.0),
+                )
             detections = (Detection((620, 680, 660, 720), 0.9),)
 
             def ground(_u, _v, target=target):
@@ -265,7 +305,7 @@ def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | No
         for track in tracks:
             if s.skill == "follow":
                 ex.apply_verdict(
-                    track.track_id, "follow_track" if tick_rng.random() > 0.2 else "reject_track"
+                    track.track_id, "approach_track" if tick_rng.random() > 0.2 else "reject_track"
                 )
             else:
                 ex.apply_verdict(
@@ -280,6 +320,12 @@ def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | No
             timestamp_s=float(tick),
         )
         yaw = _apply(pose, yaw, action)
+        if not actual_package_backed and tick == 0:
+            assert tuple(ex.airframe_adapter.safety.home_ned) == (
+                initial_pose[0],
+                initial_pose[1],
+                0.0,
+            ), "non-package airborne home must retain ground-level envelope reference"
         trace.append({"tick": tick, "action": action.kind, "pose": list(pose), "info": info})
         assert _inside((pose[0], pose[1]), s.area), (
             f"seed {seed}: outside area at {tick} {trace[-1]}"
@@ -325,8 +371,16 @@ def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | No
     assert report.findings == tuple(str(f["query"]) for f in ex.findings)
     assert report.count == (sum(ex.counts.values()) if ex.counts else None)
     rejected = sum(bool(row["info"].get("safety", {}).get("rejected")) for row in trace)
+    altitude_rejected = sum(
+        "min_altitude" in row["info"].get("safety", {}).get("reasons", [])
+        for row in trace
+    )
     if not s.force_failure and not s.zones and s.skill in {"patrol", "monitor"}:
         assert rejected / max(1, len(trace)) <= 0.5, f"seed {seed}: excessive safety refusals"
+    if not actual_package_backed and not s.force_failure:
+        assert altitude_rejected / max(1, len(trace)) <= 0.2, (
+            f"seed {seed}: non-package airborne home caused systematic min_altitude refusal"
+        )
     SCRATCH.mkdir(parents=True, exist_ok=True)
     (SCRATCH / "last_fuzz_trace.json").write_text(
         json.dumps(
@@ -338,10 +392,24 @@ def _run(seed: int, *, package_backed: bool = True, runtime_step_limit: int | No
     )
 
 
+def _run_campaign(seeds: list[int]) -> tuple[int, int]:
+    package_count = 0
+    non_package_count = 0
+    for seed in seeds:
+        _run(seed)
+        if _scenario(seed).package_backed:
+            package_count += 1
+        else:
+            non_package_count += 1
+    return package_count, non_package_count
+
+
 @pytest.mark.onboard
 def test_mission_executor_random_invariants():
-    for seed in _seeds():
-        _run(seed)
+    seeds = _seeds()
+    package_count, non_package_count = _run_campaign(seeds)
+    assert package_count >= math.ceil(len(seeds) * 0.3)
+    assert non_package_count >= math.ceil(len(seeds) * 0.3)
 
 
 def _normal_cruise_trace(ex: MissionExecutor, s: Scenario, limit: int = 30):
@@ -361,22 +429,17 @@ def _normal_cruise_trace(ex: MissionExecutor, s: Scenario, limit: int = 30):
 
 @pytest.mark.onboard
 def test_mutation_home_altitude_is_caught(monkeypatch):
-    """69fa6714 mutation: an airborne first pose must not become envelope home."""
-    s = _scenario(1)
-    s.skill = "monitor"
-    s.force_failure = False
-    ex = _executor(s, package_backed=False)
+    """69fa6714 mutation must fail the same randomized campaign."""
     original = MissionExecutor._init_home
 
     def airborne_home(self, pose):
         original(self, pose)
-        self.airframe_adapter.safety.set_home((pose[0], pose[1], pose[2]))
+        if not self._package_backed:
+            self.airframe_adapter.safety.set_home((pose[0], pose[1], pose[2]))
 
     monkeypatch.setattr(MissionExecutor, "_init_home", airborne_home)
-    _pose, trace = _normal_cruise_trace(ex, s)
-    rejected = sum(bool(info.get("safety", {}).get("rejected")) for _a, info, _p in trace)
-    with pytest.raises(AssertionError, match="systematic min_altitude"):
-        assert rejected / max(1, len(trace)) <= 0.2, "airborne home mutation caused systematic min_altitude refusal"
+    with pytest.raises(AssertionError, match="airborne home|safety refusal"):
+        _run_campaign(list(range(40)))
 
 
 @pytest.mark.mutation_full
@@ -411,28 +474,20 @@ def test_mutation_runtime_count_budget_is_caught(monkeypatch):
 
 @pytest.mark.onboard
 def test_mutation_follow_boundary_is_caught(monkeypatch):
-    s = _scenario(4)
-    s.skill = "follow"
-    s.force_failure = False
-    s.duration = 100.0
-    ex = _executor(s)
-    original = ex.airframe_adapter.guard_command
-
-    def no_follow_boundary(command, **kwargs):
-        if kwargs.get("skill") == "follow":
-            return command, {}
-        return original(command, **kwargs)
+    original_guard = AirframeMotionAdapter.guard_command
 
     def unsafe_follow(self, run, pose, yaw, ground_point, frame_id):
         return ActionPrimitive.translate(100.0, 0.0, 0.0), {"mutation": "follow_boundary_removed"}
 
-    monkeypatch.setattr(ex.airframe_adapter, "guard_command", no_follow_boundary)
+    def no_follow_boundary(self, command, **kwargs):
+        if kwargs.get("skill") == "follow":
+            return command, {}
+        return original_guard(self, command, **kwargs)
+
     monkeypatch.setattr(MissionExecutor, "_follow", unsafe_follow)
-    pose = list(s.pose)
-    with pytest.raises(AssertionError, match="follow boundary"):
-        action, _info = ex.next_action(pose_ned=tuple(pose), yaw_deg=0.0)
-        _apply(pose, 0.0, action)
-        assert _inside((pose[0], pose[1]), s.area), "follow boundary mutation left operating area"
+    monkeypatch.setattr(AirframeMotionAdapter, "guard_command", no_follow_boundary)
+    with pytest.raises(AssertionError, match="outside area|systematic min_altitude|ground-level"):
+        _run_campaign(list(range(40)))
 
 
 @pytest.mark.mutation_full

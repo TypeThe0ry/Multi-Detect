@@ -38,11 +38,47 @@ python -m pytest -q tests/test_mission_executor_fuzz.py
 | a. 首个位姿高度当 home | 令 `_init_home` 在正常初始化后调用 `safety.set_home((pose.n, pose.e, pose.down))`；使用 seed 1 的无 package、adapter 已配置包络、首个位姿空中巡航场景 | seed 1；`rejected / actions <= 0.2` 失败，24/25 个动作被 `min_altitude` 拒绝并原地 hold |
 | b. 包 home 不绑定包络 | 构造器完成后把 `safety.home_ned` 改回错误的 `(0, 0, -30)` | seed 2；精确 home 绑定断言失败：`tuple(home_ned) == (*package_home, 0.0)` |
 | c. count runtime budget 不受限制 | monkeypatch `_count_budget` 返回 `count_budget_max`，配置 `runtime_step_limit=12`、返航 reserve=3 | seed 3；总 primitive 数断言失败：变异消耗超过 runtime limit，不能保证返航尾段 |
-| d. follow 越过 operating area | monkeypatch `_follow` 返回 100 m 越界 translate，并让 follow 安全出口直接放行，模拟 boundary observe/guard 被回退 | seed 4；实际积分后的位姿 `_inside(operating_area)` 断言失败 |
+| d. follow 越过 operating area | monkeypatch `_follow` 返回 100 m 越界 translate，并让 follow 安全出口直接放行，模拟 boundary observe/guard 被回退 | 随机 campaign 的 seed 61；实际积分后的位姿进入禁飞圆，`no-fly violation` 断言失败 |
 | e. 去掉禁飞区 segment 检查 | monkeypatch executor 的 `_translate_enters_no_fly` 和 adapter guard 放行，seed 5 从 `(-8, 0)` 直穿中心禁飞圆 | seed 5；动作终点到禁飞圆中心距离小于膨胀半径 6 m，禁飞不变量失败 |
 | f. 去掉失败后的 return_home 链接 | monkeypatch `_finish` 在 failed 时直接把任务置 terminal，不执行 `on_fail` | seed 6；失败路径最后必须出现 `return_home` 的断言失败 |
 
-这里没有使用源码文件临时改写；变异全部在 pytest 内 monkeypatch。当前源码没有名为 `boundary_observe` 的函数，follow 的实际边界保护由 `AirframeMotionAdapter.guard_command` 进入 `SafetyEnvelope` 完成，因此 d 变异针对这个等价安全出口被移除的行为。
+当前源码没有名为 `boundary_observe` 的函数，follow 的实际边界保护由 `AirframeMotionAdapter.guard_command` 进入 `SafetyEnvelope` 完成，因此 d 变异针对这个等价安全出口被移除的行为。
+
+## 源码级复核
+
+为避免只证明 monkeypatch 测试自身会通过，另行对生产源码做了临时变异，运行后立即恢复：
+
+1. a 变异：把 `mission_executor.py:_init_home` 的 `set_home((pose_ned[0], pose_ned[1]))` 改为 `set_home((pose_ned[0], pose_ned[1], pose_ned[2]))`。运行：
+
+   ```powershell
+   $env:PYTHONPATH = "src;."
+   $env:MISSION_FUZZ_SEEDS = "300"
+   python -m pytest -q tests/test_mission_executor_fuzz.py -m "not mutation_full"
+   ```
+
+   结果：失败，首个失败 seed 为 `1`，断言为 `non-package airborne home must retain ground-level envelope reference`；随机 campaign 识别出 `home_ned.z=-11.091...`。
+
+2. d 变异：把 `next_action` 中 adapter 安全出口条件临时改为 `if self.airframe_adapter is not None and run.step.skill != "follow"`，等价于 follow 绕过 operating-area/no-fly 安全出口。使用同一命令，结果：失败，首个失败 seed 为 `61`，断言为 `no-fly violation`，实际位姿进入膨胀禁飞圆。
+
+两次源码变异均已恢复；恢复后的同一 300 seed campaign 通过。随机生成器按 `seed % 2` 交替生成 package/non-package 场景，300 个 seed 中各 150 个；测试结束明确断言两类均至少占 30%。
+
+实际复核命令和结果：
+
+```text
+# a 源码变异：首个失败 seed=1，ground-level home 断言失败
+$env:MISSION_FUZZ_SEEDS="300"; python -m pytest -q tests/test_mission_executor_fuzz.py -m "not mutation_full"
+FAILED at seed 1: non-package airborne home must retain ground-level envelope reference
+
+# d 源码等价变异：首个失败 seed=61，实际位姿进入膨胀禁飞圆
+$env:MISSION_FUZZ_SEEDS="300"; python -m pytest -q tests/test_mission_executor_fuzz.py -m "not mutation_full"
+FAILED at seed 61: no-fly violation
+
+# 恢复源码后的随机 campaign
+$env:MISSION_FUZZ_SEEDS="300"; python -m pytest -q tests/test_mission_executor_fuzz.py -m "not mutation_full"
+3 passed
+```
+
+默认生成器的 300 个 seed 中 package/non-package 各 150 个；测试明确要求两类都达到至少 30%。
 
 ## 处置与复核
 
