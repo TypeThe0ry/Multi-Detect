@@ -184,6 +184,71 @@ def test_fixed_wing_command_safety_rejection_recovers_to_loiter():
     assert "geofence" in safety["reasons"]
 
 
+def test_multirotor_primitive_uses_final_safety_exit():
+    adapter = AirframeMotionAdapter("x500_mono_cam", base_dir=ROOT)
+    adapter.safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(
+            operating_polygon=((-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)),
+            min_altitude_m=8.0,
+            max_altitude_m=40.0,
+            vehicle=adapter.safety.vehicle,
+        )
+    )
+    command, safety = adapter.guard_command(
+        ActionPrimitive.translate(50.0, 0.0, 0.0),
+        pose_ned=(0.0, 0.0, -20.0),
+        yaw_deg=0.0,
+    )
+    assert command.kind == "hold"
+    assert safety["rejected"] is True
+    assert "geofence" in safety["reasons"]
+
+
+def test_multirotor_final_exit_rejects_low_altitude_and_records_reason():
+    adapter = AirframeMotionAdapter("x500_mono_cam", base_dir=ROOT)
+    adapter.safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(min_altitude_m=8.0, vehicle=adapter.safety.vehicle)
+    )
+    command, safety = adapter.guard_command(
+        ActionPrimitive.hold(1.0), pose_ned=(0.0, 0.0, -2.0), yaw_deg=0.0
+    )
+    assert command.kind == "hold"
+    assert safety["rejected"] is True
+    assert "altitude" in safety["reasons"]
+
+
+def test_multirotor_final_exit_rejects_climb_above_max_altitude():
+    adapter = AirframeMotionAdapter("x500_mono_cam", base_dir=ROOT)
+    adapter.safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(max_altitude_m=30.0, vehicle=adapter.safety.vehicle)
+    )
+    command, safety = adapter.guard_command(
+        ActionPrimitive.translate(0.0, 0.0, 20.0), pose_ned=(0.0, 0.0, -20.0), yaw_deg=0.0
+    )
+    assert command.kind == "hold"
+    assert safety["rejected"] is True
+    assert "max_altitude" in safety["reasons"]
+
+
+def test_fixed_wing_orbit_is_rejected_when_rim_leaves_operating_area():
+    adapter = AirframeMotionAdapter("advanced_plane", base_dir=ROOT)
+    adapter.safety = SafetyEnvelope(
+        SafetyEnvelopeConfig(
+            operating_polygon=((-50.0, -50.0), (50.0, -50.0), (50.0, 50.0), (-50.0, 50.0)),
+            vehicle=adapter.safety.vehicle,
+        )
+    )
+    command, safety = adapter.guard_command(
+        MotionCommand("orbit", target_ned=(40.0, 0.0, -30.0), radius_m=adapter.profile.loiter_radius_m(),
+                      speed_mps=adapter.profile.cruise_airspeed_mps, mode="FW"),
+        pose_ned=(0.0, 0.0, -30.0),
+        yaw_deg=0.0,
+    )
+    assert command.kind == "loiter"
+    assert safety["rejected"] is True
+    assert "geofence" in safety["reasons"]
+
+
 class _GuidedVehicle:
     def __init__(self):
         self.calls = []
