@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from scripts.replay_onboard_episode import Results, compare, read_rows
+import pytest
+
+from scripts.replay_onboard_episode import Results, compare, read_rows, replay
 
 
 FIXTURE = Path(__file__).parent / "fixtures/onboard_replay"
@@ -28,3 +30,8 @@ def test_compare_reports_first_divergence():
     result = compare(left, right)
     assert result["first_divergence"] == 0
     assert result["step"] == 3
+
+
+def test_real_mode_is_explicitly_unimplemented():
+    with pytest.raises(RuntimeError, match="real 模式未实现"):
+        replay(FIXTURE, mode="real")
