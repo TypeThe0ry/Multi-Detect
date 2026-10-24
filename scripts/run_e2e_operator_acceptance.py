@@ -543,6 +543,139 @@ def _return_home(
     }
 
 
+def _task_validation(
+    skills: list[str],
+    summary: dict[str, Any] | None,
+    findings: list[dict[str, Any]],
+    truth: dict[str, Any] | None,
+    radius_m: float,
+) -> tuple[str, dict[str, Any], dict[str, bool]]:
+    """Select task-specific truth checks while keeping the count contract stable."""
+    skill_set = set(skills)
+    targets = (truth or {}).get("targets", [])
+    if "count" in skill_set:
+        return "count", {}, {"count_matches_truth": None}
+    if skill_set & {"monitor", "patrol"}:
+        expected = [
+            t
+            for t in targets
+            if isinstance(t, dict)
+            and (
+                any(t.get(k) for k in ("alert_member", "monitor_member", "patrol_member"))
+                or t.get("count_member") is True
+                or t.get("true_target") is True
+            )
+        ]
+        observed = list((summary or {}).get("alerts") or [])
+        expected_points = []
+        for target in expected:
+            pose = target.get("pose") or {}
+            north = _num(pose.get("y_north_m", pose.get("north_m")))
+            east = _num(pose.get("x_east_m", pose.get("east_m")))
+            if north is not None and east is not None:
+                expected_points.append((north, east))
+        observed_points = []
+        for alert in observed:
+            match = re.search(r"@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)", str(alert))
+            if match:
+                observed_points.append((float(match.group(1)), float(match.group(2))))
+        matched = 0
+        remaining = list(expected_points)
+        for point in observed_points:
+            candidates = [
+                (math.dist(point, target), index) for index, target in enumerate(remaining)
+            ]
+            if candidates:
+                distance, index = min(candidates)
+                if distance <= radius_m:
+                    matched += 1
+                    remaining.pop(index)
+        # Marker-only unit fixtures can validate precision/recall without positions.
+        if expected and not expected_points and observed:
+            expected_labels = [
+                str(t.get("label") or t.get("class") or t.get("query") or "").casefold()
+                for t in expected
+            ]
+            observed_labels = [
+                str(a).split(":alert:", 1)[-1].split("@", 1)[0].casefold() for a in observed
+            ]
+            matched = sum(1 for label in observed_labels if label and label in expected_labels)
+            observed_count = len(observed_labels)
+            expected_count = len(expected_labels)
+        else:
+            observed_count, expected_count = len(observed_points), len(expected_points)
+        precision = matched / observed_count if observed_count else (1.0 if not expected else 0.0)
+        recall = (
+            matched / expected_count if expected_count else (1.0 if not observed_count else 0.0)
+        )
+        metrics = {
+            "expected_alerts": expected_count,
+            "observed_alerts": observed_count,
+            "matched_alerts": matched,
+            "precision": precision,
+            "recall": recall,
+            "matching_radius_m": radius_m,
+        }
+        valid = bool(expected_count)
+        return (
+            "alerts",
+            metrics,
+            {
+                "alert_precision": valid and precision == 1.0,
+                "alert_recall": valid and recall == 1.0,
+                "alerts_match_truth": valid and precision == 1.0 and recall == 1.0,
+            },
+        )
+    if "inspect" in skill_set:
+        expected = [
+            t
+            for t in targets
+            if isinstance(t, dict)
+            and (
+                any(t.get(k) for k in ("inspect_member", "inspection_member"))
+                or t.get("true_target") is True
+            )
+        ]
+        expected_labels = [
+            str(t.get("label") or t.get("class") or t.get("query") or "").casefold()
+            for t in expected
+        ]
+        candidates = [f for f in findings if f.get("arrived_at_ground")]
+        matched = 0
+        errors = []
+        for target, label in zip(expected, expected_labels, strict=False):
+            pose = target.get("pose") or {}
+            north = _num(pose.get("y_north_m", pose.get("north_m")))
+            east = _num(pose.get("x_east_m", pose.get("east_m")))
+            choices = [
+                f for f in candidates if label and label in str(f.get("label") or "").casefold()
+            ]
+            if north is not None and east is not None:
+                choices = [f for f in choices if f.get("n") is not None and f.get("e") is not None]
+                choices.sort(key=lambda f: math.hypot(f["n"] - north, f["e"] - east))
+                if choices:
+                    distance = math.hypot(choices[0]["n"] - north, choices[0]["e"] - east)
+                    if distance <= radius_m:
+                        matched += 1
+                        errors.append(_round(distance))
+            elif choices:
+                matched += 1
+        recall = matched / len(expected) if expected else 0.0
+        metrics = {
+            "expected_inspections": len(expected),
+            "matched_inspections": matched,
+            "recall": recall,
+            "position_errors_m": errors,
+            "radius_m": radius_m,
+        }
+        return (
+            "inspection",
+            metrics,
+            {"inspection_matches_truth": bool(expected) and matched == len(expected)},
+        )
+    return "generic", {}, {"count_matches_truth": None}
+
+
 def _link(
     ground: list[dict[str, Any]],
     onboard: list[dict[str, Any]],
@@ -618,6 +751,9 @@ def evaluate_run(
     summary_view["recorded_onboard"] = onboard_summary is not None
     summary_view["status"] = (summary or {}).get("status")
 
+    task_kind, task_metrics, task_criteria = _task_validation(
+        plan["skills"], summary, findings, truth_data, radius_m
+    )
     criteria = {
         "plan_signed_and_approved": plan["received_at_ground"]
         and plan["signed_command_accepted"]
@@ -626,9 +762,16 @@ def evaluate_run(
         "final_summary_complete": summary_view["complete"],
         "mission_completed": termination["status"] == "completed",
         "returned_home": return_home["arrived_reported"] is True,
-        "count_matches_truth": count["count_exact"] is True,
         "no_rejected_acks_after_admission": link["rejected_after_first_document"] == 0,
     }
+    criteria.update(
+        {
+            key: count["count_exact"] is True
+            if value is None and key == "count_matches_truth"
+            else value
+            for key, value in task_criteria.items()
+        }
+    )
     verdict = "PASS" if all(criteria.values()) else "FAIL"
     mission_id = next((d.get("mission_id") for d in ground + onboard if d.get("mission_id")), None)
     return {
@@ -648,6 +791,7 @@ def evaluate_run(
         "final_summary": summary_view,
         "termination": termination,
         "count": count,
+        "task_validation": {"task_kind": task_kind, **task_metrics},
         "return_home": return_home,
         "link": link,
         "timing_alignment": timing_alignment,

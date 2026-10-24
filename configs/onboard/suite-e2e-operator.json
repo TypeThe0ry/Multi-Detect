@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "count-cones",
+      "world": "gen_cnt2_w0000",
+      "airframe": "x500_mono_cam",
+      "mission_package": {
+        "mission_id": "e2e-count-cones",
+        "task_text": "数一数场地里有几个橙色交通锥，报告位置后返航。",
+        "risk_level": "low",
+        "link_loss_policy": {"action": "continue"},
+        "heartbeat_timeout_s": 5,
+        "home": [0, 0],
+        "places": {},
+        "zones": {"zone:site": {"centre_ne": [0, 0], "radius_m": 55}},
+        "routes": {},
+        "ref_labels": {"zone:site": "交通锥所在场地 / cone field"},
+        "operating_area": {"north_min_m": -100, "north_max_m": 100, "east_min_m": -100, "east_max_m": 100, "min_altitude_m": 5, "max_altitude_m": 120},
+        "budget": {"time_s": 3600, "reserve_time_s": 180, "energy_wh": 600, "reserve_energy_wh": 60},
+        "oversight_steps": []
+      },
+      "expect": {"skills": ["count", "return_home"], "criterion": "count_matches_truth"}
+    },
+    {
+      "id": "count-fire-hydrants",
+      "world": "gen_cnt2_w0001",
+      "airframe": "x500_mono_cam",
+      "prompt": "数一数场地里的消防栓，记录每个位置，然后返航。",
+      "home": [0, 0],
+      "zones": {"zone:site": {"centre_ne": [0, 0], "radius_m": 55}},
+      "ref_labels": {"zone:site": "消防栓所在场地 / fire hydrant site"},
+      "budget": {"time_s": 3600, "reserve_time_s": 180, "energy_wh": 600, "reserve_energy_wh": 60},
+      "expect": {"skills": ["count", "return_home"], "criterion": "count_matches_truth"}
+    },
+    {
+      "id": "monitor-backpacks",
+      "world": "gen_cnt2_w0003",
+      "airframe": "x500_mono_cam",
+      "prompt": "监视场地两分钟，发现背包时记录位置并告警，之后返航。",
+      "home": [0, 0],
+      "zones": {"zone:site": {"centre_ne": [0, 0], "radius_m": 55}},
+      "ref_labels": {"zone:site": "监视场地 / monitoring site"},
+      "budget": {"time_s": 3600, "reserve_time_s": 180, "energy_wh": 600, "reserve_energy_wh": 60},
+      "expect": {"skills": ["monitor", "return_home"], "criterion": "alerts_match_truth"}
+    },
+    {
+      "id": "patrol-fence-backpacks",
+      "world": "gen_cnt2_w0003",
+      "airframe": "x500_mono_cam",
+      "prompt": "沿围栏路线巡逻并留意背包，发现时记录位置并告警，然后返航。",
+      "home": [0, 0],
+      "zones": {"zone:site": {"centre_ne": [0, 0], "radius_m": 55}},
+      "routes": {"route:fence": [[-30, -30], [-30, 30], [30, 30], [30, -30], [-30, -30]]},
+      "ref_labels": {"zone:site": "围栏周边 / fence perimeter", "route:fence": "围栏巡逻路线 / fence patrol route"},
+      "budget": {"time_s": 3600, "reserve_time_s": 180, "energy_wh": 600, "reserve_energy_wh": 60},
+      "expect": {"skills": ["patrol", "return_home"], "criterion": "alerts_match_truth"}
+    },
+    {
+      "id": "inspect-postbox",
+      "world": "gen_v2_w0038",
+      "airframe": "x500_mono_cam",
+      "prompt": "找到邮筒，从四个方向检查并记录状态，完成后返航。",
+      "home": [0, 0],
+      "places": {"poi:postbox": [-35.287, -13.133]},
+      "ref_labels": {"poi:postbox": "邮筒 / postbox"},
+      "budget": {"time_s": 3600, "reserve_time_s": 180, "energy_wh": 600, "reserve_energy_wh": 60},
+      "expect": {"skills": ["area_search", "inspect", "return_home"], "criterion": "inspection_matches_truth"}
+    }
+  ]
+}
