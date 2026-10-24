@@ -93,6 +93,33 @@ def test_async_metadata_drains_all_completed_steps_on_close(tmp_path: Path) -> N
     assert all((episode / row["obs_before"]["depth_path"]).is_file() for row in rows)
 
 
+def test_step_timing_extension_is_compact_and_episode_summary_is_emitted(tmp_path: Path) -> None:
+    recorder = EpisodeRecorder(tmp_path, "timed", task_text="timed-task")
+    recorder.record_step(
+        {"depth": np.ones((2, 2), dtype=np.float32)},
+        {},
+        timing={"frame_before_wait": 2.0, "policy_detection": 4.5, "other": 1.0},
+    )
+    recorder.record_step(
+        {"depth": np.ones((2, 2), dtype=np.float32)},
+        {},
+        timing={"frame_before_wait": 6.0, "policy_detection": 1.5},
+    )
+    recorder.mark_finished()
+    episode = recorder.episode_dir
+    row = json.loads((episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert row["timing"]["frame_before_wait"] == 2.0
+    assert row["timing"]["policy_detection"] == 4.5
+    assert row["timing"]["other"] == 1.0
+    meta = json.loads((episode / "episode.json").read_text(encoding="utf-8"))
+    assert meta["timing_enabled"] is True
+    summary = meta["timing_summary"]
+    assert summary["frame_before_wait"]["count"] == 2
+    assert summary["frame_before_wait"]["mean_ms"] == pytest.approx(4.0)
+    assert summary["frame_before_wait"]["p50_ms"] == pytest.approx(4.0)
+    assert summary["frame_before_wait"]["p95_ms"] == pytest.approx(5.8)
+
+
 def _obs(value: float = 1.0) -> dict:
     return {
         "rgb": b"not-a-real-png",

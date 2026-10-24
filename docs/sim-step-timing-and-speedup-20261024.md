@@ -85,3 +85,51 @@ python -m multidetect.sim_teacher.recording $out
 再按上表方法计算均值和 p90。崩溃恢复测试应在已追加若干步骤后终止采集器，确认
 `steps.jsonl` 中已完成行和对应帧仍可审计；异步元数据快照尚未排队完成的最后一份
 `episode.json` 不应被当作步骤数据源。
+
+## 新版逐步计时字段
+
+采集器现在在每个 `steps.jsonl` 行写入可选的 `timing` 扩展对象。所有值都是该步骤
+内以 `time.monotonic_ns()` 取样、四舍五入到毫秒的非负数；字段缺失表示旧采集器或
+该步骤没有执行对应阶段，不应解释为零。字段名及含义如下：
+
+| 字段 | 含义 |
+|---|---|
+| `frame_before_wait` | 等待前帧，包括新帧和水位条件 |
+| `observation_pack` | 将前帧整理为策略输入 |
+| `policy_detection` | 检测器执行 |
+| `policy_tracking` | 航迹/关联 |
+| `policy_slow_queue` / `policy_slow_execute` | 慢模型排队、调用执行 |
+| `policy_planning` / `policy_safety` | 规划/执行器决策、安全出口 |
+| `command_ack` | 命令下发到 PX4 及 ACK 等待 |
+| `primitive_accept_wait` | 等待 PX4 接受原语 |
+| `primitive_motion` | 原语运动中 |
+| `primitive_settle` | 完成判定后的稳定/settle |
+| `primitive_timeout` | 超时处理（无超时为 0 或省略，按实现约定） |
+| `frame_after_wait` | 等待后帧 |
+| `write_steps` | 追加该行 `steps.jsonl` 的写入 |
+| `write_frames` | RGB/segmentation/depth 编码和写入 |
+| `serialization` | JSON/其它序列化，不含文件系统写入 |
+| `other` | 生命周期中尚未单独归因的时间 |
+
+episode 的 `episode.json` 顶层扩展包含 `timing_enabled: true` 和
+`timing_summary`。后者按上述阶段给出 `{count, mean_ms, p50_ms, p95_ms}`，单位均为
+毫秒；汇总只使用实际存在的 `timing` 值，因此旧步骤不会被伪造为零。该扩展不改变
+现有 episode schema 的必填字段，未开启计时时仍可读取旧日志。
+
+### 下一次 SITL 跑完后的残差定位
+
+1. 先确认 `episode.json` 的 `timing_enabled` 和 `timing_summary`，检查 `count` 是否
+   接近步骤数；若为零，说明仍在使用旧采集器。
+2. 用 `scripts/analyze_step_timing.py <campaign-or-episode>` 输出按任务和阶段的
+   mean/p50/p95 表；优先查看 `frame_before_wait`、`frame_after_wait`、
+   `primitive_*` 及 `write_*` 的 p95。
+   脚本遇到没有 `timing` 的旧行时仍会输出兼容表：墙钟使用相邻
+   `receive_monotonic_ns`，原语使用 `outcome.elapsed_s`，检测和慢模型使用历史
+   `labels.onboard` 字段，其余明确标为未归因，避免把旧数据误报成精细阶段。
+3. 对单个异常步骤回到 `steps.jsonl`，将各阶段毫秒值相加，与相邻行
+   `receive_monotonic_ns` 差值比较；差额就是 `other` 或未覆盖的调度时间。
+4. 将巡航类任务与短原语任务分组比较：若前后帧等待占主导，检查传感器水位/锁步；若
+   `primitive_motion` 占主导，保持完成判定不变并单独评估仿真实时因子；若 `write_*`
+   占主导，再比较 PNG/JPEG、深度格式和磁盘吞吐。
+5. 保存分析表和对应 episode 路径到 `_scratch`，与本页历史基线并列；只有在动作、
+   完成状态和帧时间戳逐步一致后，才把任何提速开关纳入后续 SITL 对照。
