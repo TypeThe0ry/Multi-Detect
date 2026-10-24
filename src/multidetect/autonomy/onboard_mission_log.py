@@ -153,11 +153,18 @@ ALWAYS_DOWNLINK_KINDS = frozenset(
         "envelope_violation",
         "replay_state_lost",
         "final_summary",
+        "retask_received",
+        "retask_planning",
+        "retask_validated",
+        "retask_approval",
+        "retask_switched",
+        "retask_rejected",
     }
 )
 # Records that overtake routine records still waiting in the backlog.
 PRIORITY_DOWNLINK_KINDS = frozenset(
-    {"plan", "plan_approved", "plan_rejected", "finding", "alert", "escalation", "final_summary"}
+    {"plan", "plan_approved", "plan_rejected", "finding", "alert", "escalation", "final_summary",
+     "retask_approval", "retask_switched", "retask_rejected"}
 )
 DECISION_KEEPALIVE_S = 30.0
 

@@ -302,6 +302,85 @@ QGCPopupDialog {
                 qsTr("发现：%1 条").arg(findings)].filter(part => part.length > 0).join("\n");
     }
 
+    function planDecision(plan) {
+        const value = plan && typeof plan === "object" ? plan : ({});
+        const validation = validationSource(value);
+        return typeof validation.decision === "string" ? validation.decision :
+            (typeof value.validation_decision === "string" ? value.validation_decision : "");
+    }
+
+    function planReasons(plan) {
+        const value = plan && typeof plan === "object" ? plan : ({});
+        const validation = validationSource(value);
+        return Array.isArray(validation.reasons_zh) ? validation.reasons_zh.filter(item => typeof item === "string") : [];
+    }
+
+    function planQuestions(plan) {
+        const value = plan && typeof plan === "object" ? plan : ({});
+        const validation = validationSource(value);
+        return Array.isArray(validation.questions_zh) ? validation.questions_zh.filter(item => typeof item === "string").slice(0, 3) : [];
+    }
+
+    function planRepairs(plan) {
+        const value = plan && typeof plan === "object" ? plan : ({});
+        const validation = validationSource(value);
+        return Array.isArray(validation.repairs) ? validation.repairs.filter(item => typeof item === "string") : [];
+    }
+
+    function validationSource(plan) {
+        if (plan.validation && typeof plan.validation === "object")
+            return plan.validation;
+        const entries = root.controller && Array.isArray(root.controller.logEntries) ? root.controller.logEntries : [];
+        for (let i = entries.length - 1; i >= 0; --i) {
+            const entry = entries[i];
+            if (!entry || entry.kind !== "mission_refused")
+                continue;
+            if (entry.validation && typeof entry.validation === "object")
+                return entry.validation;
+            const violations = Array.isArray(entry.violations) ? entry.violations : [];
+            return { "decision": entry.decision, "reasons_zh": violations.map(item => item && item.message_zh).filter(item => typeof item === "string"),
+                "questions_zh": violations.reduce((all, item) => all.concat(Array.isArray(item && item.questions_zh) ? item.questions_zh : []), []) };
+        }
+        return plan;
+    }
+
+    function retaskStatusText(plan) {
+        const value = plan && typeof plan === "object" ? plan : ({});
+        const status = typeof value.retask_status === "string" ? value.retask_status :
+            (typeof value.status === "string" ? value.status : "");
+        const labels = {
+            "retask_received": qsTr("已受理"), "retask_planning": qsTr("规划中"),
+            "retask_validated": qsTr("校验结论"), "retask_approval": qsTr("待审批"),
+            "retask_switched": qsTr("已切换"), "retask_rejected": qsTr("已拒绝")
+        };
+        return labels[status] || status;
+    }
+
+    function currentRetaskStatus() {
+        const fromPlan = retaskStatusText(root.controller ? root.controller.plan : ({}));
+        if (fromPlan.length > 0)
+            return fromPlan;
+        const entries = root.controller && Array.isArray(root.controller.logEntries) ? root.controller.logEntries : [];
+        for (let i = entries.length - 1; i >= 0; --i) {
+            const kind = entries[i] && typeof entries[i].kind === "string" ? entries[i].kind : "";
+            if (kind.indexOf("retask_") === 0)
+                return retaskStatusText({ "retask_status": kind });
+        }
+        return "";
+    }
+
+    function planHistoryText(summary) {
+        const history = summary && Array.isArray(summary.plan_history) ? summary.plan_history : [];
+        return history.filter(item => item && typeof item === "object").map(item => {
+            const version = item.plan_version !== undefined ? String(item.plan_version) : "?";
+            const digest = typeof item.plan_sha256 === "string" ? item.plan_sha256 : "";
+            const mode = typeof item.mode === "string" ? item.mode : "";
+            return qsTr("版本 %1%2%3").arg(version)
+                .arg(mode ? qsTr(" · 模式 %1").arg(mode) : "")
+                .arg(digest ? qsTr(" · plan_sha256 %1").arg(digest) : "");
+        }).join("\n");
+    }
+
     function summaryOperatorLine(summary) {
         const operator = summary && summary.operator_summary && typeof summary.operator_summary === "object"
             ? summary.operator_summary : ({});
@@ -649,6 +728,115 @@ QGCPopupDialog {
                 wrapMode: Text.WordWrap
                 text: qsTr("本地校验仅检查飞前草稿。收到机载接受确认才表示任务包装载成功；上传不等于解锁、起飞或开始执行。")
             }
+
+            SectionLabel { text: qsTr("计划校验与操作员审批") }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && Object.keys(root.controller.plan || {}).length > 0
+                wrapMode: Text.WordWrap
+                text: {
+                    const decision = root.planDecision(root.controller ? root.controller.plan : ({}));
+                    const digest = root.controller && root.controller.plan ? root.controller.plan.plan_sha256 : "";
+                    return qsTr("机载结论：%1%2").arg(decision || qsTr("未提供"))
+                        .arg(typeof digest === "string" && digest.length > 0 ? qsTr("\nplan_sha256：%1").arg(digest) : "");
+                }
+            }
+            Repeater {
+                model: root.planReasons(root.controller ? root.controller.plan : ({}))
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("原因：%1").arg(modelData)
+                }
+            }
+            Repeater {
+                model: root.planRepairs(root.controller ? root.controller.plan : ({}))
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("自动修复：%1").arg(modelData)
+                }
+            }
+            Repeater {
+                model: root.planQuestions(root.controller ? root.controller.plan : ({}))
+                delegate: QGCLabel {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("待澄清问题：%1").arg(modelData)
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.planAwaitingDecision
+                QGCButton {
+                    text: qsTr("批准计划")
+                    primary: true
+                    enabled: root.planDecision(root.controller ? root.controller.plan : ({})) !== "clarify" &&
+                             root.planDecision(root.controller ? root.controller.plan : ({})) !== "reject"
+                    onClicked: root.controller.approvePlan()
+                }
+                QGCButton {
+                    text: qsTr("拒绝计划")
+                    enabled: !!root.controller
+                    onClicked: root.controller.rejectPlan()
+                }
+            }
+            QGCButton {
+                Layout.fillWidth: true
+                visible: root.planDecision(root.controller ? root.controller.plan : ({})) === "clarify"
+                text: qsTr("修改任务并重新提交")
+                onClicked: {
+                    showJson.checked = true;
+                    root._feedback = qsTr("请在上方任务描述或 JSON 编辑器中补足澄清问题，再点击上传至机载。旧计划不会被批准。");
+                }
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.planDecisionState.length > 0
+                wrapMode: Text.WordWrap
+                text: root.controller ? root.controller.planDecisionState : ""
+            }
+
+            SectionLabel { text: qsTr("飞行中改派") }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.currentRetaskStatus().length > 0
+                wrapMode: Text.WordWrap
+                text: qsTr("改派状态：%1").arg(root.currentRetaskStatus())
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.plan && typeof root.controller.plan.retask_reason_zh === "string"
+                wrapMode: Text.WordWrap
+                text: qsTr("原因：%1").arg(root.controller ? root.controller.plan.retask_reason_zh : "")
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.plan && typeof root.controller.plan.plan_sha256 === "string" &&
+                         root.currentRetaskStatus() === qsTr("待审批")
+                wrapMode: Text.WordWrap
+                text: qsTr("审批绑定候选 plan_sha256：%1").arg(root.controller.plan.plan_sha256)
+            }
+            QGCButton {
+                Layout.fillWidth: true
+                visible: !!root.controller && root._hasLiveMission
+                text: qsTr("上传签名任务包并替换剩余步骤")
+                onClicked: {
+                    if (root.prepareDraft()) {
+                        if (typeof root.controller.uploadRetask === "function") root.controller.uploadRetask();
+                        else root.controller.upload();
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.currentRetaskStatus() === qsTr("待审批")
+                QGCButton { text: qsTr("批准改派"); primary: true; onClicked: root.controller.approveRetask ? root.controller.approveRetask() : root.controller.approvePlan() }
+                QGCButton { text: qsTr("拒绝改派"); onClicked: root.controller.rejectRetask ? root.controller.rejectRetask() : root.controller.rejectPlan() }
+            }
             QGCCheckBox { id: showJson; text: qsTr("展开完整 JSON 编辑器（含路线与步骤计划）") }
             QGCLabel {
                 Layout.fillWidth: true
@@ -757,6 +945,12 @@ QGCPopupDialog {
                 color: qgcPal.warningText
                 wrapMode: Text.WordWrap
                 text: root.summaryTruncationText(root.controller.finalSummary)
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.finalSummaryComplete && root.planHistoryText(root.controller.finalSummary).length > 0
+                wrapMode: Text.WordWrap
+                text: qsTr("计划版本历史：\n%1").arg(root.planHistoryText(root.controller.finalSummary))
             }
             QGCCheckBox { id: showRawAudit; text: qsTr("显示机载原始审计字段（保留机器原文）") }
             QGCLabel {
