@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "note": "planning-v4 留出集：从 v3 模板独立改写，训练生成器排除本文件文本；每类中英各题，覆盖返航、未知地点、能力拒绝、别名、查询依据。",
+  "holdout_method": "独立人工措辞与地点组合；build_plan_sft 默认读取所有 plan-eval-tasks*.json 并按规范化文本排除，测试要求与训练文本无交集。",
+  "refs": ["poi:gate (大门 / gate)", "poi:pad (起降坪 / landing pad)", "zone:lot (停车场 / parking lot)"],
+  "tasks": [
+    {"text":"到大门检查入口，然后返航回起飞点。","language":"zh","category":"return_intent","skills":["goto","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:gate"}},{"skill":"return_home","params":{}}]},
+    {"text":"Inspect the gate, then return to the launch point.","language":"en","category":"return_intent","skills":["goto","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:gate"}},{"skill":"return_home","params":{}}]},
+    {"text":"去大门看看，不用返航，就地降落。","language":"zh","category":"return_negated_land","skills":["goto","land"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:gate"}},{"skill":"land","params":{}}]},
+    {"text":"Go to the gate; do not return home, land here.","language":"en","category":"return_negated_land","skills":["goto","land"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:gate"}},{"skill":"land","params":{}}]},
+    {"text":"飞去地图上不存在的Raven Pier。","language":"zh","category":"unknown_place","skills":[],"expect_invalid":true},
+    {"text":"Fly to the nonexistent Raven Pier and do not substitute the gate.","language":"en","category":"unknown_place","skills":[],"expect_invalid":true},
+    {"text":"把包裹投放到大门，但本机没有载荷投送能力。","language":"zh","category":"missing_payload_drop","skills":[],"expect_invalid":true,"capabilities":[]},
+    {"text":"Deliver the parcel to the gate; this aircraft has no payload drop.","language":"en","category":"missing_payload_drop","skills":[],"expect_invalid":true,"capabilities":[]},
+    {"text":"固定翼在停车场上空悬停观察。","language":"zh","category":"fixed_wing_hover","skills":[],"expect_invalid":true,"capabilities":["airframe:fixed_wing"]},
+    {"text":"A fixed-wing aircraft should hover over the parking lot.","language":"en","category":"fixed_wing_hover","skills":[],"expect_invalid":true,"capabilities":["airframe:fixed_wing"]},
+    {"text":"固定翼飞到大门上方定点降落。","language":"zh","category":"fixed_wing_target_land","skills":[],"expect_invalid":true,"capabilities":["airframe:fixed_wing"]},
+    {"text":"A fixed-wing aircraft should land precisely on the gate.","language":"en","category":"fixed_wing_target_land","skills":[],"expect_invalid":true,"capabilities":["airframe:fixed_wing"]},
+    {"text":"到大门核实入口，再返回home。","language":"zh","category":"ref_alias","skills":["goto","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:gate"}},{"skill":"return_home","params":{}}]},
+    {"text":"Go to the landing pad, inspect it, and come back to base.","language":"en","category":"ref_alias","skills":["goto","inspect","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:pad"}},{"skill":"inspect","params":{"target_ref":"poi:pad","query":"pad","views":4,"standoff_m":10}},{"skill":"return_home","params":{}}]},
+    {"text":"数停车场里的红色轿车，然后返航。","language":"zh","category":"query_grounding","skills":["count","return_home"],"expected_steps":[{"skill":"count","params":{"region":"zone:lot","query":"red car"}},{"skill":"return_home","params":{}}]},
+    {"text":"Count the bicycles in the parking lot and return home.","language":"en","category":"query_grounding","skills":["count","return_home"],"expected_steps":[{"skill":"count","params":{"region":"zone:lot","query":"bicycle"}},{"skill":"return_home","params":{}}]},
+    {"text":"检查大门并返航，但不要凭空检查救护车。","language":"zh","category":"query_ungrounded","skills":[],"expect_invalid":true},
+    {"text":"Inspect the gate and return home, but do not invent a fire truck target.","language":"en","category":"query_ungrounded","skills":[],"expect_invalid":true},
+    {"text":"到起降坪确认位置，随后回基地。","language":"zh","category":"ref_alias","skills":["goto","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:pad"}},{"skill":"return_home","params":{}}]},
+    {"text":"Check the pad and head back to the base.","language":"en","category":"ref_alias","skills":["goto","return_home"],"expected_steps":[{"skill":"goto","params":{"target_ref":"poi:pad"}},{"skill":"return_home","params":{}}]}
+  ]
+}

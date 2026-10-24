@@ -33,6 +33,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
     plan_prompt,
 )
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
+from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
 
 OBJECTS = [  # (english query, chinese)
     ("car", "轿车"),
@@ -827,6 +828,75 @@ def r20_intent_rows(args, held_out: set[str], labels) -> list[dict]:
     return rows
 
 
+def cx_r20_rows(args, held_out: set[str]) -> list[dict]:
+    """Paired correct/incorrect examples for planner intent and capability gates."""
+    refs = ("poi:gate (大门 / gate)", "poi:pad (起降坪 / landing pad)",
+            "zone:lot (停车场 / parking lot)")
+    cases = [
+        ("请到大门检查，然后回到出发点", "return_intent", True,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, "s2", "s2"), H("s2")], (), None),
+        ("Check the gate and head back to where you took off.", "return_intent", True,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, "s2", "s2"), H("s2")], (), None),
+        ("去大门看一眼，不用返航，就地降落", "return_intent", True,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, "s2", "s2"), L("s2")], (), None),
+        ("Inspect the gate; do not return home, land here.", "return_intent", True,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, "s2", "s2"), L("s2")], (), None),
+        ("到地图没有的Raven Pier巡查", "unknown_place", False,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, None, None)], (), "ungrounded_place"),
+        ("Fly to a nonexistent Raven Pier, do not substitute the gate.", "unknown_place", False,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, None, None)], (), "ungrounded_place"),
+        ("把包裹投到大门", "capability_payload", False,
+         [S("s1", "deliver", {"target_ref":"poi:gate"}, None, None)], (), "missing_capability"),
+        ("Drop the parcel at the gate.", "capability_payload", False,
+         [S("s1", "deliver", {"target_ref":"poi:gate"}, None, None)], (), "missing_capability"),
+        ("固定翼在停车场上空悬停", "capability_fixed_wing", False,
+         [S("s1", "hover", {"region":"zone:lot"}, None, None)], ("airframe:fixed_wing",), "missing_capability"),
+        ("Fixed wing: hover over the parking lot.", "capability_fixed_wing", False,
+         [S("s1", "hover", {"region":"zone:lot"}, None, None)], ("airframe:fixed_wing",), "missing_capability"),
+        ("固定翼飞到大门上方定点降落", "capability_fixed_wing", False,
+         [S("s1", "land", {"target_ref":"poi:gate"}, None, None)], ("airframe:fixed_wing",), "missing_capability"),
+        ("A fixed-wing aircraft should land precisely on the gate.", "capability_fixed_wing", False,
+         [S("s1", "land", {"target_ref":"poi:gate"}, None, None)], ("airframe:fixed_wing",), "missing_capability"),
+        ("到大门核实入口，随后返回home", "ref_alias", True,
+         [S("s1", "goto", {"target_ref":"poi:gate"}, "s2", "s2"), H("s2")], (), None),
+        ("Go to the landing pad, inspect it, and come back to base.", "ref_alias", True,
+         [S("s1", "goto", {"target_ref":"poi:pad"}, "s2", "s2"), H("s2")], (), None),
+        ("数停车场里的红色轿车，然后返航", "query_grounding", True,
+         [S("s1", "count", {"region":"zone:lot", "query":"red car"}, "s2", "s2"), H("s2")], (), None),
+        ("Count the bicycles in the parking lot and return home.", "query_grounding", True,
+         [S("s1", "count", {"region":"zone:lot", "query":"bicycle"}, "s2", "s2"), H("s2")], (), None),
+        ("检查大门并返航", "query_grounding", False,
+         [S("s1", "inspect", {"target_ref":"poi:gate", "query":"ambulance"}, "s2", "s2"), H("s2")], (), "ungrounded_query"),
+        ("Inspect the gate and return home.", "query_grounding", False,
+         [S("s1", "inspect", {"target_ref":"poi:gate", "query":"fire truck"}, "s2", "s2"), H("s2")], (), "ungrounded_query"),
+    ]
+    rows = []
+    for i, (text, family, valid, steps, caps, expected_code) in enumerate(cases):
+        plan = {"plan_version":1, "goal":text, "steps":steps, "report":[]}
+        if steps[-1]["skill"] not in {"return_home", "land"}:
+            terminal_id = f"s{len(steps) + 1}"
+            steps[-1]["on_success"] = terminal_id
+            steps[-1]["on_fail"] = terminal_id
+            steps.append(H(terminal_id))
+            plan["steps"] = steps
+        if valid:
+            validate_mission_plan(plan)
+        intent = check_plan_intent(plan, text, refs)
+        capability = capability_violations(plan, caps, airframe=("airframe:fixed_wing" if caps else None))
+        codes = {f.code for f in intent} | {f["code"] for f in capability}
+        if valid and codes:
+            raise ValueError(f"invalid positive {family}: {sorted(codes)}")
+        if not valid and expected_code not in codes:
+            raise ValueError(f"negative case not caught {family}: {sorted(codes)}")
+        rows.append({"sample_id":f"plan-cx-r20-{i:02d}", "kind":"mission_plan",
+                     "world":"synthetic_plan_cx_r20", "family":family,
+                     "task_text":text, "refs":list(refs), "capabilities":list(caps),
+                     "expected_valid":valid, "expected_findings":[] if valid else [expected_code],
+                     "prompt":plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                     "assistant_target":plan})
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -849,6 +919,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--r20-intent-pairs", action="store_true",
                         help="append offline r20 return-home/unknown-place intent pairs")
+    parser.add_argument("--r20-plan-intent", action="store_true",
+                        help="emit paired r20 intent, grounding, alias, and capability audit rows")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -882,6 +954,9 @@ def main(argv: list[str] | None = None) -> int:
         # This mode is an explicit offline audit corpus, so keep every pair in
         # the requested output instead of mixing it into the normal backbone.
         rows = r20_intent_rows(args, held_out, labels)
+        args.rows, args.val_rows = len(rows), 0
+    if args.r20_plan_intent:
+        rows = cx_r20_rows(args, held_out)
         args.rows, args.val_rows = len(rows), 0
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":

@@ -31,6 +31,8 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
     compile_mission_plan,
     plan_json_schema,
 )
+from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
+from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -68,6 +70,11 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
     """
     path = success_path(plan) if plan is not None else None
     expected = item.get("skills", [])
+    intent = check_plan_intent(plan, item.get("text", ""), item.get("refs")) if plan else []
+    caps = item.get("capabilities", ())
+    capability = capability_violations(
+        plan, caps, airframe="airframe:fixed_wing" if "airframe:fixed_wing" in caps else None
+    ) if plan else []
     if item.get("expect_invalid", False):
         accepted = plan is None or (
             len(plan.steps) == 1
@@ -78,11 +85,17 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
         return {
             "expected": expected, "predicted": path, "valid": plan is not None,
             "exact": accepted, "same_skills": accepted, "expect_invalid": True,
+            "correct_rejection": accepted,
+            "intent_violations": sum(bool(f.blocking) for f in intent),
+            "capability_violations": len(capability),
         }
     return {
         "expected": expected, "predicted": path, "valid": plan is not None,
         "exact": path == expected or path in item.get("alternatives", []),
         "same_skills": path is not None and set(path) == set(expected),
+        "correct_rejection": False,
+        "intent_violations": sum(bool(f.blocking) for f in intent),
+        "capability_violations": len(capability),
     }
 
 
@@ -258,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             if "language" in item:
                 rows[-1]["language"] = item["language"]
+            if "category" in item:
+                rows[-1]["category"] = item["category"]
             print(
                 json.dumps(
                     {k: rows[-1][k] for k in ("text", "expected", "predicted", "valid")},
@@ -288,6 +303,18 @@ def main(argv: list[str] | None = None) -> int:
         "tasks_with_prompt_usage": sum(r["prompt_tokens_total"] is not None for r in rows),
     }
     diagnosis = compute_diagnosis(rows)
+    if any(row.get("category") for row in rows):
+        groups = {}
+        for category in sorted({row.get("category", "uncategorized") for row in rows}):
+            group = [row for row in rows if row.get("category", "uncategorized") == category]
+            invalid = [row for row in group if row.get("expect_invalid")]
+            groups[category] = {
+                "count": len(group), "accuracy": sum(bool(row["exact"]) for row in group) / len(group),
+                "rejection_correct_rate": (sum(bool(row.get("correct_rejection")) for row in invalid) / len(invalid) if invalid else None),
+                "intent_violation_rate": sum(bool(row.get("intent_violations")) for row in group) / len(group),
+                "capability_violation_rate": sum(bool(row.get("capability_violations")) for row in group) / len(group),
+            }
+        summary["category_metrics"] = groups
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
