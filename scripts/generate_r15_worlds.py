@@ -283,7 +283,7 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 },
             }
-            runtime["task_intent"] = {
+            teacher_intent = {
                 "kind": "find_and_observe",
                 "observation": observation_intent,
             }
@@ -341,8 +341,6 @@ def main(argv=None):
                 runtime["vehicle"] = {
                     "model": "px4_fixed_wing_standard",
                     "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
-                    "airframe": "rc_cessna_runway",
-                    "takeoff_method": "runway",
                     "spawn_id": f"{wid}_runway",
                     "spawn_pose": {
                         "x_east_m": 0.0,
@@ -375,6 +373,8 @@ def main(argv=None):
                         for sid, kind, stream, cal in FIXED_WING_SENSORS[2:]
                     ]
                 )
+                teacher_intent["airframe"] = "rc_cessna_runway"
+                teacher_intent["takeoff_method"] = "runway"
             else:
                 runtime["vehicle"]["spawn_pose"].update(
                     {
@@ -385,6 +385,13 @@ def main(argv=None):
                         "yaw_rad": 0.0,
                     }
                 )
+            # Teacher geometry is deliberately a sidecar.  It is consumed by
+            # the collector only and must not widen the strict runtime-input
+            # contract or change its provenance hash.
+            (sc / f"{wid}.teacher_intent.json").write_text(
+                json.dumps(teacher_intent, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             for name, value in channels.items():
                 (sc / f"{wid}.{name}.json").write_text(
                     json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

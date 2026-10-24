@@ -654,11 +654,19 @@ class Round:
             raise ValueError("scenario channels.runtime_input.path is missing")
         runtime_path = (scenario.parent / runtime_ref["path"]).resolve()
         runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        teacher_intent_path = scenario.with_name(
+            scenario.name.removesuffix(".scenario.json") + ".teacher_intent.json"
+        )
+        teacher_intent = (
+            json.loads(teacher_intent_path.read_text(encoding="utf-8"))
+            if teacher_intent_path.is_file()
+            else {}
+        )
         vehicle = runtime.get("vehicle", {}) if isinstance(runtime, dict) else {}
         model = str(vehicle.get("model", "")) if isinstance(vehicle, dict) else ""
         explicit = (
-            runtime.get("airframe")
-            or runtime.get("airframe_id")
+            teacher_intent.get("airframe")
+            or teacher_intent.get("airframe_id")
             or (vehicle.get("airframe") if isinstance(vehicle, dict) else None)
             or (vehicle.get("airframe_id") if isinstance(vehicle, dict) else None)
         )
@@ -707,7 +715,7 @@ class Round:
         if errors:
             raise ValueError("; ".join(errors))
         takeoff = (
-            str(vehicle.get("takeoff_method") or "runway")
+            str(teacher_intent.get("takeoff_method") or "runway")
             if category == "fixed_wing"
             else None
         )
@@ -798,19 +806,23 @@ class Round:
                 config_errors.append(f"{scenario.name}: {exc}")
         if config_errors:
             raise RuntimeError("collect 启动前配置校验失败：\n- " + "\n- ".join(config_errors))
-        if not self.a.dry_run:
-            # The collector only accepts scenarios, worlds, maps and DEMs inside this
-            # checkout; check every world once here instead of failing each episode.
-            from multidetect.simulator.stack import build_stack_plan
-
-            for scenario in scenarios:
-                try:
-                    build_stack_plan(scenario, repository_root=ROOT)
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"场景 {scenario} 无法构建 SIM stack（场景与世界/地图/DEM 资产必须位于 "
-                        f"{ROOT} 内，例如 configs/scenarios/generated-r19）：{exc}"
-                    ) from exc
+        # Build the same collector/docker plan used by workers before dispatch,
+        # including the resolved airframe and fixed-wing takeoff method.
+        from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
+        for scenario in scenarios:
+            airframe, takeoff_method = collection_options[scenario]
+            document = json.loads(scenario.read_text(encoding="utf-8"))
+            runtime_path = (scenario.parent / document["channels"]["runtime_input"]["path"]).resolve()
+            truth_path = (scenario.parent / document["channels"]["truth"]["path"]).resolve()
+            try:
+                docker_command(CollectionPlan(
+                    str(scenario), str(runtime_path), str(truth_path), "expert_search", 1,
+                    self.a.steps_per_episode, 20261016, str(self.a.out / "preflight"),
+                    airframe=airframe, takeoff_method=takeoff_method,
+                    control_port=R15_BASE_CONTROL_PORT, telemetry_port=R15_BASE_TELEMETRY_PORT,
+                ), name=f"r15-preflight-{scenario.stem}")
+            except Exception as exc:
+                raise RuntimeError(f"场景 {scenario} 无法构建 SIM stack：{exc}") from exc
         jobs: list[tuple[str, list[str], Path]] = []
         for scenario in scenarios:
             world = scenario.name.removesuffix(".scenario.json")
