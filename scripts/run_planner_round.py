@@ -138,6 +138,7 @@ def main(argv=None) -> int:
     parser.add_argument("--min-memory-gb", type=float, default=8)
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--no-skip-completed", action="store_true")
+    parser.add_argument("--force-stage", choices=STAGES, help="invalidate this stage and all later stages before running")
     parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
     args = parser.parse_args(argv)
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1:
@@ -149,6 +150,11 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     state_path = out / "round-state.json"
     state = load_json(state_path) if state_path.is_file() else {"schema_version": 1, "stages": {}}
+    if args.force_stage:
+        start = STAGES.index(args.force_stage)
+        for stage in STAGES[start:]:
+            state.get("stages", {}).pop(stage, None)
+        atomic_json(state_path, state)
     commands = command_plan(args, out)
     selected = STAGES if args.stage == "all" else (args.stage,)
     if args.dry_run:

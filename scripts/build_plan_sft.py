@@ -722,13 +722,14 @@ def _labelled_refs_match(before: list[dict], after: list[dict], refs, labels) ->
     )
 
 
-def v5_plan_prompt(text: str, refs, prompt_variant: str, held_out: set[str]) -> str:
+def v5_plan_prompt(text: str, refs, prompt_variant: str, held_out: set[str], *, capabilities=frozenset()) -> str:
     """Remove held-out few-shot tasks as well as filtering generated task texts.
 
     One legacy default example is itself an eval task. V4 retains its historical
     prompt; v5 keeps the same rules and all non-held-out examples.
     """
-    prompt = plan_prompt(text, refs=refs, prompt_variant=prompt_variant)
+    prompt = plan_prompt(text, refs=refs, prompt_variant=prompt_variant,
+                         capabilities=frozenset(capabilities))
     for example_text, example_plan in EXAMPLES:
         if normalize_task(example_text) in held_out:
             prompt = prompt.replace(
@@ -785,7 +786,8 @@ def v5_rows(args, held_out: set[str], labels) -> list[dict]:
                 rows.append({
                     "sample_id": f"plan-{sample_id}", "kind": "mission_plan",
                     "world": "synthetic_plan", "family": family, "task_text": text,
-                    "prompt": v5_plan_prompt(text, refs, args.prompt_variant, held_out),
+                    "prompt": v5_plan_prompt(text, refs, args.prompt_variant, held_out,
+                                              capabilities=frozenset()),
                     "assistant_target": plan,
                 })
                 break
@@ -823,7 +825,8 @@ def r20_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         rows.append({"sample_id": f"plan-r20-intent-{index}", "kind": "mission_plan",
                      "world": "synthetic_plan_r20", "family": family,
                      "task_text": text,
-                     "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                     "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                           capabilities=frozenset()),
                      "assistant_target": plan})
     return rows
 
@@ -892,7 +895,8 @@ def cx_r20_rows(args, held_out: set[str]) -> list[dict]:
                      "world":"synthetic_plan_cx_r20", "family":family,
                      "task_text":text, "refs":list(refs), "capabilities":list(caps),
                      "expected_valid":valid, "expected_findings":[] if valid else [expected_code],
-                     "prompt":plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                     "prompt":plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                          capabilities=frozenset(caps)),
                      "assistant_target":plan})
     return rows
 
@@ -947,6 +951,11 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 raise ValueError(f"r20 positive {family} violates contract: {text}: {sorted(codes)}")
             if not valid and expected_code not in codes:
                 raise ValueError(f"r20 negative {family} not caught: {text}: {sorted(codes)}")
+            rejected_candidate = None
+            if not valid:
+                rejected_candidate = plan
+                plan = {"plan_version": 1, "goal": f"Reject: {text[:160]}",
+                        "steps": [H("s1")], "report": ["rejected"]}
             rows.append({
                 "sample_id": f"plan-cx-r20-{family}-{index:04d}-{polarity}",
                 "kind": "mission_plan", "world": "synthetic_plan_cx_r20",
@@ -954,9 +963,12 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 "pair_role": "positive" if polarity == 0 else "paired_negative",
                 "capabilities": list(capabilities), "expected_valid": valid,
                 "expected_findings": [] if valid else [expected_code],
-                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                      capabilities=frozenset(capabilities)),
                 "assistant_target": plan, "_key": normalized,
             })
+            if rejected_candidate is not None:
+                rows[-1]["rejected_candidate"] = rejected_candidate
         return True
 
     for index in range(pairs):
@@ -1126,7 +1138,8 @@ def main(argv: list[str] | None = None) -> int:
                 "kind": "mission_plan",
                 "world": "synthetic_plan",
                 "task_text": text,
-                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant),
+                "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                      capabilities=frozenset()),
                 "assistant_target": plan,
             }
         )
