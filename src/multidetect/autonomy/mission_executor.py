@@ -1078,7 +1078,11 @@ class MissionExecutor:
             self.home = (pose_ned[0], pose_ned[1])
             self.cruise_altitude_m = max(0.0, -pose_ned[2])
             if self.airframe_adapter is not None:
-                self.airframe_adapter.safety.set_home(pose_ned)
+                # Local NED is takeoff-origin (cruise altitude is -z above), so the
+                # envelope's home stays at ground level.  The first pose arrives
+                # airborne; passing its altitude made every later altitude ~0 m and
+                # the min-altitude rule refused almost every step.
+                self.airframe_adapter.safety.set_home((pose_ned[0], pose_ned[1]))
 
     def next_action(
         self,

@@ -1998,3 +1998,32 @@ def test_follow_after_search_keeps_a_fast_target_through_a_long_ground_jump():
         )
     assert [t.track_id for t in executor.current_tracks] == [run.follow_track_id]
     assert run.lost_cycles == 0
+
+
+def test_safety_home_stays_at_ground_level_when_the_first_pose_is_airborne():
+    # SITL hands the executor its first pose at cruise altitude (local NED is
+    # takeoff-origin).  Taking that pose as the envelope home made every later
+    # altitude ~0 m, and min_altitude refused almost every step (replay: 53/61
+    # episodes held in place for 100+ steps).
+    from multidetect.autonomy.motion_intent import AirframeMotionAdapter
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    adapter = AirframeMotionAdapter("x500_mono_cam", base_dir=ROOT)
+    executor = MissionExecutor(
+        plan_for_find_task("red truck"), loop_factory=_factory(), airframe_adapter=adapter
+    )
+    executor.operating_area = {
+        "north_min_m": -100.0,
+        "north_max_m": 100.0,
+        "east_min_m": -100.0,
+        "east_max_m": 100.0,
+        "min_altitude_m": 5.0,
+        "max_altitude_m": 120.0,
+    }
+    _action, info = executor.next_action(pose_ned=(0.0, 0.0, -17.2), yaw_deg=90.0)
+    assert adapter.safety.home_ned[2] == 0.0
+    assert not (info.get("safety") or {}).get("rejected")
+    held, safety = adapter.guard_command(
+        ActionPrimitive.hold(1.0), pose_ned=(0.0, 0.0, -17.2), yaw_deg=90.0, skill="area_search"
+    )
+    assert not safety.get("rejected") and held.kind == "hold"
