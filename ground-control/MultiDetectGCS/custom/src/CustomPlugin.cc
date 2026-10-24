@@ -369,6 +369,15 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     }
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectOperator"), _operatorController);
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectMission"), _missionController);
+    QVariantMap mapTestHome;
+    const QByteArray testLat = qgetenv("MULTIDETECT_TEST_HOME_LATITUDE");
+    const QByteArray testLon = qgetenv("MULTIDETECT_TEST_HOME_LONGITUDE");
+    if (runtimeEnvironmentExplicitlyTrue("MULTIDETECT_TEST_HOME_ENABLED") && !testLat.isEmpty() && !testLon.isEmpty()) {
+        mapTestHome.insert(QStringLiteral("enabled"), true);
+        mapTestHome.insert(QStringLiteral("latitude"), QString::fromLatin1(testLat));
+        mapTestHome.insert(QStringLiteral("longitude"), QString::fromLatin1(testLon));
+    }
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectMapTestHome"), mapTestHome);
     // Offscreen acceptance only: auto-approve a plan when explicitly enabled.
     const bool uiAutoApprovePlan = runtimeEnvironmentExplicitlyTrue("MULTIDETECT_UI_AUTO_APPROVE_PLAN");
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectUiAutoApprovePlan"),

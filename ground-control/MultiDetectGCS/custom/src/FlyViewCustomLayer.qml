@@ -30,6 +30,7 @@ Item {
     property var mapControl
     property string _missionOriginLatitude: ""
     property string _missionOriginLongitude: ""
+    property string _missionMarkerDetail: ""
     property var parentToolInsets
     property var totalToolInsets: toolInsets
     property string _pendingExecutionPopup: ""
@@ -56,6 +57,16 @@ Item {
     readonly property var _missionPlan: _missionController ? (_missionController.plan || {}) : ({})
     readonly property var _missionFindings: _missionController ? (_missionController.findings || []) : []
     readonly property var _missionAlerts: _missionController ? (_missionController.alerts || []) : []
+    readonly property var _missionPackage: {
+        if (!_missionController || !_missionController.packageJson) return ({})
+        try { return JSON.parse(_missionController.packageJson) } catch (error) { return ({}) }
+    }
+    readonly property var _missionHomeCoordinate: {
+        if (typeof multiDetectMapTestHome !== "undefined" && multiDetectMapTestHome.enabled === true)
+            return QtPositioning.coordinate(Number(multiDetectMapTestHome.latitude), Number(multiDetectMapTestHome.longitude))
+        const vehicle = QGroundControl.multiVehicleManager.activeVehicle
+        return vehicle && vehicle.homePosition && vehicle.homePosition.isValid ? vehicle.homePosition : null
+    }
     // Keep the monitor visible before the first authenticated packet so the
     // operator always has an explicit waiting state.
     readonly property bool _missionCardVisible: true
@@ -117,12 +128,13 @@ Item {
         const c = e.coordinate || e.gps || e.location || {};
         let lat = Number(c.latitude_deg), lon = Number(c.longitude_deg);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-            const n = Number(c.north_m !== undefined ? c.north_m : (e.north_m !== undefined ? e.north_m : e.n));
-            const east = Number(c.east_m !== undefined ? c.east_m : (e.east_m !== undefined ? e.east_m : e.e));
-            const o = (_missionPlan || {}).origin || _missionTelemetry.origin || {};
-            const olat = Number(o.latitude_deg !== undefined ? o.latitude_deg : o.lat), olon = Number(o.longitude_deg !== undefined ? o.longitude_deg : o.lon);
-            if (!Number.isFinite(n) || !Number.isFinite(east) || !Number.isFinite(olat) || !Number.isFinite(olon)) return null;
-            lat = olat + n / 111320.0; lon = olon + east / (111320.0 * Math.cos(olat * Math.PI / 180));
+            const position = e.position_ne || e.position || []
+            const n = Number(c.north_m !== undefined ? c.north_m : (e.north_m !== undefined ? e.north_m : e.n !== undefined ? e.n : position[0]));
+            const east = Number(c.east_m !== undefined ? c.east_m : (e.east_m !== undefined ? e.east_m : e.e !== undefined ? e.e : position[1]));
+            const origin = root._missionHomeCoordinate
+            if (!Number.isFinite(n) || !Number.isFinite(east) || !origin || !origin.isValid || !root._missionController) return null;
+            const converted = root._missionController.coordinateForOffset(n, east, origin.latitude, origin.longitude)
+            lat = Number(converted.latitude); lon = Number(converted.longitude)
         }
         if (!mapControl || !mapControl.fromCoordinate) return null;
         const p = mapControl.fromCoordinate(QtPositioning.coordinate(lat, lon), false);
@@ -130,12 +142,43 @@ Item {
         return root.mapFromItem(mapControl, p.x, p.y);
     }
     function _missionCoordinate(n, e) {
-        const o = (_missionPlan || {}).origin || _missionTelemetry.origin || {};
-        const lat = Number(o.latitude_deg !== undefined ? o.latitude_deg : o.lat);
-        const lon = Number(o.longitude_deg !== undefined ? o.longitude_deg : o.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-        return QtPositioning.coordinate(lat + Number(n) / 111320.0,
-                                        lon + Number(e) / (111320.0 * Math.cos(lat * Math.PI / 180)));
+        const origin = root._missionHomeCoordinate
+        if (!origin || !origin.isValid || !root._missionController) return null
+        const converted = root._missionController.coordinateForOffset(Number(n), Number(e), origin.latitude, origin.longitude)
+        return Number.isFinite(Number(converted.latitude)) ?
+                   QtPositioning.coordinate(Number(converted.latitude), Number(converted.longitude)) : null
+    }
+    function _missionMarkerEntries() {
+        const live = root._missionFindings.map(function (entry) { return Object.assign({}, entry, { _kind: "finding" }) })
+        const alerts = root._missionAlerts.map(function (entry) { return Object.assign({}, entry, { _kind: "alert" }) })
+        const summary = root._missionController && root._missionController.finalSummaryComplete ?
+                            root._missionController.finalSummary : ({})
+        const summaryFindings = (summary.findings || []).concat(summary.positions || []).map(function (entry) { return Object.assign({}, entry, { _kind: "finding" }) })
+        const summaryAlerts = (summary.alerts || []).map(function (entry) { return Object.assign({}, entry, { _kind: "alert" }) })
+        const known = {}
+        live.concat(alerts).forEach(function (entry) { if (entry.id) known[String(entry.id)] = true })
+        return live.concat(alerts).concat(summaryFindings, summaryAlerts).filter(function (entry) {
+            const id = entry.id ? String(entry.id) : ""
+            if (!id || !known[id]) { if (id) known[id] = true; return true }
+            return false
+        })
+    }
+    function _zoneCentre(zone) {
+        const centre = zone.centre_ne || zone.center_ne || [zone.n || 0, zone.e || 0]
+        return { n: Number(centre[0]), e: Number(centre[1]) }
+    }
+    function _isNoFlyZone(zone) {
+        const tag = String(zone.risk_tag || "").trim().toLowerCase().replace(/[_ ]/g, "-")
+        return ["no-fly", "nofly", "no-fly-zone", "prohibited"].indexOf(tag) >= 0
+    }
+    function _circlePath(n, e, radius) {
+        const path = []
+        for (let i = 0; i <= 48; ++i) {
+            const angle = 2 * Math.PI * i / 48
+            const point = root._missionCoordinate(n + Math.cos(angle) * radius, e + Math.sin(angle) * radius)
+            if (point) path.push(point)
+        }
+        return path
     }
     function _hasSummaryPages() {
         return _missionController !== null &&
@@ -1418,7 +1461,7 @@ Item {
 
     Repeater {
         id: missionFindingMarkers
-        model: root._missionFindings.concat(root._missionAlerts)
+        model: root._missionMarkerEntries()
         delegate: Item {
             required property var modelData
             readonly property var projected: root._missionPoint(modelData)
@@ -1428,27 +1471,69 @@ Item {
             width: ScreenTools.defaultFontPixelHeight * 1.15
             height: width
             z: 25
-            Rectangle { anchors.fill: parent; radius: width / 2; color: modelData.alert === true ? qgcPal.colorRed : qgcPal.colorOrange; border.color: qgcPal.text; border.width: 1 }
-            QGCLabel { anchors.bottom: parent.top; anchors.horizontalCenter: parent.horizontalCenter; color: qgcPal.text; text: String(modelData.label || modelData.finding_type || qsTr("发现")) + " · " + (modelData.confidence !== undefined ? Number(modelData.confidence).toFixed(2) : "--"); font.bold: true }
+            Rectangle { anchors.fill: parent; radius: width / 2; color: modelData._kind === "alert" ? qgcPal.colorRed : qgcPal.colorOrange; border.color: qgcPal.text; border.width: 1 }
+            QGCLabel { anchors.bottom: parent.top; anchors.horizontalCenter: parent.horizontalCenter; color: qgcPal.text; text: String(modelData.label || modelData.finding_type || qsTr("发现")) + " · " + (modelData.id || "#" + (index + 1)); font.bold: true }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root._missionMarkerDetail = qsTr("%1 · %2\n北 %3 / 东 %4 米\n时间：%5\n证据帧：%6")
+                    .arg(modelData._kind === "alert" ? qsTr("告警") : qsTr("发现"))
+                    .arg(modelData.label || modelData.finding_type || "--")
+                    .arg(modelData.n !== undefined ? modelData.n : (modelData.position_ne || ["--", "--"])[0])
+                    .arg(modelData.e !== undefined ? modelData.e : (modelData.position_ne || ["--", "--"])[1])
+                    .arg(modelData.timestamp || modelData.time || "--")
+                    .arg(modelData.evidence_frame || "--")
+            }
         }
+    }
+
+    QGCLabel {
+        id: missionMarkerDetails
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        visible: text.length > 0
+        color: root._missionHomeCoordinate === null ? qgcPal.warningText : qgcPal.text
+        text: root._missionHomeCoordinate === null && root._missionMarkerEntries().length > 0 ? qsTr("等待 home 地理坐标，暂不显示任务标注") : root._missionMarkerDetail
+        padding: ScreenTools.defaultFontPixelWidth
+        z: 50
+    }
+
+    Repeater {
+        model: Object.keys(root._missionPlan.zones || root._missionPackage.zones || {}).map(function (key) {
+            return Object.assign({ id: key }, (root._missionPlan.zones || root._missionPackage.zones)[key])
+        })
+        delegate: MapPolyline {
+            parent: root.mapControl
+            readonly property var centre: root._zoneCentre(modelData)
+            line.width: 3
+            line.color: root._isNoFlyZone(modelData) ? "#ff1744" : qgcPal.colorGreen
+            path: root._circlePath(centre.n, centre.e, Number(modelData.radius_m || modelData.r || 1))
+            z: 22
+        }
+    }
+
+    MapPolyline {
+        parent: root.mapControl
+        line.width: 3
+        line.color: "#42a5f5"
+        z: 21
+        path: {
+            const area = root._missionPlan.operating_area || root._missionPackage.operating_area || {}
+            return [[area.north_min_m, area.east_min_m], [area.north_min_m, area.east_max_m],
+                    [area.north_max_m, area.east_max_m], [area.north_max_m, area.east_min_m],
+                    [area.north_min_m, area.east_min_m]].map(function (p) { return root._missionCoordinate(p[0], p[1]) }).filter(function (p) { return p !== null })
+        }
+    }
+
+    MapQuickItem {
+        parent: root.mapControl
+        coordinate: root._missionHomeCoordinate || QtPositioning.coordinate()
+        visible: root._missionHomeCoordinate !== null
+        z: 24
+        sourceItem: Rectangle { width: 18; height: 18; radius: 9; color: "#1565c0"; border.color: "white"; border.width: 2 }
     }
 
     // Plan geometry uses the same local N/E projection as findings.  These
     // lightweight items remain in the Fly layer and therefore follow map panning.
-    Repeater {
-        model: root._missionPlan.zones || []
-        delegate: Item {
-            required property var modelData
-            readonly property var point: root._missionPoint({north_m: modelData.n, east_m: modelData.e})
-            visible: point !== null
-            width: Math.max(8, Number(modelData.r || modelData.radius_m || 1) * 2)
-            height: width
-            x: point ? point.x - width / 2 : -100
-            y: point ? point.y - height / 2 : -100
-            z: 20
-            Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: qgcPal.colorGreen; border.width: 2 }
-        }
-    }
     Repeater {
         model: root._missionPlan.routes || []
         delegate: MapPolyline {
