@@ -21,13 +21,14 @@ def now_iso() -> str:
 
 
 def pid_alive(pid: int) -> bool:
+    # Never os.kill(pid, 0) here: on Windows signal 0 is CTRL_C_EVENT, which
+    # interrupts the holder's console group instead of probing it.  The shell
+    # lock (sitl_lock.sh) records the holder's Windows PID, so psutil can see it.
     if pid <= 0 or pid == os.getpid():
         return pid == os.getpid()
-    try:
-        os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
-        return False
-    return True
+    import psutil
+
+    return psutil.pid_exists(pid)
 
 
 class SitlLock:

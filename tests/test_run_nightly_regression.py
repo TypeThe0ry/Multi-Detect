@@ -45,3 +45,18 @@ def test_failure_does_not_stop_following(tmp_path):
     finally:
         mod.preflight = old_preflight
     assert len(calls) == 2
+
+
+def test_pid_alive_probes_without_signalling(monkeypatch):
+    # os.kill(pid, 0) sends CTRL_C_EVENT on Windows; the probe must never signal.
+    import psutil
+
+    import scripts.run_nightly_regression as module
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("pid_alive must not send a signal")
+
+    monkeypatch.setattr(module.os, "kill", forbidden)
+    monkeypatch.setattr(psutil, "pid_exists", lambda pid: pid == 4242)
+    assert module.pid_alive(4242) is True
+    assert module.pid_alive(4243) is False
