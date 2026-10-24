@@ -361,3 +361,24 @@ def test_outputs_may_live_under_a_junctioned_artifacts_tree(tmp_path, monkeypatc
     assert round_eval.local_output(worktree / "out") == (worktree / "out").resolve()
     with pytest.raises(ValueError, match="inside this worktree"):
         round_eval.local_output(tmp_path / "elsewhere")
+
+
+def test_local_output_accepts_a_nested_junction_below_artifacts(tmp_path, monkeypatch):
+    # The integration worktree has a real artifacts/ whose evaluation/ entry is a
+    # junction to the shared tree: the r21 planner round failed here twice.
+    if sys.platform != "win32":
+        pytest.skip("directory junctions are Windows-only")
+    import _winapi
+
+    import scripts.run_model_round_eval as round_eval
+
+    shared = tmp_path / "shared-evaluation"
+    shared.mkdir()
+    worktree = tmp_path / "worktree"
+    (worktree / "artifacts").mkdir(parents=True)
+    _winapi.CreateJunction(str(shared), str(worktree / "artifacts" / "evaluation"))
+    monkeypatch.setattr(round_eval, "ROOT", worktree)
+    target = worktree / "artifacts" / "evaluation" / "r21-planner-round" / "candidate"
+    assert round_eval.local_output(target) == (shared / "r21-planner-round" / "candidate").resolve()
+    with pytest.raises(ValueError, match="inside this worktree"):
+        round_eval.local_output(tmp_path / "elsewhere")
