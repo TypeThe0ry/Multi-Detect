@@ -385,7 +385,10 @@ class OnboardPolicy:
         frame_quality: int = 90,
         mission_package: MissionPackage | None = None,
     ) -> None:
-        options = {**{k: str(v) for k, v in DEFAULTS.items()}, **(config or {})}
+        options = {
+            **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
+            **(config or {}),
+        }
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(

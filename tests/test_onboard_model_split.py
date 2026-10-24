@@ -34,7 +34,14 @@ def _plan():
     )
 
 
-def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_error: bool = False):
+def _make(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    fail_planner: bool = False,
+    report_error: bool = False,
+    batch_config: dict | None = None,
+):
     events: list[tuple[str, str]] = []
     active = {"count": 0}
     builds = {"count": 0}
@@ -79,6 +86,7 @@ def _make(monkeypatch, tmp_path: Path, *, fail_planner: bool = False, report_err
             "gguf": "identity-r12.gguf",
             "planning_model": "planner-r14.gguf",
             "mmproj": "projector.gguf",
+            **(batch_config or {}),
             "health": {"enabled": True},
         },
         proposer=lambda frame: [],
@@ -97,10 +105,16 @@ def test_onboard_servers_run_without_the_host_prompt_cache(monkeypatch, tmp_path
     assert CACHE_RAM == [0, 0]
 
 
-def test_onboard_server_batch_limits_are_passed_to_both_model_slots(monkeypatch, tmp_path):
+def test_onboard_server_uses_llama_cpp_batch_defaults_when_unconfigured(monkeypatch, tmp_path):
     _make(monkeypatch, tmp_path)
-    assert [row["batch_size"] for row in RUNNER_KWARGS] == ["512", "512"]
-    assert [row["ubatch_size"] for row in RUNNER_KWARGS] == ["128", "128"]
+    assert [row["batch_size"] for row in RUNNER_KWARGS] == [None, None]
+    assert [row["ubatch_size"] for row in RUNNER_KWARGS] == [None, None]
+
+
+def test_onboard_server_passes_explicit_batch_limits_to_both_model_slots(monkeypatch, tmp_path):
+    _make(monkeypatch, tmp_path, batch_config={"llama_batch_size": 512, "llama_ubatch_size": 128})
+    assert [row["batch_size"] for row in RUNNER_KWARGS] == [512, 512]
+    assert [row["ubatch_size"] for row in RUNNER_KWARGS] == [128, 128]
 
 
 def test_split_closes_planner_before_identity(monkeypatch, tmp_path):

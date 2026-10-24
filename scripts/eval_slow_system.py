@@ -1024,6 +1024,8 @@ def run(args) -> dict[str, Any]:
                 cache_prompt=not getattr(args, "no_prompt_cache", False),
                 cache_ram_mib=getattr(args, "cache_ram_mib", None),
                 max_restarts=getattr(args, "max_server_restarts", 0),
+                batch_size=getattr(args, "batch_size", None),
+                ubatch_size=getattr(args, "ubatch_size", None),
             )
         result = evaluate_predictor(rows, runner)
         if isinstance(runner, LlamaServerRunner):
@@ -1081,6 +1083,8 @@ def main(argv=None) -> int:
     parser.add_argument("--llama-server", type=Path, default=DEFAULT_LLAMA)
     parser.add_argument("--port", type=int, default=9933)
     parser.add_argument("--context", type=int, default=4096)
+    parser.add_argument("--batch-size", type=int, help="llama.cpp prompt batch size (default: build default)")
+    parser.add_argument("--ubatch-size", type=int, help="llama.cpp micro-batch size (default: build default)")
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--identity-only",

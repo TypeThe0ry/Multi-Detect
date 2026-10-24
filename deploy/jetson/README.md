@@ -198,7 +198,8 @@ out-of-memory; the 8 GB Orin Nano cannot hold it at all. The flag needs a llama.
 
 ## Orin Nano 8 GB unified-memory budget
 
-Treat these as planning envelopes, not measured device peaks. Unified memory is shared by CUDA,
+Treat these as **unmeasured planning envelopes**, not measured device peaks. No target-device or
+controlled llama.cpp batch/ubatch A/B measurement has been completed. Unified memory is shared by CUDA,
 CPU processes, display, and the kernel; retain at least 1.0 GiB for the OS, camera buffers, and
 short-lived allocations. Do not run planner and identity models concurrently: the policy closes
 the planner before binding the identity server to the same port.
@@ -212,13 +213,19 @@ the planner before binding the identity server to the same port.
 | Mission process, frames and telemetry | 0.3–0.7 GiB | Keep only latest frame/sample; avoid unbounded history. |
 | **Estimated total** | **5.3–8.5 GiB** | Upper end does not fit; profile each component and leave headroom before field use. |
 
-The SIM configuration defaults to `--cache-ram 0`, `--batch-size 512`, and `--ubatch-size 128`.
-The latter two bound llama.cpp prompt-processing scratch while preserving the existing 4096-token
-context and single parallel slot. For an 8 GB Orin Nano, start with `-c 4096 -b 512 -ub 128
--np 1 --cache-ram 0`; only reduce context to 2048 or batch/ubatch further after checking plan
-quality, latency, peak memory, and the exact JetPack llama.cpp build. These flags do not make two
+The onboard and evaluation defaults omit batch and ubatch flags (`None`), so llama.cpp uses the
+selected build's defaults. `--cache-ram 0`, context 4096, and one parallel slot remain explicit.
+For an 8 GB Orin Nano, first measure the deployed JetPack build; only configure `llama_batch_size`
+and `llama_ubatch_size` (or their CLI equivalents) after checking prompt latency, peak memory, and
+decision agreement. These flags do not make two
 large models fit simultaneously. `--mlock` pins pages and may worsen pressure; `--no-mmap` can
 increase load-time copying. Neither is recommended as a default memory optimization.
+
+The requested batch/ubatch comparison is currently **not measured** because the shared SITL GPU
+lock was unavailable. The reproducible local harness is
+`D:\Projects\mdwt\_scratch\cx-startup-mem\measure.py`; it compares llama.cpp defaults, 512/128,
+and 256/256, records startup/stable process and GPU memory, and evaluates the first 200 identity
+rows. Its generated artifacts stay under `D:\Projects\mdwt\_scratch\cx-startup-mem\measurements`.
 
 On a Windows SITL host, stagger heavyweight startup: wait for the container/world to be ready
 before starting the collector, and avoid launching unrelated GPU/model jobs during model load.
