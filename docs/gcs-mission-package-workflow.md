@@ -138,3 +138,16 @@ QML 解析与资源编译可以独立检查；完整 `qmllint` 语义及原生�
 ## C++ 地面站（MultiDetectGCS）对齐
 
 C++ 地面站按上述协议实现同一流程：最后一片的“已接收，机载编译中”ACK 只进入“机载编译中”等待态，每 5 秒重发最后一片以查询结论（机上幂等应答，也能补回丢失的结论 ACK），最长等待 15 分钟；同一 token／分片编号的第二条 ACK 才决定接纳或拒绝。任务被接纳（或收到该任务的下行记录）之前不发送类型 34 心跳。收到 `kind=plan` 且 `requires_approval=true` 时，飞行页任务卡提供批准／拒绝；命令为类型 37 的 `{"mission_id","type":"approve_plan"|"reject_plan","plan_sha256"}`，`plan_sha256` 取机上计划记录原值，计划所属任务必须是当前任务，每条命令使用新的随机 token。配置地面命令密钥（`MULTIDETECT_GROUND_COMMAND_KEY` 或 `MULTIDETECT_OPERATOR_SIGNING_KEY`，`hmac:` 或 `ed25519-private:` 前缀）时按 `ground_event` 格式加 `sequence`、`timestamp`、`timestamp_version=1`、`timestamp_domain=unix`、`key_id` 并签名；未配置时发送不带时间戳的未签名命令，由机上时钟定时。`final_summary_page` 按页独立重组，收齐全部页并解析成功后才显示最终摘要。
+
+## 离屏全生命周期联调
+
+在本工作树中使用 `_scratch/cx-gcs-lifecycle` 的 feeder 和快照脚本，不连接 SITL 或 Docker：
+
+```powershell
+$env:PYTHONPATH = 'src;.'
+$env:PYTHONUTF8 = '1'
+$env:MULTIDETECT_UI_AUTO_APPROVE_PLAN = '1' # 仅测试；默认关闭
+pwsh .\_scratch\cx-gcs-lifecycle\run_snapshot.ps1
+```
+
+feeder 以 stop-and-wait 逐片发送计划和 `awaiting_approval`，等待 GCS 发出 `approve_plan` 后继续发送 `running`、两条 `finding`、一条 `alert`、返航中的 `returning`、两页乱序 `final_summary_page`，最后发送 `completed`。快照目录中的 `snapshot-*-plan-dialog.png`、`snapshot-*-final-summary-complete.png` 和定时快照分别覆盖审批、执行计数／发现告警、分页摘要拼接及返航完成。`MULTIDETECT_UI_AUTO_APPROVE_PLAN=1` 只在显式环境变量下启用，生产启动不设置该变量时仍必须人工批准。

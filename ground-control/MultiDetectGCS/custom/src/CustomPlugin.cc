@@ -369,6 +369,10 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     }
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectOperator"), _operatorController);
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectMission"), _missionController);
+    // Offscreen acceptance only: auto-approve a plan when explicitly enabled.
+    const bool uiAutoApprovePlan = runtimeEnvironmentExplicitlyTrue("MULTIDETECT_UI_AUTO_APPROVE_PLAN");
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectUiAutoApprovePlan"),
+                                                   uiAutoApprovePlan);
     _qmlEngine->rootContext()->setContextProperty(
         QStringLiteral("multiDetectTargetEvidenceStore"), _targetEvidenceStore);
     _qmlEngine->rootContext()->setContextProperty(
