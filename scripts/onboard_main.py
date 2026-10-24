@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import signal
@@ -18,6 +19,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_package import load_mission_package  # noqa: E402
+from multidetect.autonomy.crash_resume import CheckpointStore, decide_recovery  # noqa: E402
 from multidetect.autonomy.mission_security import AuthenticationKey, load_key  # noqa: E402
 from multidetect.autonomy.onboard_mission_log import OnboardMissionLog  # noqa: E402
 from multidetect.onboard_runtime.bench import (  # noqa: E402
@@ -466,17 +468,33 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     failure: str | None = None
     try:
         vehicle.start()
+        resume_decision = None
+        resume_checkpoint = None
+        if args.mode == "real" and package is not None:
+            digest = hashlib.sha256(json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+            resume_checkpoint = CheckpointStore(args.work_dir / "crash_resume" / "checkpoint.json").load()
+            initial = vehicle.snapshot() if callable(getattr(vehicle, "snapshot", None)) else None
+            if initial is not None:
+                resume_decision = decide_recovery(landed=initial.landed, armed=initial.armed, landed_state=initial.landed_state, checkpoint=resume_checkpoint, mission_id=package.mission_id, package_digest=digest, rtl_available=hasattr(vehicle, "rtl"))
+            else:
+                resume_decision = None
+            if resume_decision is not None:
+                report["recovery"] = {"action": resume_decision.action, "reason_zh": resume_decision.reason_zh}
+            if resume_decision is not None and resume_decision.action in {"return_home", "land"}:
+                OnboardMissionLog(args.work_dir / "mission_log", package.mission_id).append("crash_resume", time.monotonic(), action=resume_decision.action, reason_zh=resume_decision.reason_zh)
+                getattr(vehicle, "rtl" if resume_decision.action == "return_home" else "land")()
+                return {**report, "ok": True, "recovery_action": resume_decision.action}
         camera.start()
         state, frame = _ready(
             vehicle,
             camera,
             config,
             getattr(args, "startup_timeout", 3),
-            require_ground=args.mode == "real",
+            require_ground=args.mode == "real" and not (resume_decision and resume_decision.action == "resume"),
         )
         if args.mode == "real" and state.home_ned is None:
             raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
-        if args.mode == "real" and (state.armed is not False or state.landed is not True):
+        if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (state.armed is not False or state.landed is not True):
             raise RuntimeError("real runtime must start on the ground, disarmed")
         if args.mode == "real":
             if package is None:
@@ -536,15 +554,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             args, raw_policy, vehicle, package_check=package_check
         )
         policy = HomeRelativePolicy(raw_policy, home[2], proposer)
+        if resume_decision and resume_decision.action == "resume" and resume_checkpoint is not None:
+            supervisor = getattr(raw_policy, "supervisor", None)
+            if supervisor is not None:
+                supervisor.restore_checkpoint(resume_checkpoint)
         # Model startup may take minutes. Recheck input freshness before streaming.
         ready_state, _frame = _ready(
             vehicle,
             camera,
             config,
             getattr(args, "startup_timeout", 3),
-            require_ground=args.mode == "real",
+            require_ground=args.mode == "real" and not (resume_decision and resume_decision.action == "resume"),
         )
-        if args.mode == "real" and (
+        if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (
             ready_state.armed is not False or ready_state.landed is not True
         ):
             raise RuntimeError("vehicle must remain disarmed and landed during model startup")
@@ -588,7 +610,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous_signals[sig] = signal.getsignal(sig)
             signal.signal(sig, lambda _sig, _frame: runtime.request_stop())
-        if not takeover:
+        if not takeover and not (resume_decision and resume_decision.action == "resume"):
             try:
                 if operator_server is not None:
                     # HomeRelativePolicy has no supervisor: wait on the policy
