@@ -2027,3 +2027,33 @@ def test_safety_home_stays_at_ground_level_when_the_first_pose_is_airborne():
         ActionPrimitive.hold(1.0), pose_ned=(0.0, 0.0, -17.2), yaw_deg=90.0, skill="area_search"
     )
     assert not safety.get("rejected") and held.kind == "hold"
+
+
+def test_package_home_anchors_envelope_when_aircraft_starts_elsewhere():
+    from multidetect.autonomy.mission_package import load_mission_package
+    from multidetect.autonomy.motion_intent import AirframeMotionAdapter
+
+    package = load_mission_package({
+        "mission_id": "offset-home", "risk_level": "low",
+        "link_loss_policy": {"action": "continue", "timeout_s": 30},
+        "home": [40, 20], "places": {}, "zones": {}, "routes": {},
+        "oversight_steps": [], "heartbeat_timeout_s": 5,
+        "operating_area": {"north_min_m": 0, "north_max_m": 100,
+                            "east_min_m": 0, "east_max_m": 100,
+                            "min_altitude_m": 5, "max_altitude_m": 60},
+        "budget": {"time_s": 600, "reserve_time_s": 60,
+                   "energy_wh": 300, "reserve_energy_wh": 30},
+        "plan": {"plan_version": 1, "goal": "return", "report": [],
+                 "steps": [{"id": "home", "skill": "return_home", "params": {},
+                            "on_success": None, "on_fail": None}]},
+    })
+    adapter = AirframeMotionAdapter("x500_mono_cam", base_dir=ROOT)
+    executor = MissionExecutor(package.plan, loop_factory=_factory(),
+                               mission_package=package, airframe_adapter=adapter)
+    assert adapter.safety.home_ned == (40.0, 20.0, 0.0)
+    executor.next_action(pose_ned=(55.0, 20.0, -20.0), yaw_deg=0.0)
+    assert executor.home == (40.0, 20.0)
+    assert adapter.safety.home_ned == (40.0, 20.0, 0.0)
+    from dataclasses import replace
+    adapter.safety.config = replace(adapter.safety.config, max_radius_from_home_m=10.0)
+    assert adapter.safety.apply(ActionPrimitive.translate(1, 0), pose_ned=(55, 20, -20)).rejected
