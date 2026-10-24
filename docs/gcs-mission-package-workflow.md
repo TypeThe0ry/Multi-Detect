@@ -84,7 +84,7 @@ server.start_background()
 
 ### 飞行中改派
 
-飞行中仍用签名任务包承载新任务内容，机载将其作为改派候选交给现有规划与准入路径。改派请求字段为 `type=retask`、`retask_mode=append|replace`、任务编号、单调递增的 `plan_version`；审批字段为 `approve_retask`／`reject_retask` 和候选 `plan_sha256`，必须走签名地面命令 chunk。机载状态/日志事件包括 `retask_received`、`retask_planning`、`retask_validated`、`retask_approval`、`retask_switched`、`retask_rejected`，建议带 `mode`、`plan_version`、`plan_sha256`、`reason_zh`、`remaining_energy_wh`、`remaining_time_s`。规划超时保持原计划，飞行中安全保持与 abort/pause/链路安全出口优先。最终摘要的 `plan_history` 标识每个结果所来自的计划版本；计数、发现、告警不因切换清空。
+飞行中仍用签名任务包承载新任务内容，机载将其作为改派候选交给现有规划与准入路径。当前地面站入口固定使用 `replace`，没有可由操作员选择的 `retask_mode` 字段；`append` 仅是机载 API 能力，见 [飞行中改派设计](mid-mission-retask.md)。改派请求绑定任务编号和单调递增的 `plan_version`；审批字段为 `approve_retask`／`reject_retask` 和候选 `plan_sha256`，必须走签名地面命令 chunk。机载状态/日志事件包括 `retask_received`、`retask_planning`、`retask_validated`、`retask_approval`、`retask_switched`、`retask_rejected`，建议带 `mode`、`plan_version`、`plan_sha256`、`reason_zh`、`remaining_energy_wh`、`remaining_time_s`。规划超时保持原计划，飞行中安全保持与 abort/pause/链路安全出口优先。最终摘要的 `plan_history` 标识每个结果所来自的计划版本；计数、发现、告警不因切换清空。
 
 ## 提示词任务的机上执行
 

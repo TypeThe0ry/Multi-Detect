@@ -2,7 +2,7 @@
 
 这份手册面向飞手、地面站操作员和 SIM 联合验收负责人，覆盖任务包准备、签名与审批、飞行中监控、最终摘要和 SIM 演示。当前证据主要来自 Gazebo/PX4 SIM；SIM 通过不等于真实飞机、Jetson Orin Nano、真实相机或真实降落区已获准飞行。
 
-完整端到端流程见 [SIM 操作员端到端指南](e2e-operator-sim.md)，协议和生命周期细节见 [GCS 任务包流程](gcs-mission-package-workflow.md)。
+完整端到端流程见 [SIM 操作员端到端指南](e2e-operator-sim.md)，协议和生命周期细节见 [GCS 任务包流程](gcs-mission-package-workflow.md)。负责人先看 [机载自主任务安全总览（2026-10-24）](autonomy-safety-overview-20261024.md)。
 
 ## 1. 写任务包
 
@@ -102,6 +102,18 @@ python scripts/mission_package_tool.py validate D:\Projects\mdwt\_scratch\cx-ope
 
 离线不暂停机载日志或执行；恢复后按任务和序号去重补发。最终摘要是分页的 `final_summary_page`，每页最多 1,536 个 UTF-8 字节，必须收齐后才可引用。
 
+### 3.1 计划需要澄清时怎么答
+
+地面站收到 `decision=clarify` 时不会起飞。先阅读 `questions_zh`（最多 3 个问题），在任务描述或计划中补足目标类别、跟随对象或数量上限，再用同一任务编号重新提交签名任务包；不要直接点击批准旧的 `plan_sha256`。常见问题是“是否移除上限或确认具体数量？”和“需要跟随什么目标？请描述类别、颜色或可识别特征。”重新提交仍会经过准入、计划校验和审批。规则和示例见 [计划校验与澄清](plan-validation-clarification.md)。
+
+### 3.2 飞行中怎么发改派
+
+当前地面站改派入口固定为 `replace`：发送已签名的候选任务包，等待 `retask_received`、`retask_validated` 和规划结果；需要审批时，核对候选 `plan_sha256` 后发送签名 `approve_retask`，拒绝则发送 `reject_retask`。改派规划期间飞机保持原计划的安全行为；规划/校验/审批超时或拒绝时原计划继续，不要重复点击造成并发候选。`append` 仅供机载 API，当前地面站没有模式选择。切换成功后摘要的 `plan_history` 会保留版本、模式和摘要，计数/发现/告警不会清空。详见 [飞行中改派设计](mid-mission-retask.md)。
+
+### 3.3 机载崩溃恢复时地面站会看到什么
+
+重启后地面站先看到 `crash_resume`/恢复审计事件和当前任务状态；有效检查点且 PX4 boot time、模式均允许时会继续原步骤，不能重新 arm/takeoff。PX4 已在 RTL/LAND/FAILSAFE，或 boot time/模式未知时，机载只记录与监视，显示 PX4 的失效保护状态；检查点缺失、损坏、过期或任务摘要不符时进入 RTL（无 RTL 的机型按 recovery policy 降落）。最终会有一条带中文原因的 `final_summary`，应结合 `recovery_history`、`terminal_action` 和 `terminal_reason` 判断，不要把“只记录与监视”误读为任务已恢复。详见 [机载进程崩溃恢复](crash-resume.md)。
+
 ## 4. 最终摘要怎么读
 
 任务目录有 `mission.jsonl`、`summary.json`，可能有 `downlink-cursor.json`。先看 `status`、`terminal_action`、`terminal_reason`，再看 `findings`、`alerts`、`counts`、`history`、`recovery_history`、`not_done`、`omitted`。机载日志是完整审计，游标只表示地面站确认位置。
@@ -176,6 +188,7 @@ pwsh scripts/run_operator_demo.ps1 --gcs-exe build/windows-v0.2.0-release/portab
 
 ## 8. 证据入口
 
+- [机载自主任务安全总览（2026-10-24）](autonomy-safety-overview-20261024.md)
 - [任务包协议、审批、分页摘要和离屏生命周期](gcs-mission-package-workflow.md)
 - [多用途任务设计、意图/地点/能力检查](onboard-multipurpose-mission-design.md)
 - [SIM 操作员端到端流程](e2e-operator-sim.md)

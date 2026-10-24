@@ -9,8 +9,9 @@
 | 车辆状态 | 检查点 | 决策 | 中文审计原因 |
 |---|---|---|---|
 | 地面、未解锁 | 任意（旧文件保留） | 新任务 | 飞机在地面，按正常新任务流程启动 |
-| 空中 | 有效且 mission_id/摘要一致、未过期 | 恢复 | 飞机在空中且检查点有效，继续执行；不得 arm/takeoff |
-| 空中 | PX4 已处于 RTL/LAND/FAILSAFE | 只记录与监视 | PX4 失效保护已接管，onboard 不重新接管；任务包显式 `resume_after_failsafe: true` 且模式允许时才可恢复 |
+| 空中 | 有效且 mission_id/摘要一致、未过期，boot time 有效，模式为 `HOLD`/`LOITER`/`AUTO_LOITER`/`OFFBOARD` | 恢复 | 飞机在空中且检查点和 PX4 状态均允许恢复；不得 arm/takeoff |
+| 空中 | PX4 boot time 未知、飞行模式未知/无法解码、或模式不在允许集合 | 只记录与监视 | onboard 不接管，等待/记录 PX4 状态 |
+| 空中 | PX4 已处于 RTL/LAND/FAILSAFE | 只记录与监视 | PX4 失效保护已接管，onboard 不重新接管；`resume_after_failsafe: true` 只是签名任务包的显式 opt-in，仍需通过身份、摘要、序号、时间和 boot 校验；未知模式仍只监视 |
 | 空中 | 缺失、损坏、序号回退、摘要不符或过期 | RTL | 无法证明任务状态，返航 |
 | 空中 | 同上，且机型无 RTL | 降落 | 按机型 recovery policy 降落 |
 | 状态未知 | 任意 | RTL/降落 | 状态未知，无法安全恢复 |
