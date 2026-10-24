@@ -1,6 +1,14 @@
 # 机载 episode 离线重放
 
+黄金集按步骤加权的类型+参数精确一致率为：count 17.2%（86/500）、monitor 94.9%（223/235）、patrol 100%（48/48）、area_search 61.7%（127/206）、return_home 26.6%（21/79）。差异来自 slow-call 时序、观测位姿近似和离线不积分执行器移动；logged 模式不调用随机模型。
+
 `replay_onboard_episode.py` 将 `steps.jsonl` 的观测、姿态、候选框和 slow-call 标签送入当前 `MissionExecutor`。
+
+重放器从 `labels.onboard.mission.plan` 恢复架次计划，支持完整 steps 或旧格式 `skills` 摘要；完整
+记录保留参数与 `on_success`/`on_fail`。架次 `config/`、任务包文件或匹配 suite 配置用于恢复
+operating area、禁飞区、高度、home 和 refs。输出的 `plan_source`、`plan_skills`、`package_source`
+可审计恢复来源；缺少记录计划时明确标记 `fallback_count`。`metrics.action_agreement_by_task` 按
+计划步骤类型比较动作类型及量化参数。
 
 ```powershell
 $env:PYTHONPATH='src;.'
