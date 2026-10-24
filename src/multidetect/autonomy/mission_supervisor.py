@@ -933,6 +933,15 @@ class MissionSupervisor:
         """
         self._record("perception_error", track_id=track_id, error=str(error))
 
+    def record_slow_model_unavailable(self, error_type: str, error: str) -> None:
+        """Record a transport/runtime fault without creating an identity vote."""
+        self._time()
+        self._record(
+            "slow_model_unavailable",
+            reason=f"慢模型不可用: {error_type}: {error}",
+            at_s=self._now,
+        )
+
     def _recover(self, pose_ned) -> MissionExecutor:
         skill = "land" if self.action == "land_now" else "return_home"
         if self._recovery is None or self._recovery_kind != skill:
