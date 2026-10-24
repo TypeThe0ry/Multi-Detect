@@ -1753,7 +1753,7 @@ def test_count_search_end_records_why_a_far_small_rejection_was_not_revisited() 
         ("outside_region", False),
         # Already looked at again: it has had its second look.
         ("already_revisited", False),
-        # Seen beside a counted object in one frame: not a missed copy of it.
+        # The legacy reason remains valid when the counted object is at the same place.
         ("co_visible_with_counted", False),
         # Never looked at for lack of budget: the count may still miss it.
         ("budget", True),
@@ -1781,7 +1781,7 @@ def test_count_lower_bound_follows_the_rejection_revisit_skip_reason(case, lower
         executor._run.rejection_revisit_places.append((20.5, 0.0))
     if case == "co_visible_with_counted":
         loop.confirmations.append(
-            {"position_estimate_ne": [-30.0, 0.0], "track_id": "t9", "co_visible_with": set()}
+            {"position_estimate_ne": [20.5, 0.0], "track_id": "t9", "co_visible_with": set()}
         )
     loop.state = "completed"  # a full coverage pass
     _cycle(executor, Sim(altitude=8.0))

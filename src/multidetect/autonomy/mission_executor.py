@@ -39,6 +39,7 @@ from multidetect.autonomy.onboard_loop import (
     Track,
     appearances_consistent,
     co_visibility_proves_distinct,
+    label_matches_query,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
@@ -1294,7 +1295,7 @@ class MissionExecutor:
 
         candidates = sorted(
             loop.rejected_far_small_places(self.config.count_rejection_revisit_range_m),
-            key=lambda item: math.dist(item["ground"], here),
+            key=lambda item: self._revisit_priority(loop, item, here),
         )
         # Why each pending place was passed over: a SITL count missed a hydrant
         # that qualified for a revisit with looks to spare, and nothing said why.
@@ -1315,8 +1316,9 @@ class MissionExecutor:
                 skip(centre, "already_revisited")
                 continue
             if any(
-                rejection.get("track_id") in record.get("co_visible_with", ())
-                or record.get("track_id") in rejection.get("co_visible_with", ())
+                record.get("position_estimate_ne") is not None
+                and math.dist(centre, record["position_estimate_ne"][:2])
+                <= loop.config.count_dedupe_m
                 for record in loop.confirmations
             ):
                 skip(centre, "co_visible_with_counted")
@@ -1488,7 +1490,8 @@ class MissionExecutor:
 
         The same exclusions as ``_revisit_far_small_rejection``'s skip reasons:
         near a counted object, outside the step region, already revisited, or
-        co-visible with a counted object (so not a missed copy of it).
+        within the de-duplication radius of a counted object (so it is the
+        same object). Co-visibility alone is not evidence of identity.
         """
         loop = run.loop
         if loop is None:
@@ -1511,13 +1514,39 @@ class MissionExecutor:
             if any(math.dist(centre, place) <= loop.config.count_dedupe_m for place in looked):
                 continue
             if any(
-                item.get("track_id") in record.get("co_visible_with", ())
-                or record.get("track_id") in item.get("co_visible_with", ())
+                record.get("position_estimate_ne") is not None
+                and math.dist(centre, record["position_estimate_ne"][:2])
+                <= loop.config.count_dedupe_m
                 for record in loop.confirmations
             ):
                 continue
             pending.append(item)
         return pending
+
+    @staticmethod
+    def _revisit_priority(loop: OnboardLoop, place: Mapping[str, Any], here) -> tuple:
+        """Order revisit work by evidence, query relevance, size, then distance."""
+        tracks = getattr(loop, "_tracks", {})
+        ids = [place.get("track_id")] if place.get("track_id") else place.get("track_ids", ())
+        items = [tracks[track_id] for track_id in ids if track_id in tracks]
+        positive = any(
+            bool(getattr(track, "confirm_steps", ()) or getattr(track, "match_steps", ()))
+            or any(v in {"match", "approach", "confirm"} for v in getattr(track, "identity_verdict_history", ()))
+            or getattr(track, "verdict", None) in {"approach", "confirm"}
+            for track in items
+        )
+        query = getattr(loop.config, "small_unjudged_query", None)
+        relevant = any(
+            bool(query) and label_matches_query(getattr(track, "label", None), query)
+            for track in items
+        )
+        sides = place.get("min_side_px") or ()
+        if isinstance(sides, (int, float)):
+            smallest = float(sides)
+        else:
+            smallest = min(sides) if sides else float("inf")
+        centre = place.get("centre") or place.get("ground")
+        return (0 if positive else 1, 0 if relevant else 1, smallest, math.dist(centre, here))
 
     def _pending_small_unjudged_places(self, run: _StepRun) -> list[dict[str, Any]]:
         """Relevant small unjudged places inside the step that were never looked at."""
@@ -1628,7 +1657,7 @@ class MissionExecutor:
             *(tuple(record["centre"]) for record in run.small_unjudged_revisits),
         ]
         remaining = self._budget(run.step) - run.primitives
-        for place in sorted(places, key=lambda item: math.dist(item["centre"], here)):
+        for place in sorted(places, key=lambda item: self._revisit_priority(loop, item, here)):
             centre = place["centre"]
             if not allowed(centre):
                 skip(place, "outside_region")
