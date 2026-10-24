@@ -66,10 +66,12 @@ def first_non_search_divergence(trace: list[dict[str, Any]]) -> dict[str, Any] |
 
 
 def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = None,
-           closed_loop: bool = False, detections_file: Path | None = None) -> dict[str, Any]:
+           closed_loop: bool = False, detections_file: Path | None = None,
+           safety_exit: bool = True) -> dict[str, Any]:
     if mode == "real":
         raise RuntimeError("real 模式未实现：当前 CLI 仅支持 logged/cache，不会启动 GPU 或 llama-server")
     from multidetect.autonomy.mission_executor import ExecutorConfig, MissionExecutor
+    from multidetect.autonomy.motion_intent import AirframeMotionAdapter
     from multidetect.autonomy.mission_plan import validate_mission_plan
     from multidetect.autonomy.onboard_loop import CameraModel, Detection, LoopConfig, OnboardLoop
     from multidetect.autonomy.onboard_policy_parts.config import POSITION_DEFAULTS
@@ -89,11 +91,13 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     query = task
     # Mission suite metadata/config may provide the normalized task query.
     config_path = next(iter(episode.parents[3].glob("*.json")), None) if len(episode.parents) > 3 else None
+    onboard_config: dict[str, Any] = {}
     if config_path:
         try:
-            query = json.loads(config_path.read_text(encoding="utf-8")).get("task_text", query)
-        except (OSError, ValueError):
-            pass
+            onboard_config = json.loads(config_path.read_text(encoding="utf-8"))
+            query = onboard_config.get("task_text", query)
+        except (OSError, ValueError, TypeError):
+            onboard_config = {}
     # The free-form logged task can be Chinese or exceed the mission-plan
     # eight-word contract; benchmark directory names are the stable fallback.
     if len(query.split()) > 8 or any(ord(ch) > 127 for ch in query):
@@ -109,9 +113,83 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     info = rows[0]["obs_before"]["camera_info"]
     camera = CameraModel(float(info["fx"]), float(info["fy"]), float(info["cx"]), float(info["cy"]),
                          int(info["width"]), int(info["height"]), pitch_down_rad=0.18)
-    world = Path(mission.get("world_sdf", "default.sdf")).stem
-    sdf = ROOT / "simulation/gazebo/worlds" / f"{world}.sdf"
+    world_setting = mission.get("world_sdf", "default.sdf")
+    world_path = Path(str(world_setting))
+    sdf = world_path if world_path.is_absolute() else ROOT / "simulation/gazebo/worlds" / f"{world_path.stem}.sdf"
     obstacle = StaticMapSource(load_sdf_obstacles(sdf)) if sdf.exists() else None
+    # Mirror OnboardPolicy's final arbiter construction.  Replay defaults to
+    # the real safety exit; --disable-safety-exit is retained for A/B against
+    # historical traces that intentionally bypassed guard_command().
+    airframe_name = (
+        onboard_config.get("airframe")
+        or (mission.get("airframe") if isinstance(mission, dict) else None)
+        or ((mission.get("airframe_profile") or {}).get("id") if isinstance(mission, dict) and isinstance(mission.get("airframe_profile"), dict) else None)
+        or (onboard.get("airframe") if isinstance(onboard, dict) else None)
+        or "x500_mono_cam"
+    )
+    adapter = None
+    if safety_exit:
+        from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
+
+        adapter = AirframeMotionAdapter(str(airframe_name), base_dir=ROOT)
+        envelope_source: dict[str, Any] = {}
+        for source in (onboard_config, mission):
+            if isinstance(source, dict):
+                envelope_source.update(source)
+                nested = source.get("safety_envelope")
+                if isinstance(nested, dict):
+                    envelope_source.update(nested)
+                package = source.get("mission_package")
+                if isinstance(package, dict):
+                    envelope_source.update(package)
+                    package_nested = package.get("safety_envelope")
+                    if isinstance(package_nested, dict):
+                        envelope_source.update(package_nested)
+        # OnboardPolicy lets each non-multirotor profile widen the generic
+        # multirotor step default; explicit safety config remains authoritative.
+        if adapter.profile.category != "multirotor":
+            envelope_source.setdefault("max_translation_m", adapter.profile.limits.max_step_distance_m)
+            dynamics = adapter.safety.vehicle
+            envelope_source.setdefault("vehicle", {
+                "category": dynamics.category,
+                "can_hover": dynamics.can_hover,
+                "min_airspeed_mps": dynamics.min_airspeed_mps,
+                "cruise_airspeed_mps": dynamics.cruise_airspeed_mps,
+                "max_airspeed_mps": dynamics.max_airspeed_mps,
+                "min_turn_radius_m": dynamics.min_turn_radius_m,
+                "max_bank_deg": dynamics.max_bank_deg,
+                "climb_rate_mps": dynamics.climb_rate_mps,
+                "descent_rate_mps": dynamics.descent_rate_mps,
+            })
+        area = envelope_source.get("operating_area")
+        if isinstance(area, dict):
+            try:
+                envelope_source.setdefault("operating_polygon", (
+                    (float(area["north_min_m"]), float(area["east_min_m"])),
+                    (float(area["north_max_m"]), float(area["east_min_m"])),
+                    (float(area["north_max_m"]), float(area["east_max_m"])),
+                    (float(area["north_min_m"]), float(area["east_max_m"])),
+                ))
+                envelope_source.setdefault("min_altitude_m", float(area["min_altitude_m"]))
+                envelope_source.setdefault("max_altitude_m", float(area["max_altitude_m"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        # Mission package formats may expose the area fields at the top level.
+        envelope_source.setdefault("min_altitude_m", float(envelope_source.get("min_altitude_m", 0.0)))
+        home_raw = envelope_source.get("home")
+        # Recorded local-NED poses are already relative to the mission home.
+        # When no signed package supplies an explicit home, keep the runtime's
+        # conventional origin; anchoring to the first observed aircraft pose
+        # turns every subsequent altitude/position check into a false offset.
+        home = tuple(float(v) for v in home_raw) if isinstance(home_raw, (list, tuple)) else (0.0, 0.0, 0.0)
+        if len(home) < 3:
+            home = (*home, 0.0)
+        safety = SafetyEnvelope(
+            SafetyEnvelopeConfig.from_mapping(envelope_source),
+            home_ned=home[:3],
+            obstacle_source=obstacle,
+        )
+        adapter.safety = safety
     # Live onboard derives this target before constructing the loop.  Recreate
     # the same size-aware and obstacle-clearance floor for pose-rebound replay.
     takeoff_altitude = float(mission.get("takeoff_altitude_m", 0.0) or 0.0)
@@ -161,7 +239,8 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     executor = MissionExecutor(plan, loop_factory=make_loop,
         refs={"zone:site": (0.0, 0.0, 55.0), "route:fence": [(-30., -30.), (-30., 30.), (30., 30.), (30., -30.), (-30., -30.)]},
         config=ExecutorConfig(step_budget=140),
-        obstacle_source=obstacle)
+        obstacle_source=obstacle, airframe_adapter=adapter,
+        no_fly_zones=(envelope_source.get("no_fly_zones", ()) if safety_exit else ()))
     results = Results(mode, cache_file)
     detections_by_step: dict[str, list[Any]] = {}
     # The established replay stores detector output as {step_index: [bbox, score, label]}.
@@ -223,7 +302,15 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         detail_class = "search" if detail.get("state_before") in {"searching", "search"} and not detail.get("focus") else "non_search"
         if any(key in detail for key in ("count_rejection_revisit", "small_unjudged_revisit", "revisit", "alert_look")):
             detail_class = "revisit"
+        safety_info = detail.get("safety") if isinstance(detail, dict) else None
+        if safety_info:
+            safety_info = dict(safety_info)
+            safety_info["guarded_action_kind"] = action.kind
+            safety_info["changed_to_hold_stop"] = bool(
+                safety_info.get("rejected") and action.kind in {"hold", "stop"}
+            )
         trace.append({"step": row["step_index"], "pose_ned": list(pose), "action": action_obj, "logged_action": row.get("action"),
+                      "safety": safety_info or {"status": "bypassed", "rejected": False, "reasons": []},
                       "calls": calls, "phase": detail.get("phase"), "counts": dict(executor.counts),
                       "search_waypoint_index": search_policy._waypoint_index if search_policy else None,
                       "decision_class": detail_class,
@@ -262,6 +349,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     logged_mission = (raw_by_step.get(int(trace[-1]["step"]), {}).get("mission") or {}) if trace else {}
     coverage_history = [item for item in executor.history if item.get("reason") == "coverage_complete"]
     return {"episode": str(episode), "mode": mode, "open_loop": not closed_loop,
+            "safety_exit": safety_exit,
             "limitations": ["半闭环只回灌日志执行后位姿，不模拟物理执行"],
             "metrics": {"steps": len(trace), "action_type_agreement": action_types / len(trace) if trace else 1.0,
                         "pre_divergence_steps": len(scored),
@@ -336,6 +424,8 @@ def main() -> None:
     ap.add_argument("--detections", type=Path, help="optional logged detector results: {step_index: [[bbox, score, label], ...]}")
     ap.add_argument("--cache-ram", type=int, default=0)
     ap.add_argument("--closed-loop-pose-approximation", action="store_true")
+    ap.add_argument("--disable-safety-exit", action="store_true",
+                    help="bypass AirframeMotionAdapter.guard_command (legacy replay)")
     ap.add_argument("--compare", nargs=2, type=Path, metavar=("CODE_A", "CODE_B"))
     ap.add_argument("--output", type=Path)
     args = ap.parse_args()
@@ -344,10 +434,12 @@ def main() -> None:
             ap.error("--compare requires exactly one episode")
         result: Any = compare_roots(args.episodes[0], (args.compare[0], args.compare[1]),
                                     mode=args.mode, closed_loop=args.closed_loop_pose_approximation,
-                                    detections_file=args.detections)
+                                    detections_file=args.detections,
+                                    safety_exit=not args.disable_safety_exit)
     else:
         result = {"episodes": [replay(p, mode=args.mode, cache_file=args.cache_file,
-                          closed_loop=args.closed_loop_pose_approximation, detections_file=args.detections)
+                          closed_loop=args.closed_loop_pose_approximation, detections_file=args.detections,
+                          safety_exit=not args.disable_safety_exit)
                           for p in args.episodes]}
     rendered = json.dumps(result, ensure_ascii=False, indent=2, default=str)
     if args.output:

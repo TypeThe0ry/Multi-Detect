@@ -38,7 +38,40 @@
 
 ## 统一安全出口筛查
 
-已检查 61 个架次原始 `steps.jsonl` 中的 `labels.onboard.safety`，全部没有该字段；当前 replay 构造的 `MissionExecutor` 也没有 `airframe_adapter`，不会执行 `guard_command`。因此本次 A/B 中 safety reason 观测数为 0，但这**不等于**安全出口拒绝数为 0，更不能据此认定区域边界、最低高度、禁飞区、返航/降落下降、爬升步幅或固定翼盘旋均通过。
+### 本次复验（cx-replay-safety）
+
+重放器现在默认按机载路径创建 `AirframeMotionAdapter` 和同一份
+`SafetyEnvelope`：机型来自 `episode.json.airframe_profile.id`（普通架次回退
+`x500_mono_cam`），机载 `onboard.json` 的 `mission_package`、显式
+`safety_envelope`、任务包 `operating_area`/高度限制/禁飞区、任务包 home 和
+episode 记录的绝对 `world_sdf` 都会合并；固定翼/VTOL 使用 profile dynamics 和
+`max_step_distance_m`。开环与半闭环均把 `MissionExecutor.next_action()` 的结果
+送入 `guard_command()`。每步 trace 的 `safety` 包含 status、reasons、
+rejected、consecutive_rejections、guarded_action_kind 和
+`changed_to_hold_stop`。`--disable-safety-exit` 可复现旧的旁路行为。
+
+指定五个 benchmark（55 个 episode）和 `vtol-smoke`（6 个 episode）共 61 个
+架次分别开环、半闭环重放，结果在
+`D:\Projects\mdwt\_scratch\cx-replay-safety\all-open.json`、
+`all-closed.json`，汇总在 `safety-summary.csv`。统计如下：
+
+| 模式 | 架次 | 安全拒绝步数 | 主要原因 | 最大连续 hold/stop |
+|---|---:|---:|---|---:|
+| 开环 | 61 | 3281 | `min_altitude`、`altitude` | 135 |
+| 半闭环 | 61 | 4348 | `min_altitude`、`altitude` | 136 |
+
+逐步核对显示，拒绝均对应重放动作目标高度低于任务包最低高度（通常 5 m，或
+当前高度已经低于该下限）或继续下降；原始 SITL 行的
+`obs_before.pose.local_ned_m[2]`、`action.up_m`、`outcome.achieved_delta_ned`
+可复核数值。未发现原始动作实际飞行正常且仍在包络内的明确误拒。固定翼/VTOL
+初版统计曾出现每步 `altitude` 拒绝；根因是把首帧飞机位置误当 local-NED
+home。已改为无任务包 home 时使用 `(0,0,0)`，并从 episode profile 读取机型；
+修复后 `rc_cessna` smoke 开环拒绝为 0。旧行为 A/B 使用
+`--disable-safety-exit`，只用于验证旁路开关。
+
+原始 61 个架次的 `labels.onboard.safety` 没有可用的逐步安全字段；这正是本次
+重放补上统一出口和 trace 的原因。旧 A/B 的“0 次安全拒绝”只代表旧重放未调用
+出口，不能作为安全结论。
 
 可确认的负面证据：122 条 replay trace 没有 safety rejection 字段分歧；12 个有差异步的动作都是 turn，没有出现由拒绝转成 `hold`/`stop` 的模式，未发现由这些分歧导致的原地反复 hold。样本内无可定位的 safety 拒绝步号。上述具体场景是否误拒仍是 SITL 复验前的未覆盖项，需带有 airframe adapter 和逐步 safety 元数据的架次日志才能判定。
 
