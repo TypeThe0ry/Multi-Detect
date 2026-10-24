@@ -37,3 +37,9 @@ gate 脚本固定 `CUDA_VISIBLE_DEVICES=-1`、`PYTHONUTF8=1`；生产 onboard �
 ## 结果
 
 修复前的受控双 CPU 压力基线为 `1/1` 失败：real-process harness 的父 pytest 进程按 GBK 解码 UTF-8 输出，触发 `UnicodeDecodeError`（历史 gate 另有 stale-camera）。修复后同样压力下重复 5 轮，OpenCV、Torch worker crash、stale-camera 和编码失败均为 `0/5`；其中 1 轮遇到独立的 Windows `WinError 10013` 回环 socket 绑定失败，归因于本机端口访问策略而非上述测试逻辑。完整 gate 为 `1566 passed, 2 skipped`（2 workers，81 秒）。实际命令和日志保存在 `D:/Projects/mdwt/_scratch/cx-gate-flakes/`。
+
+## 2026-10-24 晚：真机模式进程级回环测试
+
+- 端口：harness 原先用 TCP 套接字探测空闲端口，实际链路是 UDP；Windows 的 UDP 保留段与 TCP 不同，且 SITL 运行时 Hyper-V/Docker 会动态占用动态端口段，导致 `WinError 10013`。现改为 UDP 探测，并只在 20000–45000（动态段之外）随机选端口，测试重试 3 次。
+- 相机看门狗：主机可用内存约 1 GB 时 onboard 循环会卡顿超过 5 s，触发 `stale_camera`；测试场景的 `--camera-timeout` 放宽到 15 s（生产默认 0.75 s 不变）。
+- 仍偶发（5 次中 1 次），属于主机负载下的真实时钟依赖，因此标记为 `timing`：默认 gate 不跑，`python scripts/run_onboard_gate.py --with-timing` 在空闲机器上运行。

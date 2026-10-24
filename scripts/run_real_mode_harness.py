@@ -110,11 +110,25 @@ class FakePx4:
 
 
 def _free_ports(count=2):
+    """Pick loopback UDP ports the onboard process and fake GCS can bind.
+
+    The links are UDP, so probe with UDP: Windows reserves separate, changing UDP
+    ranges (Hyper-V/Docker take blocks of the dynamic range while SITL runs), and a
+    free TCP port could still fail with WinError 10013.  Stay below the dynamic
+    range (49152+) where those reservations land.
+    """
+    import random
+
+    rng = random.Random()
     held = []
     try:
-        for _ in range(count):
-            sock = socket.socket()
-            sock.bind(("127.0.0.1", 0))
+        while len(held) < count:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.bind(("127.0.0.1", rng.randint(20000, 45000)))
+            except OSError:
+                sock.close()
+                continue
             held.append(sock)
         return [sock.getsockname()[1] for sock in held]
     finally:
@@ -146,7 +160,7 @@ def main() -> int:
     calibration.write_text(json.dumps({"width": 320, "height": 240, "fx": 200, "fy": 200, "cx": 160, "cy": 120, "extrinsics": {"mount_pitch_down_deg": 45, "mount_yaw_right_deg": 0, "mount_roll_clockwise_deg": 0, "camera_offset_forward_m": 0, "camera_offset_right_m": 0, "camera_offset_down_m": 0}}))
     env = os.environ.copy()
     env.update(PYTHONPATH="src;.", PYTHONUTF8="1", MULTIDETECT_ONBOARD_TEST_HOOK="scripts.onboard_real_test_hook")
-    onboard = subprocess.Popen([sys.executable, "scripts/onboard_main.py", "real", "--endpoint", f"udpin:127.0.0.1:{px4_port}", "--camera", "0", "--calibration", str(calibration), "--mission-package", str(package_path), "--operator-key", str(key_path), "--failsafe", "land", "--duration", "4", "--startup-timeout", "5", "--takeoff-timeout", "8", "--camera-timeout", "5", "--operator-bind-host", "127.0.0.1", "--operator-port", str(gcs_port), "--operator-hmac-key-hex", key.hex(), "--operator-mavlink-signing-key-hex", (b"S" * 32).hex(), "--operator-requires-approval", "--operator-approval-timeout", "20", "--work-dir", str(work)], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    onboard = subprocess.Popen([sys.executable, "scripts/onboard_main.py", "real", "--endpoint", f"udpin:127.0.0.1:{px4_port}", "--camera", "0", "--calibration", str(calibration), "--mission-package", str(package_path), "--operator-key", str(key_path), "--failsafe", "land", "--duration", "4", "--startup-timeout", "5", "--takeoff-timeout", "8", "--camera-timeout", "15", "--operator-bind-host", "127.0.0.1", "--operator-port", str(gcs_port), "--operator-hmac-key-hex", key.hex(), "--operator-mavlink-signing-key-hex", (b"S" * 32).hex(), "--operator-requires-approval", "--operator-approval-timeout", "20", "--work-dir", str(work)], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     gcs = subprocess.Popen([sys.executable, "scripts/fake_gcs_console.py", str(package_path), "--host", "127.0.0.1", "--port", str(gcs_port), "--hmac-key", key.hex(), "--mavlink-key", (b"S" * 32).hex(), "--package-key", key_path, "--command-key", key_path, "--auto-approve", "--max-seconds", "40"], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     try:
         # Fixed lifetimes made this flaky under load: a slow onboard start let the
