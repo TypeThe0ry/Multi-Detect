@@ -535,6 +535,7 @@ def _run_task(
     takeoff_method = resolve_takeoff_method(airframe, takeoff_method)
     scenario = _scenario_for(world, canonical)
     defaults = json.loads(Path(onboard_defaults).read_text(encoding="utf-8"))["defaults"]
+    defaults["runtime_step_limit"] = 220
     for key, value in defaults.items():
         if isinstance(value, str) and value.startswith("artifacts/"):
             defaults[key] = str(Path(artifacts_root) / value.removeprefix("artifacts/"))

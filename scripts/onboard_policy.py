@@ -1101,6 +1101,9 @@ class OnboardPolicy:
         executor_config = ExecutorConfig(
             step_budget=int(options.get("step_budget", 60)),
             count_budget_max=int(options.get("count_budget_max", 4096)),
+            runtime_step_limit=(
+                None if options.get("runtime_step_limit") is None else int(options["runtime_step_limit"])
+            ),
             alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
             alert_require_majority=(
                 options.get("alert_require_majority", False)
@@ -2790,11 +2793,14 @@ def build_onboard_policy(
     frame_format: str = "png",
     frame_quality: int = 90,
     airframe: str | None = None,
+    runtime_step_limit: int | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
     if airframe is not None:
         # The collector flies a specific airframe; the policy must plan for it.
         config = {**(config or {}), "airframe": airframe}
+    if runtime_step_limit is not None:
+        config = {**(config or {}), "runtime_step_limit": int(runtime_step_limit)}
     return OnboardPolicy(
         task_text=task_text,
         world_path=world_path,

@@ -12,7 +12,7 @@ def _executor(radius: float, *, maximum: int = 220) -> MissionExecutor:
         plan,
         loop_factory=helpers._factory(),
         refs={"zone:test": (0.0, 0.0, radius)},
-        config=ExecutorConfig(step_budget=140, count_budget_max=maximum),
+        config=ExecutorConfig(step_budget=140, count_budget_max=maximum, runtime_step_limit=220),
     )
 
 
@@ -25,6 +25,30 @@ def test_count_budget_covers_large_region_and_registered_revisits() -> None:
     budget = executor._budget(executor.current_step, run)
     assert budget > 140
     assert budget <= 220
+
+
+def test_runtime_limit_leaves_return_home_tail() -> None:
+    plan = helpers._count_plan(10)
+    plan.steps[0].params["region"] = "zone:test"
+    executor = MissionExecutor(
+        plan,
+        loop_factory=helpers._factory(),
+        refs={"zone:test": (0.0, 0.0, 55.0)},
+        config=ExecutorConfig(step_budget=140, count_budget_max=4096, runtime_step_limit=150),
+    )
+    assert executor._budget(executor.current_step, executor._run) + 10 <= 150
+
+
+def test_missing_runtime_limit_keeps_legacy_fixed_budget() -> None:
+    plan = helpers._count_plan(10)
+    plan.steps[0].params["region"] = "zone:test"
+    executor = MissionExecutor(
+        plan,
+        loop_factory=helpers._factory(),
+        refs={"zone:test": (0.0, 0.0, 55.0)},
+        config=ExecutorConfig(step_budget=140, count_budget_max=4096),
+    )
+    assert executor._budget(executor.current_step, executor._run) == 140
 
 
 def test_small_region_does_not_inherit_large_fixed_budget() -> None:

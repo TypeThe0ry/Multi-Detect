@@ -66,6 +66,10 @@ class ExecutorConfig:
     # generated coverage route.  ``step_budget`` remains the legacy fallback
     # (and an explicit per-step value remains a hard ceiling).
     count_budget_max: int = 4096
+    # Outer collector/session primitive limit. Adaptive expansion is enabled
+    # only when this value is supplied; otherwise legacy fixed behavior stays.
+    runtime_step_limit: int | None = None
+    runtime_tail_reserve: int = 10
     # Flying skills are bounded separately from searches.
     travel_budget: int = 150
     # Patrol/monitor use a duration/route-derived primitive budget.  This is
@@ -161,6 +165,18 @@ class ExecutorConfig:
             or self.count_budget_max < 1
         ):
             raise ValueError("count_budget_max must be a positive integer")
+        if self.runtime_step_limit is not None and (
+            isinstance(self.runtime_step_limit, bool)
+            or not isinstance(self.runtime_step_limit, int)
+            or self.runtime_step_limit < 1
+        ):
+            raise ValueError("runtime_step_limit must be a positive integer or None")
+        if (
+            isinstance(self.runtime_tail_reserve, bool)
+            or not isinstance(self.runtime_tail_reserve, int)
+            or self.runtime_tail_reserve < 0
+        ):
+            raise ValueError("runtime_tail_reserve must be a non-negative integer")
         for name in (
             "small_unjudged_revisit_attempts",
             "completion_revisit_max",
@@ -1252,6 +1268,10 @@ class MissionExecutor:
         into ``max_translate_m`` primitives.  It is a planning bound, while
         the loop still owns the exact route and all safety checks.
         """
+        if self.config.runtime_step_limit is None:
+            explicit = step.params.get("step_budget")
+            return max(1, min(self.config.step_budget, int(explicit))) if explicit is not None else max(1, self.config.step_budget)
+
         region = self.region_of(step)
         if region is None:
             base = max(1, self.config.step_budget)
@@ -1323,6 +1343,7 @@ class MissionExecutor:
                 )
                 desired = min(desired, base + max(0, allowed_extra) * look_cost)
 
+        desired = min(desired, max(1, self.config.runtime_step_limit - self._runtime_tail_reserve(run)))
         explicit = step.params.get("step_budget")
         if explicit is not None:
             desired = min(desired, max(1, int(explicit)))
@@ -1331,6 +1352,19 @@ class MissionExecutor:
             # test/safety cap; retain that compatibility.
             desired = min(desired, self.config.step_budget)
         return max(1, min(desired, self.config.count_budget_max))
+
+    def _runtime_tail_reserve(self, run: _StepRun | None) -> int:
+        """Reserve outer-loop primitives for steps after the active search."""
+        if run is None or self.config.runtime_step_limit is None:
+            return 0
+        try:
+            index = next(i for i, item in enumerate(self.plan.steps) if item.id == run.step.id)
+        except StopIteration:
+            return self.config.runtime_tail_reserve
+        reserve = 0
+        for item in self.plan.steps[index + 1 :]:
+            reserve += self.config.runtime_tail_reserve if item.skill == "return_home" else 1
+        return reserve
 
     def _budget_end(self, run: _StepRun) -> None:
         if run.step.skill in {"patrol", "monitor"} and self._duration_reached(run):
