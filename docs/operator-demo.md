@@ -28,3 +28,29 @@ pwsh scripts/run_operator_demo.ps1 --dry-run
 ```
 
 常见问题：找不到 GCS 时显式传 `--gcs-exe`；端口占用时停止自己上次遗留的会话或修改会话脚本参数；锁忙表示另一套 SITL 正在运行，勿删除锁目录；任务包签名失败通常是 JSON 已带不同 `key_id` 或会话密钥长度不对。
+# 命令行生成任务包
+
+操作员可以用 `scripts/mission_package_tool.py` 生成、校验、签名和查看任务包。先设置仓库的 Python 路径：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+```
+
+生成一个保守的场地任务包（区域格式为“名称:北,东,半径[:标签]”，预算格式为“任务秒,预留秒,能量 Wh,预留 Wh”）：
+
+```powershell
+python scripts/mission_package_tool.py new --id cones-demo --prompt '数交通锥后返航' `
+  --zone field:25,0,20:open_field --home 0,0 --budget 600,180,120,30 `
+  -o .\_scratch\cones-demo.json
+```
+
+`validate` 会调用机载 `load_mission_package`，并对内置 `plan` 执行 `plan_intent` 一致性检查；失败时逐条打印中文问题。未签名包可用会话的 `operator-link.json` 签名，也可以直接传 32 字节 HMAC 十六进制 key：
+
+```powershell
+python scripts/mission_package_tool.py validate .\_scratch\cones-demo.json
+python scripts/mission_package_tool.py sign .\_scratch\cones-demo.json `
+  --operator-link .\_scratch\operator-out\operator-link.json `
+  -o .\_scratch\cones-demo.signed.json
+```
+
+`sign` 默认另存为 `.signed.json`，不会覆盖原件；只有明确传 `--in-place` 才会覆盖。`show` 输出签名状态、地点/区域计数和预算换算。续航估算采用 `docs/energy-model-calibration.md` 记录的保守 500 W 功率下限：`min(可用时间, 可用能量 × 3600 / 500)`，用于演示预算，不代表实机标定。
