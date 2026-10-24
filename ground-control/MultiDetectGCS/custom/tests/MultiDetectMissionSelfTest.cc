@@ -17,6 +17,10 @@
 #include "MultiDetectMissionWire.h"
 #include "MultiDetectOperatorProtocol.h"
 
+#ifndef MISSION_SUMMARY_FIXTURE
+#define MISSION_SUMMARY_FIXTURE "tests/fixtures/mission_summary/run11-summary-pair.json"
+#endif
+
 namespace {
 int failures = 0;
 
@@ -149,6 +153,17 @@ int main(int argc, char** argv)
     invalid["unknown"] = 1;
     check(!MultiDetectMissionPackage::validate(invalid, &error), "unknown package field rejected");
 
+    // Read-only onboard sample: keep the fixture as the source for the new
+    // final-summary shape without modifying it during the self-test.
+    QFile fixture(QStringLiteral(MISSION_SUMMARY_FIXTURE));
+    check(fixture.open(QIODevice::ReadOnly), "run11 summary fixture is available read-only");
+    if (fixture.isOpen()) {
+        const QJsonObject sample = QJsonDocument::fromJson(fixture.readAll()).object().value("final_summary").toObject();
+        check(sample.value("count_lower_bounds").toObject().value("s1").toBool() &&
+                  sample.value("counts").toObject().value("s1").toInt() == 3,
+              "run11 fixture supplies lower-bound final summary fields");
+    }
+
     MultiDetectOperatorProtocol protocol(QByteArray(32, 'x'), QStringLiteral("camera-main"));
     const auto command = MultiDetectMissionWire::command(0x0102030405060708ULL, 0x1112131415161718ULL);
     const auto encoded =
@@ -268,7 +283,7 @@ int main(int argc, char** argv)
     // sequence, one transfer (own token, chunk indexes from 0) per page,
     // pages may arrive out of order and are shown only once all are here.
     const QByteArray page1 =
-        R"({"kind":"final_summary_page","mission_id":"test-001","page":1,"pages":3,"body":"{\"status\":\"completed\",\"counts\":{\"s1\":2},"})";
+        R"({"kind":"final_summary_page","mission_id":"test-001","page":1,"pages":3,"body":"{\"status\":\"completed\",\"counts\":{\"s1\":2},\"summary_zh\":\"任务完成；s1 至少 2 个（原因：覆盖未完全证实）\",\"summary_en\":\"completed\",\"operator_summary\":{\"status\":\"completed\",\"terminal_reason\":\"done\"},"})";
     const QByteArray page2 =
         R"({"kind":"final_summary_page","mission_id":"test-001","page":2,"pages":3,"body":"\"count_lower_bounds\":{\"s1\":true},\"findings\":[{\"id\":\"f1\"}],"})";
     const QByteArray page3 =
@@ -289,6 +304,10 @@ int main(int argc, char** argv)
               controller.finalSummary().value("count_lower_bounds").toMap().value("s1").toBool() &&
               controller.finalSummary().value("history").toList().size() == 1,
           "all pages joined in page order into one final_summary");
+    check(controller.finalSummary().value("summary_zh").toString().contains(QStringLiteral("至少")) &&
+              controller.finalSummary().value("operator_summary").toMap().value("terminal_reason").toString() == "done" &&
+              controller.finalSummaryState() == QStringLiteral("摘要已完整接收"),
+          "new operator summary fields are retained");
     bool pageAcksRestart = false;
     for (const auto& item : sent) {
         QVariantMap ackFields;
@@ -301,6 +320,33 @@ int main(int argc, char** argv)
     deliver(controller, 0x3001, page1);
     check(countType(sent, 36) > acksBefore && controller.finalSummaryComplete(),
           "a retransmitted page is re-acknowledged without disturbing the summary");
+
+    // A legacy one-transfer final_summary remains valid and exposes the old fields.
+    const QByteArray legacy =
+        R"({"kind":"final_summary","mission_id":"test-001","sequence":9,"summary":{"status":"completed","counts":{"s1":2},"findings":[{"id":"legacy"}]}})";
+    deliver(controller, 0x3004, legacy);
+    check(controller.finalSummaryComplete() && controller.finalSummary().value("findings").toList().size() == 1,
+          "legacy final_summary remains compatible");
+
+    // Invalid JSON is held back as an explicit incomplete state.
+    MultiDetectMissionController malformedSummary;
+    malformedSummary.setPackageJson(QString::fromUtf8(package));
+    deliver(malformedSummary, 0x3010,
+            R"({"kind":"final_summary_page","mission_id":"test-001","page":1,"pages":1,"body":"{bad"})");
+    check(!malformedSummary.finalSummaryComplete() && malformedSummary.finalSummary().isEmpty() &&
+              malformedSummary.finalSummaryState().contains(QStringLiteral("摘要未完整接收")),
+          "invalid summary JSON never exposes a partial result");
+    malformedSummary.shutdown();
+
+    MultiDetectMissionController missingPage;
+    missingPage.setPackageJson(QString::fromUtf8(package));
+    deliver(missingPage, 0x3011,
+            R"({"kind":"final_summary_page","mission_id":"test-001","page":1,"pages":2,"body":"{\"status\":\"completed\","})");
+    spin(5300);
+    check(!missingPage.finalSummaryComplete() && missingPage.finalSummary().isEmpty() &&
+              missingPage.finalSummaryState().contains(QStringLiteral("摘要未完整接收")),
+          "missing summary page times out without showing a partial result");
+    missingPage.shutdown();
     controller.shutdown();
 
     // ---- Two-stage upload verdict, heartbeats only after admission --------

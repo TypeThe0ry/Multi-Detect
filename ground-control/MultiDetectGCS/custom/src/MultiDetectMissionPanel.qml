@@ -286,6 +286,57 @@ QGCPopupDialog {
         return text;
     }
 
+    function finalSummaryText(summary) {
+        if (!summary || typeof summary !== "object")
+            return "";
+        if (typeof summary.summary_zh === "string" && summary.summary_zh.length > 0)
+            return summary.summary_zh;
+        if (typeof summary.summary_en === "string" && summary.summary_en.length > 0)
+            return summary.summary_en;
+        const counts = summary.counts && typeof summary.counts === "object" ? summary.counts : {};
+        const countText = Object.keys(counts).map(key => key + "：" + String(counts[key]) + " 个").join("；");
+        const findings = Array.isArray(summary.findings) ? summary.findings.length : 0;
+        const status = typeof summary.status === "string" ? summary.status : "";
+        return [status ? qsTr("状态：%1").arg(status) : "",
+                countText ? qsTr("计数：%1").arg(countText) : "",
+                qsTr("发现：%1 条").arg(findings)].filter(part => part.length > 0).join("\n");
+    }
+
+    function summaryOperatorLine(summary) {
+        const operator = summary && summary.operator_summary && typeof summary.operator_summary === "object"
+            ? summary.operator_summary : ({});
+        const terminal = operator.terminal && typeof operator.terminal === "object" ? operator.terminal : ({});
+        const status = typeof terminal.status === "string" ? terminal.status :
+            (typeof operator.status === "string" ? operator.status :
+            (typeof summary.status === "string" ? summary.status : ""));
+        const action = typeof terminal.action === "string" ? terminal.action :
+            (typeof operator.terminal_action === "string" ? operator.terminal_action :
+            (typeof summary.terminal_action === "string" ? summary.terminal_action : ""));
+        const reason = typeof terminal.reason === "string" ? terminal.reason :
+            (typeof operator.terminal_reason === "string" ? operator.terminal_reason :
+            (typeof summary.terminal_reason === "string" ? summary.terminal_reason : ""));
+        return [status ? qsTr("状态：%1").arg(status) : "",
+                action ? qsTr("终止动作：%1").arg(action) : "",
+                reason ? qsTr("终止原因：%1").arg(reason) : ""].filter(part => part.length > 0).join("\n");
+    }
+
+    function summaryLowerBoundText(summary) {
+        if (!summary || typeof summary !== "object" || !summary.count_lower_bounds ||
+                typeof summary.count_lower_bounds !== "object")
+            return "";
+        const keys = Object.keys(summary.count_lower_bounds).filter(key => summary.count_lower_bounds[key] === true);
+        return keys.length > 0 ? qsTr("下限计数：%1").arg(keys.join("、")) : "";
+    }
+
+    function summaryTruncationText(summary) {
+        if (!summary || summary.detail_truncated !== true)
+            return "";
+        const omitted = summary.omitted && typeof summary.omitted === "object" ? summary.omitted : ({});
+        const fields = Object.keys(omitted).filter(key => typeof omitted[key] === "number")
+            .map(key => key + " " + omitted[key] + " 条");
+        return qsTr("细节已截断%1").arg(fields.length ? qsTr("（省略：%1）").arg(fields.join("、")) : "");
+    }
+
     function remainingText(number, unit) {
         return typeof number === "number" && Number.isFinite(number) ? number.toFixed(1) + " " + unit : qsTr("尚未收到");
     }
@@ -675,6 +726,38 @@ QGCPopupDialog {
                 }
             }
             QGCLabel { font.bold: true; text: qsTr("最近机载日志（仅显示下行已收到记录）") }
+            SectionLabel { text: qsTr("任务最终摘要") }
+            QGCLabel {
+                Layout.fillWidth: true
+                color: root.controller && root.controller.finalSummaryComplete ? qgcPal.colorGreen : qgcPal.warningText
+                wrapMode: Text.WordWrap
+                text: root.controller ? (root.controller.finalSummaryState || qsTr("尚未收到最终摘要")) : qsTr("摘要未完整接收")
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.finalSummaryComplete
+                wrapMode: Text.WordWrap
+                text: root.finalSummaryText(root.controller ? root.controller.finalSummary : ({}))
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.finalSummaryComplete && root.summaryOperatorLine(root.controller.finalSummary).length > 0
+                wrapMode: Text.WordWrap
+                text: root.summaryOperatorLine(root.controller.finalSummary)
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.finalSummaryComplete && root.summaryLowerBoundText(root.controller.finalSummary).length > 0
+                color: qgcPal.warningText
+                text: root.summaryLowerBoundText(root.controller.finalSummary)
+            }
+            QGCLabel {
+                Layout.fillWidth: true
+                visible: !!root.controller && root.controller.finalSummaryComplete && root.summaryTruncationText(root.controller.finalSummary).length > 0
+                color: qgcPal.warningText
+                wrapMode: Text.WordWrap
+                text: root.summaryTruncationText(root.controller.finalSummary)
+            }
             QGCCheckBox { id: showRawAudit; text: qsTr("显示机载原始审计字段（保留机器原文）") }
             QGCLabel {
                 Layout.fillWidth: true
