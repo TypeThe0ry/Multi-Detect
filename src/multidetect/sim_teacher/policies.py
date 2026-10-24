@@ -364,6 +364,8 @@ class ExpertSearchPolicy:
     # Re-adopt the measured yaw when it differs from the last commanded heading by
     # more than this (small differences are tracking noise and are ignored).
     resync_yaw_deg: float = 5.0
+    observation_frames: int = 0
+    observation_waypoints: tuple[tuple[float, float, float], ...] = ()
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -422,6 +424,10 @@ class ExpertSearchPolicy:
         self.skipped_waypoints: list[dict[str, Any]] = []
         self._coverage_trace: list[tuple[float, float]] = []
         self._search_outcome = "running"
+        self._observation_index = 0
+        self._observation_count = 0
+        self._observation_sample_index: int | None = None
+        self._observation_sample_count: int | None = None
 
     def _coverage_radius_m(self, phase: str) -> float:
         from multidetect.search_coverage import CoverageCamera
@@ -567,6 +573,10 @@ class ExpertSearchPolicy:
         self.skipped_waypoints.clear()
         self._search_outcome = "running"
         self._coverage_trace.clear()
+        self._observation_index = 0
+        self._observation_count = 0
+        self._observation_sample_index = None
+        self._observation_sample_count = None
 
     @property
     def search_outcome(self) -> str:
@@ -819,6 +829,8 @@ class ExpertSearchPolicy:
         return max(self.standoff_m, geometry)
 
     def next_action(self, *, pose_ned, yaw_deg: float = 0.0) -> ActionPrimitive:
+        self._observation_sample_index = None
+        self._observation_sample_count = None
         point = (float(pose_ned[0]), float(pose_ned[1]))
         if not self._coverage_trace or math.dist(point, self._coverage_trace[-1]) > 1e-6:
             self._coverage_trace.append(point)
@@ -834,6 +846,45 @@ class ExpertSearchPolicy:
             camera_pitch_rad=self.camera_pitch_rad,
         )
         self._last_inside = inside
+        if self.observation_frames > 0 and self.observation_waypoints:
+            waypoint = self.observation_waypoints[self._observation_index]
+            altitude = max(0.0, -float(pose_ned[2]))
+            desired_altitude = max(0.0, -float(waypoint[2])) or self.altitude_m
+            if abs(altitude - desired_altitude) > 1.0:
+                return ActionPrimitive.translate(
+                    0.0, 0.0, math.copysign(min(self.max_altitude_step_m, abs(desired_altitude - altitude)), desired_altitude - altitude)
+                )
+            dn, de = waypoint[0] - pose_ned[0], waypoint[1] - pose_ned[1]
+            distance = math.hypot(dn, de)
+            if distance > 2.0:
+                yaw = math.radians(yaw_deg)
+                return self._safe_translation(
+                    pose_ned,
+                    ActionPrimitive.translate(
+                        min(self.max_translate_m, distance) * (dn * math.cos(yaw) + de * math.sin(yaw)) / distance,
+                        min(self.max_translate_m, distance) * (-dn * math.sin(yaw) + de * math.cos(yaw)) / distance,
+                        0.0,
+                    ),
+                    yaw_deg,
+                )
+            target_bearing = math.degrees(math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0]))
+            turn = self._wrap(target_bearing - yaw_deg)
+            if abs(turn) > 4.0:
+                return ActionPrimitive.turn(turn)
+            self.state = "observe"
+            self._observation_count += 1
+            self._observation_sample_index = self._observation_index
+            self._observation_sample_count = self._observation_count
+            if self._observation_count >= self.observation_frames:
+                if self._observation_index + 1 < len(self.observation_waypoints):
+                    self._observation_index += 1
+                    self._observation_count = 0
+                    self.state = "search"
+                else:
+                    self.state = "done"
+                    self._search_outcome = "done"
+                    return ActionPrimitive.stop()
+            return ActionPrimitive.hold(self.hold_seconds)
         if self.state == "done":
             return ActionPrimitive.stop()
         if self.state == "hold":
@@ -935,7 +986,7 @@ class ExpertSearchPolicy:
             camera_pitch_rad=self.camera_pitch_rad,
         )
         return {
-            "phase": self.state,
+            "phase": "observe" if self._observation_sample_index is not None else self.state,
             "target_in_fov": inside,
             "target_bearing_deg": bearing,
             "target_range_m": rng,
@@ -945,6 +996,14 @@ class ExpertSearchPolicy:
             "skipped_waypoints": [dict(item) for item in self.skipped_waypoints],
             "coverage": self._coverage_report(),
             "search_pass_outcome": self._search_outcome,
+            **(
+                {
+                    "observation_view_index": self._observation_sample_index,
+                    "observation_frame_index": self._observation_sample_count,
+                }
+                if self._observation_sample_index is not None
+                else {}
+            ),
         }
 
 

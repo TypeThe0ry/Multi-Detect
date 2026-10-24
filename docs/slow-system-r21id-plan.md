@@ -30,6 +30,18 @@ bash _scratch/sitl_lock.sh -- bash -lc "PYTHONPATH=src:. PYTHONUTF8=1 python scr
 
 修复说明：先前生成器把相机观察高度/俯仰误写入 runtime spawn pose，令多旋翼出生在空中并倾斜，PX4 拒绝解锁；固定翼采集还会因缺少显式 airframe 而落到 x500 默认机型。重新生成时保留既有 world id、目标布局、holdout 与 seed，只调整出生配方、airframe 绑定和任务/teacher 观察意图。collector/teacher 必须读取这些观察意图，不允许只落入元数据。
 
+每个多旋翼架次按 sidecar 的四个位姿序列执行 front、oblique、edge_truncated、recovery；每个观察位至少采 8 帧有效观察，edge_truncated 可记录遮挡/截断难例，recovery 必须回到同一实例。观察位高度须落在意图高度 ±3 m，目标 ground distance 落在对应 index `view_geometry` 档位 ±25%。`observation_waypoint` 到真目标 truth 坐标的水平距离是设计 ground distance；采集器不能在起飞点因为 `target_in_fov` 直接结束。
+
+离线检查每个烟测 episode：状态 complete、每个位姿序列 ≥8 个有效帧、高度误差 ≤3 m、水平目标距离误差 ≤25%。有效帧要求有 `target_in_fov=true`、RGB 文件和同步姿态。执行示例：
+
+```powershell
+$env:PYTHONPATH='src;.'
+$env:PYTHONUTF8='1'
+python scripts/check_sim_teacher_smoke.py <episode-dir> --intent <world>.teacher_intent.json --truth <world>.truth.json --minimum-frames 8
+```
+
+启动 SITL 前的静态预检还必须确认每个出生点 15 m 半径无碰撞物，并且从贴地出生高度爬升到意图观察高度的垂直路径无障碍物。该检查只描述几何，不替代飞行后的高度、距离和帧数验收。
+
 单架次 SITL 烟测命令（由后续排队者运行；一个多旋翼和一个固定翼各采 1 架次）：
 
 ```bash

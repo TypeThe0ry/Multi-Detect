@@ -64,6 +64,67 @@ def test_expert_search_state_machine() -> None:
     assert {"phase", "target_in_fov", "target_bearing_deg", "target_range_m"} <= set(labels)
 
 
+def test_intent_observation_climbs_routes_then_captures_requested_frames() -> None:
+    policy = ExpertSearchPolicy(
+        target_ned=(20.0, 40.0, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=22.0,
+        home_ned=(20.0, 0.0, 0.0),
+        observation_frames=3,
+        observation_waypoints=((20.0, 0.0, -22.0),),
+    )
+    pose = [0.0, 0.0, 0.0]
+    yaw = 0.0
+    first = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+    assert first.kind == "translate" and first.up_m > 0
+    pose[2] = -22.0
+    action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+    assert action.kind == "translate" and abs(action.forward_m) + abs(action.right_m) > 0
+    pose[0] = 20.0
+    while policy.state != "observe":
+        action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+        if action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+    assert policy._observation_count == 1
+    for expected in (2, 3):
+        action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+        assert policy._observation_count == expected
+        assert action.kind == ("stop" if expected == 3 else "hold")
+
+
+def test_intent_observation_records_each_view_before_advancing() -> None:
+    policy = ExpertSearchPolicy(
+        target_ned=(20.0, 40.0, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0},
+        altitude_m=20.0,
+        home_ned=(20.0, 0.0, 0.0),
+        observation_frames=2,
+        observation_waypoints=((20.0, 0.0, -20.0), (20.0, 0.0, -20.0)),
+    )
+    pose = [20.0, 0.0, -20.0]
+    yaw = 90.0
+    first = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+    assert policy.labels(pose_ned=tuple(pose), yaw_deg=yaw)["observation_view_index"] == 0
+    second = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+    assert second.kind == "hold"
+    assert policy.labels(pose_ned=tuple(pose), yaw_deg=yaw)["observation_frame_index"] == 2
+    assert policy._observation_index == 1
+    for _ in range(20):
+        action = policy.next_action(pose_ned=tuple(pose), yaw_deg=yaw)
+        labels = policy.labels(pose_ned=tuple(pose), yaw_deg=yaw)
+        if "observation_view_index" in labels:
+            assert labels["observation_view_index"] == 1
+            assert labels["observation_frame_index"] == 1
+            break
+        if action.kind == "turn":
+            yaw = (yaw + action.yaw_delta_deg + 180.0) % 360.0 - 180.0
+        elif action.kind == "translate":
+            pose[0] += action.forward_m
+            pose[1] += action.right_m
+    else:
+        raise AssertionError("second observation view was not reached")
+
+
 def test_expert_search_advances_when_target_not_visible() -> None:
     policy = ExpertSearchPolicy(target_ned=(0.0, 30.0, 0.0), intrinsics={"fx": 100.0, "fy": 100.0})
     action = policy.next_action(pose_ned=(0.0, 0.0, 0.0), yaw_deg=0.0)

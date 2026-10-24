@@ -85,14 +85,17 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
         seed=1,
         out=str(tmp_path),
     )
+    assert collector._takeoff_altitude_for_plan(plan) == (24.0, "teacher_intent_camera_altitude")
     monkeypatch.setattr(collector, "_truth_target", lambda *args, **kwargs: ((1.0, 2.0, 0.0), "target"))
     monkeypatch.setattr(collector, "_takeoff_altitude_for_plan", lambda plan: (5.0, "default"))
     monkeypatch.setattr(collector, "scenario_world_path", lambda runtime: None)
     monkeypatch.setattr(collector, "load_sdf_obstacles", lambda path: ())
     policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
     assert policy.altitude_m == 24.0
-    assert policy.camera_pitch_rad == -0.31
+    assert policy.camera_pitch_rad == 0.31
     assert policy.home_ned == (34.0, 12.0, 0.0)
+    assert policy.observation_frames == 8
+    assert policy.observation_waypoints == ((34.0, 12.0, -24.0),)
 
 
 def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_path: Path):

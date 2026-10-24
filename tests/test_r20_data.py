@@ -45,7 +45,9 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
         spawn = runtime["vehicle"]["spawn_pose"]
         assert spawn["z_up_m"] < 1.0
         assert spawn["pitch_rad"] == 0.0
-        intent = runtime["task_intent"]["observation"]
+        intent = json.loads(
+            (ROOT / "configs/scenarios/generated-r20" / f"{wid}.teacher_intent.json").read_text(encoding="utf-8")
+        )["observation"]
         assert intent["camera_altitude_m"] > 1.0
         assert "camera_pitch_rad" in intent
         assert set(intent["observation_waypoint"]) >= {"x_east_m", "y_north_m", "z_up_m"}
@@ -77,11 +79,12 @@ def test_r20_committed_worlds_have_no_heldout_true_targets_and_real_cases():
             )
         if entry["hard_case_profile"] == "fixed_wing_oblique":
             assert runtime["vehicle"]["airframe_profile_id"] == "px4_fixed_wing_gazebo_v1"
-            assert runtime["vehicle"]["airframe"] == "rc_cessna_runway"
-            assert runtime["vehicle"]["takeoff_method"] == "runway"
-            assert _airframe_profile(
-                runtime["vehicle"]["airframe"], runtime["vehicle"]["takeoff_method"]
-            ) is not None
+            teacher_intent = json.loads(
+                (ROOT / "configs/scenarios/generated-r20" / f"{wid}.teacher_intent.json").read_text(encoding="utf-8")
+            )
+            assert teacher_intent["airframe"] == "rc_cessna_runway"
+            assert teacher_intent["takeoff_method"] == "runway"
+            assert _airframe_profile(teacher_intent["airframe"], teacher_intent["takeoff_method"]) is not None
             assert entry["view_geometry"]["slant_range_m"] >= 80
     assert cases == {
         "paired_confusers": 6,

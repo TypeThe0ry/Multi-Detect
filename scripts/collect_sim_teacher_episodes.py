@@ -57,6 +57,7 @@ from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # no
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
+from multidetect.sim_teacher.spawn_clearance import require_spawn_clearance  # noqa: E402
 from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkReader,
     MavlinkState,
@@ -1147,6 +1148,24 @@ def resolve_takeoff_altitude(
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    # Generated teacher intent is the authoritative camera geometry.  Resolve it
+    # before launch so PX4 takeoff and episode metadata agree with the route.
+    if plan.teacher == "expert_search" and plan.takeoff_altitude_m is None:
+        try:
+            sidecar = _teacher_intent_path(Path(plan.scenario))
+            data = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else {}
+            if not data:
+                runtime_data = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+                data = runtime_data.get("task_intent", {}) if isinstance(runtime_data, dict) else {}
+            observation = data.get("observation", {}) if isinstance(data, dict) else {}
+            requested = observation.get("camera_altitude_m") if isinstance(observation, dict) else None
+            if requested is not None:
+                requested = float(requested)
+                if not math.isfinite(requested) or requested <= 0:
+                    raise ValueError("task_intent.observation.camera_altitude_m must be finite and positive")
+                altitude, source = requested, "teacher_intent_camera_altitude"
+        except (OSError, json.JSONDecodeError):
+            pass
     profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
         return altitude, source
@@ -1160,6 +1179,20 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     if altitude < floor:
         return floor, f"{source}; raised to the {profile.category} operating floor"
     return altitude, source
+
+
+def _validate_spawn_clearance(plan: CollectionPlan) -> dict[str, Any] | None:
+    """Run the generated-world launch clearance check before any simulator work."""
+    world_path = scenario_world_path(plan.runtime)
+    if world_path is None or not world_path.stem.startswith(("gen_r20_", "gen_r21id_")):
+        return None
+    runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+    vehicle = runtime.get("vehicle", {})
+    spawn = vehicle.get("spawn_pose") if isinstance(vehicle, dict) else None
+    if not isinstance(spawn, dict):
+        raise ValueError("generated r20/r21id runtime is missing vehicle.spawn_pose")
+    altitude_m, _ = _takeoff_altitude_for_plan(plan)
+    return require_spawn_clearance(world_path, spawn, climb_altitude_m=altitude_m)
 
 
 def _truth_target(
@@ -1591,7 +1624,7 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         task_intent = (
             json.loads(intent_path.read_text(encoding="utf-8"))
             if intent_path.is_file()
-            else {}
+            else json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("task_intent", {})
         )
         observation = task_intent.get("observation", {}) if isinstance(task_intent, dict) else {}
         if isinstance(observation, dict):
@@ -1611,9 +1644,31 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             float(waypoint.get("x_east_m", 0.0)),
             -float(waypoint.get("z_up_m", 0.0)),
         )
-    camera_pitch = float(intent.get("camera_pitch_rad", 0.18))
-    if not math.isfinite(camera_pitch):
+    camera_pitch_intent = float(intent.get("camera_pitch_rad", -0.18))
+    if not math.isfinite(camera_pitch_intent):
         raise ValueError("task_intent.observation.camera_pitch_rad must be finite")
+    # Sidecars use aircraft convention (negative nose-down); FOV projection
+    # uses positive optical-axis pitch-down in NED.
+    camera_pitch = -camera_pitch_intent
+    frames = int(intent.get("observation_frames", intent.get("min_observation_frames", 8)))
+    if frames < 1:
+        raise ValueError("task_intent.observation observation_frames must be positive")
+    view_rows = intent.get("views", intent.get("observation_views", ()))
+    observation_waypoints = []
+    if isinstance(view_rows, list) and view_rows:
+        for row in view_rows:
+            if not isinstance(row, dict):
+                raise ValueError("task_intent.observation.views entries must be objects")
+            view_waypoint = row.get("observation_waypoint", row.get("waypoint", {}))
+            if not isinstance(view_waypoint, dict):
+                raise ValueError("task_intent.observation.views waypoint must be an object")
+            observation_waypoints.append((
+                float(view_waypoint.get("y_north_m", 0.0)),
+                float(view_waypoint.get("x_east_m", 0.0)),
+                -float(view_waypoint.get("z_up_m", 0.0) or altitude_m),
+            ))
+    elif home_ned is not None:
+        observation_waypoints.append((home_ned[0], home_ned[1], -altitude_m))
     return ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
@@ -1621,6 +1676,8 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         camera_pitch_rad=camera_pitch,
         **({"home_ned": home_ned} if home_ned is not None else {}),
         obstacles=obstacles,
+        observation_frames=frames if observation_waypoints else 0,
+        observation_waypoints=tuple(observation_waypoints),
     ), label
 
 
@@ -4216,6 +4273,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         attach_container=args.attach_container,
         task_text=args.task_text,
     )
+    _validate_spawn_clearance(plan)
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
         return 0
