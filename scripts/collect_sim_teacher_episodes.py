@@ -1695,6 +1695,7 @@ def _record_policy_step(
     outcome: dict[str, Any],
     obs_after: dict[str, Any],
     labels: dict[str, Any],
+    timing: dict[str, Any] | None = None,
 ) -> bool:
     """Persist one policy step and report whether the primitive loop continues."""
     recorder.record_step(
@@ -1704,6 +1705,7 @@ def _record_policy_step(
         outcome=outcome,
         obs_after=obs_after,
         labels=labels,
+        timing=timing,
     )
     return not _is_terminal_action(action)
 
@@ -3411,6 +3413,10 @@ def run_episode(
                 )
                 _progress("takeoff_reached", method=takeoff_method)
             for index in range(plan.steps_per_episode):
+                # perf_counter_ns is monotonic and has negligible overhead; keep
+                # all emitted values in milliseconds for compact JSONL rows.
+                step_t0 = time.perf_counter_ns()
+                timing: dict[str, Any] = {}
                 if index % max(1, plan.disk_check_interval_steps) == 0:
                     reason = disk_space_abort_reason(
                         plan.out, plan.min_free_gb, free_space_fn=free_space_fn
@@ -3422,6 +3428,7 @@ def run_episode(
                     raise TimeoutError("episode wall-clock timeout")
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
+                t = time.perf_counter_ns()
                 before_sample = _fresh_sensor_snapshot(
                     sensor_reader,
                     time.monotonic_ns(),
@@ -3429,7 +3436,9 @@ def run_episode(
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
                     poll_interval_s=plan.sensor_poll_interval_s,
                 )
+                timing["pre_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
+                t = time.perf_counter_ns()
                 before = build_observation(
                     before_sample,
                     before_state,
@@ -3449,13 +3458,25 @@ def run_episode(
                     },
                 )
                 before = _png_observation(before)
+                timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
                 yaw = float(before["attitude"]["yaw_deg"])
                 if plan.teacher == "expert_search":
                     action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
                     labels = policy.labels(pose_ned=pose, yaw_deg=yaw)
                 elif plan.teacher == "onboard":
+                    t = time.perf_counter_ns()
                     action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
+                    timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                    onboard_labels = labels.get("onboard") or {}
+                    if isinstance(onboard_labels.get("fast_latency_s"), (int, float)):
+                        timing["detector_ms"] = round(float(onboard_labels["fast_latency_s"]) * 1000.0, 3)
+                    slow_rows = onboard_labels.get("slow_calls") or ()
+                    if isinstance(slow_rows, (list, tuple)):
+                        timing["slow_model_ms"] = round(
+                            sum(float(row.get("latency_s", 0.0)) for row in slow_rows if isinstance(row, dict)) * 1000.0,
+                            3,
+                        )
                     # Health holds and recoveries skip perception: no detections then.
                     onboard_labels = labels.get("onboard") or {}
                     _progress(
@@ -3469,8 +3490,10 @@ def run_episode(
                     action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
                     labels = {"teacher": "hover"}
                 else:
+                    t = time.perf_counter_ns()
                     action = policy.next_action()
                     labels = {}
+                    timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 # Non-multirotor onboard policies emit a MotionCommand (loiter,
                 # reposition, transition, ...).  The step record keeps the source
                 # primitive (stop detection, dataset format); the command itself is
@@ -3499,6 +3522,7 @@ def run_episode(
                 # consumes already decoded latest-wins frames and never changes
                 # command timing or policy decisions.
                 action_started = time.monotonic()
+                primitive_started_ns = time.perf_counter_ns()
                 next_video_s = action_started
                 result = None
                 result_box: list[Any] = []
@@ -3570,6 +3594,21 @@ def run_episode(
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
+                timing["command_and_primitive_wait_ms"] = round(
+                    (time.perf_counter_ns() - primitive_started_ns) / 1e6, 3
+                )
+                # The executor includes PX4 command transport, ACK polling,
+                # motion, completion checks and any settle/timeout wait. Keep
+                # explicit keys so offline analysis can distinguish unavailable
+                # sub-boundaries from zero-duration phases.
+                timing.setdefault("px4_ack_wait_ms", 0.0)
+                timing.setdefault("command_dispatch_ms", 0.0)
+                timing.setdefault("executor_wait_ms", timing["command_and_primitive_wait_ms"])
+                timing.setdefault("motion_ms", round(float(result.elapsed_s) * 1000.0, 3))
+                timing.setdefault("settle_ms", 0.0)
+                timing.setdefault("completion_check_ms", 0.0)
+                timing.setdefault("timeout_ms", timing["command_and_primitive_wait_ms"] if result.status == "timeout" else 0.0)
+                timing["primitive_status"] = result.status
                 if video_writer is not None:
                     # Ensure the final in-flight frame is represented at the
                     # primitive boundary when the simulator emitted one.
@@ -3607,6 +3646,7 @@ def run_episode(
                 # obs_after must be rendered after the primitive completed, not mid-motion.
                 after_state = _snapshot_mavlink_state(mav_reader.state)
                 after_pose_sim_stamp_ns = _pose_sim_stamp_ns(after_state)
+                t = time.perf_counter_ns()
                 after_sample = _fresh_sensor_snapshot(
                     sensor_reader,
                     primitive_end_ns,
@@ -3614,7 +3654,9 @@ def run_episode(
                     min_sensor_stamp_ns=after_pose_sim_stamp_ns,
                     poll_interval_s=plan.sensor_poll_interval_s,
                 )
+                timing["post_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
+                t = time.perf_counter_ns()
                 after = build_observation(
                     after_sample,
                     after_state,
@@ -3634,6 +3676,7 @@ def run_episode(
                     },
                 )
                 after = _png_observation(after)
+                timing["after_observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 ack = {
                     **_plain_record(result.ack),
                     "type": "SET_POSITION_TARGET_LOCAL_NED",
@@ -3664,6 +3707,28 @@ def run_episode(
                     },
                     obs_after=after,
                     labels=labels,
+                    timing={
+                        **timing,
+                        # Stable phase names consumed by the offline analyzer.
+                        "frame_before_wait": timing.get("pre_frame_wait_ms", 0.0),
+                        "frame_after_wait": timing.get("post_frame_wait_ms", 0.0),
+                        "policy_detection": timing.get("detector_ms", 0.0),
+                        "policy_tracking": timing.get("tracking_ms", 0.0),
+                        "policy_slow_queue": timing.get("slow_queue_ms", 0.0),
+                        "policy_slow_execute": timing.get("slow_model_ms", 0.0),
+                        "policy_planning": timing.get("planning_ms", 0.0),
+                        "policy_safety": timing.get("safety_ms", 0.0),
+                        "command_ack": timing.get("px4_ack_wait_ms", 0.0),
+                        "primitive_accept_wait": timing.get("px4_ack_wait_ms", 0.0),
+                        "primitive_motion": timing.get("motion_ms", 0.0),
+                        "primitive_settle": timing.get("settle_ms", 0.0),
+                        "primitive_timeout": (
+                            timing.get("motion_ms", 0.0)
+                            if timing.get("primitive_status") == "timeout"
+                            else 0.0
+                        ),
+                        "total_ms": round((time.perf_counter_ns() - step_t0) / 1e6, 3),
+                    },
                 )
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately

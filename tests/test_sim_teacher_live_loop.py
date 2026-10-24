@@ -152,6 +152,7 @@ def test_stop_records_step_and_ends_policy_loop() -> None:
             outcome={"status": "success"},
             obs_after=after,
             labels={},
+            timing={"frame_before_wait": 1.0},
         )
         is False
     )

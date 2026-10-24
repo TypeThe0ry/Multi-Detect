@@ -78,6 +78,7 @@ class EpisodeRecorder:
         self._previous_depth_path: str | None = None
         self.episode_path = self.episode_dir / "episode.json"
         self.index = 0
+        self._timing_rows: list[dict[str, float]] = []
         self.meta = {
             "schema_version": 2,
             "episode_id": episode_id,
@@ -86,6 +87,7 @@ class EpisodeRecorder:
             "created_wall_time": time.time(),
             "created_monotonic_ns": time.monotonic_ns(),
             "step_count": 0,
+            "timing_enabled": True,
         }
         self._mavlink_file = None
         self._mavlink_lock = threading.Lock()
@@ -169,6 +171,26 @@ class EpisodeRecorder:
         self.meta["status"] = status
         if failure:
             self.meta["failure"] = failure
+        if self._timing_rows:
+            summary: dict[str, dict[str, float]] = {}
+            keys = sorted({k for row in self._timing_rows for k, v in row.items() if isinstance(v, (int, float))})
+            for key in keys:
+                values = sorted(float(row[key]) for row in self._timing_rows if isinstance(row.get(key), (int, float)))
+                if not values:
+                    continue
+                def percentile(q: float) -> float:
+                    pos = (len(values) - 1) * q
+                    lo = int(pos)
+                    hi = min(lo + 1, len(values) - 1)
+                    return values[lo] + (values[hi] - values[lo]) * (pos - lo)
+                summary[key] = {
+                    "count": len(values),
+                    "mean_ms": round(sum(values) / len(values), 3),
+                    "p50_ms": round(percentile(0.50), 3),
+                    "p95_ms": round(percentile(0.95), 3),
+                }
+            self.meta["timing_summary"] = summary
+            self.meta["timing_step_count"] = len(self._timing_rows)
         self.close_mavlink_stream()
         self._write_metadata()
         self._finish_metadata_writer()
@@ -292,9 +314,16 @@ class EpisodeRecorder:
         outcome: dict[str, Any] | None = None,
         obs_after: dict[str, Any] | None = None,
         labels: dict[str, Any] | None = None,
+        timing: dict[str, Any] | None = None,
     ) -> None:
+        timing_data = dict(timing) if timing is not None else None
+        frame_write_start = time.perf_counter_ns() if timing_data is not None else 0
         before = self._observation(obs_before, "before")
         after = self._observation(obs_after, "after") if obs_after else None
+        if timing_data is not None:
+            timing_data["write_frames"] = round(
+                (time.perf_counter_ns() - frame_write_start) / 1e6, 3
+            )
         action_obj = action.to_dict() if hasattr(action, "to_dict") else action
         row = {
             "step_index": self.index,
@@ -308,8 +337,33 @@ class EpisodeRecorder:
             "obs_after": after,
             "labels": labels or {},
         }
+        if timing_data:
+            # The row must be serialized before the write duration is known;
+            # reserve the compact field in the row and retain the measured value
+            # in the episode summary below.
+            timing_data["write_steps"] = 0.0
+            # Timing is an additive extension to the step contract. Keep it
+            # compact (millisecond floats) and omit it for legacy callers.
+            row["timing"] = timing_data
+            self._timing_rows.append(
+                {k: float(v) for k, v in timing_data.items() if isinstance(v, (int, float))}
+            )
+        serialization_start = time.perf_counter_ns()
+        encoded = json.dumps(row, default=_json_default)
+        if timing_data:
+            timing_data["serialization"] = round(
+                (time.perf_counter_ns() - serialization_start) / 1e6, 3
+            )
+            row["timing"] = timing_data
+            self._timing_rows[-1]["serialization"] = timing_data["serialization"]
+            encoded = json.dumps(row, default=_json_default)
+        write_start = time.perf_counter_ns()
         with self.steps_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, default=_json_default) + "\n")
+            f.write(encoded + "\n")
+        if timing_data:
+            timing_data["write_steps"] = round((time.perf_counter_ns() - write_start) / 1e6, 3)
+            row["timing"] = timing_data
+            self._timing_rows[-1]["write_steps"] = timing_data["write_steps"]
         self.index += 1
         self.meta["step_count"] = self.index
         self._write_metadata()
