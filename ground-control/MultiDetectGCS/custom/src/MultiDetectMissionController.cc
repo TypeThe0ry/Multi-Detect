@@ -6,6 +6,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QRandomGenerator>
 #include <QtCore/QSaveFile>
+#include <QtCore/QtMath>
 #include <algorithm>
 #include <cmath>
 
@@ -376,6 +377,45 @@ bool MultiDetectMissionController::_planDecision(bool approve)
 }
 bool MultiDetectMissionController::approvePlan() { return _planDecision(true); }
 bool MultiDetectMissionController::rejectPlan() { return _planDecision(false); }
+
+QVariantMap MultiDetectMissionController::coordinateForOffset(double northM, double eastM, double originLatitude,
+                                                               double originLongitude) const
+{
+    if (!std::isfinite(northM) || !std::isfinite(eastM) || !std::isfinite(originLatitude) ||
+        !std::isfinite(originLongitude) || std::abs(originLatitude) >= 90.0 || std::abs(originLongitude) > 180.0)
+        return {};
+    constexpr double a = 6378137.0;
+    constexpr double e2 = 0.0066943799901413165;
+    const double latitude = qDegreesToRadians(originLatitude);
+    const double sinLat = std::sin(latitude);
+    const double denominator = std::sqrt(1.0 - e2 * sinLat * sinLat);
+    const double primeVertical = a / denominator;
+    const double meridional = a * (1.0 - e2) / (denominator * denominator * denominator);
+    const double cosine = std::cos(latitude);
+    if (std::abs(cosine) < 1e-10)
+        return {};
+    const double resultLatitude = originLatitude + qRadiansToDegrees(northM / meridional);
+    const double resultLongitude = originLongitude + qRadiansToDegrees(eastM / (primeVertical * cosine));
+    if (std::abs(resultLatitude) > 90.0 || std::abs(resultLongitude) > 180.0)
+        return {};
+    return {{QStringLiteral("latitude"), resultLatitude}, {QStringLiteral("longitude"), resultLongitude}};
+}
+
+bool MultiDetectMissionController::geoProjectionSelfTest()
+{
+    MultiDetectMissionController controller;
+    const auto equator = controller.coordinateForOffset(100.0, 100.0, 0.0, 0.0);
+    const auto highLatitude = controller.coordinateForOffset(100.0, 100.0, 80.0, 0.0);
+    const double latitude = qDegreesToRadians(80.0);
+    const double primeVertical = 6378137.0 / std::sqrt(1.0 - 0.0066943799901413165 * std::sin(latitude) *
+                                                                  std::sin(latitude));
+    const double highEastM = qDegreesToRadians(highLatitude.value(QStringLiteral("longitude")).toDouble()) *
+                             primeVertical * std::cos(latitude);
+    return std::abs(equator.value(QStringLiteral("latitude")).toDouble() - 0.00090437) < 2e-7 &&
+           std::abs(equator.value(QStringLiteral("longitude")).toDouble() - 0.00089832) < 2e-7 &&
+           std::abs(highEastM - 100.0) < 0.02 &&
+           controller.coordinateForOffset(0.0, 0.0, 91.0, 0.0).isEmpty();
+}
 
 bool MultiDetectMissionController::telemetryFresh() const
 {

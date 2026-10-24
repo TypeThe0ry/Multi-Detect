@@ -131,6 +131,7 @@ int main(int argc, char** argv)
     QString error;
     QJsonObject document;
     check(MultiDetectMissionPackage::parse(package, &document, &error), "canonical package accepted");
+    check(MultiDetectMissionController::geoProjectionSelfTest(), "WGS-84 N/E projection including high latitude");
     check(!MultiDetectMissionPackage::parse(package.left(package.size() - 1) + ",\"mission_id\":\"duplicate\"}",
                                             nullptr, &error),
           "duplicate keys rejected");

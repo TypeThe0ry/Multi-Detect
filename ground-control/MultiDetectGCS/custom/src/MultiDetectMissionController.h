@@ -100,6 +100,9 @@ public:
     Q_INVOKABLE bool tightenPolicy(const QString& policy, double timeout);
     Q_INVOKABLE bool approvePlan();
     Q_INVOKABLE bool rejectPlan();
+    Q_INVOKABLE QVariantMap coordinateForOffset(double northM, double eastM, double originLatitude,
+                                                 double originLongitude) const;
+    static bool geoProjectionSelfTest();
 
 signals:
     void packageChanged();
