@@ -51,3 +51,13 @@ canonical 目标被拒绝时慢模型置信度很高（约 0.997–1.000），�
 ## 代码检查与修复状态
 
 只读检查了 episode 报告、logged replay 与 timing 脚本及相关数据。检查中曾怀疑 `replay_onboard_episode.py` 的 mission 路径父目录索引，但按真实目录层级验证后确认索引正确，配置可被找到。没有发现可确认、少于 50 行且能直接修复本次根因的代码缺陷，因此未改代码、未新增测试，也未建立临时 worktree。由于未改代码，不需要运行测试；没有启动 SITL/Docker/llama-server，也没有运行 onboard gate。`artifacts/` junction 全程只读。
+
+## SITL 复验（2026-10-24 晚，代码 25f4902f，含拒绝恢复修复）
+
+| 批次 | 架次 | 数量完全正确 | 误计 | 备注 |
+|---|---:|---:|---:|---|
+| 修复前 hydrant10（9eb5a463） | 10 | 7 | 0 | 3 架漏计（canonical 消防栓被高置信拒绝后未恢复） |
+| 修复后 countfix-hydrant10 | 10 | 9 | 0 | 剩 1 架报告 2/3；步数 97–125，均正常返航 |
+| 修复后 countfix-cones3 | 3 | 1/1 完成架次 | 0 | 另 2 架因主机内存紧张导致 episode wall-clock timeout，未飞完，不计入 |
+
+结果目录：`artifacts/benchmarks/mission-suite-countfix-hydrant10-20261024/`、`artifacts/benchmarks/mission-suite-countfix-cones3-20261024/`。锥桶任务有干扰物，修复后完成架次没有误计，说明拒绝恢复没有放宽对干扰物的拒绝；样本量仍小，下一轮夜间回归继续观察。
