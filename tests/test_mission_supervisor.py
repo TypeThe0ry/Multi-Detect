@@ -133,7 +133,7 @@ def test_envelope_violation_preserves_latched_land_precedence(tmp_path):
     s._escalate("land_now", "existing terminal land")
     assert s.report_envelope_violation("no_fly") == "land_now"
     assert s.evaluate() == "land_now"
-    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    records = [json.loads(line) for line in s.log.path.read_text(encoding="utf-8").splitlines()]
     assert any(record["kind"] == "envelope_violation" for record in records)
 
 
@@ -141,11 +141,11 @@ def test_envelope_violation_events_are_rate_limited(tmp_path):
     s, now, _ = build(tmp_path, "continue")
     s.report_envelope_violation("no_fly")
     s.report_envelope_violation("no_fly")
-    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    records = [json.loads(line) for line in s.log.path.read_text(encoding="utf-8").splitlines()]
     assert sum(record["kind"] == "envelope_violation" for record in records) == 1
     now[0] += 5.0
     s.report_envelope_violation("no_fly")
-    records = [json.loads(line) for line in s.log.path.read_text().splitlines()]
+    records = [json.loads(line) for line in s.log.path.read_text(encoding="utf-8").splitlines()]
     assert sum(record["kind"] == "envelope_violation" for record in records) == 2
 
 
@@ -771,3 +771,17 @@ def test_supervisor_hands_the_executor_a_margin_that_holds_the_flight_home(tmp_p
     now[0] += 86400 - 60
     s.evaluate(pose_ned=(80.0, 0.0, -10.0))
     assert s.executor.energy_margin_s <= 0
+
+
+def test_a_summary_rendering_error_still_writes_the_final_record(tmp_path, monkeypatch):
+    import multidetect.autonomy.mission_supervisor as module
+
+    def broken(*_args, **_kwargs):
+        raise KeyError("plan")
+
+    monkeypatch.setattr(module, "summarize_mission", broken)
+    s, _now, log = build(tmp_path)
+    s.finish("stopped")
+    (summary,) = _summaries(log)
+    assert summary["status"] == "stopped"
+    assert "KeyError" in summary["summary_zh"] and "KeyError" in summary["operator_summary"]["error"]

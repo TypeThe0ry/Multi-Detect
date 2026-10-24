@@ -1033,12 +1033,17 @@ class MissionSupervisor:
                           alerts=list(executor.alerts), final_summary={
                               "status": status,
                               "terminal_action": self._terminal,
-                              "terminal_reason": self.reason if self._terminal is not None else self.reason,
+                              "terminal_reason": self.reason,
                           })
-            operator_summary, summary_zh, summary_en = summarize_mission(
-                report, executor.plan,
-                self.package.document.get("task_text") or executor.plan.goal,
-            )
+            try:
+                operator_summary, summary_zh, summary_en = summarize_mission(
+                    report, executor.plan,
+                    self.package.document.get("task_text") or executor.plan.goal,
+                )
+            except Exception as exc:  # the final record must be written regardless
+                operator_summary = {"error": f"{type(exc).__name__}: {exc}"}
+                summary_zh = f"任务结束（{status}），摘要生成失败：{type(exc).__name__}"
+                summary_en = f"Mission finished ({status}); summary rendering failed: {type(exc).__name__}"
             self.log.finish(
                 self._now,
                 {
