@@ -64,6 +64,8 @@ SLOW 只在任务开始和事件触发时调用，不在每帧运行。FAST 的 
 
 **计划与任务意图一致性检查（2026-10-23）**：`src/multidetect/autonomy/plan_intent.py` 在 `compile_mission_plan` 里、schema/引用/图结构校验之后和任务包检查之前运行，只看任务文本和计划，对任何规划模型都生效（机载 `from_text`、`plan_from_task.py` 评测走同一路径）。动机是 r14/r19 对比中与模型无关的三类错误：r19 把“到大门看一下，然后返航”规划成 `goto → land`；r14 在没提任何物体的任务里加 `inspect(query="truck")`；把地图上没有的地点（Raven Pier、青石码头）换成已知 ref。
 
+**机体能力约束（2026-10-24）**：规划后的同一确定性检查链还会核对技能所需的机体能力。能力的权威来源是机载配置与解析后的 `AirframeProfile`（例如 `payload_drop`、`winch`、`spotlight`、`speaker`、`hover`、`landing_on_target`）；`SKILL_REQUIRED_CAPABILITIES` 集中声明每个技能的要求。任务包中的 `capabilities` 只能与机载集合取交集，不能凭声明放大能力。当前 `deliver` 必须有 `payload_drop`，带目标点的 `land` 必须有 `landing_on_target`，固定翼不具备 `hover` 或定点降落能力。缺失能力会像其它意图违规一样把“缺少能力 X”反馈给规划器重试；最后一次仍违反时拒绝计划并写入 `report.intent_violations`，不会改写成其它动作。规划提示会列出当前有效能力集合。
+
 | 规则 | 判定 | 处理 |
 | --- | --- | --- |
 | `return_intent_land` | 任务含未被否定的返航说法，且没有明确降落说法时，从首步沿 `on_success`/`on_fail` 可达的终止步骤里不能有 `land`（`land(target_ref=home)` 除外）。返航说法：返航/回航/归航/返场/撤回/回家/回来（不含“找回来”等）、“返回/回到/飞回/回 + 6 字内 起飞/起点/出发点/放飞/home/基地”；`return home/to launch/to base`、句末的 `return`、`come/head/fly/bring … back`（后面不接“to 非 home 地点”）、`… home`、`back to/at launch`、RTL/RTH。降落说法：降落/着陆/落地/落下/落在/落起降坪/原地落、`land`（`landing pad` 等名词除外）、`touch down`、`set/put … down`。同一分句里前面有 不/别/勿/无需/取消、not/don't/never/no need to/without 则不算。“起降坪”是地点，不算 home | 重试时把原因写进提示；最后一次尝试把这些 `land` 改成 `return_home` |

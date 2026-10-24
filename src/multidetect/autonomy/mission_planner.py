@@ -19,6 +19,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from multidetect.autonomy.mission_package import check_plan_against_package
+from multidetect.autonomy.capability_contract import capability_violations
 from multidetect.autonomy.mission_plan import SKILLS, MissionPlan, validate_mission_plan
 from multidetect.autonomy.plan_intent import (
     check_plan_intent,
@@ -334,6 +335,7 @@ def plan_prompt_parts(
     error: str | None = None,
     prompt_variant: str = "default",
     capabilities: frozenset[str] = frozenset(),
+    airframe: Any = None,
 ) -> dict[str, str]:
     """Ordered prompt sections, including delimiters; concatenate values to render.
 
@@ -351,6 +353,12 @@ def plan_prompt_parts(
             for p in sorted(spec.allowed_params - _UNADVERTISED_PARAMS)
         )
         lines.append(f"- {name} [{params}]: {SKILL_HELP[name]}")
+    if capabilities:
+        lines.append(
+            "Available aircraft capabilities: " + ", ".join(sorted(capabilities)) + ". "
+            "The mission package may remove capabilities but cannot grant new ones; never emit a "
+            "skill whose required capability is unavailable."
+        )
     lines += [
         "References: home; zone:<name> for areas (zone:all = the whole area); poi:<name> for "
         "places; route:<name>; finding:N = the N-th object found earlier.",
@@ -487,6 +495,7 @@ def compile_mission_plan(
     prompt_variant: str = "default",
     plan_checker: Callable[[MissionPlan], Any] | None = None,
     capabilities: frozenset[str] = frozenset(),
+    airframe: Any = None,
     check_intent: bool = True,
 ) -> tuple[MissionPlan | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason.
@@ -540,7 +549,21 @@ def compile_mission_plan(
                         + ", ".join(sorted(r.split(" ", 1)[0] for r in refs) + ["zone:all", "home"])
                     )
                 notes = notes + ref_notes
+                capability_findings = capability_violations(document, capabilities, airframe=airframe)
+                if capability_findings:
+                    report["intent_violations"] = capability_findings
+                    raise ValueError(
+                        "mission capability violations: "
+                        + "; ".join(item["message"] for item in capability_findings)
+                    )
                 plan = validate_mission_plan(document, capabilities=capabilities)
+                capability_findings = capability_violations(plan, capabilities, airframe=airframe)
+                if capability_findings:
+                    report["intent_violations"] = capability_findings
+                    raise ValueError(
+                        "mission capability violations: "
+                        + "; ".join(item["message"] for item in capability_findings)
+                    )
                 intent_warnings: list[dict[str, Any]] = []
                 if check_intent:
                     findings = check_plan_intent(plan, task_text, refs)
