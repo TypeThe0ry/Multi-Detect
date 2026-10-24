@@ -1030,6 +1030,8 @@ def _scenario_origin(plan: CollectionPlan) -> tuple[float, float, float]:
     scenario_id = str(runtime.get("scenario_id", "urban_inspection_multirotor_001"))
     world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
     if not world_path.is_file():
+        world_path = ROOT / "simulation" / "gazebo" / "worlds" / "variants" / f"{scenario_id}.sdf"
+    if not world_path.is_file():
         return 1.352100, 103.819800, 18.0
     root = ET.fromstring(world_path.read_text(encoding="utf-8"))
     spherical = root.find(".//spherical_coordinates")
@@ -1055,7 +1057,10 @@ def scenario_world_path(runtime_path: str | Path) -> Path | None:
     if not scenario_id:
         return None
     world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
-    return world_path if world_path.is_file() else None
+    if world_path.is_file():
+        return world_path
+    variant_path = ROOT / "simulation" / "gazebo" / "worlds" / "variants" / f"{scenario_id}.sdf"
+    return variant_path if variant_path.is_file() else None
 
 
 def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:

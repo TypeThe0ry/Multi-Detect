@@ -192,6 +192,60 @@ def test_main_dry_run_writes_configs_and_does_not_call_runner(work_tmp, capsys):
     assert '"config"' in output
 
 
+def test_variant_generates_world_before_runner_and_labels_report(work_tmp):
+    mission = _mission(
+        id="count-cones-wind",
+        variant={"wind_mps": 6, "gust_mps": 3, "gust_period": 4},
+    )
+    suite_path = work_tmp / "variant-suite.json"
+    suite_path.write_text(json.dumps({"defaults": {}, "missions": [mission]}), encoding="utf-8")
+    generated = []
+    calls = []
+
+    def fake_generator(command, *, cwd, check):
+        generated.append((command, cwd, check))
+
+    def fake_runner(command, *, cwd, check):
+        calls.append(command)
+        world = command[command.index("--worlds") + 1]
+        report = {"episodes": [{"world": world, "status": "complete"}]}
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "out")],
+        runner=fake_runner,
+        generator_runner=fake_generator,
+    ) == 0
+    assert len(generated) == 1
+    assert "--wind-mps" in generated[0][0] and "--gust-mps" in generated[0][0]
+    assert calls[0][calls[0].index("--worlds") + 1] == "gen_cnt2_w0000__wind6_gust3p4"
+    table = json.loads((work_tmp / "out/suite-report.json").read_text(encoding="utf-8"))
+    assert table["missions"][0]["variant"] == "wind-mps-6+gust-mps-3+gust-period-4"
+
+
+def test_default_mission_does_not_invoke_variant_generator(work_tmp):
+    suite_path = work_tmp / "default-suite.json"
+    _write_suite(suite_path)
+    generated = []
+
+    def fake_generator(*args, **kwargs):
+        generated.append((args, kwargs))
+
+    def fake_runner(command, *, cwd, check):
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps({"episodes": []}), encoding="utf-8"
+        )
+
+    suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "out")],
+        runner=fake_runner,
+        generator_runner=fake_generator,
+    )
+    assert generated == []
+
+
 def _supervised_mission():
     return _mission(
         expect={
