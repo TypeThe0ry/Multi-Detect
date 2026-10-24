@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "mode": "logged",
-  "selection": "16 个短架次：count、patrol、monitor、search/inspect、返航预算、通信中断/超时、任务中止与小目标补看；另含固定翼/VTOL 两机型安全出口样本。当前 replay executor 的计划模型固定为 count->return_home，因此 patrol/monitor/follow/search 样本覆盖其 logged 输入轨迹和安全出口，不代表相应 skill 的任务计划复现。",
+  "selection": "16 个短架次：count、patrol、monitor、search/inspect、返航预算、通信中断/超时、任务中止与小目标补看；另含固定翼/VTOL 两机型安全出口样本。重放按架次记录的 MissionPlan 或 skills 摘要恢复实际任务链。",
   "episodes": [
     {"id":"query-cones-e73ea9f4","path":"artifacts/benchmarks/mission-suite-queryfirst-20261023/count-cones/campaign/gen_cnt2_w0000/episodes/episode-0000-e73ea9f4","sha256":"7ee7a303bc886d03be069b194eb32b752bd588fa1b2f7bb21504205b2b812a0b","reason":"count / 多视角"},
     {"id":"query-cones-a6b18b04","path":"artifacts/benchmarks/mission-suite-queryfirst-20261023/count-cones/campaign/gen_cnt2_w0000/episodes/episode-0000-a6b18b04","sha256":"950f5a71d74ab4751e7625b0236a3bf6bd5d1563b8ff91ab4d23c37ae91ee284","reason":"count / 不同观测轨迹"},
