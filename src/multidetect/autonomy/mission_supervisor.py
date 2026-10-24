@@ -242,6 +242,8 @@ class MissionSupervisor:
         self._pending_retask_approval: tuple[Any, ...] | None = None
         self._retask_lock = threading.RLock()
         self._retask_planning = False
+        self._retask_job: dict[str, Any] | None = None
+        self.planned_model_switch = False
         # An existing mission log means this is a restart.  A missing replay
         # file in that case is evidence loss and must fail closed.
         self._had_prior_log = self.log.path.exists()
@@ -282,24 +284,47 @@ class MissionSupervisor:
     def request_retask(self, candidate, *, mode="replace", planner=None, timeout_s=30.0, requires_approval=False, approval_timeout_s=600.0):
         if mode not in {"append", "replace"}:
             raise ValueError("retask mode must be append or replace")
-        self._record("retask_received", mode=mode)
-        self._retask_planning = True
-        result = {}
+        with self._retask_lock:
+            if self._retask_job is not None or self._retask_planning or self._pending_retask_approval is not None:
+                self._record("retask_rejected", mode=mode, reason="已有改派正在处理")
+                return False
+            self._record("retask_received", mode=mode)
+            self._retask_planning = True
+            self.planned_model_switch = True
+            result: dict[str, Any] = {}
         def work():
             try:
                 result["candidate"] = planner() if planner else candidate
             except Exception as exc:
                 result["error"] = exc
         thread = threading.Thread(target=work, name="mission-retask-planner", daemon=True)
-        thread.start(); thread.join(max(0.001, float(timeout_s)))
+        deadline = time.monotonic() + max(0.001, float(timeout_s))
+        self._retask_job = {"thread": thread, "result": result, "candidate": candidate,
+                            "mode": mode, "deadline": deadline,
+                            "requires_approval": bool(requires_approval or self.requires_approval),
+                            "approval_timeout_s": approval_timeout_s}
+        thread.start()
+        return True
+
+    def _finish_retask_planning(self) -> None:
+        job = self._retask_job
+        if job is None:
+            return
+        thread = job["thread"]
+        if thread.is_alive() and time.monotonic() < job["deadline"]:
+            return
+        self._retask_job = None
         self._retask_planning = False
+        self.planned_model_switch = False
+        mode = job["mode"]
         if thread.is_alive():
             self._record("retask_planning", status="timeout", reason="改派规划超时，保持原计划")
             self._record("retask_rejected", mode=mode, reason="改派规划超时，保持原计划")
-            return False
+            return
+        result = job["result"]
         if "error" in result:
             self._record("retask_rejected", mode=mode, reason=f"改派规划失败：{result['error']}")
-            return False
+            return
         value = result.get("candidate")
         package = getattr(value, "package", value if isinstance(value, MissionPackage) else None)
         plan = getattr(getattr(value, "executor", None), "plan", getattr(value, "plan", None))
@@ -321,7 +346,7 @@ class MissionSupervisor:
             self._record("retask_validated", mode=mode, status="accepted", reason="计划、包络及预算校验通过")
             version = self.plan_version + 1
             digest = plan_digest(package, plan)
-            if requires_approval or getattr(value, "requires_approval", False):
+            if job["requires_approval"] or getattr(value, "requires_approval", False):
                 self._pending_retask_approval = (plan, package, mode, version, digest)
                 self._record("retask_approval", status="awaiting", plan_version=version, plan_sha256=digest)
                 def expire() -> None:
@@ -329,7 +354,7 @@ class MissionSupervisor:
                         if self._pending_retask_approval and self._pending_retask_approval[4] == digest:
                             self._pending_retask_approval = None
                             self._record("retask_rejected", reason="改派审批超时", plan_version=version)
-                timer = threading.Timer(max(0.001, float(approval_timeout_s)), expire)
+                timer = threading.Timer(max(0.001, float(job["approval_timeout_s"])), expire)
                 timer.daemon = True
                 timer.start()
                 return True
@@ -337,10 +362,10 @@ class MissionSupervisor:
             self.plan_version = version
             self.plan_history.append({"version": version, "mode": mode, "plan_sha256": digest})
             self._record("retask_switched", mode=mode, plan_version=version, plan_sha256=digest)
-            return True
+            return
         except Exception as exc:
             self._record("retask_rejected", mode=mode, reason=str(exc))
-            return False
+            return
 
     def __getattr__(self, name):
         return getattr(self.executor, name)
@@ -894,6 +919,7 @@ class MissionSupervisor:
 
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
+        self._finish_retask_planning()
         doc = self.package.document
         silence = self._now - (
             self.last_heartbeat if self.last_heartbeat is not None else self.started

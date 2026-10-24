@@ -1610,6 +1610,9 @@ class OnboardPolicy:
 
             restore_model = None
             if self._model_split:
+                active_supervisor = getattr(self, "supervisor", None)
+                if active_supervisor is not None:
+                    active_supervisor.planned_model_switch = True
                 with self._model_lock:
                     self._model_switching = True
                 self._cancel_slow_restart()
@@ -1688,6 +1691,8 @@ class OnboardPolicy:
                         self._model_runtime["swap_duration_s"] = completed - started
                         self._model_runtime["swap_completed_monotonic_s"] = completed
                         self._model_switching = False
+                        if active_supervisor is not None:
+                            active_supervisor.planned_model_switch = False
             else:
                 plan, report = build_mission_from_text(
                 str(package.document["task_text"]),
@@ -2375,10 +2380,12 @@ class OnboardPolicy:
                 ):
                     supervised_labels["health"] = {}
                 return action, {"onboard": supervised_labels}
+        if getattr(getattr(self, "supervisor", None), "planned_model_switch", False):
+            return ActionPrimitive.hold(1.0), {"onboard": {"state": "planned_model_switch", "detections": 0, "tracks": [], "slow_calls": []}}
         health_monitor = getattr(self, "health", None)
         health_decision = (
             health_monitor.on_frame(mission_requires_images=bool(self.executor is not None))
-            if health_monitor is not None
+            if health_monitor is not None and not getattr(getattr(self, "supervisor", None), "planned_model_switch", False)
             else HealthDecision()
         )
         # A completed recovery must not be reused by a later degradation

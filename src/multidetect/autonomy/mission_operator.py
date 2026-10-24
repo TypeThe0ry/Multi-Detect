@@ -719,7 +719,11 @@ class MissionOperatorAdapter:
         ):
             raise ValueError("机载加载器未安装对应任务监督器")
         if self.supervisor is not None and not self._preflight():
-            if not self.supervisor.request_retask(supervisor, mode="replace"):
+            if not self.supervisor.request_retask(
+                supervisor,
+                mode="replace",
+                requires_approval=bool(self.requires_approval),
+            ):
                 raise ValueError("改派被机载拒绝")
             return
         supervisor.package.validate_plan(supervisor.executor.plan)
