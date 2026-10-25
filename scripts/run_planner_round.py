@@ -120,7 +120,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     export = [py, str(ROOT / "scripts/export_slow_system_r15.py"), "--base", str(BASE_CACHE), "--adapter", str(adapter / "adapter"), "--output", str(out), "--quantization", "Q5_K_M", "--drop-intermediates"]
     eval_cmds = []
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
-        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8"])
+        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
+                          # Planner rows count semantic plan errors as invalid; those are
+                          # model quality (scored by the replacement gate), not a broken
+                          # server, which --max-transport-rate still guards.
+                          "--min-valid-rate", "0.95"])
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
