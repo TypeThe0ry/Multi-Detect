@@ -14,6 +14,25 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _fixed_wing_ground_distance_band(
+    *, altitude_m: float, camera_pitch_rad: float, fy_px: float, cy_px: float,
+    orbit_radius_m: float,
+) -> tuple[float, float]:
+    """Return the ground-distance interval covered by a fixed-wing camera.
+
+    The lower edge is the intersection of the down-looking camera's lower
+    vertical ray with the ground.  Cessna's upper ray points above the
+    horizon, so the useful upper bound is the loiter-ring radius.
+    """
+    half_vfov = math.atan2(cy_px, fy_px)
+    down_angle = abs(camera_pitch_rad) + half_vfov
+    near = altitude_m / math.tan(down_angle)
+    upper_angle = abs(camera_pitch_rad) - half_vfov
+    far = altitude_m / math.tan(upper_angle) if upper_angle > 1e-6 else orbit_radius_m
+    far = min(float(orbit_radius_m), far)
+    return max(0.0, near), max(near, far)
+
+
 def _resolve_inputs(episode: dict[str, Any], episode_dir: Path, intent_path, truth_path):
     command = episode.get("provenance", {}).get("command", [])
     scenario_path = None
@@ -44,7 +63,8 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
     intent, truth = _resolve_inputs(episode, episode_dir, intent_path, truth_path)
     observation = intent.get("observation", intent.get("task_intent", {}).get("observation", {}))
     expected_altitude = float(observation["camera_altitude_m"])
-    views = observation.get("views") or [{"view": "default", "observation_waypoint": observation["observation_waypoint"]}]
+    declared_views = observation.get("views")
+    views = declared_views or [{"view": "default", "observation_waypoint": observation["observation_waypoint"]}]
     target_id = truth.get("true_target_id") or truth.get("target_id")
     target = next(
         (row for row in truth.get("targets", []) if row.get("target_id") == target_id or row.get("true_target")),
@@ -60,18 +80,18 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
         )
         for index, view in enumerate(views)
     }
-    if intent.get("airframe") == "rc_cessna_runway" or observation.get("orbit_radius_m"):
-        orbit_distance = float(observation.get("ground_distance_m", 55.0))
-        designed_distances = {name: orbit_distance for name in designed_distances}
+    fixed_wing = intent.get("airframe") == "rc_cessna_runway" or bool(observation.get("orbit_radius_m"))
     steps_path = episode_dir / "steps.jsonl"
     steps = [json.loads(line) for line in steps_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     valid = []
+    camera_info = None
     for step in steps:
         labels = step.get("labels") or {}
         pose = (step.get("obs_before") or {}).get("pose") or {}
         rgb_path = (step.get("obs_before") or {}).get("rgb_path")
         if not pose.get("alt_m") or not rgb_path:
             continue
+        camera_info = camera_info or (step.get("obs_before") or {}).get("camera_info")
         frame_path = (episode_dir / rgb_path).resolve()
         if not frame_path.is_file() or not labels.get("target_in_fov"):
             continue
@@ -85,6 +105,21 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
             "phase": labels.get("phase"),
             "view_index": labels.get("observation_view_index"),
         })
+    if fixed_wing:
+        info = camera_info or {}
+        fy_px = float(info.get("fy", 539.93636802453))
+        cy_px = float(info.get("cy", 480.0))
+        orbit_radius = float(observation.get("orbit_radius_m", 80.0))
+        band = _fixed_wing_ground_distance_band(
+            altitude_m=expected_altitude,
+            camera_pitch_rad=float(observation.get("camera_pitch_rad", 0.0)),
+            fy_px=fy_px,
+            cy_px=cy_px,
+            orbit_radius_m=orbit_radius,
+        )
+    else:
+        band = None
+
     # Re-check each intended view independently so one well-sampled view cannot
     # hide a missing or geometrically wrong recovery/truncation view.
     view_reports = {}
@@ -92,9 +127,12 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
         rows = [
             row for row in valid
             if row["phase"] == "observe"
-            and (row["view_index"] is None or row["view_index"] == view_index)
+            and (not declared_views or row["view_index"] is None or row["view_index"] == view_index)
         ]
-        in_range = [row for row in rows if designed_distance > 0 and abs(row["ground_distance_m"] / designed_distance - 1.0) <= 0.25]
+        if fixed_wing:
+            in_range = [row for row in rows if band[0] <= row["ground_distance_m"] <= band[1]]
+        else:
+            in_range = [row for row in rows if designed_distance > 0 and abs(row["ground_distance_m"] / designed_distance - 1.0) <= 0.25]
         view_reports[view_name] = {
             "designed_ground_distance_m": designed_distance,
             "observed_frame_count": len(in_range),
@@ -104,9 +142,15 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
     mean_altitude = sum(row["altitude_m"] for row in valid) / len(valid) if valid else None
     mean_distance = sum(row["ground_distance_m"] for row in valid) / len(valid) if valid else None
     distance_ok = all(report["observed_frame_count"] >= int(minimum_frames) for report in view_reports.values())
+    fixed_wing_count = sum(1 for row in valid if row["phase"] == "observe" and band[0] <= row["ground_distance_m"] <= band[1]) if fixed_wing else None
+    fixed_wing_total = sum(1 for row in valid if row["phase"] == "observe") if fixed_wing else None
+    fixed_wing_ratio = (fixed_wing_count / fixed_wing_total) if fixed_wing_total else None
+    fixed_wing_ratio_threshold = 0.75
+    if fixed_wing:
+        distance_ok = bool(fixed_wing_ratio is not None and fixed_wing_ratio >= fixed_wing_ratio_threshold)
     altitude_ok = bool(mean_altitude is not None and abs(mean_altitude - expected_altitude) <= 3.0)
     frames_ok = all(report["observed_frame_count"] >= int(minimum_frames) for report in view_reports.values())
-    return {
+    result = {
         "episode_id": episode.get("episode_id"),
         "status": episode.get("status"),
         "expected_altitude_m": expected_altitude,
@@ -120,11 +164,18 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
             "complete": episode.get("status") == "complete",
             "observation_frames": frames_ok,
             "altitude_within_3m": altitude_ok,
-            "ground_distance_within_25pct": distance_ok,
+            "ground_distance_within_25pct": distance_ok if not fixed_wing else None,
+            "ground_distance_in_fixed_wing_band": distance_ok if fixed_wing else None,
         },
         "passed": episode.get("status") == "complete" and frames_ok and altitude_ok and distance_ok,
         "observations": valid,
     }
+    if fixed_wing:
+        result["fixed_wing_ground_distance_band_m"] = list(band)
+        result["fixed_wing_distance_in_band_count"] = fixed_wing_count
+        result["fixed_wing_distance_in_band_ratio"] = fixed_wing_ratio
+        result["fixed_wing_distance_ratio_threshold"] = fixed_wing_ratio_threshold
+    return result
 
 
 def main(argv=None) -> int:
