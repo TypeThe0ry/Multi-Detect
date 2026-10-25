@@ -215,3 +215,12 @@ python scripts/run_mission_suite.py \
   --only rc-cessna-w0016-ambulance-known-limit rc-cessna-w0031-ambulance-negative \
   --episodes 1 --min-free-disk-gb 8 --strict
 ```
+
+## SITL 复验：盘旋建立判定 + 相机覆盖搜索（2026-10-25 06:26，代码 d99d0050）
+
+| 任务 | 步数 | 结果 |
+|---|---:|---|
+| rc-cessna-w0016-ambulance-known-limit | 15 | 确认救护车，位置误差 1.17 m，返航距离 168 m，安全通过；skills/confirmed/min_safety_pass 全过 |
+| rc-cessna-w0031-ambulance-negative | 5 | 小区域覆盖完成、未误报目标，返航距离 106 m，安全通过；三项期望全过 |
+
+三次修复的对照：8292649b 只有 w0016 通过；c3985f94（80+5 m 捕获圈）两架都未覆盖、返航距离超限；d99d0050 两架全过。结果目录：`artifacts/benchmarks/airframe-suite-20261025-fw-coverage/`。
