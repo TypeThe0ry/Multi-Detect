@@ -126,12 +126,15 @@ def test_fixed_wing_observation_orbits_center_and_counts_only_fov_frames() -> No
         observation_waypoints=((0.0, 0.0, -30.0),),
         fixed_wing_orbit_radius_m=80.0,
     )
-    pose = (0.0, 0.0, -30.0)
+    pose = (-20.0, -20.0, -5.0)
     outside = policy.next_action(pose_ned=pose, yaw_deg=0.0)
     assert isinstance(outside, MotionCommand)
     assert outside.kind == "orbit"
     assert outside.target_ned == (0.0, 0.0, -30.0)
     assert policy._observation_count == 0
+    # The first command itself establishes the orbit and its 30 m altitude;
+    # there is no point-to-point or vertical translate phase for a fixed wing.
+    pose = (0.0, 0.0, -30.0)
     for expected in (1, 2, 3):
         action = policy.next_action(pose_ned=pose, yaw_deg=90.0)
         if expected < 3:

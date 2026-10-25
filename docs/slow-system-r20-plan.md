@@ -91,12 +91,20 @@ $env:PYTHONUTF8='1'
 ## SITL 架次几何与离线验收
 
 固定翼 `gen_r20_w0006..w0010` 使用 30 m 观察高度和 80 m PX4 loiter/orbit
-半径；`reposition` 只负责把盘旋中心送到目标侧的观察航点，随后 orbit 在目标中心
-持续采帧。每个位姿至少 8 个 `target_in_fov` 帧，目标地面距离按 55 m 盘旋设计档位
+半径；固定翼专家直接发送以该观察航点为中心的 orbit 命令，不经过多旋翼式逐点
+translate。PX4 建立盘旋后在目标进入前视 FOV 时采帧，持续保持 30 m 意图高度。每个位姿至少 8 个 `target_in_fov` 帧，目标地面距离按 80 m 盘旋设计档位
 验收（±25%），高度按意图值 ±3 m 验收。多旋翼仍按各 sidecar waypoint 的 8 帧、
 高度和地面距离档位验收。
 
 一个 `expert_search` 架次按 sidecar 的 `observation.camera_altitude_m` 和 `observation_waypoint` 飞到观察点；目标 ground distance 是 waypoint 到 truth 真目标的水平距离。观察俯仰由 intent 指定；无云台时采集器用等效机身/高度与距离几何实现。每个观察位至少留下 8 帧有效目标观察，不能因起飞点首次检测到目标而结束。多旋翼到位观察时高度须在意图值 ±3 m，水平目标距离须在设计档位 ±25%。固定翼验收按其 teacher 意图检查同样的有效观察帧、几何和完成状态。
+
+固定翼单架次冒烟命令（串行、需外部 SITL 锁）：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/collect_sim_teacher_episodes.py --scenario configs/scenarios/generated-r20/gen_r20_w0006.scenario.json --teacher expert_search --airframe rc_cessna_runway --takeoff-method runway --episodes 1 --steps-per-episode 120 --out D:/Projects/Multi-Detect/artifacts/smoke/r20-fixed-wing
+python scripts/check_sim_teacher_smoke.py D:/Projects/Multi-Detect/artifacts/smoke/r20-fixed-wing/episodes/<episode> --intent configs/scenarios/generated-r20/gen_r20_w0006.teacher_intent.json --truth configs/scenarios/generated-r20/gen_r20_w0006.truth.json --minimum-frames 8
+```
 
 离线验收（对已存在的 episode 目录运行，不启动仿真）：
 

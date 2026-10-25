@@ -852,9 +852,21 @@ class ExpertSearchPolicy:
         self._last_inside = inside
         if self.observation_frames > 0 and self.observation_waypoints:
             waypoint = self.observation_waypoints[self._observation_index]
+            # A fixed-wing cannot stop at a waypoint.  Sending a multirotor
+            # translate first makes PX4 enter a loiter around an intermediate
+            # point, with altitude and FOV drifting before observation starts.
+            # Establish the intended orbit immediately; its centre and altitude
+            # are the teacher geometry and the executor handles PX4 capture.
+            if self.fixed_wing_orbit_radius_m is not None and not self._observation_orbit_active:
+                from multidetect.autonomy.motion_intent import MotionCommand
+                self._observation_orbit_active = True
+                return MotionCommand(
+                    "orbit", target_ned=waypoint, radius_m=self.fixed_wing_orbit_radius_m,
+                    duration_s=self.hold_seconds, speed_mps=15.0,
+                )
             altitude = max(0.0, -float(pose_ned[2]))
             desired_altitude = max(0.0, -float(waypoint[2])) or self.altitude_m
-            if abs(altitude - desired_altitude) > 1.0:
+            if self.fixed_wing_orbit_radius_m is None and abs(altitude - desired_altitude) > 1.0:
                 return ActionPrimitive.translate(
                     0.0, 0.0, math.copysign(min(self.max_altitude_step_m, abs(desired_altitude - altitude)), desired_altitude - altitude)
                 )
@@ -897,7 +909,6 @@ class ExpertSearchPolicy:
                     return ActionPrimitive.stop()
             if self.fixed_wing_orbit_radius_m is not None:
                 from multidetect.autonomy.motion_intent import MotionCommand
-                self._observation_orbit_active = True
                 return MotionCommand(
                     "orbit", target_ned=waypoint, radius_m=self.fixed_wing_orbit_radius_m,
                     duration_s=self.hold_seconds, speed_mps=15.0,
