@@ -668,6 +668,11 @@ class AirframeMotionAdapter:
             "reposition",
             target_ned=(pose[0] + north, pose[1] + east, pose[2] + down),
             yaw_deg=float(yaw_deg),
+            # PX4 fixed-wing reposition enters AUTO_LOITER around the target;
+            # NAV_LOITER_RAD is 80 m in the deployed Cessna setup.  Carry that
+            # capture radius so the executor can use loiter semantics instead
+            # of requiring a hovering point arrival.
+            radius_m=max(self.profile.orbit_radius(), 80.0),
             speed_mps=self.profile.cruise_airspeed_mps,
             mode=self.mode,
             metadata=metadata or {},

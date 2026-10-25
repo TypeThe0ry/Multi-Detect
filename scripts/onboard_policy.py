@@ -708,6 +708,10 @@ class OnboardPolicy:
                 ),
                 turn_radius_m=profile.min_turn_radius_m or profile.orbit_radius(),
                 max_leg_m=profile.limits.max_step_distance_m,
+                camera_pitch_rad=fw_mount_pitch,
+                max_search_calls=100,
+                return_reserve_calls=40,
+                coverage_enabled=True,
             )
 
         def build_search(text: str) -> None:

@@ -249,3 +249,20 @@ def test_fixed_wing_search_advances_a_stalled_capture() -> None:
             yaw_deg=0.0,
         )
     assert search._index == 1
+
+
+def test_fixed_wing_coverage_search_tracks_cells_and_reserves_return_budget() -> None:
+    search = FixedWingSearch(
+        home_ned=(0.0, 0.0, 0.0), radius_m=55.0,
+        footprint_width_m=100.0, turn_radius_m=21.2, max_leg_m=30.0,
+        camera_pitch_rad=math.radians(45), coverage_enabled=True,
+        max_search_calls=3, return_reserve_calls=40, coverage_threshold=0.99,
+        min_coverage_calls=2,
+    )
+    for _ in range(2):
+        action = search.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+        assert action.kind == "translate"
+    final = search.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert final.kind == "stop"
+    assert search.search_outcome == "budget_reserve"
+    assert 0.0 < search.coverage_fraction < 0.99

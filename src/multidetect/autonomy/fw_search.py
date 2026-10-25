@@ -51,6 +51,13 @@ class FixedWingSearch:
         progress_m: float = 5.0,
         circling_calls: int = 3,
         stalled_calls: int = 6,
+        grid_cell_m: float = 15.0,
+        coverage_threshold: float = 0.85,
+        max_search_calls: int = 80,
+        return_reserve_calls: int = 35,
+        min_coverage_calls: int = 2,
+        camera_pitch_rad: float = math.radians(10.0),
+        coverage_enabled: bool = False,
     ) -> None:
         if max_leg_m <= 0 or radius_m <= 0:
             raise ValueError("search radius and leg length must be positive")
@@ -97,8 +104,77 @@ class FixedWingSearch:
         self._circling = 0
         self._stalled = 0
         self.footprint_width_m = width
+        self.grid_cell_m = max(1.0, float(grid_cell_m))
+        self.coverage_threshold = min(1.0, max(0.0, float(coverage_threshold)))
+        self.max_search_calls = max(1, int(max_search_calls))
+        self.return_reserve_calls = max(1, int(return_reserve_calls))
+        self.min_coverage_calls = max(1, int(min_coverage_calls))
+        self.camera_pitch_rad = max(math.radians(10.0), float(camera_pitch_rad))
+        self.coverage_enabled = bool(coverage_enabled)
+        self._bounds = (north - radius_m, north + radius_m, east - radius_m, east + radius_m)
+        self._grid = self._make_grid()
+        self._last_pose: tuple[float, float] | None = None
+        self.search_calls = 0
+        self.search_outcome: str | None = None
         self.passes = 0
         self._index = 0
+
+    def _make_grid(self) -> dict[tuple[int, int], bool]:
+        n0, n1, e0, e1 = self._bounds
+        cells = {}
+        for ni in range(math.ceil((n1 - n0) / self.grid_cell_m)):
+            for ei in range(math.ceil((e1 - e0) / self.grid_cell_m)):
+                cells[(ni, ei)] = False
+        return cells
+
+    @property
+    def coverage_fraction(self) -> float:
+        return sum(self._grid.values()) / max(1, len(self._grid))
+
+    def _record_camera_coverage(self, pose: Sequence[float], yaw_deg: float) -> None:
+        north, east = float(pose[0]), float(pose[1])
+        altitude = max(1.0, -float(pose[2]))
+        look_down = self.camera_pitch_rad
+        along = altitude / math.tan(look_down)
+        heading = math.radians(float(yaw_deg))
+        # The forward camera footprint spans from the near ground intersection
+        # through the far intersection.  Its conservative cell test is centered
+        # on the aircraft with a radius covering that whole projected interval.
+        centre = (north, east)
+        half_width = self.footprint_width_m * 0.5
+        radius = math.hypot(max(half_width, along), self.grid_cell_m * 0.75)
+        n0, _, e0, _ = self._bounds
+        for cell in self._grid:
+            cn = n0 + (cell[0] + 0.5) * self.grid_cell_m
+            ce = e0 + (cell[1] + 0.5) * self.grid_cell_m
+            if math.dist((cn, ce), centre) <= radius:
+                self._grid[cell] = True
+        if self._last_pose is not None:
+            # A short observed interval sweeps the forward footprint along track.
+            start, end = self._last_pose, (north, east)
+            length = math.dist(start, end)
+            samples = max(1, math.ceil(length / (self.grid_cell_m * 0.5)))
+            for index in range(1, samples):
+                t = index / samples
+                sample = (start[0] + t * (end[0] - start[0]), start[1] + t * (end[1] - start[1]))
+                shifted = (sample[0] + along * math.cos(heading), sample[1] + along * math.sin(heading))
+                for cell in self._grid:
+                    cn = n0 + (cell[0] + 0.5) * self.grid_cell_m
+                    ce = e0 + (cell[1] + 0.5) * self.grid_cell_m
+                    if math.dist((cn, ce), shifted) <= radius:
+                        self._grid[cell] = True
+        self._last_pose = (north, east)
+
+    def _next_uncovered(self) -> tuple[float, float] | None:
+        n0, _, e0, _ = self._bounds
+        cells = [cell for cell, covered in self._grid.items() if not covered]
+        if not cells:
+            return None
+        cell = min(cells, key=lambda item: math.hypot(
+            n0 + (item[0] + 0.5) * self.grid_cell_m - (self._last_pose or (0.0, 0.0))[0],
+            e0 + (item[1] + 0.5) * self.grid_cell_m - (self._last_pose or (0.0, 0.0))[1],
+        ))
+        return (n0 + (cell[0] + 0.5) * self.grid_cell_m, e0 + (cell[1] + 0.5) * self.grid_cell_m)
 
     def _reached(self, north: float, east: float, yaw_deg: float) -> bool:
         wn, we = self.waypoints[self._index]
@@ -130,6 +206,33 @@ class FixedWingSearch:
 
     def next_action(self, *, pose_ned: Sequence[float], yaw_deg: float = 0.0) -> ActionPrimitive:
         north, east = float(pose_ned[0]), float(pose_ned[1])
+        if self.coverage_enabled:
+            self._record_camera_coverage(pose_ned, yaw_deg)
+            self.search_calls += 1
+            if (
+                self.search_calls >= self.min_coverage_calls
+                and self.coverage_fraction >= self.coverage_threshold
+            ):
+                self.search_outcome = "coverage_complete"
+                return ActionPrimitive.stop()
+            if self.search_calls >= self.max_search_calls:
+                self.search_outcome = "budget_reserve"
+                return ActionPrimitive.stop()
+            target = self._next_uncovered()
+        else:
+            target = None
+        if target is not None:
+            dn, de = target[0] - north, target[1] - east
+            distance = math.hypot(dn, de)
+            if distance > self.max_leg_m:
+                scale = 0.95 * self.max_leg_m / distance
+                dn, de = dn * scale, de * scale
+            yaw = math.radians(float(yaw_deg))
+            return ActionPrimitive.translate(
+                dn * math.cos(yaw) + de * math.sin(yaw),
+                -dn * math.sin(yaw) + de * math.cos(yaw),
+                0.0,
+            )
         for _ in range(len(self.waypoints)):
             if not self._reached(north, east, yaw_deg):
                 break
