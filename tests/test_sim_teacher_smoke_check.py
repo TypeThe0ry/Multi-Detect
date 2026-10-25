@@ -32,3 +32,45 @@ def test_smoke_checker_enforces_frames_altitude_and_ground_range(tmp_path):
     assert report["passed"]
     assert report["observed_frame_count"] == 4
     assert report["observed_ground_distance_mean_m"] == 20
+
+
+def test_fixed_wing_aggregate_view_and_camera_distance_band(tmp_path):
+    episode_dir = tmp_path / "episode"
+    episode_dir.mkdir()
+    (episode_dir / "rgb").mkdir()
+    (episode_dir / "rgb/frame.png").write_bytes(b"png")
+    intent = tmp_path / "intent.json"
+    intent.write_text(json.dumps({
+        "airframe": "rc_cessna_runway",
+        "observation": {
+            "camera_altitude_m": 30,
+            "camera_pitch_rad": -0.18,
+            "ground_distance_m": 80,
+            "orbit_radius_m": 80,
+            "observation_waypoint": {"x_east_m": 0, "y_north_m": 0, "z_up_m": 0},
+        },
+    }), encoding="utf-8")
+    truth = tmp_path / "truth.json"
+    truth.write_text(json.dumps({"targets": [{
+        "target_id": "target", "true_target": True,
+        "pose": {"x_east_m": 0, "y_north_m": 0, "z_up_m": 0},
+    }]}), encoding="utf-8")
+    (episode_dir / "episode.json").write_text(json.dumps({"episode_id": "fw", "status": "complete"}), encoding="utf-8")
+    rows = []
+    for i in range(8):
+        rows.append({
+            "step_index": i,
+            "labels": {"phase": "observe", "target_in_fov": True, "observation_view_index": 0},
+            "obs_before": {
+                "camera_info": {"fy": 539.936, "cy": 480.0},
+                "pose": {"alt_m": 30.0, "local_ned_m": [0, 40 + i, 0]},
+                "rgb_path": "rgb/frame.png",
+            },
+        })
+    (episode_dir / "steps.jsonl").write_text("\n".join(json.dumps(x) for x in rows), encoding="utf-8")
+    report = evaluate_episode(episode_dir, intent_path=intent, truth_path=truth, minimum_frames=8)
+    assert report["passed"]
+    assert report["views"]["default"]["observed_frame_count"] == 8
+    assert report["fixed_wing_distance_in_band_count"] == 8
+    assert report["fixed_wing_distance_in_band_ratio"] == 1.0
+    assert report["checks"]["ground_distance_within_25pct"] is None

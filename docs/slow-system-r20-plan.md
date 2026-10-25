@@ -92,11 +92,15 @@ $env:PYTHONUTF8='1'
 
 固定翼 `gen_r20_w0006..w0010` 使用 30 m 观察高度和 80 m PX4 loiter/orbit
 半径；固定翼专家直接发送以该观察航点为中心的 orbit 命令，不经过多旋翼式逐点
-translate。PX4 建立盘旋后在目标进入前视 FOV 时采帧，持续保持 30 m 意图高度。每个位姿至少 8 个 `target_in_fov` 帧，目标地面距离按 80 m 盘旋设计档位
-验收（±25%），高度按意图值 ±3 m 验收。多旋翼仍按各 sidecar waypoint 的 8 帧、
-高度和地面距离档位验收。
+translate。PX4 建立盘旋后在目标进入前视 FOV 时采帧，持续保持 30 m 意图高度。每个位姿至少 8 个 `target_in_fov` 帧，高度按意图值 ±3 m 验收。
+固定翼不把 80 m 盘旋半径当作每一帧的目标距离：Cessna 相机前视并下俯
+`p=abs(camera_pitch_rad)`，垂直半视场角为 `v=atan2(cy, fy)`，因此画面下缘的地面交点为
+`d_near=H/tan(p+v)`。本配置 `H=30 m`、`fy=539.936`、`cy=480`，得
+`d_near≈23.5 m`；上缘高于地平线，故远端由 80 m loiter 环约束，验收带为
+`[23.5, 80] m`。观察帧落入该带的比例须 `≥0.75`。多旋翼仍按各 sidecar
+waypoint 的 8 帧、意图高度和设计地面距离 ±25% 验收。
 
-一个 `expert_search` 架次按 sidecar 的 `observation.camera_altitude_m` 和 `observation_waypoint` 飞到观察点；目标 ground distance 是 waypoint 到 truth 真目标的水平距离。观察俯仰由 intent 指定；无云台时采集器用等效机身/高度与距离几何实现。每个观察位至少留下 8 帧有效目标观察，不能因起飞点首次检测到目标而结束。多旋翼到位观察时高度须在意图值 ±3 m，水平目标距离须在设计档位 ±25%。固定翼验收按其 teacher 意图检查同样的有效观察帧、几何和完成状态。
+一个 `expert_search` 架次按 sidecar 的 `observation.camera_altitude_m` 和 `observation_waypoint` 飞到观察点；目标 ground distance 是 waypoint 到 truth 真目标的水平距离。观察俯仰由 intent 指定；无云台时采集器用等效机身/高度与距离几何实现。每个观察位至少留下 8 帧有效目标观察，不能因起飞点首次检测到目标而结束。多旋翼到位观察时高度须在意图值 ±3 m，水平目标距离须在设计档位 ±25%。固定翼验收按上述相机视锥带检查有效观察帧、几何和完成状态；盘旋建立期间的 `search` 步骤是保持 orbit 等待前视 FOV 扫过目标，不是多旋翼式乱飞。
 
 固定翼单架次冒烟命令（串行、需外部 SITL 锁）：
 
