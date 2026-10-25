@@ -213,7 +213,7 @@ class GPULock:
         self.path.unlink()
 
 
-def check_gpu(*, force: bool = False, heavy_mib: int = 512, runner=None) -> None:
+def check_gpu(*, force: bool = False, heavy_mib: int = 512, idle_device_mib: int = 1536, runner=None) -> None:
     if force:
         return
     runner = runner or subprocess.run
@@ -228,14 +228,35 @@ def check_gpu(*, force: bool = False, heavy_mib: int = 512, runner=None) -> None
             text=True,
             check=True,
         )
-        heavy = []
+        heavy, unknown = [], []
         for line in result.stdout.splitlines():
             if not line.strip():
                 continue
             pid, name, memory = [part.strip() for part in line.split(",", 2)]
-            # WDDM may report N/A: unknown compute consumers are unsafe too.
-            if not memory.isdigit() or int(memory) >= heavy_mib:
+            if not memory.isdigit():
+                unknown.append(f"pid={pid} {name} ({memory} MiB)")
+            elif int(memory) >= heavy_mib:
                 heavy.append(f"pid={pid} {name} ({memory} MiB)")
+        if unknown:
+            # Windows WDDM reports N/A per process for every desktop app that
+            # touches the GPU (explorer, terminals, browsers).  Those are only
+            # unsafe if the device as a whole is busy, so fall back to the
+            # device-wide figure; if that cannot be read, stay conservative.
+            device_used = None
+            try:
+                device = runner(
+                    ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                values = [line.strip() for line in device.stdout.splitlines() if line.strip()]
+                if values and all(value.isdigit() for value in values):
+                    device_used = max(int(value) for value in values)
+            except (OSError, subprocess.SubprocessError):
+                device_used = None
+            if device_used is None or device_used >= idle_device_mib:
+                heavy.extend(unknown)
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         raise RuntimeError(
             f"Cannot verify GPU availability: {exc}; --force overrides GPU inspection only"

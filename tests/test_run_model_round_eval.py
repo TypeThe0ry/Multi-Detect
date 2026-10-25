@@ -382,3 +382,19 @@ def test_local_output_accepts_a_nested_junction_below_artifacts(tmp_path, monkey
     assert round_eval.local_output(target) == (shared / "r21-planner-round" / "candidate").resolve()
     with pytest.raises(ValueError, match="inside this worktree"):
         round_eval.local_output(tmp_path / "elsewhere")
+
+
+def test_gpu_guard_uses_device_memory_when_wddm_hides_per_process_usage():
+    apps = "21684, C:\\Windows\\explorer.exe, [N/A]\n22064, WindowsTerminal.exe, [N/A]\n"
+
+    def runner_for(device_mib):
+        def runner(command, **kwargs):
+            if "--query-gpu=memory.used" in command:
+                return SimpleNamespace(stdout=f"{device_mib}\n")
+            return SimpleNamespace(stdout=apps)
+        return runner
+
+    # An idle desktop (702 MiB in the r21 round) is not a heavy consumer.
+    guard.check_gpu(runner=runner_for(702))
+    with pytest.raises(RuntimeError, match="Other heavy GPU processes"):
+        guard.check_gpu(runner=runner_for(5200))
