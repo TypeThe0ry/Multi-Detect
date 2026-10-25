@@ -129,7 +129,7 @@ def test_fixed_wing_intent_uses_camera_altitude_and_observation_route(tmp_path: 
     assert policy.altitude_m == 75.0
     assert policy.observation_waypoints == ((0.0, 0.0, -75.0),)
     action = policy.next_action(pose_ned=(0.0, 0.0, 0.0), yaw_deg=0.0)
-    assert action.kind == "translate" and action.up_m > 0
+    assert action.kind == "orbit"
 
 
 def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_path: Path):
