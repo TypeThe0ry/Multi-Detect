@@ -354,6 +354,43 @@ def _row(
     return row
 
 
+def _sample_content_key(row: dict) -> str:
+    """Return the model-visible identity used by ``_row``'s sample id."""
+    return json.dumps(
+        [row["world"], row["image_path"], row["task_text"], row["candidates"], row["assistant_target"]],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _dedupe_rows(rows: list[dict], stats: Counter) -> list[dict]:
+    """Drop exact duplicate model inputs and retain an auditable source count."""
+    kept: list[dict] = []
+    seen: dict[str, dict] = {}
+    for row in rows:
+        key = _sample_content_key(row)
+        previous = seen.get(key)
+        if previous is None:
+            seen[key] = row
+            kept.append(row)
+            continue
+        stats["duplicate_rows"] += 1
+        stats[f"duplicate_rows:{previous.get('label_type', 'unknown')}->{row.get('label_type', 'unknown')}"] += 1
+    return kept
+
+
+def _append_generated_row(groups, kind: str, row: dict, stats: Counter) -> None:
+    """Append a generated row unless this exact model input already exists."""
+    key = _sample_content_key(row)
+    for existing_rows in groups.values():
+        for existing in existing_rows:
+            if _sample_content_key(existing) == key:
+                stats["duplicate_rows"] += 1
+                stats[f"duplicate_rows:{existing.get('label_type', 'unknown')}->{row.get('label_type', 'unknown')}"] += 1
+                return
+    groups[kind].append(row)
+
+
 def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], source_hashes: dict[str, str], *, seed: int, min_visible_fraction: float = 0.3, world_metadata: dict[str, dict] | None = None, truth_dirs: tuple[Path, ...] = ()):
     seen: dict[str, list[int]] = defaultdict(list)
     stats = Counter()
@@ -559,12 +596,13 @@ def _proposal_counterfactual_negative(
     box = proposals[j]
     shown = [box] + [other for k, other in enumerate(proposals) if k != j][:3]
     stats["proposal_counterfactual_negative"] += 1
-    groups["reject_track"].append(_row(
+    row = _row(
         world=world, split=split, frame=frame, task_text=task, box=box, size=size,
         target=_decision("reject_track", track="track-1", reason=_fuel_reject_reason(record, named_obj["record"], task)),
         kind="reject_track", campaign=campaign, label_type="proposal_counterfactual_negative",
         candidate_boxes=shown, focus_index=0, task_category=_target_category(named_obj["record"]),
-    ))
+    )
+    _append_generated_row(groups, "reject_track", row, stats)
 
 
 def _proposal_rows(
@@ -852,7 +890,7 @@ def build_dataset(
         remaining_clarify = [row for row in groups["ask_clarify"] if row not in clarify_representatives]
         extras_clarify = (clarify_representatives + remaining_clarify)[:max(clarify_limit, len(clarify_representatives))]
         extras = extras_search + extras_clarify
-        rows = positive + negative + extras
+        rows = _dedupe_rows(positive + negative + extras, stats)
         rows.sort(key=lambda r: r["sample_id"])
         if split == "train" and balance_task_categories is not None:
             rows, train_category_report = balance_task_categories_fn(
@@ -865,6 +903,7 @@ def build_dataset(
             raise ValueError(f"No samples for {split}")
     seen = set()
     for split, rows in selected.items():
+        selected[split] = rows = _dedupe_rows(rows, stats)
         for row in rows:
             if identity_variant != "default":
                 row["identity_variant"] = identity_variant
@@ -900,7 +939,11 @@ def build_dataset(
             {"kind": "min_side_px", "threshold": confirm_min_side_px, "applies_to": "fuel_v1"}
             if confirm_min_side_px is not None else {"kind": "range_45m_or_min_side_12px"}
         ),
-        "dedupe": "per_world_64_bit_dhash_hamming_distance_at_most_3; one_source_frame_can_have_multiple_candidate_labels",
+        "dedupe": {
+            "frames": "per_world_64_bit_dhash_hamming_distance_at_most_3; one_source_frame_can_have_multiple_candidate_labels",
+            "exact_model_input_duplicates_removed": int(stats.get("duplicate_rows", 0)),
+            "source_pairs": {key.split(":", 1)[1]: value for key, value in stats.items() if key.startswith("duplicate_rows:")},
+        },
         "world_splits": {"urban_inspection_multirotor_001": "train", **world_splits},
         "counts": {split: {"total": len(rows), "worlds": len({r["world"] for r in rows}), "decisions": dict(Counter(r["assistant_target"]["decision"] for r in rows)), "label_types": dict(Counter(r["label_type"] for r in rows))} for split, rows in selected.items()},
         "source_counts": dict(stats),

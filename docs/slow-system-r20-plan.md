@@ -1,5 +1,14 @@
 # 慢模型 r20 难例方案
 
+## build_sft 重复样本修复（2026-10-25）
+
+r20 的 `build_sft` 失败不是 world/frame/task key 缺字段，也不是不同 target 被误判为同一个样本。`sample_id` 已由 `world`、相对 frame、task、候选框和完整 assistant target 构成；离线复现完整 44,800 帧时捕获 15 个重复 ID，均为同一模型输入被 `proposal_counterfactual_negative` 生成分支重复发出。典型样本如下：
+
+* `gen_r20_w0003` 的 `ep-2/attempt-0/.../rgb/000002_before.jpg`，任务为 “Find the jersey barrier and record its position.”，焦点 `track-1`，候选框为 `[0.4202,0.8472,0.4301,0.8728]`、`[0.4336,0.772,0.4681,0.8458]`、`[0.425,0.7718,0.4681,0.8621]`，拒绝理由为 orange traffic cone 与 jersey barrier 不符。
+* `gen_r20_w0009` 的 `ep-0/attempt-1/.../rgb/000020_before.jpg`，任务为 “找到白色救护车并记录位置”，拒绝理由为 red fire truck 与 white ambulance 不符。
+
+修复在生成结果汇合处按真正的模型输入内容（world、frame、task、candidates、assistant target）去重，记录总数和 `label_type` 来源对；`label_type`、campaign 等来源元数据不参与去重，不同 target 即使同帧仍保留。原有 sample ID 冲突检查继续保留，world 不得跨 split。构建报告的 `dedupe.exact_model_input_duplicates_removed` 和 `dedupe.source_pairs` 是审计依据。
+
 ## 目标
 
 r20 只做离线方案、世界生成和小规模 SFT 样例，不采集 SITL、不训练。第一门禁是保持真实飞行集 v1 的干扰物拒绝率不低于 r18（0.974），并且不能重复 r19 的 0.881 回退；身份正例召回和规划意图检查作为第二门禁。
