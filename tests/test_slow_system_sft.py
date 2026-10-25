@@ -34,6 +34,50 @@ def test_decision_labels_and_task_templates_are_schema_valid_and_unprivileged():
     assert any("\u7ea2\u8272" in builder._task_text(("red", "vehicle"), i) for i in (3, 4))
 
 
+def test_exact_duplicate_model_inputs_are_deduped_but_distinct_targets_survive(tmp_path, monkeypatch):
+    from collections import Counter
+
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    frame = tmp_path / "duplicate-fixture.png"
+    frame.write_bytes(b"fixture")
+    base = builder._row(
+        world="gen_r20_w0000",
+        split="train",
+        frame=frame,
+        task_text="Find the red vehicle.",
+        box=(10.0, 10.0, 30.0, 30.0),
+        size=(100, 100),
+        target=builder._decision("reject_track", track="track-1", reason="Wrong class."),
+        kind="reject_track",
+        campaign="c",
+        label_type="counterfactual_negative",
+        candidate_boxes=[(10.0, 10.0, 30.0, 30.0)],
+        focus_index=0,
+    )
+    duplicate = {**base, "label_type": "proposal_counterfactual_negative"}
+    distinct_target = builder._row(
+        world="gen_r20_w0000",
+        split="train",
+        frame=frame,
+        task_text="Find the red vehicle.",
+        box=(10.0, 10.0, 30.0, 30.0),
+        size=(100, 100),
+        target=builder._decision("confirm_target", track="track-1", reason="Class matches."),
+        kind="confirm_target",
+        campaign="c",
+        label_type="counterfactual",
+        candidate_boxes=[(10.0, 10.0, 30.0, 30.0)],
+        focus_index=0,
+    )
+    rows = [base, duplicate, distinct_target]
+    stats = Counter()
+    result = builder._dedupe_rows(rows, stats)
+    assert len(result) == 2
+    assert result[0]["sample_id"] != result[1]["sample_id"]
+    assert stats["duplicate_rows"] == 1
+    assert stats["duplicate_rows:counterfactual_negative->proposal_counterfactual_negative"] == 1
+
+
 def test_seeded_image_augmentation_is_opt_in_and_repeatable():
     image = Image.new("RGB", (8, 8), (120, 130, 140))
     first = builder._augment_image(image, "weather", 123).tobytes()
