@@ -131,3 +131,22 @@ def test_r20_mix_keeps_normal_backbone_rows(tmp_path):
     assert manifest["rows"] == {"train": 24, "val": 2}
     assert manifest["family_counts"]["train"]["v4_backbone"] == 10
     assert sum(v for k, v in manifest["family_counts"]["train"].items() if k != "v4_backbone") == 14
+
+
+def test_rejected_candidate_targets_match_validator_negative_labels(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from build_plan_sft import main
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "rejected-candidates"
+    assert main([
+        "--output", str(output), "--r20-plan-intent", "--r20-plan-intent-count", "2",
+        "--negative-target-mode", "rejected_candidate", "--require-skills",
+    ]) == 0
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    negatives = [row for row in rows if row["expected_valid"] is False]
+    assert len(negatives) == 12
+    assert all(row["assistant_target"] == row["rejected_candidate"] for row in negatives)
+    admitted, _ = admit_train_rows(output)
+    assert len(admitted) == len(rows)

@@ -63,11 +63,26 @@ planning-v4 类别：ref_alias 0.50（r14 0.25）、return_intent 1.00（r14 0.5
 
 ## r22 数据准备（2026-10-26）
 
-r21 的未知地点能力回退有明确的数据解释：可见的 r14 planner 训练源是
-`artifacts/datasets/plan-sft-v4/train.jsonl`，1500 条全是可执行 `mission_plan`，没有
-`unknown_place` 或能力拒绝 gold；r21 另加的拒绝样本只有每族 40 条负例，unknown_place
-仅占 40/2560 = 1.5625%，而 2000 条 v4 backbone 都是正常执行计划。拒绝信号被通用正例
-稀释，且 r21 没有 replay r14 planner 分布，这与 unknown_place 从 1.00 降到 0.00 相符。
+重新审查 planning-v4 的逐题输出后，修正了上一版的“拒绝样本被稀释”解释。r21 评测文件
+`artifacts/evaluation/r21-planner-round/candidate/planning-v4.json` 与
+`artifacts/evaluation/r21-planner-round/baseline/planning-v4.json` 同时包含 r21 candidate
+和 r14 baseline 的 unknown_place 两题。r21 candidate 两题都输出了结构合法的单步
+`return_home`（goal 为 `Reject: ...`），`valid=true`、`error=null`、`correct_rejection=false`；
+不是格式错误，也没有生成陌生地点 ref。r14 baseline 则输出了 `goto poi:raven pier`，另一题
+把 Raven Pier 错映射到 `poi:gate`；两者均被 validator 拒绝，`correct_rejection=true`。
+因此 1.00→0.00 的直接差别是 r14 给出了 validator 会拒绝的计划，r21 学会输出无操作但
+validator 接受的安全终止计划。
+
+训练数据审计进一步定位了标签不一致：r21 的 40 条 unknown_place negative 都有
+`rejected_candidate`，并都触发 `ungrounded_place`，但 `assistant_target` 被替换成合法
+`return_home`。故模型实际学到的不是一个会被 validator 判拒的 candidate。r21 的 v4
+backbone 2000 条和 unknown_place family 40 条 positive 中，按每行 Known places/refs 和
+`check_plan_intent` 检查，没有发现 gold 把任务中的未知地点替换为可执行 ref；r14 的
+1500 条 planner gold 同样为 0。special unknown negative 的 `rejected_candidate` 有 40/40
+会把未知地点替换成行内已知的 gate/pad 并触发 `ungrounded_place`，但这些候选未进入 gold。
+因此“backbone 教模型编造地点”不受这批数据支持；更直接的问题是 negative gold 与评测
+所需的 validator 拒绝行为不一致。r21 的 unknown 正负对确实只差是否声明地点不存在/禁止
+替代，属于最小对照；r22 保留这个对照，同时把负例 gold 改成可由 validator 判拒的候选计划。
 
 r22 数据生成器现在支持 `--replay-planner-train`。本轮生成结果如下；`r14_replay` 行逐行
 保留原 prompt、task_text 和 assistant_target，新增行仍使用现有能力/意图校验。
@@ -75,17 +90,19 @@ r22 数据生成器现在支持 `--replay-planner-train`。本轮生成结果如
 | 训练集类别 | r14 | r21 | r22 |
 |---|---:|---:|---:|
 | r14 planner replay / v4 backbone | 1500 / 0 | 0 / 2000 | 1500 / 2000 |
-| unknown_place 拒绝 gold | 0 | 40 (1.563%) | 80 (1.732%) |
-| missing_payload_drop 拒绝 gold | 0 | 40 (1.563%) | 80 (1.732%) |
-| fixed_wing_constraint 拒绝 gold | 0 | 40 (1.563%) | 80 (1.732%) |
-| fixed_wing_target_land 拒绝 gold | 0 | 40 (1.563%) | 80 (1.732%) |
+| unknown_place validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
+| missing_payload_drop validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
+| fixed_wing_constraint validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
+| fixed_wing_target_land validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
 | 其它配对族（每族总行数） | 0 | 80 | 160 |
 | train 总行数 | 1500 | 2560 | 4620 |
 
-r22 的能力拒绝按 `src/multidetect/autonomy/capability_contract.py` 生成：无
+r22 的负例 target 使用经审计的违规 candidate，由 `src/multidetect/autonomy/plan_validation.py`
+对应的 intent/capability 契约拒绝；生成/训练准入均检查 expected finding，并只对负例 target
+做结构校验。能力负例按 `src/multidetect/autonomy/capability_contract.py` 生成：无
 `payload_drop` 时拒绝 `deliver`；固定翼带 `airframe:fixed_wing` 时拒绝 `hover`，并拒绝带
-目标点的 `land`（缺少 `landing_on_target`）。负例的 assistant target 是现有格式的安全
-拒绝计划，并保留 `rejected_candidate` 与 `expected_findings` 供离线准入检查。
+目标点的 `land`（缺少 `landing_on_target`）。负例同时保留 `rejected_candidate` 与
+`expected_findings` 供离线准入检查。
 
 holdout 仍读取全部 `configs/onboard/plan-eval-tasks*.json`，并用 NFKC、大小写、数字词和
 标点归一化比较；r22 的 190 个 holdout 题与 train/val 零碰撞。生成产物：
@@ -99,8 +116,10 @@ $env:PYTHONPATH='src;.'
 $env:PYTHONUTF8='1'
 python scripts/run_planner_round.py --stage data --force-stage data `
   --out D:/Projects/mdwt/_scratch/cx-planner-round/r22 `
+  --eval-root artifacts/evaluation/r22-planner-round `
   --rows 2000 --val-rows 100 --intent-count 80 `
-  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl `
+  --negative-target-mode rejected_candidate
 ```
 
 r22 正式训练配方从 r14 adapter 热启动，保持 1 epoch、rank 16、alpha 32，学习率降为
@@ -109,9 +128,16 @@ r22 正式训练配方从 r14 adapter 热启动，保持 1 epoch、rank 16、alp
 ```powershell
 python scripts/run_planner_round.py --stage all `
   --out D:/Projects/mdwt/_scratch/cx-planner-round/r22 `
+  --eval-root artifacts/evaluation/r22-planner-round `
   --rows 2000 --val-rows 100 --intent-count 80 `
   --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl `
+  --negative-target-mode rejected_candidate `
   --learning-rate 5e-5 --min-free-disk-gb 12 --min-memory-gb 8
 ```
+
+为保留旧 r21 命令的可复现行为，runner 默认仍是输出 `r21`、intent count 40、无 replay、
+safe-rejection negative target、学习率 `1e-4`，评测目录仍为
+`artifacts/evaluation/r21-planner-round`。r22 的 replay、validator-negative 标签和较低学习率
+均通过上述显式参数启用。
 
 本轮仅生成并核验数据，没有启动训练、GPU 推理、llama-server、SITL 或 Docker。

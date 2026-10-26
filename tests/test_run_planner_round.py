@@ -42,7 +42,24 @@ def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, cap
     assert "build_plan_sft.py" in output
     assert "D:\\Projects\\Multi-Detect\\.venv-vlm\\Scripts\\python.exe" in output
     assert "run_planner_probe.py" in output
+    assert "--learning-rate 0.0001" in output
+    assert "--r20-plan-intent-count 40" in output
+    assert "--replay-planner-train" not in output
     assert not (out / "round-state.json").exists()
+
+
+def test_r22_options_are_explicit_without_changing_r21_defaults(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r22"),
+        "--intent-count", "80", "--replay-planner-train", "r14-train.jsonl",
+        "--negative-target-mode", "rejected_candidate", "--learning-rate", "5e-5",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r20-plan-intent-count 80" in output
+    assert "--replay-planner-train r14-train.jsonl" in output
+    assert "--negative-target-mode rejected_candidate" in output
+    assert "--learning-rate 5e-05" in output
 
 
 def test_default_lock_is_the_shared_sitl_lock_directory():

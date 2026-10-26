@@ -170,12 +170,23 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
                 }
                 if not expected_findings <= candidate_codes:
                     raise ValueError(f"rejected candidate {row['sample_id']} does not match expected findings")
+                # r22 trains the validator-triggering candidate itself.  The
+                # target is intentionally invalid for the row contract, so
+                # validate only its structural mission shape with all gated
+                # capabilities enabled; the expected finding is the label.
+                target_is_candidate = row.get("negative_target_mode") == "rejected_candidate"
+                if target_is_candidate:
+                    validate_mission_plan(
+                        row["assistant_target"],
+                        capabilities=frozenset({"payload_drop", "hover", "landing_on_target"}),
+                    )
             elif findings or intent_codes:
                 raise ValueError(
                     f"valid mission row {row['sample_id']} violates planner contract: "
                     f"{sorted({finding['code'] for finding in findings} | intent_codes)}"
                 )
-            validate_mission_plan(row["assistant_target"], capabilities=capabilities)
+            if row.get("expected_valid", True) is not False or row.get("negative_target_mode") != "rejected_candidate":
+                validate_mission_plan(row["assistant_target"], capabilities=capabilities)
         else:
             parse_onboard_decision(row["assistant_target"])
         if not row.get("world") or not row.get("task_text"):

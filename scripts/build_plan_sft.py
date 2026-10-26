@@ -986,6 +986,9 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
             })
             if rejected_candidate is not None:
                 rows[-1]["rejected_candidate"] = rejected_candidate
+                if args.negative_target_mode == "rejected_candidate":
+                    rows[-1]["assistant_target"] = rejected_candidate
+                    rows[-1]["negative_target_mode"] = args.negative_target_mode
         return True
 
     for index in range(pairs):
@@ -1026,7 +1029,7 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         deliver_negative = (deliver_bad, deliver_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "missing_payload_drop", deliver_positive, deliver_negative, "missing_capability")
 
-        hover_plan = {"plan_version":1,"goal":"hover","steps":[S("s1","hover",{"region":zone},"s2","s2"),H("s2")],"report":[]}
+        hover_plan = {"plan_version":1,"goal":"hover","steps":[S("s1","hover",{"region":zone,"duration_s":60},"s2","s2"),H("s2")],"report":[]}
         fixed_safe = (f"固定翼飞越{zone_zh}后返航。" if use_zh else f"A fixed-wing aircraft flies over the {zone_en} and returns home.")
         fixed_bad = (f"固定翼在{zone_zh}上空悬停。" if use_zh else f"A fixed-wing aircraft should hover over the {zone_en}.")
         fixed_safe_plan = {"plan_version":1,"goal":"fixed wing transit","steps":[S("s1","goto",{"target_ref":zone},"s2","s2"),H("s2")],"report":[]}
@@ -1034,7 +1037,7 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         fixed_negative = (fixed_bad, hover_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
         add_pair(index, "fixed_wing_constraint", fixed_positive, fixed_negative, "missing_capability")
 
-        land_plan = {"plan_version":1,"goal":"fixed wing landing","steps":[S("s1","land",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
+        land_plan = {"plan_version":1,"goal":"fixed wing landing","steps":[S("s1","land",{"target_ref":ref},None,None)],"report":[]}
         land_safe = (f"固定翼飞到{zone_zh}上空后返航。" if use_zh else f"The fixed-wing aircraft flies over the {zone_en} and returns home.", fixed_safe_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("airframe:fixed_wing",), True)
         land_bad = (f"固定翼飞到{zh}上方定点降落。" if use_zh else f"A fixed-wing aircraft should land precisely on the {en}.", land_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
         add_pair(index, "fixed_wing_target_land", land_safe, land_bad, "missing_capability")
@@ -1092,6 +1095,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--r20-plan-intent-mix", action="store_true",
         help="append the scalable r20 rows to the requested v4/v5 normal rows",
+    )
+    parser.add_argument(
+        "--negative-target-mode", choices=("safe_rejection", "rejected_candidate"),
+        default="safe_rejection",
+        help="target format for expected-invalid rows; r22 uses rejected_candidate",
     )
     parser.add_argument(
         "--eval-tasks",
