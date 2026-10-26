@@ -266,12 +266,38 @@ def _round_args(tmp_path: Path, **overrides) -> Namespace:
     return Namespace(**values)
 
 
-def test_low_disk_collect_command_adds_flags_and_keeps_target_last(tmp_path: Path, capsys):
+def test_low_disk_collect_command_adds_flags_and_keeps_target_last(tmp_path: Path, capsys, monkeypatch):
+    # The command assembly test uses a temporary fixture outside the repository;
+    # production collect still runs the full simulator-stack preflight.
+    monkeypatch.setattr(collector, "docker_command", lambda *_args, **_kwargs: ["docker"])
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
     worlds = [f"gen_r19_w{index:04d}" for index in range(20)]
     for world in worlds:
-        (scenarios / f"{world}.scenario.json").write_text("{}")
+        (scenarios / f"{world}.runtime_input.json").write_text(json.dumps({
+            "schema_version": 1,
+            "scenario_id": world,
+            "scenario_version": 1,
+            "sensors": [
+                {"kind": "rgb_camera", "stream_uri": f"gazebo://{world}/rgb"},
+                {"kind": "depth_camera", "stream_uri": f"gazebo://{world}/depth"},
+                {"kind": "mavlink_telemetry", "stream_uri": "udp://127.0.0.1:14541"},
+            ],
+            "vehicle": {
+                "model": "px4_multirotor_standard",
+                "airframe_profile_id": "px4_multirotor_gazebo_v1",
+                "spawn_pose": {"z_up_m": 0.2, "pitch_rad": 0.0},
+            },
+            "world": {"world_asset": f"builtin://gazebo/{world}"},
+        }))
+        (scenarios / f"{world}.truth.json").write_text("{}")
+        (scenarios / f"{world}.scenario.json").write_text(json.dumps({
+            "schema_version": 1, "scenario_id": world, "scenario_version": 1,
+            "channels": {
+                "runtime_input": {"path": f"{world}.runtime_input.json"},
+                "truth": {"path": f"{world}.truth.json"},
+            },
+        }))
     index_path = scenarios / "index.json"
     index_path.write_text(json.dumps({"worlds": [{"world_id": world} for world in worlds]}))
     runner = r15.Round(_round_args(tmp_path, min_free_gb=7, r15_index=index_path))
