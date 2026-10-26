@@ -186,6 +186,7 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
         )
 
     monkeypatch.setattr(r15.subprocess, "run", fake_run)
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: True)
     monkeypatch.setattr(r15.time, "sleep", lambda _s: None)
     round_ = Round.__new__(Round)
     round_.a = Namespace(retries=1)
@@ -202,6 +203,158 @@ def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monk
     )
     # The removal precedes each collector attempt.
     assert [c[0] for c in calls] == ["docker", "docker", "python", "docker", "docker", "python"]
+
+
+def test_docker_down_aborts_collect_without_consuming_episode_attempt(monkeypatch, tmp_path):
+    import json
+    import pytest
+    import scripts.run_r15_round as r15
+
+    scenarios = tmp_path / "scenarios"
+    scenarios.mkdir()
+    world = "gen_r19_w0000"
+    runtime = {
+        "schema_version": 1,
+        "vehicle": {"model": "px4_multirotor_standard", "spawn_pose": {"z_up_m": 0.2, "pitch_rad": 0}},
+        "sensors": [],
+    }
+    (scenarios / f"{world}.runtime_input.json").write_text(json.dumps(runtime))
+    (scenarios / f"{world}.truth.json").write_text("{}")
+    (scenarios / f"{world}.scenario.json").write_text(json.dumps({
+        "channels": {"runtime_input": {"path": f"{world}.runtime_input.json"}, "truth": {"path": f"{world}.truth.json"}}
+    }))
+    index = scenarios / "index.json"
+    index.write_text(json.dumps({"worlds": [{"world_id": world}]}))
+    args = Namespace(
+        out=tmp_path / "round", episodes=tmp_path / "episodes", scenarios=scenarios,
+        r15_index=index, dry_run=False, min_free_gb=0, min_free_memory_gb=0,
+        collector_min_free_gb=None, low_disk=False, steps_per_episode=1, workers=1,
+        retries=3, docker_wait_minutes=1, teacher_target="true",
+    )
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: False)
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: False)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: pytest.fail("cleanup must not run"))
+    runner = r15.Round(args)
+    monkeypatch.setattr(runner, "_collection_airframe", lambda _scenario: ("x500_mono_cam", None, runtime))
+    import scripts.collect_sim_teacher_episodes as collector
+    monkeypatch.setattr(collector, "docker_command", lambda *_a, **_kw: ["docker"])
+
+    with pytest.raises(RuntimeError, match="Docker daemon 不可用"):
+        runner.collect()
+    state = json.loads(runner.state_path.read_text())
+    assert state["stages"]["collect"]["status"] == "docker_unavailable"
+    assert state["episodes"][f"{world}:0"] == {"status": "pending", "failure": "docker_unavailable"}
+
+
+def test_docker_recovery_mid_wait_runs_episode_without_losing_attempt(monkeypatch, tmp_path):
+    import scripts.run_r15_round as r15
+
+    runs = []
+    health = iter([False, True, True])
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+
+    def fail_attempt(command, **_kwargs):
+        runs.append(command)
+        output_dir = Path(command[-1])
+        output_dir.mkdir(parents=True)
+        (output_dir / "partial.txt").write_text(str(len(runs)))
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(r15.subprocess, "run", fail_attempt)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=0, docker_wait_minutes=20)
+    result = runner._collect_one(
+        "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+    )
+    assert result == {"status": "failed", "attempts": 1}
+    assert len(runs) == 1
+    first_dir = Path(runs[0][-1])
+    assert first_dir.name == "attempt-0"
+    assert (first_dir / "partial.txt").read_text() == "1"
+
+
+def test_docker_recovery_after_attempt_uses_new_preserved_output_directory(monkeypatch, tmp_path):
+    import json
+    import scripts.run_r15_round as r15
+
+    runs = []
+    health = iter([True, False, True, True])
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+
+    def fail_attempt(command, **_kwargs):
+        runs.append(command)
+        output_dir = Path(command[-1])
+        output_dir.mkdir(parents=True)
+        if len(runs) == 1:
+            (output_dir / "partial.txt").write_text("partial")
+        else:
+            episode = output_dir / "episode-test" / "episode.json"
+            episode.parent.mkdir(parents=True)
+            episode.write_text('{"status":"complete"}')
+        return type(
+            "Completed",
+            (),
+            {"returncode": 0 if len(runs) == 2 else 1, "stdout": "", "stderr": ""},
+        )()
+
+    monkeypatch.setattr(r15.subprocess, "run", fail_attempt)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=0, docker_wait_minutes=20)
+    result = runner._collect_one(
+        "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+    )
+
+    assert result["status"] == "complete"
+    previous, retry = (Path(command[-1]) for command in runs)
+    assert previous != retry
+    assert previous.name == "attempt-0" and retry.name == "attempt-1"
+    assert (previous / "partial.txt").read_text() == "partial"
+    assert json.loads((retry / "episode-test" / "episode.json").read_text())["status"] == "complete"
+
+
+def test_repeated_docker_flaps_abort_after_bounded_outages(monkeypatch, tmp_path):
+    import pytest
+    import scripts.run_r15_round as r15
+
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: True)
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+
+    def fail_and_drop_daemon(command, **_kwargs):
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+    health = iter([True, False] * 6)
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
+    monkeypatch.setattr(r15.subprocess, "run", fail_and_drop_daemon)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=20, docker_wait_minutes=20)
+    with pytest.raises(r15.DockerUnavailable, match="repeatedly flapped"):
+        runner._collect_one(
+            "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+        )
+
+
+def test_normal_collector_failures_consume_configured_attempts(monkeypatch, tmp_path):
+    import scripts.run_r15_round as r15
+
+    calls = []
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+    monkeypatch.setattr(r15.subprocess, "run", lambda command, **_kw: (
+        calls.append(command) or type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+    ))
+    monkeypatch.setattr(r15.time, "sleep", lambda _seconds: None)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=2, docker_wait_minutes=20)
+    result = runner._collect_one(
+        "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+    )
+    assert result == {"status": "failed", "attempts": 3}
+    assert len(calls) == 3
 
 
 def test_merge_tops_up_r12_negatives_instead_of_dropping_new_positives():

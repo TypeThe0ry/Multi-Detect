@@ -17,6 +17,7 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -359,6 +360,31 @@ def _remove_worker_containers(prefix: str) -> None:
             )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"[collect] 清理 {prefix} 残留容器失败：{exc}")
+
+
+class DockerUnavailable(RuntimeError):
+    """The Docker daemon outage prevented an episode attempt from starting."""
+
+
+def _docker_daemon_reachable() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "info"], capture_output=True, text=True, timeout=30, check=False
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _wait_for_docker(wait_minutes: float, *, interval_seconds: float = 30.0) -> bool:
+    deadline = time.monotonic() + max(0.0, wait_minutes) * 60.0
+    if _docker_daemon_reachable():
+        return True
+    while time.monotonic() < deadline:
+        time.sleep(min(interval_seconds, max(0.0, deadline - time.monotonic())))
+        if _docker_daemon_reachable():
+            return True
+    return False
 
 
 def _write_json_atomic(path: Path, payload: dict) -> None:
@@ -772,8 +798,20 @@ class Round:
         # Each attempt writes to its own directory so a failed or partial attempt can
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
-        for attempt in range(self.a.retries + 1):
-            attempt_dir = target / f"attempt-{attempt}"
+        attempt = 0
+        try_index = 0
+        docker_outages = 0
+        while attempt <= self.a.retries:
+            if getattr(self, "_docker_abort", None) and self._docker_abort.is_set():
+                raise DockerUnavailable("Docker daemon unavailable; collect stage stopped")
+            if not _docker_daemon_reachable():
+                docker_outages += 1
+                if docker_outages > 5:
+                    raise DockerUnavailable("Docker daemon repeatedly flapped during collection")
+                if not _wait_for_docker(getattr(self.a, "docker_wait_minutes", 20)):
+                    raise DockerUnavailable("Docker daemon unavailable after configured wait")
+            attempt_dir = target / f"attempt-{try_index}"
+            try_index += 1
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
             completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
@@ -806,6 +844,14 @@ class Round:
                 "spawn pitch_rad=",
                 "requires runtime.vehicle.model",
             )
+            if not _docker_daemon_reachable():
+                docker_outages += 1
+                if docker_outages > 5:
+                    raise DockerUnavailable("Docker daemon repeatedly flapped during collection")
+                if not _wait_for_docker(getattr(self.a, "docker_wait_minutes", 20)):
+                    raise DockerUnavailable("Docker daemon unavailable after configured wait")
+                continue
+            docker_outages = 0
             if any(marker in output for marker in deterministic_markers):
                 return {
                     "status": "failed",
@@ -815,6 +861,7 @@ class Round:
             if attempt == self.a.retries:
                 return {"status": "failed", "attempts": attempt + 1}
             time.sleep(min(2**attempt, 30))
+            attempt += 1
         raise AssertionError("unreachable")
 
     def collect(self):
@@ -954,13 +1001,33 @@ class Round:
         )
         if self.a.dry_run:
             return
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers) as pool:
-            futures = {
-                pool.submit(self._collect_one, key, cmd, target): key for key, cmd, target in jobs
-            }
+        self._docker_abort = threading.Event()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)
+        futures = {pool.submit(self._collect_one, key, cmd, target): key for key, cmd, target in jobs}
+        try:
             for future in concurrent.futures.as_completed(futures):
                 key = futures[future]
-                result = future.result()
+                try:
+                    result = future.result()
+                except DockerUnavailable as exc:
+                    self._docker_abort.set()
+                    for pending in futures:
+                        pending.cancel()
+                    self.state["stages"]["collect"] = {
+                        "status": "docker_unavailable",
+                        "episode": key,
+                        "error": str(exc),
+                        "time": time.time(),
+                    }
+                    episode = dict(self.state["episodes"].get(key, {}))
+                    episode.update({"status": "pending", "failure": "docker_unavailable"})
+                    episode.pop("attempts", None)
+                    self.state["episodes"][key] = episode
+                    self.save()
+                    raise RuntimeError(
+                        "collect 已停止：Docker daemon 不可用，当前 episode 保持 pending；"
+                        "请恢复 Docker 后重新运行 collect"
+                    ) from exc
                 self.state["episodes"][key] = self.merge_episode_status(
                     self.state["episodes"].get(key), result
                 )
@@ -968,6 +1035,8 @@ class Round:
                 if result["status"] != "complete":
                     # One stubborn world must not stop the whole round; the report lists it.
                     print(f"[collect] episode {key} 在 {result['attempts']} 次尝试后失败，跳过")
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
         self.run(
             "collect",
             [sys.executable, "-c", "print('episodes collected')"],
@@ -1594,6 +1663,10 @@ def main():
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--retries", type=int, default=3)
     p.add_argument(
+        "--docker-wait-minutes", type=float, default=20,
+        help="Docker daemon 不可用时等待恢复的分钟数（每 30 秒检查）",
+    )
+    p.add_argument(
         "--extra-episodes",
         type=Path,
         action="append",
@@ -1619,6 +1692,8 @@ def main():
         return 0
     if a.retries < 0:
         p.error("--retries must be >= 0")
+    if a.docker_wait_minutes < 0:
+        p.error("--docker-wait-minutes must be >= 0")
     if not 1 <= a.workers <= 2:
         p.error("--workers must be 1 or 2")
     if a.steps_per_episode < 1:

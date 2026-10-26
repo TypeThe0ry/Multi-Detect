@@ -12,6 +12,8 @@
 
 `view_geometry` 描述相机观察目标所需的高度、距离、像素层和视角序列，不是 vehicle spawn pose。所有多旋翼在地面以约 0.2 m、pitch 0 起飞；任何相机俯仰、高度/巡航高度和观察航点都应通过任务/teacher 参数表达并被实际消费。若生成 fixed-wing 场景，必须在 scenario/runtime 显式声明可解析的 airframe 与 profile 对应起飞方式；RGB、depth 和 segmentation overlay 要符合该 runtime model 的 suite 合约。Round collect 在启动 worker 前对完整场景集做静态校验，配置错误汇总失败且不重试；重试只用于瞬时运行故障。
 
+Docker daemon 不可用属于基础设施故障，不计入 episode 重试次数。collect 每次尝试前和失败后探测 daemon，默认最多等待 20 分钟、每 30 秒复查；可用 `--docker-wait-minutes` 调整等待时间。超时会将阶段记为 `docker_unavailable`、当前 episode 保持 `pending` 并以非零退出，恢复 Docker 后重跑 collect 会自动继续；采集器不会自动重启 Docker Desktop。
+
 ```powershell
 $env:PYTHONPATH='src;.'
 $env:PYTHONUTF8='1'
