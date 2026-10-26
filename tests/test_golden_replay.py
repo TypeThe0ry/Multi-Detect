@@ -46,6 +46,57 @@ def test_checker_reports_monkeypatched_hold_duration_mutation(monkeypatch, tmp_p
     assert summary["results"][0]["divergence"]["type"] == "action_changed"
 
 
+def test_checker_reports_monkeypatched_decision_mutation(monkeypatch, tmp_path):
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    episode = tmp_path / "count-cones" / "campaign" / "episode-0000"
+    episode.mkdir(parents=True)
+    fixture = ROOT / "tests" / "fixtures" / "onboard_replay"
+    (episode / "episode.json").write_bytes((fixture / "episode.json").read_bytes())
+    (episode / "steps.jsonl").write_bytes((fixture / "steps.jsonl").read_bytes())
+    digest = checker.sha256_steps(episode)
+    original = checker.fingerprint(checker.replay(episode))
+    monkeypatch.setattr(checker, "MANIFEST", tmp_path / "manifest.json")
+    monkeypatch.setattr(checker, "BASELINE", tmp_path / "baseline.json")
+    checker.MANIFEST.write_text(__import__("json").dumps({"episodes": [{"id": "fixture", "path": "unused", "sha256": digest}]}), encoding="utf-8")
+    checker.BASELINE.write_text(__import__("json").dumps({"episodes": {"fixture": {"fingerprint": original}}}), encoding="utf-8")
+    monkeypatch.setattr(checker, "resolve_episode", lambda *_args, **_kwargs: episode)
+    def altered_hold(cls, seconds):
+        return ActionPrimitive.turn(45.0)
+
+    monkeypatch.setattr(ActionPrimitive, "hold", classmethod(altered_hold))
+    code, summary = checker.check()
+    assert code == 1
+    assert summary["results"][0]["divergence"]["type"] == "action_changed"
+
+
+def test_checker_reports_executor_no_longer_delegating_search(monkeypatch, tmp_path):
+    from multidetect.autonomy.mission_executor import MissionExecutor
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    episode = tmp_path / "count-cones" / "campaign" / "episode-0000"
+    episode.mkdir(parents=True)
+    fixture = ROOT / "tests" / "fixtures" / "onboard_replay"
+    (episode / "episode.json").write_bytes((fixture / "episode.json").read_bytes())
+    (episode / "steps.jsonl").write_bytes((fixture / "steps.jsonl").read_bytes())
+    digest = checker.sha256_steps(episode)
+    original = checker.fingerprint(checker.replay(episode))
+    assert any(step[6] for step in original["steps"])
+    monkeypatch.setattr(checker, "MANIFEST", tmp_path / "manifest.json")
+    monkeypatch.setattr(checker, "BASELINE", tmp_path / "baseline.json")
+    checker.MANIFEST.write_text(__import__("json").dumps({"episodes": [{"id": "fixture", "path": "unused", "sha256": digest}]}), encoding="utf-8")
+    checker.BASELINE.write_text(__import__("json").dumps({"episodes": {"fixture": {"fingerprint": original}}}), encoding="utf-8")
+    monkeypatch.setattr(checker, "resolve_episode", lambda *_args, **_kwargs: episode)
+
+    def no_search_delegation(self, run, pose, yaw, ground_point, frame_id):
+        return ActionPrimitive.hold(self.config.hold_s), {"state_before": "searching", "focus": None}
+
+    monkeypatch.setattr(MissionExecutor, "_count", no_search_delegation)
+    code, summary = checker.check()
+    assert code == 1
+    assert summary["results"][0]["divergence"]["type"] == "action_changed"
+
+
 def test_all_missing_data_is_a_warning_and_success(monkeypatch):
     monkeypatch.setattr(
         checker, "resolve_episode", lambda *_args, **_kwargs: Path("missing-golden")

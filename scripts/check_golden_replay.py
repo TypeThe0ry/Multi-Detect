@@ -66,6 +66,7 @@ def fingerprint(document: dict[str, Any]) -> dict[str, Any]:
                 safety_code,
                 bool(safety.get("changed_to_hold_stop")),
                 sorted(safety.get("reasons") or []),
+                bool(item.get("search_delegated")),
             ]
         )
     return {
@@ -80,9 +81,9 @@ def divergence(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, An
         if left[index] == right[index]:
             continue
         a, b = left[index], right[index]
-        if a[3:] != b[3:]:
+        if a[3:6] != b[3:6]:
             kind = "safety_rejection_changed"
-        elif a[1:3] != b[1:3]:
+        elif a[1:3] != b[1:3] or a[6:] != b[6:]:
             kind = "action_changed"
         else:
             kind = "task_termination_changed"
