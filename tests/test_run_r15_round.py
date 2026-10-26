@@ -125,6 +125,55 @@ def test_stage_resume_writes_manifest_and_skips(capsys):
     shutil.rmtree(out.parent, ignore_errors=True)
 
 
+def test_report_uses_configured_labels_and_records_baseline_hashes(tmp_path: Path, capsys):
+    import hashlib
+    import json
+    from argparse import Namespace
+
+    out = tmp_path / "r21id-round"
+    out.mkdir()
+    baseline = tmp_path / "r18-round" / "eval-v3.json"
+    baseline.parent.mkdir()
+    baseline_v1 = tmp_path / "r18-round" / "eval-v1.json"
+    payload = {"metrics": {"identity_accuracy": 0.9, "distractor_rejection_rate": 0.98}, "size_buckets": {"<12": {"true_target_recall": 0.5}}}
+    for path in (baseline, baseline_v1):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    candidate_payload = {"metrics": {**payload["metrics"], "size_buckets": {"<12": {"true_target_recall": 0.6}}}}
+    for path in (out / "eval-v1.json", out / "eval-v3.json"):
+        path.write_text(json.dumps(candidate_payload), encoding="utf-8")
+    args = Namespace(
+        out=out, dry_run=False, r12_baseline=baseline, r12_v1_baseline=baseline_v1,
+        baseline_label="r18", candidate_label="r21id",
+    )
+    Round(args).write_report()
+    report = (out / "r15-report.md").read_text(encoding="utf-8")
+    manifest = json.loads((out / "report-manifest.json").read_text(encoding="utf-8"))
+    assert "| 指标 | r18 | r21id |" in report
+    assert "建议替换 r18" in report
+    assert manifest["baseline_label"] == "r18"
+    assert manifest["candidate_label"] == "r21id"
+    assert manifest["baseline_json"]["v3"] == str(baseline.resolve())
+    assert manifest["baseline_json"]["v3_sha256"] == hashlib.sha256(baseline.read_bytes()).hexdigest()
+    assert not capsys.readouterr().out
+
+
+def test_report_warns_when_later_round_baseline_keeps_default_label(tmp_path: Path, capsys):
+    import json
+    from argparse import Namespace
+
+    out = tmp_path / "out"
+    out.mkdir()
+    baseline = tmp_path / "r20-round" / "eval-v3.json"
+    baseline.parent.mkdir()
+    baseline_v1 = tmp_path / "r20-round" / "eval-v1.json"
+    payload = {"metrics": {"identity_accuracy": 0.9, "distractor_rejection_rate": 0.98}, "size_buckets": {"<12": {"true_target_recall": 0.5}}}
+    for path in (baseline, baseline_v1, out / "eval-v1.json", out / "eval-v3.json"):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    Round(Namespace(out=out, dry_run=False, r12_baseline=baseline, r12_v1_baseline=baseline_v1,
+                    baseline_label="r12", candidate_label="r15")).write_report()
+    report = (out / "r15-report.md").read_text(encoding="utf-8")
+    assert "警告：基线标签仍为 r12" in capsys.readouterr().out
+    assert str(baseline.resolve()) in report
 def test_each_collect_attempt_first_removes_the_workers_leftover_containers(monkeypatch, tmp_path):
     import scripts.run_r15_round as r15
 
