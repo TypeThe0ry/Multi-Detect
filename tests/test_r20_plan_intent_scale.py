@@ -2,8 +2,11 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from multidetect.autonomy.capability_contract import capability_violations
 from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.mission_planner import check_plan_refs
 from multidetect.autonomy.plan_intent import check_plan_intent
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,14 +33,16 @@ def test_r20_scale_count_distribution_and_rule_contract(tmp_path):
     ]) == 0
     rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
     families = Counter(row["family"] for row in rows)
-    assert len(rows) == 42
+    assert len(rows) == 39
     assert set(families) == {
         "return_intent", "unknown_place", "missing_payload_drop", "fixed_wing_constraint",
         "fixed_wing_target_land", "ref_alias", "query_grounding",
     }
-    assert all(count == 6 for count in families.values())
+    assert families["query_grounding"] == 3
+    assert all(count == 6 for family, count in families.items() if family != "query_grounding")
+    assert Counter(row["pair_role"] for row in rows if row["family"] == "query_grounding") == {"positive": 3}
     assert all(Counter(row["pair_role"] for row in rows if row["family"] == family) ==
-               {"positive": 3, "paired_negative": 3} for family in families)
+               {"positive": 3, "paired_negative": 3} for family in families if family != "query_grounding")
     held = _held_out()
     assert not ({" ".join(row["task_text"].split()) for row in rows} & held)
     for row in rows:
@@ -59,6 +64,8 @@ def test_r20_scale_count_distribution_and_rule_contract(tmp_path):
                 finding["code"] for finding in capability_violations(candidate, capabilities,
                     airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None)
             }
+            if check_plan_refs(candidate, refs, substitute=False)[2]:
+                candidate_codes.add("ungrounded_place")
             assert row["expected_findings"][0] in candidate_codes
             assert row["rejected_candidate"]
             validate_mission_plan(plan, capabilities=frozenset(capabilities))
@@ -128,6 +135,80 @@ def test_r20_mix_keeps_normal_backbone_rows(tmp_path):
         "--require-skills",
     ]) == 0
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["rows"] == {"train": 24, "val": 2}
+    assert manifest["rows"] == {"train": 23, "val": 2}
     assert manifest["family_counts"]["train"]["v4_backbone"] == 10
-    assert sum(v for k, v in manifest["family_counts"]["train"].items() if k != "v4_backbone") == 14
+    assert sum(v for k, v in manifest["family_counts"]["train"].items() if k != "v4_backbone") == 13
+
+
+def test_rejected_candidate_targets_match_validator_negative_labels(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from build_plan_sft import main
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "rejected-candidates"
+    assert main([
+        "--output", str(output), "--r20-plan-intent", "--r20-plan-intent-count", "2",
+        "--negative-target-mode", "rejected_candidate", "--require-skills",
+    ]) == 0
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    negatives = [row for row in rows if row["expected_valid"] is False]
+    assert len(negatives) == 10
+    assert all(row["assistant_target"] == row["rejected_candidate"] for row in negatives)
+    for row in negatives:
+        if row["family"] in {"unknown_place", "ref_alias"}:
+            target_refs = {
+                step.get("params", {}).get("target_ref")
+                for step in row["assistant_target"]["steps"]
+            }
+            known_refs = {ref.split(" ", 1)[0] for ref in row["refs"]}
+            assert not (target_refs & known_refs)
+    admitted, _ = admit_train_rows(output)
+    assert len(admitted) == len(rows)
+
+
+def test_admission_blocks_known_ref_substitution_for_unknown_place(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from train_slow_system_lora import admit_train_rows
+
+    dataset = tmp_path / "substitution"
+    dataset.mkdir()
+    plan = {
+        "plan_version": 1, "goal": "Raven Pier", "report": [], "steps": [
+            {"id": "s1", "skill": "goto", "params": {"target_ref": "poi:gate"},
+             "on_success": "s2", "on_fail": "s2"},
+            {"id": "s2", "skill": "return_home", "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+    }
+    row = {
+        "sample_id": "bad-place-substitution", "kind": "mission_plan", "world": "test",
+        "task_text": "Fly to the nonexistent Raven Pier and return home.", "refs": ["poi:gate (gate)"],
+        "assistant_target": plan, "rejected_candidate": plan, "negative_target_mode": "rejected_candidate",
+        "expected_valid": False, "expected_findings": ["ungrounded_place"], "split": "train",
+    }
+    (dataset / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="substitutes known ref"):
+        admit_train_rows(dataset)
+
+
+def test_admission_blocks_fabricated_query(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from train_slow_system_lora import admit_train_rows
+
+    dataset = tmp_path / "fabricated-query"
+    dataset.mkdir()
+    row = {
+        "sample_id": "invented-query", "kind": "mission_plan", "world": "test",
+        "task_text": "检查大门并返航。", "refs": ["poi:gate (大门 / gate)"],
+        "capabilities": [], "split": "train",
+        "assistant_target": {"plan_version": 1, "goal": "inspect", "report": [], "steps": [
+            {"id": "s1", "skill": "inspect", "params": {"target_ref": "poi:gate", "query": "fire truck"}, "on_success": "s2", "on_fail": "s2"},
+            {"id": "s2", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
+        ]},
+    }
+    (dataset / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="ungrounded_query|invents ungrounded query"):
+        admit_train_rows(dataset)

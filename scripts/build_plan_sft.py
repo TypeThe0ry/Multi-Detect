@@ -532,6 +532,47 @@ def normalize_task(text: str) -> str:
     return "".join(char for char in text if char.isalnum())
 
 
+def load_replay_rows(path: Path, held_out: set[str]) -> list[dict]:
+    """Load prior planner rows verbatim, rejecting held-out or duplicate tasks."""
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("kind") != "mission_plan":
+            continue
+        text = str(row.get("task_text", "")).strip()
+        key = normalize_task(text)
+        if not text or key in held_out:
+            raise ValueError(f"replay row is held out or empty: {text!r}")
+        rows.append(dict(row))
+    if not rows:
+        raise ValueError(f"no mission_plan rows found in replay file: {path}")
+    return rows
+
+
+def known_ref_ids(refs) -> set[str]:
+    return {str(ref).split(" ", 1)[0] for ref in refs or ()}
+
+
+def target_ref_ids(plan: dict) -> set[str]:
+    return {
+        str(step.get("params", {}).get("target_ref"))
+        for step in plan.get("steps", ())
+        if step.get("params", {}).get("target_ref") is not None
+    }
+
+
+def assert_no_unknown_place_substitution(row: dict) -> None:
+    """Unknown-place negatives must retain an unresolved target ref."""
+    if row.get("expected_valid") is not False or "ungrounded_place" not in row.get("expected_findings", ()):
+        return
+    known = known_ref_ids(row.get("refs", ()))
+    substituted = sorted(target_ref_ids(row.get("assistant_target", {})) & known)
+    if substituted:
+        raise ValueError(
+            f"{row.get('sample_id')} substitutes unknown place with known ref(s): {substituted}"
+        )
+
+
 def plural_query(query: str) -> str:
     """Pluralise the small controlled v5 vocabulary, preserving modifiers."""
     if query.endswith("person"):
@@ -933,11 +974,9 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
 
     def add_pair(index, family, positive, negative, expected_code=None):
         for polarity, (text, plan, refs, capabilities, valid) in enumerate((positive, negative)):
-            # Keep each deterministic draw distinct even when a small place pool
-            # is cycled; the sortie marker is semantically inert for the checks.
-            text = f"{text}（第{index + 1}架次）" if re.search(r"[\u4e00-\u9fff]", text) else f"{text} (sortie {index + 1})"
             normalized = normalize_task(text)
-            if normalized in held_out or any(normalized == row["_key"] for row in rows):
+            role = "positive" if polarity == 0 else "paired_negative"
+            if normalized in held_out:
                 return False
             if valid:
                 validate_mission_plan(plan, capabilities=frozenset(capabilities))
@@ -947,6 +986,9 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
             )
             codes = {finding.code for finding in findings} | {finding["code"] for finding in cap_findings}
+            _, _, unknown_refs = check_plan_refs(plan, refs, substitute=False)
+            if unknown_refs:
+                codes.add("ungrounded_place")
             if valid and codes:
                 raise ValueError(f"r20 positive {family} violates contract: {text}: {sorted(codes)}")
             if not valid and expected_code not in codes:
@@ -960,7 +1002,7 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 "sample_id": f"plan-cx-r20-{family}-{index:04d}-{polarity}",
                 "kind": "mission_plan", "world": "synthetic_plan_cx_r20",
                 "family": family, "task_text": text, "refs": list(refs),
-                "pair_role": "positive" if polarity == 0 else "paired_negative",
+                "pair_role": role,
                 "capabilities": list(capabilities), "expected_valid": valid,
                 "expected_findings": [] if valid else [expected_code],
                 "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
@@ -969,6 +1011,10 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
             })
             if rejected_candidate is not None:
                 rows[-1]["rejected_candidate"] = rejected_candidate
+                if args.negative_target_mode == "rejected_candidate":
+                    rows[-1]["assistant_target"] = rejected_candidate
+                    rows[-1]["negative_target_mode"] = args.negative_target_mode
+                    assert_no_unknown_place_substitution(rows[-1])
         return True
 
     for index in range(pairs):
@@ -995,45 +1041,53 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         )
         add_pair(index, "return_intent", return_pos, return_neg)
 
-        unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
-        unknown_text = (f"去地图没有的{fake_zh}，不要替换成{zh}。" if use_zh else
-                        f"Fly to the nonexistent {fake_en}; do not substitute the {en}.")
-        unknown_pos = (f"到{zh}核查后返航。", return_pos[1], return_pos[2], (), True)
+        unknown_ref = f"poi:{re.sub(r'\s+', ' ', fake_en.strip().lower())}"
+        known_named_ref = f"poi:{re.sub(r'\s+', '_', fake_en.strip().lower())}"
+        unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
+        zh_suffix = ["看看，再返航。", "查看一下后返回起飞点。", "前往确认情况，然后回家。", "过去查看并返航。"][index % 4]
+        en_suffix = ["and take a look, then return home.", "to check it and return to the launch point.", "to inspect it before heading back.", "for a look, then come back to base."][index % 4]
+        unknown_text = (f"去{fake_zh}{zh_suffix}" if use_zh else f"Go to {fake_en} {en_suffix}")
+        known_named_plan = {"plan_version":1,"goal":"return","steps":[S("s1","goto",{"target_ref":known_named_ref},"s2","s2"),H("s2")],"report":[]}
+        named_refs = (f"{known_named_ref} ({fake_zh} / {fake_en})",)
+        unknown_pos = (unknown_text, known_named_plan, named_refs, (), True)
         unknown_neg = (unknown_text, unknown_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "unknown_place", unknown_pos, unknown_neg, "ungrounded_place")
 
         deliver_plan = {"plan_version":1,"goal":"deliver","steps":[S("s1","deliver",{"target_ref":ref,"payload_ref":"payload:parcel"},"s2","s2"),H("s2")],"report":[]}
-        deliver_ok = (f"把包裹投放到{zh}后返航。" if use_zh else f"Deliver the parcel to the {en} and return home.")
-        deliver_bad = (f"把包裹投放到{zh}，但本机没有载荷投送能力。" if use_zh else f"Deliver the parcel to the {en}; payload drop is unavailable.")
+        deliver_ok = (f"把包裹投到{zh}，然后返航。" if use_zh else f"Drop the parcel at the {en}, then return home.")
+        deliver_bad = deliver_ok
         deliver_positive = (deliver_ok, deliver_plan, refs_for(ref, zh, en, alias), ("payload_drop",), True)
         deliver_negative = (deliver_bad, deliver_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "missing_payload_drop", deliver_positive, deliver_negative, "missing_capability")
 
-        hover_plan = {"plan_version":1,"goal":"hover","steps":[S("s1","hover",{"region":zone},"s2","s2"),H("s2")],"report":[]}
-        fixed_safe = (f"固定翼飞越{zone_zh}后返航。" if use_zh else f"A fixed-wing aircraft flies over the {zone_en} and returns home.")
-        fixed_bad = (f"固定翼在{zone_zh}上空悬停。" if use_zh else f"A fixed-wing aircraft should hover over the {zone_en}.")
+        hover_plan = {"plan_version":1,"goal":"hover","steps":[S("s1","hover",{"region":zone,"duration_s":60},"s2","s2"),H("s2")],"report":[]}
+        fixed_safe = (f"在{zone_zh}上空悬停一分钟。" if use_zh else f"Hover over the {zone_en} for one minute.")
+        fixed_bad = fixed_safe
         fixed_safe_plan = {"plan_version":1,"goal":"fixed wing transit","steps":[S("s1","goto",{"target_ref":zone},"s2","s2"),H("s2")],"report":[]}
-        fixed_positive = (fixed_safe, fixed_safe_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("airframe:fixed_wing",), True)
+        fixed_positive = (fixed_safe, hover_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("hover",), True)
         fixed_negative = (fixed_bad, hover_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
         add_pair(index, "fixed_wing_constraint", fixed_positive, fixed_negative, "missing_capability")
 
-        land_plan = {"plan_version":1,"goal":"fixed wing landing","steps":[S("s1","land",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
-        land_safe = (f"固定翼飞到{zone_zh}上空后返航。" if use_zh else f"The fixed-wing aircraft flies over the {zone_en} and returns home.", fixed_safe_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), ("airframe:fixed_wing",), True)
-        land_bad = (f"固定翼飞到{zh}上方定点降落。" if use_zh else f"A fixed-wing aircraft should land precisely on the {en}.", land_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
-        add_pair(index, "fixed_wing_target_land", land_safe, land_bad, "missing_capability")
+        land_plan = {"plan_version":1,"goal":"fixed wing landing","steps":[S("s1","land",{"target_ref":ref},None,None)],"report":[]}
+        land_text = (f"在{zh}定点降落。" if use_zh else f"Land precisely on the {en}.")
+        land_positive = (land_text, land_plan, refs_for(ref, zh, en, alias), ("landing_on_target",), True)
+        land_bad = (land_text, land_plan, refs_for(ref, zh, en, alias), ("airframe:fixed_wing",), False)
+        add_pair(index, "fixed_wing_target_land", land_positive, land_bad, "missing_capability")
 
-        alias_text = (f"到{alias}确认位置，再回基地。" if use_zh else f"Go to the {alias}, verify it, and return to base.")
-        alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
-        alias_pair = (alias_text, alias_plan, refs_for(ref, zh, en, alias), (), True)
-        alias_bad = (f"到{fake_zh}确认位置，再回基地。" if use_zh else f"Go to the {fake_en}, verify it, and return to base.", alias_plan, refs_for(ref, zh, en, alias), (), False)
+        alias_text = unknown_text
+        alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":known_named_ref},"s2","s2"),H("s2")],"report":[]}
+        alias_pair = (unknown_text, alias_plan, named_refs, (), True)
+        alias_unknown_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
+        alias_bad = (alias_text, alias_unknown_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "ref_alias", alias_pair, alias_bad, "ungrounded_place")
 
         query = "red car" if index % 2 else "bicycle"
         query_zh = "红色轿车" if query == "red car" else "自行车"
         count_plan = {"plan_version":1,"goal":"count","steps":[S("s1","count",{"region":zone,"query":query,"max_count":10},"s2","s2"),H("s2")],"report":[]}
         query_good = (f"数{zone_zh}里的{query_zh}，然后返航。" if use_zh else f"Count {query}s in the {zone_en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), True)
-        query_bad = (f"检查{zh}并返航。" if use_zh else f"Inspect the {en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), False)
-        add_pair(index, "query_grounding", query_good, query_bad, "ungrounded_query")
+        normalized = normalize_task(query_good[0])
+        if normalized not in held_out:
+            rows.append({"sample_id": f"plan-cx-r20-query_grounding-{index:04d}-0", "kind":"mission_plan", "world":"synthetic_plan_cx_r20", "family":"query_grounding", "task_text":query_good[0], "refs":list(query_good[2]), "pair_role":"positive", "capabilities":[], "expected_valid":True, "expected_findings":[], "prompt":plan_prompt(query_good[0], refs=query_good[2], prompt_variant=args.prompt_variant), "assistant_target":query_good[1], "_key":normalized})
 
     for row in rows:
         row.pop("_key", None)
@@ -1043,6 +1097,10 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--replay-planner-train", type=Path, default=None,
+        help="prepend mission_plan rows from a prior planner training split",
+    )
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261015)
@@ -1073,6 +1131,11 @@ def main(argv: list[str] | None = None) -> int:
         help="append the scalable r20 rows to the requested v4/v5 normal rows",
     )
     parser.add_argument(
+        "--negative-target-mode", choices=("safe_rejection", "rejected_candidate"),
+        default="safe_rejection",
+        help="target format for expected-invalid rows; r22 uses rejected_candidate",
+    )
+    parser.add_argument(
         "--eval-tasks",
         type=Path,
         nargs="+",
@@ -1092,13 +1155,22 @@ def main(argv: list[str] | None = None) -> int:
             (ROOT / "configs/onboard").glob("plan-eval-tasks*.json")
         ))
     held_out = {
-        " ".join(task["text"].split())
+        normalize_task(task["text"])
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
+    replay_count = 0
+    replay_ids: set[str] = set()
+    if args.replay_planner_train:
+        replay = load_replay_rows(args.replay_planner_train, {normalize_task(x) for x in held_out})
+        rows.extend(replay)
+        seen.update(normalize_task(row["task_text"]) for row in replay)
+        replay_ids = {str(row.get("sample_id")) for row in replay}
+        replay_count = len(replay)
+        args.rows += replay_count
     if args.version == "v5":
         rows = v5_rows(args, held_out, labels)
     if args.r20_intent_pairs:
@@ -1126,9 +1198,10 @@ def main(argv: list[str] | None = None) -> int:
         text = zh if rng.random() < 0.5 else en
         text = " ".join(text.split())
         steps, refs = localise_places(rng, steps, text, labels)
-        if text in held_out or text in seen:
+        task_key = normalize_task(text)
+        if task_key in held_out or task_key in seen:
             continue
-        seen.add(text)
+        seen.add(task_key)
         plan = {"plan_version": 1, "goal": en.rstrip(".")[:160], "steps": steps, "report": report}
         validate_mission_plan(plan)
         sample_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
@@ -1145,7 +1218,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.r20_plan_intent and args.r20_plan_intent_mix:
         for row in rows:
-            row.setdefault("family", "v4_backbone")
+            # Preserve replay rows byte-for-byte; only tag newly generated rows.
+            if "family" not in row and str(row.get("sample_id")) not in replay_ids:
+                row["family"] = "v4_backbone"
     splits = {"train": rows[: args.rows], "val": rows[args.rows :]}
     manifest = {
         "version": args.version,
@@ -1155,6 +1230,9 @@ def main(argv: list[str] | None = None) -> int:
         "first_skill_counts": {},
         "final_skill_counts": {},
     }
+    if replay_count:
+        manifest["replay_planner_train_rows"] = replay_count
+        manifest["replay_planner_train_path"] = str(args.replay_planner_train)
     if args.prompt_variant != "default":
         manifest["prompt_variant"] = args.prompt_variant
     if args.version == "v5":
@@ -1171,8 +1249,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.r20_plan_intent:
         manifest["r20_plan_intent_pairs_per_family"] = args.r20_plan_intent_count
         manifest["family_counts"] = {
-            name: dict(sorted(Counter(row["family"] for row in part).items()))
+            name: dict(sorted(Counter(row.get("family", "r14_replay") for row in part).items()))
             for name, part in splits.items()
+        }
+    if args.negative_target_mode == "rejected_candidate":
+        checked = sum(row.get("expected_valid") is False for row in splits["train"])
+        for row in splits["train"]:
+            assert_no_unknown_place_substitution(row)
+        manifest["negative_target_safety"] = {
+            "mode": args.negative_target_mode,
+            "negative_rows_checked": checked,
+            "known_ref_substitution_rows": 0,
         }
     for name, part in splits.items():
         sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]

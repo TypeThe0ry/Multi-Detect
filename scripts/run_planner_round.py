@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resumable r21 planner SFT, LoRA, GGUF and evaluation pipeline."""
+"""Resumable planner SFT, LoRA, GGUF and evaluation pipeline."""
 from __future__ import annotations
 
 import argparse
@@ -114,7 +114,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     gguf = out / "slow-system-Q5_K_M.gguf"
     report = EVAL_ROOT
     data_cmd = [sys.executable, str(ROOT / "scripts/build_plan_sft.py"), "--output", str(dataset), "--version", "v4", "--rows", str(args.rows), "--val-rows", str(args.val_rows), "--r20-plan-intent", "--r20-plan-intent-count", str(args.intent_count), "--r20-plan-intent-mix"]
-    train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", "1", "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", "1e-4", "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
+    if args.replay_planner_train:
+        data_cmd += ["--replay-planner-train", str(args.replay_planner_train)]
+    if args.negative_target_mode != "safe_rejection":
+        data_cmd += ["--negative-target-mode", args.negative_target_mode]
+    train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", "1", "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(args.learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
     if R14_ADAPTER.is_dir():
         train += ["--init-adapter", str(R14_ADAPTER)]
     export = [py, str(ROOT / "scripts/export_slow_system_r15.py"), "--base", str(BASE_CACHE), "--adapter", str(adapter / "adapter"), "--output", str(out), "--quantization", "Q5_K_M", "--drop-intermediates"]
@@ -131,6 +135,7 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
 
 
 def main(argv=None) -> int:
+    global EVAL_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=("all", *STAGES), default="all")
     parser.add_argument("--dry-run", action="store_true")
@@ -138,6 +143,10 @@ def main(argv=None) -> int:
     parser.add_argument("--rows", type=int, default=2000)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--intent-count", type=int, default=40)
+    parser.add_argument("--replay-planner-train", type=Path, default=None)
+    parser.add_argument("--negative-target-mode", choices=("safe_rejection", "rejected_candidate"), default="safe_rejection")
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
     parser.add_argument("--min-free-disk-gb", type=float, default=12)
     parser.add_argument("--min-memory-gb", type=float, default=8)
     parser.add_argument("--no-lock", action="store_true")
@@ -145,6 +154,7 @@ def main(argv=None) -> int:
     parser.add_argument("--force-stage", choices=STAGES, help="invalidate this stage and all later stages before running")
     parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
     args = parser.parse_args(argv)
+    EVAL_ROOT = args.eval_root.resolve()
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1:
         parser.error("row counts must be positive (val rows may be zero)")
     out = args.out.resolve()
