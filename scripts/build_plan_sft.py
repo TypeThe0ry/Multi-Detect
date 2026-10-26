@@ -1042,11 +1042,14 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         add_pair(index, "return_intent", return_pos, return_neg)
 
         unknown_ref = f"poi:{re.sub(r'\s+', ' ', fake_en.strip().lower())}"
+        known_named_ref = f"poi:{re.sub(r'\s+', '_', fake_en.strip().lower())}"
         unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
         zh_suffix = ["看看，再返航。", "查看一下后返回起飞点。", "前往确认情况，然后回家。", "过去查看并返航。"][index % 4]
         en_suffix = ["and take a look, then return home.", "to check it and return to the launch point.", "to inspect it before heading back.", "for a look, then come back to base."][index % 4]
         unknown_text = (f"去{fake_zh}{zh_suffix}" if use_zh else f"Go to {fake_en} {en_suffix}")
-        unknown_pos = (f"去{zh}{zh_suffix}" if use_zh else f"Go to the {en} {en_suffix}", return_pos[1], refs_for(ref, zh, en, alias), (), True)
+        known_named_plan = {"plan_version":1,"goal":"return","steps":[S("s1","goto",{"target_ref":known_named_ref},"s2","s2"),H("s2")],"report":[]}
+        named_refs = (f"{known_named_ref} ({fake_zh} / {fake_en})",)
+        unknown_pos = (unknown_text, known_named_plan, named_refs, (), True)
         unknown_neg = (unknown_text, unknown_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "unknown_place", unknown_pos, unknown_neg, "ungrounded_place")
 
@@ -1072,8 +1075,8 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         add_pair(index, "fixed_wing_target_land", land_positive, land_bad, "missing_capability")
 
         alias_text = unknown_text
-        alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
-        alias_pair = (f"到{alias}确认位置，再回基地。" if use_zh else f"Go to the {alias}, verify it, and return to base.", alias_plan, refs_for(ref, zh, en, alias), (), True)
+        alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":known_named_ref},"s2","s2"),H("s2")],"report":[]}
+        alias_pair = (unknown_text, alias_plan, named_refs, (), True)
         alias_unknown_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
         alias_bad = (alias_text, alias_unknown_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "ref_alias", alias_pair, alias_bad, "ungrounded_place")
