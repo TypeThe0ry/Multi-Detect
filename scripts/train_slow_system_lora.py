@@ -142,6 +142,41 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             from multidetect.autonomy.mission_planner import check_plan_refs
 
             capabilities = normalize_capabilities(row.get("capabilities", ()))
+            task_text = str(row.get("task_text", ""))
+            task_fold = task_text.casefold()
+            known_refs = {str(ref).split(" ", 1)[0] for ref in row.get("refs", ())}
+            # Every semantic value in a target must be grounded in the request,
+            # the supplied refs, or the declared capability contract.
+            for step in row["assistant_target"].get("steps", ()):
+                params = step.get("params", {})
+                target_ref = params.get("target_ref") or params.get("region")
+                if isinstance(target_ref, str) and target_ref.startswith("poi:"):
+                    ref_name = target_ref[4:].replace("_", " ").casefold()
+                    if (row.get("refs") and target_ref not in known_refs
+                            and ref_name not in task_fold
+                            and not (row.get("expected_valid") is False
+                                     and "ungrounded_place" in row.get("expected_findings", ()) )):
+                        raise ValueError(f"target {row['sample_id']} invents ungrounded place: {target_ref}")
+                query = params.get("query")
+                if query is not None and str(query).strip() and row.get("family") in {
+                    "query_grounding", "missing_payload_drop", "unknown_place", "ref_alias",
+                    "fixed_wing_constraint", "fixed_wing_target_land", "return_intent",
+                }:
+                    q = str(query).casefold()
+                    query_aliases = {
+                        "bicycle": ("bicycle", "bicycles", "自行车"),
+                        "red car": ("red car", "红色轿车"),
+                        "fire truck": ("fire truck", "消防车"),
+                        "ambulance": ("ambulance", "救护车"),
+                    }
+                    grounded_terms = query_aliases.get(q, (q, q.rstrip("s")))
+                    if not any(term in task_fold for term in grounded_terms):
+                        raise ValueError(f"target {row['sample_id']} invents ungrounded query: {query}")
+                payload_ref = params.get("payload_ref")
+                if payload_ref is not None and "parcel" in str(payload_ref).casefold() and not any(
+                    token in task_fold for token in ("parcel", "package", "包裹")
+                ):
+                    raise ValueError(f"target {row['sample_id']} invents ungrounded payload: {payload_ref}")
             findings = capability_violations(
                 row["assistant_target"],
                 capabilities,
