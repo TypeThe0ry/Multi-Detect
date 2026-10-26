@@ -81,7 +81,7 @@ index，固定翼 index 只含一个世界；两次 collect 共用 round-state.j
 
 ## r21id identity 离线评测用法
 
-先用 `scripts/build_slow_system_sft.py` 生成 r21id 数据集，评测只读取其中的 `test.jsonl`。分别用冻结的 r18 与候选模型运行 `scripts/eval_slow_system.py`，保留其 JSON 输出（顶层 `rows`，每行含 `sample_id`、`expected`、`decision`）。评测脚本不加载模型、不做推理；它把预测行按 `sample_id` 与 test 行合并，从数据行读取 `view` 和 `target_id`。若这些字段放在 `teacher_intent.view`、`metadata.target_id` 中也可读取。缺少任一字段会报错，不能用猜测补齐；当前通用 SFT builder 生成的普通行不自动推导四视角，正式评测数据需在行中携带采集侧标注的视角和真目标 ID。
+先用 `scripts/build_slow_system_sft.py` 生成 r21id 数据集，评测只读取其中的 `test.jsonl`。分别用冻结的 r18 与候选模型运行 `scripts/eval_slow_system.py`，保留其 JSON 输出（顶层 `rows`，每行含 `sample_id`、`expected`、`decision`）。评测脚本不加载模型、不做推理；它把预测行按 `sample_id` 与 test 行合并，从数据行读取 `view` 和 `target_id`。若这些字段放在 `teacher_intent.view`、`metadata.target_id` 中也可读取。缺少 `target_id` 会报错；`view: null` 的行会跳过并计数，四视角不全的实例也会在报告中单独计数。正式评测数据需在行中携带采集侧标注的视角和真目标 ID。
 
 ```powershell
 python scripts/eval_r21id_identity.py `

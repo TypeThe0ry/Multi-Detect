@@ -41,7 +41,7 @@ def test_evaluate_failure_names_r18_retention(tmp_path):
 
 
 def test_requires_view_and_target_id_metadata():
-    with pytest.raises(ValueError, match="lacks view/target_id"):
+    with pytest.raises(ValueError, match="lacks target_id"):
         _merge([{"sample_id": "x"}], [{"sample_id": "x", "decision": "confirm_target"}])
 
 
@@ -58,3 +58,17 @@ def test_rejects_candidate_with_more_distractor_accepts_than_r18(tmp_path):
     assert result["distractor_gate_vs_r18"]["pass"] is False
     assert "候选干扰物接受率高于 r18" in result["reasons"][-1]
     assert result["decision"] == "保留 r18"
+
+
+def test_null_view_rows_are_counted_and_incomplete_instances_reported(tmp_path):
+    rows = _rows()
+    rows[0]["view"] = None
+    ds = tmp_path / "test.jsonl"
+    ds.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    predictions = [{"sample_id": r["sample_id"], "decision": r["expected"]} for r in rows]
+    first, second = tmp_path / "r18.json", tmp_path / "candidate.json"
+    first.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+    second.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+    result = evaluate(ds, first, second)
+    assert result["null_view_rows"] == {"r18": 1, "candidate": 1}
+    assert result["incomplete_instances"] == {"r18": 1, "candidate": 1}

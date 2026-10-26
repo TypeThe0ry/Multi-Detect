@@ -1719,6 +1719,7 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         raise ValueError("task_intent.observation observation_frames must be positive")
     view_rows = intent.get("views", intent.get("observation_views", ()))
     observation_waypoints = []
+    observation_view_names = []
     if isinstance(view_rows, list) and view_rows:
         for row in view_rows:
             if not isinstance(row, dict):
@@ -1731,6 +1732,7 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
                 float(view_waypoint.get("x_east_m", 0.0)),
                 -float(view_waypoint.get("z_up_m", 0.0) or altitude_m),
             ))
+            observation_view_names.append(str(row.get("view", len(observation_view_names))))
     elif home_ned is not None:
         observation_waypoints.append((home_ned[0], home_ned[1], -altitude_m))
     return ExpertSearchPolicy(
@@ -1742,6 +1744,7 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         obstacles=obstacles,
         observation_frames=frames if observation_waypoints else 0,
         observation_waypoints=tuple(observation_waypoints),
+        observation_view_names=tuple(observation_view_names),
         fixed_wing_orbit_radius_m=(
             _airframe_profile(plan.airframe, plan.takeoff_method).orbit_radius(80.0)
             if _airframe_profile(plan.airframe, plan.takeoff_method)
@@ -1934,6 +1937,11 @@ def _record_policy_step(
         obs_after=obs_after,
         labels=labels,
         timing=timing,
+        observation_view=(
+            str(labels.get("observation_view"))
+            if isinstance(labels, dict) and labels.get("observation_view") is not None
+            else None
+        ),
     )
     return not _is_terminal_action(action)
 
