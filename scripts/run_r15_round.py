@@ -369,7 +369,7 @@ class DockerUnavailable(RuntimeError):
 def _docker_daemon_reachable() -> bool:
     try:
         result = subprocess.run(
-            ["docker", "info"], capture_output=True, text=True, timeout=10, check=False
+            ["docker", "info"], capture_output=True, text=True, timeout=30, check=False
         )
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -378,7 +378,7 @@ def _docker_daemon_reachable() -> bool:
 
 def _wait_for_docker(wait_minutes: float, *, interval_seconds: float = 30.0) -> bool:
     deadline = time.monotonic() + max(0.0, wait_minutes) * 60.0
-    while _docker_daemon_reachable():
+    if _docker_daemon_reachable():
         return True
     while time.monotonic() < deadline:
         time.sleep(min(interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -799,13 +799,19 @@ class Round:
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
         attempt = 0
+        try_index = 0
+        docker_outages = 0
         while attempt <= self.a.retries:
             if getattr(self, "_docker_abort", None) and self._docker_abort.is_set():
                 raise DockerUnavailable("Docker daemon unavailable; collect stage stopped")
             if not _docker_daemon_reachable():
+                docker_outages += 1
+                if docker_outages > 5:
+                    raise DockerUnavailable("Docker daemon repeatedly flapped during collection")
                 if not _wait_for_docker(getattr(self.a, "docker_wait_minutes", 20)):
                     raise DockerUnavailable("Docker daemon unavailable after configured wait")
-            attempt_dir = target / f"attempt-{attempt}"
+            attempt_dir = target / f"attempt-{try_index}"
+            try_index += 1
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
             completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
@@ -839,9 +845,13 @@ class Round:
                 "requires runtime.vehicle.model",
             )
             if not _docker_daemon_reachable():
+                docker_outages += 1
+                if docker_outages > 5:
+                    raise DockerUnavailable("Docker daemon repeatedly flapped during collection")
                 if not _wait_for_docker(getattr(self.a, "docker_wait_minutes", 20)):
                     raise DockerUnavailable("Docker daemon unavailable after configured wait")
                 continue
+            docker_outages = 0
             if any(marker in output for marker in deterministic_markers):
                 return {
                     "status": "failed",

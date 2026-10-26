@@ -254,9 +254,15 @@ def test_docker_recovery_mid_wait_runs_episode_without_losing_attempt(monkeypatc
     monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
     monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
     monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
-    monkeypatch.setattr(r15.subprocess, "run", lambda command, **_kw: (
-        runs.append(command) or type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
-    ))
+
+    def fail_attempt(command, **_kwargs):
+        runs.append(command)
+        output_dir = Path(command[-1])
+        output_dir.mkdir(parents=True)
+        (output_dir / "partial.txt").write_text(str(len(runs)))
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(r15.subprocess, "run", fail_attempt)
     runner = Round.__new__(Round)
     runner.a = Namespace(retries=0, docker_wait_minutes=20)
     result = runner._collect_one(
@@ -264,6 +270,72 @@ def test_docker_recovery_mid_wait_runs_episode_without_losing_attempt(monkeypatc
     )
     assert result == {"status": "failed", "attempts": 1}
     assert len(runs) == 1
+    first_dir = Path(runs[0][-1])
+    assert first_dir.name == "attempt-0"
+    assert (first_dir / "partial.txt").read_text() == "1"
+
+
+def test_docker_recovery_after_attempt_uses_new_preserved_output_directory(monkeypatch, tmp_path):
+    import json
+    import scripts.run_r15_round as r15
+
+    runs = []
+    health = iter([True, False, True, True])
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+
+    def fail_attempt(command, **_kwargs):
+        runs.append(command)
+        output_dir = Path(command[-1])
+        output_dir.mkdir(parents=True)
+        if len(runs) == 1:
+            (output_dir / "partial.txt").write_text("partial")
+        else:
+            episode = output_dir / "episode-test" / "episode.json"
+            episode.parent.mkdir(parents=True)
+            episode.write_text('{"status":"complete"}')
+        return type(
+            "Completed",
+            (),
+            {"returncode": 0 if len(runs) == 2 else 1, "stdout": "", "stderr": ""},
+        )()
+
+    monkeypatch.setattr(r15.subprocess, "run", fail_attempt)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=0, docker_wait_minutes=20)
+    result = runner._collect_one(
+        "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+    )
+
+    assert result["status"] == "complete"
+    previous, retry = (Path(command[-1]) for command in runs)
+    assert previous != retry
+    assert previous.name == "attempt-0" and retry.name == "attempt-1"
+    assert (previous / "partial.txt").read_text() == "partial"
+    assert json.loads((retry / "episode-test" / "episode.json").read_text())["status"] == "complete"
+
+
+def test_repeated_docker_flaps_abort_after_bounded_outages(monkeypatch, tmp_path):
+    import pytest
+    import scripts.run_r15_round as r15
+
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: True)
+    monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: True)
+    monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: None)
+
+    def fail_and_drop_daemon(command, **_kwargs):
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+    health = iter([True, False] * 6)
+    monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: next(health))
+    monkeypatch.setattr(r15.subprocess, "run", fail_and_drop_daemon)
+    runner = Round.__new__(Round)
+    runner.a = Namespace(retries=20, docker_wait_minutes=20)
+    with pytest.raises(r15.DockerUnavailable, match="repeatedly flapped"):
+        runner._collect_one(
+            "w:0", ["python", "collect.py", "--container-prefix", "worker", "--out", str(tmp_path)], tmp_path
+        )
 
 
 def test_normal_collector_failures_consume_configured_attempts(monkeypatch, tmp_path):
