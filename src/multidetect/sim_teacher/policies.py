@@ -366,6 +366,7 @@ class ExpertSearchPolicy:
     resync_yaw_deg: float = 5.0
     observation_frames: int = 0
     observation_waypoints: tuple[tuple[float, float, float], ...] = ()
+    observation_view_names: tuple[str, ...] = ()
     fixed_wing_orbit_radius_m: float | None = None
 
     def __post_init__(self) -> None:
@@ -1027,10 +1028,31 @@ class ExpertSearchPolicy:
             "search_pass_outcome": self._search_outcome,
             **(
                 {
-                    "observation_view_index": self._observation_sample_index,
-                    "observation_frame_index": self._observation_sample_count,
+                    "observation_view_index": (
+                        self._observation_sample_index
+                        if self._observation_sample_index is not None
+                        else self._observation_index
+                    ),
+                    **(
+                        {"observation_view": self.observation_view_names[
+                            self._observation_sample_index
+                            if self._observation_sample_index is not None
+                            else self._observation_index
+                        ]}
+                        if len(self.observation_view_names) > (
+                            self._observation_sample_index
+                            if self._observation_sample_index is not None
+                            else self._observation_index
+                        )
+                        else {}
+                    ),
+                    **(
+                        {"observation_frame_index": self._observation_sample_count}
+                        if self._observation_sample_count is not None
+                        else {}
+                    ),
                 }
-                if self._observation_sample_index is not None
+                if self.observation_waypoints
                 else {}
             ),
         }

@@ -1295,6 +1295,17 @@ class Round:
             self.a.r12_baseline,
             "artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json",
         )
+        baseline_label = self.a.baseline_label
+        candidate_label = self.a.candidate_label
+        # Keep the legacy flag names, but make accidental stale labels visible when
+        # a later round is used as the baseline.
+        baseline_name_text = str(self.a.r12_baseline).lower().replace("\\", "/")
+        baseline_warning = None
+        if baseline_label == "r12" and any(token in baseline_name_text for token in ("r18", "r19", "r20")):
+            baseline_warning = (
+                f"警告：基线标签仍为 r12，但实际基线路径为 `{baseline_path}`。"
+            )
+            print(baseline_warning)
         r12_v3 = identity_summary(json.loads(baseline_path.read_text(encoding="utf-8")))
         v1_baseline_path = self.data_path(
             self.a.r12_v1_baseline, "artifacts/benchmarks/flight-identity-eval-v1-r12.json"
@@ -1321,16 +1332,18 @@ class Round:
             {k: (v if v is not None else -1) for k, v in new.items()},
         )
         lines = [
-            "# r15 慢模型分层验收报告",
+            f"# {candidate_label} 慢模型分层验收报告（对比 {baseline_label}）",
             "",
             "## 总体判定",
             "",
-            f"**{'建议替换 r12' if approved else '暂不替换 r12'}**。",
+            f"**{'建议替换 ' + baseline_label if approved else '暂不替换 ' + baseline_label}**。",
             "",
         ]
+        if baseline_warning:
+            lines += [baseline_warning, ""]
         if reasons:
             lines += ["未通过项："] + [f"- {item}" for item in reasons] + [""]
-        lines += ["## 指标对比", "", "| 指标 | r12 | r15 |", "|---|---:|---:|"]
+        lines += ["## 指标对比", "", f"| 指标 | {baseline_label} | {candidate_label} |", "|---|---:|---:|"]
         for key in old:
             lines.append(
                 f"| {key} | {old[key] if old[key] is not None else '缺失'} | "
@@ -1354,6 +1367,14 @@ class Round:
                     "sha256": sha256(report),
                     "approved": approved,
                     "reasons": reasons,
+                    "baseline_label": baseline_label,
+                    "candidate_label": candidate_label,
+                    "baseline_json": {
+                        "v3": str(baseline_path),
+                        "v1": str(v1_baseline_path),
+                        "v3_sha256": sha256(baseline_path),
+                        "v1_sha256": sha256(v1_baseline_path),
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -1532,6 +1553,8 @@ def main():
         type=Path,
         default=ROOT / "artifacts/benchmarks/flight-identity-eval-v2-v3prop-r12-fast.json",
     )
+    p.add_argument("--baseline-label", default="r12", help="report label for --r12-baseline")
+    p.add_argument("--candidate-label", default="r15", help="report label for this round")
     p.add_argument(
         "--holdout-from",
         type=Path,

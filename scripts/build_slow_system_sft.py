@@ -320,6 +320,8 @@ def _row(
     focus_index: int | None = None,
     visible_fraction: float | None = None,
     task_category: str | None = None,
+    view_metadata: dict | None = None,
+    target_id: str | None = None,
 ) -> dict:
     boxes = candidate_boxes if candidate_boxes is not None else ([] if box is None else [box])
     candidates = [
@@ -351,7 +353,70 @@ def _row(
     }
     if task_category is not None:
         row["task_category"] = task_category
+    if view_metadata is not None:
+        row.update(view_metadata)
+        row["target_id"] = str(target_id) if target_id is not None else None
     return row
+
+
+def _derive_view(obs: dict, sidecar: dict, *, target_id: str | None, fixed_wing: bool = False, tolerance_m: float = 15.0) -> dict:
+    """Match an episode NED pose to its teacher-intent waypoint."""
+    result = {"view": None, "view_distance_m": None, "target_id": target_id}
+    if fixed_wing:
+        return result
+    pose = (obs.get("pose") or {}).get("local_ned_m")
+    observation = sidecar.get("observation", {}) if isinstance(sidecar, dict) else {}
+    views = observation.get("views", observation.get("observation_views", ())) if isinstance(observation, dict) else ()
+    if not isinstance(pose, (list, tuple)) or len(pose) < 3 or not isinstance(views, list):
+        return result
+    try:
+        north, east, down = (float(value) for value in pose[:3])
+    except (TypeError, ValueError):
+        return result
+    altitude = float(observation.get("camera_altitude_m", 0.0) or 0.0)
+    nearest: tuple[float, str] | None = None
+    for item in views:
+        if not isinstance(item, dict) or not item.get("view"):
+            continue
+        waypoint = item.get("observation_waypoint", item.get("waypoint", {}))
+        if not isinstance(waypoint, dict):
+            continue
+        try:
+            waypoint_north = float(waypoint.get("y_north_m", 0.0))
+            waypoint_east = float(waypoint.get("x_east_m", 0.0))
+            waypoint_up = float(waypoint.get("z_up_m", 0.0) or altitude)
+            distance = math.sqrt(
+                (north - waypoint_north) ** 2
+                + (east - waypoint_east) ** 2
+                + (down + waypoint_up) ** 2
+            )
+        except (TypeError, ValueError):
+            continue
+        if nearest is None or distance < nearest[0]:
+            nearest = distance, str(item["view"])
+    if nearest is not None:
+        result["view_distance_m"] = round(nearest[0], 3)
+        if nearest[0] <= tolerance_m:
+            result["view"] = nearest[1]
+    return result
+
+
+def _scenario_is_fixed_wing(world: str, directories: tuple[Path, ...]) -> bool:
+    for directory in directories:
+        scenario_path = directory / f"{world}.scenario.json"
+        if not scenario_path.is_file():
+            continue
+        try:
+            scenario = _json(scenario_path)
+            runtime_rel = scenario.get("channels", {}).get("runtime_input", {}).get("path")
+            if not runtime_rel:
+                continue
+            runtime = _json((directory / runtime_rel).resolve())
+            model = str((runtime.get("vehicle") or {}).get("model") or "").lower()
+            return "fixed_wing" in model or "cessna" in model
+        except (OSError, ValueError, TypeError):
+            continue
+    return False
 
 
 def _sample_content_key(row: dict) -> str:
@@ -430,6 +495,14 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                 continue
             truth = {} if urban else _json(truth_path)
             world_info = (world_metadata or {}).get(world, {})
+            sidecar_path = next(
+                (directory / f"{world}.teacher_intent.json" for directory in truth_dirs
+                 if (directory / f"{world}.teacher_intent.json").is_file()),
+                None,
+            )
+            sidecar = _json(sidecar_path) if sidecar_path is not None else None
+            if sidecar_path is not None:
+                source_hashes[_relative(sidecar_path)] = _sha(sidecar_path)
             fuel = truth.get("asset_mode") == "fuel_v1" or world_info.get("asset_mode") == "fuel_v1"
             targets = _urban_target(world, sdf_path) if urban else truth.get("targets", [])
             requested = None
@@ -449,7 +522,14 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                 source_hashes[_relative(truth_path)] = _sha(truth_path)
             if sdf_path.is_file():
                 source_hashes[_relative(sdf_path)] = _sha(sdf_path)
-            episode_task = str(_json(metadata).get("task_text") or "")
+            episode_info = _json(metadata)
+            episode_task = str(episode_info.get("task_text") or "")
+            airframe_name = str(episode_info.get("airframe") or "").lower()
+            fixed_wing = (
+                "fixed_wing" in airframe_name
+                or "cessna" in airframe_name
+                or _scenario_is_fixed_wing(world, truth_dirs)
+            )
             for line in steps.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
@@ -481,6 +561,15 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                     frame = ep / Path(rgb.replace("\\", "/"))
                     if not frame.is_file():
                         continue
+                    if sidecar is not None:
+                        step = dict(step)
+                        view_obs = _derive_view(
+                            obs,
+                            sidecar,
+                            target_id=None,
+                            fixed_wing=fixed_wing or str(world_info.get("airframe_category", "")).lower() == "fixed_wing",
+                        )
+                        step["_view_metadata"] = view_obs
                     with Image.open(frame) as opened:
                         if opened.mode != "RGB":
                             continue
@@ -580,7 +669,7 @@ def _counterfactual_negative_focus(named: dict, others: list[tuple[int, dict]], 
 def _proposal_counterfactual_negative(
     groups, stats: Counter, proposals, index: int, named_obj: dict, task: str, covered_object, *,
     held_out: frozenset[str], min_side_px: float, world: str, split: str, frame: Path,
-    size: tuple[int, int], campaign: str,
+    size: tuple[int, int], campaign: str, view_metadata: dict | None = None,
 ) -> None:
     others = []
     for j, other_box in enumerate(proposals):
@@ -601,6 +690,7 @@ def _proposal_counterfactual_negative(
         target=_decision("reject_track", track="track-1", reason=_fuel_reject_reason(record, named_obj["record"], task)),
         kind="reject_track", campaign=campaign, label_type="proposal_counterfactual_negative",
         candidate_boxes=shown, focus_index=0, task_category=_target_category(named_obj["record"]),
+        view_metadata=view_metadata, target_id=record.get("target_id"),
     )
     _append_generated_row(groups, "reject_track", row, stats)
 
@@ -611,6 +701,7 @@ def _proposal_rows(
     iou_threshold: float, min_side_px: float, confirm_min_side_px: float,
     held_out: frozenset[str] = frozenset(), counterfactual: bool = False, variant: int = 0,
     task_category: str | None = None, counterfactual_negatives: bool = False,
+    view_metadata: dict | None = None,
 ) -> None:
     """Label live FAST proposals by the segmentation object they cover.
 
@@ -665,12 +756,14 @@ def _proposal_rows(
                     target=_identity_match(box, track, confirm_min_side_px), kind="match", campaign=campaign,
                     label_type="proposal_counterfactual", candidate_boxes=shown, focus_index=0,
                     task_category=_target_category(best["record"]),
+                    view_metadata=view_metadata, target_id=best.get("target_id"),
                 ))
                 if counterfactual_negatives:
                     _proposal_counterfactual_negative(
                         groups, stats, proposals, index, best, other_task, covered_object,
                         held_out=held_out, min_side_px=min_side_px, world=world, split=split,
                         frame=frame, size=size, campaign=campaign,
+                        view_metadata=view_metadata,
                     )
         else:
             label_type = "proposal_scenery"
@@ -682,6 +775,8 @@ def _proposal_rows(
             world=world, split=split, frame=frame, task_text=task, box=box, size=size, target=target,
             kind=kind, campaign=campaign, label_type=label_type, candidate_boxes=shown, focus_index=0,
             task_category=task_category,
+            view_metadata=view_metadata,
+            target_id=best.get("target_id") if best is not None else None,
         ))
 
 
@@ -736,6 +831,7 @@ def build_dataset(
     for holdout_index in holdout_from:
         source_hashes[_relative(holdout_index)] = _sha(holdout_index)
     buckets: dict[str, dict[str, list[dict]]] = {split: defaultdict(list) for split in SPLITS}
+    view_metadata_by_image: dict[str, dict] = {}
     stats = Counter()
     if proposals is not None:
         source_hashes[_relative(proposals)] = _sha(proposals)
@@ -761,6 +857,10 @@ def build_dataset(
         task = (str(slug.get("task_text_en") or slug["task_text"]) if variant % 2 else slug["task_text"]) if fuel else _task_text(slug, variant)
         labels = step.get("labels") if isinstance(step, dict) else {}
         labels = labels if isinstance(labels, dict) else {}
+        view_metadata = step.get("_view_metadata") if isinstance(step, dict) else None
+        view_metadata = view_metadata if isinstance(view_metadata, dict) else None
+        if view_metadata is not None:
+            view_metadata_by_image[_relative(frame)] = view_metadata
         expert_phase = str(labels.get("phase") or "").casefold() if side == "after" else ""
         expert_target_in_fov = labels.get("target_in_fov") if side == "after" else None
         try:
@@ -783,7 +883,7 @@ def build_dataset(
             if expert_phase == "scan" and expert_target_in_fov is False:
                 reason = "Expert scan reports no visible target; continue searching."
             target = _decision("search_region", region=region, reason=reason)
-            buckets[split]["search_region"].append(_row(world=world, split=split, frame=frame, task_text=task, box=None, size=size, target=target, kind="search_region", campaign=campaign, label_type="no_candidate", task_category=row_task_category))
+            buckets[split]["search_region"].append(_row(world=world, split=split, frame=frame, task_text=task, box=None, size=size, target=target, kind="search_region", campaign=campaign, label_type="no_candidate", task_category=row_task_category, view_metadata=view_metadata))
             continue
         projected_boxes = [item["box"] for item in projected]
         for p_index, p in enumerate(projected):
@@ -837,7 +937,7 @@ def build_dataset(
                 kind = "reject_track"
             else:
                 continue
-            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category))
+            buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category, view_metadata=view_metadata, target_id=p["target"].get("target_id")))
         if fuel and scene is not None and _relative(frame) in proposal_cache:
             _proposal_rows(
                 buckets[split], stats, proposal_cache[_relative(frame)], scene, slug=slug, task=task,
@@ -847,6 +947,7 @@ def build_dataset(
                 held_out=held_out_slugs if split != "test" else frozenset(),
                 counterfactual=counterfactual_tasks and split != "test", variant=variant,
                 task_category=row_task_category, counterfactual_negatives=counterfactual_negatives,
+                view_metadata=view_metadata,
             )
         if variant % 12 == 0:
             background = _background_box(rng, projected, *size)
@@ -901,6 +1002,13 @@ def build_dataset(
         # has no test worlds; its test file is simply empty).
         if not rows and split in set(world_splits.values()):
             raise ValueError(f"No samples for {split}")
+    for rows in selected.values():
+        for row in rows:
+            metadata = view_metadata_by_image.get(str(row.get("image_path")))
+            if metadata is not None:
+                row.setdefault("view", metadata.get("view"))
+                row.setdefault("view_distance_m", metadata.get("view_distance_m"))
+                row.setdefault("target_id", None)
     seen = set()
     for split, rows in selected.items():
         selected[split] = rows = _dedupe_rows(rows, stats)

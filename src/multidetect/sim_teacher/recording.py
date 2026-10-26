@@ -315,6 +315,7 @@ class EpisodeRecorder:
         obs_after: dict[str, Any] | None = None,
         labels: dict[str, Any] | None = None,
         timing: dict[str, Any] | None = None,
+        observation_view: str | None = None,
     ) -> None:
         timing_data = dict(timing) if timing is not None else None
         frame_write_start = time.perf_counter_ns() if timing_data is not None else 0
@@ -337,6 +338,8 @@ class EpisodeRecorder:
             "obs_after": after,
             "labels": labels or {},
         }
+        if observation_view is not None:
+            row["observation_view"] = observation_view
         if timing_data:
             # The row must be serialized before the write duration is known;
             # reserve the compact field in the row and retain the measured value

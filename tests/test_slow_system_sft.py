@@ -34,6 +34,24 @@ def test_decision_labels_and_task_templates_are_schema_valid_and_unprivileged():
     assert any("\u7ea2\u8272" in builder._task_text(("red", "vehicle"), i) for i in (3, 4))
 
 
+def test_r21id_view_is_derived_from_synthetic_episode_and_sidecar(tmp_path):
+    sidecar = {"observation": {"camera_altitude_m": 12, "views": [
+        {"view": "front", "observation_waypoint": {"x_east_m": 24, "y_north_m": 0, "z_up_m": 0}},
+        {"view": "oblique", "observation_waypoint": {"x_east_m": 21.83, "y_north_m": -6.883, "z_up_m": 0}},
+    ]}}
+    episode = tmp_path / "gen_r21id_w0000" / "episode-001"
+    episode.mkdir(parents=True)
+    sidecar_path = tmp_path / "gen_r21id_w0000.teacher_intent.json"
+    sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+    step = {"obs_before": {"pose": {"local_ned_m": [-0.2, 24.1, -12]}}}
+    (episode / "steps.jsonl").write_text(json.dumps(step) + "\n", encoding="utf-8")
+    loaded_step = json.loads((episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    matched = builder._derive_view(loaded_step["obs_before"], builder._json(sidecar_path), target_id="target_true")
+    assert matched == {"view": "front", "view_distance_m": 0.224, "target_id": "target_true"}
+    far = builder._derive_view({"pose": {"local_ned_m": [100, 100, -12]}}, sidecar, target_id=None)
+    assert far["view"] is None and far["view_distance_m"] > 15
+
+
 def test_exact_duplicate_model_inputs_are_deduped_but_distinct_targets_survive(tmp_path, monkeypatch):
     from collections import Counter
 
