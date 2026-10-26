@@ -117,6 +117,33 @@ def test_eval_v2_is_disjoint_from_v1_and_generated_samples():
     assert not (generated & (v1 | v2))
 
 
+def test_replay_planner_rows_are_preserved_and_holdout_normalized():
+    workspace = ROOT / "tmp" / f"plan-sft-replay-{uuid.uuid4().hex}"
+    source = workspace / "source.jsonl"
+    output = workspace / "out"
+    try:
+        source.parent.mkdir(parents=True)
+        row = {
+            "sample_id": "replay-1", "kind": "mission_plan", "split": "train",
+            "task_text": "Replay a safe task", "prompt": "original prompt",
+            "assistant_target": {"plan_version": 1, "goal": "safe", "steps": [{"id": "s1", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}], "report": []},
+        }
+        source.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        assert build_plan_sft.main([
+            "--output", str(output), "--rows", "1", "--val-rows", "0",
+            "--replay-planner-train", str(source), "--r20-plan-intent",
+            "--r20-plan-intent-count", "1", "--r20-plan-intent-mix", "--require-skills",
+        ]) == 0
+        rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+        replayed = next(item for item in rows if item["sample_id"] == "replay-1")
+        assert replayed == row
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["replay_planner_train_rows"] == 1
+        assert manifest["family_counts"]["train"]["r14_replay"] == 1
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
 @pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"

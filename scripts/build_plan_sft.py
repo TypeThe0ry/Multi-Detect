@@ -532,6 +532,23 @@ def normalize_task(text: str) -> str:
     return "".join(char for char in text if char.isalnum())
 
 
+def load_replay_rows(path: Path, held_out: set[str]) -> list[dict]:
+    """Load prior planner rows verbatim, rejecting held-out or duplicate tasks."""
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("kind") != "mission_plan":
+            continue
+        text = str(row.get("task_text", "")).strip()
+        key = normalize_task(text)
+        if not text or key in held_out:
+            raise ValueError(f"replay row is held out or empty: {text!r}")
+        rows.append(dict(row))
+    if not rows:
+        raise ValueError(f"no mission_plan rows found in replay file: {path}")
+    return rows
+
+
 def plural_query(query: str) -> str:
     """Pluralise the small controlled v5 vocabulary, preserving modifiers."""
     if query.endswith("person"):
@@ -1043,6 +1060,10 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--replay-planner-train", type=Path, default=None,
+        help="prepend mission_plan rows from a prior planner training split",
+    )
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--val-rows", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261015)
@@ -1092,13 +1113,22 @@ def main(argv: list[str] | None = None) -> int:
             (ROOT / "configs/onboard").glob("plan-eval-tasks*.json")
         ))
     held_out = {
-        " ".join(task["text"].split())
+        normalize_task(task["text"])
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
+    replay_count = 0
+    replay_ids: set[str] = set()
+    if args.replay_planner_train:
+        replay = load_replay_rows(args.replay_planner_train, {normalize_task(x) for x in held_out})
+        rows.extend(replay)
+        seen.update(normalize_task(row["task_text"]) for row in replay)
+        replay_ids = {str(row.get("sample_id")) for row in replay}
+        replay_count = len(replay)
+        args.rows += replay_count
     if args.version == "v5":
         rows = v5_rows(args, held_out, labels)
     if args.r20_intent_pairs:
@@ -1126,9 +1156,10 @@ def main(argv: list[str] | None = None) -> int:
         text = zh if rng.random() < 0.5 else en
         text = " ".join(text.split())
         steps, refs = localise_places(rng, steps, text, labels)
-        if text in held_out or text in seen:
+        task_key = normalize_task(text)
+        if task_key in held_out or task_key in seen:
             continue
-        seen.add(text)
+        seen.add(task_key)
         plan = {"plan_version": 1, "goal": en.rstrip(".")[:160], "steps": steps, "report": report}
         validate_mission_plan(plan)
         sample_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
@@ -1145,7 +1176,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.r20_plan_intent and args.r20_plan_intent_mix:
         for row in rows:
-            row.setdefault("family", "v4_backbone")
+            # Preserve replay rows byte-for-byte; only tag newly generated rows.
+            if "family" not in row and str(row.get("sample_id")) not in replay_ids:
+                row["family"] = "v4_backbone"
     splits = {"train": rows[: args.rows], "val": rows[args.rows :]}
     manifest = {
         "version": args.version,
@@ -1155,6 +1188,9 @@ def main(argv: list[str] | None = None) -> int:
         "first_skill_counts": {},
         "final_skill_counts": {},
     }
+    if replay_count:
+        manifest["replay_planner_train_rows"] = replay_count
+        manifest["replay_planner_train_path"] = str(args.replay_planner_train)
     if args.prompt_variant != "default":
         manifest["prompt_variant"] = args.prompt_variant
     if args.version == "v5":
@@ -1171,7 +1207,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.r20_plan_intent:
         manifest["r20_plan_intent_pairs_per_family"] = args.r20_plan_intent_count
         manifest["family_counts"] = {
-            name: dict(sorted(Counter(row["family"] for row in part).items()))
+            name: dict(sorted(Counter(row.get("family", "r14_replay") for row in part).items()))
             for name, part in splits.items()
         }
     for name, part in splits.items():
