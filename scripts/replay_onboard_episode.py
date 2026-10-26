@@ -201,6 +201,10 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         raise ValueError(f"empty episode: {episode}")
     restored = recover_recorded_mission_plan(episode, rows)
     onboard = (rows[0].get("labels") or {}).get("onboard") or {}
+    logged_actions = {int(row["step_index"]): row.get("action") or {} for row in rows}
+    replay_step: int | None = None
+    search_delegated = False
+    search_delegate_mismatches: list[int] = []
     mission = restored["episode"]
     onboard_config = restored["suite_config"]
     query = str(onboard_config.get("task_text") or (rows[0].get("task_text", "")))
@@ -318,6 +322,22 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         loop_defaults["search_altitude_m"] = search_altitude
     loop_fields = {f.name for f in __import__("dataclasses").fields(LoopConfig)}
     search_policy: ExpertSearchPolicy | None = None
+    def logged_search_action(_pose: Any, _yaw: Any) -> ActionPrimitive:
+        nonlocal search_delegated
+        search_delegated = True
+        action = logged_actions.get(replay_step or -1)
+        if not isinstance(action, dict) or not action.get("kind"):
+            return ActionPrimitive.hold(1.0)
+        return ActionPrimitive.from_dict(action)
+
+    def logged_search_outcome() -> str | None:
+        if replay_step is None:
+            return None
+        mission_label = ((rows_by_step.get(replay_step, {}).get("labels") or {}).get("onboard") or {}).get("mission") or {}
+        history = mission_label.get("history") or []
+        return history[-1].get("reason") if history and isinstance(history[-1], dict) else None
+
+    rows_by_step = {int(row["step_index"]): row for row in rows}
     def make_loop(*_args: Any, **overrides: Any) -> OnboardLoop:
         nonlocal search_policy
         overrides.pop("restart_route", None)
@@ -334,8 +354,9 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         return OnboardLoop(
             camera=camera,
             search_action=(lambda pose, yaw: search_policy.next_action(pose_ned=pose, yaw_deg=yaw))
-                if closed_loop else (lambda _pose, _yaw: ActionPrimitive.hold(1.0)),
-            search_outcome=lambda: search_policy.search_outcome if search_policy else None,
+                if closed_loop else logged_search_action,
+            search_outcome=(lambda: search_policy.search_outcome if search_policy else None)
+                if closed_loop else logged_search_outcome,
             obstacle_source=obstacle, config=LoopConfig(**config),
         )
     refs = dict(onboard_config.get("refs") or {})
@@ -356,6 +377,8 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     trace = []
     execution_obs = rows[0]["obs_before"]
     for row_index, row in enumerate(rows):
+        replay_step = int(row["step_index"])
+        search_delegated = False
         label = (row.get("labels") or {}).get("onboard") or {}
         if not label.get("skill"):
             if closed_loop:
@@ -405,6 +428,10 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         action_obj = {"kind": action.kind, "forward_m": action.forward_m, "right_m": action.right_m,
                       "up_m": action.up_m, "yaw_delta_deg": action.yaw_delta_deg, "seconds": action.seconds}
         detail_class = "search" if detail.get("state_before") in {"searching", "search"} and not detail.get("focus") else "non_search"
+        logged_kind = (row.get("action") or {}).get("kind")
+        logged_state = (((row.get("labels") or {}).get("onboard") or {}).get("state_before"))
+        if search_delegated and (logged_state not in {"searching", "search"} or logged_kind not in {"translate", "turn", "hold"}):
+            search_delegate_mismatches.append(int(row["step_index"]))
         if any(key in detail for key in ("count_rejection_revisit", "small_unjudged_revisit", "revisit", "alert_look")):
             detail_class = "revisit"
         safety_info = detail.get("safety") if isinstance(detail, dict) else None
@@ -415,6 +442,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
                 safety_info.get("rejected") and action.kind in {"hold", "stop"}
             )
         trace.append({"step": row["step_index"], "pose_ned": list(pose), "action": action_obj, "logged_action": row.get("action"),
+                      "search_delegated": search_delegated,
                       "safety": safety_info or {"status": "bypassed", "rejected": False, "reasons": []},
                       "calls": calls, "phase": detail.get("phase"), "counts": dict(executor.counts),
                       "search_waypoint_index": search_policy._waypoint_index if search_policy else None,
@@ -494,6 +522,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
                         "decision_agreement": decision_actions / len(trace) if trace else 1.0,
                         "decision_mismatch_steps": decision_mismatches,
                         "continuous_mismatch_steps": continuous_mismatches,
+                        "search_delegate_mismatch_steps": search_delegate_mismatches,
                         "action_agreement_by_task": {key: {**value, "exact_action_agreement": value["exact_action_matches"] / value["steps"] if value["steps"] else 1.0} for key, value in by_task.items()},
                         "search_placeholder_mismatches": search_placeholder_steps,
                         "slow_call_agreement": call_equal / call_total if call_total else 1.0,

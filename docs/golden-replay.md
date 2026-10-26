@@ -2,11 +2,19 @@
 
 ## 匹配结果与解释
 
-旧版严格指标（动作类型 + 所有参数按 0.1 量化，按步骤加权）为：`count` 17.2%（86/500）、`monitor` 94.9%（223/235）、`patrol` 100%（48/48）、`area_search` 61.7%（127/206）、`return_home` 26.6%（21/79）。它把连续控制量与离散执行决策混在一起，不能单独作为执行器逻辑回归率。
+统计口径按 16 个黄金架次中 `labels.onboard.skill` 逐步归类；类型一致率比较动作 kind，精确一致率要求 kind 相同且各参数按 0.1 四舍五入后相同。修复前的旧报告口径为 `count` 17.2%（86/500）、`area_search` 61.7%（127/206）、`return_home` 26.6%（21/79）。旧 return_home 分母仅含当时筛选的 79 步；本次按完整 16 架次归类后为 63 步，二者不可直接当成同一分母。
 
-重放现在额外输出 `decision_agreement`、`decision_mismatch_steps` 和 `continuous_mismatch_steps`。决策一致率只比较动作类型；严格参数一致率仍保留，便于发现控制量变化。checker 继续以完整 fingerprint 比较作为门禁，避免放宽参数后静默吞掉 executor 的行为变化。开放环 replay 将搜索回调固定成 `hold(1s)`，会制造搜索动作假差异；半闭环 pose rebound 可供诊断，但不是 checker 默认值，因为重新关联 track 会改变 slow-call track ID。
+| 技能 | 修复前精确一致率 | 修复后动作类型一致率 | 修复后精确一致率 |
+| --- | ---: | ---: | ---: |
+| count | 17.2%（86/500） | 99.2%（469/473） | 99.2%（469/473） |
+| area_search | 61.7%（127/206） | 96.1%（197/205） | 96.1%（197/205） |
+| return_home | 26.6%（旧口径 21/79） | 85.7%（54/63） | 77.8%（49/63） |
 
-逐步抽查证据（step 为日志 `step_index`）：`query-cones-e73ea9f4` 的 step 4 是日志爬升 translate vs replay hold，step 5–6 日志 turn vs replay hold；step 17–27 同类搜索占位差异。`hydrant10-08dcb017` step 9、14 是日志 8m 爬升 vs replay hold，step 15–17 又是搜索占位差异。上述差异属于重放工具缺陷/连续参数诊断，不是已确认的 executor bug。该架次 slow-call agreement 为 88.5%，另一个 query-cones 架次为 95.0%，hydrant10 两架均为 100%；因此 slow-call 不是 count 低分的主因。
+count/area_search 提升來自 logged 模式的 `search_action` 不再固定返回 `hold(1s)`，而是返回当前 `step_index` 对应的日志动作。trace 新增 `search_delegated`，用于区分“执行器本步委托搜索，动作取自日志”与“执行器自身决策”。`search_outcome` 在 logged 模式下从该步 mission history 的最后一条记录注入；闭环模式仍使用搜索策略自己的 outcome。
+
+重放额外输出 `decision_agreement`、逐步离散/连续差异和 `search_delegated`。checker fingerprint 同时记录委托标志和动作/安全信息；执行器停止委托搜索会触发差异，即使 logged 动作回灌掩盖了搜索策略的连续轨迹差异。该回放不声称验证独立搜索策略本身。
+
+逐步证据（step 为日志 `step_index`）：`query-cones-e73ea9f4` step 5–6 和 17–27 在修复前是搜索 turn/translate 被占位 hold 取代；修复后这些步骤 action 与日志精确相同，trace 标为 `search_delegated=true`。修复后 count 的 4 个残余错型位于非回灌/非匹配技能步骤（总分母 473），需按 trace 的 `decision_mismatch_steps` 和日志技能字段定位；参数精确率与类型率相同，说明本组没有额外连续参数误差。`query-postbox-1109ae34` 是主要 area_search 异常来源之一，整个混合架次 action type 57.7%、exact 38.5%；其中 inspect 15 步仅 5 步类型一致，连续差异不能归因于 search 占位。`fullsuite-budget-be3fc76b` 的返航差异仍集中 step 39–42，涉及约 22.3° vs 90° 转向及 replay hold vs 日志平移；原因是 executor 返航控制与记录轨迹不同，不能用搜索动作回灌解释，也未确认是已知代码变更或量化边界问题。
 
 返航证据：`fullsuite-budget-be3fc76b` 的 step 39 replay 转向约 90°、日志约 22.3°；step 40 replay hold、日志前进 15m；step 41 replay 转向、日志前进 15m；step 42 replay hold、日志前进约 11.4m。相邻日志 `fullsuite-abort-f5dce4d9` 在 step 39–42 有同型差异。当前材料只能确认这些是连续动作/轨迹输入差异，不能将其归结为量化边界或执行器代码回归；姿态回灌和未做物理积分是可能来源，需保留为未决归因。
 
@@ -14,12 +22,12 @@
 
 | 原因 | 修复前 | 修复后/状态 | 证据 |
 | --- | --- | --- | --- |
-| 搜索占位 hold 造成假动作差异 | count 86/500 严格匹配；大量搜索步骤错误 | 增加决策/连续参数分层指标；checker 默认行为未再冒充搜索策略 | query-cones step 5–6、17–27；hydrant10 step 15–17 |
+| 搜索占位 hold 造成假动作差异 | count 86/500；area_search 127/206 | count 469/473，area_search 197/205；logged 委托动作取日志，委托位纳入 fingerprint | query-cones step 5–6、17–27 |
 | slow-call 结果/track 对齐 | 日志结果按当前 needing track ID 查找；ID 漂移可改变结果 | 仍按 step 注入已记录 verdict；缺少匹配的 track 时无法可靠注入，需后续改进 | count 架次 agreement 88.5–100% |
-| 位姿/遥测近似、无物理积分 | 参数逐项 0.1 精确匹配 | 作为连续差异单列，未放宽严格门禁 | budget-return step 39–42 |
+| 位姿/遥测近似、无物理积分 | 参数逐项 0.1 精确匹配 | 不适用于 logged search 回灌步骤；返航连续控制仍按日志逐步比对 | budget-return step 39–42 |
 | 参数量化边界 | 统一 0.1 四舍五入 | 暂无边界差异的独立确证；保留严格值供定位 | 本轮抽查未发现可归因实例 |
 | 执行器真实差异/已变更逻辑 | 被工具假差异淹没 | 尚未确认真实执行器 bug；不修改 autonomy 行为 | 无可独立复现证据 |
-| checker/replay 其他缺陷 | 只报告首差异；开放环搜索回调固定 hold | 输出按步连续/离散差异索引；闭环仅作为可选诊断 | `replay_onboard_episode.py` metrics |
+| checker/replay 其他缺陷 | logged search callback 固定 hold，fingerprint 不表示是否委托 | 按 step 回灌 logged action；fingerprint 加入委托位；mutation test 覆盖不再委托 | `tests/test_golden_replay.py` |
 
 黄金集清单在 `docs/golden-replay-manifest.json`，基线在
 `docs/golden-replay-baseline.json`。清单只保存架次相对路径和 `steps.jsonl` 的 SHA-256，
