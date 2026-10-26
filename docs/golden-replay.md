@@ -10,7 +10,7 @@
 | area_search | 61.7%（127/206） | 96.1%（197/205） | 96.1%（197/205） |
 | return_home | 26.6%（旧口径 21/79） | 85.7%（54/63） | 77.8%（49/63） |
 
-count/area_search 提升來自 logged 模式的 `search_action` 不再固定返回 `hold(1s)`，而是返回当前 `step_index` 对应的日志动作。trace 新增 `search_delegated`，用于区分“执行器本步委托搜索，动作取自日志”与“执行器自身决策”。`search_outcome` 在 logged 模式下从该步 mission history 的最后一条记录注入；闭环模式仍使用搜索策略自己的 outcome。
+count/area_search 提升来自 logged 模式的 `search_action` 不再固定返回 `hold(1s)`，而是返回当前 `step_index` 对应的日志动作。trace 新增 `search_delegated`，用于区分“执行器本步委托搜索，动作取自日志”与“执行器自身决策”。`search_outcome` 在 logged 模式下从该步 mission history 的最后一条记录注入；闭环模式仍使用搜索策略自己的 outcome。
 
 重放额外输出 `decision_agreement`、逐步离散/连续差异和 `search_delegated`。checker fingerprint 同时记录委托标志和动作/安全信息；执行器停止委托搜索会触发差异，即使 logged 动作回灌掩盖了搜索策略的连续轨迹差异。该回放不声称验证独立搜索策略本身。
 
