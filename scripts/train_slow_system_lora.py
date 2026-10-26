@@ -139,6 +139,7 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             )
             from multidetect.autonomy.mission_plan import validate_mission_plan
             from multidetect.autonomy.plan_intent import check_plan_intent
+            from multidetect.autonomy.mission_planner import check_plan_refs
 
             capabilities = normalize_capabilities(row.get("capabilities", ()))
             findings = capability_violations(
@@ -154,6 +155,20 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             }
             expected_valid = row.get("expected_valid", True)
             expected_findings = set(row.get("expected_findings", ()))
+            if expected_valid is False and "ungrounded_place" in expected_findings:
+                known_refs = {
+                    str(ref).split(" ", 1)[0] for ref in row.get("refs", ())
+                }
+                target_refs = {
+                    str(step.get("params", {}).get("target_ref"))
+                    for step in row["assistant_target"].get("steps", ())
+                    if step.get("params", {}).get("target_ref") is not None
+                }
+                substitutions = sorted(known_refs & target_refs)
+                if substitutions:
+                    raise ValueError(
+                        f"unknown-place target {row['sample_id']} substitutes known ref(s): {substitutions}"
+                    )
             if expected_valid is False:
                 candidate = row.get("rejected_candidate")
                 if not isinstance(candidate, dict) or not expected_findings:
@@ -168,6 +183,11 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
                     finding.code
                     for finding in check_plan_intent(candidate, row["task_text"], tuple(row.get("refs", ())))
                 }
+                _, _, unknown_refs = check_plan_refs(
+                    candidate, tuple(row.get("refs", ())), substitute=False
+                )
+                if unknown_refs:
+                    candidate_codes.add("ungrounded_place")
                 if not expected_findings <= candidate_codes:
                     raise ValueError(f"rejected candidate {row['sample_id']} does not match expected findings")
                 # r22 trains the validator-triggering candidate itself.  The

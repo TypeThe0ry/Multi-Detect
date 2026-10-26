@@ -549,6 +549,30 @@ def load_replay_rows(path: Path, held_out: set[str]) -> list[dict]:
     return rows
 
 
+def known_ref_ids(refs) -> set[str]:
+    return {str(ref).split(" ", 1)[0] for ref in refs or ()}
+
+
+def target_ref_ids(plan: dict) -> set[str]:
+    return {
+        str(step.get("params", {}).get("target_ref"))
+        for step in plan.get("steps", ())
+        if step.get("params", {}).get("target_ref") is not None
+    }
+
+
+def assert_no_unknown_place_substitution(row: dict) -> None:
+    """Unknown-place negatives must retain an unresolved target ref."""
+    if row.get("expected_valid") is not False or "ungrounded_place" not in row.get("expected_findings", ()):
+        return
+    known = known_ref_ids(row.get("refs", ()))
+    substituted = sorted(target_ref_ids(row.get("assistant_target", {})) & known)
+    if substituted:
+        raise ValueError(
+            f"{row.get('sample_id')} substitutes unknown place with known ref(s): {substituted}"
+        )
+
+
 def plural_query(query: str) -> str:
     """Pluralise the small controlled v5 vocabulary, preserving modifiers."""
     if query.endswith("person"):
@@ -964,6 +988,9 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
             )
             codes = {finding.code for finding in findings} | {finding["code"] for finding in cap_findings}
+            _, _, unknown_refs = check_plan_refs(plan, refs, substitute=False)
+            if unknown_refs:
+                codes.add("ungrounded_place")
             if valid and codes:
                 raise ValueError(f"r20 positive {family} violates contract: {text}: {sorted(codes)}")
             if not valid and expected_code not in codes:
@@ -989,6 +1016,7 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
                 if args.negative_target_mode == "rejected_candidate":
                     rows[-1]["assistant_target"] = rejected_candidate
                     rows[-1]["negative_target_mode"] = args.negative_target_mode
+                    assert_no_unknown_place_substitution(rows[-1])
         return True
 
     for index in range(pairs):
@@ -1015,7 +1043,8 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         )
         add_pair(index, "return_intent", return_pos, return_neg)
 
-        unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
+        unknown_ref = f"poi:{re.sub(r'\s+', ' ', fake_en.strip().lower())}"
+        unknown_plan = {"plan_version":1,"goal":"unknown","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
         unknown_text = (f"去地图没有的{fake_zh}，不要替换成{zh}。" if use_zh else
                         f"Fly to the nonexistent {fake_en}; do not substitute the {en}.")
         unknown_pos = (f"到{zh}核查后返航。", return_pos[1], return_pos[2], (), True)
@@ -1045,14 +1074,16 @@ def r20_plan_intent_rows(args, held_out: set[str], labels) -> list[dict]:
         alias_text = (f"到{alias}确认位置，再回基地。" if use_zh else f"Go to the {alias}, verify it, and return to base.")
         alias_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":ref},"s2","s2"),H("s2")],"report":[]}
         alias_pair = (alias_text, alias_plan, refs_for(ref, zh, en, alias), (), True)
-        alias_bad = (f"到{fake_zh}确认位置，再回基地。" if use_zh else f"Go to the {fake_en}, verify it, and return to base.", alias_plan, refs_for(ref, zh, en, alias), (), False)
+        alias_unknown_plan = {"plan_version":1,"goal":"alias","steps":[S("s1","goto",{"target_ref":unknown_ref},"s2","s2"),H("s2")],"report":[]}
+        alias_bad = (f"到{fake_zh}确认位置，再回基地。" if use_zh else f"Go to the {fake_en}, verify it, and return to base.", alias_unknown_plan, refs_for(ref, zh, en, alias), (), False)
         add_pair(index, "ref_alias", alias_pair, alias_bad, "ungrounded_place")
 
         query = "red car" if index % 2 else "bicycle"
         query_zh = "红色轿车" if query == "red car" else "自行车"
         count_plan = {"plan_version":1,"goal":"count","steps":[S("s1","count",{"region":zone,"query":query,"max_count":10},"s2","s2"),H("s2")],"report":[]}
         query_good = (f"数{zone_zh}里的{query_zh}，然后返航。" if use_zh else f"Count {query}s in the {zone_en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), True)
-        query_bad = (f"检查{zh}并返航。" if use_zh else f"Inspect the {en} and return home.", count_plan, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), False)
+        inspect_bad = {"plan_version":1,"goal":"inspect","steps":[S("s1","inspect",{"target_ref":ref,"query":"fire truck","views":4,"standoff_m":12},"s2","s2"),H("s2")],"report":[]}
+        query_bad = (f"检查{zh}并返航。" if use_zh else f"Inspect the {en} and return home.", inspect_bad, refs_for(ref, zh, en, alias) + (f"{zone} ({zone_zh} / {zone_en})",), (), False)
         add_pair(index, "query_grounding", query_good, query_bad, "ungrounded_query")
 
     for row in rows:
@@ -1217,6 +1248,15 @@ def main(argv: list[str] | None = None) -> int:
         manifest["family_counts"] = {
             name: dict(sorted(Counter(row.get("family", "r14_replay") for row in part).items()))
             for name, part in splits.items()
+        }
+    if args.negative_target_mode == "rejected_candidate":
+        checked = sum(row.get("expected_valid") is False for row in splits["train"])
+        for row in splits["train"]:
+            assert_no_unknown_place_substitution(row)
+        manifest["negative_target_safety"] = {
+            "mode": args.negative_target_mode,
+            "negative_rows_checked": checked,
+            "known_ref_substitution_rows": 0,
         }
     for name, part in splits.items():
         sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]

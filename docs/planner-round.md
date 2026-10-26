@@ -83,6 +83,10 @@ backbone 2000 条和 unknown_place family 40 条 positive 中，按每行 Known 
 因此“backbone 教模型编造地点”不受这批数据支持；更直接的问题是 negative gold 与评测
 所需的 validator 拒绝行为不一致。r21 的 unknown 正负对确实只差是否声明地点不存在/禁止
 替代，属于最小对照；r22 保留这个对照，同时把负例 gold 改成可由 validator 判拒的候选计划。
+数据原则是：**先忠实表达用户请求，再依靠 validator gating 拒绝不安全或不可解析的计划**。
+未知地点必须使用原始地点文字归一化得到的不可解析 `poi:` ref；禁止用行内已知地点替代。
+能力负例保留用户请求的动作（deliver/hover/land），query 负例保留 inspect 动作，仅令目标 query
+不可由任务文本 grounding。这样安全性不依赖 substitution 检测永远不漏报。
 
 r22 数据生成器现在支持 `--replay-planner-train`。本轮生成结果如下；`r14_replay` 行逐行
 保留原 prompt、task_text 和 assistant_target，新增行仍使用现有能力/意图校验。
@@ -90,18 +94,20 @@ r22 数据生成器现在支持 `--replay-planner-train`。本轮生成结果如
 | 训练集类别 | r14 | r21 | r22 |
 |---|---:|---:|---:|
 | r14 planner replay / v4 backbone | 1500 / 0 | 0 / 2000 | 1500 / 2000 |
-| unknown_place validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
-| missing_payload_drop validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
-| fixed_wing_constraint validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
-| fixed_wing_target_land validator-negative gold | 0 | 0（safe `return_home`） | 80 (1.732%) |
+| unknown_place validator-negative gold | 0 | 0（safe `return_home`） | 80 faithful unknown-ref (1.732%) |
+| missing_payload_drop validator-negative gold | 0 | 0（safe `return_home`） | 80 faithful deliver (1.732%) |
+| fixed_wing_constraint validator-negative gold | 0 | 0（safe `return_home`） | 80 faithful hover (1.732%) |
+| fixed_wing_target_land validator-negative gold | 0 | 0（safe `return_home`） | 80 faithful land (1.732%) |
 | 其它配对族（每族总行数） | 0 | 80 | 160 |
 | train 总行数 | 1500 | 2560 | 4620 |
+| validator-negative gold 总数 | 0 | 0（240 条 negative 均为 safe `return_home`） | 480 |
 
 r22 的负例 target 使用经审计的违规 candidate，由 `src/multidetect/autonomy/plan_validation.py`
 对应的 intent/capability 契约拒绝；生成/训练准入均检查 expected finding，并只对负例 target
 做结构校验。能力负例按 `src/multidetect/autonomy/capability_contract.py` 生成：无
 `payload_drop` 时拒绝 `deliver`；固定翼带 `airframe:fixed_wing` 时拒绝 `hover`，并拒绝带
-目标点的 `land`（缺少 `landing_on_target`）。负例同时保留 `rejected_candidate` 与
+目标点的 `land`（缺少 `landing_on_target`）。`ref_alias` 负例同样使用未知地点 ref，
+`query_grounding` 负例使用原地点的 `inspect` 加未 grounding query。负例同时保留 `rejected_candidate` 与
 `expected_findings` 供离线准入检查。
 
 holdout 仍读取全部 `configs/onboard/plan-eval-tasks*.json`，并用 NFKC、大小写、数字词和

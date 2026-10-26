@@ -2,8 +2,11 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from multidetect.autonomy.capability_contract import capability_violations
 from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.mission_planner import check_plan_refs
 from multidetect.autonomy.plan_intent import check_plan_intent
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +62,8 @@ def test_r20_scale_count_distribution_and_rule_contract(tmp_path):
                 finding["code"] for finding in capability_violations(candidate, capabilities,
                     airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None)
             }
+            if check_plan_refs(candidate, refs, substitute=False)[2]:
+                candidate_codes.add("ungrounded_place")
             assert row["expected_findings"][0] in candidate_codes
             assert row["rejected_candidate"]
             validate_mission_plan(plan, capabilities=frozenset(capabilities))
@@ -148,5 +153,39 @@ def test_rejected_candidate_targets_match_validator_negative_labels(tmp_path):
     negatives = [row for row in rows if row["expected_valid"] is False]
     assert len(negatives) == 12
     assert all(row["assistant_target"] == row["rejected_candidate"] for row in negatives)
+    for row in negatives:
+        if row["family"] in {"unknown_place", "ref_alias"}:
+            target_refs = {
+                step.get("params", {}).get("target_ref")
+                for step in row["assistant_target"]["steps"]
+            }
+            known_refs = {ref.split(" ", 1)[0] for ref in row["refs"]}
+            assert not (target_refs & known_refs)
     admitted, _ = admit_train_rows(output)
     assert len(admitted) == len(rows)
+
+
+def test_admission_blocks_known_ref_substitution_for_unknown_place(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from train_slow_system_lora import admit_train_rows
+
+    dataset = tmp_path / "substitution"
+    dataset.mkdir()
+    plan = {
+        "plan_version": 1, "goal": "Raven Pier", "report": [], "steps": [
+            {"id": "s1", "skill": "goto", "params": {"target_ref": "poi:gate"},
+             "on_success": "s2", "on_fail": "s2"},
+            {"id": "s2", "skill": "return_home", "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+    }
+    row = {
+        "sample_id": "bad-place-substitution", "kind": "mission_plan", "world": "test",
+        "task_text": "Fly to the nonexistent Raven Pier and return home.", "refs": ["poi:gate (gate)"],
+        "assistant_target": plan, "rejected_candidate": plan, "negative_target_mode": "rejected_candidate",
+        "expected_valid": False, "expected_findings": ["ungrounded_place"], "split": "train",
+    }
+    (dataset / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="substitutes known ref"):
+        admit_train_rows(dataset)
