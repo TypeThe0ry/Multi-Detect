@@ -34,6 +34,13 @@ def test_decision_labels_and_task_templates_are_schema_valid_and_unprivileged():
     assert any("\u7ea2\u8272" in builder._task_text(("red", "vehicle"), i) for i in (3, 4))
 
 
+def test_confusable_negative_table_covers_identity_regressions():
+    assert "suv" in builder.CONFUSABLE_NEGATIVES["pickup"]
+    assert {"jersey_barrier", "postbox", "mailbox"} <= set(builder.CONFUSABLE_NEGATIVES["person"])
+    assert {"postbox", "mailbox"} <= set(builder.CONFUSABLE_NEGATIVES["car"])
+    assert builder._confusable_task("pickup", 0) == "Find the pickup and record its position."
+
+
 def test_r21id_view_is_derived_from_synthetic_episode_and_sidecar(tmp_path):
     sidecar = {"observation": {"camera_altitude_m": 12, "views": [
         {"view": "front", "observation_waypoint": {"x_east_m": 24, "y_north_m": 0, "z_up_m": 0}},

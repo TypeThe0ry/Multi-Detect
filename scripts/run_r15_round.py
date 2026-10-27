@@ -156,6 +156,14 @@ def distribution(rows: list[dict]) -> dict:
     return {"|".join(key): value for key, value in sorted(stats.items())}
 
 
+def r21id_r2_breakdown(rows: list[dict]) -> dict:
+    counts = Counter()
+    for row in rows:
+        decision = (row.get("assistant_target") or {}).get("decision", "unknown")
+        counts[(row.get("truth_category") or row.get("target_class") or "unknown", row.get("view") or "missing", decision)] += 1
+    return {"|".join(map(str, key)): value for key, value in sorted(counts.items())}
+
+
 def _polarity(row: dict) -> str:
     decision = (row.get("assistant_target") or {}).get("decision", "unknown")
     return (
@@ -194,6 +202,104 @@ def top_up_negatives(
 
 
 COUNTERFACTUAL_POSITIVE_LABELS = frozenset({"counterfactual", "proposal_counterfactual"})
+
+
+def _frame_task_key(row: dict) -> tuple:
+    """Identity of an explicit same-frame/task pair in the collected JSONL."""
+    frame = row.get("frame_id") or row.get("frame") or row.get("image_path")
+    return (str(row.get("world") or ""), str(frame or ""), str(row.get("task_text") or ""))
+
+
+def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum_positive_rows: int = 0) -> tuple[list[dict], dict]:
+    """Apply the opt-in r21id-r2 data policy to additions only.
+
+    Rejects unpaired counterfactual approach labels, limits edge-truncated
+    approach positives, requires recovery positives to name a true target, and
+    samples non-negative additions at approximately 0.25 by strata.
+    """
+    before = distribution(rows)
+    before_detail = r21id_r2_breakdown(rows)
+    rejects = {_frame_task_key(r) for r in rows if _polarity(r) == "negative"}
+    true_targets = {}
+    for r in rows:
+        if r.get("label_type") in {"true_target", "proposal_true"} and r.get("target_id") and r.get("view") != "recovery":
+            true_targets.setdefault((r.get("world"), r.get("task_text")), set()).add(r.get("target_id"))
+    kept, report = [], Counter()
+    for r in rows:
+        dec = (r.get("assistant_target") or {}).get("decision")
+        lab = r.get("label_type")
+        view = r.get("view")
+        positive = dec in {"confirm_target", "approach_track"}
+        if positive and dec == "approach_track" and lab in COUNTERFACTUAL_POSITIVE_LABELS and _frame_task_key(r) not in rejects:
+            report["dropped_unpaired"] += 1
+            continue
+        if positive and view == "recovery" and dec in {"approach_track", "confirm_target"}:
+            if not r.get("target_id") or r.get("target_id") not in true_targets.get((r.get("world"), r.get("task_text")), set()):
+                report["dropped_recovery_mismatch"] += 1
+                continue
+        kept.append(r)
+    # Cap edge approach positives at 20% of edge positives, retaining confirms.
+    edge_pos = [r for r in kept if r.get("view") == "edge_truncated" and _polarity(r) == "positive"]
+    edge_app = [r for r in edge_pos if (r.get("assistant_target") or {}).get("decision") == "approach_track"]
+    allowed = math.floor(len(edge_pos) * 0.20 + 1e-9)
+    if len(edge_app) > allowed:
+        rng = random.Random(seed)
+        rng.shuffle(edge_app)
+        drop = {row_key(r) for r in edge_app[allowed:]}
+        kept = [r for r in kept if row_key(r) not in drop]
+        report["dropped_edge_approach"] += len(drop)
+    # Stratified subsampling of additions, while retaining every reject negative.
+    strata = {}
+    for r in kept:
+        if _polarity(r) == "negative":
+            continue
+        key = (r.get("world"), r.get("label_type"), (r.get("assistant_target") or {}).get("decision"), r.get("view"))
+        strata.setdefault(key, []).append(r)
+    rng = random.Random(seed)
+    drop = set()
+    for group in strata.values():
+        take = max(1, round(len(group) * 0.25)) if group else 0
+        rng.shuffle(group)
+        drop.update(row_key(r) for r in group[take:])
+    positive_pool = [r for group in strata.values() for r in group]
+    required = max(0, minimum_positive_rows - sum(_polarity(r) == "positive" for r in kept if row_key(r) not in drop))
+    if required:
+        restored = [r for r in positive_pool if row_key(r) in drop and _polarity(r) == "positive"]
+        rng.shuffle(restored)
+        drop.difference_update(row_key(r) for r in restored[:required])
+    kept = [r for r in kept if row_key(r) not in drop]
+    report["dropped_weight_subsample"] = len(drop)
+    report["before"] = before
+    report["after"] = distribution(kept)
+    report["before_category_view_decision"] = before_detail
+    report["after_category_view_decision"] = r21id_r2_breakdown(kept)
+    report["kept"] = len(kept)
+    return kept, dict(report)
+
+
+def generate_hard_pairs(rows: list[dict]) -> tuple[list[dict], dict]:
+    """Count explicit same-frame near-category pairs emitted by the builder."""
+    pairs: dict[tuple, set[str]] = {}
+    for r in rows:
+        kind = r.get("label_type")
+        pair_type = r.get("confusable_pair_type")
+        if kind in {"confusable_negative", "confusable_positive"} and pair_type:
+            key = (_frame_task_key(r), pair_type)
+            pairs.setdefault(key, set()).add(kind)
+    categories = Counter(pair for (_, pair), kinds in pairs.items() if kinds == {"confusable_negative", "confusable_positive"})
+    for source, targets in {
+        "pickup": ("suv", "car"), "suv": ("pickup", "car"), "car": ("suv", "pickup", "postbox", "mailbox"),
+        "person": ("jersey_barrier", "postbox", "mailbox"), "jersey_barrier": ("person",),
+        "postbox": ("person", "car", "pickup"), "mailbox": ("person", "car"),
+    }.items():
+        for target in targets:
+            categories.setdefault(f"{target}->{source}", 0)
+    count = sum(categories.values())
+    return [], {
+        "available_pairs": count, "by_pair_type": dict(sorted(categories.items())),
+        "source_exclusions": ["flight-identity-eval-v2-v3prop", "generated-v2 held_out_target_combos"],
+        "status": "supplementary collection required" if any(v < 30 for v in categories.values()) else "pair coverage meets minimum",
+    }
 
 
 def _proportional_pick(rows: list[dict], count: int, rng: random.Random) -> list[dict]:
@@ -1134,6 +1240,8 @@ class Round:
                 "--output",
                 str(self.out / "r15-additions"),
             ]
+            if getattr(self.a, "r21id_r2_filter", False):
+                cmd.append("--confusable-negatives")
             self.run(
                 "build_sft",
                 cmd,
@@ -1161,7 +1269,7 @@ class Round:
                 "--r12-dataset",
                 str(self.a.r12_dataset),
                 "--additions",
-                str(self.out / "r15-additions"),
+                str(self.a.additions or (self.out / "r15-additions")),
                 "--merged",
                 str(self.out / "r15-sft"),
                 "--r12-replay-fraction",
@@ -1173,6 +1281,8 @@ class Round:
                 "--seed",
                 "20261016",
             ]
+            if getattr(self.a, "r21id_r2_filter", False):
+                merge_cmd.append("--r21id-r2-filter")
             self.run(
                 "merge_sft",
                 merge_cmd,
@@ -1182,6 +1292,8 @@ class Round:
             )
         if self.a.stage in ("all", "train"):
             self.guards("train")
+            if not (self.out / "r15-sft" / "manifest.json").is_file():
+                raise RuntimeError(f"train 阶段缺少已合并数据集：{self.out / 'r15-sft'}")
             cmd = [
                 sys.executable,
                 "scripts/train_slow_system_lora.py",
@@ -1200,7 +1312,7 @@ class Round:
                 "--alpha",
                 "32",
                 "--learning-rate",
-                "1e-4",
+                str(getattr(self.a, "learning_rate", 1e-4)),
                 "--max-side",
                 "448",
                 "--crop-policy",
@@ -1478,6 +1590,17 @@ def merge_cli(args):
         if split == "train" and args.r12_replay_fraction < 1:
             base = stratified_replay(base, args.r12_replay_fraction, seed=args.seed)
         added = read_jsonl(args.additions / f"{split}.jsonl")
+        addition_filter = None
+        if split == "train" and getattr(args, "r21id_r2_filter", False):
+            baseline_manifest = json.loads((args.r12_dataset / "manifest.json").read_text(encoding="utf-8"))
+            base_pos_ratio = baseline_manifest.get("merged_positive_ratio", baseline_manifest.get("r12_positive_ratio", 0.4))
+            base_rows = read_jsonl(args.r12_dataset / "train.jsonl")
+            base_pos = sum(_polarity(r) == "positive" for r in base_rows)
+            base_neg = sum(_polarity(r) == "negative" for r in base_rows)
+            ratio_target = base_pos_ratio - args.max_positive_ratio_delta
+            add_neg = sum(_polarity(r) == "negative" for r in added)
+            min_total_pos = math.ceil(ratio_target * (base_neg + add_neg) / (1 - ratio_target))
+            added, addition_filter = filter_r21id_r2_additions(added, seed=args.seed, minimum_positive_rows=max(0, min_total_pos - base_pos))
         rows = merge_without_copies(base, added)
         trim_report = None
         if split == "train":
@@ -1508,6 +1631,8 @@ def merge_cli(args):
             "merged": len(rows),
             "classes_size_polarity": distribution(rows),
         }
+        if addition_filter is not None:
+            stats[split]["r21id_r2_filter"] = addition_filter
         if trim_report is not None:
             stats[split]["rebalance"] = trim_report
     pos = sum(
@@ -1553,6 +1678,10 @@ def merge_cli(args):
         "merged_distractor_ratio": merged_negative_ratio,
         "counts": stats,
     }
+    if getattr(args, "r21id_r2_filter", False):
+        _, hard_pairs = generate_hard_pairs(read_jsonl(args.additions / "train.jsonl"))
+        manifest["hard_pairs"] = hard_pairs
+        manifest["r21id_r2_filter"] = True
     (out / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -1691,6 +1820,8 @@ def main():
     p.add_argument("--merged", type=Path)
     p.add_argument("--max-positive-ratio-delta", type=float, default=0.02)
     p.add_argument("--max-negative-ratio-delta", type=float, default=0.02)
+    p.add_argument("--r21id-r2-filter", action="store_true", help="opt-in additions filtering for r21id-r2")
+    p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.merge_only:
         if not all((a.additions, a.merged)):

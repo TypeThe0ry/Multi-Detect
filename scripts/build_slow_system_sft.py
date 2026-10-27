@@ -79,6 +79,13 @@ def _json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _iter_jsonl(path: Path):
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            if line.strip():
+                yield json.loads(line)
+
+
 def _relative(path: Path) -> str:
     """Repository-relative path, as every dataset row stores it.
 
@@ -530,10 +537,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                 or "cessna" in airframe_name
                 or _scenario_is_fixed_wing(world, truth_dirs)
             )
-            for line in steps.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                step = json.loads(line)
+            for step in _iter_jsonl(steps):
                 if fuel:
                     # The generated index carries the curated natural-language task; earlier
                     # fuel episodes recorded an English label inside a Chinese template.
@@ -580,8 +584,9 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                         continue
                     seen[world].append(signature)
                     source_hashes[_relative(frame)] = _sha(frame)
-                    if isinstance(obs.get("segmentation_path"), str):
-                        seg_path = ep / Path(obs["segmentation_path"].replace("\\", "/"))
+                    seg_candidate = ep / Path(obs["segmentation_path"].replace("\\", "/")) if isinstance(obs.get("segmentation_path"), str) else None
+                    if seg_candidate is not None and seg_candidate.is_file():
+                        seg_path = seg_candidate
                         seg_image = load_labels_map(seg_path)
                         if seg_image.shape[:2] != (height, width):
                             raise ValueError("segmentation geometry differs from RGB")
@@ -664,6 +669,23 @@ def _counterfactual_negative_focus(named: dict, others: list[tuple[int, dict]], 
     ]
     eligible.sort(key=lambda item: not str(item[1].get("target_id", "")).startswith("target_true"))
     return eligible[0] if eligible else None
+
+
+# Deliberately narrow near-category confusions: these are the identity errors
+# observed in r21id, rather than a broad synonym list that would weaken rejects.
+CONFUSABLE_NEGATIVES = {
+    "pickup": ("suv", "car"), "suv": ("pickup", "car"), "car": ("suv", "pickup", "postbox", "mailbox"),
+    "person": ("jersey_barrier", "postbox", "mailbox"),
+    "jersey_barrier": ("person",), "postbox": ("person", "car", "pickup"), "mailbox": ("person", "car"),
+}
+
+
+def _confusable_task(category: str, variant: int) -> str:
+    names = {"pickup": ("pickup", "pickup truck"), "suv": ("SUV", "SUV"), "car": ("car", "car"),
+             "person": ("person", "person"), "jersey_barrier": ("jersey barrier", "jersey barrier"),
+             "postbox": ("postbox", "postbox"), "mailbox": ("mailbox", "mailbox")}
+    name = names.get(category, (category, category))[variant % 2]
+    return f"Find the {name} and record its position."
 
 
 def _proposal_counterfactual_negative(
@@ -787,6 +809,7 @@ def build_dataset(
     proposals: Path | None = None, proposal_iou: float = 0.3, proposal_min_side_px: float = 10.0,
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
     holdout_from: Sequence[Path] = (), counterfactual_negatives: bool = False,
+    confusable_negatives: bool = False,
     identity_variant: str = "default",
     balance_task_categories: float | None = None, max_upsample: int = 4,
     image_augmentation: str | Mapping[str, object] | None = None,
@@ -915,6 +938,35 @@ def build_dataset(
             elif fuel:
                 target = _decision("reject_track", track=f"track-{p_index + 1}", reason=_fuel_reject_reason(p["target"], slug["true_target"], task))
                 kind = "reject_track"
+                if confusable_negatives and split != "test":
+                    distractor_category = _target_category(p["target"])
+                    for near_category in CONFUSABLE_NEGATIVES.get(distractor_category, ()):
+                        near_task = _confusable_task(near_category, variant)
+                        same_category = [q for q in projected if _target_category(q["target"]) == near_category]
+                        pair_key = f"{near_category}->{distractor_category}"
+                        # Bound each directional pair family so the new hard
+                        # negatives correct coverage without swamping r18 replay.
+                        if stats[f"confusable_pair:{pair_key}:reject"] < 30:
+                            stats[f"confusable_pair:{pair_key}:reject"] += 1
+                            hard_negative = _row(
+                                world=world, split=split, frame=frame, task_text=near_task, box=p["box"], size=size,
+                                target=_decision("reject_track", track=f"track-{p_index + 1}", reason=f"Task asks for {near_category}; candidate is {distractor_category}."),
+                                kind="reject_track", campaign=campaign, label_type="confusable_negative",
+                                candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"),
+                                task_category=near_category, view_metadata=view_metadata, target_id=p["target"].get("target_id"))
+                            hard_negative["confusable_pair_type"] = pair_key
+                            buckets[split]["reject_track"].append(hard_negative)
+                        for q in same_category:
+                            q_index = projected.index(q)
+                            stats[f"confusable_pair:{pair_key}:positive"] += 1
+                            hard_positive = _row(
+                                world=world, split=split, frame=frame, task_text=near_task, box=q["box"], size=size,
+                                target=_decision("confirm_target", track=f"track-{q_index + 1}", reason="Candidate class matches the renamed task."),
+                                kind="confirm_target", campaign=campaign, label_type="confusable_positive",
+                                candidate_boxes=projected_boxes, focus_index=q_index, visible_fraction=q.get("visible_fraction"),
+                                task_category=near_category, view_metadata=view_metadata, target_id=q["target"].get("target_id"))
+                            hard_positive["confusable_pair_type"] = pair_key
+                            buckets[split]["confirm_target"].append(hard_positive)
                 other_task = _counterfactual_task(p["target"], [o["target"] for o in projected], variant) if counterfactual_tasks and split != "test" else None
                 if other_task is not None:
                     # The same object is the answer when the task names it: identity
@@ -970,7 +1022,7 @@ def build_dataset(
         # So are the rejects paired with counterfactual tasks; without them the
         # renamed-task rows only ever teach "yes".
         rare = [row for row in negative if row["label_type"] in {
-            "proposal_scenery", "proposal_background", "counterfactual_negative", "proposal_counterfactual_negative",
+            "proposal_scenery", "proposal_background", "counterfactual_negative", "proposal_counterfactual_negative", "confusable_negative",
         }]
         negative = rare + [row for row in negative if row not in rare][: max(0, round(len(positive) * negative_ratio) - len(rare))]
         # Preserve at least one no-candidate/clarification example per world;
@@ -1037,6 +1089,7 @@ def build_dataset(
         "crop_policy": crop_policy,
         "counterfactual_tasks": counterfactual_tasks,
         "counterfactual_negatives": counterfactual_negatives,
+        "confusable_negatives": confusable_negatives,
         "holdout_from": [_relative(path) for path in holdout_from],
         "unseen_holdout": sorted(held_out_slugs),
         "proposals": (
@@ -1095,12 +1148,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--unseen-holdout", action="store_true", help="train/val: never label held-out target classes (index held_out_target_combos)")
     parser.add_argument("--holdout-from", type=Path, action="append", default=[], help="train/val: also keep this index's held_out_target_combos unseen (the frozen test set of a top-up round)")
     parser.add_argument("--counterfactual-negatives", action="store_true", help="pair each counterfactual task with a reject on another visible object it does not describe")
+    parser.add_argument("--confusable-negatives", action="store_true", help="train/val only: add near-category same-frame reject/positive pairs")
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

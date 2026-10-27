@@ -143,3 +143,64 @@ python scripts/eval_r21id_identity.py `
 ```
 
 脚本按四视角完整的 `target_id` 统计实例级 verdict 一致率，按 `edge_truncated` 拒绝且 `recovery` 标注为正目标的实例统计恢复率和恢复观察次数；同时统计正目标总体/消防栓小目标 false-reject、显式 distractor false-accept。各比例提供以 `target_id` 为抽样单位的 95% bootstrap 区间，避免同一实例多行被当成独立样本。真目标拒绝率越低越好；候选干扰物接受率除满足绝对门槛外，也必须不高于 r18。r18 与候选必须覆盖相同 `target_id` 集合。JSON 与中文 Markdown 同时输出；候选触发任一门槛失败时退出码为 1，并在报告中明确“保留 r18”。test split 只用于最终报告，不应用于阈值调参。
+
+## r21id-r2 可直接排队的执行方案
+
+本轮使用 `artifacts/r18-round/r15-sft` 做完整 r18 replay，新增数据来自
+`artifacts/r21id-r2/r15-additions-r2-final`。合并时显式打开 `--r21id-r2-filter`：
+反事实 `approach_track` 必须有同一 `world + image_path/frame_id + task_text` 的
+`reject_track` 配对；`edge_truncated` 的 approach 正例最多占该视角正例的 20%；
+`recovery` 的 approach/confirm 只保留同一 `target_id` 的 true-target 配对；新增正例按
+`world/label_type/decision/view` 分层约四分之一抽样，所有新增 reject 保留。该开关默认关闭，
+所以旧轮次命令不变。合并统计和门禁结果落在 `artifacts/r21id-r2/merged/manifest.json`。
+
+SFT 行本身不重复写 `truth_category`，但 builder 从 r21id truth 文件的 projected targets
+读取类别，新增 `--confusable-negatives` 只处理 train/val，并保留 holdout 与去重逻辑。当前
+落盘 additions 已生成 `confusable_negative`/`confusable_positive`。已有帧的方向计数如下（每个
+方向目标为 30 才认为覆盖足够；低于 30 的方向仍需补采）：
+
+| 混淆方向 | reject/paired 计数 | 状态 |
+|---|---:|---|
+| suv→car、pickup→car、postbox→car、mailbox→car、person→jersey_barrier、person→postbox、person→mailbox、jersey_barrier→person、postbox→person、mailbox→person | 30（builder 上限） | 达到当前覆盖目标 |
+| person→mailbox、car→mailbox | 2 | 不足，需补采 |
+| pickup↔suv、suv→pickup | 0 | 不足，需补采 |
+
+hard-pair 统计严格排除 `flight-identity-eval-v2-v3prop` 和 generated-v2 holdout；当前 manifest
+记录 `hard_pairs.available_pairs=3`（已有同帧正负配对），并将上述低覆盖方向标记为 supplementary
+collection required。补采方案是生成 24 个 train 世界（pickup、SUV、person、postbox 四类各 6 个，另含
+car 交叉干扰），沿用 `generate_r15_worlds.py --profile r21-identity` 的几何层；新增模板需
+记录 `truth_category`、`candidate_category`、`target_id` 和同帧 `frame_id`。生成命令（只生成，
+不采集）：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/generate_r15_worlds.py --profile r21-identity --count 24 `
+  --out-worlds simulation/gazebo/worlds --out-scenarios configs/scenarios/generated-r21id-r2
+```
+
+采集排队命令（本轮不执行）应只使用 train index，按 24 世界各 4 视角、每视角 3 次收集，
+并保持 `--holdout-from configs/scenarios/generated-v2/index.json`：
+
+```powershell
+python scripts/run_r15_round.py collect --scenarios configs/scenarios/generated-r21id-r2 `
+  --r15-index configs/scenarios/generated-r21id-r2/index.json `
+  --out artifacts/r21id-r2/episodes --episodes artifacts/r21id-r2/episodes
+```
+
+完整训练→导出→评测→报告队列（CPU 合并已经完成，训练命令仅供后续有 GPU 时执行；每条命令可续跑）：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/run_r15_round.py --stage train --out artifacts/r21id-r2 `
+  --r12-dataset artifacts/r18-round/r15-sft --additions artifacts/r21id-r2/r15-additions-r2-final `
+  --r12-replay-fraction 1.0 --r21id-r2-filter --learning-rate 2e-5 `
+  --hot-start --r12-adapter artifacts/r18-round/adapter/adapter `
+  --baseline-label r18 --candidate-label r21id-r2 `
+  --holdout-from configs/scenarios/generated-v2/index.json
+python scripts/run_r15_round.py --stage export --out artifacts/r21id-r2 --baseline-label r18 --candidate-label r21id-r2
+python scripts/run_r15_round.py --stage eval --out artifacts/r21id-r2 --baseline-label r18 --candidate-label r21id-r2
+python scripts/run_r15_round.py --stage report --out artifacts/r21id-r2 --baseline-label r18 --candidate-label r21id-r2
+```
+
+验收条件：v3 distractor rejection ≥ 0.97；pickup/SUV 成对拒绝 ≥ 0.97；v1 不低于 r18；
+同时尽量保留小目标召回提升。任一条件失败则保留 r18。
