@@ -772,3 +772,22 @@ def test_collect_plans_the_configured_episodes_per_world():
         env={**__import__("os").environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
     )
     assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr
+
+
+def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    result = subprocess.run(
+        [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+         "--r15-index", str(index), "--scenarios", str(index.parent),
+         "--r21id-r2-filter", "--r21id-keep-small-true-targets"],
+        cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+    )
+    merge = [line for line in result.stdout.splitlines() if "--merge-only" in line]
+    assert merge and "--r21id-keep-small-true-targets" in merge[0], result.stdout + result.stderr

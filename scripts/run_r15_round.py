@@ -1302,6 +1302,8 @@ class Round:
             ]
             if getattr(self.a, "r21id_r2_filter", False):
                 merge_cmd.append("--r21id-r2-filter")
+                if getattr(self.a, "r21id_keep_small_true_targets", False):
+                    merge_cmd.append("--r21id-keep-small-true-targets")
             self.run(
                 "merge_sft",
                 merge_cmd,
