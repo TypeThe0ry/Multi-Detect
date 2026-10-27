@@ -222,7 +222,7 @@ def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum
     rejects = {_frame_task_key(r) for r in rows if _polarity(r) == "negative"}
     true_targets = {}
     for r in rows:
-        if r.get("label_type") in {"true_target", "proposal_true"} and r.get("target_id"):
+        if r.get("label_type") in {"true_target", "proposal_true"} and r.get("target_id") and r.get("view") != "recovery":
             true_targets.setdefault((r.get("world"), r.get("task_text")), set()).add(r.get("target_id"))
     kept, report = [], Counter()
     for r in rows:
@@ -278,28 +278,27 @@ def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum
 
 
 def generate_hard_pairs(rows: list[dict]) -> tuple[list[dict], dict]:
-    """Reuse already collected same-frame true/distractor rows; never use eval data."""
-    groups = {}
+    """Count explicit same-frame near-category pairs emitted by the builder."""
+    pairs: dict[tuple, set[str]] = {}
     for r in rows:
-        groups.setdefault(_frame_task_key(r), []).append(r)
-    out, categories = [], Counter()
-    for key, group in groups.items():
-        pos = [r for r in group if _polarity(r) == "positive" and r.get("target_id")]
-        neg = [r for r in group if _polarity(r) == "negative"]
-        if not pos or not neg:
-            continue
-        task = (key[2] or "").lower()
-        cat = next((c for c in ("pickup", "suv", "person", "car") if c in task), None)
-        if not cat:
-            continue
-        for n in neg:
-            if any(x in (n.get("assistant_target") or {}).get("reason", "").lower() for x in ("postbox", "jersey", "suv", "pickup")):
-                categories[cat] += 1
-                out.append(n)
+        kind = r.get("label_type")
+        pair_type = r.get("confusable_pair_type")
+        if kind in {"confusable_negative", "confusable_positive"} and pair_type:
+            key = (_frame_task_key(r), pair_type)
+            pairs.setdefault(key, set()).add(kind)
+    categories = Counter(pair for (_, pair), kinds in pairs.items() if kinds == {"confusable_negative", "confusable_positive"})
+    for source, targets in {
+        "pickup": ("suv", "car"), "suv": ("pickup", "car"), "car": ("suv", "pickup", "postbox", "mailbox"),
+        "person": ("jersey_barrier", "postbox", "mailbox"), "jersey_barrier": ("person",),
+        "postbox": ("person", "car", "pickup"), "mailbox": ("person", "car"),
+    }.items():
+        for target in targets:
+            categories.setdefault(f"{target}->{source}", 0)
+    count = sum(categories.values())
     return [], {
-        "available_pairs": sum(categories.values()), "by_category": dict(categories),
+        "available_pairs": count, "by_pair_type": dict(sorted(categories.items())),
         "source_exclusions": ["flight-identity-eval-v2-v3prop", "generated-v2 held_out_target_combos"],
-        "status": "no eligible hard pairs: source rows lack truth_category/candidate_category labels",
+        "status": "supplementary collection required" if any(v < 30 for v in categories.values()) else "pair coverage meets minimum",
     }
 
 
@@ -1241,6 +1240,8 @@ class Round:
                 "--output",
                 str(self.out / "r15-additions"),
             ]
+            if getattr(self.a, "r21id_r2_filter", False):
+                cmd.append("--confusable-negatives")
             self.run(
                 "build_sft",
                 cmd,
@@ -1311,7 +1312,7 @@ class Round:
                 "--alpha",
                 "32",
                 "--learning-rate",
-                str(self.a.learning_rate),
+                str(getattr(self.a, "learning_rate", 1e-4)),
                 "--max-side",
                 "448",
                 "--crop-policy",

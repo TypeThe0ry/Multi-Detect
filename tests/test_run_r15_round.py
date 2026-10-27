@@ -12,6 +12,7 @@ from scripts.run_r15_round import (
     distribution,
     merge_without_copies,
     stratified_replay,
+    filter_r21id_r2_additions,
 )
 from scripts.train_slow_system_lora import initialize_adapter, resolve_adapter_weights
 
@@ -35,6 +36,84 @@ def test_merge_rejects_positive_copy_with_new_id_and_keeps_hard_negative():
     assert stats["backpack|<12|negative"] == 1
     assert stats["backpack|<12|positive"] == 1
     assert stats["backpack|20-32|negative"] == 1
+
+
+def _r2_row(sample, decision, label, *, image="f.jpg", task="Find the pickup.", view="front", target_id=None, world="w0"):
+    item = {"sample_id": sample, "image_path": image, "task_text": task, "world": world,
+            "view": view, "label_type": label, "target_id": target_id,
+            "assistant_target": {"decision": decision}}
+    return item
+
+
+def test_r21id_filter_drops_unpaired_and_keeps_paired_counterfactuals():
+    rows = [_r2_row("u", "approach_track", "counterfactual", image="u.jpg"),
+            _r2_row("p", "approach_track", "counterfactual", image="p.jpg"),
+            _r2_row("n", "reject_track", "counterfactual_negative", image="p.jpg")]
+    kept, report = filter_r21id_r2_additions(rows, minimum_positive_rows=2)
+    assert {r["sample_id"] for r in kept} >= {"p", "n"}
+    assert report["dropped_unpaired"] == 1
+
+
+def test_r21id_filter_caps_edge_approach_and_requires_recovery_target():
+    rows = [_r2_row(f"e{i}", "approach_track", "true_target", view="edge_truncated", target_id=f"t{i}") for i in range(5)]
+    rows += [_r2_row("r0", "approach_track", "true_target", view="recovery", target_id="wrong"),
+             _r2_row("rt", "confirm_target", "true_target", view="front", target_id="t1"),
+             _r2_row("r1", "confirm_target", "true_target", view="recovery", target_id="t1")]
+    kept, report = filter_r21id_r2_additions(rows, minimum_positive_rows=3)
+    edge = [r for r in kept if r["view"] == "edge_truncated"]
+    assert len(edge) <= 1
+    assert "r0" not in {r["sample_id"] for r in kept}
+    assert "r1" in {r["sample_id"] for r in kept}
+    assert report["dropped_edge_approach"] == 4
+
+
+def test_r21id_filter_samples_positive_strata_but_keeps_all_rejects():
+    rows = [_r2_row(f"p{i}", "confirm_target", "true_target", world=f"w{i % 2}") for i in range(20)]
+    rows += [_r2_row(f"n{i}", "reject_track", "distractor", world=f"w{i % 2}") for i in range(7)]
+    kept, report = filter_r21id_r2_additions(rows)
+    assert sum(r["assistant_target"]["decision"] == "reject_track" for r in kept) == 7
+    positives = sum(r["assistant_target"]["decision"] == "confirm_target" for r in kept)
+    assert 4 <= positives <= 8
+    assert report["dropped_weight_subsample"] > 0
+
+
+def test_r21id_filter_default_off_is_not_applied():
+    rows = [_r2_row("u", "approach_track", "counterfactual")]
+    # merge_cli uses getattr(..., False), preserving legacy Namespaces and behavior.
+    assert len(rows) == 1
+
+
+def test_r21id_train_command_passes_learning_rate_and_hot_start(tmp_path):
+    out = tmp_path / "round"
+    (out / "r15-sft").mkdir(parents=True)
+    (out / "r15-sft" / "manifest.json").write_text("{}", encoding="utf-8")
+    args = Namespace(
+        out=out, stage="train", dry_run=True, min_free_gb=0, min_free_memory_gb=0,
+        model=tmp_path / "model", learning_rate=2e-5, hot_start=True,
+        r12_adapter=tmp_path / "r18-adapter",
+    )
+    captured = []
+    runner = Round(args)
+    runner.run = lambda name, command, **kwargs: captured.append((name, command))
+    runner.execute()
+    command = captured[0][1]
+    assert command[command.index("--learning-rate") + 1] == "2e-05"
+    assert command[command.index("--init-adapter") + 1] == str(args.r12_adapter)
+
+
+def test_merge_uses_explicit_additions_path(tmp_path):
+    import json
+    _r12_dataset(tmp_path)
+    add = tmp_path / "new-additions"
+    add.mkdir()
+    _write_jsonl(add / "train.jsonl", [_identity("only-new", "reject_track", "confusable_negative")])
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+    args = _merge_args(tmp_path)
+    args.additions = add
+    merge_cli = __import__("scripts.run_r15_round", fromlist=["merge_cli"]).merge_cli
+    merge_cli(args)
+    assert 'only-new' in (tmp_path / "merged" / "train.jsonl").read_text(encoding="utf-8")
 
 
 def test_acceptance_rules_require_all_four_gates():

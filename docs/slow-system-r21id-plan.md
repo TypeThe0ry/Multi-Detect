@@ -147,17 +147,27 @@ python scripts/eval_r21id_identity.py `
 ## r21id-r2 可直接排队的执行方案
 
 本轮使用 `artifacts/r18-round/r15-sft` 做完整 r18 replay，新增数据来自
-`artifacts/r21id-round/pipeline/r15-additions`。合并时显式打开 `--r21id-r2-filter`：
+`artifacts/r21id-r2/r15-additions-r2-final`。合并时显式打开 `--r21id-r2-filter`：
 反事实 `approach_track` 必须有同一 `world + image_path/frame_id + task_text` 的
 `reject_track` 配对；`edge_truncated` 的 approach 正例最多占该视角正例的 20%；
 `recovery` 的 approach/confirm 只保留同一 `target_id` 的 true-target 配对；新增正例按
 `world/label_type/decision/view` 分层约四分之一抽样，所有新增 reject 保留。该开关默认关闭，
 所以旧轮次命令不变。合并统计和门禁结果落在 `artifacts/r21id-r2/merged/manifest.json`。
 
-现有 r21id additions 与 r18 replay 均没有 `truth_category`/`candidate_category` 字段，按
-同帧同任务核查没有可复用的 pickup↔SUV、person↔jersey_barrier/postbox 或 *↔postbox
-硬配对（`hard_pairs.available_pairs=0`）。因此没有从 v3 测试集或 generated-v2 holdout
-借样本。补采方案是生成 24 个 train 世界（pickup、SUV、person、postbox 四类各 6 个，另含
+SFT 行本身不重复写 `truth_category`，但 builder 从 r21id truth 文件的 projected targets
+读取类别，新增 `--confusable-negatives` 只处理 train/val，并保留 holdout 与去重逻辑。当前
+落盘 additions 已生成 `confusable_negative`/`confusable_positive`。已有帧的方向计数如下（每个
+方向目标为 30 才认为覆盖足够；低于 30 的方向仍需补采）：
+
+| 混淆方向 | reject/paired 计数 | 状态 |
+|---|---:|---|
+| suv→car、pickup→car、postbox→car、mailbox→car、person→jersey_barrier、person→postbox、person→mailbox、jersey_barrier→person、postbox→person、mailbox→person | 30（builder 上限） | 达到当前覆盖目标 |
+| person→mailbox、car→mailbox | 2 | 不足，需补采 |
+| pickup↔suv、suv→pickup | 0 | 不足，需补采 |
+
+hard-pair 统计严格排除 `flight-identity-eval-v2-v3prop` 和 generated-v2 holdout；当前 manifest
+记录 `hard_pairs.available_pairs=3`（已有同帧正负配对），并将上述低覆盖方向标记为 supplementary
+collection required。补采方案是生成 24 个 train 世界（pickup、SUV、person、postbox 四类各 6 个，另含
 car 交叉干扰），沿用 `generate_r15_worlds.py --profile r21-identity` 的几何层；新增模板需
 记录 `truth_category`、`candidate_category`、`target_id` 和同帧 `frame_id`。生成命令（只生成，
 不采集）：
@@ -182,9 +192,9 @@ python scripts/run_r15_round.py collect --scenarios configs/scenarios/generated-
 ```powershell
 $env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
 python scripts/run_r15_round.py --stage train --out artifacts/r21id-r2 `
-  --r12-dataset artifacts/r18-round/r15-sft --additions artifacts/r21id-round/pipeline/r15-additions `
+  --r12-dataset artifacts/r18-round/r15-sft --additions artifacts/r21id-r2/r15-additions-r2-final `
   --r12-replay-fraction 1.0 --r21id-r2-filter --learning-rate 2e-5 `
-  --r12-adapter artifacts/r18-round/adapter/adapter `
+  --hot-start --r12-adapter artifacts/r18-round/adapter/adapter `
   --baseline-label r18 --candidate-label r21id-r2 `
   --holdout-from configs/scenarios/generated-v2/index.json
 python scripts/run_r15_round.py --stage export --out artifacts/r21id-r2 --baseline-label r18 --candidate-label r21id-r2
