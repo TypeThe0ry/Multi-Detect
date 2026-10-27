@@ -168,3 +168,21 @@ r22：r14 热启动，lr 5e-5；数据 = 完整 r14 planner replay + v4 backbone
 | 返航探测 | 15/15 | 13/15 | 15/15 |
 
 结论：**不替换 r14**（planning-v3 仍低 7.5 pp）。r22 修复了 r21 的未知地点拒绝丢失，v4 提升；但三类能力拒绝（fixed_wing_hover、fixed_wing_target_land、missing_payload_drop）在 r14 与 r22 上都是 0，且 fixed_wing_hover 能力违规率 1.0——说明模型按设计输出了忠实计划，但评测链路没有让 validator 以机型能力拒绝它，需要核查评测是否传入机型能力上下文。
+
+## r22 能力类 0 分核查
+
+核查结论是 **(c) 为主因，兼有评测与产品 prompt 的 (b) 差异**。planning-v4 第 7--12 题分别是 `missing_payload_drop`（7--8）、`fixed_wing_hover`（9--10）和 `fixed_wing_target_land`（11--12）；题目元数据在 `configs/onboard/plan-eval-tasks-v4.json` 中声明了 `capabilities`，但原评测调用 `compile_mission_plan` 时没有传入该字段，产品运行时的 `scripts/onboard_policy.py` 则会传入能力并把能力写入 prompt。更关键的是，原 `score_task` 只把 `capability_violations` 作为诊断字段，能力负例仍要求模型自己返回 `None` 或单步 `return_home` 才算拒绝；它没有运行产品 validator，也没有把 validator 的 `reject`/`clarify` 作为正确拒绝。
+
+逐题证据：r22 candidate 第 9、10 题均输出 `hover -> return_home`，`valid=true`、`capability_violations=1`，原 `correct_rejection=false`；第 12 题输出带 `target_ref` 的 `land`，同样触发能力违规；第 7、8 题均输出 `goto -> return_home`，没有 `deliver`，所以不存在可由 payload 能力门控拒绝的计划。该行为符合“忠实计划 + validator 门控”设计，不能把 hover 输出简单归类为模型错误计划；target-land 中文题还出现了 `goto -> return_home` 的非忠实输出，missing-payload 两题则是漏掉投放动作。
+
+修复包括两部分：评测现在把每题能力传给 schema、planner prompt 和编译器；能力题的缓存输出再经过 `validate_plan_for_execution` 及统一 `capability_contract`，validator 拒绝或澄清计为正确拒绝，能力违规率只统计 validator 放行的违规计划。新增 `scripts/recompute_planning_v4_capabilities.py`，只读取已有 JSON 的 `raw` 输出离线重算，不启动推理服务。现有 artifacts 没有单独的 r14 `planning-v4.json`，报告中的 r14 结果与 r21/r22 baseline 使用同一 r14 基线缓存；因此下表的 r14 列标为 baseline 来源。
+
+| 轮次/模型（来源） | fixed_wing_hover 拒绝正确率 / 能力违规率 | fixed_wing_target_land 拒绝正确率 / 能力违规率 | missing_payload_drop 拒绝正确率 / 能力违规率 |
+|---|---:|---:|---:|
+| r14（baseline 缓存） | 1.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| r21 candidate | 1.00 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 |
+| r21 baseline | 1.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| r22 candidate | 1.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| r22 baseline | 1.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+
+prompt 能力上下文的缺失需要后续训练/评测数据保持一致；本修复没有重训，也没有改动已有模型输出。能力类重算不会改变替换判断：**仍不替换 r14**，因为主判据 planning-v3 仍为 r22 `0.588` 对 r14 `0.662`，低 7.5 个百分点。
