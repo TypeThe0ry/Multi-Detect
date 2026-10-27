@@ -287,3 +287,31 @@ def test_v4_outputs_keep_pre_v5_byte_identity(workspace):
                      "--val-rows", "150"]) == 0
     for filename, digest in expected.items():
         assert hashlib.sha256((workspace / filename).read_bytes()).hexdigest() == digest
+
+
+def test_r23_recipe_adds_v3_coverage_and_faithful_deliver_rows(workspace):
+    out = workspace / "r23"
+    assert sft.main(["--output", str(out), "--version", "v4", "--rows", "80",
+                     "--val-rows", "5", "--r23-recipe", "--r23-v3-count", "10",
+                     "--r23-deliver-count", "5", "--require-skills"]) == 0
+    rows = _read_rows(out)
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    train = rows["train"]
+    assert sum(row.get("family") == "r23_v3_coverage" for row in train) == 10
+    deliver = [row for row in train if row.get("family") == "r23_deliver_faithful"]
+    assert len(deliver) == 5
+    assert all(row["assistant_target"]["steps"][0]["skill"] == "deliver" for row in deliver)
+    assert manifest["r23_recipe"]["rows_added"] == 15
+    assert (out / "r23-data-stats.md").is_file()
+    coverage = [row for row in train if row.get("family") == "r23_v3_coverage"]
+    assert Counter(row["r23_sequence"] for row in coverage) == Counter({
+        "goto_hover_return": 2, "record_hover_land": 2, "patrol_goto_return": 2,
+        "monitor_monitor_return": 2, "survey_survey_land": 1, "current_view_record": 1,
+    })
+    # Replay/backbone rows stay verbatim; only rows the recipe generated are cleaned.
+    generated = [row for row in train
+                 if row.get("family") in {"r23_v3_coverage", "r23_deliver_faithful"}]
+    assert not any(re.search(r"最后然后|then then|\bthe the\b", row["task_text"], re.I)
+                   for row in generated)
+    assert not any("batch " in row["task_text"].lower() or "批" in row["task_text"]
+                   for row in deliver)
