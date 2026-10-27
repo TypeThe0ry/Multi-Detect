@@ -275,11 +275,13 @@ def test_v5_required_skill_guard_and_refusal_boundary(workspace, capsys):
 
 
 def test_v4_outputs_keep_pre_v5_byte_identity(workspace):
-    # Captured before v5 edits: seed 20261015, default prompt and all default eval files.
+    # seed 20261015, default prompt and all default eval files. Re-captured at f69c0da6:
+    # holdout/dedup compare normalize_task() keys, dropping 19 punctuation/spacing
+    # near-duplicates the old exact-text check let through (none matched an eval task).
     expected = {
-        "manifest.json": "85ba5a6c48fa1d1a9b58e74c3b91847add34d102a27373d46b84e9e00aee4a41",
-        "train.jsonl": "5ffd1329dbb8dbf3a43c046bfbd0b0417562421ac5657233d33e522ba9346554",
-        "val.jsonl": "71717839a2392924ea95120bea4a519ff6faaa125fa4e468e684facc407fbe44",
+        "manifest.json": "065bbb04288eac1b50d4241b1256332dc68b98fe3cdaee521d1f9e27d71827bb",
+        "train.jsonl": "fa6bdeecf178273d22db8bbad60d3ea8b8f1a3d001b41619662611f1f865f3a3",
+        "val.jsonl": "2c0ca69e242a2fa7efb81bd2ea17fb3fccd490371b46148072121a6c2c0c6f2d",
     }
     assert sft.main(["--output", str(workspace), "--version", "v4", "--rows", "1800",
                      "--val-rows", "150"]) == 0
