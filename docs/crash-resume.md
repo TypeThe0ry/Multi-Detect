@@ -38,4 +38,4 @@ exit $status
 
 结果目录固定为 `artifacts/evaluation/crash-resume-sitl-20261027/`，汇总为 `summary.json`，每个场景另有 `result.json` 和原始 onboard/PX4 证据。判据是：`valid` 必须 `crash_resume.action=resume` 且 step、counts、alerts 延续，重启后的 arm/takeoff 命令数为零；`corrupt`、`digest`、`expired` 必须分别出现中文拒绝原因并 `return_home`/降落，命令数为零；`rtl` 必须 `monitor_failsafe` 且不发送重复 RTL。
 
-截至 2026-10-27，本次真实架次未能开始：共享锁 owner 为 `r21idb`（锁脚本等待确认命令在 5 秒后超时，退出码 124）。因此没有生成任何伪造的 pass 记录，也没有启动或清理非本任务容器；待锁释放后执行上面的命令即可得到五个独立架次的实际表格。离线验证已通过 `pytest -q tests/test_crash_resume.py`（4 passed）。
+截至 2026-10-27，本次已按要求阻塞等待并成功取得 `cxcrash` 共享锁；但尚未启动架次。主机没有枚举到可用相机设备，仓库没有 camera calibration JSON，且本机 OpenCV 4.10 构建为 `GStreamer: NO`，因此现有 onboard 入口无法接收可用图像流。不能以黑屏、未标定输入或 videotestsrc 代替真实 SITL 机载传感器验证。锁已释放；五个场景均记录为 `not_started`，未创建 SITL 容器。补齐可用相机流与对应 calibration 后重跑上面的五场景命令。离线验证已通过 `pytest -q tests/test_crash_resume.py tests/test_onboard_runtime.py`（24 passed）。

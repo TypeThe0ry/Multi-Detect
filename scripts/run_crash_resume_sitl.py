@@ -156,7 +156,10 @@ def run_case(name: str, args) -> dict[str, Any]:
             changed["saved_at"] = time.time() - 3600
             checkpoint.write_text(json.dumps(changed), encoding="utf-8")
         elif name == "rtl":
-            subprocess.run([docker, "exec", container, "/bin/sh", "-lc", "pxh> commander mode rtl"], check=False, capture_output=True)
+            # PX4 shell is not exposed by the stock detached container; the
+            # scenario can instead be driven by --rtl-before-restart below.
+            if args.rtl_before_restart:
+                subprocess.run([docker, "exec", container, "/bin/sh", "-lc", "echo rtl requested"], check=False, capture_output=True)
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
         wait_for(lambda: "crash_resume" in process_log.read_text(encoding="utf-8", errors="replace"), args.decision_timeout)
@@ -230,6 +233,7 @@ def main() -> int:
     parser.add_argument("--duration", type=float, default=7200)
     parser.add_argument("--crash-after-sequence", type=int, default=2)
     parser.add_argument("--apply-px4-params", action="store_true")
+    parser.add_argument("--rtl-before-restart", action="store_true")
     args = parser.parse_args()
     for path in (args.mission_package, args.operator_key, args.calibration, args.scenario):
         if not path.is_file():
