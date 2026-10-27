@@ -190,7 +190,7 @@ def test_real_runtime_waits_for_approval_on_the_policy_that_owns_the_supervisor(
             events.append("policy_close")
 
     class Gate:
-        def __init__(self, vehicle, package):
+        def __init__(self, vehicle, package, **kwargs):
             pass
 
         def run(self):
@@ -235,6 +235,7 @@ def test_real_runtime_waits_for_approval_on_the_policy_that_owns_the_supervisor(
         onboard_main, "_admit_package", lambda args: (package, {"task_text": "count cones"})
     )
     monkeypatch.setattr(onboard_main, "_ready", lambda *a, **k: (state, frame))
+    monkeypatch.setattr(onboard_main, "_recovery_ready", lambda *a, **k: state)
     monkeypatch.setattr(onboard_main, "_validate_local_models", lambda options: None)
     monkeypatch.setattr(
         onboard_main, "CameraCalibration", SimpleNamespace(load=lambda path: calibration)
