@@ -170,6 +170,36 @@ def test_gps_hdop_above_two_is_blocking():
     assert "gnss" in report["blocking_failures"]
 
 
+def test_health_gate_waits_for_delayed_sys_status_and_estimator_without_commands():
+    pkg = package()
+    vehicle = FakeVehicle(values_for(pkg))
+    vehicle.state.sensor_present = None
+    vehicle.state.sensor_enabled = None
+    vehicle.state.sensor_health = None
+    vehicle.state.sys_status_monotonic = None
+    vehicle.state.estimator_flags = 165  # PX4 reports partial vertical-only convergence.
+    vehicle.state.estimator_monotonic = 10.0
+    snapshots = [0]
+    original = vehicle.snapshot
+
+    def delayed_snapshot():
+        snapshots[0] += 1
+        if snapshots[0] >= 3:
+            vehicle.state.sensor_present = 39
+            vehicle.state.sensor_enabled = 39
+            vehicle.state.sensor_health = 39
+            vehicle.state.sys_status_monotonic = 10.0
+            vehicle.state.estimator_flags = 127
+            vehicle.state.estimator_monotonic = 10.0
+        return original()
+
+    vehicle.snapshot = delayed_snapshot
+    report = PX4PreflightGate(vehicle, pkg, clock=lambda: 10.0).run()
+    assert report["passed"] is True
+    assert snapshots[0] >= 3
+    assert vehicle.writes == []
+
+
 
 
 

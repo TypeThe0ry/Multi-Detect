@@ -59,3 +59,19 @@ exit $status
 后续修复验证：real 模式现在在地面遥测建立后调用 `request_home_position()` 并等待 HOME，默认最多 120 秒；超时错误为 `PX4 未在 N 秒内建立 HOME（GNSS/EKF 未就绪）`。空中 crash-resume 若 HOME 缺失则记录 `monitor_failsafe`，不接管。真实 valid 重试中日志已从 HOME 缺失推进到 `home.passed=true`，随后暴露出任务包未声明 `px4_offboard_loss_action`（PX4 返回 `COM_OBL_RC_ACT=0`）以及传感器/EKF 尚未就绪；该架次没有 arm/takeoff 或 checkpoint。五场景因此仍未取得有效恢复结果，证据保存在 `final-run/valid/attempt-1/onboard-process.log`。
 
   修复后的第二个 `valid --apply-px4-params` 架次尚未能启动：共享锁脚本因主机可用内存只有约 1.1--1.3 GiB（门槛 5 GiB）持续等待，未创建容器；随后按要求释放 `cxparam` 锁。五个 crash-resume 场景因此仍未获得新的真实结果，已有阻塞证据保留在 `artifacts/evaluation/crash-resume-sitl-20261027/`。
+
+### 最终真实结果（2026-10-27，`final-run2`/`final-run3`）
+
+本轮任务包在签名文档中显式声明 `px4_offboard_loss_action=3`，即 PX4 `COM_OBL_RC_ACT=3`（Return/RTL）。选择该值是因为任务包的 offboard 丢链必须返航，且 schema 允许值为 3/4/5；产品仍保持字段缺失即拒绝。启动前用 `netstat` 检查并使用空闲的 control/telemetry/operator 端口 `14560/14561/14690`，没有触碰被占用的 14540/14541。
+
+传感器/EKF 不是解析错误：早期报告为 `present=33587215, enabled=35768351, health=50364463`，required mask `39` 的交集分别为 `7,7,39`；估计器早期 flags 为 `165 (0xA5)`，缺少速度和水平位置位。等待 PX4 收敛后报告变为 `health=52463679`、`estimator flags=959`，sensor_health 与 estimator 均通过。preflight gate 在有界时间内等待新鲜 SYS_STATUS/ESTIMATOR_STATUS，超时仍 fail-closed。
+
+| 场景 | 结果 | 关键证据 |
+|---|---|---|
+| valid | PASS | `crash_resume.action=resume`，`step_id=visit_gate`，重启后 arm/takeoff 命令数 `0`。见 `final-run2/valid/attempt-1/result.json`。 |
+| corrupt | PASS | `action=return_home`，原因含“检查点缺失/损坏”，重启后命令数 `0`。 |
+| digest | PASS | `action=return_home`，原因含“任务包身份不匹配”，重启后命令数 `0`。 |
+| expired | PASS | `action=return_home`，原因含“过期”，重启后命令数 `0`。 |
+| rtl | FAIL（harness 时序） | PX4 telemetry 记录到 `mode=RTL, custom_mode=84148224, base_mode=157, armed=true`；恢复 onboard 随后因启动等待超时，未写出 `monitor_failsafe`。后续遥测为 `LOITER/disarmed`，说明等待恢复进程启动期间 PX4 已完成返航/落地。见 `final-run3/rtl/attempt-2/result.json`。产品未发送重复 arm/takeoff/RTL 命令。 |
+
+RTL 失败是测试编排的剩余问题，不是放宽安全准入的理由：runner 必须在发出 RTL 后立即让恢复进程读取 airborne 状态，并确保新进程能继续收到 telemetry；本轮已保留完整日志和参数 trace 供后续修复。

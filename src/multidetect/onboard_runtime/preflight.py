@@ -81,11 +81,13 @@ def build_parameter_matrix(package: MissionPackage | Mapping[str, Any]) -> dict[
 class PX4PreflightGate:
     def __init__(self, vehicle: Any, package: MissionPackage | Mapping[str, Any], *,
                  timeout_s: float = 1.0, retries: int = 3,
+                 health_timeout_s: float = 30.0,
                  clock=time.monotonic) -> None:
         self.vehicle = vehicle
         self.package = package
         self.timeout_s = timeout_s
         self.retries = retries
+        self.health_timeout_s = health_timeout_s
         self.clock = clock
         self.checks: list[PreflightCheck] = []
         self.parameters: dict[str, float] = {}
@@ -113,6 +115,33 @@ class PX4PreflightGate:
             return stamp is not None and 0 <= now - stamp <= self.timeout_s * 3
 
         required_bits = 1 | 2 | 4 | 32
+        # A fresh PX4 boot can publish HOME/GNSS before SYS_STATUS and
+        # ESTIMATOR_STATUS have converged. Wait without sending flight commands;
+        # the gate still fails closed when the bounded window expires.
+        deadline = self.clock() + max(0.0, self.health_timeout_s)
+        while True:
+            present = get("sensor_present")
+            enabled = get("sensor_enabled")
+            health = get("sensor_health")
+            flags = get("estimator_flags")
+            sensors_ready = (
+                present is not None and enabled is not None and health is not None
+                and int(present) & required_bits == required_bits
+                and int(enabled) & required_bits == required_bits
+                and int(health) & required_bits == required_bits
+                and fresh(get("sys_status_monotonic"))
+            )
+            estimator_ready = (
+                flags is not None and int(flags) & 0x07 == 0x07
+                and int(flags) & 0x18 and int(flags) & 0x60
+                and fresh(get("estimator_monotonic"))
+            )
+            if sensors_ready and estimator_ready or self.clock() >= deadline:
+                break
+            time.sleep(0.05)
+            state = self.vehicle.snapshot()
+            now = self.clock()
+
         present, enabled, health = (get("sensor_present"), get("sensor_enabled"),
                                     get("sensor_health"))
         sensor_ok = (present is not None and enabled is not None and health is not None

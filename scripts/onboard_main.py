@@ -592,7 +592,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if args.mode == "real":
             if package is None:
                 raise RuntimeError("--mission-package is required for real PX4 preflight")
-            gate = PX4PreflightGate(vehicle, package)
+            gate = PX4PreflightGate(
+                vehicle, package,
+                health_timeout_s=getattr(args, "startup_timeout", 30),
+            )
             preflight = gate.apply() if args.apply_px4_params else gate.run()
             report["preflight"] = preflight
             log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
@@ -644,7 +647,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 area = uploaded.document["operating_area"]
                 if not area["min_altitude_m"] <= args.altitude <= area["max_altitude_m"]:
                     raise ValueError("launch altitude outside mission package limits")
-                gate = PX4PreflightGate(vehicle, uploaded)
+                gate = PX4PreflightGate(
+                    vehicle, uploaded,
+                    health_timeout_s=getattr(args, "startup_timeout", 30),
+                )
                 result = gate.apply() if args.apply_px4_params else gate.run()
                 if not result["passed"]:
                     raise ValueError(
