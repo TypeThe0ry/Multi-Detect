@@ -40,9 +40,9 @@ def test_evaluate_failure_names_r18_retention(tmp_path):
     assert "保留 r18" in markdown_report(result)
 
 
-def test_requires_view_and_target_id_metadata():
-    with pytest.raises(ValueError, match="lacks target_id"):
-        _merge([{"sample_id": "x"}], [{"sample_id": "x", "decision": "confirm_target"}])
+def test_rows_without_target_id_are_skipped_not_scored():
+    # search_region / no-candidate rows name no instance.
+    assert _merge([{"sample_id": "x"}], [{"sample_id": "x", "decision": "search_region"}]) == []
 
 
 def test_rejects_candidate_with_more_distractor_accepts_than_r18(tmp_path):

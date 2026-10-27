@@ -90,7 +90,9 @@ def _merge(dataset: list[dict[str, Any]], predictions: list[dict[str, Any]]) -> 
         row["view"] = _view(row) or _view(source)
         row["target_id"] = _target_id(row) or _target_id(source)
         if row["target_id"] is None:
-            raise ValueError(f"sample {sample_id} lacks target_id metadata")
+            # search_region / no-candidate rows name no instance; they cannot be
+            # aligned per target and are counted, not scored.
+            continue
         row["category"] = str(_first(row, "target_category", "task_category", "category", "class_name", "asset_slug") or "")
         row["label_type"] = str(row.get("label_type", ""))
         row["expected_match"] = _is_match(_first(row, "expected", "assistant_target"))
@@ -208,6 +210,7 @@ def evaluate(dataset: Path, baseline: Path, candidate: Path) -> dict[str, Any]:
         "r18": sum(1 for rows_for_model in (baseline_rows,) for target in {row["target_id"] for row in rows_for_model} if {row["view"] for row in rows_for_model if row["target_id"] == target} != set(VIEWS)),
         "candidate": sum(1 for rows_for_model in (candidate_rows,) for target in {row["target_id"] for row in rows_for_model} if {row["view"] for row in rows_for_model if row["target_id"] == target} != set(VIEWS)),
     }
+    result["no_target_rows"] = len(rows) - len(baseline_rows)
     result["null_view_rows"] = {"r18": sum(row["view"] is None for row in baseline_rows), "candidate": sum(row["view"] is None for row in candidate_rows)}
     result["candidate_pass"], result["reasons"] = _pass(result["candidate"])
     baseline_fa = result["baseline"]["distractor_false_accept"]["value"]
@@ -225,7 +228,7 @@ def evaluate(dataset: Path, baseline: Path, candidate: Path) -> dict[str, Any]:
 
 
 def markdown_report(report: dict[str, Any]) -> str:
-    lines = ["# r21id identity 专项评测", "", f"**结论：{report['decision']}**", "", "真目标拒绝率越低越好；干扰物接受率越低越好。置信区间以 target_id 为 bootstrap 抽样单位。", "", f"view=null 行数：r18 {report['null_view_rows']['r18']}，候选 {report['null_view_rows']['candidate']}；不完整实例数：r18 {report['incomplete_instances']['r18']}，候选 {report['incomplete_instances']['candidate']}。", "", "| 指标 | r18 | 候选 | 门槛 |", "|---|---:|---:|---:|"]
+    lines = ["# r21id identity 专项评测", "", f"**结论：{report['decision']}**", "", "真目标拒绝率越低越好；干扰物接受率越低越好。置信区间以 target_id 为 bootstrap 抽样单位。", "", f"无 target_id（不计分）行数：{report.get('no_target_rows', 0)}；view=null 行数：r18 {report['null_view_rows']['r18']}，候选 {report['null_view_rows']['candidate']}；不完整实例数：r18 {report['incomplete_instances']['r18']}，候选 {report['incomplete_instances']['candidate']}。", "", "| 指标 | r18 | 候选 | 门槛 |", "|---|---:|---:|---:|"]
     keys = [("multiview_consistency", "实例级跨视角一致率", ">= 0.90"), ("recovery_rate", "拒绝后恢复率", ">= 0.85"), ("average_recovery_observations", "平均恢复观察次数", "<= 2"), ("true_target_false_reject", "真目标总体拒绝率", "<= 0.08"), ("fire_hydrant_false_reject", "消防栓小目标拒绝率", "<= 0.12"), ("distractor_false_accept", "显式干扰物接受率", "<= 0.026")]
     for key, name, gate in keys:
         base = report["baseline"].get(key); cand = report["candidate"].get(key)
