@@ -285,9 +285,7 @@ def test_param_int32_bit_cast_and_stale_values_are_ignored():
 
 def test_read_parameter_accepts_synchronous_zero_latency_reply() -> None:
     connection = FakeConnection()
-    clock_values = iter((10.0, 11.0))
-    vehicle = PymavlinkVehicle("replay", connection=connection,
-                               clock=lambda: next(clock_values))
+    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: 10.0)
     vehicle.target_system = vehicle.target_component = 1
 
     def reply_inside_send(*args: object) -> None:
@@ -326,8 +324,7 @@ def test_param_int32_encoding_decodes_both_protocol_forms(encoding, raw, expecte
 ])
 def test_write_parameter_int32_encodings(encoding, wire, readback) -> None:
     connection = FakeConnection()
-    ticks = iter((30.0, 30.1, 30.2))
-    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: next(ticks))
+    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: 30.0)
     vehicle.target_system = vehicle.target_component = 1
     vehicle._parameter_encoding = encoding
     vehicle._parameters["NAV_DLL_ACT"] = (0.0, 6, 1.0)
@@ -341,6 +338,25 @@ def test_write_parameter_int32_encodings(encoding, wire, readback) -> None:
     connection.mav.param_set_send = reply_inside_send
     assert vehicle.write_parameter("NAV_DLL_ACT", 2, timeout_s=0.05, retries=1) == 2.0
     assert connection.mav.commands[-1][4] == wire
+
+
+def test_write_parameter_float_matches_float32_wire_roundtrip() -> None:
+    connection = FakeConnection()
+    ticks = iter((31.0, 31.1))
+    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: next(ticks))
+    vehicle.target_system = vehicle.target_component = 1
+    expected_wire = struct.unpack("<f", struct.pack("<f", 123.456789))[0]
+
+    def reply_inside_send(system, component, param_id, sent_value, ptype):
+        connection.mav.commands.append(("set", system, component, param_id, sent_value, ptype))
+        vehicle.ingest({"type": "PARAM_VALUE", "param_id": "GF_MAX_HOR_DIST",
+                        "param_value": expected_wire, "param_type": 9,
+                        "_source_system": system, "_source_component": component})
+
+    connection.mav.param_set_send = reply_inside_send
+    assert vehicle.write_parameter("GF_MAX_HOR_DIST", 123.456789,
+                                  timeout_s=0.05, retries=1) == expected_wire
+    assert connection.mav.commands[-1][4] == 123.456789
 
 
 @pytest.mark.parametrize("capabilities,encoding", [(16, "bytewise"), (131072, "c_cast")])
@@ -374,9 +390,7 @@ def test_param_trace_records_send_and_acceptance(tmp_path, monkeypatch) -> None:
 
 def test_write_parameter_accepts_synchronous_zero_latency_readback() -> None:
     connection = FakeConnection()
-    clock_values = iter((20.0, 21.0))
-    vehicle = PymavlinkVehicle("replay", connection=connection,
-                               clock=lambda: next(clock_values))
+    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: 20.0)
     vehicle.target_system = vehicle.target_component = 1
     vehicle._parameters["GF_MAX_HOR_DIST"] = (10.0, 9, 1.0)
 

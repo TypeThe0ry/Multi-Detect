@@ -57,6 +57,13 @@ def _encode_param_value(value: float, param_type: int, encoding: str) -> float:
     return struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
 
 
+def _normalize_param_value(value: float, param_type: int, encoding: str) -> float:
+    """Normalize expected values to the wire's exact representable value."""
+    if param_type == 6 and encoding == "bytewise":
+        return float(int(round(value)))
+    return float(struct.unpack("<f", struct.pack("<f", float(value)))[0])
+
+
 @dataclass(frozen=True, slots=True)
 class PositionSetpoint:
     north_m: float
@@ -473,12 +480,12 @@ class PymavlinkVehicle:
                     if transaction.get("state") == "arming":
                         self._trace_parameter({**trace, "decision": "dropped", "reason": "arming_state"})
                         return
-                    if pending is not None and stamp <= pending:
+                    if pending is not None and stamp < pending:
                         # A response queued before the request/set must not
                         # satisfy or overwrite the pending transaction.
                         self._trace_parameter({**trace, "decision": "dropped", "reason": "stale_stamp"})
                         return
-                    if pending is not None and stamp > pending:
+                    if pending is not None and stamp >= pending:
                         if type_expected is not None and ptype != type_expected:
                             self._trace_parameter({**trace, "decision": "dropped", "reason": "type_mismatch"})
                             return
@@ -486,7 +493,7 @@ class PymavlinkVehicle:
                             self._trace_parameter({**trace, "decision": "dropped", "reason": "value_mismatch"})
                             return
                     self._parameters[clean] = (value, ptype, stamp)
-                    if pending is not None and stamp > pending:
+                    if pending is not None and stamp >= pending:
                         event = self._parameter_events.setdefault(clean, threading.Event())
                         event.set()
                     self._trace_parameter({**trace, "decision": "accepted"})
@@ -624,7 +631,7 @@ class PymavlinkVehicle:
                     sender(system, component, clean.encode("ascii"), -1)
                 if event.wait(timeout_s):
                     value, _, received = self._parameters[clean]
-                    if received > sent:
+                    if received >= sent:
                         self._parameter_pending_since.pop(clean, None)
                         self._parameter_transactions.pop(clean, None)
                         return value
@@ -647,11 +654,13 @@ class PymavlinkVehicle:
                         "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
                         "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
                     wire = _encode_param_value(float(value), ptype, self._parameter_encoding)
+                    expected_value = _normalize_param_value(float(value), ptype,
+                                                            self._parameter_encoding)
                     self._parameter_events.setdefault(name, threading.Event()).clear()
                     sent = self._clock()
                     self._parameter_pending_since[name] = sent
                     self._parameter_transactions[name] = {
-                        "state": "awaiting", "expected": float(value),
+                        "state": "awaiting", "expected": expected_value,
                         "param_type": ptype,
                     }
                     self._trace_parameter({"direction": "send", "kind": "PARAM_SET",
@@ -663,13 +672,13 @@ class PymavlinkVehicle:
                 event = self._parameter_events.setdefault(name, threading.Event())
                 if event.wait(timeout_s):
                     actual, _, received = self._parameters[name]
-                    if received > sent and math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                    if received >= sent and math.isclose(actual, expected_value, rel_tol=0, abs_tol=0):
                         self._parameter_pending_since.pop(name, None)
                         self._parameter_transactions.pop(name, None)
                         return actual
                 if getattr(self.read_parameter, "__func__", None) is not PymavlinkVehicle.read_parameter:
                     actual = self.read_parameter(name, timeout_s=timeout_s, retries=1)
-                    if math.isclose(actual, float(value), rel_tol=0, abs_tol=0):
+                    if math.isclose(actual, expected_value, rel_tol=0, abs_tol=0):
                         return actual
             self._parameter_transactions.pop(name, None)
             raise TimeoutError(f"parameter write/readback failed for {name}")
