@@ -25,7 +25,7 @@ def commands() -> list[list[str]]:
     for port, (name, model) in zip((9933, 9934), MODELS.items(), strict=True):
         result.append([
             sys.executable, "scripts/eval_slow_system.py",
-            "--dataset", str(DATASET), "--data-root", r"D:\Projects\Multi-Detect",
+            "--dataset", str(DATASET.parent), "--data-root", r"D:\Projects\Multi-Detect",
             "--backend", "gguf", "--identity-only", "--fast-identity",
             "--crop-policy", "candidate_zoom_v2", "--gguf-model", str(model),
             "--mmproj", str(MMPROJ), "--llama-server", str(LLAMA_SERVER),
