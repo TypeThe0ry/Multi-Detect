@@ -1,0 +1,325 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r21id_r3_w0025",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "gas_station",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "electrical_box",
+      "role": "distractor",
+      "target_id": "distractor_0025_01"
+    },
+    "11": {
+      "asset_slug": "hatchback",
+      "role": "distractor",
+      "target_id": "distractor_0025_02"
+    },
+    "12": {
+      "asset_slug": "jersey_barrier",
+      "role": "distractor",
+      "target_id": "distractor_0025_03"
+    },
+    "2": {
+      "asset_slug": "house_3",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "apartment",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "office_building",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "telephone_pole",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "postbox",
+      "role": "target",
+      "target_id": "target_true_gen_r21id_r3_w0025"
+    },
+    "7": {
+      "asset_slug": "hatchback",
+      "role": "confuser",
+      "target_id": "confuser_0025_00_00"
+    },
+    "8": {
+      "asset_slug": "electrical_box",
+      "role": "forced_distractor",
+      "target_id": "forced_0025_00"
+    },
+    "9": {
+      "asset_slug": "casual_female",
+      "role": "distractor",
+      "target_id": "distractor_0025_00"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "postbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.762,
+      "category_words": [
+        "postbox",
+        "mailbox"
+      ],
+      "class": "postbox",
+      "color": null,
+      "label": "postbox mailbox",
+      "measured_size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "pose": {
+        "x_east_m": 30.0,
+        "y_north_m": 0.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82006957
+      },
+      "size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "target_id": "target_true_gen_r21id_r3_w0025",
+      "true_target": true
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "confuser": true,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 33.5,
+        "y_north_m": 0.0,
+        "yaw_rad": 2.845296,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82010102
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "confuser_0025_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "forced_distractor": true,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": -42.657,
+        "y_north_m": -104.365,
+        "yaw_rad": -0.043286,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35116089,
+        "longitude_deg": 103.8194167
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "forced_0025_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": 77.188,
+        "y_north_m": 31.234,
+        "yaw_rad": 0.406053,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35238105,
+        "longitude_deg": 103.82049359
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0025_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 7.338,
+        "y_north_m": 87.985,
+        "yaw_rad": 1.485445,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35289171,
+        "longitude_deg": 103.81986593
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "distractor_0025_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "hatchback",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.783947,
+      "category_words": [
+        "car",
+        "hatchback"
+      ],
+      "class": "car",
+      "color": null,
+      "label": "car hatchback",
+      "measured_size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "pose": {
+        "x_east_m": 28.113,
+        "y_north_m": -78.838,
+        "yaw_rad": 1.419941,
+        "z_up_m": 0.784
+      },
+      "position": {
+        "altitude_m": 0.784,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35139059,
+        "longitude_deg": 103.82005261
+      },
+      "size_m": [
+        4.001102,
+        2.140463,
+        1.567894
+      ],
+      "target_id": "distractor_0025_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "jersey_barrier",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.5715,
+      "category_words": [
+        "jersey barrier",
+        "road barrier"
+      ],
+      "class": "jersey_barrier",
+      "color": null,
+      "label": "jersey barrier road barrier",
+      "measured_size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "pose": {
+        "x_east_m": -76.115,
+        "y_north_m": -57.094,
+        "yaw_rad": 1.077197,
+        "z_up_m": 0.572
+      },
+      "position": {
+        "altitude_m": 0.572,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35158625,
+        "longitude_deg": 103.81911606
+      },
+      "size_m": [
+        4.065567,
+        0.8128,
+        1.143
+      ],
+      "target_id": "distractor_0025_03",
+      "true_target": false
+    }
+  ]
+}

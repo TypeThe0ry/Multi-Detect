@@ -1,0 +1,247 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r21id_r3_w0015",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "pine_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "standing_person",
+      "role": "distractor",
+      "target_id": "distractor_0015_00"
+    },
+    "11": {
+      "asset_slug": "ambulance",
+      "role": "distractor",
+      "target_id": "distractor_0015_01"
+    },
+    "2": {
+      "asset_slug": "playground",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "water_tower",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "telephone_pole",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "lamp_post",
+      "role": "obstacle",
+      "target_id": "obstacle_04"
+    },
+    "6": {
+      "asset_slug": "oak_tree",
+      "role": "obstacle",
+      "target_id": "obstacle_05"
+    },
+    "7": {
+      "asset_slug": "suv",
+      "role": "target",
+      "target_id": "target_true_gen_r21id_r3_w0015"
+    },
+    "8": {
+      "asset_slug": "pickup",
+      "role": "confuser",
+      "target_id": "confuser_0015_00_00"
+    },
+    "9": {
+      "asset_slug": "electrical_box",
+      "role": "forced_distractor",
+      "target_id": "forced_0015_00"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "suv",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.078269,
+      "category_words": [
+        "car",
+        "suv"
+      ],
+      "class": "suv",
+      "color": null,
+      "label": "car suv",
+      "measured_size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "pose": {
+        "x_east_m": 30.0,
+        "y_north_m": 0.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82006957
+      },
+      "size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "target_id": "target_true_gen_r21id_r3_w0015",
+      "true_target": true
+    },
+    {
+      "asset_slug": "pickup",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.932771,
+      "category_words": [
+        "pickup",
+        "truck"
+      ],
+      "class": "pickup",
+      "color": null,
+      "confuser": true,
+      "label": "pickup truck",
+      "measured_size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "pose": {
+        "x_east_m": 33.5,
+        "y_north_m": 0.0,
+        "yaw_rad": 1.108775,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82010102
+      },
+      "size_m": [
+        5.66468,
+        2.472901,
+        1.865542
+      ],
+      "target_id": "confuser_0015_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "forced_distractor": true,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": -115.104,
+        "y_north_m": -6.324,
+        "yaw_rad": -1.286279,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3520431,
+        "longitude_deg": 103.81876572
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "forced_0015_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "standing_person",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.963151,
+      "category_words": [
+        "person",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person pedestrian",
+      "measured_size_m": [
+        0.544229,
+        0.35,
+        1.926302
+      ],
+      "pose": {
+        "x_east_m": 47.184,
+        "y_north_m": 104.178,
+        "yaw_rad": -2.885402,
+        "z_up_m": 0.963
+      },
+      "position": {
+        "altitude_m": 0.963,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35303742,
+        "longitude_deg": 103.82022397
+      },
+      "size_m": [
+        0.544229,
+        0.35,
+        1.926302
+      ],
+      "target_id": "distractor_0015_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "ambulance",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.447059,
+      "category_words": [
+        "ambulance",
+        "emergency vehicle"
+      ],
+      "class": "ambulance",
+      "color": "white",
+      "label": "ambulance emergency vehicle",
+      "measured_size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "pose": {
+        "x_east_m": -96.878,
+        "y_north_m": 48.207,
+        "yaw_rad": 0.845204,
+        "z_up_m": 1.447
+      },
+      "position": {
+        "altitude_m": 1.447,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35253378,
+        "longitude_deg": 103.81892949
+      },
+      "size_m": [
+        2.968315,
+        7.535161,
+        2.894119
+      ],
+      "target_id": "distractor_0015_01",
+      "true_target": false
+    }
+  ]
+}

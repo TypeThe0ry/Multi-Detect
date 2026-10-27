@@ -1,0 +1,12 @@
+{
+  "allowed_terminal_states": [
+    "completed",
+    "safe_rtl"
+  ],
+  "maximum_false_geolocations": 0,
+  "maximum_geofence_violations": 0,
+  "maximum_unauthorized_commands": 0,
+  "scenario_id": "gen_r21id_r3_w0045",
+  "scenario_version": 1,
+  "schema_version": 1
+}

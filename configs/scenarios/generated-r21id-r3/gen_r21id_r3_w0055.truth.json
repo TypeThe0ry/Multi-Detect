@@ -1,0 +1,360 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "gen_r21id_r3_w0055",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "1": {
+      "asset_slug": "playground",
+      "role": "obstacle",
+      "target_id": "obstacle_00"
+    },
+    "10": {
+      "asset_slug": "suv",
+      "role": "distractor",
+      "target_id": "distractor_0055_02"
+    },
+    "11": {
+      "asset_slug": "backpack",
+      "role": "distractor",
+      "target_id": "distractor_0055_03"
+    },
+    "12": {
+      "asset_slug": "casual_female",
+      "role": "distractor",
+      "target_id": "distractor_0055_04"
+    },
+    "2": {
+      "asset_slug": "house_3",
+      "role": "obstacle",
+      "target_id": "obstacle_01"
+    },
+    "3": {
+      "asset_slug": "fountain",
+      "role": "obstacle",
+      "target_id": "obstacle_02"
+    },
+    "4": {
+      "asset_slug": "lamp_post",
+      "role": "obstacle",
+      "target_id": "obstacle_03"
+    },
+    "5": {
+      "asset_slug": "fire_hydrant",
+      "role": "target",
+      "target_id": "target_true_gen_r21id_r3_w0055"
+    },
+    "6": {
+      "asset_slug": "backpack",
+      "role": "confuser",
+      "target_id": "confuser_0055_00_00"
+    },
+    "7": {
+      "asset_slug": "electrical_box",
+      "role": "forced_distractor",
+      "target_id": "forced_0055_00"
+    },
+    "8": {
+      "asset_slug": "mailbox",
+      "role": "distractor",
+      "target_id": "distractor_0055_00"
+    },
+    "9": {
+      "asset_slug": "postbox",
+      "role": "distractor",
+      "target_id": "distractor_0055_01"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 30.0,
+        "y_north_m": 0.0,
+        "yaw_rad": 0.0,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82006957
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "target_true_gen_r21id_r3_w0055",
+      "true_target": true
+    },
+    {
+      "asset_slug": "backpack",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.261196,
+      "category_words": [
+        "backpack",
+        "bag"
+      ],
+      "class": "backpack",
+      "color": null,
+      "confuser": true,
+      "label": "backpack bag",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "pose": {
+        "x_east_m": 33.5,
+        "y_north_m": 0.0,
+        "yaw_rad": -2.184542,
+        "z_up_m": 0.0
+      },
+      "position": {
+        "altitude_m": 0.0,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3521,
+        "longitude_deg": 103.82010102
+      },
+      "size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "target_id": "confuser_0055_00_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "electrical_box",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.28,
+      "category_words": [
+        "electrical box",
+        "utility box"
+      ],
+      "class": "electrical_box",
+      "color": null,
+      "forced_distractor": true,
+      "label": "electrical box utility box",
+      "measured_size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "pose": {
+        "x_east_m": 40.129,
+        "y_north_m": 75.881,
+        "yaw_rad": 1.545218,
+        "z_up_m": 0.28
+      },
+      "position": {
+        "altitude_m": 0.28,
+        "altitude_reference": "world",
+        "latitude_deg": 1.3527828,
+        "longitude_deg": 103.82016059
+      },
+      "size_m": [
+        0.43441,
+        0.331136,
+        0.56
+      ],
+      "target_id": "forced_0055_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "mailbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.533621,
+      "category_words": [
+        "mailbox"
+      ],
+      "class": "mailbox",
+      "color": null,
+      "label": "mailbox",
+      "measured_size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "pose": {
+        "x_east_m": -110.107,
+        "y_north_m": -19.356,
+        "yaw_rad": -0.167681,
+        "z_up_m": 0.534
+      },
+      "position": {
+        "altitude_m": 0.534,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35192583,
+        "longitude_deg": 103.81881062
+      },
+      "size_m": [
+        0.133416,
+        0.355085,
+        1.067241
+      ],
+      "target_id": "distractor_0055_00",
+      "true_target": false
+    },
+    {
+      "asset_slug": "postbox",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.762,
+      "category_words": [
+        "postbox",
+        "mailbox"
+      ],
+      "class": "postbox",
+      "color": null,
+      "label": "postbox mailbox",
+      "measured_size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "pose": {
+        "x_east_m": 74.613,
+        "y_north_m": -84.358,
+        "yaw_rad": -0.231541,
+        "z_up_m": 0.762
+      },
+      "position": {
+        "altitude_m": 0.762,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35134092,
+        "longitude_deg": 103.82047044
+      },
+      "size_m": [
+        0.681827,
+        0.684864,
+        1.524
+      ],
+      "target_id": "distractor_0055_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "suv",
+      "behavior": "stationary",
+      "bottom_offset_m": -1.078269,
+      "category_words": [
+        "car",
+        "suv"
+      ],
+      "class": "suv",
+      "color": null,
+      "label": "car suv",
+      "measured_size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "pose": {
+        "x_east_m": 8.847,
+        "y_north_m": 96.235,
+        "yaw_rad": -2.176631,
+        "z_up_m": 1.078
+      },
+      "position": {
+        "altitude_m": 1.078,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35296595,
+        "longitude_deg": 103.8198795
+      },
+      "size_m": [
+        5.020146,
+        2.603742,
+        2.156538
+      ],
+      "target_id": "distractor_0055_02",
+      "true_target": false
+    },
+    {
+      "asset_slug": "backpack",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.261196,
+      "category_words": [
+        "backpack",
+        "bag"
+      ],
+      "class": "backpack",
+      "color": null,
+      "label": "backpack bag",
+      "measured_size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "pose": {
+        "x_east_m": 92.867,
+        "y_north_m": -46.577,
+        "yaw_rad": -1.879014,
+        "z_up_m": 0.261
+      },
+      "position": {
+        "altitude_m": 0.261,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35168089,
+        "longitude_deg": 103.82063446
+      },
+      "size_m": [
+        0.441576,
+        0.263615,
+        0.522393
+      ],
+      "target_id": "distractor_0055_03",
+      "true_target": false
+    },
+    {
+      "asset_slug": "casual_female",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.8928,
+      "category_words": [
+        "person",
+        "woman",
+        "pedestrian"
+      ],
+      "class": "person",
+      "color": null,
+      "label": "person woman",
+      "measured_size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "pose": {
+        "x_east_m": -46.682,
+        "y_north_m": -88.942,
+        "yaw_rad": 2.611761,
+        "z_up_m": 0.893
+      },
+      "position": {
+        "altitude_m": 0.893,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35129967,
+        "longitude_deg": 103.81938053
+      },
+      "size_m": [
+        0.76,
+        0.565892,
+        1.7856
+      ],
+      "target_id": "distractor_0055_04",
+      "true_target": false
+    }
+  ]
+}

@@ -34,13 +34,13 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
         "--profile",
-        choices=("default", "r20", "r21-identity"),
+        choices=("default", "r20", "r21-identity", "r21id-r3"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
     a = p.parse_args(argv)
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
-    if a.profile in ("r20", "r21-identity"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3"):
         # Four deterministic hard-case families. All true-target slugs are
         # outside generated-v2's frozen holdout. Cone/barrier is the primary
         # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
@@ -109,18 +109,54 @@ def main(argv=None):
                     "confusers": ["cardboard_box" if cls != "construction_cone" else "jersey_barrier"],
                     "forced_distractors": ["electrical_box"],
                     "appearance": ("noon_clear", "overcast_flat", "morning_low_sun")[i % 3],
-                    "height_m": layers[i][0], "distance_m": layers[i][1],
-                    "target_short_side_px": layers[i][2],
+                    "height_m": layers[i % len(layers)][0], "distance_m": layers[i % len(layers)][1],
+                    "target_short_side_px": layers[i % len(layers)][2],
                     "split": "train" if i < 6 else ("val" if i == 6 else "test"),
                 }
                 for cls in classes for i in range(8)
             )
+        elif a.profile == "r21id-r3":
+            # Six independently seeded worlds per identity class. The final ten
+            # entries are held-out combinations from the frozen identity set.
+            classes = (
+                ("pickup", "suv"), ("suv", "pickup"),
+                ("walking_person", "postbox"),
+                ("postbox", "hatchback"), ("mailbox", "walking_person"),
+                ("hatchback", "postbox"), ("fire_hydrant", "backpack"),
+                ("backpack", "fire_hydrant"), ("construction_cone", "backpack"),
+            )
+            layers = ((18, 20, [13, 20]), (24, 30, [21, 32]), (32, 40, [13, 20]),
+                      (12, 20, [8, 12]), (18, 30, [13, 20]), (24, 40, [21, 32]))
+            templates = tuple(
+                {
+                    "case": "identity_multiview", "target": target,
+                    "confusers": [confuser], "forced_distractors": ["electrical_box"],
+                    "appearance": ("noon_clear", "overcast_flat", "morning_low_sun")[i % 3],
+                    "height_m": layers[i % len(layers)][0], "distance_m": layers[i % len(layers)][1],
+                    "target_short_side_px": layers[i % len(layers)][2],
+                    "view_mix": ["front", "oblique", "edge_truncated", "recovery"],
+                    "split": ("train" if i < 4 else ("val" if i == 4 else "test")),
+                }
+                for target, confuser in classes for i in range(8)
+            )
+            # Keep ten test worlds while retaining at least one test example for
+            # each confusable direction used by the identity eval.
+            heldout_targets = {"pickup", "suv", "walking_person", "postbox"}
+            test_indices = {
+                i for i, template in enumerate(templates)
+                if template["target"] in heldout_targets and (i % 8) < 3
+            }
+            val_indices = {i for i in range(len(templates)) if i not in test_indices and (i % 8) == 4}
+            # Exactly four validation worlds, with the remainder in train.
+            val_indices = set(sorted(val_indices)[:4])
+            for i, template in enumerate(templates):
+                template["split"] = "test" if i in test_indices else ("val" if i in val_indices else "train")
         cfg.update(
             {
-                "world_prefix": "gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w",
-                "seed": 20261025 if a.profile == "r21-identity" else 20261024,
+                "world_prefix": "gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w"),
+                "seed": 20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024),
                 "count": len(templates),
-                "split_ratios": [0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0],
+                "split_ratios": [56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0]),
                 "spread_m": [80.0, 120.0],
                 "count_copies": 1,
                 "confuser_copies": 1,
@@ -190,13 +226,14 @@ def main(argv=None):
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
     )
-    if a.profile in ("r20", "r21-identity"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3"):
         doc["profile"] = a.profile
         for entry, world in zip(doc["worlds"], cfg["worlds"], strict=True):
+            entry["split"] = world.get("split", entry.get("split", "train"))
             entry["hard_case_profile"] = world["case"]
             entry["paired_confusers"] = list(world.get("confusers", ()))
             entry["view_geometry"] = {"paired_same_world": True}
-            if a.profile == "r21-identity":
+            if a.profile in ("r21-identity", "r21id-r3"):
                 entry["hard_case_profile"] = "identity_multiview"
                 entry["view_geometry"].update({
                     "camera_altitude_m": world["height_m"], "ground_distance_m": world["distance_m"],
@@ -219,7 +256,7 @@ def main(argv=None):
             # Place the target in a controlled camera-relative position and write
             # the same pose into SDF and truth, preserving asset and label identity.
             case = entry["hard_case_profile"]
-            if a.profile == "r21-identity":
+            if a.profile in ("r21-identity", "r21id-r3"):
                 tx, ty, tz, altitude, angle = float(world["distance_m"]), 0.0, 0.0, float(world["height_m"]), -0.42
             elif case == "backpack_small_oblique":
                 tx, ty, tz, altitude, angle = 21.0 + (int(wid[-4:]) % 2), 18.0, 0.0, 19.0, -0.42
@@ -299,7 +336,7 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 }
                 observation_intent["ground_distance_m"] = 80.0
-            if a.profile == "r21-identity":
+            if a.profile in ("r21-identity", "r21id-r3"):
                 target_radius = math.hypot(tx, ty)
                 radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
                 perpendicular = (-radial[1], radial[0])
@@ -331,6 +368,17 @@ def main(argv=None):
             model.find(
                 "pose"
             ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 0"
+            if a.profile == "r21id-r3":
+                pair_slug = world.get("confusers", [None])[0]
+                pair = next((row for row in truth["targets"] if row.get("confuser") and row["asset_slug"] == pair_slug), None)
+                if pair is not None:
+                    pair_x, pair_y = tx + 3.5, ty
+                    pair["pose"].update({"x_east_m": pair_x, "y_north_m": pair_y, "z_up_m": 0.0})
+                    pair["position"].update({"altitude_m": 0.0, "latitude_deg": round(1.352100 + pair_y / 111_132.0, 8), "longitude_deg": round(103.819800 + pair_x / (111_320.0 * math.cos(math.radians(1.352100))), 8)})
+                    pair_model = root.find(".//model[@name='" + pair["target_id"] + "']")
+                    if pair_model is None:
+                        raise RuntimeError(f"{wid}: paired {pair_slug} SDF model not found")
+                    pair_model.find("pose").text = f"{pair_x:.3f} {pair_y:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
             if case == "paired_confusers" and target["asset_slug"] == "construction_cone":
                 pair = next(
                     row
@@ -358,7 +406,7 @@ def main(argv=None):
                 pair_model.find("pose").text = (
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
-            if case == "hydrant_building_occlusion_truncation" or a.profile == "r21-identity":
+            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3"):
                 # Keep the occluder on the target ray while placing its nearest
                 # footprint edge outside the multirotor takeoff clearance ring.
                 # The old midpoint (tx/2, ty/2) put the 12x8 m building over
@@ -369,7 +417,7 @@ def main(argv=None):
                 # waypoint; keep its near footprint beyond every view's 15 m
                 # clearance ring while remaining on the target ray.
                 target_radius = math.hypot(tx, ty)
-                if a.profile == "r21-identity":
+                if a.profile in ("r21-identity", "r21id-r3"):
                     building_radius = 2.0 * target_radius + 24.0
                     scale = building_radius / max(target_radius, 1e-6)
                 else:

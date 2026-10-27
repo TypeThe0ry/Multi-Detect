@@ -231,3 +231,64 @@ r21id-r2：r18 热启动，lr 2e-5，1 epoch；训练集 = 完整 r18 replay + �
 | 显式干扰物接受率 | 0.000 | 0.008 | 0.000 | ≤ 0.026 |
 
 三个模型均未过门槛；现役 r18 在 edge_truncated/recovery 等难视角上拒绝了一半以上真目标，是当前身份确认最大的短板。r21id-r2 在四视角集上全面不劣于 r18（真目标拒绝 -20 pp，干扰物接受持平），但 v3 小目标召回下降，仍不替换。下一轮需要：更多 test 世界（≥ 8）使四视角结论具备统计意义；保持易混难例；不对小目标真目标正例降权。
+
+## r21id-r3 worlds（生成与冒烟）
+
+r21id-r3 使用 `scripts/generate_r15_worlds.py --profile r21id-r3`，固定 seed `20261028`，生成 72 个 world：56 train、4 val、12 test。真目标覆盖 pickup、suv、walking_person（person）、postbox、mailbox、hatchback（car）、fire_hydrant、backpack、construction_cone（traffic_cone）；每个 world 都带 `front/oblique/edge_truncated/recovery` 四视角 sidecar，edge/recovery 在几何层中占两档，测试目标只来自 `generated-v2/index.json` 的 frozen held-out combo。
+
+| 项目 | 数值 |
+|---|---:|
+| worlds | 72 |
+| train / val / test | 56 / 4 / 12 |
+| 每类 true target | 8 |
+| 四视角完整 sidecar | 72 / 72 |
+| 严格配对方向（每方向 world 数） | 8 |
+| 四视角 pair 估计（每方向） | 32 |
+
+生成命令：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/generate_r15_worlds.py --profile r21id-r3 `
+  --out-worlds simulation/gazebo/worlds `
+  --out-scenarios configs/scenarios/generated-r21id-r3
+```
+
+静态检查使用 `run_r15_round.py --stage collect --dry-run` 的同一场景解析/preflight 路径；所有生成场景解析为 `x500_mono_cam`，出生高度 `<1 m`、pitch=0，teacher intent 观察高度和 waypoint 保持在 sidecar，未改动 release parity、schema 或 product version 文件。
+
+合并过滤新增 `--r21id-keep-small-true-targets`。该选项只在 `--r21id-r2-filter` 下生效，保留短边 `<16 px` 的 `true_target`/`proposal_true` 正例；默认关闭，旧轮次行为不变。单测覆盖默认抽样和显式保留两条路径。
+
+本轮 smoke 采用 SITL 锁串行执行，目标为一个 test pickup/SUV pair world 与一个 train world：
+
+```bash
+. /d/Projects/mdwt/_scratch/sitl_lock.sh
+sitl_acquire cxr3smoke
+trap sitl_release EXIT
+PYTHONPATH=src:. PYTHONUTF8=1 python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/generated-r21id-r3/gen_r21id_r3_w0000.scenario.json \
+  --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 \
+  --out artifacts/smoke/r21id-r3-test-pair
+PYTHONPATH=src:. PYTHONUTF8=1 python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/generated-r21id-r3/gen_r21id_r3_w0003.scenario.json \
+  --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 \
+  --out artifacts/smoke/r21id-r3-train
+sitl_release
+```
+
+每个完成 episode 用 `scripts/check_sim_teacher_smoke.py`，要求状态 complete、每个 view 至少 8 帧、记录 `observation_view` 且四个 view 全部出现。验收门槛沿用 r21id：四视角一致率 ≥0.90、edge 后 recovery 恢复率 ≥0.85、真目标 false-reject ≤0.08、显式 distractor false-accept ≤0.026。
+
+完整采集后队列（本轮只生成与 smoke，不执行）：
+
+```powershell
+$env:PYTHONPATH='src;.'; $env:PYTHONUTF8='1'
+python scripts/run_r15_round.py --stage collect --out artifacts/r21id-r3 --scenarios configs/scenarios/generated-r21id-r3 --r15-index configs/scenarios/generated-r21id-r3/index.json
+python scripts/run_r15_round.py --stage annotate --out artifacts/r21id-r3 --r15-index configs/scenarios/generated-r21id-r3/index.json
+python scripts/run_r15_round.py --stage build_sft --out artifacts/r21id-r3 --additions artifacts/r21id-r3/r15-additions --confusable-negatives
+python scripts/run_r15_round.py --merge-only --out artifacts/r21id-r3 --r12-dataset artifacts/r18-round/r15-sft --additions artifacts/r21id-r3/r15-additions --merged artifacts/r21id-r3/merged --r21id-r2-filter --r21id-keep-small-true-targets
+python scripts/run_r15_round.py --stage train --out artifacts/r21id-r3 --r12-dataset artifacts/r18-round/r15-sft --additions artifacts/r21id-r3/r15-additions --r12-replay-fraction 1.0 --r21id-r2-filter --r21id-keep-small-true-targets --learning-rate 5e-5 --hot-start --r12-adapter artifacts/r18-round/adapter/adapter
+python scripts/run_r15_round.py --stage export --out artifacts/r21id-r3 --baseline-label r18 --candidate-label r21id-r3
+python scripts/run_r15_round.py --stage eval --out artifacts/r21id-r3 --baseline-label r18 --candidate-label r21id-r3 --r12-baseline artifacts/r18-round/eval-v3.json --r12-v1-baseline artifacts/r18-round/eval-v1.json
+python scripts/run_r15_round.py --stage report --out artifacts/r21id-r3 --baseline-label r18 --candidate-label r21id-r3 --r12-baseline artifacts/r18-round/eval-v3.json --r12-v1-baseline artifacts/r18-round/eval-v1.json
+```
+
+接受条件：test 四视角实例完整率 100%；四视角一致率 ≥0.90；recovery ≥0.85；真目标 false-reject ≤0.08；distractor false-accept ≤0.026；pickup↔suv、person↔postbox、car↔postbox 每方向至少 30 个四视角 pair 估计；任一门槛失败则保留 r18。

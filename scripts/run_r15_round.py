@@ -210,7 +210,10 @@ def _frame_task_key(row: dict) -> tuple:
     return (str(row.get("world") or ""), str(frame or ""), str(row.get("task_text") or ""))
 
 
-def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum_positive_rows: int = 0) -> tuple[list[dict], dict]:
+def filter_r21id_r2_additions(
+    rows: list[dict], *, seed: int = 20261016, minimum_positive_rows: int = 0,
+    keep_small_true_target_positives: bool = False,
+) -> tuple[list[dict], dict]:
     """Apply the opt-in r21id-r2 data policy to additions only.
 
     Rejects unpaired counterfactual approach labels, limits edge-truncated
@@ -250,8 +253,23 @@ def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum
         report["dropped_edge_approach"] += len(drop)
     # Stratified subsampling of additions, while retaining every reject negative.
     strata = {}
+    protected_small = set()
     for r in kept:
         if _polarity(r) == "negative":
+            continue
+        short_side = r.get("candidate_short_side_px")
+        if short_side is None:
+            box = r.get("candidate_box")
+            if isinstance(box, (list, tuple)) and len(box) == 4:
+                short_side = min(abs(float(box[2]) - float(box[0])), abs(float(box[3]) - float(box[1])))
+        if (
+            keep_small_true_target_positives
+            and r.get("label_type") in {"true_target", "proposal_true"}
+            and _polarity(r) == "positive"
+            and short_side is not None
+            and float(short_side) < 16
+        ):
+            protected_small.add(row_key(r))
             continue
         key = (r.get("world"), r.get("label_type"), (r.get("assistant_target") or {}).get("decision"), r.get("view"))
         strata.setdefault(key, []).append(r)
@@ -269,6 +287,7 @@ def filter_r21id_r2_additions(rows: list[dict], *, seed: int = 20261016, minimum
         drop.difference_update(row_key(r) for r in restored[:required])
     kept = [r for r in kept if row_key(r) not in drop]
     report["dropped_weight_subsample"] = len(drop)
+    report["kept_small_true_target_positives"] = len(protected_small)
     report["before"] = before
     report["after"] = distribution(kept)
     report["before_category_view_decision"] = before_detail
@@ -1600,7 +1619,11 @@ def merge_cli(args):
             ratio_target = base_pos_ratio - args.max_positive_ratio_delta
             add_neg = sum(_polarity(r) == "negative" for r in added)
             min_total_pos = math.ceil(ratio_target * (base_neg + add_neg) / (1 - ratio_target))
-            added, addition_filter = filter_r21id_r2_additions(added, seed=args.seed, minimum_positive_rows=max(0, min_total_pos - base_pos))
+            added, addition_filter = filter_r21id_r2_additions(
+                added, seed=args.seed,
+                minimum_positive_rows=max(0, min_total_pos - base_pos),
+                keep_small_true_target_positives=getattr(args, "r21id_keep_small_true_targets", False),
+            )
         rows = merge_without_copies(base, added)
         trim_report = None
         if split == "train":
@@ -1821,6 +1844,10 @@ def main():
     p.add_argument("--max-positive-ratio-delta", type=float, default=0.02)
     p.add_argument("--max-negative-ratio-delta", type=float, default=0.02)
     p.add_argument("--r21id-r2-filter", action="store_true", help="opt-in additions filtering for r21id-r2")
+    p.add_argument(
+        "--r21id-keep-small-true-targets", action="store_true",
+        help="with --r21id-r2-filter, do not down-weight true-target positives below 16 px",
+    )
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.merge_only:
