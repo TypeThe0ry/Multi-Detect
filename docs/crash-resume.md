@@ -56,4 +56,6 @@ exit $status
 
 本轮结果写入 `artifacts/evaluation/crash-resume-sitl-20261027/final-run/summary.json`：`valid=fail`（基础遥测/启动时序阻塞），`corrupt/digest/expired/rtl=not_run`，因为它们都要求 valid 先写出 checkpoint。该阻塞与参数读写竞态修复无关，不能据此推断五个恢复分支的逻辑结果；没有在剩余时间堆叠未经证实的 runner 修复。
 
+后续修复验证：real 模式现在在地面遥测建立后调用 `request_home_position()` 并等待 HOME，默认最多 120 秒；超时错误为 `PX4 未在 N 秒内建立 HOME（GNSS/EKF 未就绪）`。空中 crash-resume 若 HOME 缺失则记录 `monitor_failsafe`，不接管。真实 valid 重试中日志已从 HOME 缺失推进到 `home.passed=true`，随后暴露出任务包未声明 `px4_offboard_loss_action`（PX4 返回 `COM_OBL_RC_ACT=0`）以及传感器/EKF 尚未就绪；该架次没有 arm/takeoff 或 checkpoint。五场景因此仍未取得有效恢复结果，证据保存在 `final-run/valid/attempt-1/onboard-process.log`。
+
   修复后的第二个 `valid --apply-px4-params` 架次尚未能启动：共享锁脚本因主机可用内存只有约 1.1--1.3 GiB（门槛 5 GiB）持续等待，未创建容器；随后按要求释放 `cxparam` 锁。五个 crash-resume 场景因此仍未获得新的真实结果，已有阻塞证据保留在 `artifacts/evaluation/crash-resume-sitl-20261027/`。

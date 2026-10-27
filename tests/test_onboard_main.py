@@ -158,6 +158,39 @@ def test_real_readiness_waits_for_home_and_landed_messages():
     assert state.home_ned == (0, 0, 0) and state.landed is True
 
 
+def test_wait_for_home_requests_until_delayed_home_arrives():
+    calls = []
+    snapshots = [
+        VehicleState(home_ned=None),
+        VehicleState(home_ned=None),
+        VehicleState(home_ned=(1, 2, 3)),
+    ]
+    vehicle = SimpleNamespace(
+        request_home_position=lambda: calls.append("request"),
+        snapshot=lambda: snapshots.pop(0),
+    )
+    state = onboard_main._wait_for_home(
+        vehicle, snapshots[0], 1, sleep=lambda _seconds: None,
+    )
+    assert state.home_ned == (1, 2, 3)
+    assert calls
+
+
+def test_wait_for_home_timeout_has_no_flight_commands():
+    calls = []
+    ticks = iter([0.0, 0.0, 0.1, 0.2, 1.1, 1.1])
+    vehicle = SimpleNamespace(
+        request_home_position=lambda: calls.append("request"),
+        snapshot=lambda: VehicleState(home_ned=None),
+    )
+    with pytest.raises(RuntimeError, match="未在 1 秒内建立 HOME"):
+        onboard_main._wait_for_home(
+            vehicle, VehicleState(home_ned=None), 1,
+            sleep=lambda _seconds: None, clock=lambda: next(ticks),
+        )
+    assert calls and all(command == "request" for command in calls)
+
+
 def test_startup_failure_closes_every_resource_when_policy_close_raises(tmp_path, monkeypatch):
     episode = generate_fixture(tmp_path / "episode", duration_s=1)
     closed = []

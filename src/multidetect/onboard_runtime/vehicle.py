@@ -240,7 +240,8 @@ class PymavlinkVehicle:
     encode_custom_mode = staticmethod(encode_custom_mode)
     parse_custom_mode = staticmethod(parse_custom_mode)
     _INTERVALS = ((32, 50_000), (30, 50_000), (33, 200_000),
-                  (242, 1_000_000), (245, 200_000), (1, 1_000_000), (147, 1_000_000))
+                  (242, 1_000_000), (245, 200_000), (1, 1_000_000),
+                  (147, 1_000_000), (230, 200_000))
 
     def __init__(
         self,
