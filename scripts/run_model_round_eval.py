@@ -159,7 +159,11 @@ def local_output(path: Path) -> Path:
     # may be a junction to a shared artifacts tree; resolve() follows it, so the
     # spelled path inside the worktree counts as local too.
     roots = (ROOT.resolve(), (ROOT / "artifacts").resolve())
-    if not raw.is_relative_to(ROOT.absolute()) and not any(path.is_relative_to(root) for root in roots):
+    # artifacts/evaluation can itself be a further junction, so accept the spelled
+    # path under the shared artifacts root as well as the fully resolved one.
+    if not raw.is_relative_to(ROOT.absolute()) and not any(
+        path.is_relative_to(root) or raw.is_relative_to(root) for root in roots
+    ):
         raise ValueError(f"Output must stay inside this worktree: {path}")
     return path
 

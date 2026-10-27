@@ -398,3 +398,29 @@ def test_gpu_guard_uses_device_memory_when_wddm_hides_per_process_usage():
     guard.check_gpu(runner=runner_for(702))
     with pytest.raises(RuntimeError, match="Other heavy GPU processes"):
         guard.check_gpu(runner=runner_for(5200))
+
+
+def _link_dir(target, link):
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            pytest.skip("cannot create a directory link here")
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def test_outputs_may_be_spelled_under_a_nested_junction_in_the_shared_tree(tmp_path, monkeypatch):
+    """r22: the shared artifacts/evaluation is itself a junction, and the planner
+    round passes the already-resolved shared path."""
+    worktree, shared, evaluation = tmp_path / "worktree", tmp_path / "shared", tmp_path / "eval-store"
+    for path in (worktree, shared, evaluation):
+        path.mkdir()
+    _link_dir(shared, worktree / "artifacts")
+    _link_dir(evaluation, shared / "evaluation")
+    monkeypatch.setattr(round_eval, "ROOT", worktree)
+    out = round_eval.local_output(shared / "evaluation" / "r22-planner-round")
+    assert out == (evaluation / "r22-planner-round").resolve()
+    with pytest.raises(ValueError, match="inside this worktree"):
+        round_eval.local_output(evaluation / "r22-planner-round")
