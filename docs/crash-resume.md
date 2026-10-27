@@ -50,4 +50,10 @@ exit $status
 
   后续 trace 中已经看到修复后的即时回复被接受：`COM_DL_LOSS_T` 的 `PARAM_SET` 和 `PARAM_REQUEST_READ` 均为 `accepted`，`NAV_DLL_ACT` 的 raw `2.802596928649634e-45`、ptype 6 解码为 `2.0` 并被 `accepted`；`AUTOPILOT_VERSION` capability `59647` 明确声明 bytewise。参数 apply 已越过此前的 INT32/竞态失败，随后发现并修复了 float32 wire 量化比较和 apply 失败路径中未序列化 `PreflightCheck` 的日志 bug。
 
+### 最后一轮五场景架次（2026-10-27）
+
+按要求获取 `cxcrash5` 锁，等待可用内存从约 1 GiB 恢复到约 14 GiB 后启动。14540/14542 已被无关进程占用（PID 72388/46216），未触碰；启动前用 `netstat` 确认 14560/14561 空闲并使用该端口对。`valid` 的 r1 因遗留同名容器被 runner 拒绝，自动重试 r2；r2 容器成功启动，但 onboard 在任务准入阶段退出：`RuntimeError: HOME_POSITION in local NED is required before mission startup`。因此没有 arm/takeoff、没有 checkpoint、没有重启恢复，也没有可分析的参数 trace。r2 容器已按本任务 PID/容器名清理；r1 遗留容器未操作。
+
+本轮结果写入 `artifacts/evaluation/crash-resume-sitl-20261027/final-run/summary.json`：`valid=fail`（基础遥测/启动时序阻塞），`corrupt/digest/expired/rtl=not_run`，因为它们都要求 valid 先写出 checkpoint。该阻塞与参数读写竞态修复无关，不能据此推断五个恢复分支的逻辑结果；没有在剩余时间堆叠未经证实的 runner 修复。
+
   修复后的第二个 `valid --apply-px4-params` 架次尚未能启动：共享锁脚本因主机可用内存只有约 1.1--1.3 GiB（门槛 5 GiB）持续等待，未创建容器；随后按要求释放 `cxparam` 锁。五个 crash-resume 场景因此仍未获得新的真实结果，已有阻塞证据保留在 `artifacts/evaluation/crash-resume-sitl-20261027/`。
