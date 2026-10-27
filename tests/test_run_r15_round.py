@@ -624,6 +624,31 @@ def test_merge_with_full_replay_rebalances_positive_heavy_additions(tmp_path: Pa
     assert all(f'"r12-p{i}"' in merged for i in range(40))
 
 
+def test_merge_reads_baseline_ratio_from_rows_when_manifest_is_a_merged_round(tmp_path: Path):
+    import json
+
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    # A merged round dataset (r18-round/r15-sft) keeps ratios, not decision counts.
+    (tmp_path / "r12" / "manifest.json").write_text(
+        json.dumps({"round": "r18", "r12_positive_ratio": 0.4, "counts": {"train": {"merged": 100}}}),
+        encoding="utf-8",
+    )
+    add = tmp_path / "add"
+    add.mkdir()
+    rows = [_identity(f"t{i}", "approach_track", "true_target") for i in range(4)]
+    rows += [_identity(f"n{i}", "reject_track", "distractor") for i in range(6)]
+    _write_jsonl(add / "train.jsonl", rows)
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+
+    merge_cli(_merge_args(tmp_path))
+
+    manifest = json.loads((tmp_path / "merged" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["r12_positive_ratio"] == 0.4
+
+
 def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path: Path):
     import pytest
 

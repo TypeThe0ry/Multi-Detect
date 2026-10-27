@@ -1459,6 +1459,13 @@ def merge_cli(args):
     stats = {}
     baseline = json.loads((args.r12_dataset / "manifest.json").read_text(encoding="utf-8"))
     baseline_counts = baseline.get("counts", {}).get("train", {}).get("decisions", {})
+    if not baseline_counts:
+        # A merged round dataset (e.g. r18-round/r15-sft) keeps no decision counts in
+        # its manifest; count the base train rows instead of reading a 0 ratio.
+        baseline_counts = Counter(
+            str((row.get("assistant_target") or {}).get("decision", "unknown"))
+            for row in read_jsonl(args.r12_dataset / "train.jsonl")
+        )
     baseline_pos = baseline_counts.get("confirm_target", 0) + baseline_counts.get(
         "approach_track", 0
     )
