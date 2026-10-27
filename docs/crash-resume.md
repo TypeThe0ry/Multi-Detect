@@ -75,3 +75,9 @@ exit $status
 | rtl | FAIL（harness 时序） | PX4 telemetry 记录到 `mode=RTL, custom_mode=84148224, base_mode=157, armed=true`；恢复 onboard 随后因启动等待超时，未写出 `monitor_failsafe`。后续遥测为 `LOITER/disarmed`，说明等待恢复进程启动期间 PX4 已完成返航/落地。见 `final-run3/rtl/attempt-2/result.json`。产品未发送重复 arm/takeoff/RTL 命令。 |
 
 RTL 失败是测试编排的剩余问题，不是放宽安全准入的理由：runner 必须在发出 RTL 后立即让恢复进程读取 airborne 状态，并确保新进程能继续收到 telemetry；本轮已保留完整日志和参数 trace 供后续修复。
+
+### RTL 恢复边界与启动顺序
+
+real 模式的 crash-resume 现在先等待新鲜 HEARTBEAT 以及 `armed`/`landed` 两个状态字段，再调用 `decide_recovery`。该路径不等待相机帧、局部位置、姿态、HOME、传感器健康或地面准入；这些条件只在确认需要继续执行 `resume` 或启动新任务后才检查。这样 PX4 处于空中 RTL/FAILSAFE 时可以及时记录 `monitor_failsafe`，不会因地面启动条件而超时。
+
+测试边界也明确：如果 PX4 在恢复进程启动前已经完成 RTL 并落地（`armed=false`, `landed=true`），这是“地面 → new mission/no takeover”状态，不应判为 airborne monitor-failsafe 失败。要验证 airborne monitor-failsafe，harness 必须把触发点放在距离/高度足够大的位置，使 RTL 持续时间明显长于恢复进程启动时间，并要求重启后 arm、takeoff、mode-change 命令数为零。
