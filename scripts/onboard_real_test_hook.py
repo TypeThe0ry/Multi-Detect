@@ -70,6 +70,7 @@ class FakePolicy:
             security_key=AuthenticationKey("hmac-sha256", b"R" * 32, "default"),
             runtime_mode="real", requires_approval=True,
             replay_state_path=mission_log_dir / "ground-replay-state.json",
+            checkpoint_path=self.work_dir / "crash_resume" / "checkpoint.json",
         )
         supervisor.test_hook_metadata = dict(TEST_HOOK_METADATA)
         return supervisor
@@ -80,8 +81,17 @@ class FakePolicy:
     def install_operator_package(self, supervisor):
         self.package, self.supervisor, self.executor = supervisor.package, supervisor, supervisor.executor
 
-    def act(self, _observation, *, pose_ned, yaw_deg):
+    def act(self, observation, *, pose_ned, yaw_deg):
         self.steps += 1
+        if os.environ.get("MULTIDETECT_CRASH_RESUME_TEST") == "1":
+            boot_time_ms = observation.get("time_boot_ms")
+            if isinstance(boot_time_ms, (int, float)) and not isinstance(boot_time_ms, bool):
+                self.supervisor.boot_time_ms = boot_time_ms
+            # SITL exercises checkpoint creation; the ordinary loopback harness
+            # retains its fixed hold action and approval behavior.
+            return self.supervisor.next_action(
+                pose_ned=pose_ned, yaw_deg=yaw_deg, landed=observation.get("landed")
+            )
         return ActionPrimitive.hold(0.05), {}
 
     def close(self):
@@ -114,4 +124,22 @@ def install(namespace):
             return report
 
     namespace["PX4PreflightGate"] = HarnessPreflightGate
+    command_log = os.environ.get("MULTIDETECT_ONBOARD_MAVLINK_COMMAND_LOG")
+    if command_log:
+        vehicle_type = namespace["PymavlinkVehicle"]
+        for method_name in ("_command", "_command_with_ack"):
+            original = getattr(vehicle_type, method_name)
+
+            def traced(self, command, *params, _original=original, _name=method_name):
+                result = _original(self, command, *params)
+                record = {"pid": os.getpid(), "method": _name,
+                          "command": int(command if isinstance(command, int) else command.command),
+                          "sent_at": time.time()}
+                path = Path(command_log)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record) + "\n")
+                return result
+
+            setattr(vehicle_type, method_name, traced)
     return dict(TEST_HOOK_METADATA)

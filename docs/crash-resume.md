@@ -20,4 +20,24 @@
 
 ## SITL 验证
 
-先启动已准入的 PX4 SITL 任务并确认 `mission_log` 与检查点路径。飞行进入第二个步骤后，记录 onboard 进程 PID，仅结束该 PID（例如 Linux `kill -TERM <pid>`，不要按进程名批量结束）。等待 systemd 拉起同一服务，确认日志出现 `crash_resume`，步骤、计数和告警位置延续，且 MAVLink 日志中没有新的 arm/takeoff；随后检查点损坏、替换为不同摘要和设置旧 `saved_at`，应分别记录中文原因并 RTL（无 RTL 时按机型策略降落）。本仓库只提供离线 harness，未实际启动 SITL。
+真实验证编排脚本为 `scripts/run_crash_resume_sitl.py`。Windows 主机不使用 systemd：脚本为每个场景创建一个 `md-crash-resume-<场景>` PX4/Gazebo 容器，记录自己 `Popen` 返回的 onboard PID，等待 checkpoint 序号达到门槛且收到 armed 心跳后只终止该 PID，再用完全相同参数拉起 `scripts/onboard_main.py real`。脚本只读取自己架次的 `mission_log/mission.jsonl`、checkpoint 和 MAVLink `HEARTBEAT`/`COMMAND_ACK`，结束时只 `docker rm -f` 自己记录的容器名。
+
+在 Git Bash 中运行（共享锁必须包住每个架次，不能并发）：
+
+```bash
+. /d/Projects/mdwt/_scratch/sitl_lock.sh
+sitl_acquire cxcrash
+python scripts/run_crash_resume_sitl.py \
+  --mission-package <signed-package.json> --operator-key <operator-key> \
+  --camera <gstreamer-pipeline-or-index> --camera-backend gstreamer \
+  --calibration <camera-calibration.json> --cases valid corrupt digest expired rtl
+status=$?
+sitl_release
+exit $status
+```
+
+结果目录固定为 `artifacts/evaluation/crash-resume-sitl-20261027/`，汇总为 `summary.json`，每个场景另有 `result.json` 和原始 onboard/PX4 证据。判据是：`valid` 必须 `crash_resume.action=resume` 且 step、counts、alerts 延续，重启后的 arm/takeoff 命令数为零；`corrupt`、`digest`、`expired` 必须分别出现中文拒绝原因并 `return_home`/降落，命令数为零；`rtl` 必须 `monitor_failsafe` 且不发送重复 RTL。
+
+  测试相机使用仓库允许的 `MULTIDETECT_ONBOARD_TEST_HOOK=scripts.onboard_real_test_hook`，只在 loopback endpoint 生效；camera = test hook（does not affect crash-resume criteria），标定 JSON 由 harness 生成。最终实现让 onboard 直接连接 PX4 映射的 `udpin:127.0.0.1:<telemetry_port>`，不再依赖 relay。
+
+  本轮按要求阻塞取得并释放 `cxcrash` 锁。最小参数实验只启动 `md-crash-resume-probe`：当前 relay 端点 `127.0.0.1:14543` 连 heartbeat 都收不到；直接 PX4 端点 `127.0.0.1:14542` 对全部 12 个 preflight 参数的 `param_fetch_one` 与 `PARAM_REQUEST_READ` 均成功，耗时 0--16 ms。因此根因是 relay/回包路径，不是 PX4 缺少参数。切换 onboard 直连后真实架次仍在 onboard 的 `PARAM_VALUE` 读回阶段超时（`NAV_DLL_ACT`、`COM_RC_IN_MODE`、`COM_LOW_BAT_ACT`、`COM_OBL_RC_ACT`），未生成 checkpoint；按约 90 分钟停止条件，本轮未继续运行五个场景。`summary.json` 与 `probe/result.json` 保存了逐项证据。容器均已清理，非本任务进程未触碰。离线验证：`61 passed`（含 `tests/test_onboard_real_process.py`）。

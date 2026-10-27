@@ -89,6 +89,7 @@ def observation_for(frame: CameraFrame, state: VehicleState) -> dict[str, Any]:
         "attitude": {"roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw},
         "velocity": state.velocity_ned,
         "mode": state.mode,
+        "time_boot_ms": state.time_boot_ms,
         "vtol_state": getattr(state, "vtol_state", None),
         "home_ned_m": state.home_ned,
         "landed": state.landed,

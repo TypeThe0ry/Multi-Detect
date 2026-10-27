@@ -232,6 +232,10 @@ class MissionSupervisor:
             json.dumps(package.document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
         ).hexdigest()
         self.checkpoint_store = CheckpointStore(checkpoint_path) if checkpoint_path is not None else None
+        # Updated by the onboard runtime from the latest PX4 telemetry sample.
+        # Checkpoints must bind to PX4's boot clock so a PX4 restart cannot be
+        # mistaken for a host-process-only restart.
+        self.boot_time_ms: int | float | None = None
         self._checkpoint_sequence = 0
         self.plan_approved = not self.requires_approval
         self.plan_rejected = False
@@ -1177,6 +1181,7 @@ class MissionSupervisor:
                 visited=getattr(self.executor._run, "coverage_points", []), home=self.executor.home,
                 elapsed_s=getattr(self.executor._run, "elapsed_s", 0.0), energy=self.energy_estimate,
                 provenance={"source": "mission_supervisor", "plan_sha256": self.plan_sha256},
+                boot_time_ms=self.boot_time_ms,
             )
             try:
                 self.checkpoint_store.save(document)

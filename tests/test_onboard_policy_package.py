@@ -113,6 +113,9 @@ def test_precompiled_package_config_loads_refs_home_and_supervisor(tmp_path, mod
             "zone:yard": (0.0, 0.0, 10.0),
             "route:gate": ((0.0, 0.0), (40.0, 0.0)),
         }
+        assert policy.supervisor.checkpoint_store.path == (
+            tmp_path / "runtime" / "crash_resume" / "checkpoint.json"
+        )
         assert policy.supervisor.log.path.is_file()
         assert len(model_stubs["slow"]) == len(model_stubs["proposers"]) == 1
     finally:
