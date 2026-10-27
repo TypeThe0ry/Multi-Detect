@@ -153,3 +153,18 @@ safe-rejection negative target、学习率 `1e-4`，评测目录仍为
 均通过上述显式参数启用。
 
 本轮仅生成并核验数据，没有启动训练、GPU 推理、llama-server、SITL 或 Docker。
+
+## r22 结果（2026-10-28）
+
+r22：r14 热启动，lr 5e-5；数据 = 完整 r14 planner replay + v4 backbone + “忠实计划 + validator 门控”负例（unknown_place/能力拒绝各 80）。报告 `D:/Projects/mdwt/_scratch/cx-planner-round/r22/planner-round-report.md`；评测 `artifacts/evaluation/r22-planner-round/`。
+
+| 指标 | r14 | r21 | r22 |
+|---|---:|---:|---:|
+| planning-v3 | 0.662 | 0.525 | 0.588 |
+| planning-v4 | 0.400 | 0.400 | 0.500 |
+| unknown_place 拒绝正确率 | 1.00 | 0.00 | 1.00 |
+| return_intent | 0.50 | 1.00 | 1.00 |
+| ref_alias | 0.25 | 0.50 | 0.50 |
+| 返航探测 | 15/15 | 13/15 | 15/15 |
+
+结论：**不替换 r14**（planning-v3 仍低 7.5 pp）。r22 修复了 r21 的未知地点拒绝丢失，v4 提升；但三类能力拒绝（fixed_wing_hover、fixed_wing_target_land、missing_payload_drop）在 r14 与 r22 上都是 0，且 fixed_wing_hover 能力违规率 1.0——说明模型按设计输出了忠实计划，但评测链路没有让 validator 以机型能力拒绝它，需要核查评测是否传入机型能力上下文。
