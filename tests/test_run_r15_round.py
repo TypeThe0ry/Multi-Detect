@@ -77,6 +77,17 @@ def test_r21id_filter_samples_positive_strata_but_keeps_all_rejects():
     assert report["dropped_weight_subsample"] > 0
 
 
+def test_r21id_filter_can_keep_small_true_target_positives():
+    rows = [_r2_row(f"s{i}", "confirm_target", "true_target", world=f"w{i % 2}") for i in range(12)]
+    for item in rows:
+        item["candidate_box"] = [0, 0, 12, 12]
+        item["candidate_short_side_px"] = 12
+    rows += [_r2_row(f"n{i}", "reject_track", "distractor", world=f"w{i % 2}") for i in range(4)]
+    kept, report = filter_r21id_r2_additions(rows, keep_small_true_target_positives=True)
+    assert {r["sample_id"] for r in kept} >= {f"s{i}" for i in range(12)}
+    assert report["kept_small_true_target_positives"] == 12
+
+
 def test_r21id_filter_default_off_is_not_applied():
     rows = [_r2_row("u", "approach_track", "counterfactual")]
     # merge_cli uses getattr(..., False), preserving legacy Namespaces and behavior.
