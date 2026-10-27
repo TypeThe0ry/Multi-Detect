@@ -22,6 +22,54 @@ python scripts/generate_r15_worlds.py --profile r21-identity `
   --out-scenarios configs/scenarios/generated-r21id
 ```
 
+## r21id 结果与回退分析
+
+本节依据 2026-10-27 的已落盘输出完成；未启动训练、GPU 推理、llama-server、SITL 或 Docker。逐行分析产物在 `artifacts/evaluation/r21id-analysis-20261027/analysis.json`。
+
+| v3 指标 | r18 | r21id | 变化 |
+|---|---:|---:|---:|
+| identity accuracy | 0.893 | 0.785 | -0.108 |
+| 正例身份召回（`confirm_target` 或 `approach_track`） | 0.786（92/117） | 0.897（105/117） | +13 行 |
+| <12 px 正例召回 | 0.703（52/74） | 0.892（66/74） | +14 行 |
+| distractor rejection | 1.000（116/116） | 0.672（78/116） | -38 行 |
+
+逐行按 `task_query × truth_category × candidate_size_bucket` 对齐后，r18 拒绝而 r21id 接受的负例共 38 行，其中 35 行变为 `approach_track`、3 行变为 `confirm_target`。主组是 `Find the pickup` 对 SUV：18 行回退（16 行 approach、2 行 confirm）；另有 pickup 对 postbox 5 行、person 对 jersey_barrier 4 行、person 对 postbox 2 行、car 对 postbox 3 行和 car 对 None 2 行。另有一条正例（pickup、真值也是 pickup、20-32 px）从 confirm 降为 approach。
+
+正例提升集中在小人物和小 pickup：`person` <12 px 从 14/20 提升至 20/20，20-32 px 从 1/6 到 5/6；pickup <12 px 从 5/6 到 6/6。SUV 大目标在 `Find the car` 的 >=32 桶从 3/6 提升到 5/6。提升以更愿意继续跟踪/approach 为主，并非更高的最终 confirm 能力；同时负例拒绝明显退化。
+
+### 新增训练数据证据与判断
+
+`r15-additions/train.jsonl` 有 622 条 `counterfactual` / `proposal_counterfactual` 正例：308 + 198 条 `approach_track`，59 + 57 条 `confirm_target`。506 条 approach 正例按视角为 front 178、edge_truncated 139、recovery 99、oblique 76、view 缺失 14；edge/recovery 合计占 approach 反事实正例的 47%。这确实反复强化了小/截断候选“先接近再看”，但不能单独证明模型对所有不确定目标一律接受，因为生成器同时支持 `--counterfactual-negatives` 配对拒绝标签。
+
+可核查样例：`030364e2242ae11dade2edd9`（Find the dumpster，proposal_counterfactual/approach_track，edge_truncated，`...gen_r21id_w0017.../rgb/000033_before.jpg`）；`02bd92b4e19b46ecfb89570b`（Find the jersey barrier，proposal_counterfactual/approach_track，recovery，`...gen_r21id_w0017.../rgb/000048_after.jpg`）；`01312ac92bcd73d73596e1a6`（Find the person，proposal_counterfactual/approach_track，view 缺失，`...gen_r21id_w0015.../rgb/000001_before.jpg`）。
+
+代码没有把 `suv` 和 `pickup` 声明为同类：`task_equivalent` 只比较类别相等或语义首词重合，`CATEGORY_ZH` 将二者分列；`_counterfactual_task` 遇到另一可见对象也满足任务时会放弃该反事实任务。因此 SUV→pickup 错误不是近义表显式合并导致。更合理的根因是有限新增集上的 1 epoch、`lr=1e-4` 热启动微调把决策边界推向正向/approach：新增集反事实正例中 81%（506/622）是 approach，并有 47% 来自 edge/recovery；这与 38 个负例回退相符，但不是消融实验已证明的唯一因果。
+
+### r21id-r2 数据方案
+
+1. 训练前剔除没有同帧同 task 明确身份拒绝配对的 `counterfactual` / `proposal_counterfactual` approach 正例；保留有严格配对的正例和尺寸足以确认的正例，不把重新命名后确实匹配的候选粗暴改成拒绝。
+2. 增加同图成对难例：task=pickup、可见 SUV；task=SUV、可见 pickup；task=person、可见 jersey_barrier/postbox；以及 car/person/pickup 对 postbox 和空候选。错配候选标 `reject_track`，同任务真目标另给正例。
+3. edge_truncated 正例 approach 占比限制在 20% 以下；recovery 只有同一真目标才允许 approach/confirm。edge 截断且类别不符或证据不足的候选必须保留 reject。
+4. 保持完整 r18 replay，r21id 新增数据权重约 0.25，学习率由 `1e-4` 降至 `2e-5`，最多 1 epoch；val 同时监控小目标正例召回和 v3 distractor rejection，test 只做冻结后的最终评测。
+
+本轮无需修改生成器或合并逻辑：已有 `counterfactual_negatives` 配对开关、去重和正负比例门禁；问题是错配类别覆盖不足和新增 approach 分布偏斜。
+
+### r21id 四视角专项评测
+
+`eval_slow_system.py --dataset` 接受 JSONL 文件路径并按行读取，不接受目录；`eval_r21id_identity.py` 用预测 `rows[].sample_id` 对齐并读取 `view` / `target_id`。已新增 `scripts/run_r21id_view_eval.py`，串行运行 r18、r21id 和汇总，端口分别为 9933、9934。先检查命令：
+
+```powershell
+python scripts/run_r21id_view_eval.py --dry-run
+```
+
+正式运行（本轮未执行）：
+
+```powershell
+python scripts/run_r21id_view_eval.py
+```
+
+结果写入 `artifacts/evaluation/r21id-analysis-20261027/view-eval/`，包括两个逐行预测 JSON 和 `identity-report.json/.md`。模型、mmproj、llama-server、`--identity-only --fast-identity --crop-policy candidate_zoom_v2` 参数与 r15 eval 阶段一致。
+
 实际采集时，每个世界四个位姿序列各采 3 次，单次只运行一个 SITL 进程，并由锁脚本包裹：
 
 ```powershell
