@@ -8,6 +8,7 @@ from typing import Any
 
 from .mission_package import MissionPackage, check_plan_against_package
 from .mission_plan import MissionPlan, validate_mission_plan
+from .capability_contract import capability_violations, normalize_capabilities
 from .onboard_policy_parts.vocabulary import VOCABULARY
 from .plan_intent import check_plan_intent, query_grounding
 
@@ -98,6 +99,17 @@ def validate_plan_for_execution(
         checked = _as_plan(candidate, available)
     except (TypeError, ValueError, KeyError, AttributeError) as exc:
         return PlanValidationResult("reject", None, (f"计划结构或能力不合法：{exc}",))
+
+    physical_capabilities = normalize_capabilities(available)
+    findings = capability_violations(
+        checked,
+        physical_capabilities,
+        airframe=("airframe:fixed_wing" if "airframe:fixed_wing" in physical_capabilities else None),
+    )
+    if findings:
+        return PlanValidationResult(
+            "reject", None, tuple(str(item["message_zh"]) for item in findings)
+        )
 
     repairs: list[str] = [terminal_repair] if terminal_repair else []
     area = package.document["operating_area"]

@@ -33,6 +33,9 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
+from multidetect.autonomy.mission_package import MissionPackage  # noqa: E402
+from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -53,12 +56,38 @@ def success_path(plan: MissionPlan) -> list[str]:
 
 def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
-    *, prompt_variant: str = "default",
+    *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
+    airframe: str | None = None,
 ):
     plan, report = compile_mission_plan(
-        post, task, refs=refs, schema=schema, prompt_variant=prompt_variant
+        post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
+        capabilities=capabilities, airframe=airframe,
     )
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
+
+
+def _capability_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
+    capabilities = frozenset(item.get("capabilities", ()))
+    package = MissionPackage(
+        document={
+            "capabilities": sorted(capabilities),
+            "home": [0.0, 0.0],
+            "operating_area": {
+                "north_min_m": -1000.0, "north_max_m": 1000.0,
+                "east_min_m": -1000.0, "east_max_m": 1000.0,
+                "min_altitude_m": 0.0, "max_altitude_m": 1000.0,
+            },
+            "zones": {}, "routes": {},
+            "budget": {"time_s": 100000.0, "reserve_time_s": 0.0,
+                       "energy_wh": 100000.0, "reserve_energy_wh": 0.0},
+        },
+        refs={
+            "poi:gate": (20.0, 0.0), "poi:pad": (0.0, 20.0),
+            "zone:lot": (0.0, 0.0, 30.0),
+        },
+        plan=None,
+    )
+    return validate_plan_for_execution(plan, package, prompt, capabilities=capabilities)
 
 
 def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> dict[str, Any]:
@@ -76,18 +105,30 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
         plan, caps, airframe="airframe:fixed_wing" if "airframe:fixed_wing" in caps else None
     ) if plan else []
     if item.get("expect_invalid", False):
+        capability_category = item.get("category") in {
+            "fixed_wing_hover", "fixed_wing_target_land", "missing_payload_drop"
+        }
+        validation = _capability_validation(plan, item, item.get("text", "")) if (
+            capability_category and plan is not None
+        ) else None
+        correctly_blocked = bool(
+            validation and validation.decision in {"reject", "clarify"}
+        )
         accepted = plan is None or (
             len(plan.steps) == 1
             and path == ["return_home"]
             and isinstance(outcome, list)
             and bool(outcome)
         )
+        if capability_category and plan is not None:
+            accepted = correctly_blocked
         return {
             "expected": expected, "predicted": path, "valid": plan is not None,
             "exact": accepted, "same_skills": accepted, "expect_invalid": True,
             "correct_rejection": accepted,
             "intent_violations": sum(bool(f.blocking) for f in intent),
-            "capability_violations": len(capability),
+            "capability_violations": len(capability) if validation and validation.decision in {"accept", "repair"} else 0,
+            "validator_decision": validation.decision if validation else ("reject" if plan is None else None),
         }
     return {
         "expected": expected, "predicted": path, "valid": plan is not None,
@@ -248,9 +289,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for item in document["tasks"]:
             task_refs = tuple(item.get("refs", refs))
+            capabilities = frozenset(item.get("capabilities", ()))
+            airframe = "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None
+            task_schema = plan_json_schema(capabilities=capabilities)
+            if args.sorted_keys:
+                task_schema = trained_key_order_schema(task_schema)
             request_usage.clear()
             plan, raw, attempts, error = compile_task(
-                post, item["text"], task_refs, schema, prompt_variant=args.prompt_variant,
+                post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
+                capabilities=capabilities, airframe=airframe,
             )
             rows.append(
                 {
