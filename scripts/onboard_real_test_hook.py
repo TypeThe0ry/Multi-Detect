@@ -13,6 +13,7 @@ from multidetect.autonomy.mission_security import AuthenticationKey
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame
+from multidetect.sim_teacher.primitives import ActionPrimitive
 
 TEST_HOOK_METADATA = {
     "test_hook_active": True,
@@ -82,17 +83,16 @@ class FakePolicy:
 
     def act(self, observation, *, pose_ned, yaw_deg):
         self.steps += 1
-        boot_time_ms = observation.get("time_boot_ms")
-        if isinstance(boot_time_ms, (int, float)) and not isinstance(boot_time_ms, bool):
-            self.supervisor.boot_time_ms = boot_time_ms
-        # Exercise the real supervisor path so each loop writes a checkpoint,
-        # while keeping image content irrelevant to crash-resume validation.
-        action, info = self.supervisor.next_action(
-            pose_ned=pose_ned,
-            yaw_deg=yaw_deg,
-            landed=observation.get("landed"),
-        )
-        return action, info
+        if os.environ.get("MULTIDETECT_CRASH_RESUME_TEST") == "1":
+            boot_time_ms = observation.get("time_boot_ms")
+            if isinstance(boot_time_ms, (int, float)) and not isinstance(boot_time_ms, bool):
+                self.supervisor.boot_time_ms = boot_time_ms
+            # SITL exercises checkpoint creation; the ordinary loopback harness
+            # retains its fixed hold action and approval behavior.
+            return self.supervisor.next_action(
+                pose_ned=pose_ned, yaw_deg=yaw_deg, landed=observation.get("landed")
+            )
+        return ActionPrimitive.hold(0.05), {}
 
     def close(self):
         self.closed = True
@@ -119,10 +119,7 @@ def install(namespace):
             report = super().run()
             # Only this explicit offline hook tolerates Windows scheduler delay
             # between the already-received HOME/BATTERY frames and the gate.
-            allowed = {"home", "battery_telemetry", "parameter_readback",
-                       "parameter:COM_RC_IN_MODE", "parameter:COM_LOW_BAT_ACT",
-                       "parameter:COM_OBL_RC_ACT"}
-            if set(report["blocking_failures"]) <= allowed:
+            if set(report["blocking_failures"]) <= {"home", "battery_telemetry"}:
                 report["passed"], report["blocking_failures"] = True, []
             return report
 

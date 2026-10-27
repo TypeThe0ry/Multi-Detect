@@ -107,10 +107,11 @@ def wait_for(predicate, timeout: float, interval: float = 0.25) -> bool:
 def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     command = [
         sys.executable, str(ROOT / "scripts/onboard_main.py"), "real",
-        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port + 1}",
+        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port}",
         "--camera", args.camera, "--camera-backend", args.camera_backend,
         "--calibration", str(args.calibration), "--mission-package", str(args.mission_package),
         "--operator-key", str(args.operator_key), "--failsafe", "rtl",
+        "--operator-port", str(args.operator_port),
         "--duration", str(args.duration), "--startup-timeout", str(args.startup_timeout),
         "--takeoff-timeout", str(args.takeoff_timeout), "--work-dir", str(work),
     ]
@@ -121,6 +122,7 @@ def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     env.update({"PYTHONPATH": f"{ROOT / 'src'};{ROOT}",
                 "PYTHONUTF8": "1",
                 "MULTIDETECT_ONBOARD_TEST_HOOK": "scripts.onboard_real_test_hook",
+                "MULTIDETECT_CRASH_RESUME_TEST": "1",
                 "MULTIDETECT_ONBOARD_MAVLINK_COMMAND_LOG": str(log_path.parent / "mavlink-commands.jsonl")})
     proc = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT,
                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
@@ -142,31 +144,32 @@ def terminate_owned(proc: subprocess.Popen) -> None:
         proc._crash_resume_log_stream.close()
 
 
-def set_px4_rtl(relay: Px4LoopbackRelay) -> list[dict[str, Any]]:
+def set_px4_rtl(endpoint: str) -> list[dict[str, Any]]:
     """Put the still-running PX4 in AUTO_RTL while onboard is down."""
     from pymavlink import mavutil
     from multidetect.onboard_runtime.fw_vtol_commands import PX4_AUTO_RTL_CUSTOM_MODE
 
-    class Sender:
-        def write(self, packet):
-            relay.send_to_px4(packet)
-            return len(packet)
-
-    sender = mavutil.mavlink.MAVLink(Sender(), srcSystem=254, srcComponent=190)
+    connection = mavutil.mavlink_connection(endpoint, source_system=254, source_component=190,
+                                             autoreconnect=False)
+    connection.wait_heartbeat(timeout=10)
     for _ in range(3):
-        sender.command_long_send(
+        connection.mav.command_long_send(
             1, 1, mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             PX4_AUTO_RTL_CUSTOM_MODE, 0, 0, 0, 0, 0,
         )
         time.sleep(0.25)
     deadline = time.monotonic() + 8
+    records = []
     while time.monotonic() < deadline:
-        with relay.telemetry_lock:
-            records = list(relay.telemetry)
+        message = connection.recv_match(type="HEARTBEAT", blocking=True, timeout=0.5)
+        if message is not None:
+            records.append({"mode": mavutil.mode_string_v10(message),
+                            "armed": bool(message.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
+                            "time": time.time()})
         if any("RTL" in row["mode"] for row in records):
             return records[-20:]
-        time.sleep(0.1)
+    connection.close()
     raise TimeoutError(f"PX4 did not enter RTL: {records[-5:]}")
 
 
@@ -195,8 +198,6 @@ def run_case(name: str, args) -> dict[str, Any]:
         container_claimed = True
         if not wait_for(lambda: subprocess.run([docker, "inspect", "-f", "{{.State.Running}}", container], capture_output=True, text=True).stdout.strip() == "true", args.startup_timeout):
             raise TimeoutError("owned PX4 container did not become running")
-        relay = Px4LoopbackRelay(args.telemetry_port, args.telemetry_port + 1, args.control_port)
-        relay.start()
         first = launch_onboard(args, work, process_log)
         result["first_pid"] = first.pid
         checkpoint = work / "crash_resume/checkpoint.json"
@@ -215,7 +216,7 @@ def run_case(name: str, args) -> dict[str, Any]:
             changed["saved_at"] = time.time() - 3600
             checkpoint.write_text(json.dumps(changed), encoding="utf-8")
         elif name == "rtl":
-            rtl_records = set_px4_rtl(relay)
+            rtl_records = set_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
         wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)
@@ -292,6 +293,7 @@ def main() -> int:
     parser.add_argument("--decision-timeout", type=float, default=90)
     parser.add_argument("--takeoff-timeout", type=float, default=60)
     parser.add_argument("--duration", type=float, default=7200)
+    parser.add_argument("--operator-port", type=int, default=14680)
     parser.add_argument("--crash-after-sequence", type=int, default=2)
     parser.add_argument("--apply-px4-params", action="store_true")
     parser.add_argument("--crash-step-id", default="home")
