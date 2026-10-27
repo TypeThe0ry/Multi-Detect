@@ -154,7 +154,7 @@ def main(argv=None) -> int:
     parser.add_argument("--force-stage", choices=STAGES, help="invalidate this stage and all later stages before running")
     parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
     args = parser.parse_args(argv)
-    EVAL_ROOT = args.eval_root.resolve()
+    EVAL_ROOT = args.eval_root.absolute()  # keep the worktree spelling; artifacts/ may be nested junctions
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1:
         parser.error("row counts must be positive (val rows may be zero)")
     out = args.out.resolve()
