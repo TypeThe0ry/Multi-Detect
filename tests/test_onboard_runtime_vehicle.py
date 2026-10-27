@@ -190,8 +190,9 @@ def test_receiver_lifecycle_and_requests_without_hardware() -> None:
         time.sleep(0.005)
     assert vehicle.snapshot().mode == "HOLD"
     assert vehicle.snapshot().position_ned == (1, 2, -3)
-    assert all(args[2] == 511 for args in connection.mav.commands)
-    assert len(connection.mav.commands) == 7
+    assert all(args[2] == 511 for args in connection.mav.commands[:-1])
+    assert connection.mav.commands[-1][2:5] == (512, 0, 148.0)
+    assert len(connection.mav.commands) == 8
     vehicle.close()
     vehicle.close()
     assert connection.closed
@@ -295,6 +296,79 @@ def test_read_parameter_accepts_synchronous_zero_latency_reply() -> None:
 
     connection.mav.param_request_read_send = reply_inside_send
     assert vehicle.read_parameter("COM_OF_LOSS_T", timeout_s=0.05, retries=1) == 1.0
+
+
+def test_param_value_before_heartbeat_is_not_discarded() -> None:
+    vehicle = PymavlinkVehicle("replay", connection=FakeConnection(), clock=lambda: 2.0)
+    vehicle.ingest({"type": "PARAM_VALUE", "param_id": "NAV_DLL_ACT",
+                    "param_value": struct.unpack("<f", struct.pack("<i", 2))[0],
+                    "param_type": 6, "_source_system": 1, "_source_component": 1}, 2.0)
+    assert vehicle._parameters["NAV_DLL_ACT"][0] == 2
+
+
+@pytest.mark.parametrize("encoding,raw,expected", [
+    ("bytewise", struct.unpack("<f", struct.pack("<i", 2))[0], 2.0),
+    ("c_cast", 2.0, 2.0),
+])
+def test_param_int32_encoding_decodes_both_protocol_forms(encoding, raw, expected) -> None:
+    vehicle = PymavlinkVehicle("replay", connection=FakeConnection(), clock=lambda: 3.0)
+    vehicle._parameter_encoding = encoding
+    vehicle.ingest({"type": "PARAM_VALUE", "param_id": "NAV_DLL_ACT",
+                    "param_value": raw, "param_type": 6}, 3.0)
+    assert vehicle._parameters["NAV_DLL_ACT"][0] == expected
+
+
+@pytest.mark.parametrize("encoding,wire,readback", [
+    ("bytewise", struct.unpack("<f", struct.pack("<i", 2))[0],
+     struct.unpack("<f", struct.pack("<i", 2))[0]),
+    ("c_cast", 2.0, 2.0),
+])
+def test_write_parameter_int32_encodings(encoding, wire, readback) -> None:
+    connection = FakeConnection()
+    ticks = iter((30.0, 30.1, 30.2))
+    vehicle = PymavlinkVehicle("replay", connection=connection, clock=lambda: next(ticks))
+    vehicle.target_system = vehicle.target_component = 1
+    vehicle._parameter_encoding = encoding
+    vehicle._parameters["NAV_DLL_ACT"] = (0.0, 6, 1.0)
+
+    def reply_inside_send(system, component, param_id, sent_value, ptype):
+        connection.mav.commands.append(("set", system, component, param_id, sent_value, ptype))
+        vehicle.ingest({"type": "PARAM_VALUE", "param_id": "NAV_DLL_ACT",
+                        "param_value": readback, "param_type": 6,
+                        "_source_system": system, "_source_component": component})
+
+    connection.mav.param_set_send = reply_inside_send
+    assert vehicle.write_parameter("NAV_DLL_ACT", 2, timeout_s=0.05, retries=1) == 2.0
+    assert connection.mav.commands[-1][4] == wire
+
+
+@pytest.mark.parametrize("capabilities,encoding", [(16, "bytewise"), (131072, "c_cast")])
+def test_autopilot_version_selects_parameter_encoding(capabilities, encoding) -> None:
+    vehicle = PymavlinkVehicle("replay", connection=FakeConnection())
+    vehicle.ingest({"type": "AUTOPILOT_VERSION", "capabilities": capabilities})
+    assert vehicle._parameter_encoding == encoding
+
+
+def test_param_trace_records_send_and_acceptance(tmp_path, monkeypatch) -> None:
+    trace_path = tmp_path / "params.jsonl"
+    monkeypatch.setenv("MULTIDETECT_PARAM_TRACE", str(trace_path))
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("replay", connection=connection,
+                               clock=iter((40.0, 40.1, 40.2, 40.3)).__next__)
+    vehicle.target_system = vehicle.target_component = 1
+
+    def reply_inside_send(*args):
+        connection.mav.commands.append(("read", *args))
+        vehicle.ingest({"type": "PARAM_VALUE", "param_id": "COM_OF_LOSS_T",
+                        "param_value": 1.0, "param_type": 9,
+                        "_source_system": 1, "_source_component": 1})
+
+    connection.mav.param_request_read_send = reply_inside_send
+    assert vehicle.read_parameter("COM_OF_LOSS_T", timeout_s=0.05, retries=1) == 1.0
+    records = [__import__("json").loads(line) for line in trace_path.read_text().splitlines()]
+    assert [row["kind"] for row in records] == ["PARAM_REQUEST_READ", "PARAM_VALUE"]
+    assert records[0]["target_system"] == records[0]["target_component"] == 1
+    assert records[1]["decision"] == "accepted"
 
 
 def test_write_parameter_accepts_synchronous_zero_latency_readback() -> None:

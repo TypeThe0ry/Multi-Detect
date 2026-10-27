@@ -8,6 +8,8 @@ the autonomy boundary use degrees; only MAVLink encoding uses radians.
 from __future__ import annotations
 
 import math
+import json
+import os
 import struct
 import threading
 import time
@@ -36,6 +38,23 @@ from .fw_vtol_commands import (
 )
 
 Vector3 = tuple[float, float, float]
+
+
+def _precise_monotonic() -> float:
+    """Return monotonic seconds without the coarse Windows float clock step."""
+    return time.monotonic_ns() / 1_000_000_000.0
+
+
+def _decode_param_value(raw: float, param_type: int, encoding: str) -> float:
+    if param_type != 6 or encoding == "c_cast":
+        return float(raw)
+    return float(struct.unpack("<i", struct.pack("<f", float(raw)))[0])
+
+
+def _encode_param_value(value: float, param_type: int, encoding: str) -> float:
+    if param_type != 6 or encoding == "c_cast":
+        return float(value)
+    return struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +244,7 @@ class PymavlinkVehicle:
         target_system: int | None = None,
         target_component: int | None = None,
         write_timeout_s: float = 0.05,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = _precise_monotonic,
     ) -> None:
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("MAVLink endpoint must be nonempty")
@@ -259,6 +278,23 @@ class PymavlinkVehicle:
         self._parameter_locks: dict[str, threading.Lock] = {}
         self._ack_events: dict[int, threading.Event] = {}
         self._acks: dict[int, tuple[int, float]] = {}
+        trace_path = os.environ.get("MULTIDETECT_PARAM_TRACE", "").strip()
+        self._parameter_trace_path = trace_path or None
+        self._parameter_trace_lock = threading.Lock()
+        self._parameter_encoding = "bytewise"
+        self._autopilot_version_requested = False
+
+    def _trace_parameter(self, record: dict[str, Any]) -> None:
+        path = self._parameter_trace_path
+        if path is None:
+            return
+        record = {"time": self._clock(), **record}
+        try:
+            with self._parameter_trace_lock:
+                with open(path, "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        except OSError:
+            pass
 
     def snapshot(self) -> VehicleState:
         if self._reader is not None:
@@ -273,17 +309,52 @@ class PymavlinkVehicle:
             kind = str(message.get("type", ""))
         stamp = self._clock() if received_monotonic is None else float(received_monotonic)
         if not math.isfinite(stamp):
+            if kind == "PARAM_VALUE":
+                self._trace_parameter({"direction": "receive", "kind": kind,
+                                       "param_id_raw": repr(message.get("param_id", message.get("param_name"))),
+                                       "param_value_raw": message.get("param_value"),
+                                       "param_type": message.get("param_type"), "stamp": stamp,
+                                       "decision": "dropped", "reason": "invalid_receive_stamp"})
             return
         source_system = message.get("_source_system")
         source_component = message.get("_source_component")
+        raw_param_id = message.get("param_id", message.get("param_name")) if kind == "PARAM_VALUE" else None
+        raw_param_value = message.get("param_value") if kind == "PARAM_VALUE" else None
+        raw_param_type = message.get("param_type") if kind == "PARAM_VALUE" else None
+        try:
+            traced_type = int(raw_param_type) if raw_param_type is not None else None
+            traced_decoded = (_decode_param_value(float(raw_param_value), traced_type,
+                                                  self._parameter_encoding)
+                              if traced_type is not None and raw_param_value is not None else None)
+        except (TypeError, ValueError, OverflowError, struct.error):
+            traced_decoded = None
+        traced_name = raw_param_id.decode("ascii", "ignore") if isinstance(raw_param_id, bytes) else raw_param_id
+        traced_tx = self._parameter_transactions.get(str(traced_name).rstrip("\x00"), {}) if kind == "PARAM_VALUE" else {}
+        traced_pending = self._parameter_pending_since.get(str(traced_name).rstrip("\x00")) if kind == "PARAM_VALUE" else None
+        param_trace_base = {
+            "direction": "receive", "kind": kind, "param_id_raw": repr(raw_param_id),
+            "param_id": traced_name, "param_value_raw": raw_param_value,
+            "param_type": raw_param_type, "decoded_value": traced_decoded,
+            "stamp": stamp, "transaction_state": traced_tx.get("state"),
+            "pending_since": traced_pending, "expected": traced_tx.get("expected"),
+            "source_system": source_system, "source_component": source_component,
+        }
         with self._state_lock:
-            if kind != "HEARTBEAT" and source_system is not None and self.target_system is None:
+            selected_system = self.target_system or int(getattr(self.connection, "target_system", 0) or 0)
+            selected_component = self.target_component or int(getattr(self.connection, "target_component", 0) or 0)
+            if kind != "HEARTBEAT" and source_system is not None and not selected_system:
+                if kind == "PARAM_VALUE":
+                    self._trace_parameter({**param_trace_base, "decision": "dropped", "reason": "source_system_unselected"})
                 return
-            if (source_system is not None and self.target_system is not None
-                    and source_system != self.target_system):
+            if source_system is not None and selected_system and source_system != selected_system:
+                if kind == "PARAM_VALUE":
+                    self._trace_parameter({**param_trace_base, "target_system": selected_system,
+                                           "decision": "dropped", "reason": "source_system_mismatch"})
                 return
-            if (source_component is not None and self.target_component is not None
-                    and source_component != self.target_component):
+            if source_component is not None and selected_component and source_component != selected_component:
+                if kind == "PARAM_VALUE":
+                    self._trace_parameter({**param_trace_base, "target_component": selected_component,
+                                           "decision": "dropped", "reason": "source_component_mismatch"})
                 return
             updates: dict[str, Any] = {}
             state = self._state
@@ -376,35 +447,71 @@ class PymavlinkVehicle:
                                              if isinstance(eph, (int, float)) and eph >= 0 else None),
                                    gps_monotonic=stamp)
             elif kind == "PARAM_VALUE":
-                name = message.get("param_id", message.get("param_name"))
+                raw_name = message.get("param_id", message.get("param_name"))
+                name = raw_name
                 if isinstance(name, bytes):
                     name = name.decode("ascii", "ignore")
                 if isinstance(name, str) and isinstance(message.get("param_value"), (int, float)):
                     clean = name.rstrip("\x00")
                     ptype = int(message.get("param_type", 9))
                     raw = float(message["param_value"])
-                    value = (float(struct.unpack("<i", struct.pack("<f", raw))[0])
-                             if ptype == 6 else raw)
+                    value = _decode_param_value(raw, ptype, self._parameter_encoding)
                     transaction = self._parameter_transactions.get(clean)
-                    if transaction is not None and transaction.get("state") == "arming":
-                        return
+                    transaction = transaction or {}
                     pending = self._parameter_pending_since.get(clean)
+                    expected = transaction.get("expected")
+                    type_expected = transaction.get("param_type")
+                    trace = {
+                        "direction": "receive", "kind": "PARAM_VALUE",
+                        "param_id_raw": repr(raw_name), "param_id": name,
+                        "param_value_raw": raw,
+                        "param_type": ptype, "decoded_value": value,
+                        "stamp": stamp, "transaction_state": transaction.get("state"),
+                        "pending_since": pending, "expected": expected,
+                        "source_system": source_system, "source_component": source_component,
+                    }
+                    if transaction.get("state") == "arming":
+                        self._trace_parameter({**trace, "decision": "dropped", "reason": "arming_state"})
+                        return
                     if pending is not None and stamp <= pending:
                         # A response queued before the request/set must not
                         # satisfy or overwrite the pending transaction.
+                        self._trace_parameter({**trace, "decision": "dropped", "reason": "stale_stamp"})
                         return
                     if pending is not None and stamp > pending:
-                        transaction = self._parameter_transactions.get(clean, {})
-                        expected = transaction.get("expected")
-                        type_expected = transaction.get("param_type")
                         if type_expected is not None and ptype != type_expected:
+                            self._trace_parameter({**trace, "decision": "dropped", "reason": "type_mismatch"})
                             return
                         if expected is not None and not math.isclose(value, expected, rel_tol=0, abs_tol=0):
+                            self._trace_parameter({**trace, "decision": "dropped", "reason": "value_mismatch"})
                             return
                     self._parameters[clean] = (value, ptype, stamp)
                     if pending is not None and stamp > pending:
                         event = self._parameter_events.setdefault(clean, threading.Event())
                         event.set()
+                    self._trace_parameter({**trace, "decision": "accepted"})
+                else:
+                    self._trace_parameter({"direction": "receive", "kind": "PARAM_VALUE",
+                                           "param_id_raw": repr(raw_name),
+                                           "param_value_raw": message.get("param_value"),
+                                           "param_type": message.get("param_type"),
+                                           "stamp": stamp, "source_system": source_system,
+                                           "source_component": source_component,
+                                           "decision": "dropped", "reason": "invalid_param_fields"})
+            elif kind == "AUTOPILOT_VERSION":
+                capabilities = message.get("capabilities")
+                if isinstance(capabilities, (int, float)):
+                    caps = int(capabilities)
+                    bytewise = bool(caps & 16)
+                    c_cast = bool(caps & 131072)
+                    if bytewise != c_cast:
+                        self._parameter_encoding = "bytewise" if bytewise else "c_cast"
+                    self._trace_parameter({"direction": "receive", "kind": kind,
+                                           "capabilities": caps,
+                                           "advertised_bytewise": bytewise,
+                                           "advertised_c_cast": c_cast,
+                                           "encoding_unambiguous": bytewise != c_cast,
+                                           "parameter_encoding": self._parameter_encoding})
             if updates:
                 self._state = replace(state, **updates)
         if kind == "HEARTBEAT" and self._reader is not None and not self._streams_requested:
@@ -441,6 +548,10 @@ class PymavlinkVehicle:
         component = self.target_component or int(getattr(self.connection, "target_component", 0))
         if not system or not component:
             raise RuntimeError("autopilot heartbeat is required before sending commands")
+        if self.target_system is None:
+            self.target_system = system
+        if self.target_component is None:
+            self.target_component = component
         return system, component
 
     @contextmanager
@@ -506,6 +617,10 @@ class PymavlinkVehicle:
                     sent = self._clock()
                     self._parameter_pending_since[clean] = sent
                     self._parameter_transactions[clean] = {"state": "awaiting"}
+                    self._trace_parameter({"direction": "send", "kind": "PARAM_REQUEST_READ",
+                                           "name": clean, "target_system": system,
+                                           "target_component": component, "param_index": -1,
+                                           "sent": sent})
                     sender(system, component, clean.encode("ascii"), -1)
                 if event.wait(timeout_s):
                     value, _, received = self._parameters[clean]
@@ -531,8 +646,7 @@ class PymavlinkVehicle:
                     ptype = self._parameters.get(name, (0.0, 6 if name in {
                         "NAV_DLL_ACT", "COM_DL_LOSS_T", "NAV_RCL_ACT", "COM_RC_IN_MODE",
                         "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
-                    wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
-                            if ptype == 6 else float(value))
+                    wire = _encode_param_value(float(value), ptype, self._parameter_encoding)
                     self._parameter_events.setdefault(name, threading.Event()).clear()
                     sent = self._clock()
                     self._parameter_pending_since[name] = sent
@@ -540,6 +654,11 @@ class PymavlinkVehicle:
                         "state": "awaiting", "expected": float(value),
                         "param_type": ptype,
                     }
+                    self._trace_parameter({"direction": "send", "kind": "PARAM_SET",
+                                           "name": name, "wire_value": wire,
+                                           "ptype": ptype, "value": float(value),
+                                           "target_system": system, "target_component": component,
+                                           "sent": sent})
                     sender(system, component, name.encode("ascii"), wire, ptype)
                 event = self._parameter_events.setdefault(name, threading.Event())
                 if event.wait(timeout_s):
@@ -562,6 +681,10 @@ class PymavlinkVehicle:
         self._streams_requested = True
         for message_id, interval_us in self._INTERVALS:
             self._command(511, float(message_id), float(interval_us))
+        if not self._autopilot_version_requested:
+            self._autopilot_version_requested = True
+            # MAV_CMD_REQUEST_MESSAGE (512), MAVLINK_MSG_ID_AUTOPILOT_VERSION (148).
+            self._command(512, 148.0)
 
     def send_setpoint(self, setpoint: PositionSetpoint) -> None:
         with self._sending():
