@@ -40,4 +40,14 @@ exit $status
 
   测试相机使用仓库允许的 `MULTIDETECT_ONBOARD_TEST_HOOK=scripts.onboard_real_test_hook`，只在 loopback endpoint 生效；camera = test hook（does not affect crash-resume criteria），标定 JSON 由 harness 生成。最终实现让 onboard 直接连接 PX4 映射的 `udpin:127.0.0.1:<telemetry_port>`，不再依赖 relay。
 
-  本轮按要求阻塞取得并释放 `cxcrash` 锁。最小参数实验只启动 `md-crash-resume-probe`：当前 relay 端点 `127.0.0.1:14543` 连 heartbeat 都收不到；直接 PX4 端点 `127.0.0.1:14542` 对全部 12 个 preflight 参数的 `param_fetch_one` 与 `PARAM_REQUEST_READ` 均成功，耗时 0--16 ms。因此根因是 relay/回包路径，不是 PX4 缺少参数。切换 onboard 直连后真实架次仍在 onboard 的 `PARAM_VALUE` 读回阶段超时（`NAV_DLL_ACT`、`COM_RC_IN_MODE`、`COM_LOW_BAT_ACT`、`COM_OBL_RC_ACT`），未生成 checkpoint；按约 90 分钟停止条件，本轮未继续运行五个场景。`summary.json` 与 `probe/result.json` 保存了逐项证据。容器均已清理，非本任务进程未触碰。离线验证：`61 passed`（含 `tests/test_onboard_real_process.py`）。
+  参数事务竞态已在 `PymavlinkVehicle` 中修复并用同步零延迟回包测试覆盖。发送前记录 `_clock()` 并进入 `awaiting`；接收时间也是 reader 回调进入 `ingest` 时调用同一 `_clock()` 得到的 monotonic 时间。接收端仍要求 `stamp > pending_since`，所以事务开始前已排队的旧回复不能完成新事务。之前的实现发送期间处于 `arming`，接收端直接丢弃；而且 pending 时间在发送后记录，发送期间到达的包也会被按旧包丢弃。读、写事务都有相同窗口。
+
+  修复后按要求以 `cxparam` 锁执行真实验证，telemetry 使用 `127.0.0.1:14542`（端口 `14541` 未触碰），测试 hook 和 `MULTIDETECT_CRASH_RESUME_TEST=1` 均启用。`valid` 架次未能通过起飞前检查：日志中 `NAV_DLL_ACT` 的 `PARAM_VALUE` 超时，`COM_RC_IN_MODE`、`COM_LOW_BAT_ACT`、`COM_OBL_RC_ACT` 也未读回；因此没有 arm/takeoff、没有 checkpoint，也没有重启后的恢复命令计数。脚本按自己记录的 PID 结束 onboard，并确认容器 `md-crash-resume-valid-r2` 已清理。由于每个场景都依赖同一 preflight 起飞门槛，`corrupt`、`digest`、`expired`、`rtl` 未运行，不能据此判定恢复逻辑通过或失败。证据在 `artifacts/evaluation/crash-resume-sitl-20261027/valid/attempt-2/` 和 `summary.json`；本轮未发现锁遗留或触碰非本任务进程。
+
+  后续 trace 发现并修复了第二个真实缺陷：PX4 SITL 的参数流可以早于首个 HEARTBEAT 到达。旧过滤器只看 `self.target_system`，在 heartbeat 选择完成前把 `source_system=1/component=1` 的参数全部丢弃；修复后在目标尚未由 heartbeat 选定时使用 pymavlink connection 已知的 `target_system/target_component`，仍对明确不匹配的来源丢弃。`MULTIDETECT_PARAM_TRACE=<path>` 只在显式设置时写 JSONL，记录发送、接收、解码、事务状态、pending、期望值和每个 drop 原因。
+
+  trace 还证明 SITL INT32 参数使用 MAVLink bytewise：例如 `NAV_DLL_ACT` 的 `param_type=6`、原始 `2.80259692864963e-45` 解码为 `2`，没有 `type_mismatch` 或 `value_mismatch`。原先看到的 `stale_stamp` 是 Windows monotonic clock 量化造成的：发送和立即回复会有完全相同的时钟 tick，原先严格 `stamp > pending_since` 将新回复误丢。默认时钟改为 `time.monotonic_ns()/1e9`，pending 过滤拒绝严格早于事务的回复、允许相同 tick；事务开始前已接收的旧回复仍被严格过滤。同时请求并读取 `AUTOPILOT_VERSION` capability，支持 bytewise/C-cast 两种 INT32 编码并有单元测试。
+
+  后续 trace 中已经看到修复后的即时回复被接受：`COM_DL_LOSS_T` 的 `PARAM_SET` 和 `PARAM_REQUEST_READ` 均为 `accepted`，`NAV_DLL_ACT` 的 raw `2.802596928649634e-45`、ptype 6 解码为 `2.0` 并被 `accepted`；`AUTOPILOT_VERSION` capability `59647` 明确声明 bytewise。参数 apply 已越过此前的 INT32/竞态失败，随后发现并修复了 float32 wire 量化比较和 apply 失败路径中未序列化 `PreflightCheck` 的日志 bug。
+
+  修复后的第二个 `valid --apply-px4-params` 架次尚未能启动：共享锁脚本因主机可用内存只有约 1.1--1.3 GiB（门槛 5 GiB）持续等待，未创建容器；随后按要求释放 `cxparam` 锁。五个 crash-resume 场景因此仍未获得新的真实结果，已有阻塞证据保留在 `artifacts/evaluation/crash-resume-sitl-20261027/`。

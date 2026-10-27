@@ -278,7 +278,7 @@ class PX4PreflightGate:
             report["checks"].append(_check("apply_rollback", not failed,
                 {"rollback": rollback}, {"verified": True},
                 "Post-apply admission failed; rollback was attempted.",
-                "应用后准入失败，已尝试回滚。"))
+                "应用后准入失败，已尝试回滚。").as_dict())
             if failed:
                 report["passed"] = False
                 report["blocking_failures"].append(

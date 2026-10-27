@@ -278,6 +278,7 @@ def _read_checkpoint(path: Path) -> Any:
 
 
 def main() -> int:
+    global OUT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mission-package", type=Path, required=True)
     parser.add_argument("--operator-key", type=Path, required=True)
@@ -285,6 +286,8 @@ def main() -> int:
     parser.add_argument("--camera-backend", choices=("v4l2", "gstreamer"), default="gstreamer")
     parser.add_argument("--calibration", type=Path, required=True)
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
+    parser.add_argument("--output-dir", type=Path, default=OUT,
+                        help="write run evidence beneath this directory")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
@@ -301,6 +304,7 @@ def main() -> int:
     for path in (args.mission_package, args.operator_key, args.calibration, args.scenario):
         if not path.is_file():
             parser.error(f"file not found: {path}")
+    OUT = args.output_dir.resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
     for name in args.cases:
