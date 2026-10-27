@@ -186,3 +186,35 @@ r22：r14 热启动，lr 5e-5；数据 = 完整 r14 planner replay + v4 backbone
 | r22 baseline | 1.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
 
 prompt 能力上下文的缺失需要后续训练/评测数据保持一致；本修复没有重训，也没有改动已有模型输出。能力类重算不会改变替换判断：**仍不替换 r14**，因为主判据 planning-v3 仍为 r22 `0.588` 对 r14 `0.662`，低 7.5 个百分点。
+
+## r22 planning-v3 回退分析与 r23 方案（2026-10-28）
+
+逐题对齐 `artifacts/evaluation/r22-planner-round/{candidate,baseline}/planning-v3.json` 与 r21 同名文件（80 题、中文 40/英文 40）后，r22 相对 r14 错 8 题；r21 相对 r14 错 14 题。r22 的 8 题为：第 22 题双 `survey -> survey -> land` 被截成 `survey -> return_home`；第 27 题 `goto -> hover -> return_home` 结构无效；第 29、69 题分别漏掉 `hover`；第 32 题把 `record -> hover -> land` 生成成错误的 `follow` 链；第 57 题漏掉 patrol 后的 `goto`；第 66 题漏掉第二个 `monitor`；第 71 题把“当前视野拍照”错成 `goto`。其中 6/8 是多步骤或终步参数敏感任务，4/8 为中文，4/8 为英文；错误集中在 `goto/hover/record/patrol/monitor/survey`，没有 count/area_search 基础题回退。
+
+r22 数据的集中原因是配方稀释与分布偏移：训练集 4,540 行中有 1,500 条 r14 replay（33.0%）、2,000 条 v4 backbone（44.1%）以及 1,040 条 r20 能力/意图行（22.9%）。r20 能力行的终步主要是 `return_home`/`land`，`missing_payload_drop` 的 160 行虽包含 deliver 负例对，但不是面向 planning-v3 的自然任务覆盖；v4 与 replay 的 goal 中位长度分别为 57 与 56，而能力行多为长度 7 的拒绝目标。r22 train 的中英文比例约 50/50，故语言比例不是主因；主因是多步骤 v3 风格样本相对总量不足，且 `record`/`hover`/连续 monitor/survey 的参数与终步组合被能力拒绝模板稀释。
+
+r23 在 `scripts/build_plan_sft.py` 增加显式 `--r23-recipe`（默认关闭，v4 默认输出字节不变）：保留 1,500 条 r14 replay 和原 v4/r20 行，附加 600 条 `r23_v3_coverage`（中英约 308/292，覆盖多步骤 goto/hover/record/monitor/patrol/survey）以及 80 条带真实 `deliver` 步骤的 `r23_deliver_faithful`，由 validator 按 payload 能力拒绝。生成结果为 train 5,220、val 100；train family 计数写入 `r23-data-stats.md`，`deliver` 步骤 164 条（其中新增忠实正例 80 条）。与 planning-v3/v4 评测题规范化碰撞均为 0。推荐 r14 adapter 热启动、1 epoch、lr `2.5e-5`；编排器 `run_planner_round.py` 在 `--r23-recipe` 下自动采用该 lr，也可显式覆盖。
+
+仅生成数据：
+
+```powershell
+python scripts/run_planner_round.py --stage data --force-stage data `
+  --out D:/Projects/mdwt/_scratch/cx-planner-round/r23 `
+  --eval-root artifacts/evaluation/r23-planner-round `
+  --rows 2000 --val-rows 100 --intent-count 80 `
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl `
+  --negative-target-mode rejected_candidate --r23-recipe `
+  --r23-v3-count 600 --r23-deliver-count 80
+```
+
+完整训练/评测命令（本任务不执行）：
+
+```powershell
+python scripts/run_planner_round.py --stage all `
+  --out D:/Projects/mdwt/_scratch/cx-planner-round/r23 `
+  --eval-root artifacts/evaluation/r23-planner-round `
+  --rows 2000 --val-rows 100 --intent-count 80 `
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl `
+  --negative-target-mode rejected_candidate --r23-recipe `
+  --r23-v3-count 600 --r23-deliver-count 80 --learning-rate 2.5e-5
+```

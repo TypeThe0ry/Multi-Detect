@@ -118,7 +118,13 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
         data_cmd += ["--replay-planner-train", str(args.replay_planner_train)]
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
-    train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", "1", "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(args.learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
+    learning_rate = args.learning_rate
+    if args.r23_recipe:
+        data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
+                     "--r23-deliver-count", str(args.r23_deliver_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.5e-5
+    train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
     if R14_ADAPTER.is_dir():
         train += ["--init-adapter", str(R14_ADAPTER)]
     export = [py, str(ROOT / "scripts/export_slow_system_r15.py"), "--base", str(BASE_CACHE), "--adapter", str(adapter / "adapter"), "--output", str(out), "--quantization", "Q5_K_M", "--drop-intermediates"]
@@ -146,6 +152,11 @@ def main(argv=None) -> int:
     parser.add_argument("--replay-planner-train", type=Path, default=None)
     parser.add_argument("--negative-target-mode", choices=("safe_rejection", "rejected_candidate"), default="safe_rejection")
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--r23-recipe", action="store_true",
+                        help="add v3 coverage and faithful deliver rows; defaults LR to 2.5e-5")
+    parser.add_argument("--r23-v3-count", type=int, default=600)
+    parser.add_argument("--r23-deliver-count", type=int, default=80)
     parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
     parser.add_argument("--min-free-disk-gb", type=float, default=12)
     parser.add_argument("--min-memory-gb", type=float, default=8)
@@ -155,7 +166,7 @@ def main(argv=None) -> int:
     parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
     args = parser.parse_args(argv)
     EVAL_ROOT = args.eval_root.absolute()  # keep the worktree spelling; artifacts/ may be nested junctions
-    if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1:
+    if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1 or args.epochs < 1:
         parser.error("row counts must be positive (val rows may be zero)")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())

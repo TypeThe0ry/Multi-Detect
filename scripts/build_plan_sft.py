@@ -1136,6 +1136,14 @@ def main(argv: list[str] | None = None) -> int:
         help="target format for expected-invalid rows; r22 uses rejected_candidate",
     )
     parser.add_argument(
+        "--r23-recipe", action="store_true",
+        help="add a v3-style coverage slice and faithful deliver plans; default output is unchanged",
+    )
+    parser.add_argument("--r23-v3-count", type=int, default=600,
+                        help="number of additional v3-style positive rows for --r23-recipe")
+    parser.add_argument("--r23-deliver-count", type=int, default=80,
+                        help="number of faithful deliver rows for --r23-recipe")
+    parser.add_argument(
         "--eval-tasks",
         type=Path,
         nargs="+",
@@ -1146,6 +1154,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.rows < 0 or args.val_rows < 0:
         parser.error("row counts must be non-negative")
+    if args.r23_v3_count < 0 or args.r23_deliver_count < 0:
+        parser.error("r23 counts must be non-negative")
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
@@ -1186,6 +1196,54 @@ def main(argv: list[str] | None = None) -> int:
         else:
             rows = special_rows + rows
             args.rows += len(special_rows)
+    if args.r23_recipe:
+        # Keep the legacy v4/replay bytes intact and append a separately tagged
+        # v3-style slice.  Deliver rows are the faithful validator-gated plans,
+        # so the model learns to emit deliver before capability rejection.
+        r23_rows = []
+        r23_rng = random.Random(f"{args.seed}:r23-v3")
+        while len(r23_rows) < args.r23_v3_count:
+            zh, en, steps, report = mission_v3(r23_rng)
+            text = " ".join((zh if r23_rng.random() < 0.5 else en).split())
+            steps, refs = localise_places(r23_rng, steps, text, labels)
+            key = normalize_task(text)
+            if key in held_out or key in seen:
+                continue
+            plan = {"plan_version": 1, "goal": en.rstrip(".")[:160],
+                    "steps": steps, "report": report}
+            validate_mission_plan(plan)
+            seen.add(key)
+            r23_rows.append({"sample_id": f"plan-r23-v3-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+                             "kind": "mission_plan", "world": "synthetic_plan_r23",
+                             "family": "r23_v3_coverage", "task_text": text,
+                             "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                                   capabilities=frozenset()),
+                             "assistant_target": plan})
+        if args.r23_deliver_count:
+            old_count = args.r20_plan_intent_count
+            args.r20_plan_intent_count = args.r23_deliver_count
+            deliver_pool = r20_plan_intent_rows(args, held_out, labels)
+            args.r20_plan_intent_count = old_count
+            deliver_templates = [row for row in deliver_pool
+                                 if row.get("family") == "missing_payload_drop"
+                                 and row.get("pair_role") == "positive"]
+            for index in range(args.r23_deliver_count):
+                row = dict(deliver_templates[index % len(deliver_templates)])
+                suffix = f"第{index + 1}批" if any("\u4e00" <= c <= "\u9fff" for c in row["task_text"]) else f"batch {index + 1}"
+                row["task_text"] = row["task_text"].rstrip("。.") + (f"，{suffix}。" if suffix.startswith("第") else f" ({suffix}).")
+                row["sample_id"] = f"plan-r23-deliver-{index:04d}"
+                row["prompt"] = plan_prompt(row["task_text"], refs=tuple(row["refs"]),
+                                              prompt_variant=args.prompt_variant,
+                                              capabilities=frozenset(row.get("capabilities", ())))
+                row.pop("_key", None)
+                row["family"] = "r23_deliver_faithful"
+                key = normalize_task(row["task_text"])
+                if key in held_out or key in seen:
+                    raise ValueError(f"r23 deliver template collision: {row['task_text']}")
+                seen.add(key)
+                r23_rows.append(row)
+        rows.extend(r23_rows)
+        args.rows += len(r23_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -1230,6 +1288,12 @@ def main(argv: list[str] | None = None) -> int:
         "first_skill_counts": {},
         "final_skill_counts": {},
     }
+    if args.r23_recipe:
+        manifest["r23_recipe"] = {
+            "v3_coverage_requested": args.r23_v3_count,
+            "deliver_requested": args.r23_deliver_count,
+            "rows_added": sum(1 for row in rows if row.get("family") in {"r23_v3_coverage", "r23_deliver_faithful"}),
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -1270,6 +1334,26 @@ def main(argv: list[str] | None = None) -> int:
         }
         for key, counter in counts.items():
             manifest[key][name] = {skill: counter[skill] for skill in sorted(SKILLS)}
+    if args.r23_recipe:
+        args.output.mkdir(parents=True, exist_ok=True)
+        family_counts = {name: Counter(row.get("family", "r14_replay") for row in part)
+                         for name, part in splits.items()}
+        language_counts = {name: Counter(
+            "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
+            for row in part) for name, part in splits.items()}
+        stats = ["# r23 planner dataset statistics", "",
+                 f"- Version: {args.version}; seed: {args.seed}",
+                 f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
+                 "", "| Split | zh | en |", "|---|---:|---:|"]
+        for name in ("train", "val"):
+            stats.append(f"| {name} | {language_counts[name]['zh']} | {language_counts[name]['en']} |")
+        stats += ["", "| Train family | Rows |", "|---|---:|"]
+        stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())]
+        stats += ["", "| Train skill | Steps |", "|---|---:|"]
+        stats += [f"| {skill} | {count} |" for skill, count in sorted(manifest["skill_counts"]["train"].items())]
+        stats += ["", f"Faithful r23 deliver rows: {family_counts['train']['r23_deliver_faithful']}.",
+                  "These targets retain the `deliver` action; capability rejection is performed by the validator.", ""]
+        (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:
         required = sorted(set(SKILLS) - {"deliver"}) if args.version in {"v2", "v4", "v5"} else []
