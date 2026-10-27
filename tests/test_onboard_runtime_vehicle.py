@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import queue
 import struct
@@ -365,7 +366,7 @@ def test_param_trace_records_send_and_acceptance(tmp_path, monkeypatch) -> None:
 
     connection.mav.param_request_read_send = reply_inside_send
     assert vehicle.read_parameter("COM_OF_LOSS_T", timeout_s=0.05, retries=1) == 1.0
-    records = [__import__("json").loads(line) for line in trace_path.read_text().splitlines()]
+    records = [json.loads(line) for line in trace_path.read_text().splitlines()]
     assert [row["kind"] for row in records] == ["PARAM_REQUEST_READ", "PARAM_VALUE"]
     assert records[0]["target_system"] == records[0]["target_component"] == 1
     assert records[1]["decision"] == "accepted"
