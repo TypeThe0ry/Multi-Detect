@@ -204,3 +204,17 @@ python scripts/run_r15_round.py --stage report --out artifacts/r21id-r2 --baseli
 
 验收条件：v3 distractor rejection ≥ 0.97；pickup/SUV 成对拒绝 ≥ 0.97；v1 不低于 r18；
 同时尽量保留小目标召回提升。任一条件失败则保留 r18。
+
+## r21id-r2 结果（2026-10-28）
+
+r21id-r2：r18 热启动，lr 2e-5，1 epoch；训练集 = 完整 r18 replay + 经 `--r21id-r2-filter` 过滤的 r21id additions + 228 条易混类别拒绝难例（`--confusable-negatives`）。报告 `artifacts/r21id-r2/r15-report.md`。
+
+| 指标 | r18（机载） | r21id | r21id-r2 |
+|---|---:|---:|---:|
+| v1 身份准确率 | 0.922 | 0.951 | 0.932 |
+| v1 干扰物拒绝 | 0.974 | 0.983 | 0.986 |
+| v3 身份准确率 | 0.893 | 0.785 | 0.867 |
+| v3 <12 px 召回 | 0.703 | 0.892 | 0.622 |
+| v3 干扰物拒绝 | 1.000 | 0.672 | 1.000 |
+
+结论：**不替换 r18**。易混难例与过滤修复了 r21id 的干扰物回退（v3 拒绝回到 1.0，v1 两项均优于 r18），但低学习率加 0.25 降权把小目标召回压到 r18 以下（-8.1 pp），v3 身份准确率 -2.6 pp。r21id 与 r21id-r2 分别站在“召回”和“拒绝”两端，说明新增数据的有效信号（小目标正例）与易混拒绝需要同时保留：下一轮应保留全部易混难例与过滤规则，但不再对 r21id 小目标真目标正例（`true_target`/`proposal_true`，<16 px）降权，学习率取 5e-5，并补采 pickup/SUV、person/postbox 真目标以形成严格配对（当前仅 3 对）。
