@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+DOUBLED_ARTICLE = re.compile(r"\b([Tt]he) the\b")
 
 from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
@@ -1387,10 +1388,15 @@ def main(argv: list[str] | None = None) -> int:
         # Keep legacy v4 output byte-identical; clean stacked connectives only
         # for rows emitted by the opt-in r23 recipe.
         def clean_r23_text(value):
-            return (str(value).replace("最后然后", "最后")
+            text = (str(value).replace("最后然后", "最后")
                     .replace("then then", "then")
                     .replace("and then then", "and then"))
+            # Place labels already carry their article ("the gate").
+            return DOUBLED_ARTICLE.sub(r"\1", text)
         for row in rows:
+            # Replay rows stay verbatim; only rows this recipe generated are cleaned.
+            if row.get("family") not in {"r23_v3_coverage", "r23_deliver_faithful"}:
+                continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
                 row["task_text"] = clean_r23_text(old)
