@@ -72,7 +72,9 @@ exit $status
 | corrupt | PASS | `action=return_home`，原因含“检查点缺失/损坏”，重启后命令数 `0`。 |
 | digest | PASS | `action=return_home`，原因含“任务包身份不匹配”，重启后命令数 `0`。 |
 | expired | PASS | `action=return_home`，原因含“过期”，重启后命令数 `0`。 |
-| rtl | FAIL（harness 时序） | PX4 telemetry 记录到 `mode=RTL, custom_mode=84148224, base_mode=157, armed=true`；恢复 onboard 随后因启动等待超时，未写出 `monitor_failsafe`。后续遥测为 `LOITER/disarmed`，说明等待恢复进程启动期间 PX4 已完成返航/落地。见 `final-run3/rtl/attempt-2/result.json`。产品未发送重复 arm/takeoff/RTL 命令。 |
+| rtl | PASS（`final-run5`，2026-10-27 23:27） | 恢复进程写出 `crash_resume.action=monitor_failsafe`，原因“PX4 失效保护已接管，onboard 只记录与监视”；重启前 PX4 遥测 `mode=RTL, custom_mode=84148224, armed=true`；重启后 arm/takeoff/RTL 命令数 `0`。此前 `final-run3`/`final-run4` 失败分别源于：恢复路径先等待地面就绪条件（已由 `_recovery_ready` 修复）；harness 在 onboard 重启后仍占用同一 telemetry `udpin` 端口观察 RTL 且成功路径不关闭连接，导致 onboard 收不到心跳（已改为先确认 RTL 并关闭连接，再重启 onboard）。见 `final-run5/rtl/attempt-1/result.json`。 |
+
+`final-run4` 同时用新恢复路径复跑 valid：PASS（`resume`，重启后命令数 `0`），确认 `_recovery_ready` 不影响正常恢复。五个场景均已在真实 PX4/Gazebo SITL 中通过。
 
 RTL 失败是测试编排的剩余问题，不是放宽安全准入的理由：runner 必须在发出 RTL 后立即让恢复进程读取 airborne 状态，并确保新进程能继续收到 telemetry；本轮已保留完整日志和参数 trace 供后续修复。
 

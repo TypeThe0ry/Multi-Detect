@@ -166,22 +166,26 @@ def wait_for_px4_rtl(endpoint: str) -> list[dict[str, Any]]:
     from multidetect.onboard_runtime.fw_vtol_commands import PX4_AUTO_RTL_CUSTOM_MODE
     connection = mavutil.mavlink_connection(endpoint, source_system=254, source_component=190,
                                              autoreconnect=False)
-    connection.wait_heartbeat(timeout=10)
-    deadline = time.monotonic() + 8
-    records = []
-    while time.monotonic() < deadline:
-        message = connection.recv_match(type="HEARTBEAT", blocking=True, timeout=0.5)
-        if message is not None:
-            records.append({"mode": mavutil.mode_string_v10(message),
-                            "custom_mode": int(getattr(message, "custom_mode", 0)),
-                            "base_mode": int(getattr(message, "base_mode", 0)),
-                            "armed": bool(message.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
-                            "time": time.time()})
-        if any("RTL" in row["mode"] or row["custom_mode"] == PX4_AUTO_RTL_CUSTOM_MODE
-               for row in records):
-            return records[-20:]
-    connection.close()
-    raise TimeoutError(f"PX4 did not enter RTL: {records[-5:]}")
+    # The telemetry port is the one onboard binds after restart, so this
+    # observer must release it on every path before onboard is relaunched.
+    try:
+        connection.wait_heartbeat(timeout=10)
+        deadline = time.monotonic() + 8
+        records = []
+        while time.monotonic() < deadline:
+            message = connection.recv_match(type="HEARTBEAT", blocking=True, timeout=0.5)
+            if message is not None:
+                records.append({"mode": mavutil.mode_string_v10(message),
+                                "custom_mode": int(getattr(message, "custom_mode", 0)),
+                                "base_mode": int(getattr(message, "base_mode", 0)),
+                                "armed": bool(message.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
+                                "time": time.time()})
+            if any("RTL" in row["mode"] or row["custom_mode"] == PX4_AUTO_RTL_CUSTOM_MODE
+                   for row in records):
+                return records[-20:]
+        raise TimeoutError(f"PX4 did not enter RTL: {records[-5:]}")
+    finally:
+        connection.close()
 
 
 def run_case(name: str, args) -> dict[str, Any]:
@@ -228,13 +232,12 @@ def run_case(name: str, args) -> dict[str, Any]:
             changed = dict(first_cp)
             changed["saved_at"] = time.time() - 3600
             checkpoint.write_text(json.dumps(changed), encoding="utf-8")
+        if name == "rtl":
+            # Confirm RTL on the telemetry port, release it, then relaunch onboard
+            # right away so PX4 is still airborne in RTL when recovery classifies it.
+            rtl_records = wait_for_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
-        if name == "rtl":
-            # Start recovery immediately after requesting RTL. Waiting for the
-            # vehicle to land first would erase the airborne failsafe state
-            # that recovery must classify as monitor-only.
-            rtl_records = wait_for_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
         wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)
         time.sleep(2)
         lines = process_log.read_text(encoding="utf-8", errors="replace").splitlines() if process_log.exists() else []
