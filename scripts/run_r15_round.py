@@ -312,14 +312,14 @@ def compare_metrics(r12: dict, r15: dict) -> tuple[bool, list[str]]:
     if r15.get("v3_under12_recall", -1) < r12.get("v3_under12_recall", 0) + 0.10:
         reasons.append("<12 px 真目标召回提升不足 10 个百分点")
     if r15.get("v3_distractor_rejection", -1) < r12.get("v3_distractor_rejection", 0) - 0.02:
-        reasons.append("v3 干扰物拒绝低于 r12 超过 2 个百分点")
+        reasons.append("v3 干扰物拒绝低于基线超过 2 个百分点")
     if r15.get("v1_identity_accuracy", -1) < r12.get("v1_identity_accuracy", 0) - 0.02:
         reasons.append("v1 整体下降超过预设 2 个百分点显著性容忍值")
     if (
         "v1_distractor_rejection" in r12
         and r15.get("v1_distractor_rejection", -1) < r12["v1_distractor_rejection"] - 0.02
     ):
-        reasons.append("v1 真实飞行集干扰物拒绝低于 r12 超过 2 个百分点")
+        reasons.append("v1 真实飞行集干扰物拒绝低于基线超过 2 个百分点")
     return not reasons, reasons
 
 
