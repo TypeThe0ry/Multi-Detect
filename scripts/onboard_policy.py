@@ -2670,6 +2670,16 @@ class OnboardPolicy:
 
     def act(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
         """Single return point: every policy primitive crosses the envelope."""
+        supervisor = getattr(self, "supervisor", None)
+        if supervisor is not None:
+            # Preserve the PX4 boot clock in every checkpoint emitted by the
+            # supervisor.  Observation fields are sourced from MAVLink state.
+            flight_state = observation.get("flight_state")
+            boot_time_ms = observation.get("time_boot_ms")
+            if boot_time_ms is None and isinstance(flight_state, dict):
+                boot_time_ms = flight_state.get("time_boot_ms")
+            if isinstance(boot_time_ms, (int, float)) and not isinstance(boot_time_ms, bool):
+                supervisor.boot_time_ms = boot_time_ms
         if getattr(self, "operator_link_waiting", False):
             return ActionPrimitive.hold(1.0), {
                 "onboard": {"state": "operator_link_waiting", "mission": "operator_link"}

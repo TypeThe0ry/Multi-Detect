@@ -20,4 +20,22 @@
 
 ## SITL 验证
 
-先启动已准入的 PX4 SITL 任务并确认 `mission_log` 与检查点路径。飞行进入第二个步骤后，记录 onboard 进程 PID，仅结束该 PID（例如 Linux `kill -TERM <pid>`，不要按进程名批量结束）。等待 systemd 拉起同一服务，确认日志出现 `crash_resume`，步骤、计数和告警位置延续，且 MAVLink 日志中没有新的 arm/takeoff；随后检查点损坏、替换为不同摘要和设置旧 `saved_at`，应分别记录中文原因并 RTL（无 RTL 时按机型策略降落）。本仓库只提供离线 harness，未实际启动 SITL。
+真实验证编排脚本为 `scripts/run_crash_resume_sitl.py`。Windows 主机不使用 systemd：脚本为每个场景创建一个 `md-crash-resume-<场景>` PX4/Gazebo 容器，记录自己 `Popen` 返回的 onboard PID，等待 checkpoint 序号达到门槛且收到 armed 心跳后只终止该 PID，再用完全相同参数拉起 `scripts/onboard_main.py real`。脚本只读取自己架次的 `mission_log/mission.jsonl`、checkpoint 和 MAVLink `HEARTBEAT`/`COMMAND_ACK`，结束时只 `docker rm -f` 自己记录的容器名。
+
+在 Git Bash 中运行（共享锁必须包住每个架次，不能并发）：
+
+```bash
+. /d/Projects/mdwt/_scratch/sitl_lock.sh
+sitl_acquire cxcrash
+python scripts/run_crash_resume_sitl.py \
+  --mission-package <signed-package.json> --operator-key <operator-key> \
+  --camera <gstreamer-pipeline-or-index> --camera-backend gstreamer \
+  --calibration <camera-calibration.json> --cases valid corrupt digest expired rtl
+status=$?
+sitl_release
+exit $status
+```
+
+结果目录固定为 `artifacts/evaluation/crash-resume-sitl-20261027/`，汇总为 `summary.json`，每个场景另有 `result.json` 和原始 onboard/PX4 证据。判据是：`valid` 必须 `crash_resume.action=resume` 且 step、counts、alerts 延续，重启后的 arm/takeoff 命令数为零；`corrupt`、`digest`、`expired` 必须分别出现中文拒绝原因并 `return_home`/降落，命令数为零；`rtl` 必须 `monitor_failsafe` 且不发送重复 RTL。
+
+截至 2026-10-27，本次真实架次未能开始：共享锁 owner 为 `r21idb`（锁脚本等待确认命令在 5 秒后超时，退出码 124）。因此没有生成任何伪造的 pass 记录，也没有启动或清理非本任务容器；待锁释放后执行上面的命令即可得到五个独立架次的实际表格。离线验证已通过 `pytest -q tests/test_crash_resume.py`（4 passed）。

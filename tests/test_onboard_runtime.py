@@ -116,8 +116,11 @@ def test_observation_for_preserves_landed_state() -> None:
         landed=True,
         armed=False,
         mode="LAND",
+        time_boot_ms=1234,
     )
-    assert observation_for(frame, state)["landed"] is True
+    observation = observation_for(frame, state)
+    assert observation["landed"] is True
+    assert observation["time_boot_ms"] == 1234
 
 
 class SlowPolicy:

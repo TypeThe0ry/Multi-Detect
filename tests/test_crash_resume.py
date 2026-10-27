@@ -42,3 +42,22 @@ def test_failsafe_mode_and_boot_restart_are_fail_closed():
     assert decide_recovery(landed=False, armed=True, nav_state="OFFBOARD", boot_time_ms=400, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "return_home"
     assert decide_recovery(landed=False, armed=True, nav_state="RTL", boot_time_ms=600, resume_after_failsafe=True, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "resume"
     assert decide_recovery(landed=False, armed=True, nav_state=None, boot_time_ms=600, checkpoint=checkpoint, mission_id="m", package_digest="d").action == "monitor_failsafe"
+
+
+def test_failsafe_mode_does_not_reissue_rtl_with_invalid_checkpoint():
+    assert decide_recovery(
+        landed=False,
+        armed=True,
+        nav_state="RTL",
+        checkpoint=None,
+        mission_id="m",
+        package_digest="d",
+    ).action == "monitor_failsafe"
+    assert decide_recovery(
+        landed=False,
+        armed=True,
+        nav_state="LAND",
+        checkpoint={"broken": True},
+        mission_id="m",
+        package_digest="d",
+    ).action == "monitor_failsafe"

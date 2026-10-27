@@ -64,6 +64,12 @@ def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
     if not airborne and landed is True and armed is False:
         return RecoveryDecision("new_mission", "飞机在地面，按正常新任务流程启动")
     if airborne:
+        mode = nav_state.upper() if isinstance(nav_state, str) else None
+        # PX4 has already taken over these modes.  This is an unconditional
+        # observe-only boundary: an absent or invalid checkpoint must not make
+        # onboard send a second RTL/LAND command.
+        if mode in {"RTL", "LAND", "AUTO_RTL", "AUTO_LAND", "FAILSAFE"} and not resume_after_failsafe:
+            return RecoveryDecision("monitor_failsafe", "PX4 失效保护已接管，onboard 只记录与监视", dict(checkpoint) if isinstance(checkpoint, Mapping) else None)
         if checkpoint is not None:
             ok, reason = _valid_checkpoint(checkpoint, now=now, max_age_s=max_age_s,
                                            mission_id=mission_id, package_digest=package_digest)
@@ -71,7 +77,6 @@ def decide_recovery(*, landed: bool | None = None, armed: bool | None = None,
                 return RecoveryDecision("monitor_failsafe", "PX4 boot time 未知，onboard 不接管，仅记录与监视", dict(checkpoint))
             if ok and boot_time_ms is not None and checkpoint.get("boot_time_ms") is not None and float(boot_time_ms) < float(checkpoint["boot_time_ms"]):
                 ok, reason = False, "PX4 已重启，boot time 不匹配"
-            mode = nav_state.upper() if isinstance(nav_state, str) else None
             if ok and (mode is None or mode.startswith("PX4(")):
                 return RecoveryDecision("monitor_failsafe", "飞行模式未知，onboard 不接管，仅记录与监视", dict(checkpoint))
             if ok and mode in {"RTL", "LAND", "AUTO_RTL", "AUTO_LAND", "FAILSAFE"} and not resume_after_failsafe:
