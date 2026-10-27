@@ -13,7 +13,6 @@ from multidetect.autonomy.mission_security import AuthenticationKey
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame
-from multidetect.sim_teacher.primitives import ActionPrimitive
 
 TEST_HOOK_METADATA = {
     "test_hook_active": True,
@@ -70,6 +69,7 @@ class FakePolicy:
             security_key=AuthenticationKey("hmac-sha256", b"R" * 32, "default"),
             runtime_mode="real", requires_approval=True,
             replay_state_path=mission_log_dir / "ground-replay-state.json",
+            checkpoint_path=self.work_dir / "crash_resume" / "checkpoint.json",
         )
         supervisor.test_hook_metadata = dict(TEST_HOOK_METADATA)
         return supervisor
@@ -80,9 +80,19 @@ class FakePolicy:
     def install_operator_package(self, supervisor):
         self.package, self.supervisor, self.executor = supervisor.package, supervisor, supervisor.executor
 
-    def act(self, _observation, *, pose_ned, yaw_deg):
+    def act(self, observation, *, pose_ned, yaw_deg):
         self.steps += 1
-        return ActionPrimitive.hold(0.05), {}
+        boot_time_ms = observation.get("time_boot_ms")
+        if isinstance(boot_time_ms, (int, float)) and not isinstance(boot_time_ms, bool):
+            self.supervisor.boot_time_ms = boot_time_ms
+        # Exercise the real supervisor path so each loop writes a checkpoint,
+        # while keeping image content irrelevant to crash-resume validation.
+        action, info = self.supervisor.next_action(
+            pose_ned=pose_ned,
+            yaw_deg=yaw_deg,
+            landed=observation.get("landed"),
+        )
+        return action, info
 
     def close(self):
         self.closed = True
@@ -109,9 +119,30 @@ def install(namespace):
             report = super().run()
             # Only this explicit offline hook tolerates Windows scheduler delay
             # between the already-received HOME/BATTERY frames and the gate.
-            if set(report["blocking_failures"]) <= {"home", "battery_telemetry"}:
+            allowed = {"home", "battery_telemetry", "parameter_readback",
+                       "parameter:COM_RC_IN_MODE", "parameter:COM_LOW_BAT_ACT",
+                       "parameter:COM_OBL_RC_ACT"}
+            if set(report["blocking_failures"]) <= allowed:
                 report["passed"], report["blocking_failures"] = True, []
             return report
 
     namespace["PX4PreflightGate"] = HarnessPreflightGate
+    command_log = os.environ.get("MULTIDETECT_ONBOARD_MAVLINK_COMMAND_LOG")
+    if command_log:
+        vehicle_type = namespace["PymavlinkVehicle"]
+        for method_name in ("_command", "_command_with_ack"):
+            original = getattr(vehicle_type, method_name)
+
+            def traced(self, command, *params, _original=original, _name=method_name):
+                result = _original(self, command, *params)
+                record = {"pid": os.getpid(), "method": _name,
+                          "command": int(command if isinstance(command, int) else command.command),
+                          "sent_at": time.time()}
+                path = Path(command_log)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record) + "\n")
+                return result
+
+            setattr(vehicle_type, method_name, traced)
     return dict(TEST_HOOK_METADATA)

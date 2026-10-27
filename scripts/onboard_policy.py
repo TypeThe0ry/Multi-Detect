@@ -1474,6 +1474,7 @@ class OnboardPolicy:
                         self.mission_package.document["budget"], options.get("energy_model")
                     ),
                     runtime_mode=effective_runtime_mode,
+                    checkpoint_path=self.work_dir / "crash_resume" / "checkpoint.json",
                 )
                 if self._model_split:
                     self.downlink.log.append(

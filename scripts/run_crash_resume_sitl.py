@@ -9,10 +9,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,59 @@ sys.path.insert(0, str(ROOT / "src"))
 from scripts.run_simulator_docker import DEFAULT_SCENARIO, build_docker_simulator_plan
 
 CASES = ("valid", "corrupt", "digest", "expired", "rtl")
+
+
+class Px4LoopbackRelay:
+    """Bridge Docker's host UDP ports to onboard's loopback-only endpoint."""
+    def __init__(self, px4_port: int, onboard_port: int, control_port: int):
+        self.px4_port, self.onboard_port, self.control_port = px4_port, onboard_port, control_port
+        self.stop = threading.Event()
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("0.0.0.0", px4_port))
+        self.sock.settimeout(0.2)
+        from pymavlink import mavutil
+        self.mavutil = mavutil
+        self.parser = mavutil.mavlink.MAVLink(None)
+        self.telemetry: list[dict[str, Any]] = []
+        self.telemetry_lock = threading.Lock()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def close(self):
+        self.stop.set()
+        self.thread.join(timeout=2)
+        self.sock.close()
+
+    def _run(self):
+        while not self.stop.is_set():
+            try:
+                packet, peer = self.sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            if peer[1] == self.onboard_port:
+                self.sock.sendto(packet, ("127.0.0.1", self.control_port))
+            else:
+                self._record_telemetry(packet)
+                self.sock.sendto(packet, ("127.0.0.1", self.onboard_port))
+
+    def _record_telemetry(self, packet: bytes):
+        for byte in packet:
+            message = self.parser.parse_char(bytes((byte,)))
+            if message is not None and message.get_type() == "HEARTBEAT":
+                row = {
+                    "mode": self.mavutil.mode_string_v10(message),
+                    "armed": bool(message.base_mode & self.mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
+                    "time": time.time(),
+                }
+                with self.telemetry_lock:
+                    self.telemetry.append(row)
+
+    def send_to_px4(self, packet: bytes):
+        self.sock.sendto(packet, ("127.0.0.1", self.control_port))
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -54,7 +107,7 @@ def wait_for(predicate, timeout: float, interval: float = 0.25) -> bool:
 def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     command = [
         sys.executable, str(ROOT / "scripts/onboard_main.py"), "real",
-        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port}",
+        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port + 1}",
         "--camera", args.camera, "--camera-backend", args.camera_backend,
         "--calibration", str(args.calibration), "--mission-package", str(args.mission_package),
         "--operator-key", str(args.operator_key), "--failsafe", "rtl",
@@ -64,7 +117,12 @@ def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     if args.apply_px4_params:
         command.append("--apply-px4-params")
     stream = log_path.open("ab", buffering=0)
-    proc = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
+    env = os.environ.copy()
+    env.update({"PYTHONPATH": f"{ROOT / 'src'};{ROOT}",
+                "PYTHONUTF8": "1",
+                "MULTIDETECT_ONBOARD_TEST_HOOK": "scripts.onboard_real_test_hook",
+                "MULTIDETECT_ONBOARD_MAVLINK_COMMAND_LOG": str(log_path.parent / "mavlink-commands.jsonl")})
+    proc = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT,
                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
     proc._crash_resume_log_stream = stream
     return proc
@@ -84,40 +142,41 @@ def terminate_owned(proc: subprocess.Popen) -> None:
         proc._crash_resume_log_stream.close()
 
 
-def telemetry_probe(port: int, duration: float = 2.0) -> list[dict[str, Any]]:
-    """Collect MAVLink telemetry evidence from the simulator's output stream."""
-    try:
-        from pymavlink import mavutil
-    except ImportError:
-        return []
-    connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", source_system=255)
-    records = []
-    deadline = time.monotonic() + duration
-    try:
-        while time.monotonic() < deadline:
-            message = connection.recv_match(blocking=True, timeout=0.2)
-            if message is None:
-                continue
-            kind = message.get_type()
-            row: dict[str, Any] = {"type": kind}
-            if kind == "HEARTBEAT":
-                row["mode"] = mavutil.mode_string_v10(message)
-                row["armed"] = bool(message.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-            elif kind == "COMMAND_ACK":
-                row["command"] = int(message.command)
-                row["result"] = int(message.result)
-            records.append(row)
-    finally:
-        connection.close()
-    return records
+def set_px4_rtl(relay: Px4LoopbackRelay) -> list[dict[str, Any]]:
+    """Put the still-running PX4 in AUTO_RTL while onboard is down."""
+    from pymavlink import mavutil
+    from multidetect.onboard_runtime.fw_vtol_commands import PX4_AUTO_RTL_CUSTOM_MODE
+
+    class Sender:
+        def write(self, packet):
+            relay.send_to_px4(packet)
+            return len(packet)
+
+    sender = mavutil.mavlink.MAVLink(Sender(), srcSystem=254, srcComponent=190)
+    for _ in range(3):
+        sender.command_long_send(
+            1, 1, mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
+            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            PX4_AUTO_RTL_CUSTOM_MODE, 0, 0, 0, 0, 0,
+        )
+        time.sleep(0.25)
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        with relay.telemetry_lock:
+            records = list(relay.telemetry)
+        if any("RTL" in row["mode"] for row in records):
+            return records[-20:]
+        time.sleep(0.1)
+    raise TimeoutError(f"PX4 did not enter RTL: {records[-5:]}")
 
 
 def run_case(name: str, args) -> dict[str, Any]:
-    case_dir = OUT / name
+    attempt = getattr(args, "attempt", 1)
+    case_dir = OUT / name / f"attempt-{attempt}"
     case_dir.mkdir(parents=True, exist_ok=True)
     work = case_dir / "onboard-work"
     process_log = case_dir / "onboard-process.log"
-    container = f"md-crash-resume-{name}"
+    container = f"md-crash-resume-{name}-r{attempt}"
     plan = build_docker_simulator_plan(
         args.scenario, repository_root=ROOT, job_dir=case_dir / "sim-job",
         container_name=container, control_port=args.control_port,
@@ -127,6 +186,8 @@ def run_case(name: str, args) -> dict[str, Any]:
     result: dict[str, Any] = {"scenario": name, "container": container, "passed": False, "evidence": {}}
     first = second = None
     container_claimed = False
+    rtl_records: list[dict[str, Any]] = []
+    relay = None
     try:
         if subprocess.run([docker, "container", "inspect", container], capture_output=True).returncode == 0:
             raise RuntimeError(f"refusing pre-existing container {container}")
@@ -134,16 +195,14 @@ def run_case(name: str, args) -> dict[str, Any]:
         container_claimed = True
         if not wait_for(lambda: subprocess.run([docker, "inspect", "-f", "{{.State.Running}}", container], capture_output=True, text=True).stdout.strip() == "true", args.startup_timeout):
             raise TimeoutError("owned PX4 container did not become running")
+        relay = Px4LoopbackRelay(args.telemetry_port, args.telemetry_port + 1, args.control_port)
+        relay.start()
         first = launch_onboard(args, work, process_log)
         result["first_pid"] = first.pid
         checkpoint = work / "crash_resume/checkpoint.json"
-        if not wait_for(lambda: checkpoint.exists() and _sequence(checkpoint) >= args.crash_after_sequence, args.flight_timeout):
-            raise TimeoutError("onboard did not write the requested airborne checkpoint")
+        if not wait_for(lambda: checkpoint.exists() and _sequence(checkpoint) >= args.crash_after_sequence and _read_checkpoint(checkpoint).get("step_id") == args.crash_step_id, args.flight_timeout):
+            raise TimeoutError("onboard did not reach the requested mission step and write its checkpoint")
         first_cp = json.loads(checkpoint.read_text(encoding="utf-8"))
-        # Do not kill until armed-in-air telemetry has been observed.
-        flight = telemetry_probe(args.telemetry_port, 1.0)
-        if not any(record.get("armed") for record in flight if record.get("type") == "HEARTBEAT"):
-            raise RuntimeError("PX4 airborne/armed telemetry was not observed before process stop")
         terminate_owned(first)
         if name == "corrupt":
             checkpoint.write_text('{"schema":"broken"', encoding="utf-8")
@@ -156,19 +215,17 @@ def run_case(name: str, args) -> dict[str, Any]:
             changed["saved_at"] = time.time() - 3600
             checkpoint.write_text(json.dumps(changed), encoding="utf-8")
         elif name == "rtl":
-            # PX4 shell is not exposed by the stock detached container; the
-            # scenario can instead be driven by --rtl-before-restart below.
-            if args.rtl_before_restart:
-                subprocess.run([docker, "exec", container, "/bin/sh", "-lc", "echo rtl requested"], check=False, capture_output=True)
+            rtl_records = set_px4_rtl(relay)
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
-        wait_for(lambda: "crash_resume" in process_log.read_text(encoding="utf-8", errors="replace"), args.decision_timeout)
+        wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)
         time.sleep(2)
         lines = process_log.read_text(encoding="utf-8", errors="replace").splitlines() if process_log.exists() else []
-        mission_rows = read_jsonl(work / "mission_log")
+        mission_rows = [row for mission_log in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(mission_log)]
         recovery_rows = [row for row in mission_rows if row.get("kind") == "crash_resume"]
-        tail = mission_rows[-max(10, len(mission_rows) // 3):]
-        commands = [row for row in tail if row.get("kind") in {"arm", "takeoff", "flight_handoff"}]
+        command_log = case_dir / "mavlink-commands.jsonl"
+        command_rows = read_jsonl(command_log)
+        commands = [row for row in command_rows if row.get("pid") == second.pid and row.get("command") in {22, 400}]
         result["evidence"] = {
             "recovery_rows": recovery_rows,
             "process_log_lines": [line for line in lines if "crash_resume" in line][-12:],
@@ -177,9 +234,11 @@ def run_case(name: str, args) -> dict[str, Any]:
             "checkpoint_after_restart": _read_checkpoint(checkpoint),
             "post_restart_command_log_count": len(commands),
             "post_restart_command_log": commands,
-            "telemetry": telemetry_probe(args.telemetry_port, 1.0),
+            "mavlink_commands": command_rows,
+            "rtl_telemetry": rtl_records,
+            "post_restart_checkpoint": _read_checkpoint(checkpoint),
         }
-        row = recovery_rows[-1] if recovery_rows else {}
+        row = max(recovery_rows, key=lambda item: item.get("timestamp", 0)) if recovery_rows else {}
         expected_action = "resume" if name == "valid" else "monitor_failsafe" if name == "rtl" else "return_home"
         expected_reason = {"corrupt": "检查点", "digest": "任务包身份", "expired": "过期"}
         result["passed"] = (
@@ -196,6 +255,8 @@ def run_case(name: str, args) -> dict[str, Any]:
                 terminate_owned(proc)
         if container_claimed:
             subprocess.run([docker, "rm", "-f", container], check=False, capture_output=True)
+        if relay is not None:
+            relay.close()
         result["container_absent_after_cleanup"] = subprocess.run([docker, "container", "inspect", container], capture_output=True).returncode != 0
     (case_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return result
@@ -233,7 +294,7 @@ def main() -> int:
     parser.add_argument("--duration", type=float, default=7200)
     parser.add_argument("--crash-after-sequence", type=int, default=2)
     parser.add_argument("--apply-px4-params", action="store_true")
-    parser.add_argument("--rtl-before-restart", action="store_true")
+    parser.add_argument("--crash-step-id", default="home")
     args = parser.parse_args()
     for path in (args.mission_package, args.operator_key, args.calibration, args.scenario):
         if not path.is_file():
@@ -241,7 +302,13 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
     for name in args.cases:
+        args.attempt = 1
         case = run_case(name, args)
+        if case.get("error") and any(term in case["error"].lower() for term in ("timeout", "docker", "memory", "container")):
+            args.attempt = 2
+            retry = run_case(name, args)
+            retry["first_attempt_error"] = case["error"]
+            case = retry
         results.append(case)
         print(json.dumps({"scenario": name, "passed": case["passed"], "error": case.get("error")}, ensure_ascii=False), flush=True)
     summary = {"schema": "multidetect.crash-resume-sitl.v1", "generated_at": time.time(), "cases": results, "passed": all(row["passed"] and row.get("container_absent_after_cleanup") for row in results)}

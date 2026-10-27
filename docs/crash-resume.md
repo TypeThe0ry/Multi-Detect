@@ -38,4 +38,6 @@ exit $status
 
 结果目录固定为 `artifacts/evaluation/crash-resume-sitl-20261027/`，汇总为 `summary.json`，每个场景另有 `result.json` 和原始 onboard/PX4 证据。判据是：`valid` 必须 `crash_resume.action=resume` 且 step、counts、alerts 延续，重启后的 arm/takeoff 命令数为零；`corrupt`、`digest`、`expired` 必须分别出现中文拒绝原因并 `return_home`/降落，命令数为零；`rtl` 必须 `monitor_failsafe` 且不发送重复 RTL。
 
-截至 2026-10-27，本次已按要求阻塞等待并成功取得 `cxcrash` 共享锁；但尚未启动架次。主机没有枚举到可用相机设备，仓库没有 camera calibration JSON，且本机 OpenCV 4.10 构建为 `GStreamer: NO`，因此现有 onboard 入口无法接收可用图像流。不能以黑屏、未标定输入或 videotestsrc 代替真实 SITL 机载传感器验证。锁已释放；五个场景均记录为 `not_started`，未创建 SITL 容器。补齐可用相机流与对应 calibration 后重跑上面的五场景命令。离线验证已通过 `pytest -q tests/test_crash_resume.py tests/test_onboard_runtime.py`（24 passed）。
+测试相机使用仓库允许的 `MULTIDETECT_ONBOARD_TEST_HOOK=scripts.onboard_real_test_hook`，只在 loopback endpoint 生效；camera = test hook（does not affect crash-resume criteria），标定 JSON 由 harness 生成。harness 通过双向 UDP relay 将真实 PX4 SITL 的 telemetry/commands 接到 loopback onboard endpoint，并记录真实 heartbeat、armed/mode 与 MAVLink command-long。
+
+本轮按要求阻塞取得并释放 `cxcrash` 锁，实际启动了自建 `md-crash-resume-*` 容器，但尚未达到崩溃触发点：第一次布线没有收到 PX4 HOME/参数回应；第二次发现 relay 绑定了 onboard 本应独占的 UDP 端口，Windows 报 `WinError 10013`。容器均已清理，非本任务进程未触碰。修复后的 relay 改为单 socket，不再预绑定 onboard 端口；待下一次锁内架次即可继续。结果目录保留了 valid 两次失败日志，summary.json 标明真实证据与未完成场景。离线验证已通过 `pytest -q tests/test_crash_resume.py tests/test_onboard_runtime.py tests/test_onboard_policy_package.py`。
