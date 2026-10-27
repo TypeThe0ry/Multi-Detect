@@ -303,3 +303,12 @@ def test_r23_recipe_adds_v3_coverage_and_faithful_deliver_rows(workspace):
     assert all(row["assistant_target"]["steps"][0]["skill"] == "deliver" for row in deliver)
     assert manifest["r23_recipe"]["rows_added"] == 15
     assert (out / "r23-data-stats.md").is_file()
+    coverage = [row for row in train if row.get("family") == "r23_v3_coverage"]
+    assert Counter(row["r23_sequence"] for row in coverage) == Counter({
+        "goto_hover_return": 2, "record_hover_land": 2, "patrol_goto_return": 2,
+        "monitor_monitor_return": 2, "survey_survey_land": 1, "current_view_record": 1,
+    })
+    assert not any(re.search(r"最后然后|then then|and then then", row["task_text"], re.I)
+                   for row in train)
+    assert not any("batch " in row["task_text"].lower() or "批" in row["task_text"]
+                   for row in deliver)

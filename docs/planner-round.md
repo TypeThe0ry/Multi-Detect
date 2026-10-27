@@ -193,7 +193,7 @@ prompt 能力上下文的缺失需要后续训练/评测数据保持一致；本
 
 r22 数据的集中原因是配方稀释与分布偏移：训练集 4,540 行中有 1,500 条 r14 replay（33.0%）、2,000 条 v4 backbone（44.1%）以及 1,040 条 r20 能力/意图行（22.9%）。r20 能力行的终步主要是 `return_home`/`land`，`missing_payload_drop` 的 160 行虽包含 deliver 负例对，但不是面向 planning-v3 的自然任务覆盖；v4 与 replay 的 goal 中位长度分别为 57 与 56，而能力行多为长度 7 的拒绝目标。r22 train 的中英文比例约 50/50，故语言比例不是主因；主因是多步骤 v3 风格样本相对总量不足，且 `record`/`hover`/连续 monitor/survey 的参数与终步组合被能力拒绝模板稀释。
 
-r23 在 `scripts/build_plan_sft.py` 增加显式 `--r23-recipe`（默认关闭，v4 默认输出字节不变）：保留 1,500 条 r14 replay 和原 v4/r20 行，附加 600 条 `r23_v3_coverage`（中英约 308/292，覆盖多步骤 goto/hover/record/monitor/patrol/survey）以及 80 条带真实 `deliver` 步骤的 `r23_deliver_faithful`，由 validator 按 payload 能力拒绝。生成结果为 train 5,220、val 100；train family 计数写入 `r23-data-stats.md`，`deliver` 步骤 164 条（其中新增忠实正例 80 条）。与 planning-v3/v4 评测题规范化碰撞均为 0。推荐 r14 adapter 热启动、1 epoch、lr `2.5e-5`；编排器 `run_planner_round.py` 在 `--r23-recipe` 下自动采用该 lr，也可显式覆盖。
+r23 在 `scripts/build_plan_sft.py` 增加显式 `--r23-recipe`（默认关闭，v4 默认输出字节不变）：保留 1,500 条 r14 replay 和原 v4/r20 行，附加 600 条 `r23_v3_coverage`，六个回归序列各 100 条：`goto -> hover -> return_home`、`record -> hover -> land`、`patrol -> goto -> return_home`、`monitor -> monitor -> return_home`、`survey -> survey -> land`、当前视野 `record -> return_home`。coverage 中英文为 307/293；另有 80 条自然语言多样化的 `r23_deliver_faithful`，其中 `deliver -> return_home` 60 条、`deliver -> land` 20 条，由 validator 按 payload 能力拒绝或放行。生成结果为 train 5,220、val 100；train family 计数和步骤序列表写入 `r23-data-stats.md`，`deliver` 步骤 240 条（其中新增忠实正例 80 条）。r23 专用输出还清理 replay/backbone 中的 `then then` 与 `最后然后`，默认 v4 路径不受影响。与 planning-v3/v4 评测题规范化碰撞均为 0。推荐 r14 adapter 热启动、1 epoch、lr `2.5e-5`；编排器 `run_planner_round.py` 在 `--r23-recipe` 下自动采用该 lr，也可显式覆盖。
 
 仅生成数据：
 

@@ -485,6 +485,114 @@ def mission_v3(rng: random.Random) -> tuple[str, str, list[dict], list[str]]:
     return zh, en, steps, ["findings", "evidence"]
 
 
+R23_SEQUENCE_QUOTAS = (
+    "goto_hover_return", "record_hover_land", "patrol_goto_return",
+    "monitor_monitor_return", "survey_survey_land", "current_view_record",
+)
+
+
+def r23_target_case(rng: random.Random, sequence: str):
+    """Natural v3 regression coverage with an explicit target sequence."""
+    q, qz = rng.choice(OBJECTS)
+    first, firstz, firste = rng.choice(POIS)
+    second, secondz, seconde = rng.choice(POIS)
+    zone, zonez, zonee = rng.choice(ZONES)
+    zone2, zone2z, zone2e = rng.choice(ZONES)
+    route, routez, routee = rng.choice(ROUTES)
+    sec = rng.choice([15, 30, 45, 60, 90])
+    use_zh = rng.random() < 0.5
+    if sequence == "goto_hover_return":
+        plan = [S("s1", "goto", {"target_ref": first}, "s2", "s2"),
+                S("s2", "hover", {"region": zone, "duration_s": sec}, "s3", "s3"), H("s3")]
+        zh = rng.choice([f"先到{firstz}，在{zonez}上空悬停{sec}秒，然后返航",
+                         f"飞往{firstz}后稳住{sec}秒，再回到起飞点",
+                         f"去{firstz}等{sec}秒，完成后回家"])
+        en = rng.choice([f"Go to {firste}, hold over the {zonee} for {sec} seconds, then return home.",
+                         f"Fly to {firste}, hover for {sec} seconds, and come back to base.",
+                         f"Reposition to {firste}, wait there for {sec} seconds, then return."])
+    elif sequence == "record_hover_land":
+        plan = [S("s1", "record", {"query": q}, "s2", "s2"),
+                S("s2", "hover", {"duration_s": sec}, "s3", "s3"),
+                L("s3")]
+        zh = rng.choice([f"把当前看到的{qz}拍照留档，悬停{sec}秒后降落",
+                         f"拍下{qz}作为证据，等{sec}秒，然后落地",
+                         f"记录这只{qz}的照片，保持{sec}秒再降落"])
+        en = rng.choice([f"Photograph the {q} in view, hover for {sec} seconds, then land.",
+                         f"Take a still of the {q}, wait {sec} seconds, and set down.",
+                         f"Record the {q} on camera, hold position for {sec} seconds, then land."])
+    elif sequence == "patrol_goto_return":
+        loops = rng.choice([2, 3, 4, 5])
+        plan = [S("s1", "patrol", {"route_ref": route, "query": q, "loops": loops}, "s2", "s2"),
+                S("s2", "goto", {"target_ref": second}, "s3", "s3"), H("s3")]
+        zh = rng.choice([f"沿{routez}巡逻{loops}圈观察{qz}，结束后去{secondz}，再返航",
+                         f"巡查{routez}{loops}趟，随后飞到{secondz}，最后回家",
+                         f"先巡视{routez}{loops}圈，再转到{secondz}并回到起飞点"])
+        en = rng.choice([f"Patrol {routee} for {loops} loops watching for {q}s, then go to {seconde} and return home.",
+                         f"Run {loops} circuits of {routee}, reposition to {seconde}, and come back.",
+                         f"Inspect {routee} {loops} times, then fly to {seconde} before returning."])
+    elif sequence == "monitor_monitor_return":
+        sec2 = rng.choice([120, 180, 240, 300])
+        plan = [S("s1", "monitor", {"region": zone, "query": q, "duration_s": sec}, "s2", "s2"),
+                S("s2", "monitor", {"region": zone2, "query": rng.choice(OBJECTS)[0], "duration_s": sec2}, "s3", "s3"), H("s3")]
+        q2 = plan[1]["params"]["query"]
+        q2z = next(z for e, z in OBJECTS if e == q2)
+        zh = rng.choice([f"在{zonez}观察{qz}{sec}秒，再到{zone2z}观察{q2z}{sec2}秒，最后返航",
+                         f"先盯着{zonez}里的{qz}，然后监看{zone2z}的{q2z}，完成后回家",
+                         f"监视{zonez}{sec}秒，再监视{zone2z}{sec2}秒，带着{q2z}记录返航"])
+        en = rng.choice([f"Monitor the {zonee} for {q}s for {sec} seconds, then monitor {zone2e} for {q2}s for {sec2} seconds and return home.",
+                         f"Watch {zonee} for {sec} seconds, then observe {zone2e} for {sec2} seconds before coming back.",
+                         f"Monitor {zonee} and then {zone2e} for the requested durations, then return."])
+    elif sequence == "survey_survey_land":
+        overlap = rng.choice([0.6, 0.7, 0.8, 0.85])
+        plan = [S("s1", "survey", {"region": zone, "overlap": overlap}, "s2", "s2"),
+                S("s2", "survey", {"region": zone2, "overlap": overlap}, "s3", "s3"), L("s3")]
+        pct = int(overlap * 100)
+        zh = rng.choice([f"先测绘{zonez}，再测{zone2z}，两处影像重叠{pct}%，完成后降落",
+                         f"给{zonez}和{zone2z}各做一次航测，保持{pct}%重叠，最后落地",
+                         f"连续测量{zonez}、{zone2z}，相邻照片重叠{pct}%，结束降落"])
+        en = rng.choice([f"Survey the {zonee} and then the {zone2e} with {pct}% overlap, then land.",
+                         f"Map {zonee} followed by {zone2e}, keeping {pct}% image overlap before setting down.",
+                         f"Collect mapping imagery over {zonee} and {zone2e} at {pct}% overlap, then land."])
+    else:
+        plan = [S("s1", "record", {"query": q}, "s2", "s2"), H("s2")]
+        zh = rng.choice([f"把当前视野里的{qz}拍照存档，然后返航",
+                         f"不用搜索，直接记录眼前的{qz}并回到起飞点",
+                         f"拍下已经看到的{qz}，保存证据后回家"])
+        en = rng.choice([f"Photograph the {q} already in view, then return home; no search is needed.",
+                         f"Save a still of the {q} currently visible and come back without searching.",
+                         f"Record the {q} in the current view, then return to launch."])
+    return (zh if use_zh else en), plan, ["coverage", "positions"]
+
+
+def r23_deliver_case(rng: random.Random, index: int):
+    ref, zh, en = rng.choice(POIS)
+    payload = rng.choice([("包裹", "parcel"), ("药品箱", "medical case"), ("工具箱", "tool case"), ("样品盒", "sample box")])
+    return_home = rng.random() < 0.75
+    use_zh = rng.random() < 0.5
+    if use_zh:
+        choices = ([f"把{payload[0]}投放到{zh}，然后返航。",
+                    f"携带{payload[0]}送到{zh}，交付后回到起飞点。",
+                    f"将{payload[0]}空投至{zh}，完成后返航。"] if return_home else
+                   [f"把{payload[0]}投放到{zh}，然后在当地降落。",
+                    f"携带{payload[0]}送到{zh}并完成交付，不必返航，随后降落。",
+                    f"将{payload[0]}空投至{zh}，交付后原地降落。"])
+        text = rng.choice(choices)
+    else:
+        choices = ([f"Drop the {payload[1]} at the {en}, then return home.",
+                    f"Carry the {payload[1]} to the {en} and bring the aircraft back.",
+                    f"Deliver the {payload[1]} to the {en}, then fly back to launch."] if return_home else
+                   [f"Drop the {payload[1]} at the {en} and finish there.",
+                    f"Deliver the {payload[1]} to the {en}; land there without returning.",
+                    f"Carry the {payload[1]} to the {en}, complete delivery, then land on site."])
+        text = rng.choice(choices)
+    steps = [S("s1", "deliver", {"target_ref": ref, "payload_ref": f"payload:{payload[1].replace(' ', '_')}"}, "s2", "s2")]
+    if return_home:
+        steps.append(H("s2"))
+    else:
+        steps.append(L("s2"))
+    return text, steps, [f"{ref} ({zh} / {en})"], ("payload_drop",)
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -924,7 +1032,7 @@ def cx_r20_rows(args, held_out: set[str]) -> list[dict]:
             steps.append(H(terminal_id))
             plan["steps"] = steps
         if valid:
-            validate_mission_plan(plan)
+            validate_mission_plan(plan, capabilities=frozenset(capabilities))
         intent = check_plan_intent(plan, text, refs)
         capability = capability_violations(plan, caps, airframe=("airframe:fixed_wing" if caps else None))
         codes = {f.code for f in intent} | {f["code"] for f in capability}
@@ -1201,47 +1309,48 @@ def main(argv: list[str] | None = None) -> int:
         # v3-style slice.  Deliver rows are the faithful validator-gated plans,
         # so the model learns to emit deliver before capability rejection.
         r23_rows = []
-        r23_rng = random.Random(f"{args.seed}:r23-v3")
-        while len(r23_rows) < args.r23_v3_count:
-            zh, en, steps, report = mission_v3(r23_rng)
-            text = " ".join((zh if r23_rng.random() < 0.5 else en).split())
-            steps, refs = localise_places(r23_rng, steps, text, labels)
+        r23_rng = random.Random(f"{args.seed}:r23")
+        sequence_counts = Counter()
+        quotas = {name: args.r23_v3_count // len(R23_SEQUENCE_QUOTAS)
+                  + int(i < args.r23_v3_count % len(R23_SEQUENCE_QUOTAS))
+                  for i, name in enumerate(R23_SEQUENCE_QUOTAS)}
+        for sequence, target_count in quotas.items():
+            while sequence_counts[sequence] < target_count:
+                text, steps, report = r23_target_case(r23_rng, sequence)
+                text = " ".join(text.split())
+                steps, refs = localise_places(r23_rng, steps, text, labels)
+                key = normalize_task(text)
+                if key in held_out or key in seen:
+                    continue
+                plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+                validate_mission_plan(plan)
+                seen.add(key)
+                sequence_counts[sequence] += 1
+                r23_rows.append({"sample_id": f"plan-r23-v3-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+                                 "kind": "mission_plan", "world": "synthetic_plan_r23",
+                                 "family": "r23_v3_coverage", "r23_sequence": sequence,
+                                 "task_text": text, "refs": list(refs),
+                                 "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                                       capabilities=frozenset()),
+                                 "assistant_target": plan})
+        deliver_index = 0
+        while len([r for r in r23_rows if r.get("family") == "r23_deliver_faithful"]) < args.r23_deliver_count:
+            text, steps, refs, capabilities = r23_deliver_case(r23_rng, deliver_index)
+            deliver_index += 1
+            text = " ".join(text.split())
             key = normalize_task(text)
             if key in held_out or key in seen:
                 continue
-            plan = {"plan_version": 1, "goal": en.rstrip(".")[:160],
-                    "steps": steps, "report": report}
-            validate_mission_plan(plan)
+            plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": ["delivery"]}
+            validate_mission_plan(plan, capabilities=frozenset(capabilities))
             seen.add(key)
-            r23_rows.append({"sample_id": f"plan-r23-v3-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+            r23_rows.append({"sample_id": f"plan-r23-deliver-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
                              "kind": "mission_plan", "world": "synthetic_plan_r23",
-                             "family": "r23_v3_coverage", "task_text": text,
+                             "family": "r23_deliver_faithful", "task_text": text,
+                             "refs": refs, "capabilities": list(capabilities),
                              "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
-                                                   capabilities=frozenset()),
+                                                   capabilities=frozenset(capabilities)),
                              "assistant_target": plan})
-        if args.r23_deliver_count:
-            old_count = args.r20_plan_intent_count
-            args.r20_plan_intent_count = args.r23_deliver_count
-            deliver_pool = r20_plan_intent_rows(args, held_out, labels)
-            args.r20_plan_intent_count = old_count
-            deliver_templates = [row for row in deliver_pool
-                                 if row.get("family") == "missing_payload_drop"
-                                 and row.get("pair_role") == "positive"]
-            for index in range(args.r23_deliver_count):
-                row = dict(deliver_templates[index % len(deliver_templates)])
-                suffix = f"第{index + 1}批" if any("\u4e00" <= c <= "\u9fff" for c in row["task_text"]) else f"batch {index + 1}"
-                row["task_text"] = row["task_text"].rstrip("。.") + (f"，{suffix}。" if suffix.startswith("第") else f" ({suffix}).")
-                row["sample_id"] = f"plan-r23-deliver-{index:04d}"
-                row["prompt"] = plan_prompt(row["task_text"], refs=tuple(row["refs"]),
-                                              prompt_variant=args.prompt_variant,
-                                              capabilities=frozenset(row.get("capabilities", ())))
-                row.pop("_key", None)
-                row["family"] = "r23_deliver_faithful"
-                key = normalize_task(row["task_text"])
-                if key in held_out or key in seen:
-                    raise ValueError(f"r23 deliver template collision: {row['task_text']}")
-                seen.add(key)
-                r23_rows.append(row)
         rows.extend(r23_rows)
         args.rows += len(r23_rows)
     while len(rows) < args.rows + args.val_rows:
@@ -1274,6 +1383,21 @@ def main(argv: list[str] | None = None) -> int:
                 "assistant_target": plan,
             }
         )
+    if args.r23_recipe:
+        # Keep legacy v4 output byte-identical; clean stacked connectives only
+        # for rows emitted by the opt-in r23 recipe.
+        def clean_r23_text(value):
+            return (str(value).replace("最后然后", "最后")
+                    .replace("then then", "then")
+                    .replace("and then then", "and then"))
+        for row in rows:
+            if isinstance(row.get("task_text"), str):
+                old = row["task_text"]
+                row["task_text"] = clean_r23_text(old)
+                if isinstance(row.get("prompt"), str):
+                    row["prompt"] = row["prompt"].replace(old, row["task_text"])
+                if isinstance(row.get("assistant_target"), dict):
+                    row["assistant_target"]["goal"] = clean_r23_text(row["assistant_target"].get("goal", ""))
     if args.r20_plan_intent and args.r20_plan_intent_mix:
         for row in rows:
             # Preserve replay rows byte-for-byte; only tag newly generated rows.
@@ -1351,6 +1475,13 @@ def main(argv: list[str] | None = None) -> int:
         stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())]
         stats += ["", "| Train skill | Steps |", "|---|---:|"]
         stats += [f"| {skill} | {count} |" for skill, count in sorted(manifest["skill_counts"]["train"].items())]
+        sequence_counts = Counter(
+            row.get("r23_sequence", " -> ".join(step["skill"] for step in row["assistant_target"]["steps"]))
+            for row in splits["train"] if row.get("family") == "r23_v3_coverage"
+        )
+        stats += ["", "| r23 coverage sequence | Rows |", "|---|---:|"]
+        stats += [f"| {sequence} | {sequence_counts[sequence]} |"
+                  for sequence in sorted(sequence_counts)]
         stats += ["", f"Faithful r23 deliver rows: {family_counts['train']['r23_deliver_faithful']}.",
                   "These targets retain the `deliver` action; capability rejection is performed by the validator.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
