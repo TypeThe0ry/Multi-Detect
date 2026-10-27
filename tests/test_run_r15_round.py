@@ -755,3 +755,20 @@ def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path:
 
     with pytest.raises(SystemExit, match="positive ratio"):
         merge_cli(_merge_args(tmp_path))
+
+
+def test_collect_plans_the_configured_episodes_per_world():
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    result = subprocess.run(
+        [sys.executable, "scripts/run_r15_round.py", "--stage", "collect", "--dry-run",
+         "--episodes-per-world", "2", "--r15-index", str(index),
+         "--scenarios", str(index.parent)],
+        cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
+        env={**__import__("os").environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+    )
+    assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr

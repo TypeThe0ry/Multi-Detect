@@ -804,7 +804,7 @@ class Round:
                 1 for item in self.state["episodes"].values() if item.get("status") == "complete"
             )
             world_count = len(round_world_ids(self.a.r15_index))
-            remaining = max(0, world_count * R15_EPISODES_PER_WORLD - done)
+            remaining = max(0, world_count * getattr(self.a, "episodes_per_world", R15_EPISODES_PER_WORLD) - done)
             per_step = LOW_DISK_BYTES_PER_STEP if low_disk else NORMAL_BYTES_PER_STEP
             return remaining * self.a.steps_per_episode * per_step / GIB
         if stage == "export":
@@ -1057,7 +1057,7 @@ class Round:
         for scenario in scenarios:
             world = scenario.name.removesuffix(".scenario.json")
             airframe, takeoff_method, _category = collection_options[scenario]
-            for idx in range(R15_EPISODES_PER_WORLD):
+            for idx in range(getattr(self.a, "episodes_per_world", R15_EPISODES_PER_WORLD)):
                 key = f"{world}:{idx}"
                 if self.state["episodes"].get(key, {}).get("status") == "complete":
                     continue
@@ -1820,6 +1820,8 @@ def main():
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
+    p.add_argument("--episodes-per-world", type=int, default=R15_EPISODES_PER_WORLD,
+                   help="collection episodes per world (default 4)")
     p.add_argument("--retries", type=int, default=3)
     p.add_argument(
         "--docker-wait-minutes", type=float, default=20,
@@ -1871,7 +1873,7 @@ def main():
         for label, low in (("normal", False), ("low-disk", True)):
             est = estimate_round_disk_gib(low_disk=low, steps=a.steps_per_episode)
             print(
-                f"[dry-run] {label}: {len(round_world_ids(a.r15_index))} worlds x {R15_EPISODES_PER_WORLD} episodes x {a.steps_per_episode} steps 上限 -> "
+                f"[dry-run] {label}: {len(round_world_ids(a.r15_index))} worlds x {getattr(a, 'episodes_per_world', R15_EPISODES_PER_WORLD)} episodes x {a.steps_per_episode} steps 上限 -> "
                 f"episodes {est['episodes_gib']:.2f} GiB，峰值 {est['peak_gib']:.2f} GiB，"
                 f"结束后 {est['after_round_gib']:.2f} GiB"
             )
