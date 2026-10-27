@@ -69,6 +69,8 @@ class Px4LoopbackRelay:
             if message is not None and message.get_type() == "HEARTBEAT":
                 row = {
                     "mode": self.mavutil.mode_string_v10(message),
+                    "custom_mode": int(getattr(message, "custom_mode", 0)),
+                    "base_mode": int(getattr(message, "base_mode", 0)),
                     "armed": bool(message.base_mode & self.mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
                     "time": time.time(),
                 }
@@ -144,30 +146,39 @@ def terminate_owned(proc: subprocess.Popen) -> None:
         proc._crash_resume_log_stream.close()
 
 
-def set_px4_rtl(endpoint: str) -> list[dict[str, Any]]:
-    """Put the still-running PX4 in AUTO_RTL while onboard is down."""
+def request_px4_rtl(endpoint: str) -> None:
+    """Request RTL over the control socket before stopping the onboard sender."""
+    from pymavlink import mavutil
+    connection = mavutil.mavlink_connection(endpoint, source_system=254, source_component=190,
+                                             autoreconnect=False)
+    for _ in range(2):
+        connection.mav.command_long_send(
+            1, 1, mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH, 0,
+            0, 0, 0, 0, 0, 0, 0,
+        )
+        time.sleep(0.05)
+    connection.close()
+
+
+def wait_for_px4_rtl(endpoint: str) -> list[dict[str, Any]]:
+    """Observe RTL mode once the onboard process has stopped."""
     from pymavlink import mavutil
     from multidetect.onboard_runtime.fw_vtol_commands import PX4_AUTO_RTL_CUSTOM_MODE
-
     connection = mavutil.mavlink_connection(endpoint, source_system=254, source_component=190,
                                              autoreconnect=False)
     connection.wait_heartbeat(timeout=10)
-    for _ in range(3):
-        connection.mav.command_long_send(
-            1, 1, mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
-            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            PX4_AUTO_RTL_CUSTOM_MODE, 0, 0, 0, 0, 0,
-        )
-        time.sleep(0.25)
     deadline = time.monotonic() + 8
     records = []
     while time.monotonic() < deadline:
         message = connection.recv_match(type="HEARTBEAT", blocking=True, timeout=0.5)
         if message is not None:
             records.append({"mode": mavutil.mode_string_v10(message),
+                            "custom_mode": int(getattr(message, "custom_mode", 0)),
+                            "base_mode": int(getattr(message, "base_mode", 0)),
                             "armed": bool(message.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED),
                             "time": time.time()})
-        if any("RTL" in row["mode"] for row in records):
+        if any("RTL" in row["mode"] or row["custom_mode"] == PX4_AUTO_RTL_CUSTOM_MODE
+               for row in records):
             return records[-20:]
     connection.close()
     raise TimeoutError(f"PX4 did not enter RTL: {records[-5:]}")
@@ -204,6 +215,8 @@ def run_case(name: str, args) -> dict[str, Any]:
         if not wait_for(lambda: checkpoint.exists() and _sequence(checkpoint) >= args.crash_after_sequence and _read_checkpoint(checkpoint).get("step_id") == args.crash_step_id, args.flight_timeout):
             raise TimeoutError("onboard did not reach the requested mission step and write its checkpoint")
         first_cp = json.loads(checkpoint.read_text(encoding="utf-8"))
+        if name == "rtl":
+            request_px4_rtl(f"udpout:127.0.0.1:{args.control_port}")
         terminate_owned(first)
         if name == "corrupt":
             checkpoint.write_text('{"schema":"broken"', encoding="utf-8")
@@ -215,10 +228,13 @@ def run_case(name: str, args) -> dict[str, Any]:
             changed = dict(first_cp)
             changed["saved_at"] = time.time() - 3600
             checkpoint.write_text(json.dumps(changed), encoding="utf-8")
-        elif name == "rtl":
-            rtl_records = set_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
+        if name == "rtl":
+            # Start recovery immediately after requesting RTL. Waiting for the
+            # vehicle to land first would erase the airborne failsafe state
+            # that recovery must classify as monitor-only.
+            rtl_records = wait_for_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
         wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)
         time.sleep(2)
         lines = process_log.read_text(encoding="utf-8", errors="replace").splitlines() if process_log.exists() else []
