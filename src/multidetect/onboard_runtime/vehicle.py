@@ -498,16 +498,15 @@ class PymavlinkVehicle:
                 event = self._parameter_events.setdefault(clean, threading.Event())
                 event.clear()
                 self._parameters.pop(clean, None)
-                self._parameter_transactions[clean] = {"state": "arming"}
                 with self._sending():
                     system, component = self._target()
                     sender = getattr(self.connection.mav, "param_request_read_send", None)
                     if sender is None:
                         raise RuntimeError("MAVLink connection lacks PARAM_REQUEST_READ")
+                    sent = self._clock()
+                    self._parameter_pending_since[clean] = sent
+                    self._parameter_transactions[clean] = {"state": "awaiting"}
                     sender(system, component, clean.encode("ascii"), -1)
-                sent = self._clock()
-                self._parameter_pending_since[clean] = sent
-                self._parameter_transactions[clean] = {"state": "awaiting"}
                 if event.wait(timeout_s):
                     value, _, received = self._parameters[clean]
                     if received > sent:
@@ -534,15 +533,14 @@ class PymavlinkVehicle:
                         "COM_OBL_RC_ACT", "GF_ACTION", "COM_LOW_BAT_ACT"} else 9, 0.0))[1]
                     wire = (struct.unpack("<f", struct.pack("<i", int(round(value))))[0]
                             if ptype == 6 else float(value))
+                    self._parameter_events.setdefault(name, threading.Event()).clear()
+                    sent = self._clock()
+                    self._parameter_pending_since[name] = sent
                     self._parameter_transactions[name] = {
-                        "state": "arming", "expected": float(value),
+                        "state": "awaiting", "expected": float(value),
                         "param_type": ptype,
                     }
-                    self._parameter_events.setdefault(name, threading.Event()).clear()
                     sender(system, component, name.encode("ascii"), wire, ptype)
-                sent = self._clock()
-                self._parameter_pending_since[name] = sent
-                self._parameter_transactions[name]["state"] = "awaiting"
                 event = self._parameter_events.setdefault(name, threading.Event())
                 if event.wait(timeout_s):
                     actual, _, received = self._parameters[name]

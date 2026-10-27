@@ -281,6 +281,40 @@ def test_param_int32_bit_cast_and_stale_values_are_ignored():
     assert vehicle._parameters["NAV_DLL_ACT"][0] == 2
 
 
+def test_read_parameter_accepts_synchronous_zero_latency_reply() -> None:
+    connection = FakeConnection()
+    clock_values = iter((10.0, 11.0))
+    vehicle = PymavlinkVehicle("replay", connection=connection,
+                               clock=lambda: next(clock_values))
+    vehicle.target_system = vehicle.target_component = 1
+
+    def reply_inside_send(*args: object) -> None:
+        connection.mav.commands.append(("read", *args))
+        vehicle.ingest({"type": "PARAM_VALUE", "param_id": "COM_OF_LOSS_T",
+                        "param_value": 1.0, "param_type": 9})
+
+    connection.mav.param_request_read_send = reply_inside_send
+    assert vehicle.read_parameter("COM_OF_LOSS_T", timeout_s=0.05, retries=1) == 1.0
+
+
+def test_write_parameter_accepts_synchronous_zero_latency_readback() -> None:
+    connection = FakeConnection()
+    clock_values = iter((20.0, 21.0))
+    vehicle = PymavlinkVehicle("replay", connection=connection,
+                               clock=lambda: next(clock_values))
+    vehicle.target_system = vehicle.target_component = 1
+    vehicle._parameters["GF_MAX_HOR_DIST"] = (10.0, 9, 1.0)
+
+    def reply_inside_send(*args: object) -> None:
+        connection.mav.commands.append(("set", *args))
+        vehicle.ingest({"type": "PARAM_VALUE", "param_id": "GF_MAX_HOR_DIST",
+                        "param_value": 12.5, "param_type": 9})
+
+    connection.mav.param_set_send = reply_inside_send
+    assert vehicle.write_parameter("GF_MAX_HOR_DIST", 12.5,
+                                  timeout_s=0.05, retries=1) == 12.5
+
+
 def test_param_set_uses_learned_type_and_wire_bit_cast():
     connection = FakeConnection()
     vehicle = PymavlinkVehicle("replay", connection=connection)
