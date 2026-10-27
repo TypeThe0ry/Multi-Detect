@@ -255,6 +255,23 @@ def _ready(vehicle, camera, config: RuntimeConfig, timeout_s: float, *, require_
     raise TimeoutError(f"startup timeout: {last_fault}")
 
 
+def _recovery_ready(vehicle, timeout_s: float, *, sleep=time.sleep, clock=time.monotonic):
+    """Wait only for state needed to classify an interrupted airborne vehicle."""
+    deadline = clock() + max(0.0, timeout_s)
+    while clock() < deadline:
+        state = vehicle.snapshot()
+        now = clock()
+        if (
+            state.armed is not None
+            and state.landed is not None
+            and state.heartbeat_monotonic is not None
+            and 0 <= now - state.heartbeat_monotonic <= 5.0
+        ):
+            return state
+        sleep(min(0.01, max(0.0, deadline - clock())))
+    raise TimeoutError("startup timeout: waiting for recovery heartbeat and armed/landed state")
+
+
 def _validate_local_models(config: dict[str, Any]) -> None:
     for key in ("yoloe_weights", "gguf", "mmproj", "llama_server"):
         value = Path(config.get(key, DEFAULTS[key]))
@@ -543,14 +560,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     failure: str | None = None
     try:
         vehicle.start()
-        camera.start()
-        state, frame = _ready(
-            vehicle,
-            camera,
-            config,
-            getattr(args, "startup_timeout", 3),
-            require_ground=False,
-        )
+        # Recovery must be classified before camera/pose/home/preflight gates:
+        # PX4 can be airborne in RTL while those ground-start facts are absent
+        # or stale. A normal new mission still goes through the full _ready gate
+        # below before any flight command is allowed.
+        if args.mode == "real" and package is not None:
+            state = _recovery_ready(vehicle, getattr(args, "startup_timeout", 3))
+            frame = None
+        else:
+            camera.start()
+            state, frame = _ready(
+                vehicle,
+                camera,
+                config,
+                getattr(args, "startup_timeout", 3),
+                require_ground=False,
+            )
         resume_decision = None
         resume_checkpoint = None
         if args.mode == "real" and package is not None:
@@ -585,6 +610,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 log.append("crash_resume", time.monotonic(), action="monitor_failsafe", reason_zh=reason)
                 log.finish(time.monotonic(), {"status": "monitor_only", "action": "monitor_failsafe", "reason": reason})
                 return {**report, "recovery_action": "monitor_failsafe", "ok": True}
+        if args.mode == "real" and package is not None:
+            camera.start()
+            state, frame = _ready(
+                vehicle,
+                camera,
+                config,
+                getattr(args, "startup_timeout", 3),
+                require_ground=False,
+            )
         if args.mode == "real" and state.home_ned is None:
             state = _wait_for_home(vehicle, state, getattr(args, "home_timeout", 120))
         if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (state.armed is not False or state.landed is not True):

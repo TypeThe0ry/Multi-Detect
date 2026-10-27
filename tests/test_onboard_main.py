@@ -191,6 +191,29 @@ def test_wait_for_home_timeout_has_no_flight_commands():
     assert calls and all(command == "request" for command in calls)
 
 
+def test_recovery_readiness_does_not_require_ground_pose_or_camera_stream():
+    calls = [0]
+
+    def snapshot():
+        calls[0] += 1
+        now = time.monotonic()
+        return VehicleState(
+            armed=True,
+            landed=False,
+            mode="RTL",
+            heartbeat_monotonic=now,
+            # RTL recovery may not have fresh local pose/attitude yet.
+            pose_monotonic=None,
+            attitude_monotonic=None,
+        )
+
+    state = onboard_main._recovery_ready(
+        SimpleNamespace(snapshot=snapshot), 1, sleep=lambda _seconds: None,
+    )
+    assert state.armed is True and state.landed is False and state.mode == "RTL"
+    assert calls[0] == 1
+
+
 def test_startup_failure_closes_every_resource_when_policy_close_raises(tmp_path, monkeypatch):
     episode = generate_fixture(tmp_path / "episode", duration_s=1)
     closed = []
