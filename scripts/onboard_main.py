@@ -63,6 +63,23 @@ def _positive(value: str) -> float:
     return result
 
 
+def _wait_for_home(vehicle, state, timeout_s: float, *, request_interval_s: float = 2.0,
+                   sleep=time.sleep, clock=time.monotonic):
+    """Wait for PX4 HOME_POSITION without issuing flight commands."""
+    deadline = clock() + max(0.0, timeout_s)
+    next_request = clock()
+    while state.home_ned is None and clock() < deadline:
+        now = clock()
+        if now >= next_request:
+            vehicle.request_home_position()
+            next_request = now + request_interval_s
+        sleep(min(0.05, max(0.0, deadline - clock())))
+        state = vehicle.snapshot()
+    if state.home_ned is None:
+        raise RuntimeError(f"PX4 未在 {timeout_s:g} 秒内建立 HOME（GNSS/EKF 未就绪）")
+    return state
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest="mode", required=True)
@@ -90,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     real.add_argument("--altitude", type=_positive, default=10)
     real.add_argument("--startup-timeout", type=_positive, default=30)
+    real.add_argument("--home-timeout", type=_positive, default=120,
+                      help="seconds to wait for PX4 HOME_POSITION")
     real.add_argument("--takeoff-timeout", type=_positive, default=45)
     real.add_argument("--shutdown-action", choices=("land", "rtl"), default="land")
     real.add_argument("--completion-action", choices=("land", "rtl"), default="land")
@@ -560,8 +579,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 log.append("crash_resume", time.monotonic(), action="monitor_failsafe", reason_zh=resume_decision.reason_zh)
                 log.finish(time.monotonic(), {"status": "px4_failsafe", "action": "monitor", "reason": resume_decision.reason_zh, "counts": resume_checkpoint.get("counts", {}) if resume_checkpoint else {}, "alerts": resume_checkpoint.get("alerts", []) if resume_checkpoint else []})
                 return {**report, "ok": True, "recovery_action": "monitor_failsafe"}
+            if resume_decision.action == "resume" and state.home_ned is None:
+                reason = "PX4 HOME 未知，空中恢复状态不明，仅监视不接管"
+                log = OnboardMissionLog(args.work_dir / "mission_log", package.mission_id)
+                log.append("crash_resume", time.monotonic(), action="monitor_failsafe", reason_zh=reason)
+                log.finish(time.monotonic(), {"status": "monitor_only", "action": "monitor_failsafe", "reason": reason})
+                return {**report, "recovery_action": "monitor_failsafe", "ok": True}
         if args.mode == "real" and state.home_ned is None:
-            raise RuntimeError("HOME_POSITION in local NED is required before mission startup")
+            state = _wait_for_home(vehicle, state, getattr(args, "home_timeout", 120))
         if args.mode == "real" and not (resume_decision and resume_decision.action == "resume") and (state.armed is not False or state.landed is not True):
             raise RuntimeError("real runtime must start on the ground, disarmed")
         if args.mode == "real":

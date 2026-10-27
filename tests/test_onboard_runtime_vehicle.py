@@ -193,7 +193,7 @@ def test_receiver_lifecycle_and_requests_without_hardware() -> None:
     assert vehicle.snapshot().position_ned == (1, 2, -3)
     assert all(args[2] == 511 for args in connection.mav.commands[:-1])
     assert connection.mav.commands[-1][2:5] == (512, 0, 148.0)
-    assert len(connection.mav.commands) == 8
+    assert len(connection.mav.commands) == 9
     vehicle.close()
     vehicle.close()
     assert connection.closed

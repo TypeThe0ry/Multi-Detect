@@ -196,7 +196,9 @@ class PX4PreflightGate:
                 continue
             ok = math.isclose(actual, float(wanted), rel_tol=0, abs_tol=1e-3)
             if name.startswith("GF_MAX_"):
-                ok = actual > 0 and actual >= float(wanted)
+                # PX4 stores these values as float32; allow the wire-quantized
+                # value to satisfy the package lower bound.
+                ok = actual > 0 and actual + 1e-3 >= float(wanted)
             elif name == "COM_DL_LOSS_T":
                 ok = math.isclose(actual, float(wanted), rel_tol=0, abs_tol=0)
             elif name == "COM_OF_LOSS_T":

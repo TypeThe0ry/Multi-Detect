@@ -150,6 +150,18 @@ def test_offboard_loss_action_outside_return_land_hold_is_blocking():
     assert "parameter:COM_OBL_RC_ACT" in report["blocking_failures"]
 
 
+def test_float32_quantized_geofence_limit_satisfies_package_bound():
+    pkg = package()
+    values = values_for(pkg)
+    wanted = build_parameter_matrix(pkg)["GF_MAX_HOR_DIST"]
+    values["GF_MAX_HOR_DIST"] = float(__import__("struct").unpack(
+        "<f", __import__("struct").pack("<f", wanted)
+    )[0])
+    report = PX4PreflightGate(FakeVehicle(values), pkg, clock=lambda: 10.0).run()
+    check = next(row for row in report["checks"] if row["name"] == "parameter:GF_MAX_HOR_DIST")
+    assert check["passed"] is True
+
+
 def test_gps_hdop_above_two_is_blocking():
     pkg = package()
     vehicle = FakeVehicle(values_for(pkg))
