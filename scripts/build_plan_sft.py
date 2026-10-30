@@ -1325,6 +1325,10 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
                 validate_mission_plan(plan)
+                # Some phrasings omit the query/region the target carries; the trainer's
+                # planner contract rejects those rows, so regenerate instead.
+                if check_plan_intent(plan, text, tuple(refs)):
+                    continue
                 seen.add(key)
                 sequence_counts[sequence] += 1
                 r23_rows.append({"sample_id": f"plan-r23-v3-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
