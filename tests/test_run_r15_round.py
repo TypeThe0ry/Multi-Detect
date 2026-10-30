@@ -791,3 +791,24 @@ def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
     )
     merge = [line for line in result.stdout.splitlines() if "--merge-only" in line]
     assert merge and "--r21id-keep-small-true-targets" in merge[0], result.stdout + result.stderr
+
+
+def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    base = [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+            "--r15-index", str(index), "--scenarios", str(index.parent)]
+    env = {**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"}
+
+    def build_line(extra):
+        out = subprocess.run(base + extra, cwd=round_mod.ROOT, capture_output=True, text=True,
+                             encoding="utf-8", env=env).stdout
+        return next(line for line in out.splitlines() if "build_slow_system_sft.py" in line)
+
+    assert "--holdout-from" in build_line([])
+    assert "--holdout-from" not in build_line(["--no-category-holdout"])

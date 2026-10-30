@@ -1793,6 +1793,12 @@ def main():
         help="index whose held_out_target_combos stay unseen in the new rows (frozen test set)",
     )
     p.add_argument(
+        "--no-category-holdout",
+        action="store_true",
+        help="drop every --holdout-from (including the generated-v2 default); test isolation "
+        "is by world split only",
+    )
+    p.add_argument(
         "--r12-v1-baseline",
         type=Path,
         default=ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r12.json",
@@ -1854,6 +1860,10 @@ def main():
     )
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
+    if a.no_category_holdout:
+        # The round's frozen test is its own test worlds (split by world), not
+        # held-out categories; v3 then stops being an unseen-category benchmark.
+        a.holdout_from = []
     if a.merge_only:
         if not all((a.additions, a.merged)):
             p.error("--merge-only requires --additions and --merged")
