@@ -134,6 +134,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
+    if args.r24_recipe:
+        data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
+                     "--r24-unknown-count", str(args.r24_unknown_count),
+                     "--r24-context-count", str(args.r24_context_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
     if R14_ADAPTER.is_dir():
         train += ["--init-adapter", str(R14_ADAPTER)]
@@ -167,6 +173,11 @@ def main(argv=None) -> int:
                         help="add v3 coverage and faithful deliver rows; defaults LR to 2.5e-5")
     parser.add_argument("--r23-v3-count", type=int, default=600)
     parser.add_argument("--r23-deliver-count", type=int, default=80)
+    parser.add_argument("--r24-recipe", action="store_true",
+                        help="extend r23 with grounded-reference and local/home data")
+    parser.add_argument("--r24-reference-count", type=int, default=120)
+    parser.add_argument("--r24-unknown-count", type=int, default=80)
+    parser.add_argument("--r24-context-count", type=int, default=80)
     parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
     parser.add_argument("--min-free-disk-gb", type=float, default=12)
     parser.add_argument("--min-memory-gb", type=float, default=8)
@@ -178,6 +189,9 @@ def main(argv=None) -> int:
     EVAL_ROOT = args.eval_root.absolute()  # keep the worktree spelling; artifacts/ may be nested junctions
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1 or args.epochs < 1:
         parser.error("row counts must be positive (val rows may be zero)")
+    if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
+                                   args.r24_context_count)):
+        parser.error("r24 counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())
     if not any(out == allowed or out.is_relative_to(allowed) for allowed in allowed_roots):
