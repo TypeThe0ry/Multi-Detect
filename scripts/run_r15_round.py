@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import queue
 import random
 import shutil
 import subprocess
@@ -674,6 +675,22 @@ def frame_key_root(episodes: Path) -> Path:
     raise RuntimeError(f"采集目录 {resolved} 不在任何 git 仓库内，build_sft 无法生成相对帧路径")
 
 
+
+def with_worker_slot(cmd: list[str], slot: int) -> list[str]:
+    """Rewrite a planned collector command onto collection worker ``slot``."""
+    values = {
+        "--container-prefix": f"r15-worker-{slot}",
+        "--worker-index": str(slot),
+        "--control-port": str(R15_BASE_CONTROL_PORT + slot * 10),
+        "--telemetry-port": str(R15_BASE_TELEMETRY_PORT + slot * 10),
+        "--sim-instance": str(slot),
+    }
+    out = list(cmd)
+    for index, token in enumerate(out[:-1]):
+        if token in values:
+            out[index + 1] = values[token]
+    return out
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -1140,7 +1157,21 @@ class Round:
             return
         self._docker_abort = threading.Event()
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)
-        futures = {pool.submit(self._collect_one, key, cmd, target): key for key, cmd, target in jobs}
+        # Each job's ports/container prefix were planned from its episode index,
+        # which can repeat across concurrently running jobs.  Lease a free worker
+        # slot at run time instead so two live containers never share ports.
+        slots: queue.Queue[int] = queue.Queue()
+        for slot in range(self.a.workers):
+            slots.put(slot)
+
+        def run_on_free_slot(key: str, cmd: list[str], target: Path):
+            slot = slots.get()
+            try:
+                return self._collect_one(key, with_worker_slot(cmd, slot), target)
+            finally:
+                slots.put(slot)
+
+        futures = {pool.submit(run_on_free_slot, key, cmd, target): key for key, cmd, target in jobs}
         try:
             for future in concurrent.futures.as_completed(futures):
                 key = futures[future]

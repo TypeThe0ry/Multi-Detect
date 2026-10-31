@@ -813,3 +813,20 @@ def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
 
     assert "--holdout-from" in build_line([])
     assert "--holdout-from" not in build_line(["--no-category-holdout"])
+
+
+def test_with_worker_slot_rewrites_ports_and_prefix():
+    from scripts.run_r15_round import (
+        R15_BASE_CONTROL_PORT, R15_BASE_TELEMETRY_PORT, with_worker_slot,
+    )
+
+    cmd = ["python", "collect.py", "--container-prefix", "r15-worker-0", "--worker-index", "0",
+           "--control-port", str(R15_BASE_CONTROL_PORT), "--telemetry-port",
+           str(R15_BASE_TELEMETRY_PORT), "--sim-instance", "0", "--out", "x"]
+    out = with_worker_slot(cmd, 3)
+    assert out[out.index("--container-prefix") + 1] == "r15-worker-3"
+    assert out[out.index("--worker-index") + 1] == "3"
+    assert out[out.index("--control-port") + 1] == str(R15_BASE_CONTROL_PORT + 30)
+    assert out[out.index("--telemetry-port") + 1] == str(R15_BASE_TELEMETRY_PORT + 30)
+    assert out[out.index("--sim-instance") + 1] == "3"
+    assert out[-2:] == ["--out", "x"] and cmd[3] == "r15-worker-0"
