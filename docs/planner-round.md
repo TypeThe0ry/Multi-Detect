@@ -331,3 +331,20 @@ runner dry-run 会透传这些路径；本次只运行 data 阶段，没有训�
 `ungrounded_query`；本轮按现有契约避开这类映射，未改动校验器。统计位于
 `.tmp/r25-data/dataset/r23-data-stats.md`，manifest 记录各 family 数量。train 内容摘要为
 `6d51b1d7dc1593a372adabc9be61acf3141d7cd40e75fa4e186a2dd1febc7e91`。
+
+## r25 结果（2026-11-01）
+
+r25 = r24 配方 + 缺载荷投递（负例 40 + 有能力正例 40）+ 否定句查询（正负例各 40），r24 热启动，以 r24 为基线。训练 5,620 行。
+
+| 指标 | r24（基线） | r25 |
+|---|---:|---:|
+| planning-v3 精确序列 | 0.7375 | 0.6875 |
+| planning-v3 有效率 | 0.95 | 0.95 |
+| planning-v4 精确序列 | 0.75 | 0.75 |
+| 返航探测 | 15/15 | 15/15 |
+
+结论：**不替换 r24**（v3 下降 5 个点，v4 目标类别没有提升）。
+
+两个目标类别的情况不一样：
+- **missing_payload_drop 仍是 0/2，是模型问题**：r25 在“本机没有载荷投送能力”的题上仍输出 `goto→return_home` 或 `follow→land`，没有输出 `deliver`。r25 新增的训练行没能迁移到评测题，下一步要先对比训练行与评测题的提示词格式（尤其能力上下文怎么写进提示），再决定是否加数据。
+- **query_ungrounded 的 0/2 是评测打分问题，不是模型问题**：r24、r25 都输出了 `inspect(query=救护车/fire truck)`，产品的意图检查（`query_grounding`，已能识别否定句）会判为 `ungrounded` 并拒绝；用 `scripts/recompute_planning_v4_capabilities.py` 离线重算，这两题是 2/2 正确拒绝。但评测链路实时打分仍记 0/2，说明实时打分没有走到同一条意图检查路径，需要修评测。
