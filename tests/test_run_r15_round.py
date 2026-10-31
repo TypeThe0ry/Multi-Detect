@@ -758,6 +758,7 @@ def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path:
 
 
 def test_collect_plans_the_configured_episodes_per_world():
+    import os
     import subprocess
     import sys
 
@@ -769,7 +770,7 @@ def test_collect_plans_the_configured_episodes_per_world():
          "--episodes-per-world", "2", "--r15-index", str(index),
          "--scenarios", str(index.parent)],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
-        env={**__import__("os").environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
     )
     assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr
 
@@ -787,7 +788,7 @@ def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
          "--r15-index", str(index), "--scenarios", str(index.parent),
          "--r21id-r2-filter", "--r21id-keep-small-true-targets"],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
-        env={**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
     )
     merge = [line for line in result.stdout.splitlines() if "--merge-only" in line]
     assert merge and "--r21id-keep-small-true-targets" in merge[0], result.stdout + result.stderr
@@ -803,7 +804,7 @@ def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
     index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
     base = [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
             "--r15-index", str(index), "--scenarios", str(index.parent)]
-    env = {**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"}
 
     def build_line(extra):
         out = subprocess.run(base + extra, cwd=round_mod.ROOT, capture_output=True, text=True,

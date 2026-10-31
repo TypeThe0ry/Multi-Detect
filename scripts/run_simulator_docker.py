@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan a pinned Docker Desktop PX4/Gazebo SIM run without starting Docker.
+"""Plan a pinned Docker PX4/Gazebo SIM run without starting Docker.
 
 The repository already contains a full VTOL acceptance script which executes
 Docker.  This companion is intentionally the *planning* boundary: it resolves
@@ -167,8 +167,10 @@ def _docker_binary() -> str | None:
     found = shutil.which("docker")
     if found:
         return found
-    candidate = Path(r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
-    return str(candidate) if candidate.is_file() else None
+    if sys.platform == "win32":
+        candidate = Path(r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
+        return str(candidate) if candidate.is_file() else None
+    return None
 
 
 def _command_has_option(command: tuple[str, ...], option: str, value: str) -> bool:
@@ -611,7 +613,7 @@ plan_simulator_docker = build_docker_simulator_plan
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Plan an isolated Docker Desktop PX4/Gazebo SIM run"
+        description="Plan an isolated Docker PX4/Gazebo SIM run"
     )
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--repository-root", "--repo-root", dest="repository_root", type=Path)
@@ -624,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="require Docker Desktop to be discoverable",
+        help="require Docker to be discoverable",
     )
     args = parser.parse_args(argv)
     try:
@@ -639,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=not args.strict,
         )
         if args.strict and plan.docker_executable is None:
-            raise DockerSimulatorPlanError("Docker Desktop executable not found")
+            raise DockerSimulatorPlanError("Docker executable not found")
         if args.out is not None:
             plan.write_json(args.out)
         print(json.dumps(plan.to_mapping_with_hash(), ensure_ascii=False, indent=2, sort_keys=True))

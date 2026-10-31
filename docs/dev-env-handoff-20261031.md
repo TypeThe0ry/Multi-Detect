@@ -17,7 +17,7 @@
 | `.venv` | 3.12.7 | 主环境：`pip install -e .`（见 `pyproject.toml` / `uv.lock`） |
 | `.venv-vlm` | 3.12.7 | 慢模型训练/评测：torch 2.6.0+cu124、transformers 4.57.6、peft 0.17.1，另装 `requirements-vlm-*.txt` |
 
-运行脚本时：`PYTHONPATH="src;."`（Linux 用 `src:.`），`PYTHONUTF8=1`。
+运行脚本时：Windows 使用 `PYTHONPATH="src;."`，Linux 使用 `PYTHONPATH="src:."`，并设置 `PYTHONUTF8=1`。
 
 ## 3. 外部依赖（不在 Git 里，需要在新环境重新下载）
 
@@ -87,3 +87,49 @@ python scripts/run_r15_round.py --stage train --low-disk --out artifacts/r21id-r
 - 受证据约束的文件只经生成器或真实运行修改：`configs/release-parity.json`、`docs/current-progress.json`、`configs/schemas/*.json`、`configs/product-version.json`。
 - 文档用中文；commit message 用小写英文 Conventional Commits。
 - 联合 QGC 验收与 HIL/真机飞行由负责人执行。
+
+## Linux 仿真环境
+
+Linux 端的 SITL 入口已经保留 Windows 参数语义，并把宿主机相关路径和进程探测改成平台实现。Docker 仍使用 bridge 网络：PX4 容器通过 `host.docker.internal` 回传宿主遥测，命令带有 `--add-host=host.docker.internal:host-gateway`；只有控制 UDP 端口发布到 `127.0.0.1`，遥测端口保持容器主动发出，避免 Docker 端口 hairpin。
+
+迁移前后的 Windows 专属写法盘点如下：
+
+| 位置 | 问题 | 修法 |
+| --- | --- | --- |
+| `scripts/run_simulator_docker.py` | Docker Desktop 路径和 `host.docker.internal` 假设 | Docker 可执行文件按平台发现；Linux 使用原生 Docker，保留 `host-gateway` 映射和现有 UDP 端口设计 |
+| `scripts/collect_sim_teacher_episodes.py` | 固定 `docker.exe`，独立采集没有互斥 | Linux 优先 `PATH` 中的 `docker`；采集阶段接入 `scripts/sitl_lock.py` |
+| `scripts/run_r15_round.py` | `.exe` llama-server、`D:/Projects/...` 默认值，collect 没有统一 SITL 锁 | 按平台选择 `llama-server`，默认路径改为仓库相对路径；collect 使用同一把锁 |
+| `scripts/run_nightly_regression.py` | `D:\...` 锁路径、PowerShell 内存计数器、仅 PID 存活判断 | 复用跨平台 Python 锁；Linux 使用 `psutil`/`/proc/meminfo`，owner 同时记录 PID 和进程启动时间 |
+| `scripts/run_sim_session.py` | `.exe` 默认名和 junction 错误提示 | `LLAMA_SERVER`/平台文件名解析，资产缓存按普通目录准备 |
+| `scripts/run_crash_resume_sitl.py` | `PYTHONPATH` 使用 `;` | 使用 `os.pathsep`，Linux 生成 `src:.` |
+| `scripts/generate_r15_worlds.py`、`src/multidetect/simulator/world_gen.py` | 未发现 Windows 专属运行时写法；依赖缺失 Fuel 缓存 | 保持生成逻辑，增加 `scripts/fetch_sim_assets.py` 负责下载、哈希校验和 resolved 构建 |
+
+准备镜像和资产（不会由脚本自动联网）：
+
+```bash
+export PYTHONPATH=src:.
+export PYTHONUTF8=1
+export TMPDIR="$PWD/.tmp"
+mkdir -p "$TMPDIR"
+
+docker pull px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8
+python scripts/fetch_sim_assets.py \
+  --catalog configs/sim-assets/fuel-catalog.json \
+  --raw-root artifacts/cache/gz-fuel/OpenRobotics \
+  --resolved-root artifacts/cache/gz-fuel/resolved
+```
+
+锁默认位于 `/data/scratch/multidetect-sitl.lock`，也可以用 `MULTIDETECT_SITL_LOCK` 或 `--sitl-lock-path` 指定。它会等待没有 `md-*`/`r15-worker*` 运行容器且可用内存至少 5 GiB；owner 进程死亡并且锁超过 120 秒才回收。llama.cpp 可执行文件默认查找 `artifacts/cache/llama-cpp/b11552/llama-server`，也可设置 `LLAMA_SERVER`。
+
+一次无头教师采集冒烟（真实 Docker/SITL 由负责人执行）：
+
+```bash
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --teacher expert_search --episodes 1 --steps-per-episode 20 \
+  --rgb-size 1280x960 --depth-size 1280x960 \
+  --out artifacts/smoke/sim-teacher-linux \
+  --control-port 14540 --telemetry-port 14541
+```
+
+资产缺失、Docker daemon 不可用或内存门禁未满足时，先修复环境再重试；不要把 `artifacts/` 软链接指向的共享缓存提交到 Git。

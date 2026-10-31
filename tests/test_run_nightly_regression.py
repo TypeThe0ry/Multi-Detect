@@ -13,7 +13,12 @@ def test_lock_reclaims_stale_and_releases(tmp_path):
     import os, time
     old = time.time() - 300
     os.utime(owner, (old, old))
-    held = SitlLock(lock, retry_s=0)
+    held = SitlLock(
+        lock,
+        retry_s=0,
+        runner=lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=""),
+        memory_fn=lambda: 6.0,
+    )
     held.acquire(wait=False)
     assert held.owner.read_text(encoding="utf-8").startswith("nightly-regression ")
     held.release()
@@ -44,12 +49,20 @@ def test_failure_does_not_stop_following(tmp_path):
         calls.append(cmd[cmd.index("--suite") + 1])
         return SimpleNamespace(returncode=7 if len(calls) == 1 else 0)
     import scripts.run_nightly_regression as mod
+    class NoopLock:
+        def __init__(self, *_args, **_kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+
+    monkeypatch = __import__("pytest").MonkeyPatch()
+    monkeypatch.setattr(mod, "SitlLock", NoopLock)
     old_preflight = mod.preflight
     mod.preflight = lambda *a, **k: None
     try:
         assert run(["--suites", "main", "airframes", "--out", str(tmp_path), "--lock-path", str(tmp_path / "lock")], runner=fake) == 1
     finally:
         mod.preflight = old_preflight
+        monkeypatch.undo()
     assert len(calls) == 2
 
 

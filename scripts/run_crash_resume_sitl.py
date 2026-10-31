@@ -22,6 +22,8 @@ OUT = ROOT / "artifacts/evaluation/crash-resume-sitl-20261027"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.run_simulator_docker import DEFAULT_SCENARIO, build_docker_simulator_plan
+from scripts.platform_paths import pythonpath_value
+from scripts.sitl_lock import SitlLock, default_lock_path
 
 CASES = ("valid", "corrupt", "digest", "expired", "rtl")
 
@@ -121,7 +123,7 @@ def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
         command.append("--apply-px4-params")
     stream = log_path.open("ab", buffering=0)
     env = os.environ.copy()
-    env.update({"PYTHONPATH": f"{ROOT / 'src'};{ROOT}",
+    env.update({"PYTHONPATH": pythonpath_value(ROOT),
                 "PYTHONUTF8": "1",
                 "MULTIDETECT_ONBOARD_TEST_HOOK": "scripts.onboard_real_test_hook",
                 "MULTIDETECT_CRASH_RESUME_TEST": "1",
@@ -319,6 +321,7 @@ def main() -> int:
     parser.add_argument("--crash-after-sequence", type=int, default=2)
     parser.add_argument("--apply-px4-params", action="store_true")
     parser.add_argument("--crash-step-id", default="home")
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     args = parser.parse_args()
     for path in (args.mission_package, args.operator_key, args.calibration, args.scenario):
         if not path.is_file():
@@ -326,16 +329,17 @@ def main() -> int:
     OUT = args.output_dir.resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
-    for name in args.cases:
-        args.attempt = 1
-        case = run_case(name, args)
-        if case.get("error") and any(term in case["error"].lower() for term in ("timeout", "docker", "memory", "container")):
-            args.attempt = 2
-            retry = run_case(name, args)
-            retry["first_attempt_error"] = case["error"]
-            case = retry
-        results.append(case)
-        print(json.dumps({"scenario": name, "passed": case["passed"], "error": case.get("error")}, ensure_ascii=False), flush=True)
+    with SitlLock(args.sitl_lock_path, label="crash-resume", min_memory_gb=5.0):
+        for name in args.cases:
+            args.attempt = 1
+            case = run_case(name, args)
+            if case.get("error") and any(term in case["error"].lower() for term in ("timeout", "docker", "memory", "container")):
+                args.attempt = 2
+                retry = run_case(name, args)
+                retry["first_attempt_error"] = case["error"]
+                case = retry
+            results.append(case)
+            print(json.dumps({"scenario": name, "passed": case["passed"], "error": case.get("error")}, ensure_ascii=False), flush=True)
     summary = {"schema": "multidetect.crash-resume-sitl.v1", "generated_at": time.time(), "cases": results, "passed": all(row["passed"] and row.get("container_absent_after_cleanup") for row in results)}
     (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"summary": str(OUT / "summary.json"), "passed": summary["passed"]}, ensure_ascii=False))
