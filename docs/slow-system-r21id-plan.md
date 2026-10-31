@@ -311,3 +311,48 @@ r21id-r3 在每一项上都明显好于 r18（真目标误拒从 34.6% 降到 8.
 **主门第二部分：真实飞行集 v1 暂时无法评测**。v1 评测集引用的 1,619 张图片（以及 v3 参考集的 94 张）只在旧 Windows 机器上，没有随迁移包上传；`run_r15_round.py --stage eval` 因此在找不到图片时中止。已把所需文件清单和复制脚本放到 NAS（`10_Projects/Drone/Multi-Detect-handoff-20261031/eval-images/`），图片到位后补跑 eval/report。
 
 暂定结论：**按协议仍保留 r18**（绝对门槛未全部通过，v1 未评测）。但 r21id-r3 相对 r18 的提升很大，等 v1 结果出来后需要重新判断：如果 v1 没有退化，值得讨论是否把门槛改成“相对 r18 显著改进且 v1 不退化”。下一轮方向：干扰物接受率离门槛最远（0.094 对 0.026），应继续补易混负例。
+
+## r21id-r4 设计
+
+本节的拆分直接按 `eval_r21id_identity.py` 的计分口径重算：只保留有 `target_id` 且 `view` 属于四视角的行；目标框短边用测试 JSON 的归一化框乘以 1280×960 图像尺寸，尺寸档为 `<8`、`8-12`、`12-16`、`16-24`、`24-32`、`>=32` px。候选类别从对应 world 的 `truth.json` 通过 `target_id` 反查，避免把任务类别当成候选类别。
+
+### 1. r21id-r3 错误集中
+
+计分分母为显式干扰物 1,166 行、真目标 838 行、完整四视角实例 30 个。r18 与 r3 的错误数如下：
+
+| 错误 | r18 | r21id-r3 | r3 变化 |
+|---|---:|---:|---:|
+| 干扰物误收 | 152/1166 (0.1304) | 110/1166 (0.0943) | -42 |
+| 真目标误拒 | 290/838 (0.3461) | 72/838 (0.0859) | -218 |
+| 四视角不一致实例 | 17/30 | 8/30 | -9 |
+
+r3 的干扰物误收主要集中在以下任务类别→候选类别（括号内为 r3，后为 r18）：`pickup→suv` 42（41）、`suv→pickup` 38（25）、`postbox→car` 11（37）、`person→postbox` 7（46）、`suv→ambulance` 7（0）、`pickup→car` 5（3）。其中 `pickup→suv` 的 42 条按视角为 front 19、edge 13、oblique 7、recovery 3；`suv→pickup` 的 38 条为 oblique 13、front 11、edge 9、recovery 5。两组主要是大框：`pickup→suv` 的 42 条、`suv→pickup` 的 24 条落在 `>=32 px`；其余 suv→pickup 错误集中在 8-12、12-16、16-24 px 各 5、5、4 条。`postbox→car` 的 6 条在 24-32 px、5 条在 `>=32 px`；`person→postbox` 为 12-16 px 4 条、16-24 px 3 条。按 world，错误最高的是 w0002 的 pickup→suv 20 条、w0010 的 suv→pickup 19 条、w0001 的 pickup→suv 14 条、w0009 的 suv→pickup 14 条、w0026 的 postbox→car 10 条。
+
+r3 真目标误拒的 72 条中，pickup 占 52 条、suv 13 条、postbox 5 条、person 2 条。pickup 误拒按视角为 edge 23、front 14、oblique 10、recovery 5；suv 为 edge 8、recovery 3，其余视角各 1。pickup 误拒有 46 条为 `>=32 px`，另有 5 条为 24-32 px；因此这不是只有小目标的问题，尤其是 w0000/w0001/w0002 三个 pickup world 合计 52 条。四视角不一致从 r18 的 17/30 降到 r3 的 8/30；逐实例不一致为：w0000 pickup 真目标 `>=32`（edge 被拒，其余接受）、w0001 pickup 真目标 `>=32`（oblique 被拒）、w0002 pickup 真目标 `>=32`（front/recovery 相反）、w0001 pickup→suv `>=32`（front/oblique 接受、edge/recovery 拒绝）、w0000 pickup→suv `>=32`（仅 oblique 误收）、w0010 suv→pickup `>=32`（仅 oblique 误收）、w0010 suv 真目标 `>=32`（仅 oblique 接受）、w0026 postbox 真目标 8-12 px（front 接受、edge 拒绝、其余 approach）。主要错误转移点是 edge 对真 pickup 的误拒和 oblique 对近邻 SUV/pickup 的误收。
+
+### 2. 训练集对照
+
+`r21id-r3/pipeline/r15-additions/train.jsonl` 有 19,381 行；合并后的 `r15-sft/train.jsonl` 有 22,843 行，其中 r18 replay 6,418 行、经过 `r21id-r2-filter` 的 additions 16,425 行。合并 manifest 记录的过滤为：无配对 659、恢复不匹配 939、edge approach 760、权重抽样 598；r21id-r3 另显式保留小真目标正例。
+
+训练 JSONL 没有为所有历史行保存显式候选类别字段，因此不把从 task 文本/target_id 推断出来的全量正负数冒充精确配对统计。可审计的 `confusable_pair_type` 定向配对统计是：`pickup→suv` hard reject 0、`suv→pickup` hard reject 30、`postbox→car` hard reject 30、`person→postbox` hard reject 22；相同 pair family 的配对正例分别为 0、0、206、162。生成器的配对正例与拒绝行来自同一帧，说明目前最明确的缺口是 `pickup→suv` 拒绝方向；另外 person→postbox 拒绝量仅为 22。普通 distractor 与 counterfactual negative 仍有拒绝标签，但无法仅凭旧训练字段可靠地按具体候选类别计数。
+
+`--confusable-negatives` 的拒绝行在部分视角偏斜；addition train 的 true/proposal true 行为 edge 951、recovery 701、front 642、oblique 522；distractor/proposal distractor 为 edge 1,676、front 1,409、oblique 1,013、recovery 1,009；confusable negative 为 edge 148、front 88、oblique 53、recovery 33。现有数据可以补齐视角和生成器标记的配对方向，但不能凭空增加某个 world 的新几何实例。
+
+### 3. 只用现有采集数据的 r4 配方
+
+1. **重采样现有定向 hard reject。** 保留配对正例，不做全 additions 降权；对现有的 `suv→pickup`（30）、`postbox→car`（30）、`person→postbox`（22）hard-negative 家族在四视角内重采样，目标每方向最多 60 条、每视角 15 条，视角不足时只在该视角内重复已有行。依据是 r3 的 `pickup↔suv` 合计 80/110 条误收，且 `postbox→car`、`person→postbox` 仍有 18 条误收。`pickup→suv` hard reject 当前为 0，不能从 JSONL 凭空构造，列入 SITL 新采集。
+2. **按任务类别×正负决策做四视角平衡。** 使用新增的 `--balance-identity-views --max-upsample 2`，只复制已有 JSONL 行，不复制图片、不改变 test/val。实际在当前工作树重建的 train 为 13,344 行，新增 2,033 行；front 1,780→2,136、oblique 1,285→2,144、edge 2,089→2,120、recovery 1,377→2,164。该配方针对剩余 8/30 跨视角不一致和 edge/recovery 的真目标误拒，不会改变默认构建器输出。
+3. **保留小目标正例全权重，避免再使用 r21id-r2 的整体 additions 降权。** r3 真目标误拒虽主要发生在大 pickup 框，但 postbox 的 5 条误拒包含 12-16/16-24 px，且 r21id-r2 已证明整体 down-weight 会把小目标召回降到 0.62；r3 的 `--r21id-keep-small-true-targets` 行为应继续保留。
+4. **训练前的审计门。** 对生成 manifest 逐项检查四视角的正/负计数、`suv→pickup`、`postbox→car`、`person→postbox` 的拒绝行是否存在，确认新采集补上 `pickup→suv`，以及 `<16 px` true/proposal_true 是否没有被 merge 过滤掉；不满足则不进入训练。当前实际构建输出在 `.tmp/r21id-r4-sft/`，不写 artifacts。
+
+### 4. 需要新 SITL 采集的数据
+
+现有数据的 residual 主要来自少数固定 world，不能只靠复制同一帧证明跨视角稳定。建议新增 24 个 episode：`pickup` 6 个 world、`suv` 6 个、`postbox` 4 个、`person` 4 个、`ambulance` 4 个；每个 world 采集 front/oblique/edge_truncated/recovery 四视角，合计 96 组视角。pickup 与 SUV 各 6 个 world 强制同框出现两类候选并交换任务文本，优先覆盖目前缺失的 `pickup→suv` 拒绝方向；postbox 4 个 world 同时放置 car，person 4 个 world 同时放置 postbox，ambulance 4 个 world 作为 r3 新增 suv→ambulance 误收的对照负例。其中至少 4 个 pickup、4 个 suv、2 个 postbox world 把目标短边固定在 8-12/12-16 px，余下保持 24-32/`>=32 px`，以覆盖 r3 的小框边界和大框误收。新增 world 应优先复刻错误最高的几何条件：w0002/w0001 的 pickup、w0010/w0009 的 suv、w0026 的 postbox；每类至少两个新 world，避免只重复原 world 的纹理。
+
+采集验收要求每个 episode 实际产生四个 view sidecar、观察帧数非零、目标距离/短边落在 index 设计档；不能以 episode `status=complete` 代替这些检查。新采集只用于 train/val，保留一组未见 world 作为 12 个 test world 的同类扩展评测，不能把新增视角直接混入冻结测试。
+
+### 5. 构建器变更与实际构建
+
+`scripts/build_slow_system_sft.py` 新增两个 opt-in 选项：`--balance-identity-views` 按 `task_category × (positive|negative) × view` 平衡，`--balance-confusable-negative-views` 按已有 hard-pair × view 平衡；默认均关闭，因此已有命令和输出保持不变。两者都在 train 选择完成后做确定性上采样，并在 manifest 写入每个 strata 的 original/added/final 数量；`tests/test_slow_system_sft.py` 增加了稀疏视角补齐、hard reject 专项补齐、忽略 ask_clarify 以及保留显式平衡副本的测试。实际命令使用 r21id-r3 已有 episodes、proposal cache、`--counterfactual-tasks --counterfactual-negatives --confusable-negatives --balance-identity-views --balance-confusable-negative-views --max-upsample 2`，输出 `.tmp/r21id-r4-sft/`：train 15,505 行、val 1,163 行、test 1,350 行；通用视角平衡新增 2,033 行，hard-pair 视角平衡新增 128 行。本次重建虽传入 proposal cache，但没有生成 `proposal_*` 标签行；因此行数只作为当前工作树可重放结果，不能替代 r21id-r3 原始 manifest。
+
+最终分布：train 正例（confirm+approach）7,065、reject 8,046、search/clarify 394；核心标签为 distractor 4,554、true_target 2,131、counterfactual 3,198、counterfactual_negative 2,794、confusable_positive 1,736、confusable_negative 499。val 为正例 561、reject 594、其他 8；test 为正例 518、reject 777、其他 55。val/test 未执行两种平衡。
