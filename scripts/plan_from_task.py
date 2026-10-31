@@ -58,11 +58,12 @@ def success_path(plan: MissionPlan) -> list[str]:
 def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
     *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
-    airframe: str | None = None,
+    airframe: str | None = None, decision_contract: bool = False,
 ):
     plan, report = compile_mission_plan(
         post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
-        capabilities=capabilities, airframe=airframe, include_decision_contract=True,
+        capabilities=capabilities, airframe=airframe,
+        include_decision_contract=decision_contract,
     )
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
@@ -265,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         "--prompt-variant", choices=PLAN_PROMPT_VARIANTS, default="default",
         help="experimental prompt ablation (default keeps the exact training prompt)",
     )
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output (default: legacy MissionPlan)")
     parser.add_argument(
         "--llama-server", type=Path,
         default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
@@ -295,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     if not document["tasks"]:
         parser.error("the task file must contain at least one task")
     refs = tuple(document.get("refs", ()))
-    schema = plan_json_schema()
+    schema = plan_json_schema(include_decision_contract=args.decision_contract)
     if args.sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
@@ -338,13 +341,16 @@ def main(argv: list[str] | None = None) -> int:
             task_refs = tuple(item.get("refs", refs))
             capabilities = frozenset(item.get("capabilities", ()))
             airframe = "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None
-            task_schema = plan_json_schema(capabilities=capabilities)
+            task_schema = plan_json_schema(
+                capabilities=capabilities, include_decision_contract=args.decision_contract
+            )
             if args.sorted_keys:
                 task_schema = trained_key_order_schema(task_schema)
             request_usage.clear()
             plan, raw, attempts, error = compile_task(
                 post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
                 capabilities=capabilities, airframe=airframe,
+                decision_contract=args.decision_contract,
             )
             rows.append(
                 {

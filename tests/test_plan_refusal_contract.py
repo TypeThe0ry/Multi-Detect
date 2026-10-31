@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 
 import pytest
 
@@ -35,7 +36,13 @@ def test_legacy_mission_plan_and_new_discriminator_schema_are_compatible():
     legacy = {"plan_version": 1, "goal": "return", "steps": [
         {"id": "home", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}], "report": []}
     assert validate_mission_plan(legacy).steps[0].skill == "return_home"
-    schema = plan_json_schema()
+    legacy_schema = plan_json_schema()
+    assert "anyOf" not in legacy_schema
+    legacy_bytes = json.dumps(legacy_schema, ensure_ascii=False, separators=(",", ":")).encode()
+    assert hashlib.sha256(legacy_bytes).hexdigest() == (
+        "7b58a883a6c009a843b489e554d947043bc50c406fdb210b56783810f4dcedf3"
+    )
+    schema = plan_json_schema(include_decision_contract=True)
     assert len(schema["anyOf"]) == 3
     assert schema["anyOf"][0]["required"] == ["plan_version", "goal", "steps", "report"]
     assert schema["anyOf"][1]["required"][1] == "decision"

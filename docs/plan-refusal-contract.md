@@ -2,7 +2,15 @@
 
 ## 为什么需要
 
-规划模型以前只能返回 `MissionPlan`。当任务要求飞机没有的能力（例如投放载荷），解码约束会排除 `deliver`，模型可能改写成另一个可执行任务。飞机随后会执行与操作员意图不同的任务。现在规划结果可以明确拒绝或请求澄清，安全默认是“不执行该任务”。
+规划模型以前只能返回 `MissionPlan`。当任务要求飞机没有的能力（例如投放载荷），解码约束会排除 `deliver`，模型可能改写成另一个可执行任务。飞机随后会执行与操作员意图不同的任务。启用拒绝契约后，规划结果可以明确拒绝或请求澄清；不确定或拒绝时的安全策略仍是“不执行该任务”。
+
+## 开关与默认值
+
+拒绝契约默认关闭。关闭时，提示词和 `plan_json_schema` 保持 legacy `MissionPlan` 的字节级格式：不包含顶层 `anyOf`，也不包含拒绝/澄清说明或示例；机载和评测都沿用旧路径。这是因为尚未学习拒绝格式的现役 r24 模型在新契约提示下出现回归：planning-v3 从 `0.7375` 降至 `0.6875`，`unknown_place` 从 `2/2` 降至 `0/2`，`query_ungrounded` 从 `0/2` 变为 `1/2`，返航探测仍为 `15/15`。
+
+机载配置键为 `planning_decision_contract`，未设置等同于 `false`。评测脚本 `plan_from_task.py`、`run_model_round_eval.py` 和 `run_planner_probe.py` 使用 `--decision-contract` 开启。`run_planner_round.py` 在 `--r26-recipe` 时自动同时为候选模型和基线开启；可用 `--decision-contract` 或 `--no-decision-contract` 覆盖。
+
+只有 r26 或之后的轮次在替换门槛中验证通过，并且模型已经学习了拒绝/澄清格式后，才应在推荐机载配置中打开该键。
 
 ## 输出格式
 

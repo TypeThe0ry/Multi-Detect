@@ -252,9 +252,15 @@ def _step_schema(skill: str) -> dict[str, Any]:
     }
 
 
-def plan_json_schema(*, capabilities: frozenset[str] = frozenset()) -> dict[str, Any]:
+def plan_json_schema(
+    *, capabilities: frozenset[str] = frozenset(), include_decision_contract: bool = False
+) -> dict[str, Any]:
     """MissionPlan schema with exact per-skill parameters (gated skills need capability)."""
-    skills = [name for name, spec in SKILLS.items() if not spec.gated or {"payload", "payload_drop"} & set(capabilities)]
+    skills = [
+        name for name, spec in SKILLS.items()
+        if not spec.gated or "payload" in capabilities
+        or include_decision_contract and "payload_drop" in capabilities
+    ]
     mission_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -275,9 +281,11 @@ def plan_json_schema(*, capabilities: frozenset[str] = frozenset()) -> dict[str,
             },
         },
     }
-    # Closed, mutually exclusive branches keep constrained decoding compatible
-    # with llama.cpp while allowing legacy MissionPlan documents.
-    return {"anyOf": [mission_schema, *PLAN_DECISION_JSON_SCHEMAS]}
+    if include_decision_contract:
+        # Closed, mutually exclusive branches keep constrained decoding compatible
+        # with llama.cpp while allowing legacy MissionPlan documents.
+        return {"anyOf": [mission_schema, *PLAN_DECISION_JSON_SCHEMAS]}
+    return mission_schema
 
 
 def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -528,7 +536,9 @@ def compile_mission_plan(
         raise ValueError("attempts must be positive")
     if prompt_variant not in PLAN_PROMPT_VARIANTS:
         raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
-    schema = schema if schema is not None else plan_json_schema(capabilities=capabilities)
+    schema = schema if schema is not None else plan_json_schema(
+        capabilities=capabilities, include_decision_contract=include_decision_contract
+    )
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
     for attempt in range(attempts):

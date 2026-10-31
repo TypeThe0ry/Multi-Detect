@@ -190,6 +190,7 @@ def test_r26_recipe_emits_structured_refusals_and_admits_without_r25_candidates(
     assert {row["reason_code"] for row in decisions} == {
         "missing_capability", "unknown_place", "ungrounded_query", "ambiguous_task", "unsafe_request"
     }
+    assert all("reason_code" in row["prompt"] for row in decisions)
     assert all("rejected_candidate" not in row for row in refusals)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["r26_recipe"]["r25_rejected_candidate_rows_included"] is False

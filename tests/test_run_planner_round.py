@@ -130,6 +130,23 @@ def test_r26_recipe_passes_refusal_count_without_r25_negative_target_mode(tmp_pa
     assert "--r25-recipe" not in output
 
 
+def test_r26_recipe_enables_decision_contract_for_candidate_and_baseline(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "r26"), "--r26-recipe",
+    ]) == 0
+    assert capsys.readouterr().out.count("--decision-contract") == 4
+
+
+def test_no_decision_contract_overrides_r26_auto_enable(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "r26"), "--r26-recipe",
+        "--no-decision-contract",
+    ]) == 0
+    assert "--decision-contract" not in capsys.readouterr().out
+
+
 def test_replacement_reasons_use_configured_baseline_label():
     baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
                 "planning-v4": {"category_metrics": {}}}

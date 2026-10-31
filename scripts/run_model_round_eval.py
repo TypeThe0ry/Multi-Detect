@@ -248,6 +248,7 @@ def build_stages(args) -> list[Stage]:
                     "--output",
                     str(report),
                 ]
+                + (["--decision-contract"] if getattr(args, "decision_contract", False) else [])
                 + common
             )
         else:
@@ -438,6 +439,8 @@ def main(argv=None, *, runner=None) -> int:
     parser.add_argument("--min-valid-rate", type=float, default=0.99)
     parser.add_argument("--max-transport-rate", type=float, default=0.01)
     parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output in planning stages")
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument(
         "--index", type=Path, default=ROOT / "configs/scenarios/generated-v2/index.json"

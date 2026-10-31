@@ -108,7 +108,7 @@ def _llama_property_orders(schema: object):
 def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
     from multidetect.autonomy.mission_planner import plan_json_schema
 
-    schema = trained_key_order_schema(plan_json_schema())
+    schema = trained_key_order_schema(plan_json_schema(include_decision_contract=True))
     for names, emitted in _llama_property_orders(schema):
         assert names == sorted(names)
         assert emitted == names
@@ -128,7 +128,7 @@ def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
 def test_plan_schema_top_level_anyof_survives_key_ordering() -> None:
     from multidetect.autonomy.mission_planner import plan_json_schema
 
-    schema = trained_key_order_schema(plan_json_schema())
+    schema = trained_key_order_schema(plan_json_schema(include_decision_contract=True))
     assert set(schema) == {"anyOf"}
     assert len(schema["anyOf"]) == 3
     assert [branch["properties"]["decision"]["enum"][0]

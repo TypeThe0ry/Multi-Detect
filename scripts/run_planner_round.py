@@ -128,6 +128,9 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     adapter = out / "adapter"
     gguf = out / "slow-system-Q5_K_M.gguf"
     report = EVAL_ROOT
+    decision_contract = args.decision_contract
+    if decision_contract is None:
+        decision_contract = bool(args.r26_recipe)
     data_cmd = [sys.executable, str(ROOT / "scripts/build_plan_sft.py"), "--output", str(dataset), "--version", "v4", "--rows", str(args.rows), "--val-rows", str(args.val_rows), "--r20-plan-intent", "--r20-plan-intent-count", str(args.intent_count), "--r20-plan-intent-mix"]
     if args.replay_planner_train:
         data_cmd += ["--replay-planner-train", str(args.replay_planner_train)]
@@ -166,9 +169,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                           # model quality, scored by the replacement gate (r14 itself is
                           # 93.75% valid on v3), not a broken server, which
                           # --max-transport-rate still guards.
-                          "--min-valid-rate", "0"])
+                          "--min-valid-rate", "0"]
+                         + (["--decision-contract"] if decision_contract else []))
     for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
-        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
+        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")]
+                         + (["--decision-contract"] if decision_contract else []))
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
 
 
@@ -202,6 +207,12 @@ def main(argv=None) -> int:
                         help="extend r24 with structured reject/clarify targets")
     parser.add_argument("--r26-refusal-count", type=int, default=60,
                         help="structured refusal rows per reason_code (r26 default: 60)")
+    contract = parser.add_mutually_exclusive_group()
+    contract.add_argument("--decision-contract", dest="decision_contract", action="store_true",
+                          help="enable structured reject/clarify evaluation")
+    contract.add_argument("--no-decision-contract", dest="decision_contract", action="store_false",
+                          help="disable structured reject/clarify evaluation")
+    parser.set_defaults(decision_contract=None)
     parser.add_argument("--init-adapter", type=Path, default=R14_ADAPTER,
                         help="adapter used to initialize training (default: r14)")
     parser.add_argument("--baseline-gguf", type=Path, default=R14_GGUF,

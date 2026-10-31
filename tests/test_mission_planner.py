@@ -46,7 +46,7 @@ def _find_plan(*, retry_back_edge: bool = False) -> dict:
 def test_examples_are_valid_plans_and_schema_covers_ungated_skills():
     for _text, plan in EXAMPLES:
         validate_mission_plan(plan)
-    variants = plan_json_schema()["anyOf"][0]["properties"]["steps"]["items"]["anyOf"]
+    variants = plan_json_schema(include_decision_contract=True)["anyOf"][0]["properties"]["steps"]["items"]["anyOf"]
     skills = {v["properties"]["skill"]["enum"][0] for v in variants}
     assert skills == {name for name, spec in SKILLS.items() if not spec.gated}
     count = next(v for v in variants if v["properties"]["skill"]["enum"] == ["count"])

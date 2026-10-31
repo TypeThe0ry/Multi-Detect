@@ -340,9 +340,12 @@ def build_mission_from_text(
     attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
+    include_decision_contract: bool = False,
 ) -> tuple[MissionPlan | PlanDecision, dict[str, Any]]:
     """Compile a task; explicit reject/clarify results never get a flight fallback."""
-    schema = plan_json_schema(capabilities=capabilities)
+    schema = plan_json_schema(
+        capabilities=capabilities, include_decision_contract=include_decision_contract
+    )
     if sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
@@ -357,7 +360,7 @@ def build_mission_from_text(
         plan_checker=plan_checker,
         capabilities=capabilities,
         airframe=airframe,
-        include_decision_contract=True,
+        include_decision_contract=include_decision_contract,
     )
     if isinstance(plan, PlanDecision):
         return plan, report
@@ -413,6 +416,8 @@ class OnboardPolicy:
             **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
             **(config or {}),
         }
+        if type(options.get("planning_decision_contract", False)) is not bool:
+            raise ValueError("planning_decision_contract must be a boolean")
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(
@@ -1310,6 +1315,9 @@ class OnboardPolicy:
                             sorted_keys=bool(options.get("plan_sorted_keys", True)),
                             plan_checker=plan_checker,
                             capabilities=capabilities,
+                            include_decision_contract=bool(
+                                options.get("planning_decision_contract", False)
+                            ),
                         )
                     except Exception:
                         # ``post`` records HTTP outcomes; do not count an
@@ -1683,6 +1691,9 @@ class OnboardPolicy:
                                 candidate, package, capabilities=capabilities,
                                 executor_config=self.executor.config,
                             ),
+                            include_decision_contract=bool(
+                                self.config.get("planning_decision_contract", False)
+                            ),
                         )
                         if report.get("error"):
                             raise ValueError(f"operator task planning failed: {report['error']}")
@@ -1710,6 +1721,9 @@ class OnboardPolicy:
                             plan_checker=lambda candidate: check_plan_against_package(
                                 candidate, package, capabilities=capabilities,
                                 executor_config=self.executor.config,
+                            ),
+                            include_decision_contract=bool(
+                                self.config.get("planning_decision_contract", False)
                             ),
                         )
                     else:
@@ -1742,6 +1756,9 @@ class OnboardPolicy:
                     package,
                     capabilities=capabilities,
                     executor_config=self.executor.config,
+                ),
+                include_decision_contract=bool(
+                    self.config.get("planning_decision_contract", False)
                 ),
                 )
             if report.get("error"):
