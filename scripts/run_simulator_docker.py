@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import shutil
@@ -30,6 +31,7 @@ from multidetect.simulator.stack import (
     SimulatorStackPorts,
     build_stack_plan,
 )
+from multidetect.sim_network import sim_docker_network
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
@@ -415,6 +417,7 @@ def build_docker_simulator_plan(
     if control_port == telemetry_port:
         raise DockerSimulatorPlanError("control and telemetry ports must differ")
     root = _path(repository_root or ROOT, label="repository_root")
+    container_network = sim_docker_network()
     output_job = _path(
         job_dir or root / "artifacts" / "evaluation" / f"docker-{container_name}",
         label="job_dir",
@@ -515,11 +518,17 @@ def build_docker_simulator_plan(
         "\\1mavlink start -x -t $DOCKER_HOST_IP -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    docker_host_ip = (
+        'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | '
+        "awk '/STREAM/ {print $1; exit}')\"; "
+        if os.name == "nt"
+        else 'DOCKER_HOST_IP="$(ip -4 route show default | '
+        "awk 'NR == 1 {print $3}')\"; "
+    )
     startup = "".join(
         (
             "set -eu; ",
-            'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | ',
-            "awk '/STREAM/ {print $1; exit}')\"; ",
+            docker_host_ip,
             'export DOCKER_HOST_IP; test -n "$DOCKER_HOST_IP"; ',
             "RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; ",
             patch_assignment,
@@ -549,6 +558,8 @@ def build_docker_simulator_plan(
         "no-new-privileges:true",
         "--add-host",
         "host.docker.internal:host-gateway",
+        "--network",
+        container_network,
         "--publish",
         f"127.0.0.1:{control_port}:{control_port}/udp",
         "--mount",
@@ -593,6 +604,7 @@ def build_docker_simulator_plan(
         cleanup_commands=cleanup,
         docker_executable=_docker_binary(),
         dry_run=dry_run,
+        container_network_mode=container_network,
         vehicle_model=stack.vehicle_model,
         model_name=model_name,
         airframe_profile_id=stack.airframe_profile_id,

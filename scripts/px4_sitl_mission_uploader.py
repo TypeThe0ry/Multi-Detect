@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from pymavlink import mavutil
+from multidetect.sim_network import sim_udpin_endpoint
 
 EXPECTED_CONTAINER_NAME = "multidetect-px4-auto-mission-acceptance"
 EXPECTED_PURPOSE_LABEL = "px4-sitl-auto-mission-acceptance"
@@ -22,7 +23,10 @@ PINNED_IMAGE_REFERENCE = (
 )
 SITL_HOST_PORT = 14652
 PROTECTED_GROUND_STATION_PORT = 14550
-SITL_ENDPOINT = f"udpin:0.0.0.0:{SITL_HOST_PORT}"
+
+
+def sitl_endpoint() -> str:
+    return sim_udpin_endpoint(SITL_HOST_PORT)
 SOURCE_SYSTEM_ID = 250
 SOURCE_COMPONENT_ID = 190
 _ALLOWED_DISARMED_SYSTEM_STATUSES = frozenset(
@@ -588,7 +592,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     connection = mavutil.mavlink_connection(
-        SITL_ENDPOINT,
+        sitl_endpoint(),
         source_system=SOURCE_SYSTEM_ID,
         source_component=SOURCE_COMPONENT_ID,
         autoreconnect=False,
@@ -641,7 +645,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "event": "px4_sitl_mission_upload_finished",
         "simulation_only": True,
         "container": container,
-        "endpoint": SITL_ENDPOINT,
+        "endpoint": sitl_endpoint(),
         "protected_ground_station_port": PROTECTED_GROUND_STATION_PORT,
         "heartbeat_identity": {
             "system_id": int(heartbeat.get_srcSystem()),

@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from scripts.run_simulator_docker import DEFAULT_SCENARIO, build_docker_simulator_plan
 from scripts.platform_paths import pythonpath_value
 from scripts.sitl_lock import SitlLock, default_lock_path
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 CASES = ("valid", "corrupt", "digest", "expired", "rtl")
 
@@ -34,7 +35,7 @@ class Px4LoopbackRelay:
         self.px4_port, self.onboard_port, self.control_port = px4_port, onboard_port, control_port
         self.stop = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("0.0.0.0", px4_port))
+        self.sock.bind((sim_listen_host(), px4_port))
         self.sock.settimeout(0.2)
         from pymavlink import mavutil
         self.mavutil = mavutil
@@ -111,7 +112,7 @@ def wait_for(predicate, timeout: float, interval: float = 0.25) -> bool:
 def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     command = [
         sys.executable, str(ROOT / "scripts/onboard_main.py"), "real",
-        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port}",
+        "--endpoint", sim_udpin_endpoint(args.telemetry_port),
         "--camera", args.camera, "--camera-backend", args.camera_backend,
         "--calibration", str(args.calibration), "--mission-package", str(args.mission_package),
         "--operator-key", str(args.operator_key), "--failsafe", "rtl",
@@ -237,7 +238,7 @@ def run_case(name: str, args) -> dict[str, Any]:
         if name == "rtl":
             # Confirm RTL on the telemetry port, release it, then relaunch onboard
             # right away so PX4 is still airborne in RTL when recovery classifies it.
-            rtl_records = wait_for_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
+            rtl_records = wait_for_px4_rtl(sim_udpin_endpoint(args.telemetry_port))
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
         wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)

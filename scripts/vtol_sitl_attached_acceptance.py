@@ -37,6 +37,7 @@ from vtol_sitl_scenario_acceptance import (
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
+from multidetect.sim_network import sim_udpin_endpoint
 
 DEFAULT_MANIFEST = (
     Path(__file__).resolve().parents[1]
@@ -156,7 +157,7 @@ def run_attached_acceptance(
         container_name,
         expected_label=expected_container_label,
     )
-    endpoint = f"udpin:127.0.0.1:{evaluator_port}"
+    endpoint = sim_udpin_endpoint(evaluator_port)
     connection: Any | None = None
     collector: TelemetryCollector | None = None
     command_events: list[dict[str, Any]] = []

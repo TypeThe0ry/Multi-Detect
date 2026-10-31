@@ -36,6 +36,13 @@ MAX_CAPTURE_BYTES = 128 * 1024 * 1024
 _ID = re.compile(r"[0-9a-f]{64}")
 
 
+
+def _sim_udpin_endpoint(port: int) -> str:
+    from multidetect.sim_network import sim_udpin_endpoint
+
+    return sim_udpin_endpoint(port)
+
+
 class TeacherSessionError(RuntimeError):
     pass
 
@@ -413,7 +420,7 @@ class OwnedTeacherGazeboSession:
             **self.report,
             "clock": self.clock.identity(),
             "control_endpoint": self.control_endpoint,
-            "telemetry_endpoint": f"udpin:127.0.0.1:{self.plan.docker_plan.host_telemetry_port}",
+            "telemetry_endpoint": _sim_udpin_endpoint(self.plan.docker_plan.host_telemetry_port),
             "flight_authority": False,
         }
 
@@ -511,7 +518,7 @@ class OwnedTeacherGazeboSession:
                 },
             )
             self.connection = self._connect(
-                f"udpin:127.0.0.1:{docker.host_telemetry_port}",
+                _sim_udpin_endpoint(docker.host_telemetry_port),
                 source_system=250,
                 source_component=191,
                 autoreconnect=False,

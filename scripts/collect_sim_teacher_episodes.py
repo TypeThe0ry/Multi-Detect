@@ -67,6 +67,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     build_observation,
 )
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
+from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
@@ -3237,7 +3238,7 @@ def run_episode(
                 }
             )
             telemetry_connection = mavutil.mavlink_connection(
-                f"udpin:127.0.0.1:{plan.telemetry_port}",
+                sim_udpin_endpoint(plan.telemetry_port),
                 source_system=GCS_SOURCE_SYSTEM,
                 source_component=GCS_SOURCE_COMPONENT,
                 autoreconnect=False,
