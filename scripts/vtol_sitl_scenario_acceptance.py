@@ -34,7 +34,7 @@ from typing import Any
 
 from multidetect.clock import Clock, HighResolutionSystemClock, SystemClock
 from multidetect.product_version import PRODUCT_VERSION
-from multidetect.sim_network import sim_docker_network, sim_udpin_endpoint
+from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_udpin_endpoint
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
 
@@ -78,12 +78,13 @@ class VtolAcceptanceError(RuntimeError):
 
 
 def _startup_command(mavlink_port: int) -> str:
+    # Docker Desktop routes host.docker.internal to the host loopback.  On Linux,
+    # send to the exact address the host listens on; the PX4 image has no `ip`.
     docker_host_ip = (
         'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal '
         "| awk '/STREAM/ {print $1; exit}')\"; "
         if os.name == "nt"
-        else 'DOCKER_HOST_IP="$(ip -4 route show default | '
-        "awk 'NR == 1 {print $3}')\"; "
+        else f'DOCKER_HOST_IP="{sim_listen_host(sim_docker_network())}"; '
     )
     return (
         "set -eu; "

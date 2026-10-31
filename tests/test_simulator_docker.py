@@ -138,7 +138,8 @@ def test_docker_plan_uses_selected_network_for_container_and_px4_target(
     if os.name == "nt":
         assert "host.docker.internal" in startup
     else:
-        assert "ip -4 route show default" in startup
+        assert "ip -4 route" not in startup  # the PX4 image has no iproute2
+        assert 'DOCKER_HOST_IP="' in startup
 
 
 def test_docker_plan_rejects_protected_or_duplicate_ports(tmp_path: Path) -> None:

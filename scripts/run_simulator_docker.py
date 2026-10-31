@@ -31,7 +31,7 @@ from multidetect.simulator.stack import (
     SimulatorStackPorts,
     build_stack_plan,
 )
-from multidetect.sim_network import sim_docker_network
+from multidetect.sim_network import sim_docker_network, sim_listen_host
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
@@ -518,12 +518,14 @@ def build_docker_simulator_plan(
         "\\1mavlink start -x -t $DOCKER_HOST_IP -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    # Docker Desktop routes host.docker.internal to the host loopback.  On Linux,
+    # send to the exact address the host listens on (the selected network's
+    # gateway); the PX4 image has no `ip` to discover it from inside.
     docker_host_ip = (
         'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | '
         "awk '/STREAM/ {print $1; exit}')\"; "
         if os.name == "nt"
-        else 'DOCKER_HOST_IP="$(ip -4 route show default | '
-        "awk 'NR == 1 {print $3}')\"; "
+        else f'DOCKER_HOST_IP="{sim_listen_host(container_network)}"; '
     )
     startup = "".join(
         (
