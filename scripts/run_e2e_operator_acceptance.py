@@ -39,7 +39,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(r"D:/Projects/mdwt/_scratch")
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.host_paths import host_path  # noqa: E402
+SCRATCH = host_path("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch", ROOT / ".tmp")
 LOCK = SCRATCH / "sitl.lock"
 DEFAULT_RADIUS_M = 10.0  # scripts/score_onboard_loop.py --radius-m default
 sys.path.insert(0, str(ROOT))

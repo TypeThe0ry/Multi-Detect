@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(r"D:\Projects\mdwt\_scratch\cx-demo-launcher")
-DEFAULT_LOCK = Path(r"D:\Projects\mdwt\_scratch\sitl.lock")
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.mission_security import AuthenticationKey, sign_document  # noqa: E402
+from multidetect.host_paths import host_path  # noqa: E402
 from scripts.run_nightly_regression import SitlLock  # noqa: E402
+
+SCRATCH = host_path("MULTIDETECT_DEMO_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-demo-launcher", ROOT / ".tmp/cx-demo-launcher")
+DEFAULT_LOCK = host_path("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock", ROOT / ".tmp/sitl.lock")
 
 
 @dataclass

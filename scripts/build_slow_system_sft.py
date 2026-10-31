@@ -89,9 +89,9 @@ def _iter_jsonl(path: Path):
 def _relative(path: Path) -> str:
     """Repository-relative path, as every dataset row stores it.
 
-    A worktree run may read campaign data that lives in the main checkout
-    (``D:/Projects/Multi-Detect/artifacts/...``); such paths are made relative to
-    the repository that holds them so they resolve against that data root.
+    A worktree run may read campaign data from another checkout; such paths are
+    made relative to the repository that holds them so they resolve against that
+    data root.
     """
     resolved = path.resolve(strict=True)
     try:

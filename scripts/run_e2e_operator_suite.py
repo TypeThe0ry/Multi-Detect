@@ -25,8 +25,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
-SCRATCH = Path(os.environ.get("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-e2e-multi"))
-LOCK_DIR = Path(os.environ.get("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock"))
+from multidetect.host_paths import host_path
+SCRATCH = host_path("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-e2e-multi", ROOT / ".tmp/cx-e2e-multi")
+LOCK_DIR = host_path("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock", ROOT / ".tmp/sitl.lock")
 
 
 def _json(path: Path) -> Any:

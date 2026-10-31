@@ -36,7 +36,7 @@ def cross_task_split_check(
     """Check optional slow-system SFT/flight test manifests for overlap."""
     if skip:
         return {"status": "skipped_explicitly", "note": "--skip-cross-task-check"}
-    artifact_roots = [ROOT / "artifacts", Path("D:/Projects/Multi-Detect/artifacts")]
+    artifact_roots = [ROOT / "artifacts"]
     candidates = []
     for root in artifact_roots:
         candidates.extend(
@@ -129,8 +129,8 @@ def collect_frames(
                 ROOT / "configs/scenarios/generated-confusers",
                 ROOT / "configs/scenarios/generated-confusers-2",
                 ROOT / "configs/scenarios/generated-r15",
-                Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers"),
-                Path("D:/Projects/Multi-Detect/artifacts/configs/scenarios/generated-confusers-2"),
+                ROOT / "artifacts/configs/scenarios/generated-confusers",
+                ROOT / "artifacts/configs/scenarios/generated-confusers-2",
             ]
             truth_path = _find_truth(world, truth_roots)
             if truth_path is None:

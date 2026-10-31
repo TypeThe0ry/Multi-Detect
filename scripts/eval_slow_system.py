@@ -28,6 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from multidetect.host_paths import executable_name
 
 from multidetect.autonomy.onboard_decision import (
     DECISION_JSON_SCHEMA,
@@ -52,7 +53,7 @@ DEFAULT_DATASET = ROOT / "artifacts/datasets/slow-system-sft-r1"
 DEFAULT_CACHE = (
     ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
 )
-DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server")
 
 
 def _windows_port_processes(port: int) -> list[dict[str, Any]]:
