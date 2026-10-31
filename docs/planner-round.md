@@ -263,3 +263,22 @@ python scripts/run_planner_round.py --stage data --force-stage data \
 ```
 
 dry-run 只打印了上述 data 命令，没有训练或评测。实际结果为 train 5,500、val 100；r24 四个 family 分别为 120、80、40、40，r23 family 保持 600 条 coverage 和 80 条 faithful deliver。训练准入 `admit_train_rows` 接受全部 5,500 条，意图与结构检查全部通过；负例共检查 480 条，已知引用替代为 0。与 planning-v3/v4 评测题按 `normalize_task` 去重后碰撞为 0。统计文件位于 `.tmp/r24-data/dataset/r23-data-stats.md`，未写入 `artifacts/`。本轮没有启动训练、GPU 推理、llama-server、SITL 或 Docker。
+
+## r24 结果（2026-10-31，新开发机）
+
+r24 = r23 配方 + “引用落地”数据族（同名 poi/zone 对照 80、未知地点忠实负例 80、当前位置/起飞点 80），r14 热启动，lr 2.5e-5，1 epoch，GPU1 约 35 分钟。训练集 5,460 行、val 100 行，全部通过准入。评测用本次评测链路（含新的固定翼 goto→land 与否定句 query 校验规则），r14 与 r24 同一套代码重跑。
+
+| 指标 | r14 | r23 | r24 |
+|---|---:|---:|---:|
+| planning-v3 精确序列 | 0.6625 | 0.6125 | **0.7375** |
+| planning-v3 JSON 有效率 | 0.9375 | 0.875 | **0.95** |
+| planning-v4 精确序列 | 0.60 | 0.60 | **0.75** |
+| 返航探测（15 题） | 13/15 | 14/15 | **15/15** |
+
+planning-v4 分类（精确或正确拒绝，r24 对 r14）：return_intent 2/2 对 1/2，ref_alias 3/4 对 1/4，其余类别持平（unknown_place、fixed_wing_hover、fixed_wing_target_land、return_negated_land、query_grounding 两者都满分；missing_payload_drop、query_ungrounded 两者都是 0/2）。
+
+替换判定（`artifacts/scratch/cx-planner-round/r24/replacement-decision.json`）：v3 不低于 r14、v3 有效率不低于 r14、v4 返航类提升 ≥10 个百分点、15 条返航探测全过——**全部通过，r24 替换 r14 作为机载规划模型**。
+
+模型：`artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf`（sha256 `147f90d8…`），adapter 在 `artifacts/models/slow-system-lora-v2-r24-planner/`。推荐机载组合配置：`configs/onboard/sim-loop-v3-r18id-r24plan-defaults.json`（r18 身份 + r24 规划 + YOLOE v3 1280）。各回归套件配置暂时仍指向 r14，等 Linux 上 SITL 闭环跑通、用 r24 跑一轮任务套件后再切换。
+
+剩余问题：missing_payload_drop（缺载荷仍规划投递以外的动作，没有拒绝）和 query_ungrounded 仍为 0/2，下一轮规划数据应补这两类。

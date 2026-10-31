@@ -1,0 +1,8 @@
+{
+  "gguf": "artifacts/r18-round/merged-gguf/slow-system-Q5_K_M.gguf",
+  "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+  "confirm_max_range_m": 40,
+  "fast_identity": true,
+  "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+  "near_depth": false
+}
