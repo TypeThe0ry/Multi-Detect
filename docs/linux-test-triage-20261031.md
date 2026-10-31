@@ -71,3 +71,37 @@ python -m pytest tests -q -p no:xdist --continue-on-collection-errors --tb=short
 - `tests/test_build_onboard_openfly_original82_supervision.py`：`61 passed, 1 skipped`。
 
 全量套件因长耗时未达到最终 pytest 汇总；因此本文件没有声称已覆盖剩余 64.2% 的测试，也没有把未观察到的失败推断为 B/C。
+
+## 第二轮（全量）
+
+2026-10-31 在同一主环境按测试文件分批执行。每个文件单独启动
+`/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest <file> -q -p no:xdist --tb=short`，外层
+`timeout 90s`；环境变量仍为 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp CUDA_VISIBLE_DEVICES=''`。
+共扫描 810 个 `tests/test_*.py` 文件：660 个文件正常结束且无失败，134 个文件含失败或错误，14 个文件因无
+torch 或 `huggingface_hub` 整模块跳过，另有 2 个文件触发单文件超时。文件级结果会受到同一套件中缺失证据、沙箱网络限制和可选依赖
+缺失的影响，不能把失败文件数直接解释为产品回归数。
+
+本轮发现的超长/卡住文件：
+
+- `tests/test_onboard_fault_campaign.py`：90 秒超时。
+- `tests/test_round_collect_preflight.py`：90 秒超时。
+
+修复涉及的无 torch 测试现在以明确原因跳过；主环境中以下模块的收集不再报 `NameError` 或裸导入错误：
+`test_onboard_navigation_feature_capture.py`、`test_onboard_navigation_feature_capture_v2.py`、
+`test_onboard_navigation_native_prefix_adapter.py`、`test_policy_v2_model.py`、`test_policy_v2_training.py`。
+其中后两个是既有 policy-v2 依赖门槛，跳过原因均为 `torch` 未安装。`test_onboard_campaign_retry.py` 可完整收集 11 个
+测试；执行阶段仍受只读共享 `artifacts/` 和既有 mock 调用计数断言影响。
+两个 parquet 测试文件在主环境中也会在收集边界跳过 `huggingface_hub`，避免其版本元数据缺失在 fixture setup
+阶段变成错误；`pyarrow`、`cryptography`、`yaml` 的 skip 原因同样写在对应测试文件中。
+
+回归闸门：
+
+```text
+scripts/run_onboard_gate.py -q -p no:warnings
+3 failed, 约 72s
+```
+
+3 个失败均为当前沙箱禁止创建本地 socket（`PermissionError: [Errno 1] Operation not permitted`）：
+`tests/test_llama_server_logs.py::test_port_wait_ignores_time_wait_after_server_close`、
+`tests/test_onboard_main_operator_link.py::test_start_up_mission_is_bound_and_held_for_operator_approval`、
+`tests/test_replay_set.py::test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations`。

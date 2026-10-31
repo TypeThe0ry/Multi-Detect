@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+pytest.importorskip("yaml", reason="OpenFly navigation dataset builder requires optional PyYAML")
+
 from scripts import build_onboard_openfly_navigation_dataset as builder
 
 

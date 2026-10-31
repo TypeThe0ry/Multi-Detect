@@ -9,7 +9,9 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+pytest.importorskip("cryptography", reason="mission GCS signing tests require optional cryptography")
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_security import (

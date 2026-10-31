@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import torch
+torch = pytest.importorskip("torch", reason="navigation feature capture v2 tests require optional PyTorch")
 from test_onboard_navigation_inference import _request as request_fixture
 from test_onboard_navigation_learned_readout_backend import fixture
 
