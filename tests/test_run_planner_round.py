@@ -18,6 +18,18 @@ def test_replacement_decision_requires_all_gates():
     assert replacement_decision(candidate, baseline, passed, [])["replace_r14"] is False
 
 
+def test_replacement_decision_rejects_lower_v3_validity():
+    baseline = {"planning-v3": {"exact_sequence_rate": 0.60, "valid_rate": 0.9375},
+                "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 0.5}}}}
+    candidate = {"planning-v3": {"exact_sequence_rate": 0.61, "valid_rate": 0.875},
+                 "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 1.0}}}}
+    decision = replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])
+    assert decision["replace_r14"] is False
+    assert "planning-v3 有效率低于 r14" in decision["reasons"]
+    candidate["planning-v3"]["valid_rate"] = 0.9375
+    assert replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])["replace_r14"] is True
+
+
 def test_stage_current_requires_matching_hashes(tmp_path: Path):
     out = tmp_path
     for name in ("manifest.json", "train.jsonl", "val.jsonl"):

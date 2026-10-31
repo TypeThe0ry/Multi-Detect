@@ -68,6 +68,10 @@ def replacement_decision(candidate: dict, baseline: dict, probe_candidate: list[
     bv3 = float(baseline["planning-v3"]["exact_sequence_rate"])
     if cv3 < bv3:
         reasons.append("planning-v3 低于 r14")
+    cvalid = candidate["planning-v3"].get("valid_rate")
+    bvalid = baseline["planning-v3"].get("valid_rate")
+    if cvalid is not None and bvalid is not None and float(cvalid) < float(bvalid):
+        reasons.append("planning-v3 有效率低于 r14")
     cm = candidate["planning-v4"].get("category_metrics", {})
     bm = baseline["planning-v4"].get("category_metrics", {})
     categories = ("return_home", "unknown_location", "capability")
@@ -148,9 +152,10 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
                           # Planner rows count semantic plan errors as invalid; those are
-                          # model quality (scored by the replacement gate), not a broken
-                          # server, which --max-transport-rate still guards.
-                          "--min-valid-rate", "0.95"])
+                          # model quality, scored by the replacement gate (r14 itself is
+                          # 93.75% valid on v3), not a broken server, which
+                          # --max-transport-rate still guards.
+                          "--min-valid-rate", "0"])
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
