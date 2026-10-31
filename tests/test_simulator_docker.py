@@ -142,6 +142,48 @@ def test_docker_plan_uses_selected_network_for_container_and_px4_target(
         assert 'DOCKER_HOST_IP="' in startup
 
 
+def test_host_network_plan_uses_loopback_partition_and_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_NETWORK", raising=False)
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "host",
+        container_name="r15-worker-1",
+        control_port=14570,
+        telemetry_port=14571,
+        sim_network="host",
+        sim_instance=1,
+    )
+    assert plan.container_network_mode == "host"
+    assert ("--network", "host") == plan.command[
+        plan.command.index("--network") : plan.command.index("--network") + 2
+    ]
+    assert "--publish" not in plan.command
+    assert "--add-host" not in plan.command
+    assert dict(plan.environment)["GZ_PARTITION"] == "r15-worker-1"
+    assert dict(plan.environment)["PX4_SIM_HOST"] == "127.0.0.1"
+    startup = plan.command[-1]
+    assert "mavlink start -x -t 127.0.0.1" in startup
+    assert "export PX4_NET_INTERFACE=lo;" in startup
+    assert "px4 -i 1" in startup
+
+
+def test_host_network_env_switch_and_windows_rejection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MULTIDETECT_SIM_NETWORK", "host")
+    plan = build_docker_simulator_plan(SCENARIO, repository_root=ROOT, job_dir=tmp_path / "env")
+    assert plan.container_network_mode == "host"
+    monkeypatch.setattr(
+        "scripts.run_simulator_docker.sim_network_mode",
+        lambda _mode=None: (_ for _ in ()).throw(ValueError("SIM network mode 'host' is supported on Linux only")),
+    )
+    with pytest.raises(ValueError, match="Linux only"):
+        build_docker_simulator_plan(SCENARIO, repository_root=ROOT, job_dir=tmp_path / "win")
+
+
 def test_docker_plan_rejects_protected_or_duplicate_ports(tmp_path: Path) -> None:
     with pytest.raises(DockerSimulatorPlanError, match="protected"):
         build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "protected", control_port=14550)
