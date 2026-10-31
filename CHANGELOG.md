@@ -1,4 +1,8 @@
 ## [Unreleased]
+### 开发环境与规划评测
+- 2026-10-31：开发环境从 Windows 11/RTX 4060 迁至 Ubuntu 工作站（2× EPYC 7402、404 GiB、4× RTX 3080）；建立主 Python 环境与独立 VLM 环境，在 CUDA 13.1 上本机编译 llama.cpp b11552。Linux 兼容修复覆盖规划轮与 GPU 检查、llama-server 端口等待、训练后端和路径处理，onboard 回归闸门已通过（`5932c1ac`、`f282d702`、`c2d15eb8`；相关路径调整 `b9afa8db`）。运行 Python 工具时可激活 `.venv`，设置 `PYTHONPATH=src:.` 后执行 `python scripts/run_onboard_gate.py -q -p no:warnings`。
+- 2026-10-31：r23 规划轮在新机器完成；规划评测链路与旧环境结果一致，但候选在 planning-v3 仍落后 r14，且出现引用编造问题，因此继续保留 r14。VLM 身份轮 r21id-r3 已进入训练。详见 [`docs/planner-round.md`](docs/planner-round.md)。
+
 ### 端到端操作员链路与安全
 - 2026-10-22：机载与地面站现已通过签名任务包、异步规划审批、分页最终摘要和断链后的幂等收尾串成真实 operator-link 闭环，未签名、重放或过期审批会被拒绝（`6916ca6`、`b4cf7d3`、`8bb3b1b`、`2c033de`）。
 - 2026-10-23：计划意图一致性检查拦截任务文本与地点、查询或终止动作不一致的模型计划，完整套件达到计划准确率和预期通过率 1.000（`7abda1e`、`11a8118`）。
