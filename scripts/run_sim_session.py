@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Start an interactive PX4/Gazebo session in Docker Desktop.
+"""Start an interactive PX4/Gazebo session in Docker.
 
 The session owns one container and removes it on Ctrl+C.  It deliberately
 reuses ``run_simulator_docker`` for the pinned image and repository asset
-contract, then adds the WSLg display bindings needed by Gazebo's client.
+contract, then adds the container-side browser viewer.
 """
 
 from __future__ import annotations
@@ -34,6 +34,8 @@ from scripts.run_simulator_docker import (  # noqa: E402
     DockerSimulatorPlan,
     build_docker_simulator_plan,
 )
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, default_lock_path
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 DEFAULT_AIRFRAME_WORLDS = {
@@ -48,7 +50,7 @@ DEFAULT_AIRFRAME_WORLDS = {
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
-DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+DEFAULT_LLAMA_SERVER = default_llama_server(ROOT)
 # Onboard-policy defaults for --onboard-task (the r18 mission-suite defaults).
 # Values starting with "artifacts/" resolve against --artifacts-root.
 DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
@@ -305,7 +307,7 @@ def build_session_command(
     image_index = command.index(plan.image)
     command[image_index] = VIEWER_IMAGE
     if viewer != "novnc":
-        raise ValueError("the browser viewer is the only supported viewer on docker-desktop")
+        raise ValueError("the browser viewer is the only supported viewer")
     env = ["HEADLESS=1", "DISPLAY=:99", "LIBGL_ALWAYS_SOFTWARE=1", f"VIEWER_PORT={viewer_port}"]
     if gcs_port is not None:
         if not 1024 <= gcs_port <= 65535 or gcs_port == control_port:
@@ -474,7 +476,7 @@ def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
         raise RuntimeError(
             "resolved Gazebo Fuel cache is missing: "
             f"{RESOLVED_FUEL_CACHE}. Create the repository artifacts "
-            "junction/cache before starting."
+            "asset cache before starting."
         )
     if onboard and not DEFAULT_LLAMA_SERVER.is_file():
         raise RuntimeError(
@@ -640,6 +642,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--container-name")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.snapshot_interval <= 0 or args.check_heartbeat < 0:
         parser.error("snapshot-interval must be positive and check-heartbeat non-negative")
@@ -663,7 +666,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error(str(exc))
     docker = plan.docker_executable or shutil.which("docker")
     if not docker:
-        parser.error("Docker Desktop executable not found")
+        parser.error("Docker executable not found")
     ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
     snapshot_dir = args.snapshot_dir.resolve() if args.snapshot_dir else None
@@ -683,11 +686,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.gcs_port:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")
     print(f"Browser viewer: http://127.0.0.1:{args.viewer_port}/vnc.html?autoconnect=1")
+    sitl_lock = SitlLock(args.sitl_lock_path, label="sim-session", min_memory_gb=5.0)
+    sitl_lock.acquire()
     try:
         subprocess.run(command, cwd=ROOT, check=True)
     except (OSError, subprocess.CalledProcessError):
         subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
         subprocess.run([docker, "rm", plan.container_name], check=False)
+        sitl_lock.release()
         raise
     try:
         _session_log(session_log, "container_started", container=plan.container_name)
@@ -779,9 +785,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Stopping owned simulator container...")
     finally:
-        _session_log(session_log, "teardown", container=plan.container_name)
-        subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
-        subprocess.run([docker, "rm", plan.container_name], check=False)
+        try:
+            _session_log(session_log, "teardown", container=plan.container_name)
+            subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
+            subprocess.run([docker, "rm", plan.container_name], check=False)
+        finally:
+            sitl_lock.release()
     return 0
 
 

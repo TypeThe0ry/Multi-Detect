@@ -37,6 +37,9 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
     assert plan.no_new_privileges is True
     assert plan.container_security_gate_passed is True
     assert "--publish" in plan.command
+    assert plan.command[plan.command.index("--add-host") + 1] == (
+        "host.docker.internal:host-gateway"
+    )
     assert "127.0.0.1:14540:14540/udp" in plan.command
     # PX4 sends telemetry to the host target; publishing the same port through
     # Docker Desktop would hairpin/drop that outbound UDP stream.
@@ -192,7 +195,7 @@ def test_docker_cli_strict_only_checks_discovery_and_still_does_not_start(
     # network pull or starting a container.
     assert code in {0, 2}
     if code == 2:
-        assert "Docker Desktop" in capsys.readouterr().out
+        assert "Docker" in capsys.readouterr().out
 
 
 def test_airframe_profile_identity_excludes_per_run_stack_wiring(tmp_path):

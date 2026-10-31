@@ -1,6 +1,6 @@
 """Run all SIM mission suites sequentially and merge their reports."""
 from __future__ import annotations
-import argparse, json, os, shutil, signal, subprocess, sys, time
+import argparse, json, os, signal, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -8,7 +8,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
-DEFAULT_LOCK = Path(r"D:\Projects\mdwt\_scratch\sitl.lock")
+from scripts.sitl_lock import SitlLock, available_memory_gb as _available_memory_gb, default_lock_path
+DEFAULT_LOCK = default_lock_path()
 DEFAULT_SUITES = {
     "main": ROOT / "configs/onboard/suite-main.json",
     "airframes": ROOT / "configs/onboard/suite-airframes.json",
@@ -18,69 +19,17 @@ DEFAULT_SUITES = {
 }
 
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def pid_alive(pid: int) -> bool:
-    # Never os.kill(pid, 0) here: on Windows signal 0 is CTRL_C_EVENT, which
-    # interrupts the holder's console group instead of probing it.  The shell
-    # lock (sitl_lock.sh) records the holder's Windows PID, so psutil can see it.
-    if pid <= 0 or pid == os.getpid():
-        return pid == os.getpid()
+    """Compatibility probe used by older callers without sending a signal."""
+    if pid <= 0:
+        return False
     import psutil
 
     return psutil.pid_exists(pid)
 
 
-class SitlLock:
-    def __init__(self, path: Path = DEFAULT_LOCK, label: str = "nightly-regression", retry_s: int = 60, stale_s: int = 120):
-        self.path, self.label, self.retry_s, self.stale_s = Path(path), label, retry_s, stale_s
-        self.owner = self.path / "owner"
-        self.acquired = False
-        self.owner_text = ""
-
-    def acquire(self, wait: bool = True) -> None:
-        while True:
-            if self.owner.exists():
-                try:
-                    fields = self.owner.read_text(encoding="utf-8").split()
-                    pid = int(fields[1]) if len(fields) > 1 else -1
-                    age = time.time() - self.owner.stat().st_mtime
-                    if age > self.stale_s and not pid_alive(pid):
-                        shutil.rmtree(self.path, ignore_errors=True)
-                except (OSError, ValueError):
-                    pass
-            try:
-                self.path.mkdir(parents=False)
-            except FileExistsError:
-                if not wait:
-                    raise RuntimeError(f"SITL lock busy: {self.path}")
-                time.sleep(self.retry_s)
-                continue
-            self.owner_text = f"{self.label} {os.getpid()} {now_iso()}"
-            self.owner.write_text(self.owner_text + "\n", encoding="utf-8")
-            self.acquired = True
-            return
-
-    def release(self) -> None:
-        if not self.acquired:
-            return
-        try:
-            current = self.owner.read_text(encoding="utf-8").strip()
-            if current == self.owner_text:
-                self.owner.unlink(missing_ok=True)
-                self.path.rmdir()
-        except OSError:
-            pass
-        self.acquired = False
-
-    def __enter__(self):
-        self.acquire()
-        return self
-
-    def __exit__(self, *_):
-        self.release()
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def disk_free_gb(path: Path) -> float:
@@ -88,14 +37,7 @@ def disk_free_gb(path: Path) -> float:
 
 
 def available_memory_gb() -> float:
-    try:
-        import psutil
-        return psutil.virtual_memory().available / 1_000_000_000
-    except ImportError:
-        if os.name == "nt":
-            out = subprocess.check_output(["powershell", "-NoProfile", "-Command", "[int](Get-Counter '\\Memory\\Available MBytes').CounterSamples[0].CookedValue"], text=True)
-            return float(out.strip()) / 1024
-        return float(os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")) / 1_000_000_000
+    return _available_memory_gb()
 
 
 def preflight(min_free_disk_gb: float, root: Path = ROOT) -> None:

@@ -9,6 +9,7 @@ planned launch without starting Docker.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import io
 import json
@@ -53,6 +54,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
+from scripts.sitl_lock import SitlLock, default_lock_path  # noqa: E402
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
@@ -482,8 +484,8 @@ def _progress(phase: str, **fields: object) -> None:
 
 
 def _docker_executable(plan: CollectionPlan) -> str:
-    executable = (
-        shutil.which("docker") or r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+    executable = shutil.which("docker") or (
+        r"C:\Program Files\Docker\Docker\resources\bin\docker.exe" if os.name == "nt" else "docker"
     )
     if not Path(executable).is_file() and not shutil.which(executable):
         return "docker"
@@ -4221,6 +4223,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     parser.add_argument(
         "--attach-container",
         default=None,
@@ -4359,32 +4362,38 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit("Docker daemon is not reachable; use --dry-run or start Docker")
     args.out.mkdir(parents=True, exist_ok=True)
     completed: list[str] = []
-    for index in range(args.episodes):
-        free = free_space_bytes(args.out)
-        if free < plan.min_free_gb * 1024**3:
-            print(
-                json.dumps(
-                    {
-                        "event": "aborted_low_disk",
-                        "free_gb": free / 1024**3,
-                        "threshold_gb": plan.min_free_gb,
-                    }
-                ),
-                file=sys.stderr,
-            )
-            break
-        path = run_episode(plan, truth_path, index)
-        completed.append(str(path))
-        print(json.dumps({"episode": index, "path": str(path)}, ensure_ascii=False))
-        try:
-            status = json.loads((Path(path) / "episode.json").read_text(encoding="utf-8")).get(
-                "status"
-            )
-        except (OSError, ValueError):
-            status = None
-        if status == "aborted_low_disk":
-            print(json.dumps({"event": "aborted_low_disk", "episode": index}), file=sys.stderr)
-            break
+    lock_context = (
+        contextlib.nullcontext()
+        if os.environ.get("MULTIDETECT_SITL_LOCK_HELD") == "1"
+        else SitlLock(args.sitl_lock_path, label=args.container_prefix, min_memory_gb=5.0)
+    )
+    with lock_context:
+        for index in range(args.episodes):
+            free = free_space_bytes(args.out)
+            if free < plan.min_free_gb * 1024**3:
+                print(
+                    json.dumps(
+                        {
+                            "event": "aborted_low_disk",
+                            "free_gb": free / 1024**3,
+                            "threshold_gb": plan.min_free_gb,
+                        }
+                    ),
+                    file=sys.stderr,
+                )
+                break
+            path = run_episode(plan, truth_path, index)
+            completed.append(str(path))
+            print(json.dumps({"episode": index, "path": str(path)}, ensure_ascii=False))
+            try:
+                status = json.loads((Path(path) / "episode.json").read_text(encoding="utf-8")).get(
+                    "status"
+                )
+            except (OSError, ValueError):
+                status = None
+            if status == "aborted_low_disk":
+                print(json.dumps({"event": "aborted_low_disk", "episode": index}), file=sys.stderr)
+                break
     print(json.dumps({"episodes": completed, "out": str(args.out.resolve())}, ensure_ascii=False))
     return 0
 

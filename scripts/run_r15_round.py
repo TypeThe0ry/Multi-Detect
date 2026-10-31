@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, default_lock_path
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
@@ -1216,7 +1218,23 @@ class Round:
         self.out.mkdir(parents=True, exist_ok=True)
         if self.a.stage in ("all", "collect"):
             self.guards("collect")
-            self.collect()
+            if getattr(self.a, "dry_run", False):
+                self.collect()
+            else:
+                with SitlLock(
+                    getattr(self.a, "sitl_lock_path", default_lock_path()),
+                    label="r15-worker",
+                    min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                ):
+                    previous = os.environ.get("MULTIDETECT_SITL_LOCK_HELD")
+                    os.environ["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                    try:
+                        self.collect()
+                    finally:
+                        if previous is None:
+                            os.environ.pop("MULTIDETECT_SITL_LOCK_HELD", None)
+                        else:
+                            os.environ["MULTIDETECT_SITL_LOCK_HELD"] = previous
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = self.annotate_command()
@@ -1392,7 +1410,7 @@ class Round:
             )
             mmproj = self.data_path(self.a.mmproj, "artifacts/models/mmproj.gguf")
             llama_server = self.data_path(
-                self.a.llama_server, "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+                self.a.llama_server, str(default_llama_server(ROOT, prefer_tools=True))
             )
             for label, dataset in datasets:
                 cmd = [
@@ -1763,7 +1781,9 @@ def main():
             "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
         ),
     )
-    p.add_argument("--llama-server", type=Path, default=ROOT / "tools/llama.cpp/llama-server.exe")
+    p.add_argument(
+        "--llama-server", type=Path, default=default_llama_server(ROOT, prefer_tools=True)
+    )
     p.add_argument("--min-free-gb", type=float, default=30)
     p.add_argument(
         "--collector-min-free-gb",
@@ -1807,7 +1827,7 @@ def main():
         "--r12-adapter",
         type=Path,
         default=Path(
-            "D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter"
+            str(ROOT / "artifacts/models/slow-system-lora-v2-r12-multi/adapter")
         ),
     )
     p.add_argument(
@@ -1823,7 +1843,7 @@ def main():
         "--source-root",
         type=Path,
         default=None,
-        help="YOLOE 缓存键的根：保存 episodes 的仓库根（如 D:/Projects/Multi-Detect）；"
+        help="YOLOE 缓存键的根：保存 episodes 的仓库根；"
         "默认自动推断",
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
@@ -1835,6 +1855,7 @@ def main():
         "--docker-wait-minutes", type=float, default=20,
         help="Docker daemon 不可用时等待恢复的分钟数（每 30 秒检查）",
     )
+    p.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     p.add_argument(
         "--extra-episodes",
         type=Path,
