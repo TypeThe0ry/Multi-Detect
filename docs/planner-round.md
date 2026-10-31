@@ -282,3 +282,52 @@ planning-v4 分类（精确或正确拒绝，r24 对 r14）：return_intent 2/2 
 模型：`artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf`（sha256 `147f90d8…`），adapter 在 `artifacts/models/slow-system-lora-v2-r24-planner/`。推荐机载组合配置：`configs/onboard/sim-loop-v3-r18id-r24plan-defaults.json`（r18 身份 + r24 规划 + YOLOE v3 1280）。各回归套件配置暂时仍指向 r14，等 Linux 上 SITL 闭环跑通、用 r24 跑一轮任务套件后再切换。
 
 剩余问题：missing_payload_drop（缺载荷仍规划投递以外的动作，没有拒绝）和 query_ungrounded 仍为 0/2，下一轮规划数据应补这两类。
+
+## r25 数据准备
+
+r25 在 r24 配方上增加两类正负对照，--r25-recipe 自动包含 r23 和 r24 的全部内容。
+--r25-missing-payload-count 与 --r25-negated-query-count 都按“对数”计数，默认各 40
+对：缺载荷族新增 40 条无 `payload_drop` 能力、保留 `deliver` 的 validator 负例，以及 40 条
+能力声明齐全的有效对照；否定 query 族新增 40 条许可类别正例和 40 条把否定类别当 query
+的 validator 负例。中英文句式交替并组合多个目标地点、类别、动作表达和结尾。默认合计新增
+160 行，约占本次 5,620 行训练集的 2.8%；保留对照密度，同时避免再次稀释 r23 多步骤覆盖。
+缺载荷模板的组合容量超过 1,000 对，否定 query 模板超过 4,000 对；构造器对每次尝试都前进，
+并在 2,400 次仍无法凑齐时明确报模板池耗尽，不会无限循环。
+
+缺载荷负例 prompt 声明不具备 `payload_drop`，gold/rejected_candidate 仍包含用户要求的
+`deliver`，`expected_findings` 为 `missing_capability`；配对正例使用相同能力上下文之外的
+payload-capable 声明，仍然规划 `deliver`。否定 query 正例的任务文本包含许可类别和被排除
+类别，target query 选许可类别；负例保留相同否定任务的被排除类别 query，由
+`plan_intent.query_grounding` 产生 `ungrounded_query`。例如“检查大门的入口标志，不要凭空检查
+救护车”可用 `entrance sign` 作正例 query，`救护车` 作负例 query。结构、意图、能力和
+rejected_candidate finding 均由训练准入检查。
+
+本次实际生成（2026-10-31）使用：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch
+python scripts/run_planner_round.py --stage data --force-stage data --out .tmp/r25-data --eval-root .tmp/r25-eval --rows 2000 --val-rows 100 --intent-count 80 --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl --negative-target-mode rejected_candidate --r25-recipe
+```
+
+`--init-adapter` 默认仍指向 r14 adapter，`--baseline-gguf` 默认仍指向 r14 GGUF；
+r25 训练/评测时分别传入 r24 adapter 和 GGUF，并用 `--baseline-label r24` 让替换判定按
+r24 命名：
+
+```bash
+--init-adapter artifacts/models/slow-system-lora-v2-r24-planner/adapter
+--baseline-gguf artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf
+--baseline-label r24
+```
+
+runner dry-run 会透传这些路径；本次只运行 data 阶段，没有训练或评测。
+
+实际结果：train 5,620 行、val 100 行，其中 `r25_missing_payload` 40、
+`r25_payload_capable` 40、`r25_negated_query` 80；其余 r23/r24 配方计数保持原值。
+`admit_train_rows` 接受全部 5,620 条训练行，含能力、意图和 rejected_candidate 检查；
+负例共 560 条，全部 finding 匹配，已知引用替代为 0。生成的 r25 负例和正例均使用当前
+`plan_intent.query_grounding` 可判定的类别映射。校验器对某些未列入词表的跨语言复合类别
+（例如中文“消防车”对应英文 query `fire truck`）可能返回 `undecided` 而不是
+`ungrounded_query`；本轮按现有契约避开这类映射，未改动校验器。统计位于
+`.tmp/r25-data/dataset/r23-data-stats.md`，manifest 记录各 family 数量。train 内容摘要为
+`6d51b1d7dc1593a372adabc9be61acf3141d7cd40e75fa4e186a2dd1febc7e91`。

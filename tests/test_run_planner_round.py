@@ -99,6 +99,34 @@ def test_r24_recipe_transmits_reference_families_and_learning_rate(tmp_path, mon
     assert "--learning-rate 2e-05" in output
 
 
+def test_r25_recipe_and_model_paths_are_transmitted(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    init_adapter = tmp_path / "r24-adapter"
+    baseline = tmp_path / "r24.gguf"
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r25"),
+        "--r25-recipe", "--r25-missing-payload-count", "12",
+        "--r25-negated-query-count", "14", "--init-adapter", str(init_adapter),
+        "--baseline-gguf", str(baseline), "--baseline-label", "r24",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r25-recipe --r25-missing-payload-count 12 --r25-negated-query-count 14" in output
+    assert f"--init-adapter {init_adapter}" in output
+    assert f"--gguf {baseline}" in output
+    assert "--learning-rate 2e-05" in output
+
+
+def test_replacement_reasons_use_configured_baseline_label():
+    baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
+                "planning-v4": {"category_metrics": {}}}
+    candidate = {"planning-v3": {"exact_sequence_rate": 0.5},
+                 "planning-v4": {"category_metrics": {}}}
+    decision = replacement_decision(candidate, baseline, [], [], "r24")
+    assert "planning-v3 低于 r24" in decision["reasons"]
+
+
 def test_default_lock_is_the_shared_sitl_lock_directory():
     # The lock is the mkdir directory sitl.lock; sitl_lock.sh is the shell helper.
     # Pointing SitlLock at the script made mkdir fail forever (or a stale reclaim
