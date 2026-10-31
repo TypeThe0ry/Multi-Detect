@@ -1,0 +1,1859 @@
+{
+  "schema_version": 1,
+  "generator": "multidetect.simulator.world_gen",
+  "asset_mode": "fuel_v1",
+  "seed": 20261031,
+  "count": 24,
+  "split_ratios": [
+    0.75,
+    0.25,
+    0.0
+  ],
+  "held_out_target_combos": [
+    {
+      "category": "stop_sign",
+      "color": "red",
+      "slug": "stop_sign",
+      "split": "test"
+    },
+    {
+      "category": "suv",
+      "color": null,
+      "slug": "suv",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "walking_person",
+      "split": "test"
+    },
+    {
+      "category": "pickup",
+      "color": null,
+      "slug": "pickup",
+      "split": "test"
+    },
+    {
+      "category": "postbox",
+      "color": null,
+      "slug": "postbox",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "standing_person",
+      "split": "test"
+    }
+  ],
+  "worlds": [
+    {
+      "world_id": "gen_r21id_r4_w0000",
+      "split": "train",
+      "seed": 20261031,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0000.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0000",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18.0,
+        "ground_distance_m": 132.302,
+        "slant_distance_m": 133.521,
+        "target_short_side_px": "8-12",
+        "target_short_side_px_estimate": 10.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0000"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0001",
+      "split": "train",
+      "seed": 20261032,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0001.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0001",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18.0,
+        "ground_distance_m": 93.658,
+        "slant_distance_m": 95.372,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0001"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0002",
+      "split": "train",
+      "seed": 20261033,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0002.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0002",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "haze",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 129.63,
+        "slant_distance_m": 133.521,
+        "target_short_side_px": "8-12",
+        "target_short_side_px_estimate": 10.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0002"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0003",
+      "split": "train",
+      "seed": 20261034,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0003.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0003",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "evening_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 89.843,
+        "slant_distance_m": 95.372,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0003"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0004",
+      "split": "train",
+      "seed": 20261035,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0004.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0004",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "dusk_dim",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 35.355,
+        "slant_distance_m": 47.686,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0004"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0005",
+      "split": "val",
+      "seed": 20261036,
+      "task_text": "找到皮卡并记录位置",
+      "task_text_en": "Find the pickup and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "pickup",
+        "category": "pickup",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0005.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0005",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到皮卡并记录位置",
+      "find_task_text_en": "Find the pickup and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 9.499,
+        "slant_distance_m": 33.38,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0002/w0001",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0005"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        },
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0006",
+      "split": "train",
+      "seed": 20261037,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0006.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0006",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 138.522,
+        "slant_distance_m": 140.585,
+        "target_short_side_px": "8-12",
+        "target_short_side_px_estimate": 10.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0006"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0007",
+      "split": "train",
+      "seed": 20261038,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0007.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0007",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 97.508,
+        "slant_distance_m": 100.418,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0007"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0008",
+      "split": "train",
+      "seed": 20261039,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0008.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0008",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "haze",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 136.895,
+        "slant_distance_m": 140.585,
+        "target_short_side_px": "8-12",
+        "target_short_side_px_estimate": 10.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0008"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0009",
+      "split": "train",
+      "seed": 20261040,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0009.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0009",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "evening_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 95.183,
+        "slant_distance_m": 100.418,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0009"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0010",
+      "split": "val",
+      "seed": 20261041,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0010.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0010",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "dusk_dim",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 38.69,
+        "slant_distance_m": 50.209,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0010"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0011",
+      "split": "val",
+      "seed": 20261042,
+      "task_text": "找到SUV并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "suv",
+        "category": "suv",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0011.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0011",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到SUV并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "pickup"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 32.0,
+        "ground_distance_m": 14.535,
+        "slant_distance_m": 35.146,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0010/w0009",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0011"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        },
+        {
+          "requested_category": "pickup",
+          "task_text": "找到皮卡并记录位置",
+          "task_text_en": "Find the pickup and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0012",
+      "split": "train",
+      "seed": 20261043,
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "postbox",
+        "category": "postbox",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0012.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0012",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到邮筒并记录位置",
+      "find_task_text_en": "Find the postbox and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "hatchback"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.0,
+        "ground_distance_m": 36.801,
+        "slant_distance_m": 36.814,
+        "target_short_side_px": "8-12",
+        "target_short_side_px_estimate": 10.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0026",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0012"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0013",
+      "split": "train",
+      "seed": 20261044,
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "postbox",
+        "category": "postbox",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0013.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0013",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到邮筒并记录位置",
+      "find_task_text_en": "Find the postbox and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "hatchback"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.0,
+        "ground_distance_m": 26.277,
+        "slant_distance_m": 26.296,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0026",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0013"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0014",
+      "split": "train",
+      "seed": 20261045,
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "postbox",
+        "category": "postbox",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0014.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0014",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到邮筒并记录位置",
+      "find_task_text_en": "Find the postbox and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "hatchback"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.0,
+        "ground_distance_m": 13.11,
+        "slant_distance_m": 13.148,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0026",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0014"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0015",
+      "split": "val",
+      "seed": 20261046,
+      "task_text": "找到邮筒并记录位置",
+      "task_text_en": "Find the postbox and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "postbox",
+        "category": "postbox",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0015.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0015",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到邮筒并记录位置",
+      "find_task_text_en": "Find the postbox and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "hatchback"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.0,
+        "ground_distance_m": 9.149,
+        "slant_distance_m": 9.204,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "w0026",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0015"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0016",
+      "split": "train",
+      "seed": 20261047,
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "walking_person",
+        "category": "person",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0016.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0016",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到行人并记录位置",
+      "find_task_text_en": "Find the person and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "postbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.5,
+        "ground_distance_m": 10.423,
+        "slant_distance_m": 10.53,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0016"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0017",
+      "split": "train",
+      "seed": 20261048,
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "walking_person",
+        "category": "person",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0017.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0017",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到行人并记录位置",
+      "find_task_text_en": "Find the person and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "postbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.5,
+        "ground_distance_m": 7.217,
+        "slant_distance_m": 7.371,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0017"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0018",
+      "split": "train",
+      "seed": 20261049,
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "walking_person",
+        "category": "person",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0018.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0018",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到行人并记录位置",
+      "find_task_text_en": "Find the person and record its position.",
+      "appearance": "haze",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "postbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.5,
+        "ground_distance_m": 10.423,
+        "slant_distance_m": 10.53,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0018"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0019",
+      "split": "val",
+      "seed": 20261050,
+      "task_text": "找到行人并记录位置",
+      "task_text_en": "Find the person and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "walking_person",
+        "category": "person",
+        "color": null
+      },
+      "world_file": "gen_r21id_r4_w0019.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0019",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到行人并记录位置",
+      "find_task_text_en": "Find the person and record its position.",
+      "appearance": "evening_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "postbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 1.5,
+        "ground_distance_m": 7.217,
+        "slant_distance_m": 7.371,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0019"
+      }
+    },
+    {
+      "world_id": "gen_r21id_r4_w0020",
+      "split": "train",
+      "seed": 20261051,
+      "task_text": "找到 SUV 并记录位置",
+      "task_text_en": "Find the SUV and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "ambulance",
+        "category": "ambulance",
+        "color": "white"
+      },
+      "world_file": "gen_r21id_r4_w0020.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0020",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到 SUV 并记录位置",
+      "find_task_text_en": "Find the SUV and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 51.965,
+        "slant_distance_m": 57.239,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0020"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0021",
+      "split": "train",
+      "seed": 20261052,
+      "task_text": "找到 SUV 并记录位置",
+      "task_text_en": "Find the SUV and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "ambulance",
+        "category": "ambulance",
+        "color": "white"
+      },
+      "world_file": "gen_r21id_r4_w0021.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0021",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到 SUV 并记录位置",
+      "find_task_text_en": "Find the SUV and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 32.084,
+        "slant_distance_m": 40.068,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0021"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0022",
+      "split": "train",
+      "seed": 20261053,
+      "task_text": "找到 SUV 并记录位置",
+      "task_text_en": "Find the SUV and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "ambulance",
+        "category": "ambulance",
+        "color": "white"
+      },
+      "world_file": "gen_r21id_r4_w0022.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0022",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到 SUV 并记录位置",
+      "find_task_text_en": "Find the SUV and record its position.",
+      "appearance": "haze",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 51.965,
+        "slant_distance_m": 57.239,
+        "target_short_side_px": "24-32",
+        "target_short_side_px_estimate": 28.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0022"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r4_w0023",
+      "split": "val",
+      "seed": 20261054,
+      "task_text": "找到 SUV 并记录位置",
+      "task_text_en": "Find the SUV and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "ambulance",
+        "category": "ambulance",
+        "color": "white"
+      },
+      "world_file": "gen_r21id_r4_w0023.sdf",
+      "true_target_id": "target_true_gen_r21id_r4_w0023",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到 SUV 并记录位置",
+      "find_task_text_en": "Find the SUV and record its position.",
+      "appearance": "evening_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "suv"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 24.0,
+        "ground_distance_m": 32.084,
+        "slant_distance_m": 40.068,
+        "target_short_side_px": ">=32",
+        "target_short_side_px_estimate": 40.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": null,
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r4_w0023"
+      },
+      "task_text_variants": [
+        {
+          "requested_category": "suv",
+          "task_text": "找到 SUV 并记录位置",
+          "task_text_en": "Find the SUV and record its position."
+        }
+      ]
+    }
+  ],
+  "appearance_presets": [
+    "noon_clear",
+    "overcast_flat",
+    "haze",
+    "evening_low_sun",
+    "dusk_dim",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "haze",
+    "evening_low_sun",
+    "dusk_dim",
+    "morning_low_sun",
+    "morning_low_sun",
+    "morning_low_sun",
+    "morning_low_sun",
+    "morning_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "haze",
+    "evening_low_sun",
+    "noon_clear",
+    "overcast_flat",
+    "haze",
+    "evening_low_sun"
+  ],
+  "profile": "r21id-r4"
+}

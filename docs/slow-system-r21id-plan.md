@@ -365,3 +365,36 @@ r3 真目标误拒的 72 条中，pickup 占 52 条、suv 13 条、postbox 5 条
 `scripts/build_slow_system_sft.py` 新增两个 opt-in 选项：`--balance-identity-views` 按 `task_category × (positive|negative) × view` 平衡，`--balance-confusable-negative-views` 按已有 hard-pair × view 平衡；默认均关闭，因此已有命令和输出保持不变。两者都在 train 选择完成后做确定性上采样，并在 manifest 写入每个 strata 的 original/added/final 数量；`tests/test_slow_system_sft.py` 增加了稀疏视角补齐、hard reject 专项补齐、忽略 ask_clarify 以及保留显式平衡副本的测试。实际命令使用 r21id-r3 已有 episodes、proposal cache、`--counterfactual-tasks --counterfactual-negatives --confusable-negatives --balance-identity-views --balance-confusable-negative-views --max-upsample 2`，输出 `.tmp/r21id-r4-sft/`：train 15,505 行、val 1,163 行、test 1,350 行；通用视角平衡新增 2,033 行，hard-pair 视角平衡新增 128 行。本次重建虽传入 proposal cache，但没有生成 `proposal_*` 标签行；因此行数只作为当前工作树可重放结果，不能替代 r21id-r3 原始 manifest。
 
 最终分布：train 正例（confirm+approach）7,065、reject 8,046、search/clarify 394；核心标签为 distractor 4,554、true_target 2,131、counterfactual 3,198、counterfactual_negative 2,794、confusable_positive 1,736、confusable_negative 499。val 为正例 561、reject 594、其他 8；test 为正例 518、reject 777、其他 55。val/test 未执行两种平衡。
+
+## r21id-r4 worlds
+
+新增 24 个仿真世界，全部属于 train/val，不新增或改写 r21id-r3 的冻结 test。pickup/SUV 各 6 个世界同时放置两类车辆，并在 `task_text_variants` 记录交换后的两种任务文本；postbox 世界同框放 hatchback（car），person 世界同框放 postbox，ambulance 世界以“SUV”任务文本请求并放置真实 ambulance，形成 suv→ambulance 拒绝对照。像素短边按 catalog 的目标水平短边、相机内参 `fx=539.936` 和相机至目标斜距计算，估算值与档位均写入 index。
+
+| 世界 ID | 类别/数量 | 同框干扰物 | 短边档位 | split |
+|---|---|---|---|---|
+| `gen_r21id_r4_w0000`–`w0005` | pickup ×6 | suv | 8–12 ×2、12–16 ×2、24–32 ×1、≥32 ×1 | train 5、val 1 |
+| `gen_r21id_r4_w0006`–`w0011` | suv ×6 | pickup | 8–12 ×2、12–16 ×2、24–32 ×1、≥32 ×1 | train 4、val 2 |
+| `gen_r21id_r4_w0012`–`w0015` | postbox ×4 | hatchback (car) | 8–12 ×1、12–16 ×1、24–32 ×1、≥32 ×1 | train 3、val 1 |
+| `gen_r21id_r4_w0016`–`w0019` | person ×4 | postbox | 24–32 ×2、≥32 ×2 | train 3、val 1 |
+| `gen_r21id_r4_w0020`–`w0023` | ambulance ×4 | suv；任务请求 SUV | 24–32 ×2、≥32 ×2 | train 3、val 1 |
+
+pickup/SUV 各有 4 个小目标世界，postbox 有 2 个；pickup/SUV 几何参考 r3 的 w0002/w0001、w0010/w0009，高度配置沿用其视角档并使用不同外观；postbox 使用 w0026 的 morning-low-sun 外观条件，并按指定像素档反解距离。所有多旋翼出生点固定为 z=0.2 m、pitch=0；本组没有固定翼世界。
+
+生成命令（离线，不启动 SITL）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+python scripts/generate_r15_worlds.py --profile r21id-r4 \
+  --out-worlds simulation/gazebo/worlds \
+  --out-scenarios configs/scenarios/generated-r21id-r4
+```
+
+之后进行单世界 SITL 冒烟时可运行一个小目标 pickup 世界：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/generated-r21id-r4/gen_r21id_r4_w0000.scenario.json \
+  --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 \
+  --out artifacts/smoke/r21id-r4-w0000
+```
