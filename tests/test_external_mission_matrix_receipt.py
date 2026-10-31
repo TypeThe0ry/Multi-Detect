@@ -9,14 +9,18 @@ from scripts.create_external_mission_matrix_receipt import create_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
+MATRIX_PATH = ROOT / PROGRESS["external_mission_matrix_20260927_r6"]["evidence"]
+if not MATRIX_PATH.is_file():
+    pytest.skip(f"Local mission matrix artifact is absent: {MATRIX_PATH}", allow_module_level=True)
 MATRIX = json.loads(
-    (ROOT / PROGRESS["external_mission_matrix_20260927_r6"]["evidence"]).read_text(
-        encoding="utf-8"
-    )
+    MATRIX_PATH.read_text(encoding="utf-8")
 )
 VTOL = ROOT / MATRIX["vehicles"]["vtol"][0]["campaign_receipt"]
 FIXED = ROOT / MATRIX["vehicles"]["fixed-wing"]["evidence"]
 MULTIROTOR = ROOT / MATRIX["vehicles"]["multirotor"]["evidence"]
+for artifact in (VTOL, FIXED, MULTIROTOR):
+    if not artifact.is_file():
+        pytest.skip(f"Local mission matrix artifact is absent: {artifact}", allow_module_level=True)
 
 
 def test_external_mission_matrix_receipt_binds_three_vehicle_runs() -> None:
