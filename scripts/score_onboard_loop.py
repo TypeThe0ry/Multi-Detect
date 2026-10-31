@@ -17,7 +17,7 @@ import json
 import math
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +33,10 @@ def episode_world_id(episode: Path) -> str | None:
         metadata = {}
     world_sdf = metadata.get("world_sdf")
     if isinstance(world_sdf, str) and world_sdf:
-        world_id = Path(world_sdf).stem
+        # Episode metadata may have been produced on Windows and then scored on
+        # POSIX, where backslashes are ordinary filename characters.
+        world_path = PureWindowsPath(world_sdf) if "\\" in world_sdf else Path(world_sdf)
+        world_id = world_path.stem
         if world_id:
             return world_id
     return next((part for part in reversed(episode.parts) if part.startswith("gen_")), None)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +23,9 @@ def _signed_package(tmp_path: Path):
     signed = sign_document(raw, key)
     package_path, key_path = tmp_path / "mission.json", tmp_path / "operator.key"
     package_path.write_text(json.dumps(signed), encoding="utf-8")
-    key_path.write_text("hmac:" + (b"R" * 32).hex(), encoding="ascii")
+    key_path.write_bytes(b"hmac:" + (b"R" * 32).hex().encode("ascii"))
+    if os.name != "nt":
+        key_path.chmod(0o600)
     return raw, signed, package_path, key_path, key
 
 

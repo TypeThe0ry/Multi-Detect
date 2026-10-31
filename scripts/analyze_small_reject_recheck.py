@@ -16,15 +16,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-DEFAULT_R12 = Path(
-    r"D:\Projects\Multi-Detect\artifacts\benchmarks\flight-identity-eval-v1-r12.json"
-)
-DEFAULT_R14FAST = Path(
-    r"D:\Projects\Multi-Detect\artifacts\benchmarks\flight-identity-eval-v1-r14fast.json"
-)
-DEFAULT_DATASET = Path(
-    r"D:\Projects\Multi-Detect\artifacts\datasets\flight-identity-eval-v1\test.jsonl"
-)
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_R12 = ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r12.json"
+DEFAULT_R14FAST = ROOT / "artifacts/benchmarks/flight-identity-eval-v1-r14fast.json"
+DEFAULT_DATASET = ROOT / "artifacts/datasets/flight-identity-eval-v1/test.jsonl"
 DEFAULT_THRESHOLDS = (12.0, 16.0, 20.0)
 CANVAS_WIDTH = 1280.0
 CANVAS_HEIGHT = 960.0

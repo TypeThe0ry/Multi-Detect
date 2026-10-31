@@ -594,6 +594,180 @@ def r23_deliver_case(rng: random.Random, index: int):
     return text, steps, [f"{ref} ({zh} / {en})"], ("payload_drop",)
 
 
+def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Ground targets to the supplied ref kind, and preserve unresolved places."""
+    rng = random.Random(f"{args.seed}:r24-reference")
+    rows = []
+    locations = [
+        ("bridge", "桥", "bridge"), ("yard", "院子", "yard"),
+        ("tower", "塔楼", "tower"), ("farm", "农场", "farm"),
+        ("station", "气象站", "weather station"),
+    ]
+    unknowns = [
+        ("青石码头", "Blue Stone Wharf"), ("旧气象站", "Old Weather Station"),
+        ("北岸仓库", "North Shore Depot"), ("石拱渡口", "Stone Arch Ferry"),
+        ("林场观测点", "Forest Survey Point"),
+    ]
+    # Landing stays where the aircraft is; returning goes back to launch/home.
+    # Neither names a mapped place, so the plan carries no target_ref.
+    land_spots = [
+        ("脚下", "right here"), ("当前位置", "at the current position"),
+        ("这里", "on this spot"), ("原地", "where it is now"),
+    ]
+    return_spots = [
+        ("起飞的地方", "where it took off"), ("起飞点", "the launch point"),
+        ("home", "home"), ("出发点", "the starting point"),
+    ]
+    type_count, unknown_count, context_count = (
+        args.r24_reference_count, args.r24_unknown_count, args.r24_context_count
+    )
+
+    def emit(text, refs, plan, family, *, valid=True, finding=None):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        seen.add(key)
+        row = {
+            "sample_id": f"plan-r24-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+            "kind": "mission_plan", "world": "synthetic_plan_r24", "family": family,
+            "task_text": text, "refs": list(refs), "expected_valid": valid,
+            "expected_findings": [] if valid else [finding],
+            "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                  capabilities=frozenset()),
+            "assistant_target": plan,
+        }
+        if not valid:
+            row["rejected_candidate"] = plan
+            row["negative_target_mode"] = "rejected_candidate"
+            assert_no_unknown_place_substitution(row)
+        rows.append(row)
+        return True
+
+    index = 0
+    while sum(row["family"] == "r24_reference_type" for row in rows) < type_count:
+        if index > 10_000:
+            raise ValueError("r24 reference template pool exhausted; reduce --r24-reference-count")
+        name, zh, en = locations[index % len(locations)]
+        mode = (index // len(locations)) % 4
+        sec = (index % 6 + 1) * 15
+        use_zh = index % 2 == 0
+        poi, zone = f"poi:{name}", f"zone:{name}"
+        if mode == 0:
+            # A point cannot be placed in a region field. Hover has no required
+            # region, so navigate to the point and hover at the current position.
+            refs = (f"{poi} ({zh} / {en})",)
+            zh_forms = (f"飞到{zh}上方悬停{sec}秒，再返航。", f"抵达{zh}后定点{sec}秒，随后回家。",
+                        f"去{zh}停留{sec}秒，任务结束返航。", f"到{zh}附近保持{sec}秒，再回到起飞点。")
+            en_forms = (f"Reach the {en}, hold position for {sec} seconds, then return home.",
+                        f"Fly to the {en} and stay there for {sec} seconds before heading back.",
+                        f"Go to the {en}, hover in place for {sec} seconds, and come back to base.",
+                        f"Reposition to the {en}; remain stationary for {sec} seconds, then return.")
+            text = (zh_forms[(index // 30) % len(zh_forms)] if use_zh else
+                    en_forms[(index // 30) % len(en_forms)])
+            steps = [S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                     S("s2", "hover", {"duration_s": sec}, "s3", "s3"), H("s3")]
+        elif mode == 1:
+            # Whole-area mapping/search is represented by the contract's zone:all.
+            refs = (f"{poi} ({zh} / {en})", "zone:all (entire operating area / 全部作业区)")
+            overlap = (0.6, 0.7, 0.8, 0.85)[index % 4]
+            pct = int(overlap * 100)
+            zh_forms = (f"先到{zh}，再测绘整个作业区，照片重叠{pct}%，最后降落。",
+                        f"前往{zh}后对全部作业区航测，影像重叠{pct}%，完成着陆。",
+                        f"到{zh}一趟，然后覆盖全域测绘，保持{pct}%重叠再落地。",
+                        f"经过{zh}，对整个任务区做{pct}%影像重叠的测绘，之后降落。")
+            en_forms = (f"Visit the {en}, survey the entire operating area at {pct}% overlap, and then land.",
+                        f"Go by the {en}, map the full operating area with {pct}% image overlap, then land.",
+                        f"After visiting the {en}, survey the whole mission area at {pct}% overlap before landing.",
+                        f"Reach the {en} and collect mapping imagery across the full area at {pct}% overlap, then set down.")
+            text = (zh_forms[(index // 30) % len(zh_forms)] if use_zh else
+                    en_forms[(index // 30) % len(en_forms)])
+            steps = [S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                     S("s2", "survey", {"region": "zone:all", "overlap": overlap}, "s3", "s3"), L("s3")]
+        elif mode == 2:
+            refs = (f"{poi} ({zh}点 / {en} point)", f"{zone} ({zh}区域 / {en} zone)")
+            query = "vehicle"
+            zh_forms = (f"在{zh}区域搜索车辆，完成后返航。", f"对{zh}范围做区域搜索，寻找车辆再回家。",
+                        f"搜索{zh}区域中的车辆，结束后返回起飞点。", f"在{zh}区域查找车辆并随后返航。")
+            en_forms = (f"Search the {en} zone for vehicles, then return home.",
+                        f"Run an area search for vehicles in the {en} zone before heading back.",
+                        f"Look for vehicles across the {en} area and come back to base.",
+                        f"Search the {en} zone to find vehicles, then return to launch.")
+            text = (zh_forms[(index // 30) % len(zh_forms)] if use_zh else
+                    en_forms[(index // 30) % len(en_forms)])
+            steps = [S("s1", "area_search", {"region": zone, "query": query}, "s2", "s2"), H("s2")]
+        else:
+            refs = (f"{poi} ({zh}点 / {en} point)", f"{zone} ({zh}区域 / {en} zone)")
+            duration = (30, 60, 90, 120)[index % 4]
+            zh_forms = (f"监看{zh}区域里的车辆{duration}秒，然后返航。", f"观察{zh}范围内的车辆{duration}秒，再回家。",
+                        f"在{zh}区域盯守车辆{duration}秒，结束后返回起飞点。", f"对{zh}范围内车辆持续监控{duration}秒，随后返航。")
+            en_forms = (f"Monitor vehicles in the {en} zone for {duration} seconds, then return home.",
+                        f"Watch for vehicles within the {en} area for {duration} seconds before returning.",
+                        f"Keep the {en} zone under vehicle observation for {duration} seconds, then head back.",
+                        f"Observe vehicles in the {en} zone for {duration} seconds and come back to base.")
+            text = (zh_forms[(index // 30) % len(zh_forms)] if use_zh else
+                    en_forms[(index // 30) % len(en_forms)])
+            steps = [S("s1", "monitor", {"region": zone, "query": "vehicle", "duration_s": duration}, "s2", "s2"), H("s2")]
+        plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": ["status"]}
+        if emit(text, refs, plan, "r24_reference_type"):
+            index += 1
+    index = 0
+    while sum(row["family"] == "r24_unknown_place" for row in rows) < unknown_count:
+        if index > 10_000:
+            raise ValueError("r24 unknown-place template pool exhausted; reduce --r24-unknown-count")
+        zh, en = unknowns[index % len(unknowns)]
+        known, known_zh, known_en = locations[(index + 1) % len(locations)]
+        use_zh = index % 2 == 0
+        variants = ("巡查情况，然后返航", "看看现场再回到起飞点", "核实那里发生什么后返航", "前往查看并回家",
+                    "确认周边状况后回家", "检查一遍再飞回基地", "到现场了解情况，之后返航", "查看是否有异常后回到出发点")
+        en_variants = ("Inspect the unlisted {place} and return home", "Check the unlisted {place} before heading back",
+                       "Take a look at the unlisted {place}, then return to launch", "Visit the unlisted {place} and come back to base",
+                       "Check the unlisted {place} for activity before flying home", "Look over the unlisted {place}, then head back to base",
+                       "Review the unlisted {place} and return to the launch point", "Assess the unlisted {place}, then come back")
+        variant = index % len(variants)
+        use_zh = (index // len(variants)) % 2 == 0
+        text = (f"去地图未标出的{zh}{variants[variant]}。" if use_zh else
+                en_variants[variant].format(place=en) + ".")
+        ref = "poi:" + re.sub(r"\s+", "_", en.strip().lower())
+        candidate = {"plan_version": 1, "goal": text[:160],
+                     "steps": [S("s1", "goto", {"target_ref": ref}, "s2", "s2"), H("s2")],
+                     "report": ["status"]}
+        # The known alternative is deliberately present; the target must not use it.
+        refs = (f"poi:{known} ({known_zh} / {known_en})",)
+        if emit(text, refs, candidate, "r24_unknown_place", valid=False, finding="ungrounded_place"):
+            index += 1
+    index = 0
+    while sum(row["family"] in {"r24_context_land", "r24_context_return"} for row in rows) < context_count:
+        if index > 10_000:
+            raise ValueError("r24 context template pool exhausted; reduce --r24-context-count")
+        action_land = index % 2 == 0
+        spots = land_spots if action_land else return_spots
+        place_zh, place_en = spots[(index // 2) % len(spots)]
+        variant_index = (index // (len(spots) * 2)) % 6
+        use_zh = (index // (len(spots) * 12)) % 2 == 0
+        if action_land:
+            variants = ("就在{p}降落。", "直接在{p}着陆。", "不用去别处，{p}落地。", "在{p}降落就行。",
+                        "{p}原位降落，不要移动。", "现在就在{p}着陆。")
+            en_variants = ("Land {p}.", "Set down {p}.", "Touch down {p}, no need to move.",
+                           "Just land {p}.", "Stay put and land {p}.", "Bring it down {p} now.")
+            text = (variants[variant_index].format(p=place_zh) if use_zh else
+                    en_variants[variant_index].format(p=place_en))
+            plan = {"plan_version": 1, "goal": text[:160], "steps": [L("s1")], "report": ["status"]}
+            family = "r24_context_land"
+        else:
+            variants = ("直接飞回{p}。", "任务到此结束，回到{p}。", "现在返回{p}。", "不再停留，飞回{p}。",
+                        "收工，回{p}。", "立刻回{p}。")
+            en_variants = ("Fly straight back to {p}.", "We are done here; return to {p}.",
+                           "Head back to {p} now.", "Return to {p} without stopping.",
+                           "Wrap up and come back to {p}.", "Go back to {p} right away.")
+            text = (variants[variant_index].format(p=place_zh) if use_zh else
+                    en_variants[variant_index].format(p=place_en))
+            plan = {"plan_version": 1, "goal": text[:160], "steps": [H("s1")], "report": ["status"]}
+            family = "r24_context_return"
+        if emit(text, (), plan, family):
+            index += 1
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -1252,6 +1426,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="number of additional v3-style positive rows for --r23-recipe")
     parser.add_argument("--r23-deliver-count", type=int, default=80,
                         help="number of faithful deliver rows for --r23-recipe")
+    parser.add_argument("--r24-recipe", action="store_true",
+                        help="extend r23 with grounded-ref, unknown-place, and local/home rows")
+    parser.add_argument("--r24-reference-count", type=int, default=120,
+                        help="same-name ref-kind contrast rows")
+    parser.add_argument("--r24-unknown-count", type=int, default=80,
+                        help="faithful unresolved-place rows")
+    parser.add_argument("--r24-context-count", type=int, default=80,
+                        help="local landing and home/launch return rows without target_ref")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -1265,6 +1447,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("row counts must be non-negative")
     if args.r23_v3_count < 0 or args.r23_deliver_count < 0:
         parser.error("r23 counts must be non-negative")
+    if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
+                                   args.r24_context_count)):
+        parser.error("r24 counts must be non-negative")
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
@@ -1305,7 +1490,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             rows = special_rows + rows
             args.rows += len(special_rows)
-    if args.r23_recipe:
+    if args.r23_recipe or args.r24_recipe:
         # Keep the legacy v4/replay bytes intact and append a separately tagged
         # v3-style slice.  Deliver rows are the faithful validator-gated plans,
         # so the model learns to emit deliver before capability rejection.
@@ -1358,6 +1543,10 @@ def main(argv: list[str] | None = None) -> int:
                              "assistant_target": plan})
         rows.extend(r23_rows)
         args.rows += len(r23_rows)
+    if args.r24_recipe:
+        r24_rows = r24_reference_rows(args, held_out, seen)
+        rows.extend(r24_rows)
+        args.rows += len(r24_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -1388,7 +1577,7 @@ def main(argv: list[str] | None = None) -> int:
                 "assistant_target": plan,
             }
         )
-    if args.r23_recipe:
+    if args.r23_recipe or args.r24_recipe:
         # Keep legacy v4 output byte-identical; clean stacked connectives only
         # for rows emitted by the opt-in r23 recipe.
         def clean_r23_text(value):
@@ -1399,7 +1588,9 @@ def main(argv: list[str] | None = None) -> int:
             return DOUBLED_ARTICLE.sub(r"\1", text)
         for row in rows:
             # Replay rows stay verbatim; only rows this recipe generated are cleaned.
-            if row.get("family") not in {"r23_v3_coverage", "r23_deliver_faithful"}:
+            if row.get("family") not in {"r23_v3_coverage", "r23_deliver_faithful",
+                                          "r24_reference_type", "r24_unknown_place",
+                                          "r24_context_land", "r24_context_return"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -1422,11 +1613,18 @@ def main(argv: list[str] | None = None) -> int:
         "first_skill_counts": {},
         "final_skill_counts": {},
     }
-    if args.r23_recipe:
+    if args.r23_recipe or args.r24_recipe:
         manifest["r23_recipe"] = {
             "v3_coverage_requested": args.r23_v3_count,
             "deliver_requested": args.r23_deliver_count,
             "rows_added": sum(1 for row in rows if row.get("family") in {"r23_v3_coverage", "r23_deliver_faithful"}),
+        }
+    if args.r24_recipe:
+        manifest["r24_recipe"] = {
+            "reference_requested": args.r24_reference_count,
+            "unknown_requested": args.r24_unknown_count,
+            "context_requested": args.r24_context_count,
+            "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r24_")),
         }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
@@ -1468,14 +1666,14 @@ def main(argv: list[str] | None = None) -> int:
         }
         for key, counter in counts.items():
             manifest[key][name] = {skill: counter[skill] for skill in sorted(SKILLS)}
-    if args.r23_recipe:
+    if args.r23_recipe or args.r24_recipe:
         args.output.mkdir(parents=True, exist_ok=True)
         family_counts = {name: Counter(row.get("family", "r14_replay") for row in part)
                          for name, part in splits.items()}
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = ["# r23 planner dataset statistics", "",
+        stats = ["# r24 planner dataset statistics" if args.r24_recipe else "# r23 planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -1494,6 +1692,11 @@ def main(argv: list[str] | None = None) -> int:
                   for sequence in sorted(sequence_counts)]
         stats += ["", f"Faithful r23 deliver rows: {family_counts['train']['r23_deliver_faithful']}.",
                   "These targets retain the `deliver` action; capability rejection is performed by the validator.", ""]
+        if args.r24_recipe:
+            stats += ["", "| r24 family | Rows |", "|---|---:|"]
+            stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())
+                      if str(family).startswith("r24_")]
+            stats += ["", "r24 reference rows use only supplied ref kinds; unknown-place rows retain an unresolved candidate ref; context rows omit target_ref.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:
@@ -1511,7 +1714,7 @@ def main(argv: list[str] | None = None) -> int:
                     json.dumps({**row, "split": name}, ensure_ascii=False, sort_keys=True) + "\n"
                 )
     (args.output / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\r\n"
     )
     print(json.dumps({k: len(v) for k, v in splits.items()}))
     return 0

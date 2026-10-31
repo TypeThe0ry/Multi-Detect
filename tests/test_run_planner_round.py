@@ -18,6 +18,18 @@ def test_replacement_decision_requires_all_gates():
     assert replacement_decision(candidate, baseline, passed, [])["replace_r14"] is False
 
 
+def test_replacement_decision_rejects_lower_v3_validity():
+    baseline = {"planning-v3": {"exact_sequence_rate": 0.60, "valid_rate": 0.9375},
+                "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 0.5}}}}
+    candidate = {"planning-v3": {"exact_sequence_rate": 0.61, "valid_rate": 0.875},
+                 "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 1.0}}}}
+    decision = replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])
+    assert decision["replace_r14"] is False
+    assert "planning-v3 有效率低于 r14" in decision["reasons"]
+    candidate["planning-v3"]["valid_rate"] = 0.9375
+    assert replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])["replace_r14"] is True
+
+
 def test_stage_current_requires_matching_hashes(tmp_path: Path):
     out = tmp_path
     for name in ("manifest.json", "train.jsonl", "val.jsonl"):
@@ -73,6 +85,18 @@ def test_r23_recipe_selects_rebalanced_data_and_learning_rate(tmp_path, monkeypa
     assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
     assert "--epochs 1" in output
     assert "--learning-rate 2.5e-05" in output
+
+
+def test_r24_recipe_transmits_reference_families_and_learning_rate(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r24"),
+        "--r24-recipe", "--r24-reference-count", "12", "--r24-unknown-count", "8",
+        "--r24-context-count", "6",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r24-recipe --r24-reference-count 12 --r24-unknown-count 8 --r24-context-count 6" in output
+    assert "--learning-rate 2e-05" in output
 
 
 def test_default_lock_is_the_shared_sitl_lock_directory():

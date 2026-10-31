@@ -68,6 +68,10 @@ def replacement_decision(candidate: dict, baseline: dict, probe_candidate: list[
     bv3 = float(baseline["planning-v3"]["exact_sequence_rate"])
     if cv3 < bv3:
         reasons.append("planning-v3 低于 r14")
+    cvalid = candidate["planning-v3"].get("valid_rate")
+    bvalid = baseline["planning-v3"].get("valid_rate")
+    if cvalid is not None and bvalid is not None and float(cvalid) < float(bvalid):
+        reasons.append("planning-v3 有效率低于 r14")
     cm = candidate["planning-v4"].get("category_metrics", {})
     bm = baseline["planning-v4"].get("category_metrics", {})
     categories = ("return_home", "unknown_location", "capability")
@@ -134,6 +138,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
+    if args.r24_recipe:
+        data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
+                     "--r24-unknown-count", str(args.r24_unknown_count),
+                     "--r24-context-count", str(args.r24_context_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
     if R14_ADAPTER.is_dir():
         train += ["--init-adapter", str(R14_ADAPTER)]
@@ -142,9 +152,10 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
                           # Planner rows count semantic plan errors as invalid; those are
-                          # model quality (scored by the replacement gate), not a broken
-                          # server, which --max-transport-rate still guards.
-                          "--min-valid-rate", "0.95"])
+                          # model quality, scored by the replacement gate (r14 itself is
+                          # 93.75% valid on v3), not a broken server, which
+                          # --max-transport-rate still guards.
+                          "--min-valid-rate", "0"])
     for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
@@ -167,6 +178,11 @@ def main(argv=None) -> int:
                         help="add v3 coverage and faithful deliver rows; defaults LR to 2.5e-5")
     parser.add_argument("--r23-v3-count", type=int, default=600)
     parser.add_argument("--r23-deliver-count", type=int, default=80)
+    parser.add_argument("--r24-recipe", action="store_true",
+                        help="extend r23 with grounded-reference and local/home data")
+    parser.add_argument("--r24-reference-count", type=int, default=120)
+    parser.add_argument("--r24-unknown-count", type=int, default=80)
+    parser.add_argument("--r24-context-count", type=int, default=80)
     parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
     parser.add_argument("--min-free-disk-gb", type=float, default=12)
     parser.add_argument("--min-memory-gb", type=float, default=8)
@@ -178,6 +194,9 @@ def main(argv=None) -> int:
     EVAL_ROOT = args.eval_root.absolute()  # keep the worktree spelling; artifacts/ may be nested junctions
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1 or args.epochs < 1:
         parser.error("row counts must be positive (val rows may be zero)")
+    if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
+                                   args.r24_context_count)):
+        parser.error("r24 counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())
     if not any(out == allowed or out.is_relative_to(allowed) for allowed in allowed_roots):

@@ -23,28 +23,24 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # the r3 key check imports from scripts/
     sys.path.insert(0, str(ROOT))
-OLD_DEFAULT = Path(
-    "D:/Projects/Multi-Detect/artifacts/experiments/"
-    "yoloe-v2-r3-seg-drop-full/train/weights/best.pt"
-)
-TEXT_DEFAULT = Path("D:/Projects/Multi-Detect/weights/mobileclip_blt.ts")
+OLD_DEFAULT = ROOT / "artifacts/experiments/yoloe-v2-r3-seg-drop-full/train/weights/best.pt"
+TEXT_DEFAULT = ROOT / "weights/mobileclip_blt.ts"
 INDEX_DEFAULT = [
     ROOT / "configs/scenarios/generated-v2/index.json",
     ROOT / "configs/scenarios/generated-confusers/index.json",
     ROOT / "configs/scenarios/generated-confusers-2/index.json",
 ]
 EVAL_ROOTS = [
-    Path("D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r12multi"),
-    Path("D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/eval-v2-test-r8multi"),
+    ROOT / "artifacts/datasets/onboard-loop/eval-v2-test-r12multi",
+    ROOT / "artifacts/datasets/onboard-loop/eval-v2-test-r8multi",
 ]
 CACHE_CAMPAIGNS = [
-    Path("D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-cfs-r8-low"),
-    Path("D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/dagger-train-r8-low"),
-    Path("D:/Projects/Multi-Detect/artifacts/datasets/sim-teacher/campaign-20261012-v2-r3-seg"),
+    ROOT / "artifacts/datasets/onboard-loop/dagger-cfs-r8-low",
+    ROOT / "artifacts/datasets/onboard-loop/dagger-train-r8-low",
+    ROOT / "artifacts/datasets/sim-teacher/campaign-20261012-v2-r3-seg",
 ]
 R3_CACHE_DEFAULT = Path(
-    "D:/Projects/Multi-Detect/artifacts/datasets/onboard-proposals/"
-    "v2r3seg-dagger-r8-cfs.jsonl"
+    ROOT / "artifacts/datasets/onboard-proposals/v2r3seg-dagger-r8-cfs.jsonl"
 )
 HOLDOUT_CLASSES = ("stop_sign", "postbox", "pickup")
 
@@ -72,7 +68,7 @@ def make_smoke_sample(path: Path, count: int) -> None:
         sys.path.insert(0, str(ROOT))
     from scripts.analyze_small_object_proposals import load_episode, sample_frames, write_jsonl
 
-    source_root = Path("D:/Projects/Multi-Detect")
+    source_root = ROOT
     grouped: dict[Path, list[tuple[str, list]]] = {}
     for line in R3_CACHE_DEFAULT.open(encoding="utf-8"):
         if not line.strip():
@@ -203,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.is_file():
             raise FileNotFoundError(path)
     cpu_env = os.environ.copy()
-    cpu_env.update({"CUDA_VISIBLE_DEVICES": "-1", "PYTHONPATH": str(ROOT / "src"), "YOLO_OFFLINE": "true", "YOLO_AUTOINSTALL": "false"})
+    cpu_env.update({"CUDA_VISIBLE_DEVICES": "-1", "PYTHONPATH": os.pathsep.join((str(ROOT / "src"), str(ROOT))), "YOLO_OFFLINE": "true", "YOLO_AUTOINSTALL": "false"})
     if args.device == "cpu":
         env = cpu_env
     else:
@@ -236,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
     else:
-        run_step("02_sample", [py, "scripts/analyze_small_object_proposals.py", "--source-root", "D:/Projects/Multi-Detect", "--output", str(audit), "--sample-size", str(max_frames or 200), "--seed", "20261015", "--workers", str(min(args.threads, 2))], out, env)
+        run_step("02_sample", [py, "scripts/analyze_small_object_proposals.py", "--source-root", str(ROOT), "--output", str(audit), "--sample-size", str(max_frames or 200), "--seed", "20261015", "--workers", str(min(args.threads, 2))], out, env)
     small_reports = {}
     for label, weights in (("old", args.old_weights), ("new", args.new_weights)):
         small_out = out / "small_object" / label
@@ -249,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         command = [py, "scripts/cache_onboard_proposals.py"]
         for campaign in CACHE_CAMPAIGNS:
             command += ["--campaign", str(campaign)]
-        command += ["--weights", str(args.new_weights), "--imgsz", "1280", "--confidence", "0.05", "--output", str(cache_out), "--device", str(args.device), "--source-root", "D:/Projects/Multi-Detect"]
+        command += ["--weights", str(args.new_weights), "--imgsz", "1280", "--confidence", "0.05", "--output", str(cache_out), "--device", str(args.device), "--source-root", str(ROOT)]
         if max_frames is not None:
             command += ["--max-frames", str(max_frames)]
         run_step("04_r3_cache", command, out, env)

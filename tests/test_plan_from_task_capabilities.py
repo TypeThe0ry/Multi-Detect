@@ -49,3 +49,21 @@ def test_missing_payload_category_keeps_safe_plan_as_not_a_rejection():
     result = score_task(item, _plan("return_home"), None)
     assert result["correct_rejection"] is False
     assert result["capability_violations"] == 0
+
+
+def test_invalid_query_task_uses_product_validator_before_awarding_rejection():
+    item = {
+        "text": "Inspect the gate and return home, but do not invent a fire truck target.",
+        "category": "query_ungrounded",
+        "expect_invalid": True,
+        "refs": ("poi:gate (gate)", "poi:pad (landing pad)", "zone:lot (parking lot)"),
+    }
+    plan = _plan("inspect", {
+        "target_ref": "poi:gate", "query": "fire truck", "views": 3,
+        "standoff_m": 10,
+    })
+    result = score_task(item, plan, None)
+
+    assert result["validator_decision"] == "accept"
+    assert result["correct_rejection"] is False
+    assert result["exact"] is False

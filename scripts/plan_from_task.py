@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_plan import MissionPlan  # noqa: E402
+from multidetect.host_paths import executable_name  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     PLAN_PROMPT_VARIANTS,
     compile_mission_plan,
@@ -66,7 +67,7 @@ def compile_task(
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
 
-def _capability_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
+def _execution_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
     capabilities = frozenset(item.get("capabilities", ()))
     package = MissionPackage(
         document={
@@ -105,12 +106,18 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
         plan, caps, airframe="airframe:fixed_wing" if "airframe:fixed_wing" in caps else None
     ) if plan else []
     if item.get("expect_invalid", False):
-        capability_category = item.get("category") in {
-            "fixed_wing_hover", "fixed_wing_target_land", "missing_payload_drop"
+        validator_categories = {
+            "fixed_wing_hover",
+            "fixed_wing_target_land",
+            "missing_payload_drop",
+            "query_ungrounded",
         }
-        validation = _capability_validation(plan, item, item.get("text", "")) if (
-            capability_category and plan is not None
-        ) else None
+        uses_execution_validator = item.get("category") in validator_categories
+        validation = (
+            _execution_validation(plan, item, item.get("text", ""))
+            if uses_execution_validator and plan
+            else None
+        )
         correctly_blocked = bool(
             validation and validation.decision in {"reject", "clarify"}
         )
@@ -120,7 +127,7 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
             and isinstance(outcome, list)
             and bool(outcome)
         )
-        if capability_category and plan is not None:
+        if uses_execution_validator and plan is not None:
             accepted = correctly_blocked
         return {
             "expected": expected, "predicted": path, "valid": plan is not None,
@@ -220,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llama-server", type=Path,
-        default=ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+        default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
         help="existing llama-server executable (no downloads)",
     )
     parser.add_argument("--device", default="cuda:0", help="cpu or cuda[:index]")
@@ -302,7 +309,9 @@ def main(argv: list[str] | None = None) -> int:
             rows.append(
                 {
                     "text": item["text"],
-                    **score_task(item, plan, error),
+                    **score_task(
+                        {**item, "refs": item.get("refs", task_refs)}, plan, error
+                    ),
                     "attempts_s": attempts,
                     "error": None if isinstance(error, list) else error,
                     "repairs": error if isinstance(error, list) else None,
