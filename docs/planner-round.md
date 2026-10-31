@@ -218,3 +218,24 @@ python scripts/run_planner_round.py --stage all `
   --negative-target-mode rejected_candidate --r23-recipe `
   --r23-v3-count 600 --r23-deliver-count 80 --learning-rate 2.5e-5
 ```
+
+## r23 结果（2026-10-31，新开发机）
+
+在新开发机（Linux，RTX 3080 20GB，GPU1）上跑完。数据与旧机器生成的一致（train 5,220 行、val 100 行，全部通过训练准入）；r14 热启动，lr 2.5e-5，1 epoch，训练约 36 分钟。
+
+流水线的 eval 阶段在候选模型上中止：planning-v3 的 JSON 有效率 93.75%，低于 `--min-valid-rate 0.95`。无效的 10 题都是模型问题，不是环境问题：把 `poi:bridge` 写成不存在的 `zone:bridge`（5 题），或者把地图上没有的地点换成已知地点（`poi:shed`、`poi:tower` 等，被意图检查拦下）。为了拿到完整对比，放宽有效率门限（`--min-valid-rate 0`）补跑了候选和 r14 的 planning-v3/v4 与返航探测，结果在 `artifacts/evaluation/r23-planner-round-full/`。
+
+r14 在新机器上的 planning-v3 为 0.6625，与旧机器的 0.662 一致，说明新环境的评测链路可信。
+
+| 指标 | r14 | r22 | r23 |
+|---|---:|---:|---:|
+| planning-v3 精确序列 | 0.662 | 0.588 | 0.613 |
+| planning-v3 JSON 有效率 | 0.938 | — | 0.875 |
+| planning-v4 精确序列 | 0.55 | 0.500 | 0.60 |
+| 返航探测（15 题） | 13/15 | 15/15 | 14/15 |
+
+planning-v4 分类（精确或正确拒绝，r23 对 r14）：return_intent 2/2 对 1/2，ref_alias 2/4 对 1/4，unknown_place 2/2 对 2/2，fixed_wing_hover 2/2 对 2/2，fixed_wing_target_land 0/2 对 1/2，missing_payload_drop 和 query_ungrounded 两者都是 0/2。
+
+说明：r14 的 planning-v4 是 0.55 而不是表里旧值 0.40，是因为能力类核查之后评测改为用产品 validator 判拒；返航探测 r14 13/15（旧记录 15/15），失败的 p01、p11 被现行的意图检查拦下，旧记录早于这些检查。
+
+结论：**不替换 r14**。r23 修复了返航意图和别名，v4 和返航探测都比 r14 好，但 planning-v3 仍低 5 pp，而且 v3 有效率掉到 87.5%：模型会编造区域引用、拿已知地点顶替未知地点。下一轮应针对“只能使用给定引用”补数据（同名 poi/zone 的对照、未知地点必须拒绝），而不是继续加返航类样本。
