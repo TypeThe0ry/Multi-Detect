@@ -70,6 +70,7 @@ from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
+    _split_gpu_list,
     build_docker_simulator_plan,
 )
 
@@ -260,6 +261,11 @@ class CollectionPlan:
     attach_container: str | None = None
     # Explicit onboard task text; when omitted, generated-index text is used.
     task_text: str | None = None
+    # GPU rendering is opt-in.  ``None`` lets MULTIDETECT_SIM_GPU decide.
+    gpu_render: bool | None = None
+    gpu_device: str | None = None
+    gpu_devices: tuple[str, ...] | None = None
+    worker_index: int = 0
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -401,7 +407,12 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             job_dir=Path(plan.out) / "jobs" / container_name,
             control_port=plan.control_port,
             telemetry_port=plan.telemetry_port,
+            image=plan.image,
             dry_run=True,
+            gpu_render=plan.gpu_render,
+            gpu_device=plan.gpu_device,
+            gpu_devices=plan.gpu_devices,
+            worker_index=plan.worker_index,
         )
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
@@ -4223,6 +4234,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--episodes", type=int, required=True)
     parser.add_argument("--steps-per-episode", type=int, required=True)
     parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument(
+        "--image",
+        default=os.environ.get("MULTIDETECT_SIM_IMAGE", PINNED_IMAGE),
+        help="pinned image, or an explicit local multidetect/px4-sitl-gazebo:<tag> GPU variant",
+    )
+    parser.add_argument(
+        "--gpu-render",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="enable NVIDIA EGL/Ogre2 headless rendering (also via MULTIDETECT_SIM_GPU)",
+    )
+    parser.add_argument("--gpu-device", type=str, default=None)
+    parser.add_argument(
+        "--gpu-devices",
+        type=str,
+        default=None,
+        help="comma-separated GPU pool for workers; defaults to 1,2 and avoids 0,3",
+    )
+    parser.add_argument(
+        "--worker-index",
+        type=int,
+        default=0,
+        help="zero-based worker number used to round-robin the GPU pool",
+    )
     parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     parser.add_argument(
         "--attach-container",
@@ -4353,6 +4388,15 @@ def main(argv: Iterable[str] | None = None) -> int:
         keep_px4_ulog=args.keep_px4_ulog,
         attach_container=args.attach_container,
         task_text=args.task_text,
+        image=args.image,
+        gpu_render=args.gpu_render,
+        gpu_device=args.gpu_device,
+        gpu_devices=(
+            _split_gpu_list(args.gpu_devices, label="--gpu-devices")
+            if args.gpu_devices is not None
+            else None
+        ),
+        worker_index=args.worker_index,
     )
     _validate_spawn_clearance(plan)
     if args.dry_run:

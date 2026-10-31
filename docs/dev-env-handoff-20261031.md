@@ -133,3 +133,38 @@ python scripts/collect_sim_teacher_episodes.py \
 ```
 
 资产缺失、Docker daemon 不可用或内存门禁未满足时，先修复环境再重试；不要把 `artifacts/` 软链接指向的共享缓存提交到 Git。
+
+### GPU 渲染
+
+Linux 上 GPU 渲染默认关闭。采集或 Docker 计划命令加入 `--gpu-render` 后，容器会请求 NVIDIA Container Toolkit 的单卡设备，设置 `NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute`，并让 Gazebo Harmonic 使用 `--headless-rendering`、EGL surfaceless 和 Ogre2。也可以设置 `MULTIDETECT_SIM_GPU=1` 全局开启；设置为数字（例如 `MULTIDETECT_SIM_GPU=2`）可固定到指定卡。显式的 `--no-gpu-render` 会关闭环境变量开关。
+
+现有 `simulation/docker/viewer/Dockerfile` 是带 Xvfb/noVNC 的 GUI viewer，并明确设置 `LIBGL_ALWAYS_SOFTWARE=1`；它保留原有软件渲染语义。无头采集走下面的 GPU 派生镜像和计划参数。
+
+多个采集进程用 `--worker-index 0`, `--worker-index 1`, … 区分 worker；`run_r15_round.py --workers N` 生成的 collector 命令会自动带上对应 index。默认轮询 GPU1、GPU2，避开 GPU0（桌面串流）和 GPU3（稳定性问题）；可用 `--gpu-devices 1,2`、`MULTIDETECT_SIM_GPU_DEVICES` 和 `MULTIDETECT_SIM_GPU_AVOID` 覆盖。
+
+如果基础镜像缺少 EGL 用户态入口，先构建派生镜像（驱动库仍由 toolkit 注入）：
+
+```bash
+docker build -f simulation/docker/gpu/Dockerfile -t multidetect/px4-sitl-gazebo:gpu .
+```
+
+一次采集示例（也可用 `MULTIDETECT_SIM_IMAGE=multidetect/px4-sitl-gazebo:gpu` 让并行 worker 继承派生镜像）：
+
+```bash
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --teacher expert_search --episodes 1 --steps-per-episode 20 \
+  --out artifacts/smoke/sim-teacher-linux-gpu \
+  --gpu-render --image multidetect/px4-sitl-gazebo:gpu \
+  --worker-index 0 --gpu-devices 1,2
+```
+
+启动后可用自检脚本读取 EGL/Gazebo 日志并复用传感器流测量相机帧率：
+
+```bash
+python scripts/check_sim_gpu_render.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --image multidetect/px4-sitl-gazebo:gpu --gpu-device 1 --frames 60
+```
+
+输出中的 `gpu_rendering_active` 和 `fps` 分别表示是否检测到 NVIDIA EGL 渲染器以及实际收到的 RGB 帧率；若仍看到 llvmpipe/software rasterizer，检查 toolkit 注入的 `libEGL_nvidia` 与 `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`，必要时取消 `__EGL_VENDOR_LIBRARY_FILENAMES` 让 GLVND 自动发现清单。

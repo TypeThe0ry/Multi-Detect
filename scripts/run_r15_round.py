@@ -1097,6 +1097,8 @@ class Round:
                     "900",
                     "--container-prefix",
                     f"r15-worker-{worker}",
+                    "--worker-index",
+                    str(worker),
                     "--control-port",
                     str(R15_BASE_CONTROL_PORT + worker * 10),
                     "--telemetry-port",

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import shutil
@@ -42,6 +43,9 @@ CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
+DEFAULT_GPU_DEVICES = ("1", "2")
+DEFAULT_GPU_AVOID = ("0", "3")
+NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 # SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
 # px4-rc.gzsim starts the simulated sensors.  Without them EKF2's attitude
@@ -182,6 +186,75 @@ def _command_has_option(command: tuple[str, ...], option: str, value: str) -> bo
     )
 
 
+def _split_gpu_list(value: str | None, *, label: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of non-negative CUDA device ordinals."""
+
+    if value is None or not str(value).strip():
+        return ()
+    result: list[str] = []
+    for raw in str(value).split(","):
+        item = raw.strip()
+        if not item.isdigit():
+            raise DockerSimulatorPlanError(f"{label} must contain only GPU numbers")
+        normalized = str(int(item))
+        if normalized not in result:
+            result.append(normalized)
+    return tuple(result)
+
+
+def _resolve_gpu_selection(
+    *,
+    gpu_render: bool | None,
+    gpu_device: str | int | None,
+    gpu_devices: tuple[str, ...] | None,
+    worker_index: int,
+) -> tuple[bool, str | None, tuple[str, ...]]:
+    """Resolve explicit options and environment defaults for one worker."""
+
+    env_selector = os.environ.get("MULTIDETECT_SIM_GPU", "").strip()
+    if gpu_render is None:
+        if not env_selector:
+            enabled = False
+        elif env_selector.lower() in {"0", "false", "no", "off"}:
+            enabled = False
+        else:
+            enabled = True
+    else:
+        enabled = bool(gpu_render)
+    explicit_device = None if gpu_device is None else str(gpu_device).strip()
+    if explicit_device:
+        if not explicit_device.isdigit():
+            raise DockerSimulatorPlanError("gpu_device must be a non-negative GPU number")
+        enabled = True
+    elif gpu_render in (None, True) and env_selector.isdigit():
+        explicit_device = str(int(env_selector))
+        enabled = True
+    if isinstance(worker_index, bool) or not isinstance(worker_index, int) or worker_index < 0:
+        raise DockerSimulatorPlanError("worker_index must be a non-negative integer")
+    if gpu_devices is None:
+        configured = _split_gpu_list(
+            os.environ.get("MULTIDETECT_SIM_GPU_DEVICES"),
+            label="MULTIDETECT_SIM_GPU_DEVICES",
+        )
+        if not configured:
+            configured = DEFAULT_GPU_DEVICES
+    else:
+        configured = tuple(str(item) for item in gpu_devices)
+    configured = _split_gpu_list(",".join(configured), label="gpu_devices")
+    avoid = _split_gpu_list(
+        os.environ.get("MULTIDETECT_SIM_GPU_AVOID", ",".join(DEFAULT_GPU_AVOID)),
+        label="MULTIDETECT_SIM_GPU_AVOID",
+    )
+    if not configured:
+        raise DockerSimulatorPlanError("gpu_devices must contain at least one GPU")
+    if explicit_device is None:
+        candidates = tuple(device for device in configured if device not in avoid)
+        if not candidates:
+            raise DockerSimulatorPlanError("gpu_devices is empty after applying gpu avoid list")
+        explicit_device = candidates[worker_index % len(candidates)]
+    return enabled, explicit_device if enabled else None, configured
+
+
 @dataclass(frozen=True, slots=True)
 class DockerSimulatorPlan:
     """Hash-bound Docker command and cleanup evidence; no process is started."""
@@ -225,6 +298,10 @@ class DockerSimulatorPlan:
     model_root_assets_sha256: str = ""
     # Resolved Fuel model cache bind-mounted read-only, or None when absent.
     fuel_resolved_root: Path | None = None
+    gpu_render: bool = False
+    gpu_device: str | None = None
+    gpu_devices: tuple[str, ...] = ()
+    worker_index: int = 0
 
     @property
     def command_text(self) -> str:
@@ -299,6 +376,10 @@ class DockerSimulatorPlan:
                 "airframe_profile_id": self.airframe_profile_id,
             },
             "environment": dict(self.environment),
+            "gpu_render": self.gpu_render,
+            "gpu_device": self.gpu_device,
+            "gpu_devices": list(self.gpu_devices),
+            "worker_index": self.worker_index,
             "container_network_mode": self.container_network_mode,
             "container_security": {
                 "cap_drop_all": cap_drop_all,
@@ -387,6 +468,10 @@ def _is_pinned_image(image: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}", image))
 
 
+def _is_local_gpu_image(image: str) -> bool:
+    return bool(re.fullmatch(r"multidetect/px4-sitl-gazebo:[A-Za-z0-9_.-]+", image))
+
+
 def _quote(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9_./:@=+,-]+", value):
         return value
@@ -403,11 +488,24 @@ def build_docker_simulator_plan(
     telemetry_port: int = 14541,
     image: str = PINNED_IMAGE,
     dry_run: bool = True,
+    gpu_render: bool | None = None,
+    gpu_device: str | int | None = None,
+    gpu_devices: tuple[str, ...] | None = None,
+    worker_index: int = 0,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
-    if not _is_pinned_image(image):
-        raise DockerSimulatorPlanError("image must be pinned by a 64-hex sha256 digest")
+    gpu_render, selected_gpu, resolved_gpu_devices = _resolve_gpu_selection(
+        gpu_render=gpu_render,
+        gpu_device=gpu_device,
+        gpu_devices=gpu_devices,
+        worker_index=worker_index,
+    )
+    if not _is_pinned_image(image) and not (gpu_render and _is_local_gpu_image(image)):
+        raise DockerSimulatorPlanError(
+            "image must be pinned by a 64-hex sha256 digest, or a local GPU variant "
+            "multidetect/px4-sitl-gazebo:<tag>"
+        )
     if not isinstance(container_name, str) or _SAFE_NAME.fullmatch(container_name) is None:
         raise DockerSimulatorPlanError("container_name contains unsupported characters")
     control_port = _port(control_port, label="control_port")
@@ -485,6 +583,22 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    if gpu_render:
+        # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
+        # and the vendor manifest make the selection deterministic in a
+        # display-less container; the stock PX4 rc script turns HEADLESS=1 into
+        # gz sim --headless-rendering.
+        container_environment.update(
+            {
+                "NVIDIA_DRIVER_CAPABILITIES": "graphics,utility,compute",
+                "NVIDIA_VISIBLE_DEVICES": str(selected_gpu),
+                "EGL_PLATFORM": "surfaceless",
+                "GZ_SIM_RENDER_ENGINE": "ogre2",
+                "GZ_SIM_HEADLESS_RENDERING": "1",
+                "__EGL_VENDOR_LIBRARY_FILENAMES": NVIDIA_EGL_VENDOR_FILE,
+                "LIBGL_ALWAYS_SOFTWARE": "0",
+            }
+        )
     for key in (
         "PX4_HOME_LAT",
         "PX4_HOME_LON",
@@ -515,6 +629,31 @@ def build_docker_simulator_plan(
         "\\1mavlink start -x -t $DOCKER_HOST_IP -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    gpu_gz_wrapper = ""
+    if gpu_render:
+        # PX4's image starts Gazebo from its rc script.  Keep that startup path,
+        # but make the two rendering flags explicit even if a future image
+        # changes how HEADLESS is translated into gz arguments.
+        gpu_gz_wrapper = (
+            "MD_REAL_GZ=$(command -v gz); export MD_REAL_GZ; "
+            "mkdir -p /tmp/multidetect-gz-bin; "
+            "cat > /tmp/multidetect-gz-bin/gz <<'EOF'\n"
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "if [ \"${1:-}\" = sim ]; then\n"
+            "  has_headless=0; has_engine=0\n"
+            "  for arg in \"$@\"; do\n"
+            "    [ \"$arg\" = --headless-rendering ] && has_headless=1\n"
+            "    [ \"$arg\" = --render-engine ] && has_engine=1\n"
+            "  done\n"
+            "  [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
+            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine ogre2\n"
+            "fi\n"
+            "exec \"$MD_REAL_GZ\" \"$@\"\n"
+            "EOF\n"
+            "chmod 0755 /tmp/multidetect-gz-bin/gz; "
+            "export PATH=/tmp/multidetect-gz-bin:$PATH; "
+        )
     startup = "".join(
         (
             "set -eu; ",
@@ -532,6 +671,7 @@ def build_docker_simulator_plan(
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
+            gpu_gz_wrapper,
             "exec /opt/px4-gazebo/bin/px4 -i 0 -s etc/init.d-posix/rcS",
         )
     )
@@ -547,6 +687,7 @@ def build_docker_simulator_plan(
         "ALL",
         "--security-opt",
         "no-new-privileges:true",
+        *(('--gpus', f'device={selected_gpu}') if gpu_render else ()),
         "--add-host",
         "host.docker.internal:host-gateway",
         "--publish",
@@ -604,6 +745,10 @@ def build_docker_simulator_plan(
         stack_assets_sha256=stack.assets.aggregate_sha256,
         model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
         fuel_resolved_root=resolved_root if has_resolved_root else None,
+        gpu_render=gpu_render,
+        gpu_device=selected_gpu,
+        gpu_devices=resolved_gpu_devices,
+        worker_index=worker_index,
     )
 
 
@@ -622,6 +767,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
     parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument(
+        "--gpu-render",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="enable NVIDIA EGL/Ogre2 headless rendering (also via MULTIDETECT_SIM_GPU)",
+    )
+    parser.add_argument("--gpu-device", type=str, default=None)
+    parser.add_argument("--gpu-devices", type=str, default=None, help="comma-separated worker GPU pool")
+    parser.add_argument("--worker-index", type=int, default=0)
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--strict",
@@ -639,6 +793,12 @@ def main(argv: list[str] | None = None) -> int:
             telemetry_port=args.telemetry_port,
             image=args.image,
             dry_run=not args.strict,
+            gpu_render=args.gpu_render,
+            gpu_device=args.gpu_device,
+            gpu_devices=_split_gpu_list(args.gpu_devices, label="--gpu-devices")
+            if args.gpu_devices is not None
+            else None,
+            worker_index=args.worker_index,
         )
         if args.strict and plan.docker_executable is None:
             raise DockerSimulatorPlanError("Docker executable not found")
