@@ -69,7 +69,7 @@ def test_build_mission_from_text_passes_refs_and_sorted_schema():
     assert len(calls) == 1
     assert "Known places: zone:site." in calls[0][0]
     assert calls[0][1] == trained_key_order_schema(plan_json_schema())
-    assert list(calls[0][1]["properties"]) == ["goal", "plan_version", "report", "steps"]
+    assert list(calls[0][1]["anyOf"][0]["properties"]) == ["goal", "plan_version", "report", "steps"]
     assert report["raw"] == raw
     assert report["error"] is None
 

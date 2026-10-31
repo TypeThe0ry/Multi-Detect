@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 DOUBLED_ARTICLE = re.compile(r"\b([Tt]he) the\b")
 
-from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     EXAMPLES,
     PLAN_PROMPT_VARIANTS,
@@ -961,6 +961,52 @@ def r25_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r26_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Structured refusal supervision with executable positive contrasts."""
+    rng = random.Random(f"{args.seed}:r26")
+    rows = []
+    cases = [
+        ("missing_capability", "投放包裹", "Drop the package", [], ["payload_drop"], [], "飞机没有投放能力。", "The aircraft lacks payload drop capability.", None),
+        ("unknown_place", "飞到火星基地", "Fly to Mars Base", ["zone:yard"], [], ["poi:mars"], "地点不在已知列表中。", "The place is not in the known list.", "你指的是哪个已知地点？"),
+        ("ungrounded_query", "寻找不存在的蓝色月亮车", "Find the blue moon car", ["zone:yard"], [], [], "查询类别没有依据。", "The requested query is ungrounded.", None),
+        ("ambiguous_task", "去那边看看", "Go over there and look", ["poi:gate", "poi:shed"], [], [], "目标地点不明确。", "The destination is ambiguous.", "你希望查看哪个地点？"),
+        ("unsafe_request", "飞入禁飞区並投放", "Enter the restricted area and drop payload", ["zone:yard"], [], [], "请求违反安全限制。", "The request violates safety constraints.", None),
+    ]
+    for i in range(args.r26_refusal_count):
+        code, zh, en, refs, caps, unresolved, reason_zh, reason_en, question = cases[i % len(cases)]
+        text = (f"任务{i + 1}：{zh}" if i % 2 == 0 else f"Task {i + 1}: {en}")
+        decision = "clarify" if question else "reject"
+        q = question if decision == "clarify" else None
+        target = {"plan_version": 1, "decision": decision, "reason_code": code,
+                  "reason": reason_zh if i % 2 == 0 else reason_en,
+                  "missing_capabilities": caps, "unresolved_refs": unresolved,
+                  "question": q if i % 2 == 0 or q is None else "Which known place do you mean?"}
+        key = normalize_task(text)
+        if key in held_out or key in seen: continue
+        validate_plan_decision(target)
+        seen.add(key)
+        rows.append({"sample_id": f"plan-r26-refusal-{i:04d}", "kind": "mission_plan",
+                     "world": "synthetic_plan_r26", "family": f"r26_{code}",
+                     "task_text": text, "refs": refs, "capabilities": caps,
+                     "expected_valid": False, "expected_findings": [code],
+                     "prompt": plan_prompt(text, refs=tuple(refs), capabilities=frozenset(caps), include_decision_contract=True),
+                     "assistant_target": target, "_key": key})
+    # Capable counterpart for the payload case remains a valid positive plan.
+    text = "Drop the package at the gate"
+    target = {"plan_version": 1, "goal": text, "steps": [
+        {"id": "drop", "skill": "deliver", "params": {"target_ref": "poi:gate", "payload_ref": "payload:1"}, "on_success": "home", "on_fail": "home"},
+        {"id": "home", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None}], "report": ["delivery"]}
+    key = normalize_task(text)
+    if key not in held_out and key not in seen:
+        validate_mission_plan(target, capabilities=frozenset({"payload_drop"}))
+        rows.append({"sample_id": "plan-r26-payload-capable", "kind": "mission_plan", "world": "synthetic_plan_r26",
+                     "family": "r26_payload_capable", "task_text": text, "refs": ["poi:gate"],
+                     "capabilities": ["payload_drop"], "expected_valid": True,
+                     "prompt": plan_prompt(text, refs=("poi:gate",), capabilities=frozenset({"payload_drop"}), include_decision_contract=True),
+                     "assistant_target": target, "_key": key})
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -1633,6 +1679,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="payload-capable/missing-capability contrast pairs (default: 40)")
     parser.add_argument("--r25-negated-query-count", type=int, default=40,
                         help="affirmative/negated-query contrast pairs (default: 40)")
+    parser.add_argument("--r26-recipe", action="store_true",
+                        help="extend r24 with structured reject/clarify decisions; excludes r25 rejected candidates")
+    parser.add_argument("--r26-refusal-count", type=int, default=40,
+                        help="structured refusal rows (default: 40)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -1651,7 +1701,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("r24 counts must be non-negative")
     if args.r25_missing_payload_count < 0 or args.r25_negated_query_count < 0:
         parser.error("r25 counts must be non-negative")
+    if args.r26_refusal_count < 0:
+        parser.error("r26 refusal count must be non-negative")
     if args.r25_recipe:
+        args.r24_recipe = True
+    if args.r26_recipe:
         args.r24_recipe = True
     eval_paths = args.eval_tasks
     if eval_paths is None:
@@ -1750,8 +1804,12 @@ def main(argv: list[str] | None = None) -> int:
         r24_rows = r24_reference_rows(args, held_out, seen)
         rows.extend(r24_rows)
         args.rows += len(r24_rows)
-    if args.r25_recipe:
+    if args.r25_recipe and not args.r26_recipe:
         new_rows = r25_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+    if args.r26_recipe:
+        new_rows = r26_rows(args, held_out, seen)
         rows.extend(new_rows)
         args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
@@ -1799,14 +1857,16 @@ def main(argv: list[str] | None = None) -> int:
                                           "r24_reference_type", "r24_unknown_place",
                                           "r24_context_land", "r24_context_return",
                                           "r25_missing_payload", "r25_payload_capable",
-                                          "r25_negated_query"}:
+                                          "r25_negated_query", "r26_missing_capability", "r26_unknown_place",
+                                          "r26_ungrounded_query", "r26_ambiguous_task", "r26_unsafe_request",
+                                          "r26_payload_capable"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
                 row["task_text"] = clean_r23_text(old)
                 if isinstance(row.get("prompt"), str):
                     row["prompt"] = row["prompt"].replace(old, row["task_text"])
-                if isinstance(row.get("assistant_target"), dict):
+                if isinstance(row.get("assistant_target"), dict) and "goal" in row["assistant_target"]:
                     row["assistant_target"]["goal"] = clean_r23_text(row["assistant_target"].get("goal", ""))
     if args.r20_plan_intent and args.r20_plan_intent_mix:
         for row in rows:
@@ -1841,6 +1901,10 @@ def main(argv: list[str] | None = None) -> int:
             "negated_query_pairs_requested": args.r25_negated_query_count,
             "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r25_")),
         }
+    if args.r26_recipe:
+        manifest["r26_recipe"] = {"refusal_requested": args.r26_refusal_count,
+                                  "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r26_")),
+                                  "r25_rejected_candidate_rows_included": False}
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -1873,7 +1937,9 @@ def main(argv: list[str] | None = None) -> int:
             "known_ref_substitution_rows": 0,
         }
     for name, part in splits.items():
-        sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
+        sequences = [[step["skill"] for step in row["assistant_target"].get("steps", ())]
+                     for row in part if isinstance(row.get("assistant_target"), dict)
+                     and row["assistant_target"].get("steps")]
         counts = {
             "skill_counts": Counter(skill for sequence in sequences for skill in sequence),
             "first_skill_counts": Counter(sequence[0] for sequence in sequences),
@@ -1888,7 +1954,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -1917,6 +1983,8 @@ def main(argv: list[str] | None = None) -> int:
             stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())
                       if str(family).startswith("r25_")]
             stats += ["", "r25 missing-payload negatives retain deliver for validator rejection; capable counterparts remain valid. Negated query negatives retain the forbidden query candidate for ungrounded_query rejection.", ""]
+        if args.r26_recipe:
+            stats += ["", "r26 rows supervise structured reject/clarify decisions and exclude r25 rejected-candidate targets.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

@@ -134,12 +134,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
     learning_rate = args.learning_rate
-    if args.r23_recipe or args.r24_recipe or args.r25_recipe:
+    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe:
         data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
-    if args.r24_recipe or args.r25_recipe:
+    if args.r24_recipe or args.r25_recipe or args.r26_recipe:
         data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
                      "--r24-unknown-count", str(args.r24_unknown_count),
                      "--r24-context-count", str(args.r24_context_count)]
@@ -149,6 +149,10 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
         data_cmd += ["--r25-recipe",
                      "--r25-missing-payload-count", str(args.r25_missing_payload_count),
                      "--r25-negated-query-count", str(args.r25_negated_query_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.0e-5
+    if args.r26_recipe:
+        data_cmd += ["--r26-recipe", "--r26-refusal-count", str(args.r26_refusal_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
@@ -194,6 +198,9 @@ def main(argv=None) -> int:
                         help="extend r24 with missing-payload and negated-query contrasts")
     parser.add_argument("--r25-missing-payload-count", type=int, default=40)
     parser.add_argument("--r25-negated-query-count", type=int, default=40)
+    parser.add_argument("--r26-recipe", action="store_true",
+                        help="extend r24 with structured reject/clarify targets")
+    parser.add_argument("--r26-refusal-count", type=int, default=40)
     parser.add_argument("--init-adapter", type=Path, default=R14_ADAPTER,
                         help="adapter used to initialize training (default: r14)")
     parser.add_argument("--baseline-gguf", type=Path, default=R14_GGUF,
@@ -213,7 +220,7 @@ def main(argv=None) -> int:
         parser.error("row counts must be positive (val rows may be zero)")
     if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
                                    args.r24_context_count, args.r25_missing_payload_count,
-                                   args.r25_negated_query_count)):
+                                   args.r25_negated_query_count, args.r26_refusal_count)):
         parser.error("recipe counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())

@@ -169,6 +169,27 @@ def test_r25_rows_keep_missing_payload_and_negated_query_candidates_admissible(t
     assert all(row["expected_findings"] == ["ungrounded_query"] for row in negated)
 
 
+def test_r26_recipe_emits_structured_refusals_and_admits_without_r25_candidates(tmp_path):
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "r26"
+    assert build_plan_sft.main([
+        "--output", str(output), "--rows", "200", "--val-rows", "0", "--version", "v4",
+        "--r26-recipe", "--r26-refusal-count", "5", "--r23-v3-count", "0",
+        "--r23-deliver-count", "0", "--r24-reference-count", "0",
+        "--r24-unknown-count", "0", "--r24-context-count", "0",
+        "--require-skills", "return_home",
+    ]) == 0
+    rows, _ = admit_train_rows(output)
+    refusals = [row for row in rows if str(row.get("family", "")).startswith("r26_")]
+    assert len(refusals) == 6
+    assert sum(row["assistant_target"].get("decision") == "reject" for row in refusals) == 3
+    assert sum(row["assistant_target"].get("decision") == "clarify" for row in refusals) == 2
+    assert all("rejected_candidate" not in row for row in refusals)
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["r26_recipe"]["r25_rejected_candidate_rows_included"] is False
+
+
 @pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"

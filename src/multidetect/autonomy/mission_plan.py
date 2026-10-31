@@ -66,6 +66,65 @@ MISSION_PLAN_JSON_SCHEMA: dict[str, Any] = {
     },
 }
 
+PLAN_DECISION_CODES = frozenset({"missing_capability", "unknown_place", "ungrounded_query", "ambiguous_task", "unsafe_request"})
+_PLAN_DECISION_PROPERTIES: dict[str, Any] = {
+    "plan_version": {"type": "integer", "enum": [1]},
+    "reason_code": {"type": "string", "enum": sorted(PLAN_DECISION_CODES)},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 240},
+    "missing_capabilities": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+    "unresolved_refs": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 96}},
+}
+_PLAN_DECISION_REQUIRED = ["plan_version", "decision", "reason_code", "reason", "missing_capabilities", "unresolved_refs", "question"]
+PLAN_REJECT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False, "required": _PLAN_DECISION_REQUIRED,
+    "properties": {**_PLAN_DECISION_PROPERTIES, "decision": {"type": "string", "enum": ["reject"]}, "question": {"type": "null"}},
+}
+PLAN_CLARIFY_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False, "required": _PLAN_DECISION_REQUIRED,
+    "properties": {**_PLAN_DECISION_PROPERTIES, "decision": {"type": "string", "enum": ["clarify"]}, "question": {"type": "string", "minLength": 1, "maxLength": 240}},
+}
+PLAN_DECISION_JSON_SCHEMAS = (PLAN_REJECT_JSON_SCHEMA, PLAN_CLARIFY_JSON_SCHEMA)
+
+
+@dataclass(frozen=True, slots=True)
+class PlanDecision:
+    plan_version: int
+    decision: str
+    reason_code: str
+    reason: str
+    missing_capabilities: tuple[str, ...] = ()
+    unresolved_refs: tuple[str, ...] = ()
+    question: str | None = None
+
+
+def validate_plan_decision(raw: str | bytes | Mapping[str, Any]) -> PlanDecision:
+    doc = strict_json_loads(raw, name="plan decision") if isinstance(raw, (str, bytes)) else raw
+    obj = strict_object(doc, name="plan decision", required=frozenset(_PLAN_DECISION_REQUIRED))
+    if set(obj) != set(_PLAN_DECISION_REQUIRED):
+        raise AutonomyContractError("plan decision cannot contain mission-plan fields")
+    version = require_int(obj["plan_version"], "plan_version", minimum=1, maximum=1)
+    decision = require_text(obj["decision"], "decision")
+    if decision not in {"reject", "clarify"}: raise AutonomyContractError("decision must be reject or clarify")
+    code = require_text(obj["reason_code"], "reason_code")
+    if code not in PLAN_DECISION_CODES: raise AutonomyContractError("unsupported reason_code")
+    reason = require_text(obj["reason"], "reason")
+    if len(reason) > 240: raise AutonomyContractError("reason must be at most 240 characters")
+    def strings(key: str, maximum: int) -> tuple[str, ...]:
+        value = obj[key]
+        if not isinstance(value, list) or len(value) > maximum: raise AutonomyContractError(f"{key} must be an array")
+        result = tuple(require_text(item, f"{key}[]") for item in value)
+        if any(len(item) > (64 if key == "missing_capabilities" else 96) for item in result): raise AutonomyContractError(f"{key} item too long")
+        return result
+    missing = strings("missing_capabilities", 8)
+    unresolved = strings("unresolved_refs", 8)
+    question = obj["question"]
+    if decision == "clarify":
+        question = require_text(question, "question")
+        if len(question) > 240: raise AutonomyContractError("question must be at most 240 characters")
+    elif question is not None:
+        raise AutonomyContractError("reject decision question must be null")
+    return PlanDecision(version, decision, code, reason, missing, unresolved, question)
+
 
 def _param(value: object, kind: str, name: str) -> object:
     if kind == "region":
@@ -234,4 +293,4 @@ def adapt_skill_for_airframe(step: MissionStep, airframe: Any) -> tuple[str, str
     return step.skill, None
 
 
-__all__ = ["SKILLS", "SkillSpec", "MissionStep", "MissionPlan", "SkillStatus", "MissionReport", "MISSION_PLAN_JSON_SCHEMA", "validate_mission_plan", "interpret_step_decision", "adapt_skill_for_airframe"]
+__all__ = ["SKILLS", "SkillSpec", "MissionStep", "MissionPlan", "PlanDecision", "PLAN_DECISION_CODES", "SkillStatus", "MissionReport", "MISSION_PLAN_JSON_SCHEMA", "PLAN_REJECT_JSON_SCHEMA", "PLAN_CLARIFY_JSON_SCHEMA", "PLAN_DECISION_JSON_SCHEMAS", "validate_mission_plan", "validate_plan_decision", "interpret_step_decision", "adapt_skill_for_airframe"]

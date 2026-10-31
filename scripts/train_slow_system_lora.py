@@ -142,6 +142,17 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             from multidetect.autonomy.mission_planner import check_plan_refs
 
             capabilities = normalize_capabilities(row.get("capabilities", ()))
+            if row["assistant_target"].get("decision") in {"reject", "clarify"}:
+                from multidetect.autonomy.mission_plan import validate_plan_decision
+                decision = validate_plan_decision(row["assistant_target"])
+                if row.get("expected_valid", True) is not False:
+                    raise ValueError(f"refusal target {row['sample_id']} must be marked expected_valid=false")
+                expected = set(row.get("expected_findings", ()))
+                if expected and expected != {decision.reason_code}:
+                    raise ValueError(f"refusal target {row['sample_id']} reason_code mismatch")
+                if not row.get("world") or not row.get("task_text"):
+                    raise ValueError("missing model input or world")
+                continue
             task_text = str(row.get("task_text", ""))
             task_fold = task_text.casefold()
             known_refs = {str(ref).split(" ", 1)[0] for ref in row.get("refs", ())}

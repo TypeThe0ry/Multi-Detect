@@ -118,6 +118,18 @@ def test_r25_recipe_and_model_paths_are_transmitted(tmp_path, monkeypatch, capsy
     assert "--learning-rate 2e-05" in output
 
 
+def test_r26_recipe_passes_refusal_count_without_r25_negative_target_mode(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "data", "--dry-run", "--out", str(tmp_path / "r26"),
+        "--r26-recipe", "--r26-refusal-count", "24",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r26-recipe --r26-refusal-count 24" in output
+    assert "--r24-recipe" in output
+    assert "--r25-recipe" not in output
+
+
 def test_replacement_reasons_use_configured_baseline_label():
     baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
                 "planning-v4": {"category_metrics": {}}}

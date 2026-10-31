@@ -114,7 +114,7 @@ def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
         assert emitted == names
     count = next(
         step
-        for step in schema["properties"]["steps"]["items"]["anyOf"]
+        for step in schema["anyOf"][0]["properties"]["steps"]["items"]["anyOf"]
         if step["properties"]["skill"]["enum"] == ["count"]
     )
     branches = count["properties"]["params"]["anyOf"]
