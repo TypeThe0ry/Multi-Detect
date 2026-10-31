@@ -7,9 +7,10 @@ from multidetect.autonomy.mission_plan import validate_mission_plan
 from multidetect.autonomy.plan_validation import validate_plan_for_execution
 
 
-def _package():
+def _package(capabilities=()):
     doc = {
         "mission_id": "validation", "risk_level": "low",
+        "capabilities": list(capabilities),
         "task_text": "Find the gate",
         "link_loss_policy": {"action": "continue", "timeout_s": 30},
         "home": [0, 0], "places": {"poi:gate": [20, 0]},
@@ -163,4 +164,66 @@ def test_missing_return_home_is_repaired():
     assert result.decision == "repair"
     assert result.plan.steps[-1].skill == "return_home"
     assert result.repairs
+
+
+def _fixed_wing_land_plan(*skills):
+    steps = []
+    for index, (skill, params) in enumerate(skills):
+        step_id = f"s{index}"
+        next_id = f"s{index + 1}" if index + 1 < len(skills) else None
+        steps.append({
+            "id": step_id, "skill": skill, "params": params,
+            "on_success": next_id, "on_fail": next_id,
+        })
+    return validate_mission_plan({"plan_version": 1, "goal": "land", "steps": steps, "report": []})
+
+
+def test_fixed_wing_goto_then_land_is_target_landing():
+    plan = _fixed_wing_land_plan(
+        ("goto", {"target_ref": "poi:gate"}),
+        ("land", {}),
+    )
+    result = validate_plan_for_execution(
+        plan, _package(("airframe:fixed_wing",)), "飞到大门然后降落。",
+        capabilities=frozenset({"airframe:fixed_wing"}),
+    )
+    assert result.decision == "reject"
+    assert any("landing_on_target" in reason for reason in result.reasons_zh)
+
+
+def test_fixed_wing_goto_then_return_home_is_legal():
+    plan = _fixed_wing_land_plan(
+        ("goto", {"target_ref": "poi:gate"}),
+        ("return_home", {}),
+    )
+    result = validate_plan_for_execution(
+        plan, _package(("airframe:fixed_wing",)), "飞到大门检查后返航，在 home 跑道降落。",
+        capabilities=frozenset({"airframe:fixed_wing"}),
+    )
+    assert result.decision == "accept"
+
+
+def test_fixed_wing_explicit_home_runway_landing_without_goto_is_legal():
+    plan = _fixed_wing_land_plan(("land", {}))
+    result = validate_plan_for_execution(
+        plan, _package(("airframe:fixed_wing",)), "降落在 home 跑道。",
+        capabilities=frozenset({"airframe:fixed_wing"}),
+    )
+    assert result.decision == "accept"
+
+
+def test_multirotor_goto_then_land_is_unchanged():
+    plan = _fixed_wing_land_plan(
+        ("goto", {"target_ref": "poi:gate"}),
+        ("land", {}),
+    )
+    for capabilities in (
+        frozenset({"hover", "landing_on_target"}),
+        frozenset({"hover", "landing_on_target", "airframe:vtol"}),
+    ):
+        result = validate_plan_for_execution(
+            plan, _package(capabilities), "飞到大门然后降落。",
+            capabilities=capabilities,
+        )
+        assert result.decision == "accept"
 

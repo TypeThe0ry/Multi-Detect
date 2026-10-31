@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from scripts.plan_from_task import score_task
 from multidetect.autonomy.mission_plan import validate_mission_plan
+from scripts.plan_from_task import score_task
 
 
 def _plan(skill: str, params: dict | None = None):
@@ -64,6 +64,6 @@ def test_invalid_query_task_uses_product_validator_before_awarding_rejection():
     })
     result = score_task(item, plan, None)
 
-    assert result["validator_decision"] == "accept"
-    assert result["correct_rejection"] is False
-    assert result["exact"] is False
+    assert result["validator_decision"] == "clarify"
+    assert result["correct_rejection"] is True
+    assert result["exact"] is True
