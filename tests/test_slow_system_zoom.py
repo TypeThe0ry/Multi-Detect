@@ -125,6 +125,19 @@ def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
     assert all({"query", "region"} <= set(branch["required"]) for branch in branches)
 
 
+def test_plan_schema_top_level_anyof_survives_key_ordering() -> None:
+    from multidetect.autonomy.mission_planner import plan_json_schema
+
+    schema = trained_key_order_schema(plan_json_schema())
+    assert set(schema) == {"anyOf"}
+    assert len(schema["anyOf"]) == 3
+    assert [branch["properties"]["decision"]["enum"][0]
+            for branch in schema["anyOf"][1:]] == ["reject", "clarify"]
+    for branch in schema["anyOf"][1:]:
+        assert list(branch["properties"]) == sorted(branch["properties"])
+        assert branch["required"] == sorted(branch["required"])
+
+
 def test_zoom_v2_multi_candidate_prompt_names_the_event_focus(tmp_path: Path) -> None:
     path = tmp_path / "frame.png"
     Image.new("RGB", (200, 100)).save(path)

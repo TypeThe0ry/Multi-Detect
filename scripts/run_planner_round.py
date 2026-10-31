@@ -200,7 +200,8 @@ def main(argv=None) -> int:
     parser.add_argument("--r25-negated-query-count", type=int, default=40)
     parser.add_argument("--r26-recipe", action="store_true",
                         help="extend r24 with structured reject/clarify targets")
-    parser.add_argument("--r26-refusal-count", type=int, default=40)
+    parser.add_argument("--r26-refusal-count", type=int, default=60,
+                        help="structured refusal rows per reason_code (r26 default: 60)")
     parser.add_argument("--init-adapter", type=Path, default=R14_ADAPTER,
                         help="adapter used to initialize training (default: r14)")
     parser.add_argument("--baseline-gguf", type=Path, default=R14_GGUF,

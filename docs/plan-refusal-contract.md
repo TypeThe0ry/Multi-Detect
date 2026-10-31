@@ -30,4 +30,10 @@
 
 ## 评测与数据
 
-`plan_from_task.py` 将带合理 `reason_code` 的拒绝/澄清计为正确拒绝。`build_plan_sft.py --r26-recipe` 在 r24 基础上加入能力不足、未知地点、无依据查询和含糊任务的结构化目标，并保留具备 `payload_drop` 时的 `deliver` 正例；r26 不使用 r25 的 `rejected_candidate` 负目标。训练准入会严格校验决策字段和标签一致性。`run_planner_round.py` 透传 `--r26-recipe`。数据生成只写入 `.tmp/r26-data/`，不执行训练。
+`plan_from_task.py` 将带合理 `reason_code` 的拒绝/澄清计为正确拒绝。`build_plan_sft.py --r26-recipe` 将应拒绝或澄清的 assistant target 统一设为结构化 `decision`；r24 未知地点和无载荷能力的 deliver 也按此转换，原计划只保存在 `rejected_candidate` 审计字段中。未启用 r26 时，r23/r24 生成路径保持原样。
+
+r26 的 `--r26-refusal-count` 表示每个 `reason_code` 的拒绝/澄清行数，默认 60；同类会生成等量、逐行通过 validator 与意图检查的可执行正例。无继承数据时五类各 60+60，共 600 行；若 r24 默认的 80 条未知地点拒绝被继承，该类按 80+80 配平，总新增 640 行。默认 60 是便于训练中形成稳定类别信号、同时将新增数据控制在完整 5,500 行级别数据集约 11% 的折中；中英文各半。正例涵盖能力具备时的 deliver、已知地点的检查、查询有据和位置明确的任务，以及安全区域内的正常搜索。
+
+模板通过有限笛卡尔组合枚举，并按归一化任务文本去重、排除 planning-v3/v4 评测题；若可用唯一模板不足以满足请求，生成器会报错退出，不会无限重试。准入检查 decision 字段、标签一致性、保留候选的 finding 和正例意图。`run_planner_round.py` 透传该数量参数。生成数据写入指定输出目录（例如 `.tmp/r26-data/`），本配方不执行训练。
+
+本次按 v4 完整配方实际生成到 `.tmp/r26-data-final6/`：train 6,020 行、val 100 行。r26 共 640 行：`missing_capability`、`ungrounded_query`、`ambiguous_task`、`unsafe_request` 各 60 条拒绝/澄清与 60 条正例；`unknown_place` 包含继承的 80 条 r24 结构化澄清与 80 条正例。训练准入接受全部 6,020 条；模板生成阶段的正例 validator 和意图检查均通过。未启动训练。

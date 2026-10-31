@@ -152,6 +152,38 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
                     raise ValueError(f"refusal target {row['sample_id']} reason_code mismatch")
                 if not row.get("world") or not row.get("task_text"):
                     raise ValueError("missing model input or world")
+                candidate = row.get("rejected_candidate")
+                if candidate is not None:
+                    if not isinstance(candidate, dict):
+                        raise ValueError(f"refusal audit candidate {row['sample_id']} must be an object")
+                    audit_capability_codes = {
+                        item["code"] for item in capability_violations(
+                            candidate, capabilities,
+                            airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+                        )
+                    }
+                    audit_intent_codes = {
+                        item.code for item in check_plan_intent(
+                            candidate, row["task_text"], tuple(row.get("refs", ()))
+                        )
+                    }
+                    _, _, audit_unknown_refs = check_plan_refs(
+                        candidate, tuple(row.get("refs", ())), substitute=False
+                    )
+                    if audit_unknown_refs:
+                        audit_intent_codes.add("ungrounded_place")
+                    validate_mission_plan(
+                        candidate,
+                        capabilities=frozenset({"payload_drop", "hover", "landing_on_target"}),
+                    )
+                    expected_audit_code = {
+                        "unknown_place": "ungrounded_place",
+                    }.get(decision.reason_code, decision.reason_code)
+                    if expected_audit_code not in audit_capability_codes | audit_intent_codes:
+                        raise ValueError(
+                            f"refusal audit candidate {row['sample_id']} does not trigger "
+                            f"{expected_audit_code}"
+                        )
                 continue
             task_text = str(row.get("task_text", ""))
             task_fold = task_text.casefold()
