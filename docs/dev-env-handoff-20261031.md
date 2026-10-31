@@ -125,7 +125,7 @@ python scripts/fetch_sim_assets.py \
 
 ```bash
 python scripts/collect_sim_teacher_episodes.py \
-  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.teacher_spawn_probe_r1.scenario.json \
   --teacher expert_search --episodes 1 --steps-per-episode 20 \
   --rgb-size 1280x960 --depth-size 1280x960 \
   --out artifacts/smoke/sim-teacher-linux \
