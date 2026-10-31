@@ -32,6 +32,7 @@ from scripts.sitl_lock import SitlLock, default_lock_path
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
+MAX_COLLECT_WORKERS = 8
 # Collection plan requires a continuous far-to-near pass through roughly
 # 14-16 m, 9 m, 6 m and 4.5 m, plus 80 frames below 4 m. At 20 FPS, four
 # 80-frame observation windows are the smallest round-number budget that
@@ -1910,8 +1911,10 @@ def main():
         p.error("--retries must be >= 0")
     if a.docker_wait_minutes < 0:
         p.error("--docker-wait-minutes must be >= 0")
-    if not 1 <= a.workers <= 2:
-        p.error("--workers must be 1 or 2")
+    # The old 8 GB dev box capped this at 2; ports are spaced by 10 per worker
+    # and host-network workers get their own PX4 instance and GZ_PARTITION.
+    if not 1 <= a.workers <= MAX_COLLECT_WORKERS:
+        p.error(f"--workers must be between 1 and {MAX_COLLECT_WORKERS}")
     if a.steps_per_episode < 1:
         p.error("--steps-per-episode must be positive")
     if (a.collector_min_free_gb is not None and a.collector_min_free_gb < 0) or a.min_free_gb < 0:
