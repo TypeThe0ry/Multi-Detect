@@ -77,7 +77,7 @@ def test_r23_recipe_bytes_remain_stable_after_r24_addition(tmp_path):
                      "--val-rows", "5", "--r23-recipe", "--r23-v3-count", "12",
                      "--r23-deliver-count", "6", "--require-skills"]) == 0
     expected = {
-        "manifest.json": "cc99d9159619cde55900b3c564430eb1d89442eda2c8e0fe62904bfa0ed2118c",
+        "manifest.json": "b5079dce5b246fa83cf11b4c742b4a0862fee229328c7b0809fd4654fbbab95a",  # CRLF manifest (c2d15eb8)
         "train.jsonl": "1ee109ca33514d0535009da9a4d66fded685738471c51e5375d2414a049a79d6",
         "val.jsonl": "4ae517f5889090c5d30e492f172ee8a107532c5b857497f8b09290f00fe18ca6",
         "r23-data-stats.md": "28a50eb1d2002d824c7f85205291dbfc1498bfc53dbae7fcc047f9d813a765f7",
