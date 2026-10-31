@@ -5,9 +5,14 @@ import io
 import math
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip("pyarrow", reason="OpenFly parquet acquisition tests require optional pyarrow")
+pytest.importorskip(
+    "huggingface_hub", reason="OpenFly parquet source binding requires optional huggingface_hub"
+)
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 from test_bind_openfly_parquet_route_metadata import exact_source, shard_row  # noqa: F401
 from test_fetch_openfly_multiscene_navigation import fixture_source, write  # noqa: F401
 

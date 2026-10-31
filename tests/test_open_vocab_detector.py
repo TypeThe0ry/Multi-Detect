@@ -2,7 +2,8 @@ import hashlib
 from pathlib import Path
 
 import pytest
-import yaml
+
+yaml = pytest.importorskip("yaml", reason="open-vocabulary dataset tests require optional PyYAML")
 
 from scripts.open_vocab_detector import (
     build_dataset_view,

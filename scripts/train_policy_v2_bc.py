@@ -30,6 +30,7 @@ except ImportError:  # pragma: no cover - optional training environment
     np = None  # type: ignore[assignment]
     torch = None  # type: ignore[assignment]
     Tensor = Any  # type: ignore[misc,assignment]
+    Dataset = None  # type: ignore[assignment]
 
 from multidetect.autonomy.policy_v2 import StructuredSceneStateBuilder
 from multidetect.autonomy.policy_v2.model import (
@@ -250,7 +251,10 @@ class Transition:
     weight: float
 
 
-class _TransitionDataset(Dataset[Transition]):
+_TransitionDatasetBase = Dataset if Dataset is not None else object
+
+
+class _TransitionDataset(_TransitionDatasetBase):
     def __init__(self, rows: list[Transition]):
         self.rows = rows
 
