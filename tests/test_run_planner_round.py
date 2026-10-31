@@ -75,6 +75,18 @@ def test_r23_recipe_selects_rebalanced_data_and_learning_rate(tmp_path, monkeypa
     assert "--learning-rate 2.5e-05" in output
 
 
+def test_r24_recipe_transmits_reference_families_and_learning_rate(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r24"),
+        "--r24-recipe", "--r24-reference-count", "12", "--r24-unknown-count", "8",
+        "--r24-context-count", "6",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r24-recipe --r24-reference-count 12 --r24-unknown-count 8 --r24-context-count 6" in output
+    assert "--learning-rate 2e-05" in output
+
+
 def test_default_lock_is_the_shared_sitl_lock_directory():
     # The lock is the mkdir directory sitl.lock; sitl_lock.sh is the shell helper.
     # Pointing SitlLock at the script made mkdir fail forever (or a stale reclaim
