@@ -1,0 +1,8 @@
+{
+  "gguf": "D:/Projects/Multi-Detect/artifacts/r18-round/merged-gguf/slow-system-Q5_K_M.gguf",
+  "planning_model": "artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf",
+  "confirm_max_range_m": 40,
+  "fast_identity": true,
+  "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+  "near_depth": false
+}
