@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from multidetect.simulator.task_semantics import (
     fuel_count_texts,
@@ -897,7 +898,11 @@ def generate_fuel_worlds(
             elif value and not value.startswith(("file://", "http://", "https://")):
                 uri.text = f"model://{slug}/{value.lstrip('./')}"
             elif value.startswith("http://") or value.startswith("https://"):
-                raise ValueError(f"asset {slug} contains network URI")
+                filename = Path(unquote(urlparse(value).path)).name
+                local_matches = sorted((Path(resolved_root) / slug).rglob(filename)) if filename else []
+                if not local_matches:
+                    raise ValueError(f"asset {slug} contains unresolved network URI")
+                uri.text = f"model://{slug}/{local_matches[0].relative_to(Path(resolved_root) / slug).as_posix()}"
         return ET.tostring(outer, encoding="unicode")
 
     def pose_point(used: list[tuple[float, float, float]], radius: float) -> tuple[float, float]:
