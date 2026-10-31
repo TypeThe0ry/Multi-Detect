@@ -398,3 +398,9 @@ python scripts/collect_sim_teacher_episodes.py \
   --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 \
   --out artifacts/smoke/r21id-r4-w0000
 ```
+
+## r21id-r3 替换决定（2026-11-01）
+
+负责人把决定交给开发侧。决定：**r21id-r3 替换 r18 成为机载身份模型**。理由：主门两部分（r3 冻结测试世界四视角、真实飞行集 v1）r21id-r3 都明显好于 r18，v1 在同一台机器上对比没有任何退化（身份 0.913→0.946、干扰物拒绝 0.958→0.993、确认召回 0.462→0.716）；四视角绝对门槛 r18 自己差得更远（真目标误拒 34.6%），继续以 r18 为现役等于保留更差的模型。已知短板照实记录：四视角干扰物误收 9.4%（门槛 2.6%）、v3 参考集 <12 px 小目标召回 0.703→0.622，由 r21id-r4 继续改进（新增 24 个世界的采集已在跑）。
+
+模型：`artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf`（sha256 `4392eab6…`），adapter 在 `artifacts/models/slow-system-lora-v2-r21id-r3/`。推荐机载组合：`configs/onboard/sim-loop-v3-r21idr3-r24plan-defaults.json`（r21id-r3 身份 + r24 规划 + YOLOE v3 1280）。各回归套件配置等 Linux 上 SITL 任务套件跑通后再切换。下一轮 r21id-r4 以 r21id-r3 为热启动和基线。
