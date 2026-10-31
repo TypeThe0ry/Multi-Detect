@@ -20,7 +20,14 @@ from typing import Any
 
 from multidetect.autonomy.mission_package import check_plan_against_package
 from multidetect.autonomy.capability_contract import capability_violations
-from multidetect.autonomy.mission_plan import SKILLS, MissionPlan, validate_mission_plan
+from multidetect.autonomy.mission_plan import (
+    PLAN_DECISION_JSON_SCHEMAS,
+    SKILLS,
+    MissionPlan,
+    PlanDecision,
+    validate_mission_plan,
+    validate_plan_decision,
+)
 from multidetect.autonomy.plan_intent import (
     check_plan_intent,
     intent_error,
@@ -245,10 +252,16 @@ def _step_schema(skill: str) -> dict[str, Any]:
     }
 
 
-def plan_json_schema(*, capabilities: frozenset[str] = frozenset()) -> dict[str, Any]:
+def plan_json_schema(
+    *, capabilities: frozenset[str] = frozenset(), include_decision_contract: bool = False
+) -> dict[str, Any]:
     """MissionPlan schema with exact per-skill parameters (gated skills need capability)."""
-    skills = [name for name, spec in SKILLS.items() if not spec.gated or "payload" in capabilities]
-    return {
+    skills = [
+        name for name, spec in SKILLS.items()
+        if not spec.gated or "payload" in capabilities
+        or include_decision_contract and "payload_drop" in capabilities
+    ]
+    mission_schema = {
         "type": "object",
         "additionalProperties": False,
         "required": ["plan_version", "goal", "steps", "report"],
@@ -268,6 +281,11 @@ def plan_json_schema(*, capabilities: frozenset[str] = frozenset()) -> dict[str,
             },
         },
     }
+    if include_decision_contract:
+        # Closed, mutually exclusive branches keep constrained decoding compatible
+        # with llama.cpp while allowing legacy MissionPlan documents.
+        return {"anyOf": [mission_schema, *PLAN_DECISION_JSON_SCHEMAS]}
+    return mission_schema
 
 
 def repair_plan_document(document: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -336,6 +354,7 @@ def plan_prompt_parts(
     prompt_variant: str = "default",
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
+    include_decision_contract: bool = False,
 ) -> dict[str, str]:
     """Ordered prompt sections, including delimiters; concatenate values to render.
 
@@ -346,7 +365,7 @@ def plan_prompt_parts(
         raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
     lines = ["Skills (params in brackets, * = required):"]
     for name, spec in SKILLS.items():
-        if spec.gated and "payload" not in capabilities:
+        if spec.gated and not ("payload" in capabilities or include_decision_contract and "payload_drop" in capabilities):
             continue
         params = ", ".join(
             ("*" if p in spec.required_params else "") + p
@@ -369,11 +388,13 @@ def plan_prompt_parts(
         "task says to land. Use only the steps the task asks for: no extra search, goto, "
         "record, inspect or hover that the task does not mention.",
     ]
+    if include_decision_contract:
+        lines.append("If the task cannot be safely or faithfully performed, output a decision object instead of a mission plan: reject for unsupported/unsafe requests, clarify when a required detail is ambiguous. Use reason_code missing_capability, unknown_place, ungrounded_query, ambiguous_task, or unsafe_request. Example reject: {\"plan_version\":1,\"decision\":\"reject\",\"reason_code\":\"missing_capability\",\"reason\":\"No payload drop capability.\",\"missing_capabilities\":[\"payload_drop\"],\"unresolved_refs\":[],\"question\":null}. Example clarify: {\"plan_version\":1,\"decision\":\"clarify\",\"reason_code\":\"ambiguous_task\",\"reason\":\"Place is unclear.\",\"missing_capabilities\":[],\"unresolved_refs\":[],\"question\":\"Which place do you mean?\"}. Never substitute a different executable task.")
     if prompt_variant in {"compact_rules", "compact"}:
         # Keep the exact skill names/parameter list; grammar supplies their types.
         lines = ["Skills (* required):"]
         for name, spec in SKILLS.items():
-            if not spec.gated or "payload" in capabilities:
+            if not spec.gated or "payload" in capabilities or include_decision_contract and "payload_drop" in capabilities:
                 params = ",".join(
                     ("*" if p in spec.required_params else "") + p
                     for p in sorted(spec.allowed_params - _UNADVERTISED_PARAMS)
@@ -387,6 +408,8 @@ def plan_prompt_parts(
             "edges or retries; failure goes next/final. End return_home unless task "
             "requests land. Include only requested actions.",
         ]
+        if include_decision_contract:
+            lines.append("Unsupported, unsafe, unknown-place, ungrounded-query, or ambiguous tasks require the structured reject/clarify decision; never emit a substitute mission. Reject example: {\"plan_version\":1,\"decision\":\"reject\",\"reason_code\":\"missing_capability\",\"reason\":\"No payload capability.\",\"missing_capabilities\":[\"payload_drop\"],\"unresolved_refs\":[],\"question\":null}. Clarify example: {\"plan_version\":1,\"decision\":\"clarify\",\"reason_code\":\"ambiguous_task\",\"reason\":\"Place is unclear.\",\"missing_capabilities\":[],\"unresolved_refs\":[],\"question\":\"Which place do you mean?\"}.")
     examples = EXAMPLES
     if prompt_variant in {"no_examples", "compact"}:
         examples = ()
@@ -413,6 +436,7 @@ def plan_prompt(
     error: str | None = None,
     prompt_variant: str = "default",
     capabilities: frozenset[str] = frozenset(),
+    include_decision_contract: bool = False,
 ) -> str:
     """Instruction for the slow model; defaults match the training prompt exactly."""
     return "".join(
@@ -422,6 +446,7 @@ def plan_prompt(
             error=error,
             prompt_variant=prompt_variant,
             capabilities=capabilities,
+            include_decision_contract=include_decision_contract,
         ).values()
     )
 
@@ -497,7 +522,8 @@ def compile_mission_plan(
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
     check_intent: bool = True,
-) -> tuple[MissionPlan | None, dict[str, Any]]:
+    include_decision_contract: bool = False,
+) -> tuple[MissionPlan | PlanDecision | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason.
 
     Unknown references are always rejected (with no known places, every named
@@ -510,7 +536,9 @@ def compile_mission_plan(
         raise ValueError("attempts must be positive")
     if prompt_variant not in PLAN_PROMPT_VARIANTS:
         raise ValueError(f"unknown planning prompt variant: {prompt_variant}")
-    schema = schema if schema is not None else plan_json_schema(capabilities=capabilities)
+    schema = schema if schema is not None else plan_json_schema(
+        capabilities=capabilities, include_decision_contract=include_decision_contract
+    )
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
     error: str | None = None
     for attempt in range(attempts):
@@ -527,6 +555,7 @@ def compile_mission_plan(
                     error=error,
                     prompt_variant=prompt_variant,
                     capabilities=capabilities,
+                    include_decision_contract=include_decision_contract,
                 ),
                 schema,
             )
@@ -538,6 +567,11 @@ def compile_mission_plan(
                 document = json.loads(raw)
                 if not isinstance(document, dict):
                     raise ValueError("mission plan must be a JSON object")
+                if document.get("decision") in {"reject", "clarify"}:
+                    decision = validate_plan_decision(document)
+                    report["decision"] = decision
+                    report["error"] = None
+                    return decision, report
                 document, notes = repair_plan_document(document)
                 document, ref_notes, unknown = check_plan_refs(
                     document, tuple(refs), substitute=last

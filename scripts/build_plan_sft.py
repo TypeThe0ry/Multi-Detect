@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 DOUBLED_ARTICLE = re.compile(r"\b([Tt]he) the\b")
 
-from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import SKILLS, validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     EXAMPLES,
     PLAN_PROMPT_VARIANTS,
@@ -961,6 +961,398 @@ def r25_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r26_rows(args, held_out: set[str], seen: set[str], existing: list[dict]) -> list[dict]:
+    """Build balanced bilingual refusal/clarification and valid contrast rows."""
+    rows = []
+    places = [("poi:gate", "大门", "gate"), ("poi:pad", "起降坪", "landing pad"),
+              ("poi:tower", "水塔", "water tower"), ("poi:shed", "仓库", "warehouse"),
+              ("poi:bridge", "桥", "bridge"), ("poi:yard", "院子", "yard")]
+    payloads = [("包裹", "parcel"), ("药品箱", "medical case"), ("工具箱", "tool case"),
+                ("样品盒", "sample case"), ("急救包", "first-aid kit"), ("设备箱", "equipment case"),
+                ("物资袋", "supply bag"), ("零件盒", "parts box"), ("水样瓶", "water sample"),
+                ("电池组", "battery pack")]
+    unknowns = [("青石码头", "Blue Stone Wharf"), ("旧气象站", "Old Weather Station"),
+                ("北岸仓库", "North Shore Depot"), ("石拱渡口", "Stone Arch Ferry"),
+                ("林场观测点", "Forest Survey Point"), ("月台遗址", "Moon Platform Ruins")]
+    queries = [("蓝色月亮车", "blue moon car"), ("紫色水下巴士", "purple underwater bus"),
+               ("透明履带飞机", "transparent tracked aircraft"), ("银色火星拖拉机", "silver Mars tractor"),
+               ("会飞的黄色潜艇", "flying yellow submarine"), ("绿色冰下卡车", "green under-ice truck")]
+    ambiguity = [("那边", "over there"), ("它旁边", "beside it"), ("靠近那里", "near that place"),
+                 ("那个位置", "that location"), ("前面那个点", "the point ahead"), ("那一处", "that spot")]
+    unsafe = [("禁飞区", "restricted airspace"), ("人群上方", "above a crowd"),
+              ("封锁区", "cordoned area"), ("机场跑道", "airport runway"),
+              ("高压线内侧", "inside the power-line corridor"), ("临时禁入区", "temporary exclusion zone")]
+    templates = {
+        "missing_capability": [
+            ("请把{payload}送到{place}并完成投放", "Deliver the {payload} at the {place} by dropping it"),
+            ("携带{payload}前往{place}，到达后空投", "Carry the {payload} to the {place} and release it there"),
+            ("将{payload}投递至{place}，无需返航", "Drop off the {payload} at the {place}; no return is needed"),
+            ("到{place}把{payload}放下", "Take the {payload} to the {place} and leave it there"),
+            ("把{payload}送往{place}，抵达后释放", "Bring the {payload} to the {place} and release it on arrival"),
+            ("在{place}完成{payload}的投放任务", "Complete the {payload} drop mission at the {place}"),
+        ],
+        "unknown_place": [
+            ("前往地图未收录的{place}查看现场", "Inspect the unmapped {place} and return home"),
+            ("导航到列表中没有的{place}后返航", "Navigate to the unlisted {place}, then return to base"),
+            ("去{place}核实情况，结束后回家", "Check conditions at {place} before heading home"),
+            ("请飞抵未标注地点{place}并观察", "Fly to the unmarked site {place} and observe it"),
+            ("把航线终点设为未登记的{place}", "Set the route endpoint to the unregistered {place}"),
+            ("到没有列出的{place}确认目标后回家", "Visit the unlisted {place}, confirm the target, and go home"),
+        ],
+        "ungrounded_query": [
+            ("在院子里查找{query}，完成后返航", "Search the yard for {query}, then return home"),
+            ("确认院区有没有{query}，之后回到起飞点", "Check whether the yard contains {query}, then return to launch"),
+            ("搜索作业区中的{query}并报告位置", "Search the operating area for {query} and report its location"),
+            ("找出院内的{query}，结束后返航", "Locate {query} in the yard and fly back afterward"),
+            ("对院区做一次{query}检索，然后返航", "Run a {query} search in the yard and return afterward"),
+            ("在作业区搜寻{query}，报告后回家", "Search the operating area for {query}, report it, and come home"),
+        ],
+        "ambiguous_task": [
+            ("去{place}查看一下，再返航", "Inspect {place} and then return home"),
+            ("请到{place}确认情况，完成后回家", "Go to {place} to check the situation, then come back"),
+            ("检查{place}并返回起飞点", "Check {place} and return to the launch point"),
+            ("飞到{place}观察一遍后返航", "Fly to {place}, take a look, and return to base"),
+            ("去{place}处理一下现场再返航", "Go to {place}, handle the inspection, and return"),
+            ("把查看任务安排在{place}，完成后回家", "Schedule the inspection at {place}, then come home"),
+        ],
+        "unsafe_request": [
+            ("进入{place}上空搜索车辆，随后返航", "Enter {place} to search for vehicles, then return"),
+            ("穿越{place}并拍摄现场，完成后回家", "Cross {place} and photograph the scene before returning"),
+            ("飞入{place}检查情况，再返回起飞点", "Fly into {place} to inspect it, then return to launch"),
+            ("在{place}内执行巡查并返航", "Patrol within {place} and return home"),
+            ("穿入{place}拍摄目标，再飞回基地", "Enter {place} to film the target, then fly back to base"),
+            ("沿{place}方向飞入并检查现场", "Fly into {place} and inspect the scene"),
+        ],
+    }
+    decisions = {
+        "missing_capability": ("reject", "飞机缺少载荷投放能力。", "Aircraft lacks payload drop capability.", ["payload_drop"], [], None, None),
+        "unknown_place": ("clarify", "请求地点未出现在已知引用中。", "The requested place is absent from the known references.", [], [], "你希望改为哪个已知地点？", "Which known place should replace it?"),
+        "ungrounded_query": ("reject", "请求的查询类别没有任务依据。", "The requested query has no grounding in the task context.", [], [], None, None),
+        "ambiguous_task": ("clarify", "无法唯一确定要检查的位置。", "The location to inspect is not uniquely identified.", [], ["ambiguous_location"], "你希望检查列表中的哪个地点？", "Which listed place should I inspect?"),
+        "unsafe_request": ("reject", "请求要求进入受限制区域。", "The request requires entering a restricted area.", [], [], None, None),
+    }
+
+    # r26 upgrades legacy negatives emitted by the shared r23/r24 recipes.
+    legacy_unknown = [row for row in existing if row.get("family") == "r24_unknown_place"]
+    for row in legacy_unknown:
+        candidate = row["assistant_target"]
+        text = row["task_text"]
+        match = re.search(r"poi:([a-z0-9_]+)", candidate["steps"][0]["params"]["target_ref"])
+        unresolved = ["poi:" + match.group(1)] if match else []
+        zh = bool(re.search(r"[\u4e00-\u9fff]", text))
+        row["rejected_candidate"] = candidate
+        row["negative_target_mode"] = "rejected_candidate"
+        row["reason_code"] = "unknown_place"
+        row["assistant_target"] = {
+            "plan_version": 1, "decision": "clarify", "reason_code": "unknown_place",
+            "reason": decisions["unknown_place"][1 if zh else 2],
+            "missing_capabilities": [], "unresolved_refs": unresolved,
+            "question": "你希望改为哪个已知地点？" if zh else "Which known place should replace it?",
+        }
+        row["expected_valid"] = False
+        row["expected_findings"] = ["unknown_place"]
+        row["prompt"] = plan_prompt(text, refs=tuple(row.get("refs", ())),
+            capabilities=frozenset(row.get("capabilities", ())), include_decision_contract=True)
+        validate_plan_decision(row["assistant_target"])
+        _, _, unknown_refs = check_plan_refs(candidate, tuple(row.get("refs", ())), substitute=False)
+        if not unknown_refs:
+            raise ValueError(f"r26 legacy unknown-place audit candidate was not rejected: {row['sample_id']}")
+    legacy_deliver = [
+        row for row in existing
+        if row.get("family") == "r23_deliver_faithful"
+        and isinstance(row.get("assistant_target"), dict)
+        and any(step.get("skill") == "deliver"
+                for step in row["assistant_target"].get("steps", ()))
+        and "payload_drop" not in set(row.get("capabilities", ()))
+    ]
+    for row in legacy_deliver:
+        candidate = row["assistant_target"]
+        text = row["task_text"]
+        zh = bool(re.search(r"[\u4e00-\u9fff]", text))
+        row["rejected_candidate"] = candidate
+        row["negative_target_mode"] = "rejected_candidate"
+        row["reason_code"] = "missing_capability"
+        row["assistant_target"] = {
+            "plan_version": 1, "decision": "reject", "reason_code": "missing_capability",
+            "reason": "飞机缺少载荷投放能力。" if zh else "Aircraft lacks payload drop capability.",
+            "missing_capabilities": ["payload_drop"], "unresolved_refs": [],
+            "question": None,
+        }
+        row["expected_valid"] = False
+        row["expected_findings"] = ["missing_capability"]
+        row["capabilities"] = []
+        row["prompt"] = plan_prompt(text, refs=tuple(row.get("refs", ())),
+            capabilities=frozenset(row.get("capabilities", ())), include_decision_contract=True)
+        validate_plan_decision(row["assistant_target"])
+
+    def add_row(code, text, refs, capabilities, target, valid, audit=None, *, positive=False):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        if valid:
+            validate_mission_plan(target, capabilities=frozenset(capabilities))
+            findings = check_plan_intent(target, text, tuple(refs))
+            if findings:
+                raise ValueError(f"r26 positive intent failure: {code}: {findings}: {text}")
+        else:
+            validate_plan_decision(target)
+        seen.add(key)
+        family = ("r26_payload_capable" if positive and code == "missing_capability"
+                  else f"r26p_{code}" if positive else f"r26_{code}")
+        row = {"sample_id": f"plan-r26-{code}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+               "kind": "mission_plan", "world": "synthetic_plan_r26", "family": family,
+               "pair_role": "positive" if positive else "refusal",
+               "reason_code": code,
+               "task_text": text, "refs": list(refs), "capabilities": list(capabilities),
+               "expected_valid": valid, "expected_findings": [] if valid else [code],
+               "prompt": plan_prompt(text, refs=tuple(refs), capabilities=frozenset(capabilities),
+                                     include_decision_contract=True),
+               "assistant_target": target, "_key": key}
+        rows.append(row)
+        return True
+
+    def positive_plan(code, text, ref, *, query="vehicle", capability=False):
+        if code == "missing_capability":
+            place_ref, _zh, _en, _payload_zh, _payload_en = ref
+            return {"plan_version": 1, "goal": text[:160], "steps": [
+                S("s1", "deliver", {"target_ref": place_ref, "payload_ref": "payload:package"}, "s2", "s2"), H("s2")],
+                "report": ["delivery"]}
+        place_ref, _zh, _en = ref[:3]
+        if code in {"unknown_place", "ambiguous_task"}:
+            return {"plan_version": 1, "goal": text[:160], "steps": [
+                S("s1", "goto", {"target_ref": place_ref}, "s2", "s2"),
+                S("s2", "inspect", {"target_ref": place_ref, "query": query, "views": 1, "standoff_m": 5}, "s3", "s3"), H("s3")],
+                "report": ["inspection"]}
+        if code == "ungrounded_query":
+            return {"plan_version": 1, "goal": text[:160], "steps": [
+                S("s1", "area_search", {"region": "zone:yard", "query": query}, "s2", "s2"), H("s2")],
+                "report": ["inspection"]}
+        return {"plan_version": 1, "goal": text[:160], "steps": [
+            S("s1", "area_search", {"region": "zone:yard", "query": query}, "s2", "s2"), H("s2")],
+            "report": ["status"]}
+
+    for code, pairs in templates.items():
+        inherited_count = (len(legacy_unknown) if code == "unknown_place" else
+                           len(legacy_deliver) if code == "missing_capability" else 0)
+        requested_total = args.r26_refusal_count
+        refusal_count = max(0, requested_total - inherited_count)
+        # Cycle finite phrase/place/query combinations and fail once the unique pool is exhausted.
+        pool_size = len(pairs) * (len(payloads) if code == "missing_capability" else
+                                  len(unknowns) if code == "unknown_place" else
+                                  len(queries) if code == "ungrounded_query" else
+                                  len(ambiguity) if code == "ambiguous_task" else len(unsafe))
+        requested = refusal_count
+        if requested > pool_size * 2:
+            raise ValueError(f"r26 {code} template pool exhausted after de-duplication; reduce requested count")
+        emitted = 0
+        for i in range(pool_size * 2):
+            if emitted >= refusal_count:
+                break
+            language_zh = (emitted % 2 == 0)
+            choice_set = payloads if code == "missing_capability" else unknowns if code == "unknown_place" else queries if code == "ungrounded_query" else ambiguity if code == "ambiguous_task" else unsafe
+            value = choice_set[(i // len(pairs)) % len(choice_set)]
+            pair = pairs[i % len(pairs)]
+            if code == "missing_capability":
+                zh_payload, en_payload = value
+                place_ref, place_zh, place_en = places[(i // (len(pairs) * len(payloads))) % len(places)]
+                fmt = {"payload": zh_payload if language_zh else en_payload,
+                       "place": place_zh if language_zh else place_en}
+                refs = (f"{place_ref} ({place_zh} / {place_en})",)
+                caps = []
+                audit = {"plan_version": 1, "goal": "deliver audit candidate", "steps": [
+                    S("s1", "deliver", {"target_ref": place_ref, "payload_ref": "payload:package"}, "s2", "s2"), H("s2")], "report": ["delivery"]}
+            elif code == "unknown_place":
+                zh_place, en_place = value
+                known_ref, known_zh, known_en = places[i % len(places)]
+                fake = "poi:" + re.sub(r"[^a-z0-9]+", "_", en_place.casefold()).strip("_")
+                fmt = {"place": zh_place if language_zh else en_place}
+                refs = (f"{known_ref} ({known_zh} / {known_en})",)
+                caps = []
+                audit = {"plan_version": 1, "goal": "unknown-place audit candidate", "steps": [S("s1", "goto", {"target_ref": fake}, "s2", "s2"), H("s2")], "report": ["status"]}
+            elif code == "ungrounded_query":
+                zh_query, en_query = value
+                fmt = {"query": zh_query if language_zh else en_query}
+                refs = ("zone:yard (院子 / yard)",)
+                caps = []
+                audit = {"plan_version": 1, "goal": "ungrounded query audit candidate", "steps": [S("s1", "area_search", {"region": "zone:yard", "query": "ambulance"}, "s2", "s2"), H("s2")], "report": ["status"]}
+            elif code == "ambiguous_task":
+                zh_place, en_place = value
+                fmt = {"place": zh_place if language_zh else en_place}
+                refs = tuple(f"{r} ({z} / {e})" for r, z, e in places[:2])
+                caps = []
+                audit = None
+            else:
+                zh_place, en_place = value
+                fmt = {"place": zh_place if language_zh else en_place}
+                refs = ("zone:yard (院子 / yard)",)
+                caps = []
+                audit = None
+            text = pair[0 if language_zh else 1].format(**fmt) + ("。" if language_zh else ".")
+            decision, reason_zh, reason_en, missing, unresolved, q_zh, q_en = decisions[code]
+            reason = reason_zh if language_zh else reason_en
+            if code == "unknown_place":
+                unresolved = [fake]
+            target = {"plan_version": 1, "decision": decision, "reason_code": code, "reason": reason,
+                      "missing_capabilities": missing, "unresolved_refs": unresolved,
+                      "question": (q_zh if language_zh else q_en) if decision == "clarify" else None}
+            added = (add_row(code, text, refs, caps, target, False, audit)
+                     if audit is not None else add_row(code, text, refs, caps, target, False))
+            if not added:
+                continue
+            pos_ref = places[i % len(places)]
+            positive_queries = [("车辆", "vehicles"), ("行人", "pedestrians"), ("自行车", "bicycles"),
+                                ("卡车", "trucks"), ("船只", "boats"), ("工人", "workers"),
+                                ("轿车", "cars"), ("公交车", "buses"), ("狗", "dogs"), ("摩托车", "motorcycles")]
+            qzh, qen = positive_queries[(i // len(places)) % len(positive_queries)]
+            positive_phrases = [
+                ("检查", "inspect"), ("查看", "check"), ("搜寻", "search for"),
+                ("确认现场有无", "verify whether there are"), ("记录", "record"),
+                ("观察", "observe"),
+            ]
+            verb_zh, verb_en = positive_phrases[(i // (len(places) * len(positive_queries))) % len(positive_phrases)]
+            pos_text = (f"到{pos_ref[1]}{verb_zh}{qzh}并返航。" if language_zh else
+                        f"Go to the {pos_ref[2]}, {verb_en} {qen}, and return home.")
+            if code == "missing_capability":
+                payload_zh, payload_en = payloads[(i // len(places)) % len(payloads)]
+                pos_text = (f"飞机具备投放能力：把{payload_zh}送到{pos_ref[1]}后返航。" if language_zh else
+                            f"With payload drop capability, deliver the {payload_en} to the {pos_ref[2]} and return home.")
+            elif code == "ungrounded_query":
+                positive_forms = [
+                    ("在院子里查找{q}并返航。", "Search the yard for {q}, then return home."),
+                    ("对院区中的{q}做一次检查，随后返航。", "Inspect {q} across the yard before returning."),
+                    ("确认院子里是否有{q}，然后回到起飞点。", "Check for {q} in the yard and head back to launch."),
+                    ("搜索作业区内的{q}，记录结果后返航。", "Search the work area for {q}, record the result, and return."),
+                    ("观察院内{q}并向操作员报告，最后返航。", "Observe {q} in the yard, report to the operator, and return."),
+                    ("在院区搜寻{q}，完成后飞回基地。", "Look for {q} across the yard, then fly back to base."),
+                ]
+                pos_text = positive_forms[i % len(positive_forms)][0 if language_zh else 1].format(q=qzh if language_zh else qen)
+            elif code == "unsafe_request":
+                safe_forms = [
+                    ("在安全区域搜索{q}，结束后返航。", "Search for {q} in the safe operating area, then return."),
+                    ("只在院子内检查{q}，随后飞回起飞点。", "Inspect {q} within the yard and then return to launch."),
+                    ("避开限制区域，在作业区内巡查{q}后返航。", "Avoid restricted areas; patrol for {q} in the work area, then return."),
+                    ("在获准区域观察{q}并记录位置，最后回家。", "Observe {q} in the authorized area, record their locations, and return."),
+                    ("留在安全边界内查找{q}，完成后返航。", "Stay within the safe boundary while looking for {q}, then return."),
+                    ("对院内{q}做常规检查，再回到基地。", "Perform a routine check for {q} in the yard, then return to base."),
+                ]
+                pos_text = safe_forms[i % len(safe_forms)][0 if language_zh else 1].format(q=qzh if language_zh else qen)
+            elif code == "ambiguous_task":
+                pos_text = (f"请到{pos_ref[1]}明确检查{qzh}并返航。" if language_zh else
+                            f"Inspect {qen} at the {pos_ref[2]} and return home.")
+            positive_caps = ["payload_drop"] if code == "missing_capability" else []
+            positive = positive_plan(code, pos_text, (pos_ref[0], pos_ref[1], pos_ref[2], "包裹", "parcel"), query=qen)
+            if not add_row(code, pos_text, (f"{pos_ref[0]} ({pos_ref[1]} / {pos_ref[2]})", "zone:yard (院子 / yard)"),
+                           positive_caps, positive, True, positive=True):
+                raise ValueError(f"r26 {code} positive contrast pool exhausted after de-duplication")
+            emitted += 1
+        if emitted != refusal_count:
+            raise ValueError(f"r26 {code} produced {emitted}/{refusal_count} unique refusals; template pool exhausted")
+    legacy_positive_forms = [
+        ("查看车辆后返航", "Inspect vehicles and return home"),
+        ("检查现场车辆，再回到起飞点", "Check the vehicles on site, then return to launch"),
+        ("搜索车辆并向操作员报告，随后返航", "Search for vehicles, report to the operator, then return"),
+        ("观察车辆情况，完成后回家", "Observe the vehicles and head home when done"),
+        ("记录车辆位置并返航", "Record vehicle locations and return to base"),
+        ("核实车辆是否在场，然后返回起飞点", "Verify whether vehicles are present, then return to launch"),
+        ("巡看车辆后飞回基地", "Look over the vehicles before flying back to base"),
+        ("对车辆做现场检查并结束任务", "Inspect the vehicles on site to finish the mission"),
+        ("查看有无车辆活动，再返回", "Check for vehicle activity and then return"),
+        ("巡查车辆并向地面报告后返航", "Survey the vehicles, report to the ground station, and return"),
+        ("搜寻车辆并把发现情况带回", "Search for vehicles and report the findings on return"),
+        ("确认车辆位置后结束飞行任务", "Confirm vehicle locations to complete the flight"),
+        ("对车辆目标进行目视检查并返航", "Visually inspect vehicle targets and return"),
+        ("记录车辆分布情况，再飞回起飞点", "Record vehicle distribution, then fly back to launch"),
+        ("在该点观察车辆并结束巡查", "Observe vehicles at the site and conclude the survey"),
+        ("清点现场车辆，之后返航", "Count the vehicles on site and then return"),
+    ]
+    for i in range(len(legacy_unknown)):
+        place = places[i % len(places)]
+        language_zh = i % 2 == 0
+        zh_form, en_form = legacy_positive_forms[(i // len(places)) % len(legacy_positive_forms)]
+        text = (f"到{place[1]}{zh_form}。" if language_zh else
+                f"At the {place[2]}, {en_form}.")
+        refs = (f"{place[0]} ({place[1]} / {place[2]})",)
+        target = positive_plan("unknown_place", text, place)
+        if not add_row("unknown_place", text, refs, [], target, True, positive=True):
+            raise ValueError("r26 unknown-place positive pool exhausted after de-duplication")
+    for i, row in enumerate(legacy_deliver):
+        candidate = row["rejected_candidate"]
+        step = next(step for step in candidate["steps"] if step.get("skill") == "deliver")
+        target_ref = step["params"]["target_ref"]
+        payload_ref = step["params"]["payload_ref"]
+        place = next((p for p in places if p[0] == target_ref), (target_ref, target_ref, target_ref))
+        payload = str(payload_ref).split(":", 1)[-1].replace("_", " ")
+        zh = bool(re.search(r"[\u4e00-\u9fff]", row["task_text"]))
+        zh_forms = [
+            "有投放能力时，将{payload}送到{place}并返航",
+            "确认载荷系统可用后，把{payload}投放在{place}，随后回家",
+            "本机支持载荷投送：携带{payload}前往{place}完成交付",
+            "启用投放能力，把{payload}送至{place}再返回起飞点",
+            "载荷投放可用，请向{place}交付{payload}后返航",
+            "把{payload}运到{place}投放，飞机具备所需能力",
+            "在具备投放能力的条件下，将{payload}送到{place}",
+            "由支持投放的飞机把{payload}交给{place}并返航",
+            "本次飞行允许投放载荷：送{payload}到{place}后返回",
+            "载荷设备正常，完成{payload}在{place}的投放任务",
+            "前往{place}投放{payload}，当前飞机能力满足要求",
+            "确认能够投放后，将{payload}送达{place}并结束任务",
+            "当前飞机可以投放载荷，请把{payload}交付到{place}",
+            "载荷投送系统可用：将{payload}送到{place}后返回基地",
+            "使用本机投放装置，把{payload}送至{place}完成任务",
+            "允许使用投放能力，将{payload}交给{place}后返航",
+            "投放设备工作正常，前往{place}放下{payload}",
+            "执行一次合法的{payload}投放，地点是{place}",
+            "飞机的载荷能力满足要求，交付{payload}至{place}",
+            "送{payload}到{place}并投放，本机已配备对应能力",
+            "确认设备可用后将{payload}空投至{place}",
+            "本机支持这一投放任务：把{payload}送到{place}",
+            "把{payload}运抵{place}并完成释放，随后回家",
+            "载荷舱工作正常，请在{place}完成{payload}交接",
+        ]
+        en_forms = [
+            "With payload drop enabled, deliver the {payload} to {place} and return",
+            "The payload system is available; release the {payload} at {place}, then come home",
+            "This aircraft supports payload delivery: carry the {payload} to {place}",
+            "Use the available drop capability to take the {payload} to {place} and return",
+            "Payload release is supported; deliver the {payload} to {place} before returning",
+            "Carry the {payload} to {place} for drop-off; the aircraft has the required capability",
+            "With a capable aircraft, deliver the {payload} to {place}",
+            "Drop the {payload} at {place}; payload delivery is available on this aircraft",
+            "Payload release is permitted: take the {payload} to {place} and return",
+            "The payload system is ready for a delivery of the {payload} to {place}",
+            "Fly to {place} and deliver the {payload}; this aircraft supports payload drop",
+            "Complete the {payload} drop-off at {place} with the available capability",
+            "The aircraft is cleared for payload release; take the {payload} to {place}",
+            "Make a supported delivery of the {payload} to {place}, then return to base",
+            "Payload drop is available, so deliver the {payload} at {place}",
+            "Take the {payload} to {place}; the aircraft is equipped to release it",
+            "Use this aircraft's payload system to deliver the {payload} at {place}",
+            "Deliver the {payload} to {place} using the enabled payload release system",
+            "The aircraft can drop payloads; complete delivery of the {payload} at {place}",
+            "Carry and release the {payload} at {place} with the supported payload system",
+            "Fly the {payload} to {place} for a valid payload drop, then return",
+            "Complete a permitted release of the {payload} at {place}",
+            "Drop off the {payload} at {place}; the required aircraft capability is present",
+            "Payload delivery is supported, so take the {payload} to {place}",
+            "With release hardware available, deliver the {payload} to {place}",
+            "The aircraft has a working drop mechanism for the {payload} delivery to {place}",
+            "Deliver the {payload} at {place} and return; payload drop is an available skill",
+        ]
+        text = (zh_forms[i % len(zh_forms)] if zh else en_forms[i % len(en_forms)]).format(
+            payload=payload, place=place[1 if zh else 2]
+        )
+        text += "。" if zh else "."
+        refs = tuple(row.get("refs", ()))
+        positive = {**candidate, "goal": text[:160]}
+        positive["steps"] = [dict(item) for item in candidate["steps"]]
+        positive["steps"][candidate["steps"].index(step)] = {
+            **step, "params": {**step["params"], "target_ref": target_ref, "payload_ref": payload_ref}
+        }
+        if not add_row("missing_capability", text, refs, ["payload_drop"], positive, True, positive=True):
+            raise ValueError(f"r26 payload-capable positive pool exhausted at legacy row {i}")
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -1633,6 +2025,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="payload-capable/missing-capability contrast pairs (default: 40)")
     parser.add_argument("--r25-negated-query-count", type=int, default=40,
                         help="affirmative/negated-query contrast pairs (default: 40)")
+    parser.add_argument("--r26-recipe", action="store_true",
+                        help="extend r24 with structured reject/clarify decisions; excludes r25 rejected candidates")
+    parser.add_argument("--r26-refusal-count", type=int, default=60,
+                        help="refusal/clarification rows per reason_code; the recipe adds an equal positive count (default: 60)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -1651,7 +2047,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("r24 counts must be non-negative")
     if args.r25_missing_payload_count < 0 or args.r25_negated_query_count < 0:
         parser.error("r25 counts must be non-negative")
+    if args.r26_refusal_count < 0 or args.r26_refusal_count % 2:
+        parser.error("r26 refusal count must be non-negative and even for an equal Chinese/English split")
     if args.r25_recipe:
+        args.r24_recipe = True
+    if args.r26_recipe:
         args.r24_recipe = True
     eval_paths = args.eval_tasks
     if eval_paths is None:
@@ -1750,8 +2150,12 @@ def main(argv: list[str] | None = None) -> int:
         r24_rows = r24_reference_rows(args, held_out, seen)
         rows.extend(r24_rows)
         args.rows += len(r24_rows)
-    if args.r25_recipe:
+    if args.r25_recipe and not args.r26_recipe:
         new_rows = r25_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+    if args.r26_recipe:
+        new_rows = r26_rows(args, held_out, seen, rows)
         rows.extend(new_rows)
         args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
@@ -1799,14 +2203,16 @@ def main(argv: list[str] | None = None) -> int:
                                           "r24_reference_type", "r24_unknown_place",
                                           "r24_context_land", "r24_context_return",
                                           "r25_missing_payload", "r25_payload_capable",
-                                          "r25_negated_query"}:
+                                          "r25_negated_query", "r26_missing_capability", "r26_unknown_place",
+                                          "r26_ungrounded_query", "r26_ambiguous_task", "r26_unsafe_request",
+                                          "r26_payload_capable"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
                 row["task_text"] = clean_r23_text(old)
                 if isinstance(row.get("prompt"), str):
                     row["prompt"] = row["prompt"].replace(old, row["task_text"])
-                if isinstance(row.get("assistant_target"), dict):
+                if isinstance(row.get("assistant_target"), dict) and "goal" in row["assistant_target"]:
                     row["assistant_target"]["goal"] = clean_r23_text(row["assistant_target"].get("goal", ""))
     if args.r20_plan_intent and args.r20_plan_intent_mix:
         for row in rows:
@@ -1841,6 +2247,24 @@ def main(argv: list[str] | None = None) -> int:
             "negated_query_pairs_requested": args.r25_negated_query_count,
             "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r25_")),
         }
+    if args.r26_recipe:
+        r26_rows_all = [row for row in rows if row.get("reason_code") in {
+            "missing_capability", "unknown_place", "ungrounded_query", "ambiguous_task", "unsafe_request"
+        }]
+        manifest["r26_recipe"] = {
+            "refusal_requested_per_reason_code": args.r26_refusal_count,
+            "rows_added": len(r26_rows_all),
+            "reason_counts": {
+                code: {
+                    "refusal": sum(row.get("reason_code") == code and row.get("pair_role") == "refusal" for row in r26_rows_all)
+                              + sum(row.get("reason_code") == code and row.get("pair_role") is None and row.get("expected_valid") is False for row in r26_rows_all),
+                    "positive": sum(row.get("reason_code") == code and row.get("pair_role") == "positive" for row in r26_rows_all),
+                }
+                for code in ("missing_capability", "unknown_place", "ungrounded_query", "ambiguous_task", "unsafe_request")
+            },
+            "structured_targets_only": True,
+            "r25_rejected_candidate_rows_included": False,
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -1873,7 +2297,9 @@ def main(argv: list[str] | None = None) -> int:
             "known_ref_substitution_rows": 0,
         }
     for name, part in splits.items():
-        sequences = [[step["skill"] for step in row["assistant_target"]["steps"]] for row in part]
+        sequences = [[step["skill"] for step in row["assistant_target"].get("steps", ())]
+                     for row in part if isinstance(row.get("assistant_target"), dict)
+                     and row["assistant_target"].get("steps")]
         counts = {
             "skill_counts": Counter(skill for sequence in sequences for skill in sequence),
             "first_skill_counts": Counter(sequence[0] for sequence in sequences),
@@ -1888,7 +2314,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -1917,6 +2343,8 @@ def main(argv: list[str] | None = None) -> int:
             stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())
                       if str(family).startswith("r25_")]
             stats += ["", "r25 missing-payload negatives retain deliver for validator rejection; capable counterparts remain valid. Negated query negatives retain the forbidden query candidate for ungrounded_query rejection.", ""]
+        if args.r26_recipe:
+            stats += ["", "r26 rows supervise structured reject/clarify decisions and exclude r25 rejected-candidate targets.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

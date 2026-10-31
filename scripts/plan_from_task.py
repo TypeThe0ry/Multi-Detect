@@ -35,7 +35,7 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
 from multidetect.autonomy.mission_package import MissionPackage  # noqa: E402
-from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
 
 GGUF_DIR = (
@@ -58,11 +58,12 @@ def success_path(plan: MissionPlan) -> list[str]:
 def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
     *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
-    airframe: str | None = None,
+    airframe: str | None = None, decision_contract: bool = False,
 ):
     plan, report = compile_mission_plan(
         post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
         capabilities=capabilities, airframe=airframe,
+        include_decision_contract=decision_contract,
     )
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
@@ -100,6 +101,35 @@ def score_task(
     repaired operational plan is not a refusal, even if its references changed.
     An unmodified home plan alone is also not evidence of host rejection.
     """
+    decision = None
+    if raw is not None:
+        try:
+            decision = validate_plan_decision(raw)
+        except (TypeError, ValueError, KeyError):
+            pass
+    if decision is not None:
+        valid_code = item.get("reason_code")
+        if valid_code is None:
+            expected_findings = item.get("expected_findings", ())
+            if expected_findings:
+                valid_code = next(iter(expected_findings))
+            else:
+                valid_code = {
+                    "missing_payload_drop": "missing_capability",
+                    "capability": "missing_capability",
+                    "unknown_place": "unknown_place",
+                    "unknown_location": "unknown_place",
+                    "query_ungrounded": "ungrounded_query",
+                    "ungrounded_query": "ungrounded_query",
+                    "ambiguous_task": "ambiguous_task",
+                    "unsafe_request": "unsafe_request",
+                }.get(str(item.get("category", "")))
+        correct = bool(item.get("expect_invalid", False)) and decision.decision in {"reject", "clarify"} and (valid_code is None or valid_code == decision.reason_code)
+        return {"expected": item.get("skills", []), "predicted": [], "valid": True,
+                "exact": correct, "same_skills": correct, "expect_invalid": bool(item.get("expect_invalid", False)),
+                "correct_rejection": correct, "decision": decision.decision,
+                "reason_code": decision.reason_code, "validator_decision": decision.decision,
+                "intent_violations": 0, "capability_violations": 0}
     # The compiler may repair an ungrounded query in its final attempt. Score
     # the original model candidate so live evaluation matches offline replay.
     if raw is not None and item.get("expect_invalid", False):
@@ -236,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         "--prompt-variant", choices=PLAN_PROMPT_VARIANTS, default="default",
         help="experimental prompt ablation (default keeps the exact training prompt)",
     )
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output (default: legacy MissionPlan)")
     parser.add_argument(
         "--llama-server", type=Path,
         default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
@@ -266,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     if not document["tasks"]:
         parser.error("the task file must contain at least one task")
     refs = tuple(document.get("refs", ()))
-    schema = plan_json_schema()
+    schema = plan_json_schema(include_decision_contract=args.decision_contract)
     if args.sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
@@ -309,13 +341,16 @@ def main(argv: list[str] | None = None) -> int:
             task_refs = tuple(item.get("refs", refs))
             capabilities = frozenset(item.get("capabilities", ()))
             airframe = "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None
-            task_schema = plan_json_schema(capabilities=capabilities)
+            task_schema = plan_json_schema(
+                capabilities=capabilities, include_decision_contract=args.decision_contract
+            )
             if args.sorted_keys:
                 task_schema = trained_key_order_schema(task_schema)
             request_usage.clear()
             plan, raw, attempts, error = compile_task(
                 post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
                 capabilities=capabilities, airframe=airframe,
+                decision_contract=args.decision_contract,
             )
             rows.append(
                 {

@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import warnings
+from dataclasses import asdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,7 @@ from multidetect.autonomy.mission_package import (  # noqa: E402
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
+    PlanDecision,
     validate_mission_plan,
 )
 from multidetect.autonomy.mission_planner import (  # noqa: E402
@@ -338,9 +340,12 @@ def build_mission_from_text(
     attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
-) -> tuple[MissionPlan, dict[str, Any]]:
-    """Compile a free task sentence, falling back to a validated return-home plan."""
-    schema = plan_json_schema(capabilities=capabilities)
+    include_decision_contract: bool = False,
+) -> tuple[MissionPlan | PlanDecision, dict[str, Any]]:
+    """Compile a task; explicit reject/clarify results never get a flight fallback."""
+    schema = plan_json_schema(
+        capabilities=capabilities, include_decision_contract=include_decision_contract
+    )
     if sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
@@ -355,7 +360,10 @@ def build_mission_from_text(
         plan_checker=plan_checker,
         capabilities=capabilities,
         airframe=airframe,
+        include_decision_contract=include_decision_contract,
     )
+    if isinstance(plan, PlanDecision):
+        return plan, report
     if plan is None:
         plan = validate_mission_plan(
             {
@@ -408,6 +416,8 @@ class OnboardPolicy:
             **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
             **(config or {}),
         }
+        if type(options.get("planning_decision_contract", False)) is not bool:
+            raise ValueError("planning_decision_contract must be a boolean")
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(
@@ -1305,6 +1315,9 @@ class OnboardPolicy:
                             sorted_keys=bool(options.get("plan_sorted_keys", True)),
                             plan_checker=plan_checker,
                             capabilities=capabilities,
+                            include_decision_contract=bool(
+                                options.get("planning_decision_contract", False)
+                            ),
                         )
                     except Exception:
                         # ``post`` records HTTP outcomes; do not count an
@@ -1367,6 +1380,8 @@ class OnboardPolicy:
                     except Exception:
                         raise
                 self.mission_plan, self.mission_plan_report = plan, report
+                if isinstance(plan, PlanDecision):
+                    self._record_planner_decision(plan)
                 if report.get("error"):
                     if split_planning:
                         self.health.record_planning_failure()
@@ -1560,6 +1575,27 @@ class OnboardPolicy:
         )
         raise ValueError(f"mission plan refused by package policy: {details}")
 
+    def _record_planner_decision(self, decision: PlanDecision, package: MissionPackage | None = None) -> None:
+        """Downlink a model reject/clarify using the existing refusal record."""
+        payload = asdict(decision)
+        self.mission_plan = None
+        self.mission_plan_report = {"error": None, "decision": payload, "raw": payload}
+        package = package or self.mission_package
+        if package is not None:
+            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
+            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
+            log.append("mission_refused", now, reason="planner_decision", decision=payload)
+            log.finish(now, {"status": "refused", "reason": "planner_decision", "decision": payload})
+            active = getattr(self, "supervisor", None)
+            active_log = getattr(active, "log", None)
+            downlink = getattr(active, "downlink", None)
+            if active_log is not None and active_log.mission_id != package.mission_id:
+                active_log.append("mission_refused", now, requested_mission_id=package.mission_id,
+                                  reason="planner_decision", decision=payload)
+                if downlink is not None:
+                    downlink.notify()
+        raise ValueError(f"mission planner {decision.decision}: {decision.reason}")
+
     def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
         """Compile and install a package (both steps; tests and legacy hosts)."""
         supervisor = self.prepare_operator_package(package)
@@ -1655,6 +1691,9 @@ class OnboardPolicy:
                                 candidate, package, capabilities=capabilities,
                                 executor_config=self.executor.config,
                             ),
+                            include_decision_contract=bool(
+                                self.config.get("planning_decision_contract", False)
+                            ),
                         )
                         if report.get("error"):
                             raise ValueError(f"operator task planning failed: {report['error']}")
@@ -1682,6 +1721,9 @@ class OnboardPolicy:
                             plan_checker=lambda candidate: check_plan_against_package(
                                 candidate, package, capabilities=capabilities,
                                 executor_config=self.executor.config,
+                            ),
+                            include_decision_contract=bool(
+                                self.config.get("planning_decision_contract", False)
                             ),
                         )
                     else:
@@ -1715,9 +1757,14 @@ class OnboardPolicy:
                     capabilities=capabilities,
                     executor_config=self.executor.config,
                 ),
+                include_decision_contract=bool(
+                    self.config.get("planning_decision_contract", False)
+                ),
                 )
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
+            if isinstance(plan, PlanDecision):
+                self._record_planner_decision(plan, package)
         # The same package policy as a package loaded at start-up, whether the
         # plan came with the package or was compiled here.
         violations = check_plan_against_package(

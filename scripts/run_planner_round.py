@@ -128,18 +128,21 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     adapter = out / "adapter"
     gguf = out / "slow-system-Q5_K_M.gguf"
     report = EVAL_ROOT
+    decision_contract = args.decision_contract
+    if decision_contract is None:
+        decision_contract = bool(args.r26_recipe)
     data_cmd = [sys.executable, str(ROOT / "scripts/build_plan_sft.py"), "--output", str(dataset), "--version", "v4", "--rows", str(args.rows), "--val-rows", str(args.val_rows), "--r20-plan-intent", "--r20-plan-intent-count", str(args.intent_count), "--r20-plan-intent-mix"]
     if args.replay_planner_train:
         data_cmd += ["--replay-planner-train", str(args.replay_planner_train)]
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
     learning_rate = args.learning_rate
-    if args.r23_recipe or args.r24_recipe or args.r25_recipe:
+    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe:
         data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
-    if args.r24_recipe or args.r25_recipe:
+    if args.r24_recipe or args.r25_recipe or args.r26_recipe:
         data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
                      "--r24-unknown-count", str(args.r24_unknown_count),
                      "--r24-context-count", str(args.r24_context_count)]
@@ -149,6 +152,10 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
         data_cmd += ["--r25-recipe",
                      "--r25-missing-payload-count", str(args.r25_missing_payload_count),
                      "--r25-negated-query-count", str(args.r25_negated_query_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.0e-5
+    if args.r26_recipe:
+        data_cmd += ["--r26-recipe", "--r26-refusal-count", str(args.r26_refusal_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
@@ -162,9 +169,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                           # model quality, scored by the replacement gate (r14 itself is
                           # 93.75% valid on v3), not a broken server, which
                           # --max-transport-rate still guards.
-                          "--min-valid-rate", "0"])
+                          "--min-valid-rate", "0"]
+                         + (["--decision-contract"] if decision_contract else []))
     for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
-        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
+        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")]
+                         + (["--decision-contract"] if decision_contract else []))
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
 
 
@@ -194,6 +203,16 @@ def main(argv=None) -> int:
                         help="extend r24 with missing-payload and negated-query contrasts")
     parser.add_argument("--r25-missing-payload-count", type=int, default=40)
     parser.add_argument("--r25-negated-query-count", type=int, default=40)
+    parser.add_argument("--r26-recipe", action="store_true",
+                        help="extend r24 with structured reject/clarify targets")
+    parser.add_argument("--r26-refusal-count", type=int, default=60,
+                        help="structured refusal rows per reason_code (r26 default: 60)")
+    contract = parser.add_mutually_exclusive_group()
+    contract.add_argument("--decision-contract", dest="decision_contract", action="store_true",
+                          help="enable structured reject/clarify evaluation")
+    contract.add_argument("--no-decision-contract", dest="decision_contract", action="store_false",
+                          help="disable structured reject/clarify evaluation")
+    parser.set_defaults(decision_contract=None)
     parser.add_argument("--init-adapter", type=Path, default=R14_ADAPTER,
                         help="adapter used to initialize training (default: r14)")
     parser.add_argument("--baseline-gguf", type=Path, default=R14_GGUF,
@@ -213,7 +232,7 @@ def main(argv=None) -> int:
         parser.error("row counts must be positive (val rows may be zero)")
     if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
                                    args.r24_context_count, args.r25_missing_payload_count,
-                                   args.r25_negated_query_count)):
+                                   args.r25_negated_query_count, args.r26_refusal_count)):
         parser.error("recipe counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())

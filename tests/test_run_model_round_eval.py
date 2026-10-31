@@ -266,6 +266,7 @@ def test_build_stages_planning_uses_requested_model_paths(tmp_path, monkeypatch)
         min_free_disk_gb=30,
         disk_check_every=30,
         retry_failed_episodes=False,
+        decision_contract=False,
         episodes=1,
         index=tmp_path / "index.json",
         onboard_config=tasks,
@@ -278,6 +279,22 @@ def test_build_stages_planning_uses_requested_model_paths(tmp_path, monkeypatch)
     assert str(args.gguf) in command
     assert str(args.mmproj) in command
     assert stages[0].expected == 1
+    assert "--decision-contract" not in command
+
+
+def test_build_stages_planning_can_enable_decision_contract(tmp_path, monkeypatch):
+    monkeypatch.setattr(round_eval, "ROOT", tmp_path)
+    tasks = tmp_path / "configs/onboard/plan-eval-tasks.json"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text(json.dumps({"tasks": [{"task": "one"}]}), encoding="utf-8")
+    args = SimpleNamespace(
+        out=tmp_path / "out", data_root=tmp_path, model="r26", gguf=tmp_path / "r26.gguf",
+        mmproj=tmp_path / "mmproj.gguf", llama_server=tmp_path / "llama-server.exe",
+        stages=["planning"], min_free_disk_gb=30, disk_check_every=30,
+        retry_failed_episodes=False, decision_contract=True,
+    )
+    command = round_eval.build_stages(args)[0].command
+    assert "--decision-contract" in command
 
 
 def test_round_runs_sequentially_stops_at_invalid_and_saves_failure(tmp_path, monkeypatch):

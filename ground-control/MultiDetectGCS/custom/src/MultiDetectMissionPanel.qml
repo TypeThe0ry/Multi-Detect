@@ -268,6 +268,7 @@ QGCPopupDialog {
         const entry = record || ({});
         const state = entry.state || ({});
         const summary = entry.summary || ({});
+        const decision = entry.decision && typeof entry.decision === "object" ? entry.decision : ({});
         let text = qsTr("序号 %1 · %2 · %3").arg(entry.sequence || "--")
             .arg(String(entry.recorded_at || entry.timestamp || "--")).arg(kindText(entry.kind));
         const events = { "heartbeat": qsTr("心跳"), "abort": qsTr("中止"), "pause": qsTr("暂停"),
@@ -280,6 +281,10 @@ QGCPopupDialog {
         const reason = entry.reason || state.supervisor_reason || summary.reason;
         if (reason)
             text += qsTr("\n原因：%1").arg(reasonText(reason));
+        if (decision.reason)
+            text += qsTr("\n规划决定（%1）：%2").arg(decision.reason_code || "").arg(decision.reason);
+        if (decision.question)
+            text += qsTr("\n需要澄清：%1").arg(decision.question);
         const statuses = { "completed": qsTr("任务完成"), "recovery_finished": qsTr("安全返航／降落完成"), "stopped": qsTr("任务已停止") };
         if (summary.status)
             text += qsTr(" · 结果：%1").arg(statuses[summary.status] || qsTr("其他机载结果"));
@@ -297,7 +302,13 @@ QGCPopupDialog {
         const countText = Object.keys(counts).map(key => key + "：" + String(counts[key]) + " 个").join("；");
         const findings = Array.isArray(summary.findings) ? summary.findings.length : 0;
         const status = typeof summary.status === "string" ? summary.status : "";
-        return [status ? qsTr("状态：%1").arg(status) : "",
+        const decision = summary.decision && typeof summary.decision === "object" ? summary.decision : summary;
+        const reason = typeof decision.planner_reason === "string" ? decision.planner_reason :
+            (typeof decision.reason === "string" ? decision.reason : "");
+        const question = typeof decision.question === "string" ? decision.question : "";
+        return [reason ? qsTr("规划决定：%1").arg(reason) : "",
+                question ? qsTr("需要澄清：%1").arg(question) : "",
+                status ? qsTr("状态：%1").arg(status) : "",
                 countText ? qsTr("计数：%1").arg(countText) : "",
                 qsTr("发现：%1 条").arg(findings)].filter(part => part.length > 0).join("\n");
     }

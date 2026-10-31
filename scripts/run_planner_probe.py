@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from scripts.eval_slow_system import LlamaServerRunner, _http_json  # noqa: E402
 from multidetect.host_paths import executable_name  # noqa: E402
+from multidetect.autonomy.mission_plan import PlanDecision  # noqa: E402
 from scripts.onboard_policy import build_mission_from_text  # noqa: E402
 
 
@@ -34,6 +35,8 @@ def main(argv=None):
     parser.add_argument("--label", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--port", type=int, default=9958)
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output (default: legacy MissionPlan)")
     args = parser.parse_args(argv)
     doc = json.loads(args.tasks.read_text(encoding="utf-8"))
     runner = LlamaServerRunner(args.model, None,
@@ -55,9 +58,14 @@ def main(argv=None):
             error = None
             try:
                 plan, result = build_mission_from_text(task["text"], tuple(doc["refs"]), post,
-                    sorted_keys=True, capabilities=frozenset())
-                predicted = success_path(plan)
-                correct_rejection = bool(result.get("error")) and not predicted
+                    sorted_keys=True, capabilities=frozenset(),
+                    include_decision_contract=args.decision_contract)
+                if isinstance(plan, PlanDecision):
+                    predicted = []
+                    correct_rejection = False
+                else:
+                    predicted = success_path(plan)
+                    correct_rejection = bool(result.get("error")) and not predicted
             except Exception as exc:
                 predicted, result, error, correct_rejection = [], {}, repr(exc), False
             accepted = predicted in task["expect"]
