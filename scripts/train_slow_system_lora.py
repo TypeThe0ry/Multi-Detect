@@ -395,9 +395,7 @@ def _accumulate_batch(
     return batch_losses
 
 
-def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
-    import torch
-
+def _save_checkpoint(torch, output: Path, model, optimizer, state: dict) -> None:
     checkpoint = output / "checkpoint"
     checkpoint.mkdir(exist_ok=True)
     model.save_pretrained(checkpoint, safe_serialization=True)
@@ -590,12 +588,12 @@ def run(args, *, backend_factory=make_backend) -> dict:
                 log.write(json.dumps(entry, sort_keys=True) + "\n")
                 log.flush()
                 if state["optimizer_steps"] % options.checkpoint_every == 0:
-                    _save_checkpoint(output, model, optimizer, state)
+                    _save_checkpoint(torch, output, model, optimizer, state)
                 if options.max_steps and state["optimizer_steps"] >= options.max_steps:
                     break
             if cursor == len(order):
                 state.update(epoch=epoch + 1, cursor=0)
-            _save_checkpoint(output, model, optimizer, state)
+            _save_checkpoint(torch, output, model, optimizer, state)
             if options.max_steps and state["optimizer_steps"] >= options.max_steps:
                 break
     completed = state["epoch"] >= options.epochs

@@ -1511,7 +1511,7 @@ def main(argv: list[str] | None = None) -> int:
                     json.dumps({**row, "split": name}, ensure_ascii=False, sort_keys=True) + "\n"
                 )
     (args.output / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\r\n"
     )
     print(json.dumps({k: len(v) for k, v in splits.items()}))
     return 0
