@@ -925,7 +925,10 @@ class OnboardPolicy:
         planning_spec = _planning_model_spec(
             options.get("planning_model"), identity_mmproj=options["mmproj"]
         )
-        split_planning = mission == "from_text" and planning_spec is not None
+        # Prompt-only operator packages use the same planner contract as the
+        # configured from_text mission. Keep the identity model reserved for
+        # perception once admission has compiled the package.
+        split_planning = mission in {"from_text", "operator_link"} and planning_spec is not None
         self._model_split = bool(split_planning)
         model_hash_cache = self.work_dir / ".model-hash-cache.json"
         self._model_runtime: dict[str, Any] = {
@@ -979,6 +982,8 @@ class OnboardPolicy:
                             health.record_planning_failure()
                         raise
                     time.sleep(0.1)
+
+        self._start_identity_runner = start_identity_runner
 
         planner_start_error: Exception | None = None
         if split_planning:
@@ -1372,20 +1377,54 @@ class OnboardPolicy:
                 )
                 return response["choices"][0]["message"].get("content", "")
 
-            plan, report = build_mission_from_text(
-                str(package.document["task_text"]),
-                tuple(package.refs),
-                post,
-                capabilities=capabilities,
-                plan_checker=lambda candidate: check_plan_against_package(
-                    candidate,
-                    package,
-                    capabilities=capabilities,
-                    executor_config=self.executor.config,
-                ),
-            )
+            def compile_plan(runner):
+                def runner_post(prompt: str, schema: dict[str, Any]) -> str:
+                    return post(prompt, schema)
+
+                # ``post`` closes over self.slow so the same function can be
+                # retried after a planner failure and model swap.
+                original = self.slow
+                self.slow = runner
+                try:
+                    return build_mission_from_text(
+                        str(package.document["task_text"]),
+                        tuple(package.refs),
+                        runner_post,
+                        capabilities=capabilities,
+                        plan_checker=lambda candidate: check_plan_against_package(
+                            candidate,
+                            package,
+                            capabilities=capabilities,
+                            executor_config=self.executor.config,
+                        ),
+                    )
+                finally:
+                    self.slow = original
+
+            used_planner = self._model_split
+            try:
+                plan, report = compile_plan(self.slow)
+                if report.get("error"):
+                    raise ValueError(f"operator task planning failed: {report['error']}")
+            except Exception:
+                if not self._model_split:
+                    raise
+                self._model_runtime["planning_fallback_to_identity"] = True
+                close = getattr(self.slow, "close", None)
+                if close is not None:
+                    close()
+                self.slow = self._start_identity_runner()
+                self.health.runner = self.slow
+                plan, report = compile_plan(self.slow)
+                used_planner = False
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
+            if used_planner:
+                close = getattr(self.slow, "close", None)
+                if close is not None:
+                    close()
+                self.slow = self._start_identity_runner()
+                self.health.runner = self.slow
         package.validate_plan(plan)
         executor = MissionExecutor(
             plan,

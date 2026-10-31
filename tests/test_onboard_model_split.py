@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.mission_package import MissionPackage
 from scripts import onboard_policy
 
 
@@ -182,3 +183,61 @@ def test_split_identity_failure_blocks_initialization(monkeypatch, tmp_path):
             proposer=lambda frame: [],
         )
     assert calls["count"] == 2
+
+
+def test_operator_link_text_admission_uses_planner_then_restores_identity(monkeypatch, tmp_path):
+    events = []
+
+    class FakeRunner:
+        def __init__(self, model, mmproj=None, **kwargs):
+            self.role = "planner" if "r14" in str(model) else "identity"
+            self.port = kwargs["port"]
+            events.append(("start", self.role, self.port))
+
+        def close(self):
+            events.append(("close", self.role, self.port))
+
+    monkeypatch.setattr("scripts.eval_slow_system.LlamaServerRunner", FakeRunner)
+    seen = []
+
+    def fake_build(task, refs, post, **kwargs):
+        seen.append(post)
+        return _plan(), {"error": None}
+
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", fake_build)
+    policy = onboard_policy.OnboardPolicy(
+        task_text="operator link",
+        world_path=None,
+        altitude_m=20,
+        camera_info={"fx": 320, "fy": 320, "cx": 160, "cy": 120},
+        image_size=(320, 240),
+        work_dir=tmp_path,
+        config={
+            "mission": "operator_link",
+            "gguf": "identity-r18.gguf",
+            "planning_model": "planner-r14.gguf",
+            "mmproj": "projector.gguf",
+            "health": {"enabled": True},
+        },
+        proposer=lambda frame: [],
+    )
+    try:
+        document = {
+            "mission_id": "operator-1",
+            "task_text": "count the cones",
+            "capabilities": [],
+            "home": [0, 0],
+            "zones": {},
+            "routes": {},
+            "oversight_steps": [],
+            "operating_area": {"north_min_m": -100, "north_max_m": 100, "east_min_m": -100, "east_max_m": 100, "min_altitude_m": 1, "max_altitude_m": 60},
+            "budget": {"time_s": 3600, "reserve_time_s": 60, "energy_wh": 100, "reserve_energy_wh": 10},
+            "link_loss_policy": {"action": "continue"},
+        }
+        package = MissionPackage(document, {}, None)
+        policy.admit_operator_package(package)
+        assert events[:3] == [("start", "planner", 9941), ("close", "planner", 9941), ("start", "identity", 9941)]
+        assert policy.slow.role == "identity"
+        assert seen
+    finally:
+        policy.close()
