@@ -440,6 +440,10 @@ def _dedupe_rows(rows: list[dict], stats: Counter) -> list[dict]:
     kept: list[dict] = []
     seen: dict[str, dict] = {}
     for row in rows:
+        sample_id = str(row.get("sample_id", ""))
+        if "~view-balance-" in sample_id or "~confusable-view-" in sample_id:
+            kept.append(row)
+            continue
         key = _sample_content_key(row)
         previous = seen.get(key)
         if previous is None:
@@ -688,6 +692,77 @@ def _confusable_task(category: str, variant: int) -> str:
     return f"Find the {name} and record its position."
 
 
+def _balance_identity_views(
+    rows: list[dict], *, max_upsample: int, seed: int
+) -> tuple[list[dict], dict[str, dict[str, int]]]:
+    """Upsample task-category/decision strata toward view parity, deterministically."""
+    groups: dict[tuple[str, str], dict[str, list[dict]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    positive = {"confirm_target", "approach_track"}
+    for row in rows:
+        view = row.get("view")
+        category = row.get("task_category")
+        decision = (row.get("assistant_target") or {}).get("decision")
+        if view not in {"front", "oblique", "edge_truncated", "recovery"} or not category:
+            continue
+        if decision in positive:
+            polarity = "positive"
+        elif decision == "reject_track":
+            polarity = "negative"
+        else:
+            continue
+        groups[(str(category), polarity)][str(view)].append(row)
+
+    result = list(rows)
+    report: dict[str, dict[str, int]] = {}
+    rng = random.Random(seed)
+    for (category, polarity), by_view in sorted(groups.items()):
+        largest = max(map(len, by_view.values()))
+        for view, originals in sorted(by_view.items()):
+            target = min(largest, len(originals) * max_upsample)
+            added = target - len(originals)
+            key = f"{category}|{polarity}|{view}"
+            report[key] = {"original": len(originals), "added": added, "final": target}
+            for index in range(added):
+                duplicate = dict(originals[rng.randrange(len(originals))])
+                duplicate["sample_id"] = f"{duplicate['sample_id']}~view-balance-{index + 1}"
+                result.append(duplicate)
+    return result, report
+
+
+def _balance_confusable_negative_views(
+    rows: list[dict], *, max_upsample: int, seed: int
+) -> tuple[list[dict], dict[str, dict[str, int]]]:
+    """Balance existing hard-reject pair families across their available views."""
+    groups: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        pair = row.get("confusable_pair_type")
+        view = row.get("view")
+        decision = (row.get("assistant_target") or {}).get("decision")
+        if row.get("label_type") != "confusable_negative" or decision != "reject_track":
+            continue
+        if pair and view in {"front", "oblique", "edge_truncated", "recovery"}:
+            groups[str(pair)][str(view)].append(row)
+
+    result = list(rows)
+    report: dict[str, dict[str, int]] = {}
+    rng = random.Random(seed)
+    for pair, by_view in sorted(groups.items()):
+        largest = max(map(len, by_view.values()))
+        for view, originals in sorted(by_view.items()):
+            target = min(largest, len(originals) * max_upsample)
+            added = target - len(originals)
+            report[f"{pair}|{view}"] = {
+                "original": len(originals), "added": added, "final": target,
+            }
+            for index in range(added):
+                duplicate = dict(originals[rng.randrange(len(originals))])
+                duplicate["sample_id"] = f"{duplicate['sample_id']}~confusable-view-{index + 1}"
+                result.append(duplicate)
+    return result, report
+
+
 def _proposal_counterfactual_negative(
     groups, stats: Counter, proposals, index: int, named_obj: dict, task: str, covered_object, *,
     held_out: frozenset[str], min_side_px: float, world: str, split: str, frame: Path,
@@ -812,6 +887,8 @@ def build_dataset(
     confusable_negatives: bool = False,
     identity_variant: str = "default",
     balance_task_categories: float | None = None, max_upsample: int = 4,
+    balance_identity_views: bool = False,
+    balance_confusable_negative_views: bool = False,
     image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
     if output.exists():
@@ -875,7 +952,9 @@ def build_dataset(
             if fuel else (_target_category(structured_target) if structured_target else str(slug[1]))
         )
         row_task_category = (
-            task_category if balance_task_categories is not None and split == "train" else None
+            task_category
+            if split == "train" and (balance_task_categories is not None or balance_identity_views)
+            else None
         )
         task = (str(slug.get("task_text_en") or slug["task_text"]) if variant % 2 else slug["task_text"]) if fuel else _task_text(slug, variant)
         labels = step.get("labels") if isinstance(step, dict) else {}
@@ -1049,6 +1128,14 @@ def build_dataset(
             rows, train_category_report = balance_task_categories_fn(
                 rows, min_ratio=balance_task_categories, max_upsample=max_upsample, seed=seed,
             )
+        if split == "train" and balance_identity_views:
+            rows, train_view_report = _balance_identity_views(
+                rows, max_upsample=max_upsample, seed=seed,
+            )
+        if split == "train" and balance_confusable_negative_views:
+            rows, train_confusable_view_report = _balance_confusable_negative_views(
+                rows, max_upsample=max_upsample, seed=seed,
+            )
         selected[split] = rows
         # Only splits the world index declares must yield samples (a top-up round
         # has no test worlds; its test file is simply empty).
@@ -1127,6 +1214,16 @@ def build_dataset(
             "max_upsample": max_upsample,
             "categories": train_category_report,
         }
+    if balance_identity_views:
+        report["identity_view_balance"] = {
+            "max_upsample": max_upsample,
+            "strata": train_view_report,
+        }
+    if balance_confusable_negative_views:
+        report["confusable_negative_view_balance"] = {
+            "max_upsample": max_upsample,
+            "strata": train_confusable_view_report,
+        }
     (output / "manifest.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return report
 
@@ -1151,10 +1248,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confusable-negatives", action="store_true", help="train/val only: add near-category same-frame reject/positive pairs")
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
+    parser.add_argument("--balance-identity-views", action="store_true", help="train only: upsample task-category/decision strata to balance front, oblique, edge_truncated, and recovery views")
+    parser.add_argument("--balance-confusable-negative-views", action="store_true", help="train only: upsample existing confusable-negative pair families toward view parity")
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
