@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -44,13 +44,28 @@ def _fuel_command(url: str, version: str | None, cache_root: Path) -> None:
         raise AssetFetchError(f"Fuel download failed for {url}: {exc}") from exc
 
 
+def fuel_model_url(source_url: str) -> str:
+    """Fuel model names contain spaces; the catalog stores them with underscores.
+
+    ``Cardboard_box`` returns 404 while ``Cardboard box`` exists, so the model
+    segment is sent with spaces (single-word names are unchanged).
+    """
+    head, _, name = source_url.rstrip("/").rpartition("/")
+    return f"{head}/{quote(unquote(name).replace('_', ' '))}"
+
+
 def _find_download(cache_root: Path, source_url: str, version: str | None) -> Path:
     parts = [unquote(part).lower() for part in urlparse(source_url).path.split("/") if part]
     try:
         owner, model = parts[-3].lower(), parts[-1].lower()
     except IndexError as exc:
         raise AssetFetchError(f"invalid Fuel source_url: {source_url}") from exc
-    expected = cache_root / "fuel.gazebosim.org" / owner / "models" / model
+    models = cache_root / "fuel.gazebosim.org" / owner / "models"
+    # gz keeps multi-word names percent-encoded on disk (``cardboard%20box``).
+    expected = next(
+        (models / name for name in (model, quote(model)) if (models / name).is_dir()),
+        models / model,
+    )
     candidates = [expected / version] if version else sorted(expected.iterdir()) if expected.is_dir() else []
     if not candidates:
         # Fuel cache implementations have used both source-case and lower-case
@@ -58,7 +73,7 @@ def _find_download(cache_root: Path, source_url: str, version: str | None) -> Pa
         candidates = sorted(
             path.parent
             for path in cache_root.rglob("model.sdf")
-            if (path.parent.name.lower() == model or path.parent.parent.name.lower() == model)
+            if model in (unquote(path.parent.name).lower(), unquote(path.parent.parent.name).lower())
             and any(part.lower() == "models" for part in path.parent.parts)
         )
     for candidate in candidates:
@@ -79,6 +94,7 @@ def fetch_assets(
     resolved_root: Path = DEFAULT_RESOLVED_ROOT,
     *,
     downloader=_fuel_command,
+    allow_hash_mismatch: bool = False,
 ) -> list[str]:
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     assets = catalog.get("assets")
@@ -99,19 +115,28 @@ def fetch_assets(
             version = asset.get("version")
             if version is not None and (not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", version)):
                 raise AssetFetchError(f"invalid version for {slug}: {version!r}")
-            downloader(source_url, version, cache)
-            downloaded = _find_download(cache, source_url, version)
+            fuel_url = fuel_model_url(source_url)
+            downloader(fuel_url, version, cache)
+            downloaded = _find_download(cache, fuel_url, version)
             _copy_asset(downloaded, raw_stage / source_name)
 
         staged_resolved = stage / "resolved"
         build_resolved(root=raw_stage, output=staged_resolved)
+        mismatches = []
         for asset in assets:
             sdf = staged_resolved / asset["slug"] / "model.sdf"
             actual = _digest(sdf)
             if actual != asset["model_sdf_sha256"]:
-                raise AssetFetchError(
-                    f"SHA-256 mismatch for {asset['slug']}: catalog={asset['model_sdf_sha256']} actual={actual}"
+                mismatches.append(
+                    f"{asset['slug']}: catalog={asset['model_sdf_sha256']} actual={actual}"
                 )
+        if mismatches and not allow_hash_mismatch:
+            raise AssetFetchError("SHA-256 mismatch for " + "; ".join(mismatches))
+        for line in mismatches:
+            # The catalog hashes predate later build_resolved changes (aba95e16
+            # texture localization) and Windows CRLF output, so a rebuilt
+            # resolved SDF can legitimately differ; report instead of failing.
+            print(f"warning: resolved SDF differs from catalog: {line}")
 
         raw_root.mkdir(parents=True, exist_ok=True)
         for asset in assets:
@@ -125,9 +150,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--resolved-root", type=Path, default=DEFAULT_RESOLVED_ROOT)
+    parser.add_argument(
+        "--allow-hash-mismatch",
+        action="store_true",
+        help="warn instead of failing when a rebuilt resolved SDF differs from the catalog",
+    )
     args = parser.parse_args(argv)
     try:
-        fetched = fetch_assets(args.catalog, args.raw_root, args.resolved_root)
+        fetched = fetch_assets(
+            args.catalog, args.raw_root, args.resolved_root,
+            allow_hash_mismatch=args.allow_hash_mismatch,
+        )
     except (OSError, ValueError, AssetFetchError) as exc:
         parser.error(str(exc))
     print(f"validated and resolved {len(fetched)} Fuel assets")
