@@ -170,6 +170,46 @@ def test_host_network_plan_uses_loopback_partition_and_instance(
     assert "px4 -i 1" in startup
 
 
+def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_NETWORK", raising=False)
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "host-gpu",
+        container_name="r15-worker-1",
+        control_port=14570,
+        telemetry_port=14571,
+        image="multidetect/px4-sitl-gazebo:gpu",
+        sim_network="host",
+        sim_instance=1,
+        gpu_render=True,
+        gpu_device=2,
+    )
+    assert plan.command[plan.command.index("--gpus") : plan.command.index("--gpus") + 2] == (
+        "--gpus",
+        "device=2",
+    )
+    assert plan.command[plan.command.index("--network") : plan.command.index("--network") + 2] == (
+        "--network",
+        "host",
+    )
+    assert "--publish" not in plan.command
+    assert "--add-host" not in plan.command
+    environment = dict(plan.environment)
+    assert environment["NVIDIA_VISIBLE_DEVICES"] == "2"
+    assert environment["EGL_PLATFORM"] == "surfaceless"
+    assert environment["PX4_SIM_HOST"] == "127.0.0.1"
+    assert environment["GZ_PARTITION"] == "r15-worker-1"
+    startup = plan.command[-1]
+    assert "mavlink start -x -t 127.0.0.1" in startup
+    assert "export PX4_NET_INTERFACE=lo;" in startup
+    assert "--headless-rendering" in startup
+    assert "--render-engine ogre2" in startup
+    assert "px4 -i 1" in startup
+
+
 def test_host_network_env_switch_and_windows_rejection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
