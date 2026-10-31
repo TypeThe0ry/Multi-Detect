@@ -1095,9 +1095,9 @@ class Round:
                     "--min-free-gb",
                     str(self.collector_min_free_gb()),
                     "--timeout-s",
-                    "900",
+                    str(self.a.episode_timeout_s),
                     "--max-episode-s",
-                    "900",
+                    str(self.a.episode_timeout_s),
                     "--container-prefix",
                     f"r15-worker-{worker}",
                     "--worker-index",
@@ -1794,6 +1794,12 @@ def main():
         "--llama-server", type=Path, default=default_llama_server(ROOT, prefer_tools=True)
     )
     p.add_argument("--min-free-gb", type=float, default=30)
+    p.add_argument(
+        "--episode-timeout-s",
+        type=int,
+        default=900,
+        help="collector --timeout-s/--max-episode-s per episode; software rendering needs more",
+    )
     p.add_argument(
         "--collector-min-free-gb",
         type=float,
