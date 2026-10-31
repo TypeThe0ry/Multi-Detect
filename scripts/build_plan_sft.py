@@ -708,8 +708,10 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                     en_forms[(index // 30) % len(en_forms)])
             steps = [S("s1", "monitor", {"region": zone, "query": "vehicle", "duration_s": duration}, "s2", "s2"), H("s2")]
         plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": ["status"]}
-        if emit(text, refs, plan, "r24_reference_type"):
-            index += 1
+        # Advance even when a row is rejected as a duplicate/holdout, so a
+        # collision walks to the next template instead of retrying it forever.
+        emit(text, refs, plan, "r24_reference_type")
+        index += 1
     index = 0
     while sum(row["family"] == "r24_unknown_place" for row in rows) < unknown_count:
         if index > 10_000:
@@ -733,8 +735,8 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                      "report": ["status"]}
         # The known alternative is deliberately present; the target must not use it.
         refs = (f"poi:{known} ({known_zh} / {known_en})",)
-        if emit(text, refs, candidate, "r24_unknown_place", valid=False, finding="ungrounded_place"):
-            index += 1
+        emit(text, refs, candidate, "r24_unknown_place", valid=False, finding="ungrounded_place")
+        index += 1
     index = 0
     while sum(row["family"] in {"r24_context_land", "r24_context_return"} for row in rows) < context_count:
         if index > 10_000:
@@ -763,8 +765,8 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                     en_variants[variant_index].format(p=place_en))
             plan = {"plan_version": 1, "goal": text[:160], "steps": [H("s1")], "report": ["status"]}
             family = "r24_context_return"
-        if emit(text, (), plan, family):
-            index += 1
+        emit(text, (), plan, family)
+        index += 1
     return rows
 
 
@@ -1428,7 +1430,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="number of faithful deliver rows for --r23-recipe")
     parser.add_argument("--r24-recipe", action="store_true",
                         help="extend r23 with grounded-ref, unknown-place, and local/home rows")
-    parser.add_argument("--r24-reference-count", type=int, default=120,
+    parser.add_argument("--r24-reference-count", type=int, default=80,
                         help="same-name ref-kind contrast rows")
     parser.add_argument("--r24-unknown-count", type=int, default=80,
                         help="faithful unresolved-place rows")

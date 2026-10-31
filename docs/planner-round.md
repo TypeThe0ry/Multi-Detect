@@ -242,9 +242,9 @@ planning-v4 分类（精确或正确拒绝，r23 对 r14）：return_intent 2/2 
 
 ## r24 数据准备
 
-r24 在 r23 配方上增加“引用落地”数据族，目标是让模型只复制提示中给出的引用，并区分引用类型。`--r24-recipe` 会自动包含 r23 的 v3 覆盖和 faithful deliver 行；默认新增 280 条训练行：`r24_reference_type` 120 条、`r24_unknown_place` 80 条、当前位置/起飞点语义 80 条。这个规模约占本次 5,500 条训练集的 5.1%，足以重复暴露引用边界，又不会把 r23 的多步骤 v3 覆盖稀释掉。三个数量都可通过 `--r24-reference-count`、`--r24-unknown-count`、`--r24-context-count` 调整。
+r24 在 r23 配方上增加“引用落地”数据族，目标是让模型只复制提示中给出的引用，并区分引用类型。`--r24-recipe` 会自动包含 r23 的 v3 覆盖和 faithful deliver 行；默认新增 240 条训练行：`r24_reference_type` 80 条、`r24_unknown_place` 80 条、当前位置/起飞点语义 80 条（引用对照的模板去重后不足 100 条，所以默认取 80）。这个规模约占本次 5,460 条训练集的 4.4%，足以重复暴露引用边界，又不会把 r23 的多步骤 v3 覆盖稀释掉。三个数量都可通过 `--r24-reference-count`、`--r24-unknown-count`、`--r24-context-count` 调整。
 
-`r24_reference_type` 覆盖四种对照。已知列表只有 `poi:X` 时，计划先 `goto` 到该点，再在当前位置执行不带 `region` 的 `hover`；需要区域的全域测绘使用契约已有的 `zone:all`。当列表同时给出 `poi:X` 与 `zone:X` 时，`goto` 使用 `poi:X`，`area_search`、`monitor` 等区域技能使用 `zone:X`。数据中不把 `poi:` 填进 `region`，也不发明新的引用语义。该族 120 条中英文各 60 条。
+`r24_reference_type` 覆盖四种对照。已知列表只有 `poi:X` 时，计划先 `goto` 到该点，再在当前位置执行不带 `region` 的 `hover`；需要区域的全域测绘使用契约已有的 `zone:all`。当列表同时给出 `poi:X` 与 `zone:X` 时，`goto` 使用 `poi:X`，`area_search`、`monitor` 等区域技能使用 `zone:X`。数据中不把 `poi:` 填进 `region`，也不发明新的引用语义。该族 80 条，中英文混合。
 
 `r24_unknown_place` 的任务会点名列表之外的青石码头、旧气象站等地点，并同时提供一个已知地点作为干扰。负例 target 保留未解析的 `poi:` candidate，由 `ungrounded_place` validator finding 拒绝；不会把未知地点替换成列表里的其它地点。80 条中英文各 40 条，生成清单记录 `known_ref_substitution_rows: 0`。
 

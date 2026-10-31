@@ -180,7 +180,7 @@ def main(argv=None) -> int:
     parser.add_argument("--r23-deliver-count", type=int, default=80)
     parser.add_argument("--r24-recipe", action="store_true",
                         help="extend r23 with grounded-reference and local/home data")
-    parser.add_argument("--r24-reference-count", type=int, default=120)
+    parser.add_argument("--r24-reference-count", type=int, default=80)
     parser.add_argument("--r24-unknown-count", type=int, default=80)
     parser.add_argument("--r24-context-count", type=int, default=80)
     parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
