@@ -13,9 +13,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(r"D:\Projects\mdwt\_scratch\cx-planner-round")
-VLM_PYTHON = Path(r"D:\Projects\Multi-Detect\.venv-vlm\Scripts\python.exe")
-PROBE_ROOT = Path(r"D:\Projects\mdwt\_scratch\plannercmp")
+
+
+def host_path(env: str, windows: str, posix: Path) -> Path:
+    """Environment override, else the original Windows path or a repo-local POSIX default."""
+    value = os.environ.get(env)
+    if value:
+        return Path(value)
+    return Path(windows) if os.name == "nt" else posix
+
+
+SCRATCH = host_path("MULTIDETECT_PLANNER_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-planner-round", ROOT / "artifacts/scratch/cx-planner-round")
+VLM_PYTHON = host_path("MULTIDETECT_VLM_PYTHON", r"D:\Projects\Multi-Detect\.venv-vlm\Scripts\python.exe", ROOT / ".venv-vlm/bin/python")
+PROBE_ROOT = host_path("MULTIDETECT_PLANNER_PROBE_ROOT", r"D:\Projects\mdwt\_scratch\plannercmp", ROOT / "artifacts/scratch/plannercmp")
 R14_GGUF = ROOT / "artifacts/models/slow-system-lora-v2-r14-multi-merged-gguf/slow-system-v2r14multi-merged-Q5_K_M.gguf"
 R14_ADAPTER = ROOT / "artifacts/models/slow-system-lora-v2-r14-multi/adapter"
 BASE_CACHE = ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
@@ -163,7 +173,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--no-skip-completed", action="store_true")
     parser.add_argument("--force-stage", choices=STAGES, help="invalidate this stage and all later stages before running")
-    parser.add_argument("--lock-path", type=Path, default=Path(r"D:\Projects\mdwt\_scratch\sitl.lock"))
+    parser.add_argument("--lock-path", type=Path, default=host_path("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock", ROOT / "artifacts/scratch/sitl.lock"))
     args = parser.parse_args(argv)
     EVAL_ROOT = args.eval_root.absolute()  # keep the worktree spelling; artifacts/ may be nested junctions
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1 or args.epochs < 1:

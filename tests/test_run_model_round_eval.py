@@ -424,3 +424,20 @@ def test_outputs_may_be_spelled_under_a_nested_junction_in_the_shared_tree(tmp_p
     assert out == (evaluation / "r22-planner-round").resolve()
     with pytest.raises(ValueError, match="inside this worktree"):
         round_eval.local_output(evaluation / "r22-planner-round")
+
+
+def test_gpu_guard_only_inspects_cuda_visible_devices(monkeypatch):
+    seen = []
+
+    def runner(command, **kwargs):
+        seen.append(command)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    guard.check_gpu(runner=runner)
+    assert seen[-1][1:3] == ["-i", "2"]
+
+    for value in ("", "GPU-1234", "0,MIG-1"):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", value)
+        guard.check_gpu(runner=runner)
+        assert "-i" not in seen[-1]

@@ -40,7 +40,7 @@ def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, cap
     assert round_runner.main(["--stage", "all", "--dry-run", "--out", str(out)]) == 0
     output = capsys.readouterr().out
     assert "build_plan_sft.py" in output
-    assert "D:\\Projects\\Multi-Detect\\.venv-vlm\\Scripts\\python.exe" in output
+    assert str(round_runner.VLM_PYTHON) in output
     assert "run_planner_probe.py" in output
     assert "--learning-rate 0.0001" in output
     assert "--r20-plan-intent-count 40" in output
