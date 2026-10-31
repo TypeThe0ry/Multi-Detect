@@ -144,6 +144,31 @@ def test_replay_planner_rows_are_preserved_and_holdout_normalized():
         shutil.rmtree(workspace, ignore_errors=True)
 
 
+def test_r25_rows_keep_missing_payload_and_negated_query_candidates_admissible(tmp_path):
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "r25"
+    assert build_plan_sft.main([
+        "--output", str(output), "--rows", "1", "--val-rows", "0", "--version", "v4",
+        "--r25-recipe", "--r23-v3-count", "0", "--r23-deliver-count", "0",
+        "--r24-reference-count", "0", "--r24-unknown-count", "0", "--r24-context-count", "0",
+        "--r25-missing-payload-count", "2", "--r25-negated-query-count", "2",
+        "--negative-target-mode", "rejected_candidate", "--require-skills",
+    ]) == 0
+    rows, _ = admit_train_rows(output)
+    r25 = [row for row in rows if str(row.get("family", "")).startswith("r25_")]
+    assert len(r25) == 8
+    missing = [row for row in r25 if row["family"] == "r25_missing_payload"]
+    capable = [row for row in r25 if row["family"] == "r25_payload_capable"]
+    negated = [row for row in r25 if row["family"] == "r25_negated_query" and not row["expected_valid"]]
+    assert len(missing) == len(capable) == len(negated) == 2
+    assert all(row["capabilities"] == [] for row in missing)
+    assert all(row["assistant_target"]["steps"][0]["skill"] == "deliver" for row in missing)
+    assert all(row["negative_target_mode"] == "rejected_candidate" for row in missing + negated)
+    assert all(row["expected_findings"] == ["missing_capability"] for row in missing)
+    assert all(row["expected_findings"] == ["ungrounded_query"] for row in negated)
+
+
 @pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"
