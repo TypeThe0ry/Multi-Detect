@@ -923,7 +923,8 @@ def r25_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                 place=place_zh, wanted=wanted_zh, denied=denied_zh
             ) if use_zh else
             en_patterns[positive_pattern].format(
-                place=place_en, wanted=wanted_en, denied=denied_en
+                place=place_en, wanted=wanted_en, denied=denied_en,
+                denied_article="an" if denied_en[:1].lower() in "aeiou" else "a",
             )
         )
         positive = {
