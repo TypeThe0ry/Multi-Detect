@@ -9,6 +9,8 @@ from typing import Any, Final
 
 from pymavlink import mavutil
 
+from .sim_network import sim_udpin_endpoint
+
 from .mavlink_gps import (
     MAVLINK_GPS_FIX_TYPE_MAX,
     MAVLINK_QUALIFIED_FIX_TYPE_MIN,
@@ -539,7 +541,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Passively observe GPS and magnetometer MAVLink telemetry without transmitting."
     )
-    parser.add_argument("--endpoint", default="udpin:127.0.0.1:14562")
+    parser.add_argument("--endpoint", default=sim_udpin_endpoint(14562))
     parser.add_argument("--duration-seconds", type=float, default=15.0)
     parser.add_argument("--visual-odometry-absolute-scale-proven", action="store_true")
     parser.add_argument("--relative-visual-motion-available", action="store_true")

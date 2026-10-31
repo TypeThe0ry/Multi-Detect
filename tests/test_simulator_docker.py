@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -120,6 +121,25 @@ def test_docker_plan_hash_and_json_are_stable(tmp_path: Path) -> None:
     assert document["sha256"] == plan.evidence_hash
     assert document["stack_plan_sha256"]
     assert not (out.parent / ".evidence.json.tmp").exists()
+
+
+def test_docker_plan_uses_selected_network_for_container_and_px4_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MULTIDETECT_SIM_DOCKER_NETWORK", "sitl-private")
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "selected-network",
+    )
+    assert plan.container_network_mode == "sitl-private"
+    assert plan.command[plan.command.index("--network") + 1] == "sitl-private"
+    startup = plan.command[-1]
+    if os.name == "nt":
+        assert "host.docker.internal" in startup
+    else:
+        assert "ip -4 route" not in startup  # the PX4 image has no iproute2
+        assert 'DOCKER_HOST_IP="' in startup
 
 
 def test_docker_plan_rejects_protected_or_duplicate_ports(tmp_path: Path) -> None:
