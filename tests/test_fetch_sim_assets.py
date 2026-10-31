@@ -90,3 +90,11 @@ def test_fetch_rejects_hash_mismatch_before_publishing_assets(tmp_path):
         fetch_assets(catalog, raw_out, resolved_out, downloader=downloader)
     assert not raw_out.exists()
     assert not resolved_out.exists()
+
+
+def test_fuel_model_url_uses_spaces_for_multiword_models():
+    from scripts.fetch_sim_assets import fuel_model_url
+
+    base = "https://fuel.gazebosim.org/1.0/OpenRobotics/models/"
+    assert fuel_model_url(base + "Cardboard_box") == base + "Cardboard%20box"
+    assert fuel_model_url(base + "SUV") == base + "SUV"

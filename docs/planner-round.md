@@ -242,9 +242,9 @@ planning-v4 分类（精确或正确拒绝，r23 对 r14）：return_intent 2/2 
 
 ## r24 数据准备
 
-r24 在 r23 配方上增加“引用落地”数据族，目标是让模型只复制提示中给出的引用，并区分引用类型。`--r24-recipe` 会自动包含 r23 的 v3 覆盖和 faithful deliver 行；默认新增 280 条训练行：`r24_reference_type` 120 条、`r24_unknown_place` 80 条、当前位置/起飞点语义 80 条。这个规模约占本次 5,500 条训练集的 5.1%，足以重复暴露引用边界，又不会把 r23 的多步骤 v3 覆盖稀释掉。三个数量都可通过 `--r24-reference-count`、`--r24-unknown-count`、`--r24-context-count` 调整。
+r24 在 r23 配方上增加“引用落地”数据族，目标是让模型只复制提示中给出的引用，并区分引用类型。`--r24-recipe` 会自动包含 r23 的 v3 覆盖和 faithful deliver 行；默认新增 240 条训练行：`r24_reference_type` 80 条、`r24_unknown_place` 80 条、当前位置/起飞点语义 80 条（引用对照的模板去重后不足 100 条，所以默认取 80）。这个规模约占本次 5,460 条训练集的 4.4%，足以重复暴露引用边界，又不会把 r23 的多步骤 v3 覆盖稀释掉。三个数量都可通过 `--r24-reference-count`、`--r24-unknown-count`、`--r24-context-count` 调整。
 
-`r24_reference_type` 覆盖四种对照。已知列表只有 `poi:X` 时，计划先 `goto` 到该点，再在当前位置执行不带 `region` 的 `hover`；需要区域的全域测绘使用契约已有的 `zone:all`。当列表同时给出 `poi:X` 与 `zone:X` 时，`goto` 使用 `poi:X`，`area_search`、`monitor` 等区域技能使用 `zone:X`。数据中不把 `poi:` 填进 `region`，也不发明新的引用语义。该族 120 条中英文各 60 条。
+`r24_reference_type` 覆盖四种对照。已知列表只有 `poi:X` 时，计划先 `goto` 到该点，再在当前位置执行不带 `region` 的 `hover`；需要区域的全域测绘使用契约已有的 `zone:all`。当列表同时给出 `poi:X` 与 `zone:X` 时，`goto` 使用 `poi:X`，`area_search`、`monitor` 等区域技能使用 `zone:X`。数据中不把 `poi:` 填进 `region`，也不发明新的引用语义。该族 80 条，中英文混合。
 
 `r24_unknown_place` 的任务会点名列表之外的青石码头、旧气象站等地点，并同时提供一个已知地点作为干扰。负例 target 保留未解析的 `poi:` candidate，由 `ungrounded_place` validator finding 拒绝；不会把未知地点替换成列表里的其它地点。80 条中英文各 40 条，生成清单记录 `known_ref_substitution_rows: 0`。
 
@@ -263,3 +263,88 @@ python scripts/run_planner_round.py --stage data --force-stage data \
 ```
 
 dry-run 只打印了上述 data 命令，没有训练或评测。实际结果为 train 5,500、val 100；r24 四个 family 分别为 120、80、40、40，r23 family 保持 600 条 coverage 和 80 条 faithful deliver。训练准入 `admit_train_rows` 接受全部 5,500 条，意图与结构检查全部通过；负例共检查 480 条，已知引用替代为 0。与 planning-v3/v4 评测题按 `normalize_task` 去重后碰撞为 0。统计文件位于 `.tmp/r24-data/dataset/r23-data-stats.md`，未写入 `artifacts/`。本轮没有启动训练、GPU 推理、llama-server、SITL 或 Docker。
+
+## r24 结果（2026-10-31，新开发机）
+
+r24 = r23 配方 + “引用落地”数据族（同名 poi/zone 对照 80、未知地点忠实负例 80、当前位置/起飞点 80），r14 热启动，lr 2.5e-5，1 epoch，GPU1 约 35 分钟。训练集 5,460 行、val 100 行，全部通过准入。评测用本次评测链路（含新的固定翼 goto→land 与否定句 query 校验规则），r14 与 r24 同一套代码重跑。
+
+| 指标 | r14 | r23 | r24 |
+|---|---:|---:|---:|
+| planning-v3 精确序列 | 0.6625 | 0.6125 | **0.7375** |
+| planning-v3 JSON 有效率 | 0.9375 | 0.875 | **0.95** |
+| planning-v4 精确序列 | 0.60 | 0.60 | **0.75** |
+| 返航探测（15 题） | 13/15 | 14/15 | **15/15** |
+
+planning-v4 分类（精确或正确拒绝，r24 对 r14）：return_intent 2/2 对 1/2，ref_alias 3/4 对 1/4，其余类别持平（unknown_place、fixed_wing_hover、fixed_wing_target_land、return_negated_land、query_grounding 两者都满分；missing_payload_drop、query_ungrounded 两者都是 0/2）。
+
+替换判定（`artifacts/scratch/cx-planner-round/r24/replacement-decision.json`）：v3 不低于 r14、v3 有效率不低于 r14、v4 返航类提升 ≥10 个百分点、15 条返航探测全过——**全部通过，r24 替换 r14 作为机载规划模型**。
+
+模型：`artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf`（sha256 `147f90d8…`），adapter 在 `artifacts/models/slow-system-lora-v2-r24-planner/`。推荐机载组合配置：`configs/onboard/sim-loop-v3-r18id-r24plan-defaults.json`（r18 身份 + r24 规划 + YOLOE v3 1280）。各回归套件配置暂时仍指向 r14，等 Linux 上 SITL 闭环跑通、用 r24 跑一轮任务套件后再切换。
+
+剩余问题：missing_payload_drop（缺载荷仍规划投递以外的动作，没有拒绝）和 query_ungrounded 仍为 0/2，下一轮规划数据应补这两类。
+
+## r25 数据准备
+
+r25 在 r24 配方上增加两类正负对照，--r25-recipe 自动包含 r23 和 r24 的全部内容。
+--r25-missing-payload-count 与 --r25-negated-query-count 都按“对数”计数，默认各 40
+对：缺载荷族新增 40 条无 `payload_drop` 能力、保留 `deliver` 的 validator 负例，以及 40 条
+能力声明齐全的有效对照；否定 query 族新增 40 条许可类别正例和 40 条把否定类别当 query
+的 validator 负例。中英文句式交替并组合多个目标地点、类别、动作表达和结尾。默认合计新增
+160 行，约占本次 5,620 行训练集的 2.8%；保留对照密度，同时避免再次稀释 r23 多步骤覆盖。
+缺载荷模板的组合容量超过 1,000 对，否定 query 模板超过 4,000 对；构造器对每次尝试都前进，
+并在 2,400 次仍无法凑齐时明确报模板池耗尽，不会无限循环。
+
+缺载荷负例 prompt 声明不具备 `payload_drop`，gold/rejected_candidate 仍包含用户要求的
+`deliver`，`expected_findings` 为 `missing_capability`；配对正例使用相同能力上下文之外的
+payload-capable 声明，仍然规划 `deliver`。否定 query 正例的任务文本包含许可类别和被排除
+类别，target query 选许可类别；负例保留相同否定任务的被排除类别 query，由
+`plan_intent.query_grounding` 产生 `ungrounded_query`。例如“检查大门的入口标志，不要凭空检查
+救护车”可用 `entrance sign` 作正例 query，`救护车` 作负例 query。结构、意图、能力和
+rejected_candidate finding 均由训练准入检查。
+
+本次实际生成（2026-10-31）使用：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch
+python scripts/run_planner_round.py --stage data --force-stage data --out .tmp/r25-data --eval-root .tmp/r25-eval --rows 2000 --val-rows 100 --intent-count 80 --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl --negative-target-mode rejected_candidate --r25-recipe
+```
+
+`--init-adapter` 默认仍指向 r14 adapter，`--baseline-gguf` 默认仍指向 r14 GGUF；
+r25 训练/评测时分别传入 r24 adapter 和 GGUF，并用 `--baseline-label r24` 让替换判定按
+r24 命名：
+
+```bash
+--init-adapter artifacts/models/slow-system-lora-v2-r24-planner/adapter
+--baseline-gguf artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf
+--baseline-label r24
+```
+
+runner dry-run 会透传这些路径；本次只运行 data 阶段，没有训练或评测。
+
+实际结果：train 5,620 行、val 100 行，其中 `r25_missing_payload` 40、
+`r25_payload_capable` 40、`r25_negated_query` 80；其余 r23/r24 配方计数保持原值。
+`admit_train_rows` 接受全部 5,620 条训练行，含能力、意图和 rejected_candidate 检查；
+负例共 560 条，全部 finding 匹配，已知引用替代为 0。生成的 r25 负例和正例均使用当前
+`plan_intent.query_grounding` 可判定的类别映射。校验器对某些未列入词表的跨语言复合类别
+（例如中文“消防车”对应英文 query `fire truck`）可能返回 `undecided` 而不是
+`ungrounded_query`；本轮按现有契约避开这类映射，未改动校验器。统计位于
+`.tmp/r25-data/dataset/r23-data-stats.md`，manifest 记录各 family 数量。train 内容摘要为
+`6d51b1d7dc1593a372adabc9be61acf3141d7cd40e75fa4e186a2dd1febc7e91`。
+
+## r25 结果（2026-11-01）
+
+r25 = r24 配方 + 缺载荷投递（负例 40 + 有能力正例 40）+ 否定句查询（正负例各 40），r24 热启动，以 r24 为基线。训练 5,620 行。
+
+| 指标 | r24（基线） | r25 |
+|---|---:|---:|
+| planning-v3 精确序列 | 0.7375 | 0.6875 |
+| planning-v3 有效率 | 0.95 | 0.95 |
+| planning-v4 精确序列 | 0.75 | 0.75 |
+| 返航探测 | 15/15 | 15/15 |
+
+结论：**不替换 r24**（v3 下降 5 个点，v4 目标类别没有提升）。
+
+两个目标类别的情况不一样：
+- **missing_payload_drop 仍是 0/2，是模型问题**：r25 在“本机没有载荷投送能力”的题上仍输出 `goto→return_home` 或 `follow→land`，没有输出 `deliver`。r25 新增的训练行没能迁移到评测题，下一步要先对比训练行与评测题的提示词格式（尤其能力上下文怎么写进提示），再决定是否加数据。
+- **query_ungrounded 的 0/2 是评测打分问题，不是模型问题**：r24、r25 都输出了 `inspect(query=救护车/fire truck)`，产品的意图检查（`query_grounding`，已能识别否定句）会判为 `ungrounded` 并拒绝；用 `scripts/recompute_planning_v4_capabilities.py` 离线重算，这两题是 2/2 正确拒绝。但评测链路实时打分仍记 0/2，说明实时打分没有走到同一条意图检查路径，需要修评测。

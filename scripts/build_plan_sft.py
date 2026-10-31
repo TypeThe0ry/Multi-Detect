@@ -708,8 +708,10 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                     en_forms[(index // 30) % len(en_forms)])
             steps = [S("s1", "monitor", {"region": zone, "query": "vehicle", "duration_s": duration}, "s2", "s2"), H("s2")]
         plan = {"plan_version": 1, "goal": text[:160], "steps": steps, "report": ["status"]}
-        if emit(text, refs, plan, "r24_reference_type"):
-            index += 1
+        # Advance even when a row is rejected as a duplicate/holdout, so a
+        # collision walks to the next template instead of retrying it forever.
+        emit(text, refs, plan, "r24_reference_type")
+        index += 1
     index = 0
     while sum(row["family"] == "r24_unknown_place" for row in rows) < unknown_count:
         if index > 10_000:
@@ -733,8 +735,8 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                      "report": ["status"]}
         # The known alternative is deliberately present; the target must not use it.
         refs = (f"poi:{known} ({known_zh} / {known_en})",)
-        if emit(text, refs, candidate, "r24_unknown_place", valid=False, finding="ungrounded_place"):
-            index += 1
+        emit(text, refs, candidate, "r24_unknown_place", valid=False, finding="ungrounded_place")
+        index += 1
     index = 0
     while sum(row["family"] in {"r24_context_land", "r24_context_return"} for row in rows) < context_count:
         if index > 10_000:
@@ -763,8 +765,199 @@ def r24_reference_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
                     en_variants[variant_index].format(p=place_en))
             plan = {"plan_version": 1, "goal": text[:160], "steps": [H("s1")], "report": ["status"]}
             family = "r24_context_return"
-        if emit(text, (), plan, family):
-            index += 1
+        emit(text, (), plan, family)
+        index += 1
+    return rows
+
+
+def r25_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add payload capability contrasts and negative-scope query contrasts."""
+    rng = random.Random(f"{args.seed}:r25")
+    rows = []
+    refs_by_place = [
+        ("poi:gate", "大门", "gate"), ("poi:pad", "起降坪", "landing pad"),
+        ("poi:tower", "水塔", "water tower"), ("poi:shed", "仓库", "shed"),
+        ("poi:bridge", "桥", "bridge"), ("poi:yard", "院子", "yard"),
+        ("poi:hangar", "机库", "hangar"), ("poi:warehouse", "仓储棚", "warehouse"),
+    ]
+    payloads = [
+        ("包裹", "parcel", "package"), ("药品箱", "medical case", "medical kit"),
+        ("工具箱", "tool case", "toolkit"), ("样品盒", "sample box", "specimen case"),
+    ]
+    payload_zh_verbs = (
+        "把{payload}送到{place}并交付", "将{payload}投放至{place}",
+        "携带{payload}前往{place}完成投递", "在{place}空投{payload}",
+    )
+    payload_en_verbs = (
+        "Deliver the {payload} to the {place}", "Drop off the {payload} at the {place}",
+        "Carry the {payload} to the {place} for delivery",
+        "Make an airdrop of the {payload} at the {place}",
+    )
+    endings = (
+        ("然后返航。", "and then return home."),
+        ("，完成后回到起飞点。", "and come back to the launch point."),
+        ("，交付后返回基地。", "and head back to base after delivery."),
+        ("，完成投递再返航。", "and fly home once the drop is complete."),
+    )
+
+    def emit(text, refs, plan, family, capabilities, *, valid=True, finding=None):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        seen.add(key)
+        row = {
+            "sample_id": f"plan-r25-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+            "kind": "mission_plan", "world": "synthetic_plan_r25", "family": family,
+            "task_text": text, "refs": list(refs), "capabilities": list(capabilities),
+            "expected_valid": valid, "expected_findings": [] if valid else [finding],
+            "prompt": plan_prompt(text, refs=refs, prompt_variant=args.prompt_variant,
+                                  capabilities=frozenset(capabilities)),
+            "assistant_target": plan,
+        }
+        if not valid:
+            row["rejected_candidate"] = plan
+            row["negative_target_mode"] = "rejected_candidate"
+        rows.append(row)
+        return True
+
+    # Each requested count is a pair: one payload-capable positive and one
+    # missing-capability faithful candidate.
+    index = 0
+    attempts = 0
+    payload_pairs = 0
+    while payload_pairs < args.r25_missing_payload_count:
+        if attempts >= 2400:
+            raise ValueError("r25 missing-payload template pool exhausted; reduce --r25-missing-payload-count")
+        place_ref, place_zh, place_en = refs_by_place[index % len(refs_by_place)]
+        payload_zh, payload_en, payload_alt = payloads[(index // len(refs_by_place)) % len(payloads)]
+        phrase = (index // (len(refs_by_place) * len(payloads))) % len(payload_zh_verbs)
+        ending_zh, ending_en = endings[(index // (len(refs_by_place) * len(payloads) * len(payload_zh_verbs))) % len(endings)]
+        use_zh = (index // 3) % 2 == 0
+        base = (
+            payload_zh_verbs[phrase].format(payload=payload_zh, place=place_zh)
+            if use_zh else
+            payload_en_verbs[phrase].format(
+                payload=payload_alt if phrase % 2 else payload_en, place=place_en
+            )
+        )
+        suffix = ending_zh if use_zh else " " + ending_en
+        text = base + suffix
+        alt_phrase = (phrase + 1) % len(payload_zh_verbs)
+        positive_base = (
+            payload_zh_verbs[alt_phrase].format(payload=payload_zh, place=place_zh)
+            if use_zh else
+            payload_en_verbs[alt_phrase].format(payload=payload_en, place=place_en)
+        )
+        positive_text = positive_base + suffix
+        steps = [
+            S("s1", "deliver", {
+                "target_ref": place_ref,
+                "payload_ref": f"payload:{payload_en.replace(' ', '_')}",
+            }, "s2", "s2"),
+            H("s2"),
+        ]
+        refs = (f"{place_ref} ({place_zh} / {place_en})",)
+        plan = {
+            "plan_version": 1, "goal": text[:160], "steps": steps, "report": ["delivery"],
+        }
+        if normalize_task(positive_text) not in held_out | seen and normalize_task(text) not in held_out | seen:
+            emit(
+                positive_text, refs, {**plan, "goal": positive_text[:160]},
+                "r25_payload_capable", ("payload_drop",),
+            )
+            emit(text, refs, plan, "r25_missing_payload", (),
+                 valid=False, finding="missing_capability")
+            payload_pairs += 1
+        index += 1
+        attempts += 1
+
+    affirmative = [
+        ("入口标志", "entrance sign"), ("路障", "road barrier"),
+        ("警示牌", "warning sign"), ("停放的自行车", "parked bicycle"),
+        ("红色轿车", "red car"), ("行人", "pedestrian"),
+        ("交通锥", "traffic cone"), ("屋顶天线", "rooftop antenna"),
+    ]
+    denied = [
+        ("救护车", "ambulance", "救护车"), ("消防车", "fire truck", "消防车"),
+        ("校车", "school bus", "校车"), ("摩托车", "motorcycle", "摩托车"),
+        ("货车", "truck", "货车"), ("狗", "dog", "狗"),
+        ("自行车", "bicycle", "自行车"), ("行人", "pedestrian", "行人"),
+    ]
+    zh_patterns = (
+        "检查{place}的{wanted}，不要凭空检查{denied}。",
+        "查看{place}处的{wanted}；{denied}不在检查范围内。",
+        "请核验{wanted}，别把{denied}当成目标，位置是{place}。",
+        "到{place}确认{wanted}，无需查询{denied}。",
+    )
+    en_patterns = (
+        "Inspect the {place} for the {wanted}; do not invent {denied_article} {denied} target.",
+        "Check the {wanted} at the {place}, not the {denied}.",
+        "Verify the {wanted} near the {place}; leave the {denied} out of scope.",
+        "Look for the {wanted} at the {place}, and do not query for {denied_article} {denied}.",
+    )
+    query_count = 0
+    index = 0
+    attempts = 0
+    while query_count < args.r25_negated_query_count:
+        if attempts >= 2400:
+            raise ValueError("r25 negated-query template pool exhausted; reduce --r25-negated-query-count")
+        place_ref, place_zh, place_en = refs_by_place[
+            (index // (len(affirmative) * len(denied) * len(zh_patterns))) % len(refs_by_place)
+        ]
+        wanted_zh, wanted_en = affirmative[index % len(affirmative)]
+        denied_zh, denied_en, denied_zh_query = denied[(index // len(affirmative)) % len(denied)]
+        use_zh = index % 2 == 0
+        pattern = index % len(zh_patterns)
+        text = (
+            zh_patterns[pattern].format(place=place_zh, wanted=wanted_zh, denied=denied_zh)
+            if use_zh else
+            en_patterns[pattern].format(
+                place=place_en, wanted=wanted_en, denied=denied_en,
+                denied_article="an" if denied_en[:1].lower() in "aeiou" else "a",
+            )
+        )
+        refs = (f"{place_ref} ({place_zh} / {place_en})",)
+        positive_pattern = (pattern + 1) % len(zh_patterns)
+        good_text = (
+            zh_patterns[positive_pattern].format(
+                place=place_zh, wanted=wanted_zh, denied=denied_zh
+            ) if use_zh else
+            en_patterns[positive_pattern].format(
+                place=place_en, wanted=wanted_en, denied=denied_en,
+                denied_article="an" if denied_en[:1].lower() in "aeiou" else "a",
+            )
+        )
+        positive = {
+            "plan_version": 1, "goal": good_text[:160],
+            "steps": [
+                S("s1", "inspect", {
+                    "target_ref": place_ref, "query": wanted_en, "standoff_m": 5, "views": 1,
+                }, "s2", "s2"),
+                H("s2"),
+            ],
+            "report": ["inspection"],
+        }
+        negative = {
+            "plan_version": 1, "goal": text[:160],
+            "steps": [
+                S("s1", "inspect", {
+                    "target_ref": place_ref,
+                    "query": denied_en if not use_zh else denied_zh_query,
+                    "standoff_m": 5, "views": 1,
+                }, "s2", "s2"),
+                H("s2"),
+            ],
+            "report": ["inspection"],
+        }
+        if emit(good_text, refs, positive, "r25_negated_query", ()):
+            if emit(text, refs, negative, "r25_negated_query", (),
+                    valid=False, finding="ungrounded_query"):
+                query_count += 1
+            else:
+                seen.discard(normalize_task(good_text))
+                rows.pop()
+        index += 1
+        attempts += 1
     return rows
 
 
@@ -1428,12 +1621,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="number of faithful deliver rows for --r23-recipe")
     parser.add_argument("--r24-recipe", action="store_true",
                         help="extend r23 with grounded-ref, unknown-place, and local/home rows")
-    parser.add_argument("--r24-reference-count", type=int, default=120,
+    parser.add_argument("--r24-reference-count", type=int, default=80,
                         help="same-name ref-kind contrast rows")
     parser.add_argument("--r24-unknown-count", type=int, default=80,
                         help="faithful unresolved-place rows")
     parser.add_argument("--r24-context-count", type=int, default=80,
                         help="local landing and home/launch return rows without target_ref")
+    parser.add_argument("--r25-recipe", action="store_true",
+                        help="extend r24 with missing-payload and negated-query contrasts")
+    parser.add_argument("--r25-missing-payload-count", type=int, default=40,
+                        help="payload-capable/missing-capability contrast pairs (default: 40)")
+    parser.add_argument("--r25-negated-query-count", type=int, default=40,
+                        help="affirmative/negated-query contrast pairs (default: 40)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -1450,6 +1649,10 @@ def main(argv: list[str] | None = None) -> int:
     if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
                                    args.r24_context_count)):
         parser.error("r24 counts must be non-negative")
+    if args.r25_missing_payload_count < 0 or args.r25_negated_query_count < 0:
+        parser.error("r25 counts must be non-negative")
+    if args.r25_recipe:
+        args.r24_recipe = True
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
@@ -1547,6 +1750,10 @@ def main(argv: list[str] | None = None) -> int:
         r24_rows = r24_reference_rows(args, held_out, seen)
         rows.extend(r24_rows)
         args.rows += len(r24_rows)
+    if args.r25_recipe:
+        new_rows = r25_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -1590,7 +1797,9 @@ def main(argv: list[str] | None = None) -> int:
             # Replay rows stay verbatim; only rows this recipe generated are cleaned.
             if row.get("family") not in {"r23_v3_coverage", "r23_deliver_faithful",
                                           "r24_reference_type", "r24_unknown_place",
-                                          "r24_context_land", "r24_context_return"}:
+                                          "r24_context_land", "r24_context_return",
+                                          "r25_missing_payload", "r25_payload_capable",
+                                          "r25_negated_query"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -1625,6 +1834,12 @@ def main(argv: list[str] | None = None) -> int:
             "unknown_requested": args.r24_unknown_count,
             "context_requested": args.r24_context_count,
             "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r24_")),
+        }
+    if args.r25_recipe:
+        manifest["r25_recipe"] = {
+            "missing_payload_pairs_requested": args.r25_missing_payload_count,
+            "negated_query_pairs_requested": args.r25_negated_query_count,
+            "rows_added": sum(1 for row in rows if str(row.get("family", "")).startswith("r25_")),
         }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
@@ -1673,7 +1888,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = ["# r24 planner dataset statistics" if args.r24_recipe else "# r23 planner dataset statistics", "",
+        stats = [f"#{' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -1697,6 +1912,11 @@ def main(argv: list[str] | None = None) -> int:
             stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())
                       if str(family).startswith("r24_")]
             stats += ["", "r24 reference rows use only supplied ref kinds; unknown-place rows retain an unresolved candidate ref; context rows omit target_ref.", ""]
+        if args.r25_recipe:
+            stats += ["", "| r25 family | Rows |", "|---|---:|"]
+            stats += [f"| {family} | {count} |" for family, count in sorted(family_counts["train"].items())
+                      if str(family).startswith("r25_")]
+            stats += ["", "r25 missing-payload negatives retain deliver for validator rejection; capable counterparts remain valid. Negated query negatives retain the forbidden query candidate for ungrounded_query rejection.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

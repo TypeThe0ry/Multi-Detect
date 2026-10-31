@@ -188,7 +188,11 @@ def test_closed_loop_motion_commands_wait_like_primitives(monkeypatch) -> None:
     positions = iter([(0.0, 0.0, -30.0), (0.0, 0.0, -30.0), (50.0, 0.0, -30.0), (99.0, 0.0, -30.0)])
     monkeypatch.setattr(collector, "_state_position", lambda state: next(positions))
     monkeypatch.setattr(collector.time, "sleep", lambda s: None)
-    reader = type("R", (), {"state": None, "raise_if_failed": lambda self: None})()
+    reader = type(
+        "R",
+        (),
+        {"state": {"ATTITUDE": SimpleNamespace(yaw=0.0)}, "raise_if_failed": lambda self: None},
+    )()
     reposition = MotionCommand(
         "reposition", target_ned=(100.0, 0.0, -30.0), action=ActionPrimitive.translate(100.0, 0.0)
     )

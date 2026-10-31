@@ -292,3 +292,109 @@ python scripts/run_r15_round.py --stage report --out artifacts/r21id-r3 --baseli
 ```
 
 接受条件：test 四视角实例完整率 100%；四视角一致率 ≥0.90；recovery ≥0.85；真目标 false-reject ≤0.08；distractor false-accept ≤0.026；pickup↔suv、person↔postbox、car↔postbox 每方向至少 30 个四视角 pair 估计；任一门槛失败则保留 r18。
+
+## r21id-r3 结果（2026-10-31，新开发机）
+
+在新开发机上从 `--stage train` 接着跑：r18 热启动，lr 5e-5，1 epoch（5,711 步，GPU2 约 2.6 小时），类别留出已取消，小目标正样本保持全权重。导出 Q5_K_M 正常。
+
+**主门第一部分：r3 冻结测试世界四视角评测**（12 个 test 世界，r18 与候选同一套，`artifacts/evaluation/r21id-r3-view-eval/identity-report.md`）：
+
+| 指标 | r18 | r21id-r3 | 门槛 |
+|---|---:|---:|---:|
+| 实例级跨视角一致率 | 0.433 [0.267, 0.600] | 0.733 [0.567, 0.900] | ≥ 0.90 |
+| 拒绝后恢复率 | 0.50 [0.17, 0.83] | 1.00 [1.00, 1.00] | ≥ 0.85 |
+| 真目标总体拒绝率 | 0.346 [0.151, 0.572] | 0.086 [0.036, 0.157] | ≤ 0.08 |
+| 显式干扰物接受率 | 0.130 [0.077, 0.183] | 0.094 [0.050, 0.145] | ≤ 0.026 |
+
+r21id-r3 在每一项上都明显好于 r18（真目标误拒从 34.6% 降到 8.6%，跨视角一致率从 0.43 升到 0.73），但按本计划的绝对门槛，一致率、真目标拒绝率（差 0.6 个点）和干扰物接受率仍不达标。
+
+**主门第二部分：真实飞行集 v1**。v1 评测集引用的 1,619 张图片（以及 v3 参考集的 94 张）原本只在旧 Windows 机器上，已由负责人复制到 NAS（`10_Projects/Drone/Multi-Detect-handoff-20261031/eval-images/`）并拉回，随后补跑 eval/report（`artifacts/r21id-r3/pipeline/r15-report.md`）。为排除新机器（CUDA 13.1 编译的 llama.cpp）带来的偏差，r18 在新机器上也重跑了 v1（`artifacts/evaluation/r21id-r3-view-eval/r18-v1-recheck.json`）：
+
+| v1 指标 | r18（旧机器记录） | r18（新机器重跑） | r21id-r3 |
+|---|---:|---:|---:|
+| 身份准确率 | 0.922 | 0.913 | 0.946 |
+| 干扰物拒绝率 | 0.974 | 0.958 | 0.993 |
+| 确认召回 | 0.458 | 0.462 | 0.716 |
+| 确认精度 | 0.950 | 0.928 | 0.990 |
+
+r18 在新机器上比旧记录低约 1 个点（推理环境差异），同机对比时 r21id-r3 的优势更明显。v3（参考）：身份 0.892→0.918，干扰物拒绝都是 1.0，但 <12 px 小目标召回 0.703→0.622 下降。
+
+结论：r21id-r3 在主门两部分都明显好于 r18，v1 没有退化；但四视角绝对门槛（一致率 ≥0.90、真目标误拒 ≤0.08、干扰物误收 ≤0.026）仍未全部通过，流水线报告也因 v3 小目标召回未提升而判“暂不替换”。**是否替换由负责人决定**（门槛是否改为“相对 r18 显著改进且 v1 不退化”）。下一轮方向：干扰物误收离门槛最远（0.094 对 0.026），继续补易混负例；同时盯住 v3 小目标召回。
+
+## r21id-r4 设计
+
+本节的拆分直接按 `eval_r21id_identity.py` 的计分口径重算：只保留有 `target_id` 且 `view` 属于四视角的行；目标框短边用测试 JSON 的归一化框乘以 1280×960 图像尺寸，尺寸档为 `<8`、`8-12`、`12-16`、`16-24`、`24-32`、`>=32` px。候选类别从对应 world 的 `truth.json` 通过 `target_id` 反查，避免把任务类别当成候选类别。
+
+### 1. r21id-r3 错误集中
+
+计分分母为显式干扰物 1,166 行、真目标 838 行、完整四视角实例 30 个。r18 与 r3 的错误数如下：
+
+| 错误 | r18 | r21id-r3 | r3 变化 |
+|---|---:|---:|---:|
+| 干扰物误收 | 152/1166 (0.1304) | 110/1166 (0.0943) | -42 |
+| 真目标误拒 | 290/838 (0.3461) | 72/838 (0.0859) | -218 |
+| 四视角不一致实例 | 17/30 | 8/30 | -9 |
+
+r3 的干扰物误收主要集中在以下任务类别→候选类别（括号内为 r3，后为 r18）：`pickup→suv` 42（41）、`suv→pickup` 38（25）、`postbox→car` 11（37）、`person→postbox` 7（46）、`suv→ambulance` 7（0）、`pickup→car` 5（3）。其中 `pickup→suv` 的 42 条按视角为 front 19、edge 13、oblique 7、recovery 3；`suv→pickup` 的 38 条为 oblique 13、front 11、edge 9、recovery 5。两组主要是大框：`pickup→suv` 的 42 条、`suv→pickup` 的 24 条落在 `>=32 px`；其余 suv→pickup 错误集中在 8-12、12-16、16-24 px 各 5、5、4 条。`postbox→car` 的 6 条在 24-32 px、5 条在 `>=32 px`；`person→postbox` 为 12-16 px 4 条、16-24 px 3 条。按 world，错误最高的是 w0002 的 pickup→suv 20 条、w0010 的 suv→pickup 19 条、w0001 的 pickup→suv 14 条、w0009 的 suv→pickup 14 条、w0026 的 postbox→car 10 条。
+
+r3 真目标误拒的 72 条中，pickup 占 52 条、suv 13 条、postbox 5 条、person 2 条。pickup 误拒按视角为 edge 23、front 14、oblique 10、recovery 5；suv 为 edge 8、recovery 3，其余视角各 1。pickup 误拒有 46 条为 `>=32 px`，另有 5 条为 24-32 px；因此这不是只有小目标的问题，尤其是 w0000/w0001/w0002 三个 pickup world 合计 52 条。四视角不一致从 r18 的 17/30 降到 r3 的 8/30；逐实例不一致为：w0000 pickup 真目标 `>=32`（edge 被拒，其余接受）、w0001 pickup 真目标 `>=32`（oblique 被拒）、w0002 pickup 真目标 `>=32`（front/recovery 相反）、w0001 pickup→suv `>=32`（front/oblique 接受、edge/recovery 拒绝）、w0000 pickup→suv `>=32`（仅 oblique 误收）、w0010 suv→pickup `>=32`（仅 oblique 误收）、w0010 suv 真目标 `>=32`（仅 oblique 接受）、w0026 postbox 真目标 8-12 px（front 接受、edge 拒绝、其余 approach）。主要错误转移点是 edge 对真 pickup 的误拒和 oblique 对近邻 SUV/pickup 的误收。
+
+### 2. 训练集对照
+
+`r21id-r3/pipeline/r15-additions/train.jsonl` 有 19,381 行；合并后的 `r15-sft/train.jsonl` 有 22,843 行，其中 r18 replay 6,418 行、经过 `r21id-r2-filter` 的 additions 16,425 行。合并 manifest 记录的过滤为：无配对 659、恢复不匹配 939、edge approach 760、权重抽样 598；r21id-r3 另显式保留小真目标正例。
+
+训练 JSONL 没有为所有历史行保存显式候选类别字段，因此不把从 task 文本/target_id 推断出来的全量正负数冒充精确配对统计。可审计的 `confusable_pair_type` 定向配对统计是：`pickup→suv` hard reject 0、`suv→pickup` hard reject 30、`postbox→car` hard reject 30、`person→postbox` hard reject 22；相同 pair family 的配对正例分别为 0、0、206、162。生成器的配对正例与拒绝行来自同一帧，说明目前最明确的缺口是 `pickup→suv` 拒绝方向；另外 person→postbox 拒绝量仅为 22。普通 distractor 与 counterfactual negative 仍有拒绝标签，但无法仅凭旧训练字段可靠地按具体候选类别计数。
+
+`--confusable-negatives` 的拒绝行在部分视角偏斜；addition train 的 true/proposal true 行为 edge 951、recovery 701、front 642、oblique 522；distractor/proposal distractor 为 edge 1,676、front 1,409、oblique 1,013、recovery 1,009；confusable negative 为 edge 148、front 88、oblique 53、recovery 33。现有数据可以补齐视角和生成器标记的配对方向，但不能凭空增加某个 world 的新几何实例。
+
+### 3. 只用现有采集数据的 r4 配方
+
+1. **重采样现有定向 hard reject。** 保留配对正例，不做全 additions 降权；对现有的 `suv→pickup`（30）、`postbox→car`（30）、`person→postbox`（22）hard-negative 家族在四视角内重采样，目标每方向最多 60 条、每视角 15 条，视角不足时只在该视角内重复已有行。依据是 r3 的 `pickup↔suv` 合计 80/110 条误收，且 `postbox→car`、`person→postbox` 仍有 18 条误收。`pickup→suv` hard reject 当前为 0，不能从 JSONL 凭空构造，列入 SITL 新采集。
+2. **按任务类别×正负决策做四视角平衡。** 使用新增的 `--balance-identity-views --max-upsample 2`，只复制已有 JSONL 行，不复制图片、不改变 test/val。实际在当前工作树重建的 train 为 13,344 行，新增 2,033 行；front 1,780→2,136、oblique 1,285→2,144、edge 2,089→2,120、recovery 1,377→2,164。该配方针对剩余 8/30 跨视角不一致和 edge/recovery 的真目标误拒，不会改变默认构建器输出。
+3. **保留小目标正例全权重，避免再使用 r21id-r2 的整体 additions 降权。** r3 真目标误拒虽主要发生在大 pickup 框，但 postbox 的 5 条误拒包含 12-16/16-24 px，且 r21id-r2 已证明整体 down-weight 会把小目标召回降到 0.62；r3 的 `--r21id-keep-small-true-targets` 行为应继续保留。
+4. **训练前的审计门。** 对生成 manifest 逐项检查四视角的正/负计数、`suv→pickup`、`postbox→car`、`person→postbox` 的拒绝行是否存在，确认新采集补上 `pickup→suv`，以及 `<16 px` true/proposal_true 是否没有被 merge 过滤掉；不满足则不进入训练。当前实际构建输出在 `.tmp/r21id-r4-sft/`，不写 artifacts。
+
+### 4. 需要新 SITL 采集的数据
+
+现有数据的 residual 主要来自少数固定 world，不能只靠复制同一帧证明跨视角稳定。建议新增 24 个 episode：`pickup` 6 个 world、`suv` 6 个、`postbox` 4 个、`person` 4 个、`ambulance` 4 个；每个 world 采集 front/oblique/edge_truncated/recovery 四视角，合计 96 组视角。pickup 与 SUV 各 6 个 world 强制同框出现两类候选并交换任务文本，优先覆盖目前缺失的 `pickup→suv` 拒绝方向；postbox 4 个 world 同时放置 car，person 4 个 world 同时放置 postbox，ambulance 4 个 world 作为 r3 新增 suv→ambulance 误收的对照负例。其中至少 4 个 pickup、4 个 suv、2 个 postbox world 把目标短边固定在 8-12/12-16 px，余下保持 24-32/`>=32 px`，以覆盖 r3 的小框边界和大框误收。新增 world 应优先复刻错误最高的几何条件：w0002/w0001 的 pickup、w0010/w0009 的 suv、w0026 的 postbox；每类至少两个新 world，避免只重复原 world 的纹理。
+
+采集验收要求每个 episode 实际产生四个 view sidecar、观察帧数非零、目标距离/短边落在 index 设计档；不能以 episode `status=complete` 代替这些检查。新采集只用于 train/val，保留一组未见 world 作为 12 个 test world 的同类扩展评测，不能把新增视角直接混入冻结测试。
+
+### 5. 构建器变更与实际构建
+
+`scripts/build_slow_system_sft.py` 新增两个 opt-in 选项：`--balance-identity-views` 按 `task_category × (positive|negative) × view` 平衡，`--balance-confusable-negative-views` 按已有 hard-pair × view 平衡；默认均关闭，因此已有命令和输出保持不变。两者都在 train 选择完成后做确定性上采样，并在 manifest 写入每个 strata 的 original/added/final 数量；`tests/test_slow_system_sft.py` 增加了稀疏视角补齐、hard reject 专项补齐、忽略 ask_clarify 以及保留显式平衡副本的测试。实际命令使用 r21id-r3 已有 episodes、proposal cache、`--counterfactual-tasks --counterfactual-negatives --confusable-negatives --balance-identity-views --balance-confusable-negative-views --max-upsample 2`，输出 `.tmp/r21id-r4-sft/`：train 15,505 行、val 1,163 行、test 1,350 行；通用视角平衡新增 2,033 行，hard-pair 视角平衡新增 128 行。本次重建虽传入 proposal cache，但没有生成 `proposal_*` 标签行；因此行数只作为当前工作树可重放结果，不能替代 r21id-r3 原始 manifest。
+
+最终分布：train 正例（confirm+approach）7,065、reject 8,046、search/clarify 394；核心标签为 distractor 4,554、true_target 2,131、counterfactual 3,198、counterfactual_negative 2,794、confusable_positive 1,736、confusable_negative 499。val 为正例 561、reject 594、其他 8；test 为正例 518、reject 777、其他 55。val/test 未执行两种平衡。
+
+## r21id-r4 worlds
+
+新增 24 个仿真世界，全部属于 train/val，不新增或改写 r21id-r3 的冻结 test。pickup/SUV 各 6 个世界同时放置两类车辆，并在 `task_text_variants` 记录交换后的两种任务文本；postbox 世界同框放 hatchback（car），person 世界同框放 postbox，ambulance 世界以“SUV”任务文本请求并放置真实 ambulance，形成 suv→ambulance 拒绝对照。像素短边按 catalog 的目标水平短边、相机内参 `fx=539.936` 和相机至目标斜距计算，估算值与档位均写入 index。
+
+| 世界 ID | 类别/数量 | 同框干扰物 | 短边档位 | split |
+|---|---|---|---|---|
+| `gen_r21id_r4_w0000`–`w0005` | pickup ×6 | suv | 8–12 ×2、12–16 ×2、24–32 ×1、≥32 ×1 | train 5、val 1 |
+| `gen_r21id_r4_w0006`–`w0011` | suv ×6 | pickup | 8–12 ×2、12–16 ×2、24–32 ×1、≥32 ×1 | train 4、val 2 |
+| `gen_r21id_r4_w0012`–`w0015` | postbox ×4 | hatchback (car) | 8–12 ×1、12–16 ×1、24–32 ×1、≥32 ×1 | train 3、val 1 |
+| `gen_r21id_r4_w0016`–`w0019` | person ×4 | postbox | 24–32 ×2、≥32 ×2 | train 3、val 1 |
+| `gen_r21id_r4_w0020`–`w0023` | ambulance ×4 | suv；任务请求 SUV | 24–32 ×2、≥32 ×2 | train 3、val 1 |
+
+pickup/SUV 各有 4 个小目标世界，postbox 有 2 个；pickup/SUV 几何参考 r3 的 w0002/w0001、w0010/w0009，高度配置沿用其视角档并使用不同外观；postbox 使用 w0026 的 morning-low-sun 外观条件，并按指定像素档反解距离。所有多旋翼出生点固定为 z=0.2 m、pitch=0；本组没有固定翼世界。
+
+生成命令（离线，不启动 SITL）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+python scripts/generate_r15_worlds.py --profile r21id-r4 \
+  --out-worlds simulation/gazebo/worlds \
+  --out-scenarios configs/scenarios/generated-r21id-r4
+```
+
+之后进行单世界 SITL 冒烟时可运行一个小目标 pickup 世界：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/generated-r21id-r4/gen_r21id_r4_w0000.scenario.json \
+  --airframe x500_mono_cam --episodes 1 --steps-per-episode 120 \
+  --out artifacts/smoke/r21id-r4-w0000
+```

@@ -36,6 +36,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
 )
 from scripts.platform_paths import default_llama_server
 from scripts.sitl_lock import SitlLock, default_lock_path
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 DEFAULT_AIRFRAME_WORLDS = {
@@ -362,7 +363,7 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
     except ImportError:
         return False
     try:
-        connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
     except OSError as exc:
         print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
         return False
@@ -379,7 +380,7 @@ def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
     try:
         from pymavlink import mavutil
 
-        connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
         try:
             message = connection.wait_heartbeat(timeout=timeout)
         finally:
@@ -681,7 +682,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"Gazebo world: {world}")
     print(
         f"PX4 control UDP: 127.0.0.1:{args.control_port}; "
-        f"telemetry: 127.0.0.1:{args.telemetry_port}"
+        f"telemetry: {sim_listen_host()}:{args.telemetry_port}"
     )
     if args.gcs_port:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")

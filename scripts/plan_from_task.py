@@ -91,13 +91,24 @@ def _execution_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
     return validate_plan_for_execution(plan, package, prompt, capabilities=capabilities)
 
 
-def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> dict[str, Any]:
+def score_task(
+    item: dict[str, Any], plan: MissionPlan | None, outcome: Any, *, raw: str | None = None,
+) -> dict[str, Any]:
     """Score a sequence, or a host rejection/repair to the safe home fallback.
 
     Invalid tasks carry ``expect_invalid: true`` and may omit ``skills``. A
     repaired operational plan is not a refusal, even if its references changed.
     An unmodified home plan alone is also not evidence of host rejection.
     """
+    # The compiler may repair an ungrounded query in its final attempt. Score
+    # the original model candidate so live evaluation matches offline replay.
+    if raw is not None and item.get("expect_invalid", False):
+        try:
+            plan = validate_mission_plan(
+                raw, capabilities=frozenset(item.get("capabilities", ()))
+            )
+        except (TypeError, ValueError, KeyError):
+            plan = None
     path = success_path(plan) if plan is not None else None
     expected = item.get("skills", [])
     intent = check_plan_intent(plan, item.get("text", ""), item.get("refs")) if plan else []
@@ -310,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "text": item["text"],
                     **score_task(
-                        {**item, "refs": item.get("refs", task_refs)}, plan, error
+                        {**item, "refs": item.get("refs", task_refs)}, plan, error, raw=raw
                     ),
                     "attempts_s": attempts,
                     "error": None if isinstance(error, list) else error,

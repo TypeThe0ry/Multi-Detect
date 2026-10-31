@@ -41,6 +41,7 @@ def recompute(document: dict[str, Any], tasks_doc: dict[str, Any]) -> dict[str, 
             {**item, "refs": item.get("refs", tasks_doc.get("refs", ()))},
             plan,
             row.get("repairs") or row.get("error"),
+            raw=row.get("raw"),
         )
         for key in (
             "expected", "predicted", "valid", "exact", "same_skills",

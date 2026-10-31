@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
 from scripts.sitl_lock import SitlLock, default_lock_path
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
@@ -1038,6 +1039,7 @@ class Round:
             )
         # Only the worlds that survived the category filter are planned and dispatched.
         scenarios = [scenario for scenario in scenarios if scenario in collection_options]
+        selected_sim_network = sim_network_mode(getattr(self.a, "sim_network", None))
         # Build the same collector/docker plan used by workers before dispatch,
         # including the resolved airframe and fixed-wing takeoff method.
         from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
@@ -1052,6 +1054,7 @@ class Round:
                     self.a.steps_per_episode, 20261016, str(self.a.out / "preflight"),
                     airframe=airframe, takeoff_method=takeoff_method,
                     control_port=R15_BASE_CONTROL_PORT, telemetry_port=R15_BASE_TELEMETRY_PORT,
+                    sim_network=getattr(self.a, "sim_network", None),
                 ), name=f"r15-preflight-{scenario.stem}")
             except Exception as exc:
                 raise RuntimeError(f"场景 {scenario} 无法构建 SIM stack：{exc}") from exc
@@ -1110,6 +1113,10 @@ class Round:
                     "--out",
                     str(target),
                 ]
+                if getattr(self.a, "sim_network", None) is not None:
+                    cmd[-2:-2] = ["--sim-network", selected_sim_network]
+                if selected_sim_network == "host":
+                    cmd[-2:-2] = ["--sim-instance", str(worker)]
                 if takeoff_method is not None:
                     cmd[-2:-2] = ["--takeoff-method", takeoff_method]
                 if getattr(self.a, "low_disk", False):
@@ -1849,6 +1856,7 @@ def main():
         "默认自动推断",
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
+    p.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--episodes-per-world", type=int, default=R15_EPISODES_PER_WORLD,
                    help="collection episodes per world (default 4)")

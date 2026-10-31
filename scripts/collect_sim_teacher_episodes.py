@@ -67,6 +67,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     build_observation,
 )
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
+from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
@@ -219,6 +220,8 @@ class CollectionPlan:
     keep_container_on_failure: bool = False
     control_port: int = DEFAULT_CONTROL_PORT
     telemetry_port: int = DEFAULT_TELEMETRY_PORT
+    sim_network: str | None = None
+    sim_instance: int = 0
     rgb_size: tuple[int, int] = DEFAULT_RGB_SIZE
     depth_size: tuple[int, int] = DEFAULT_DEPTH_SIZE
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
@@ -408,6 +411,8 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             control_port=plan.control_port,
             telemetry_port=plan.telemetry_port,
             image=plan.image,
+            sim_network=plan.sim_network,
+            sim_instance=plan.sim_instance,
             dry_run=True,
             gpu_render=plan.gpu_render,
             gpu_device=plan.gpu_device,
@@ -3248,7 +3253,7 @@ def run_episode(
                 }
             )
             telemetry_connection = mavutil.mavlink_connection(
-                f"udpin:127.0.0.1:{plan.telemetry_port}",
+                sim_udpin_endpoint(plan.telemetry_port, mode=plan.sim_network),
                 source_system=GCS_SOURCE_SYSTEM,
                 source_component=GCS_SOURCE_COMPONENT,
                 autoreconnect=False,
@@ -4266,6 +4271,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
+    parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
+    parser.add_argument("--sim-instance", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
@@ -4358,6 +4365,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         keep_container_on_failure=args.keep_container_on_failure,
         control_port=args.control_port,
         telemetry_port=args.telemetry_port,
+        sim_network=args.sim_network,
+        sim_instance=args.sim_instance,
         rgb_size=args.rgb_size,
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,

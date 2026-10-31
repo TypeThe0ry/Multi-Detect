@@ -163,6 +163,14 @@ def test_return_request_checks_failure_branches_too():
         ("car", "Go to the gate, check the position, then return home.", "ungrounded"),
         ("none", "Go to the gate, check the position, then return home.", "ungrounded"),
         ("red car", "飞到仓库后数一数里面的木托盘，再回到起飞点", "ungrounded"),
+        ("ambulance", "检查大门，不要凭空检查救护车。", "ungrounded"),
+        ("fire truck", "Inspect the gate; do not invent a fire truck target.", "ungrounded"),
+        ("blue car", "找红车，不是蓝车。", "ungrounded"),
+        ("red car", "找红车，不是蓝车。", "grounded"),
+        ("blue car", "Find the red car, not a blue car.", "ungrounded"),
+        ("red car", "Find the red car, not a blue car.", "grounded"),
+        ("ambulance", "检查大门，并检查救护车。", "grounded"),
+        ("fire truck", "Inspect the gate and inspect a fire truck.", "grounded"),
         # An object outside the tables is never blocked in a Chinese task.
         ("goose", "院里散着几只鹅？给个准数。", "undecided"),
         ("cracked flowerpot", "院内有个裂开的花盆，帮我定位。", "undecided"),
@@ -192,6 +200,24 @@ def test_invented_object_step_blocks_but_requested_watch_only_warns():
         ("monitor", {"region": "zone:site", "query": "dog", "duration_s": 60}), ("return_home", {})
     )
     assert _codes(monitor, "别接着干了，直接回咱们放飞的位置。") == ["ungrounded_query"]
+
+
+def test_negated_query_step_is_blocked_in_chinese_and_english():
+    for query, text in (
+        ("ambulance", "检查大门，不要凭空检查救护车。"),
+        ("fire truck", "Inspect the gate; do not invent a fire truck target."),
+        ("fire truck", "Inspect the gate, don't inspect a fire truck."),
+        ("fire truck", "Inspect the gate; never invent a fire truck target."),
+        ("fire truck", "Inspect the gate, not a fire truck."),
+    ):
+        plan = _plan(
+            (
+                "inspect",
+                {"target_ref": "poi:gate", "query": query, "views": 2, "standoff_m": 8},
+            ),
+            ("return_home", {}),
+        )
+        assert _codes(plan, text) == ["ungrounded_query"]
 
 
 @pytest.mark.parametrize(
@@ -392,3 +418,10 @@ def test_replay_of_planning_v3_expected_plans_has_no_findings():
         assert check_plan_intent(plan, task["text"], refs) == [], task["text"]
         checked += 1
     assert checked == 72
+
+
+def test_distant_chinese_negation_does_not_unground_the_target():
+    from multidetect.autonomy.plan_intent import query_grounding
+
+    assert query_grounding("red car", "不要在路口停留太久直接去停车场找红车") == "grounded"
+    assert query_grounding("ambulance", "检查大门，不要凭空检查救护车") != "grounded"

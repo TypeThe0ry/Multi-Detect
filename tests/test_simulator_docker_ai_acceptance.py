@@ -230,6 +230,14 @@ def test_probe_accepts_literal_ipv4_and_ipv6_loopback_for_both_legs() -> None:
         module.parse_literal_loopback_udp_endpoint("udpin:127.0.0.1:24541", scheme="udpout")
 
 
+def test_telemetry_probe_accepts_selected_docker_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(module, "sim_listen_host", lambda: "172.29.0.1")
+    assert module._validate_telemetry_endpoint("udpin:172.29.0.1:24541") == (
+        "172.29.0.1",
+        24541,
+    )
+
+
 def test_dry_run_validates_generated_loopback_ports_without_opening_io(tmp_path: Path) -> None:
     """Invalid port choices fail before the dry-run fixture or Docker path."""
 
@@ -250,7 +258,7 @@ def _inspect_record(plan: object) -> dict[str, object]:
         f"{key}={value}"
         for key, value in plan.environment  # type: ignore[attr-defined]
     ]
-    return {
+    record = {
         "Id": "container-id-ai",
         "Name": f"/{plan.container_name}",  # type: ignore[attr-defined]
         "Config": {
@@ -312,6 +320,17 @@ def _inspect_record(plan: object) -> dict[str, object]:
         ],
         "State": {"Running": True},
     }
+    fuel_root = getattr(plan, "fuel_resolved_root", None)
+    if fuel_root is not None:
+        source = str(Path(fuel_root).resolve())
+        target = "/opt/multidetect-gz-fuel-resolved"
+        record["HostConfig"]["Mounts"].append(
+            {"Type": "bind", "Source": source, "Target": target, "ReadOnly": True}
+        )
+        record["Mounts"].append(
+            {"Type": "bind", "Source": source, "Destination": target, "RW": False}
+        )
+    return record
 
 
 def test_dry_run_executes_only_fixture_and_never_runner(tmp_path: Path) -> None:

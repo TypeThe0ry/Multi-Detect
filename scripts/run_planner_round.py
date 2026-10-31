@@ -62,16 +62,17 @@ def stage_current(name: str, out: Path, state: dict) -> bool:
     return all(recorded.get(str(p)) == sha256(p) for p in outputs)
 
 
-def replacement_decision(candidate: dict, baseline: dict, probe_candidate: list[dict], probe_baseline: list[dict]) -> dict:
+def replacement_decision(candidate: dict, baseline: dict, probe_candidate: list[dict], probe_baseline: list[dict],
+                         baseline_label: str = "r14") -> dict:
     reasons = []
     cv3 = float(candidate["planning-v3"]["exact_sequence_rate"])
     bv3 = float(baseline["planning-v3"]["exact_sequence_rate"])
     if cv3 < bv3:
-        reasons.append("planning-v3 低于 r14")
+        reasons.append(f"planning-v3 低于 {baseline_label}")
     cvalid = candidate["planning-v3"].get("valid_rate")
     bvalid = baseline["planning-v3"].get("valid_rate")
     if cvalid is not None and bvalid is not None and float(cvalid) < float(bvalid):
-        reasons.append("planning-v3 有效率低于 r14")
+        reasons.append(f"planning-v3 有效率低于 {baseline_label}")
     cm = candidate["planning-v4"].get("category_metrics", {})
     bm = baseline["planning-v4"].get("category_metrics", {})
     categories = ("return_home", "unknown_location", "capability")
@@ -133,30 +134,36 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
     learning_rate = args.learning_rate
-    if args.r23_recipe:
+    if args.r23_recipe or args.r24_recipe or args.r25_recipe:
         data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
-    if args.r24_recipe:
+    if args.r24_recipe or args.r25_recipe:
         data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
                      "--r24-unknown-count", str(args.r24_unknown_count),
                      "--r24-context-count", str(args.r24_context_count)]
+        if args.learning_rate == 1e-4:
+            learning_rate = 2.0e-5
+    if args.r25_recipe:
+        data_cmd += ["--r25-recipe",
+                     "--r25-missing-payload-count", str(args.r25_missing_payload_count),
+                     "--r25-negated-query-count", str(args.r25_negated_query_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
-    if R14_ADAPTER.is_dir():
-        train += ["--init-adapter", str(R14_ADAPTER)]
+    if args.init_adapter:
+        train += ["--init-adapter", str(args.init_adapter)]
     export = [py, str(ROOT / "scripts/export_slow_system_r15.py"), "--base", str(BASE_CACHE), "--adapter", str(adapter / "adapter"), "--output", str(out), "--quantization", "Q5_K_M", "--drop-intermediates"]
     eval_cmds = []
-    for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
+    for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
                           # Planner rows count semantic plan errors as invalid; those are
                           # model quality, scored by the replacement gate (r14 itself is
                           # 93.75% valid on v3), not a broken server, which
                           # --max-transport-rate still guards.
                           "--min-valid-rate", "0"])
-    for label, model in (("candidate", gguf), ("baseline", R14_GGUF)):
+    for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")])
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
 
@@ -180,9 +187,19 @@ def main(argv=None) -> int:
     parser.add_argument("--r23-deliver-count", type=int, default=80)
     parser.add_argument("--r24-recipe", action="store_true",
                         help="extend r23 with grounded-reference and local/home data")
-    parser.add_argument("--r24-reference-count", type=int, default=120)
+    parser.add_argument("--r24-reference-count", type=int, default=80)
     parser.add_argument("--r24-unknown-count", type=int, default=80)
     parser.add_argument("--r24-context-count", type=int, default=80)
+    parser.add_argument("--r25-recipe", action="store_true",
+                        help="extend r24 with missing-payload and negated-query contrasts")
+    parser.add_argument("--r25-missing-payload-count", type=int, default=40)
+    parser.add_argument("--r25-negated-query-count", type=int, default=40)
+    parser.add_argument("--init-adapter", type=Path, default=R14_ADAPTER,
+                        help="adapter used to initialize training (default: r14)")
+    parser.add_argument("--baseline-gguf", type=Path, default=R14_GGUF,
+                        help="baseline GGUF used in evaluation (default: r14)")
+    parser.add_argument("--baseline-label", default="r14",
+                        help="display label for the baseline in decisions and reports")
     parser.add_argument("--eval-root", type=Path, default=EVAL_ROOT)
     parser.add_argument("--min-free-disk-gb", type=float, default=12)
     parser.add_argument("--min-memory-gb", type=float, default=8)
@@ -195,8 +212,9 @@ def main(argv=None) -> int:
     if args.rows < 1 or args.val_rows < 0 or args.intent_count < 1 or args.epochs < 1:
         parser.error("row counts must be positive (val rows may be zero)")
     if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
-                                   args.r24_context_count)):
-        parser.error("r24 counts must be non-negative")
+                                   args.r24_context_count, args.r25_missing_payload_count,
+                                   args.r25_negated_query_count)):
+        parser.error("recipe counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())
     if not any(out == allowed or out.is_relative_to(allowed) for allowed in allowed_roots):
@@ -243,14 +261,21 @@ def main(argv=None) -> int:
             if stage == "report":
                 metrics = {name: {f"planning-{version}": load_json(EVAL_ROOT / name / f"planning-{version}.json")["summary"] for version in ("v3", "v4")} for name in ("candidate", "baseline")}
                 probes = {name: load_json(EVAL_ROOT / f"probe-{name}.json") for name in ("candidate", "baseline")}
-                decision = replacement_decision(metrics["candidate"], metrics["baseline"], probes["candidate"], probes["baseline"])
-                lines = ["# r21 规划模型对比报告", "", f"- planning-v3：候选 {decision['planning_v3_candidate']:.3f} / r14 {decision['planning_v3_r14']:.3f}", f"- planning-v4：候选 {metrics['candidate']['planning-v4']['exact_sequence_rate']:.3f} / r14 {metrics['baseline']['planning-v4']['exact_sequence_rate']:.3f}", "", "## planning-v4 类别指标", "", "| 模型 | 类别 | 准确率 | 拒绝正确率 | 意图违规率 | 能力违规率 |", "|---|---|---:|---:|---:|---:|"]
+                decision = replacement_decision(metrics["candidate"], metrics["baseline"], probes["candidate"], probes["baseline"], args.baseline_label)
+                baseline_label = args.baseline_label
+                title = "# r21 规划模型对比报告" if baseline_label == "r14" else "# 规划模型对比报告"
+                lines = [title, "", f"- planning-v3：候选 {decision['planning_v3_candidate']:.3f} / {baseline_label} {decision['planning_v3_r14']:.3f}", f"- planning-v4：候选 {metrics['candidate']['planning-v4']['exact_sequence_rate']:.3f} / {baseline_label} {metrics['baseline']['planning-v4']['exact_sequence_rate']:.3f}", "", "## planning-v4 类别指标", "", "| 模型 | 类别 | 准确率 | 拒绝正确率 | 意图违规率 | 能力违规率 |", "|---|---|---:|---:|---:|---:|"]
                 for model_name in ("candidate", "baseline"):
                     for category, values in sorted(metrics[model_name]["planning-v4"].get("category_metrics", {}).items()):
                         fmt = lambda value: "N/A" if value is None else f"{value:.3f}"
                         lines.append(f"| {model_name} | {category} | {fmt(values.get('accuracy'))} | {fmt(values.get('rejection_correct_rate'))} | {fmt(values.get('intent_violation_rate'))} | {fmt(values.get('capability_violation_rate'))} |")
-                lines += ["", f"- 返航探测：候选 {decision['probe_candidate_passed']}/15 / r14 {decision['probe_r14_passed']}/15", f"- r21 替换 r14：{'建议' if decision['replace_r14'] else '不建议'}"]
-                lines += [f"- 判据：{reason}" for reason in decision["reasons"]] or ["- 判据：planning-v3 不低于 r14，planning-v4 至少一个重点类别提升 >=10 个百分点，15 条探测全通过"]
+                decision_line = (f"- r21 替换 r14：{'建议' if decision['replace_r14'] else '不建议'}"
+                                 if baseline_label == "r14" else
+                                 f"- 是否替换 {baseline_label}：{'建议' if decision['replace_r14'] else '不建议'}")
+                lines += ["", f"- 返航探测：候选 {decision['probe_candidate_passed']}/15 / {baseline_label} {decision['probe_r14_passed']}/15", decision_line]
+                default_reason = "- 判据：planning-v3 不低于 r14，planning-v4 至少一个重点类别提升 >=10 个百分点，15 条探测全通过"
+                custom_reason = f"- 判据：planning-v3 不低于 {baseline_label}，planning-v4 至少一个重点类别提升 >=10 个百分点，15 条探测全通过"
+                lines += [f"- 判据：{reason}" for reason in decision["reasons"]] or [default_reason if baseline_label == "r14" else custom_reason]
                 (out / "planner-round-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
                 atomic_json(out / "replacement-decision.json", decision)
             else:

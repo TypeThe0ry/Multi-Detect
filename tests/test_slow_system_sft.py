@@ -41,6 +41,75 @@ def test_confusable_negative_table_covers_identity_regressions():
     assert builder._confusable_task("pickup", 0) == "Find the pickup and record its position."
 
 
+def test_identity_view_balance_upsamples_sparse_views_without_touching_other_rows():
+    def row(sample_id, category, view, decision):
+        return {
+            "sample_id": sample_id,
+            "task_category": category,
+            "view": view,
+            "assistant_target": {"decision": decision},
+        }
+
+    rows = [
+        row("front-1", "pickup", "front", "confirm_target"),
+        row("front-2", "pickup", "front", "confirm_target"),
+        row("edge-1", "pickup", "edge_truncated", "confirm_target"),
+        row("reject-1", "pickup", "front", "reject_track"),
+        row("reject-2", "pickup", "oblique", "reject_track"),
+        row("other", "suv", "front", "ask_clarify"),
+    ]
+    balanced, report = builder._balance_identity_views(rows, max_upsample=4, seed=7)
+    assert len(balanced) == len(rows) + 1
+    positives = [r for r in balanced if r.get("task_category") == "pickup" and r["assistant_target"]["decision"] == "confirm_target"]
+    assert {r["view"] for r in positives} == {"front", "edge_truncated"}
+    assert sum(r["view"] == "front" for r in positives) == 2
+    assert sum(r["view"] == "edge_truncated" for r in positives) == 2
+    assert report["pickup|positive|edge_truncated"]["added"] == 1
+    assert report["pickup|negative|oblique"]["added"] == 0
+    assert sum(r["sample_id"].startswith("front-") for r in balanced) == 2
+    assert any("~view-balance-" in r["sample_id"] for r in balanced)
+
+
+def test_confusable_negative_view_balance_only_duplicates_hard_rejects():
+    rows = []
+    for index in range(3):
+        rows.append({
+            "sample_id": f"edge-{index}", "label_type": "confusable_negative",
+            "confusable_pair_type": "suv->pickup", "view": "edge_truncated",
+            "assistant_target": {"decision": "reject_track"},
+        })
+    rows.append({
+        "sample_id": "front-0", "label_type": "confusable_negative",
+        "confusable_pair_type": "suv->pickup", "view": "front",
+        "assistant_target": {"decision": "reject_track"},
+    })
+    rows.append({
+        "sample_id": "positive", "label_type": "confusable_positive",
+        "confusable_pair_type": "suv->pickup", "view": "front",
+        "assistant_target": {"decision": "confirm_target"},
+    })
+    balanced, report = builder._balance_confusable_negative_views(rows, max_upsample=2, seed=3)
+    assert len(balanced) == 6
+    assert report["suv->pickup|front"]["added"] == 1
+    assert sum(r["label_type"] == "confusable_positive" for r in balanced) == 1
+
+
+def test_dedupe_preserves_only_explicit_balance_replicas():
+    row = {
+        "sample_id": "original",
+        "world": "w1",
+        "image_path": "frame.png",
+        "task_text": "Find the pickup.",
+        "candidates": [],
+        "assistant_target": {"decision": "reject_track"},
+    }
+    ordinary_duplicate = {**row, "sample_id": "ordinary-copy"}
+    balanced_duplicate = {**row, "sample_id": "original~view-balance-1"}
+    stats = Counter()
+    result = builder._dedupe_rows([row, ordinary_duplicate, balanced_duplicate], stats)
+    assert [item["sample_id"] for item in result] == ["original", "original~view-balance-1"]
+
+
 def test_r21id_view_is_derived_from_synthetic_episode_and_sidecar(tmp_path):
     sidecar = {"observation": {"camera_altitude_m": 12, "views": [
         {"view": "front", "observation_waypoint": {"x_east_m": 24, "y_north_m": 0, "z_up_m": 0}},
