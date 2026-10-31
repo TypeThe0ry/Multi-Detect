@@ -13,6 +13,7 @@ import base64
 import ctypes
 import json
 import math
+import os
 import socket
 import subprocess
 import sys
@@ -1013,6 +1014,11 @@ class LlamaServerRunner:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if os.name != "nt":
+                # POSIX keeps the closed server's connections in TIME_WAIT; that
+                # does not hold the port.  (On Windows this flag would allow
+                # binding over a live listener, so it stays off there.)
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind(("127.0.0.1", int(self.port)))
                 probe.close()
