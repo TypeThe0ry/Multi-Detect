@@ -15,13 +15,14 @@ import datetime as dt
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.host_paths import host_path  # noqa: E402
 REMOTE_ROOT = "Multi-Detect"
-DEFAULT_BUNDLE = Path(
-    os.environ.get("ORIN_BUNDLE_DIR", r"D:\Projects\mdwt\orin-bundle\Multi-Detect")
-)
+DEFAULT_BUNDLE = host_path("ORIN_BUNDLE_DIR", r"D:\Projects\mdwt\orin-bundle\Multi-Detect", ROOT / ".tmp/orin-bundle/Multi-Detect")
 # Tracked paths refreshed into the bundle; its models/ONNX/llama.cpp stay as they are.
 CODE_PATHS = (
     "src",

@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.host_paths import executable_name
 DATASET = ROOT / "artifacts/r21id-round/pipeline/r15-additions/test.jsonl"
 OUTPUT = ROOT / "artifacts/evaluation/r21id-analysis-20261027/view-eval"
 MODELS = {
@@ -17,7 +19,7 @@ MODELS = {
     "r21id": ROOT / "artifacts/r21id-round/pipeline/merged-gguf/slow-system-Q5_K_M.gguf",
 }
 MMPROJ = ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
-LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server")
 
 
 def commands() -> list[list[str]]:
@@ -25,7 +27,7 @@ def commands() -> list[list[str]]:
     for port, (name, model) in zip((9933, 9934), MODELS.items(), strict=True):
         result.append([
             sys.executable, "scripts/eval_slow_system.py",
-            "--dataset", str(DATASET.parent), "--data-root", r"D:\Projects\Multi-Detect",
+            "--dataset", str(DATASET.parent), "--data-root", str(ROOT),
             "--backend", "gguf", "--identity-only", "--fast-identity",
             "--crop-policy", "candidate_zoom_v2", "--gguf-model", str(model),
             "--mmproj", str(MMPROJ), "--llama-server", str(LLAMA_SERVER),

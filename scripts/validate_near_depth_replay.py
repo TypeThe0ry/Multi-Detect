@@ -37,14 +37,8 @@ from multidetect.simulator.camera_projection import (  # noqa: E402
     project_target_bbox,
 )
 from scripts.score_onboard_loop import truth_for_episode  # noqa: E402
-
-DEFAULT_EPISODE = Path(
-    "D:/Projects/Multi-Detect/artifacts/datasets/onboard-loop/"
-    "eval-v2-test-r3seg-descent/gen_v2_w0035/episodes/episode-0000-3be7faf9"
-)
-DEFAULT_MODEL = Path(
-    "D:/Projects/Multi-Detect/artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
-)
+DEFAULT_EPISODE = ROOT / "artifacts/datasets/onboard-loop/eval-v2-test-r3seg-descent/gen_v2_w0035/episodes/episode-0000-3be7faf9"
+DEFAULT_MODEL = ROOT / "artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
 
 
 def _error(estimate, truth: tuple[float, float, float], camera) -> tuple[float, float] | None:

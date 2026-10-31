@@ -16,10 +16,11 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.score_onboard_loop import _object_matches_query  # noqa: E402
 from multidetect.simulator.task_semantics import task_equivalent  # noqa: E402
+from multidetect.host_paths import host_path  # noqa: E402
 
 ACCEPT = {"match", "approach", "approach_track", "confirm", "confirm_target", "yes", "target"}
 REJECT = {"no_match", "reject", "reject_track", "false", "no"}
-DEFAULT_CROPS = Path("D:/Projects/mdwt/_scratch/cx-hardcase-mining/crops")
+DEFAULT_CROPS = host_path("MULTIDETECT_HARDCASE_CROPS", r"D:\Projects\mdwt\_scratch\cx-hardcase-mining\crops", ROOT / ".tmp/cx-hardcase-mining/crops")
 
 
 def accepted(call: dict) -> bool | None:

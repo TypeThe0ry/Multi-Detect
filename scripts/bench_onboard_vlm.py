@@ -31,6 +31,7 @@ from multidetect.autonomy.onboard_decision import (  # noqa: E402
     DECISION_JSON_SCHEMA,
     parse_onboard_decision,
 )
+from multidetect.host_paths import executable_name  # noqa: E402
 from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 
 try:
@@ -361,7 +362,7 @@ def _run_variant(rows: list[dict[str, Any]], *, base_url: str, size: int, short:
 
 
 def _launch_server(model: Path, mmproj: Path, *, port: int, context: int, cap: int, log_path: Path) -> tuple[subprocess.Popen[bytes], list[str], Any]:
-    exe = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+    exe = ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server")
     command = [str(exe), "-m", str(model), "-mm", str(mmproj), "-ngl", "all", "-c", str(context), "-n", str(cap), "-np", "1", "--host", "127.0.0.1", "--port", str(port), "--no-webui", "--cache-prompt", "--cache-reuse", "64"]
     log_file = log_path.open("wb")
     process = subprocess.Popen(command, cwd=str(exe.parent), stdout=log_file, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

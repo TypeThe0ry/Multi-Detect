@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_plan import MissionPlan  # noqa: E402
+from multidetect.host_paths import executable_name  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     PLAN_PROMPT_VARIANTS,
     compile_mission_plan,
@@ -220,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llama-server", type=Path,
-        default=ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+        default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
         help="existing llama-server executable (no downloads)",
     )
     parser.add_argument("--device", default="cuda:0", help="cpu or cuda[:index]")

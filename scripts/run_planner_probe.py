@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from scripts.eval_slow_system import LlamaServerRunner, _http_json  # noqa: E402
+from multidetect.host_paths import executable_name  # noqa: E402
 from scripts.onboard_policy import build_mission_from_text  # noqa: E402
 
 
@@ -36,7 +37,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     doc = json.loads(args.tasks.read_text(encoding="utf-8"))
     runner = LlamaServerRunner(args.model, None,
-        executable=ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+        executable=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
         port=args.port, max_new_tokens=768, crop_policy="none", identity_only=False,
         logprobs=False, wait_port_free=True, cache_ram_mib=0)
     rows = []

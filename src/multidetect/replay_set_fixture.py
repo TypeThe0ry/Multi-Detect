@@ -159,8 +159,8 @@ def _write_readme(
 ## 生成与检查
 
 ```powershell
-Set-Location D:/Projects/Multi-Detect
-$env:PYTHONPATH = 'src;.'
+Set-Location <repository-root>
+$env:PYTHONPATH = "src$([IO.Path]::PathSeparator)."
 # choose a new output directory; do not point it at the source replay-set
 $output = 'artifacts/replay-sets/positive-fixture-output'
 python scripts/create_replay_set_positive_fixture.py `
