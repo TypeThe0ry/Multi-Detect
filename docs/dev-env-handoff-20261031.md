@@ -133,3 +133,31 @@ python scripts/collect_sim_teacher_episodes.py \
 ```
 
 资产缺失、Docker daemon 不可用或内存门禁未满足时，先修复环境再重试；不要把 `artifacts/` 软链接指向的共享缓存提交到 Git。
+
+### 不改防火墙：宿主网络模式
+
+Linux 上如果 ufw 的 `INPUT` 默认策略阻止了 bridge 网关发往宿主的遥测，可以把 SITL
+容器切到宿主网络：
+
+```bash
+export MULTIDETECT_SIM_NETWORK=host
+python scripts/collect_sim_teacher_episodes.py ...
+```
+
+也可以在单次运行中传 `--sim-network host`；命令行参数优先于环境变量。该模式只在 Linux
+可用，Windows 会在生成 Docker 计划时失败。容器命令使用 `--network host`，因此不会再带
+`--publish` 或 `--add-host`；PX4 的 MAVLink 目标和宿主采集监听均为 `127.0.0.1`。
+
+宿主网络共享 UDP 端口和 Gazebo transport。每个容器设置唯一的 `GZ_PARTITION`（容器名），
+避免不同 worker 互相发现 Gazebo 话题；同时给 PX4 传入 worker 对应的 `-i` 实例号。r15
+默认 worker 0/1 使用控制端口 `14560/14570`、遥测端口 `14561/14571`，端口段相差 10；
+显式改写的端口就是每个 worker 在宿主上占用的 MAVLink 控制输入和遥测回环端口。PX4
+`simulator_mavlink`、uXRCE-DDS 以及 rc 文件中的其它默认 UDP 端口由 `-i` 实例号按 PX4
+启动脚本的实例规则区分，不能把多个 worker 手工改回同一个实例号；保护端口 `14550`
+仍不使用。
+
+`mavlink start -t 127.0.0.1` 指定的是发送目标，不等于自动限制本地 bind 地址。启动包装器
+在 host 模式设置 `PX4_NET_INTERFACE=lo`，让 PX4 rc 的 `-f` 参数选择 loopback；使用其它
+PX4 镜像时仍应检查 rc 文件是否支持该参数，并用 `ss -lunp` 确认 MAVLink/uXRCE-DDS 只在
+回环上监听。若镜像忽略接口参数，宿主网络下的 PX4 UDP socket 可能仍绑定 `0.0.0.0`，这是
+该模式的残余暴露风险。

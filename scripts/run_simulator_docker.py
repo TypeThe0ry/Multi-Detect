@@ -31,7 +31,7 @@ from multidetect.simulator.stack import (
     SimulatorStackPorts,
     build_stack_plan,
 )
-from multidetect.sim_network import sim_docker_network, sim_listen_host
+from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_network_mode
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
@@ -258,7 +258,7 @@ class DockerSimulatorPlan:
         cap_drop_all = self.cap_drop_all
         no_new_privileges = self.no_new_privileges
         container_security_gate_passed = self.container_security_gate_passed
-        return {
+        document = {
             "schema_version": 1,
             "event": "simulator_docker_plan",
             "scenario_id": self.scenario_id,
@@ -362,6 +362,14 @@ class DockerSimulatorPlan:
                 "container_security_gate_passed": container_security_gate_passed,
             },
         }
+        if self.container_network_mode == "host":
+            ports = document["ports"]
+            ports["control"]["published"] = False
+            ports["telemetry"]["publication"] = "host_network"
+            ports["container_target"] = "127.0.0.1"
+            ports["container_target_is_loopback"] = True
+            document["validation"]["container_bridge_target_explicit"] = False
+        return document
 
     def to_mapping_with_hash(self) -> dict[str, object]:
         result = self.to_mapping()
@@ -405,6 +413,8 @@ def build_docker_simulator_plan(
     telemetry_port: int = 14541,
     image: str = PINNED_IMAGE,
     dry_run: bool = True,
+    sim_network: str | None = None,
+    sim_instance: int = 0,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -417,7 +427,10 @@ def build_docker_simulator_plan(
     if control_port == telemetry_port:
         raise DockerSimulatorPlanError("control and telemetry ports must differ")
     root = _path(repository_root or ROOT, label="repository_root")
-    container_network = sim_docker_network()
+    selected_network_mode = sim_network_mode(sim_network)
+    if isinstance(sim_instance, bool) or not isinstance(sim_instance, int) or sim_instance < 0:
+        raise DockerSimulatorPlanError("sim_instance must be a non-negative integer")
+    container_network = "host" if selected_network_mode == "host" else sim_docker_network()
     output_job = _path(
         job_dir or root / "artifacts" / "evaluation" / f"docker-{container_name}",
         label="job_dir",
@@ -496,6 +509,10 @@ def build_docker_simulator_plan(
     ):
         if key in stack_environment:
             container_environment[key] = stack_environment[key]
+    if selected_network_mode == "host":
+        container_environment["PX4_SIM_HOST"] = "127.0.0.1"
+        container_environment["GZ_PARTITION"] = container_name
+        container_environment["MD_SIM_INSTANCE"] = str(sim_instance)
     environment_tokens = tuple(sorted(container_environment.items()))
     # The stock image starts Gazebo from rcS/px4-rc.gzsim.  Patch only the
     # disposable container copy: set the explicit host-facing control port,
@@ -512,21 +529,29 @@ def build_docker_simulator_plan(
         "sed -i -E 's|^[[:space:]]*udp_gcs_port_local=.*$|"
         f'udp_gcs_port_local={control_port}|\' "$RC"; '
     )
+    mavlink_target = "127.0.0.1" if selected_network_mode == "host" else "$DOCKER_HOST_IP"
     patch_command = (
         "sed -i -E 's|^([[:space:]]*)mavlink start -x -u "
         "[$]udp_gcs_port_local.*$|"
-        "\\1mavlink start -x -t $DOCKER_HOST_IP -u $udp_gcs_port_local "
+        f"\\1mavlink start -x -t {mavlink_target} -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
     # Docker Desktop routes host.docker.internal to the host loopback.  On Linux,
     # send to the exact address the host listens on (the selected network's
     # gateway); the PX4 image has no `ip` to discover it from inside.
-    docker_host_ip = (
-        'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | '
-        "awk '/STREAM/ {print $1; exit}')\"; "
-        if os.name == "nt"
-        else f'DOCKER_HOST_IP="{sim_listen_host(container_network)}"; '
-    )
+    if selected_network_mode == "host":
+        docker_host_ip = 'DOCKER_HOST_IP="127.0.0.1"; '
+    elif os.name == "nt":
+        docker_host_ip = (
+            'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | '
+            "awk '/STREAM/ {print $1; exit}')\"; "
+        )
+    elif sim_network is None:
+        docker_host_ip = f'DOCKER_HOST_IP="{sim_listen_host(container_network)}"; '
+    else:
+        docker_host_ip = (
+            f'DOCKER_HOST_IP="{sim_listen_host(container_network, mode=selected_network_mode)}"; '
+        )
     startup = "".join(
         (
             "set -eu; ",
@@ -535,7 +560,11 @@ def build_docker_simulator_plan(
             "RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; ",
             patch_assignment,
             patch_command,
-            "export PX4_NET_INTERFACE=; ",
+            (
+                "export PX4_NET_INTERFACE=lo; "
+                if selected_network_mode == "host"
+                else "export PX4_NET_INTERFACE=; "
+            ),
             "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
@@ -543,7 +572,19 @@ def build_docker_simulator_plan(
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
-            "exec /opt/px4-gazebo/bin/px4 -i 0 -s etc/init.d-posix/rcS",
+            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS",
+        )
+    )
+    network_tokens = (
+        ("--network", "host")
+        if selected_network_mode == "host"
+        else (
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--network",
+            container_network,
+            "--publish",
+            f"127.0.0.1:{control_port}:{control_port}/udp",
         )
     )
     command = (
@@ -558,12 +599,7 @@ def build_docker_simulator_plan(
         "ALL",
         "--security-opt",
         "no-new-privileges:true",
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--network",
-        container_network,
-        "--publish",
-        f"127.0.0.1:{control_port}:{control_port}/udp",
+        *network_tokens,
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
         *(
@@ -636,6 +672,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
     parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
+    parser.add_argument("--sim-instance", type=int, default=0)
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--strict",
@@ -653,6 +691,8 @@ def main(argv: list[str] | None = None) -> int:
             telemetry_port=args.telemetry_port,
             image=args.image,
             dry_run=not args.strict,
+            sim_network=args.sim_network,
+            sim_instance=args.sim_instance,
         )
         if args.strict and plan.docker_executable is None:
             raise DockerSimulatorPlanError("Docker executable not found")
