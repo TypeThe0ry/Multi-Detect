@@ -6,6 +6,17 @@
 
 机载配置键是 `planning_pregate`，缺省为 `false`。评测入口 `scripts/plan_from_task.py` 使用 `--plan-pregate`。它与 `planning_decision_contract` / `--decision-contract` 独立；预检不要求模型看到拒绝契约，未命中时原模型路径及契约配置不变。命中结果报告 `source=host_pregate`，不生成返航替代计划。
 
+## 规划轮评测
+
+`scripts/run_model_round_eval.py`、`scripts/run_planner_probe.py` 和总控 `scripts/run_planner_round.py` 都支持 `--plan-pregate`，默认关闭以保持既有轮次可比。规划轮启用时，总控会把开关同时传给候选与基线的 planning-v3/v4/v5 评测及返航探测，确保替换判定基于相同条件；替换决策 JSON 和 Markdown 报告会注明预检是否开启。逐题 JSON 使用 `source` 标明 `host_pregate` 或 `model`，汇总提供 `host_pregate`（预检命中数）和 `model_processed`（模型处理数）。返航探测所有题均由预检处理时会跳过 llama-server。
+
+示例：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+.venv/bin/python scripts/run_planner_round.py --stage eval --plan-pregate
+```
+
 ## 规则边界
 
 - 投递判断要求明确投递/投放/运送动作和明确载荷对象；同时能力集合必须缺少 `payload_drop`。只有“箱子/电池”等对象，或否定句里的投递动作，不会触发。

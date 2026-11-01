@@ -267,6 +267,7 @@ def test_build_stages_planning_uses_requested_model_paths(tmp_path, monkeypatch)
         disk_check_every=30,
         retry_failed_episodes=False,
         decision_contract=False,
+        plan_pregate=False,
         episodes=1,
         index=tmp_path / "index.json",
         onboard_config=tasks,
@@ -292,9 +293,11 @@ def test_build_stages_planning_can_enable_decision_contract(tmp_path, monkeypatc
         mmproj=tmp_path / "mmproj.gguf", llama_server=tmp_path / "llama-server.exe",
         stages=["planning"], min_free_disk_gb=30, disk_check_every=30,
         retry_failed_episodes=False, decision_contract=True,
+        plan_pregate=True,
     )
     command = round_eval.build_stages(args)[0].command
     assert "--decision-contract" in command
+    assert "--plan-pregate" in command
 
 
 def test_round_runs_sequentially_stops_at_invalid_and_saves_failure(tmp_path, monkeypatch):

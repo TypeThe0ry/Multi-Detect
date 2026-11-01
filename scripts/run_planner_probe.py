@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from scripts.eval_slow_system import LlamaServerRunner, _http_json  # noqa: E402
 from multidetect.host_paths import executable_name  # noqa: E402
 from multidetect.autonomy.mission_plan import PlanDecision  # noqa: E402
+from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
 from scripts.onboard_policy import build_mission_from_text  # noqa: E402
 
 
@@ -37,12 +38,21 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=9958)
     parser.add_argument("--decision-contract", action="store_true",
                         help="enable structured reject/clarify output (default: legacy MissionPlan)")
+    parser.add_argument("--plan-pregate", action="store_true",
+                        help="run deterministic host preflight before the planner")
     args = parser.parse_args(argv)
     doc = json.loads(args.tasks.read_text(encoding="utf-8"))
-    runner = LlamaServerRunner(args.model, None,
-        executable=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
-        port=args.port, max_new_tokens=768, crop_policy="none", identity_only=False,
-        logprobs=False, wait_port_free=True, cache_ram_mib=0)
+    refs = tuple(doc.get("refs", ()))
+    needs_model = not args.plan_pregate or any(
+        preflight_plan_task(task["text"], task.get("refs", refs), frozenset()) is None
+        for task in doc["tasks"]
+    )
+    runner = None
+    if needs_model:
+        runner = LlamaServerRunner(args.model, None,
+            executable=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
+            port=args.port, max_new_tokens=768, crop_policy="none", identity_only=False,
+            logprobs=False, wait_port_free=True, cache_ram_mib=0)
     rows = []
     try:
         for task in doc["tasks"]:
@@ -57,9 +67,10 @@ def main(argv=None):
             started = time.perf_counter()
             error = None
             try:
-                plan, result = build_mission_from_text(task["text"], tuple(doc["refs"]), post,
+                plan, result = build_mission_from_text(task["text"], task.get("refs", refs), post,
                     sorted_keys=True, capabilities=frozenset(),
-                    include_decision_contract=args.decision_contract)
+                    include_decision_contract=args.decision_contract,
+                    enable_plan_pregate=args.plan_pregate)
                 if isinstance(plan, PlanDecision):
                     predicted = []
                     correct_rejection = False
@@ -69,16 +80,21 @@ def main(argv=None):
             except Exception as exc:
                 predicted, result, error, correct_rejection = [], {}, repr(exc), False
             accepted = predicted in task["expect"]
-            row = {"id": task["id"], "text": task["text"], "predicted": predicted,
+            row = {"id": task["id"], "text": task["text"],
+                   "source": result.get("source", "model"), "predicted": predicted,
                    "ok": accepted, "correct_rejection": correct_rejection,
                    "error": error or result.get("error"), "repairs": result.get("repairs"),
                    "seconds": time.perf_counter() - started}
             rows.append(row)
             print(json.dumps(row, ensure_ascii=False), flush=True)
     finally:
-        runner.close()
+        if runner is not None:
+            runner.close()
+    host_count = sum(row["source"] == "host_pregate" for row in rows)
+    summary = {"label": args.label, "tasks": len(rows), "plan_pregate": args.plan_pregate,
+               "host_pregate": host_count, "model_processed": len(rows) - host_count}
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps({"summary": summary, "rows": rows}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0
 
 
