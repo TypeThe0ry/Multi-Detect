@@ -807,7 +807,7 @@ def test_build_sft_stage_passes_optional_view_balancing_flags():
     result = subprocess.run(
         [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
          "--r15-index", str(index), "--scenarios", str(index.parent),
-         "--confusable-negatives", "--balance-identity-views",
+         "--confusable-negatives", "--task-text-variants", "--balance-identity-views",
          "--balance-confusable-negative-views", "--max-upsample", "2"],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
@@ -815,6 +815,7 @@ def test_build_sft_stage_passes_optional_view_balancing_flags():
     assert result.returncode == 0, result.stdout + result.stderr
     build = next(line for line in result.stdout.splitlines() if "build_slow_system_sft.py" in line)
     assert "--confusable-negatives" in build
+    assert "--task-text-variants" in build
     assert "--balance-identity-views" in build
     assert "--balance-confusable-negative-views" in build
     assert "--max-upsample 2" in build
@@ -838,6 +839,7 @@ def test_build_sft_view_balancing_defaults_off():
     build = next(line for line in result.stdout.splitlines() if "build_slow_system_sft.py" in line)
     assert "--balance-identity-views" not in build
     assert "--balance-confusable-negative-views" not in build
+    assert "--task-text-variants" not in build
     assert "--max-upsample" not in build
 
 

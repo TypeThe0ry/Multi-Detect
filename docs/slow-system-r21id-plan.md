@@ -349,7 +349,7 @@ r3 真目标误拒的 72 条中，pickup 占 52 条、suv 13 条、postbox 5 条
 
 ### 3. 只用现有采集数据的 r4 配方
 
-1. **重采样现有定向 hard reject。** 保留配对正例，不做全 additions 降权；对现有的 `suv→pickup`（30）、`postbox→car`（30）、`person→postbox`（22）hard-negative 家族在四视角内重采样，目标每方向最多 60 条、每视角 15 条，视角不足时只在该视角内重复已有行。依据是 r3 的 `pickup↔suv` 合计 80/110 条误收，且 `postbox→car`、`person→postbox` 仍有 18 条误收。`pickup→suv` hard reject 当前为 0，不能从 JSONL 凭空构造，列入 SITL 新采集。
+1. **重采样现有定向 hard reject。** 保留配对正例，不做全 additions 降权；对现有的 `suv→pickup`（30）、`postbox→car`（30）、`person→postbox`（22）hard-negative 家族在四视角内重采样，目标每方向最多 60 条、每视角 15 条，视角不足时只在该视角内重复已有行。依据是 r3 的 `pickup↔suv` 合计 80/110 条误收，且 `postbox→car`、`person→postbox` 仍有 18 条误收。`pickup→suv` hard reject 在 r3 additions 中为 0；r4 的交换任务通过 `--task-text-variants` 从同帧候选构造对应方向，不再需要额外采集任务文本变体。
 2. **按任务类别×正负决策做四视角平衡。** 使用新增的 `--balance-identity-views --max-upsample 2`，只复制已有 JSONL 行，不复制图片、不改变 test/val。实际在当前工作树重建的 train 为 13,344 行，新增 2,033 行；front 1,780→2,136、oblique 1,285→2,144、edge 2,089→2,120、recovery 1,377→2,164。该配方针对剩余 8/30 跨视角不一致和 edge/recovery 的真目标误拒，不会改变默认构建器输出。
 3. **保留小目标正例全权重，避免再使用 r21id-r2 的整体 additions 降权。** r3 真目标误拒虽主要发生在大 pickup 框，但 postbox 的 5 条误拒包含 12-16/16-24 px，且 r21id-r2 已证明整体 down-weight 会把小目标召回降到 0.62；r3 的 `--r21id-keep-small-true-targets` 行为应继续保留。
 4. **训练前的审计门。** 对生成 manifest 逐项检查四视角的正/负计数、`suv→pickup`、`postbox→car`、`person→postbox` 的拒绝行是否存在，确认新采集补上 `pickup→suv`，以及 `<16 px` true/proposal_true 是否没有被 merge 过滤掉；不满足则不进入训练。当前实际构建输出在 `.tmp/r21id-r4-sft/`，不写 artifacts。
@@ -411,6 +411,8 @@ python scripts/collect_sim_teacher_episodes.py \
 
 runner 新增 `--confusable-negatives`、`--balance-identity-views`、`--balance-confusable-negative-views`、`--max-upsample`，仅在显式传入时透传给 `build_slow_system_sft.py`，默认行为不变。r4 显式打开 hard-negative 构建，但不启用会降权 additions 的 `--r21id-r2-filter`。
 
+r4 同时传入 `--task-text-variants`：仅处理 index 中含多个 `task_text_variants` 的 train/val world，基于同帧 segmentation 候选补充交换任务的拒绝/正例。`confusable_pair_type` 方向按“任务请求类别→被拒候选类别”命名；例如 swapped SUV task 下 pickup reject 与 SUV positive 均属于 `suv->pickup`，其视角平衡按该 pair family 统计。test world 不生成变体行。
+
 ```bash
 export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
 PY=/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python
@@ -428,7 +430,7 @@ $PY scripts/run_r15_round.py --stage annotate --out "$OUT" --episodes "$EPISODES
   --scenarios "$SCENARIOS" --r15-index "$INDEX"
 $PY scripts/run_r15_round.py --stage build_sft --out "$OUT" --episodes "$EPISODES" \
   --scenarios "$SCENARIOS" --r15-index "$INDEX" --r12-dataset "$R3_DATA" \
-  --r12-replay-fraction 1.0 --confusable-negatives --balance-identity-views \
+  --r12-replay-fraction 1.0 --confusable-negatives --task-text-variants --balance-identity-views \
   --balance-confusable-negative-views --max-upsample 2
 # build_sft 已自动合并；仅在 additions 已存在、需要单独重建合并集时运行：
 $PY scripts/run_r15_round.py --merge-only --r12-dataset "$R3_DATA" \
@@ -480,7 +482,7 @@ $PY scripts/run_r15_round.py --stage build_sft --dry-run \
   --scenarios configs/scenarios/generated-r21id-r4 \
   --r15-index configs/scenarios/generated-r21id-r4/index.json \
   --r12-dataset artifacts/r21id-r3/pipeline/r15-sft --r12-replay-fraction 1.0 \
-  --confusable-negatives --balance-identity-views \
+  --confusable-negatives --task-text-variants --balance-identity-views \
   --balance-confusable-negative-views --max-upsample 2
 ```
 

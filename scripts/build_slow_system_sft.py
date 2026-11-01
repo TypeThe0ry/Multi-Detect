@@ -553,6 +553,7 @@ def _eligible_frames(campaign_roots: list[Path], world_splits: dict[str, str], s
                         "task_text_en": world_info.get("task_text_en"),
                         "task_category": (world_info.get("target_combo") or {}).get("category"),
                         "true_target": requested,
+                        "task_text_variants": world_info.get("task_text_variants", []),
                     }
                 else:
                     slug = _task_slug(str(step.get("task_text") or episode_task))
@@ -885,6 +886,7 @@ def build_dataset(
     counterfactual_tasks: bool = False, unseen_holdout: bool = False,
     holdout_from: Sequence[Path] = (), counterfactual_negatives: bool = False,
     confusable_negatives: bool = False,
+    task_text_variants: bool = False,
     identity_variant: str = "default",
     balance_task_categories: float | None = None, max_upsample: int = 4,
     balance_identity_views: bool = False,
@@ -1069,6 +1071,78 @@ def build_dataset(
             else:
                 continue
             buckets[split][kind].append(_row(world=world, split=split, frame=frame, task_text=task, box=p["box"], size=size, target=target, kind=kind, campaign=campaign, label_type="true_target" if is_true else "distractor", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category, view_metadata=view_metadata, target_id=p["target"].get("target_id")))
+
+        variants = slug.get("task_text_variants", []) if fuel and task_text_variants else []
+        if split != "test" and isinstance(variants, list) and len(variants) > 1:
+            primary_category = str(slug.get("task_category") or _target_category(slug["true_target"]))
+            for variant_info in variants:
+                if not isinstance(variant_info, dict):
+                    continue
+                requested_category = str(variant_info.get("requested_category") or "")
+                if not requested_category or requested_category == primary_category:
+                    continue
+                requested_candidates = [
+                    (index, item) for index, item in enumerate(projected)
+                    if str(item["target"].get("asset_slug") or item.get("class") or _target_category(item["target"])) == requested_category
+                ]
+                if not requested_candidates:
+                    continue
+                text = str(
+                    (variant_info.get("task_text_en") if variant % 2 else variant_info.get("task_text"))
+                    or variant_info.get("task_text_en")
+                    or variant_info.get("task_text")
+                    or ""
+                )
+                if not text:
+                    continue
+                pair_key = f"{requested_category}->{primary_category}"
+                for true_index, true_candidate in enumerate(projected):
+                    if true_candidate["target"].get("target_id") != true_id:
+                        continue
+                    rejected = _row(
+                        world=world, split=split, frame=frame, task_text=text,
+                        box=true_candidate["box"], size=size,
+                        target=_decision(
+                            "reject_track", track=f"track-{true_index + 1}",
+                            reason=f"Task asks for {requested_category}; candidate is {primary_category}.",
+                        ),
+                        kind="reject_track", campaign=campaign,
+                        label_type="confusable_negative", candidate_boxes=projected_boxes,
+                        focus_index=true_index, visible_fraction=true_candidate.get("visible_fraction"),
+                        task_category=requested_category, view_metadata=view_metadata or {},
+                        target_id=true_candidate["target"].get("target_id"),
+                    )
+                    rejected["confusable_pair_type"] = pair_key
+                    buckets[split]["reject_track"].append(rejected)
+                    for positive_index, positive_candidate in requested_candidates:
+                        min_side = min(
+                            positive_candidate["box"][2] - positive_candidate["box"][0],
+                            positive_candidate["box"][3] - positive_candidate["box"][1],
+                        )
+                        if confirm_min_side_px is not None:
+                            decision = "approach_track" if min_side < confirm_min_side_px else "confirm_target"
+                        else:
+                            decision = "approach_track" if (
+                                positive_candidate["range_m"] > 45 or min_side < 12
+                            ) else "confirm_target"
+                        positive = _row(
+                            world=world, split=split, frame=frame, task_text=text,
+                            box=positive_candidate["box"], size=size,
+                            target=_decision(
+                                decision, track=f"track-{positive_index + 1}",
+                                reason=("Matching candidate is distant; approach for a closer view."
+                                        if decision == "approach_track"
+                                        else "Candidate class matches the task."),
+                            ),
+                            kind=decision, campaign=campaign,
+                            label_type="confusable_positive", candidate_boxes=projected_boxes,
+                            focus_index=positive_index,
+                            visible_fraction=positive_candidate.get("visible_fraction"),
+                            task_category=requested_category, view_metadata=view_metadata or {},
+                            target_id=positive_candidate["target"].get("target_id"),
+                        )
+                        positive["confusable_pair_type"] = pair_key
+                        buckets[split][decision].append(positive)
         if fuel and scene is not None and _relative(frame) in proposal_cache:
             _proposal_rows(
                 buckets[split], stats, proposal_cache[_relative(frame)], scene, slug=slug, task=task,
@@ -1201,6 +1275,8 @@ def build_dataset(
     }
     if image_augmentation is not None:
         report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
+    if task_text_variants:
+        report["task_text_variants"] = True
     if identity_variant != "default":
         frame_side, crop_side = identity_image_sizes({}, identity_variant=identity_variant)
         report["identity_variant"] = identity_variant
@@ -1246,6 +1322,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--holdout-from", type=Path, action="append", default=[], help="train/val: also keep this index's held_out_target_combos unseen (the frozen test set of a top-up round)")
     parser.add_argument("--counterfactual-negatives", action="store_true", help="pair each counterfactual task with a reject on another visible object it does not describe")
     parser.add_argument("--confusable-negatives", action="store_true", help="train/val only: add near-category same-frame reject/positive pairs")
+    parser.add_argument("--task-text-variants", action="store_true", help="train/val only: add identity pairs for index task_text_variants")
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--balance-identity-views", action="store_true", help="train only: upsample task-category/decision strata to balance front, oblique, edge_truncated, and recovery views")
@@ -1253,7 +1330,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
