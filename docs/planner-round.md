@@ -365,3 +365,25 @@ planning-v4：缺载荷投递 0/2→**2/2**、未知地点 0/2→2/2（结构化
 结论：**不替换 r24**。主要问题是**过度拒绝**：planning-v3 的 80 题里 r26 对 24 题输出了拒绝，其中大量是正常可执行的任务（“就在脚下这个位置着陆吧”被判 missing_capability、“直接回咱们放飞的位置”被判 ambiguous_task、多步复合任务被判 unsafe_request），拒绝原因与任务也常常对不上。说明 r26 的拒绝数据比例偏高、触发特征过于依赖关键词（如“受限区域”“未登记”“两个任务”），模型学成了“看到复杂句式就拒绝”。
 
 下一轮（r27）方向：拒绝样本总量降到训练集的 2–3%（r26 约 5%），只保留 missing_capability 和 unknown_place 两类有明确依据的拒绝；unsafe_request/ambiguous_task 暂不训练（由主机侧规则处理）；大幅增加“看起来复杂但可执行”的正例（多步、口语化、否定词在其它从句里的任务）作为对照；并在数据审计中加一项：用 r24 在新数据正例上的输出检查有没有被标成拒绝的可执行任务。
+
+## r27 数据准备
+
+r27 在 r24 配方上开启结构化拒绝契约，但只训练两类有直接证据的拒绝：missing_capability（提示明确写出无 payload_drop，任务要求投递）和 unknown_place（任务点名地点不在 Known places 列表）。每类默认 40 条拒绝，每条配一条只改变能力或地点事实的可执行对照正例。unsafe_request、ambiguous_task、ungrounded_query 不再训练拒绝，理由分别是安全边界、缺字段澄清和查询依据由主机规则判断更可靠。
+
+复杂正例默认 400 条，覆盖多步任务、口语化表达、作用域否定（例如“人别跟出去”“别满场找”）、“起飞点/脚下/当前位置”、拼图与测绘重叠、计数和持续监视；目标计划均经过 validate_mission_plan、check_plan_intent 和训练准入检查。生成器在拒绝占比超过 2% 时自动补普通可执行正例，确保硬上限。
+
+本轮实际生成命令（只运行 data 阶段，未训练）：
+
+~~~bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-final2
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r27-data --eval-root .tmp/r27-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r27-recipe
+~~~
+
+结果：train **5,940** 行、val **100** 行；训练准入 admit_train_rows 接受 **5,940/5,940** 行。r27 新增拒绝 80 条（missing_capability 40、unknown_place 40），每类另有 40 条正例对照；拒绝占训练集 **1.347%**。复杂正例 400 条，族计数为 r27_multi_step 80、r27_colloquial 80、r27_negation 80、r27_mapping 40、r27_monitoring 40、r27_counting 40、r27_local_position 40。与 planning-v3/v4 holdout 归一化文本碰撞 **0**。统计和 manifest 位于 .tmp/r27-data/dataset/；训练集准入摘要 SHA-256 为 f1933b693a5856005e75e147756c4ee65772efbb358cf743dae3d951bd11a673。
+
+24 条误拒绝、r26 模板相似度和触发模式详见 docs/r27-refusal-analysis.md。

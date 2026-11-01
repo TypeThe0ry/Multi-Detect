@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import sys
@@ -1353,6 +1354,230 @@ def r26_rows(args, held_out: set[str], seen: set[str], existing: list[dict]) -> 
     return rows
 
 
+def r27_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add narrowly grounded refusal pairs and difficult executable positives."""
+    rows = []
+    places = [("poi:gate", "大门", "gate"), ("poi:pad", "起降坪", "landing pad"),
+              ("poi:tower", "水塔", "water tower"), ("poi:shed", "仓库", "warehouse"),
+              ("poi:bridge", "桥", "bridge"), ("poi:yard", "院子", "yard")]
+    payloads = [
+        ("包裹", "parcel", "package"), ("药品箱", "medical case", "medical_kit"),
+        ("工具箱", "tool case", "toolkit"), ("样品盒", "sample box", "sample_box"),
+        ("急救包", "first-aid kit", "first_aid_kit"), ("设备箱", "equipment case", "equipment_case"),
+        ("物资袋", "supply bag", "supply_bag"), ("零件盒", "parts box", "parts_box"),
+        ("水样瓶", "water sample", "water_sample"), ("电池组", "battery pack", "battery_pack"),
+        ("通信器材", "radio equipment", "radio_equipment"), ("医疗物资", "medical supplies", "medical_supplies"),
+        ("传感器", "sensor", "sensor"), ("备用电台", "spare radio", "spare_radio"),
+        ("样本罐", "specimen jar", "specimen_jar"), ("救援绳包", "rescue rope kit", "rescue_rope_kit"),
+    ]
+    unknowns = [("青石码头", "Blue Stone Wharf"), ("旧气象站", "Old Weather Station"),
+                ("北岸仓库", "North Shore Depot"), ("石拱渡口", "Stone Arch Ferry"),
+                ("林场观测点", "Forest Survey Point"), ("月台遗址", "Moon Platform Ruins")]
+
+    def emit(text, refs, capabilities, target, family, *, valid, code=None, candidate=None):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        if valid:
+            validate_mission_plan(target, capabilities=frozenset(capabilities))
+            findings = check_plan_intent(target, text, tuple(refs))
+            if findings:
+                raise ValueError(f"r27 positive intent failure: {family}: {findings}: {text}")
+        else:
+            validate_plan_decision(target)
+        seen.add(key)
+        prompt = plan_prompt(text, refs=tuple(refs), capabilities=frozenset(capabilities),
+                             include_decision_contract=True)
+        if family == "r27_missing_capability":
+            prompt = prompt.replace("Task: " + text,
+                "Available aircraft capabilities: none. Payload drop is unavailable.\nTask: " + text)
+        row = {"sample_id": f"plan-r27-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+               "kind": "mission_plan", "world": "synthetic_plan_r27", "family": family,
+               "pair_role": "positive" if valid and code else "refusal" if code else None,
+               "reason_code": code, "task_text": text, "refs": list(refs),
+               "capabilities": list(capabilities), "expected_valid": valid,
+               "expected_findings": [] if valid else [code], "prompt": prompt,
+               "assistant_target": target, "_key": key}
+        if candidate is not None:
+            row["rejected_candidate"] = candidate
+            row["negative_target_mode"] = "rejected_candidate"
+        rows.append(row)
+        return True
+
+    def plan(text, steps, report):
+        return {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+
+    # Every refusal has a same-frame executable counterpart with only the
+    # missing capability or place-list fact changed.
+    index = 0
+    payload_refusals = 0
+    unknown_refusals = 0
+    attempts = 0
+    while payload_refusals < args.r27_refusal_count or unknown_refusals < args.r27_refusal_count:
+        if attempts > args.r27_refusal_count * 20 + 100:
+            raise ValueError(
+                "r27 refusal pair pool exhausted after holdout filtering "
+                f"(missing_capability={payload_refusals}, unknown_place={unknown_refusals})"
+            )
+        cursor = index + attempts
+        place_ref, place_zh, place_en = places[(cursor // 2) % len(places)]
+        payload_zh, payload_en, payload_ref = payloads[(cursor // len(places)) % len(payloads)]
+        unknown_zh, unknown_en = unknowns[(cursor // 2) % len(unknowns)]
+        suffixes = [("北侧", "north side"), ("南侧", "south side"), ("东侧", "east side"),
+                    ("西侧", "west side"), ("旧址", "old site"), ("二号点", "site two"),
+                    ("山脚点", "foothill site")]
+        suffix_zh, suffix_en = suffixes[(cursor // 2) % len(suffixes)]
+        unknown_zh, unknown_en = unknown_zh + suffix_zh, unknown_en + " " + suffix_en
+        use_zh = cursor % 2 == 0
+        if use_zh:
+            bad_payload = f"把{payload_zh}送到{place_zh}后返航。"
+            good_payload = f"飞机具备投放能力，把{payload_zh}送到{place_zh}后返航。"
+            bad_place = f"飞到地图没标出的{unknown_zh}后返航。"
+            known_zh_verbs = (f"飞到{place_zh}后返航。", f"前往{place_zh}再回家。",
+                              f"到{place_zh}后返回起飞点。", f"请去{place_zh}然后返航。",
+                              f"先抵达{place_zh}，完成后回来。", f"直接飞到{place_zh}再返航。",
+                              f"现在去{place_zh}，随后回家。", f"到达{place_zh}就返航。",
+                              f"把飞机带到{place_zh}后回来。", f"去一趟{place_zh}再回起点。",
+                              f"按计划前往{place_zh}，然后返航。", f"抵达{place_zh}即可返回。")
+            good_place = known_zh_verbs[(cursor // (2 * len(places))) % len(known_zh_verbs)]
+            payload_reason = "飞机没有载荷投放能力。"
+            unknown_reason = "请求的地点不在已知地点列表中。"
+            unknown_question = f"请问要改去哪个已知地点，例如{place_zh}吗？"
+        else:
+            bad_payload = f"Deliver the {payload_en} to the {place_en}, then return home."
+            good_payload = f"With payload drop capability, deliver the {payload_en} to the {place_en}, then return home."
+            bad_place = f"Visit the unlisted {unknown_en}, then return home."
+            known_en_verbs = (f"Visit the listed {place_en}, then return home.",
+                              f"Go to the listed {place_en} and come back.",
+                              f"Fly to the listed {place_en} before heading back to launch.",
+                              f"Reposition to the listed {place_en}, then come home.",
+                              f"Navigate to the listed {place_en} and return to base.",
+                              f"Directly fly to the listed {place_en}, then return.",
+                              f"Go to the listed {place_en} now and head home.",
+                              f"Reach the listed {place_en}, then fly back.",
+                              f"Take the aircraft to the listed {place_en} and come back.",
+                              f"Make one trip to the listed {place_en}, then return.",
+                              f"Proceed to the listed {place_en} before returning.",
+                              f"Once at the listed {place_en}, return to base.")
+            good_place = known_en_verbs[(cursor // (2 * len(places))) % len(known_en_verbs)]
+            payload_reason = "Payload drop capability is unavailable."
+            unknown_reason = "The requested place is not in the known-place list."
+            unknown_question = f"Should I use the listed {place_en} instead?"
+        refs = (f"{place_ref} ({place_zh} / {place_en})",)
+        payload_candidate = plan(bad_payload, [S("s1", "deliver", {
+            "target_ref": place_ref, "payload_ref": f"payload:{payload_ref}"}, "s2", "s2"), H("s2")], ["delivery"])
+        missing = {"plan_version": 1, "decision": "reject", "reason_code": "missing_capability",
+                   "reason": payload_reason, "missing_capabilities": ["payload_drop"],
+                   "unresolved_refs": [], "question": None}
+        payload_positive = plan(good_payload, [S("s1", "deliver", {
+            "target_ref": place_ref, "payload_ref": f"payload:{payload_ref}"}, "s2", "s2"), H("s2")], ["delivery"])
+        unknown_ref = "poi:" + re.sub(r"[^a-z0-9]+", "_", unknown_en.casefold()).strip("_")
+        unknown_candidate = plan(bad_place, [S("s1", "goto", {"target_ref": unknown_ref}, "s2", "s2"), H("s2")], ["status"])
+        unknown_decision = {"plan_version": 1, "decision": "clarify", "reason_code": "unknown_place",
+                            "reason": unknown_reason, "missing_capabilities": [],
+                            "unresolved_refs": [unknown_ref], "question": unknown_question}
+        known_positive = plan(good_place, [S("s1", "goto", {"target_ref": place_ref}, "s2", "s2"),
+                                           H("s2")], ["positions"])
+        if payload_refusals < args.r27_refusal_count:
+            if (emit(bad_payload, refs, (), missing, "r27_missing_capability", valid=False,
+                     code="missing_capability", candidate=payload_candidate)
+                    and emit(good_payload, refs, ("payload_drop",), payload_positive,
+                             "r27_missing_capability_positive", valid=True, code="missing_capability")):
+                payload_refusals += 1
+        if unknown_refusals < args.r27_refusal_count:
+            if (emit(bad_place, refs, (), unknown_decision, "r27_unknown_place", valid=False,
+                     code="unknown_place", candidate=unknown_candidate)
+                    and emit(good_place, refs, (), known_positive,
+                             "r27_unknown_place_positive", valid=True, code="unknown_place")):
+                unknown_refusals += 1
+        index += 1
+        attempts += 1
+
+    # Difficult positives span multi-step, conversational, scoped-negation,
+    # local-position, mapping, counting, and monitoring requests.
+    rng = random.Random(f"{args.seed}:r27-complex")
+    family_sequences = (
+        ("r27_multi_step", "patrol_goto_return"),
+        ("r27_colloquial", "goto_hover_return"),
+        ("r27_negation", "current_view_record"),
+        ("r27_mapping", "survey_survey_land"),
+        ("r27_monitoring", "monitor_monitor_return"),
+    )
+    index = 0
+    attempts = 0
+    while index < args.r27_complex_count:
+        if attempts > args.r27_complex_count * 30 + 100:
+            raise ValueError("r27 complex-positive pool exhausted after holdout filtering")
+        family, sequence = family_sequences[index % len(family_sequences)]
+        if index % 10 == 8:
+            n = 2 + ((index // 10) % 8)
+            query, query_zh = rng.choice(OBJECTS)
+            text = (f"院子里有多少{query_zh}就报多少，数到{n}个就停，然后返航。"
+                    if (index // 10) % 2 == 0 else
+                    f"Count {query}s in the yard up to {n}, report the total, then return home.")
+            steps = [S("s1", "count", {"region": "zone:yard", "query": query, "max_count": n}, "s2", "s2"), H("s2")]
+            report, family = ["count", "positions"], "r27_counting"
+        elif index % 10 == 9:
+            local_texts = (
+                ("就在脚下这个位置着陆吧。", "Put the aircraft down at its current position."),
+                ("任务结束了，直接在当前位置降落。", "The task is over; land where you are."),
+                ("别再往前飞，就地落地。", "Stop here and land at the current position."),
+                ("现在这个点就是降落点，落地结束。", "Land right here and finish the mission."),
+                ("不用去别处，脚下落地即可。", "No need to go elsewhere; land here."),
+            )
+            local_index = index // 10
+            local_prefixes = (
+                ("现在，", "Now, "), ("请记住，", "For clarity, "),
+                ("最后一步，", "As the final step, "), ("就按这个意思：", "The instruction is: "),
+                ("当前不用移动，", "Without moving, "), ("简单说，", "Simply put, "),
+                ("然后，", "Then, "), ("我确认一下，", "To confirm, "),
+            )
+            base_zh, base_en = local_texts[(local_index // len(local_prefixes)) % len(local_texts)]
+            prefix_zh, prefix_en = local_prefixes[local_index % len(local_prefixes)]
+            text = prefix_zh + base_zh if local_index % 2 == 0 else prefix_en + base_en
+            steps, report, family = [L("s1")], ["status"], "r27_local_position"
+        else:
+            text, steps, report = r23_target_case(rng, sequence)
+        if family == "r27_colloquial":
+            text = ("麻烦你帮我" + text if re.search(r"[\u4e00-\u9fff]", text)
+                    else "Could you take care of this: " + text)
+        elif family == "r27_negation":
+            text = "别满场找，" + text if re.search(r"[\u4e00-\u9fff]", text) else "Do not search the whole area; " + text
+        elif family == "r27_multi_step":
+            text = ("先按顺序办完：" + text if re.search(r"[\u4e00-\u9fff]", text)
+                    else "Please complete these steps in order: " + text)
+        wording = index % 8
+        zh_polite = ("麻烦啦，", "劳烦你，", "帮个忙，", "辛苦一下，",
+                     "有空帮我，", "照这个安排，", "按顺序处理，", "请帮我办一下，")
+        en_polite = ("Please handle this: ", "Could you do this: ", "When you can, ", "Please take care of this: ",
+                     "For this task, ", "Go ahead and ", "I need you to ", "Please proceed: ")
+        if re.search(r"[\u4e00-\u9fff]", text):
+            text = zh_polite[wording] + text
+        else:
+            text = en_polite[wording] + text
+        qualifiers_zh = ("这次就这样办。", "按这次安排执行。", "照当前安排完成。", "这一趟办完即可。",
+                         "按眼前计划处理。", "本次任务照做。", "完成这一轮就好。", "按这个顺序来。",
+                         "这次不要改步骤。", "照说的做完再结束。")
+        qualifiers_en = ("Do it this way for this pass.", "Follow the current arrangement.",
+                         "Complete the current plan as stated.", "Finish this run as requested.",
+                         "Use the plan in front of you.", "Carry out this task as written.",
+                         "Complete this round before ending.", "Keep this order.",
+                         "Do not change the steps for this pass.", "Finish exactly as requested.")
+        qualifier_index = (index // len(family_sequences)) % len(qualifiers_zh)
+        text += (" " + qualifiers_zh[qualifier_index] if re.search(r"[\u4e00-\u9fff]", text)
+                 else " " + qualifiers_en[qualifier_index])
+        steps, refs = localise_places(rng, steps, text,
+            {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES})
+        row_plan = plan(text, steps, report)
+        if check_plan_intent(row_plan, text, tuple(refs)):
+            attempts += 1
+            continue
+        if emit(text, refs, (), row_plan, family, valid=True):
+            index += 1
+        attempts += 1
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -2029,6 +2254,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="extend r24 with structured reject/clarify decisions; excludes r25 rejected candidates")
     parser.add_argument("--r26-refusal-count", type=int, default=60,
                         help="refusal/clarification rows per reason_code; the recipe adds an equal positive count (default: 60)")
+    parser.add_argument("--r27-recipe", action="store_true",
+                        help="extend r24 with narrow structured refusals and difficult executable positives")
+    parser.add_argument("--r27-refusal-count", type=int, default=40,
+                        help="refusal rows per supported reason_code, each paired with one positive (default: 40)")
+    parser.add_argument("--r27-complex-count", type=int, default=400,
+                        help="difficult executable positives (default: 400)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -2049,10 +2280,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("r25 counts must be non-negative")
     if args.r26_refusal_count < 0 or args.r26_refusal_count % 2:
         parser.error("r26 refusal count must be non-negative and even for an equal Chinese/English split")
+    if args.r27_refusal_count < 0 or args.r27_complex_count < 0:
+        parser.error("r27 counts must be non-negative")
     if args.r25_recipe:
         args.r24_recipe = True
     if args.r26_recipe:
         args.r24_recipe = True
+    if args.r27_recipe:
+        args.r23_recipe = True
+        args.r24_recipe = True
+        # r27 emits its own paired unknown-place decisions at the requested count.
+        args.r24_unknown_count = 0
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
@@ -2158,6 +2396,17 @@ def main(argv: list[str] | None = None) -> int:
         new_rows = r26_rows(args, held_out, seen, rows)
         rows.extend(new_rows)
         args.rows += len(new_rows)
+    if args.r27_recipe:
+        new_rows = r27_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+        # Keep the refusal fraction within the contract even for small custom
+        # runs; the filler rows are ordinary executable v4 positives.
+        refusal_rows = sum(
+            row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
+            for row in rows
+        )
+        args.rows = max(args.rows, math.ceil(refusal_rows / 0.02))
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -2205,7 +2454,11 @@ def main(argv: list[str] | None = None) -> int:
                                           "r25_missing_payload", "r25_payload_capable",
                                           "r25_negated_query", "r26_missing_capability", "r26_unknown_place",
                                           "r26_ungrounded_query", "r26_ambiguous_task", "r26_unsafe_request",
-                                          "r26_payload_capable"}:
+                                          "r26_payload_capable", "r27_missing_capability",
+                                          "r27_missing_capability_positive", "r27_unknown_place",
+                                          "r27_unknown_place_positive", "r27_multi_step",
+                                          "r27_colloquial", "r27_negation", "r27_mapping",
+                                          "r27_monitoring", "r27_counting", "r27_local_position"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -2265,6 +2518,44 @@ def main(argv: list[str] | None = None) -> int:
             "structured_targets_only": True,
             "r25_rejected_candidate_rows_included": False,
         }
+    if args.r27_recipe:
+        r27_rows_all = [row for row in rows if row.get("world") == "synthetic_plan_r27"]
+        decisions = [row for row in r27_rows_all
+                     if row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}]
+        refusals = [row for row in decisions if row["assistant_target"]["decision"] == "reject"
+                    or row["assistant_target"]["reason_code"] == "unknown_place"]
+        structured_codes = {row.get("reason_code") for row in decisions}
+        if structured_codes - {"missing_capability", "unknown_place"}:
+            raise ValueError(f"r27 emitted unsupported refusal reasons: {sorted(structured_codes)}")
+        refusal_share = len(refusals) / max(1, len(splits["train"]))
+        if refusal_share > 0.02:
+            raise ValueError(f"r27 structured refusal share {refusal_share:.4%} exceeds 2%")
+        if len(decisions) != 2 * args.r27_refusal_count:
+            raise ValueError(f"r27 structured refusal rows {len(decisions)} != {2 * args.r27_refusal_count}")
+        complex_rows = [row for row in r27_rows_all
+                        if row.get("pair_role") is None and row.get("expected_valid") is True]
+        if len(complex_rows) < args.r27_complex_count:
+            raise ValueError(f"r27 complex positive rows {len(complex_rows)} < {args.r27_complex_count}")
+        manifest["r27_recipe"] = {
+            "refusal_requested_per_reason_code": args.r27_refusal_count,
+            "complex_positive_requested": args.r27_complex_count,
+            "structured_refusal_rows": len(refusals),
+            "structured_refusal_share_train": refusal_share,
+            "reason_counts": {
+                code: {
+                    "refusal": sum(row.get("reason_code") == code and row.get("assistant_target", {}).get("decision") in {"reject", "clarify"} for row in r27_rows_all),
+                    "positive": sum(row.get("reason_code") == code and row.get("pair_role") == "positive" for row in r27_rows_all),
+                } for code in ("missing_capability", "unknown_place")
+            },
+            "complex_families": dict(sorted(Counter(
+                row.get("family") for row in complex_rows
+            ).items())),
+            "excluded_refusal_reasons": {
+                "unsafe_request": "安全区域和危险区域由主机规则判断更可靠",
+                "ambiguous_task": "缺少必要字段时由主机规则澄清更可靠",
+                "ungrounded_query": "查询依据由主机规则检查更可靠",
+            },
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -2314,7 +2605,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -2345,6 +2636,12 @@ def main(argv: list[str] | None = None) -> int:
             stats += ["", "r25 missing-payload negatives retain deliver for validator rejection; capable counterparts remain valid. Negated query negatives retain the forbidden query candidate for ungrounded_query rejection.", ""]
         if args.r26_recipe:
             stats += ["", "r26 rows supervise structured reject/clarify decisions and exclude r25 rejected-candidate targets.", ""]
+        if args.r27_recipe:
+            stats += ["", f"Structured refusal rows: {len(decisions)} ({refusal_share:.3%} of train; maximum 2%).",
+                      f"Complex executable positives: {len(complex_rows)}.",
+                      "", "| r27 family | Rows |", "|---|---:|---:|"]
+            stats += [f"| {family} | {count} |" for family, count in sorted(Counter(
+                row.get("family") for row in r27_rows_all).items())]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:
