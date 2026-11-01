@@ -30,6 +30,7 @@ from multidetect.provenance import build_provenance
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
 from scripts.sitl_lock import SitlLock, default_lock_path
+from scripts.run_simulator_docker import gpu_assignment_for_worker
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
@@ -691,6 +692,13 @@ def with_worker_slot(cmd: list[str], slot: int) -> list[str]:
             out[index + 1] = values[token]
     return out
 
+
+def worker_gpu_assignments(worker_count: int) -> tuple[tuple[int, str | None], ...]:
+    """Resolve the GPU selected for each runtime worker slot without launching Docker."""
+    if isinstance(worker_count, bool) or not isinstance(worker_count, int) or worker_count < 1:
+        raise ValueError("worker_count must be a positive integer")
+    return tuple((slot, gpu_assignment_for_worker(slot)) for slot in range(worker_count))
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -1154,6 +1162,11 @@ class Round:
             f"低磁盘={getattr(self.a, 'low_disk', False)}"
         )
         if self.a.dry_run:
+            assignments = ", ".join(
+                f"slot {slot}->GPU {gpu if gpu is not None else 'off'}"
+                for slot, gpu in worker_gpu_assignments(self.a.workers)
+            )
+            print(f"[dry-run] GPU worker slots: {assignments}")
             return
         self._docker_abort = threading.Event()
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)

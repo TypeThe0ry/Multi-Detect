@@ -213,6 +213,7 @@ def _resolve_gpu_selection(
     """Resolve explicit options and environment defaults for one worker."""
 
     env_selector = os.environ.get("MULTIDETECT_SIM_GPU", "").strip()
+    env_devices = os.environ.get("MULTIDETECT_SIM_GPU_DEVICES")
     if gpu_render is None:
         if not env_selector:
             enabled = False
@@ -227,7 +228,12 @@ def _resolve_gpu_selection(
         if not explicit_device.isdigit():
             raise DockerSimulatorPlanError("gpu_device must be a non-negative GPU number")
         enabled = True
-    elif gpu_render in (None, True) and env_selector.isdigit():
+    elif (
+        gpu_render in (None, True)
+        and env_selector.isdigit()
+        and gpu_devices is None
+        and not env_devices
+    ):
         explicit_device = str(int(env_selector))
         enabled = True
     if isinstance(worker_index, bool) or not isinstance(worker_index, int) or worker_index < 0:
@@ -254,6 +260,18 @@ def _resolve_gpu_selection(
             raise DockerSimulatorPlanError("gpu_devices is empty after applying gpu avoid list")
         explicit_device = candidates[worker_index % len(candidates)]
     return enabled, explicit_device if enabled else None, configured
+
+
+def gpu_assignment_for_worker(worker_index: int) -> str | None:
+    """Return the configured GPU for a worker slot, or ``None`` if disabled."""
+
+    enabled, device, _devices = _resolve_gpu_selection(
+        gpu_render=None,
+        gpu_device=None,
+        gpu_devices=None,
+        worker_index=worker_index,
+    )
+    return device if enabled else None
 
 
 @dataclass(frozen=True, slots=True)

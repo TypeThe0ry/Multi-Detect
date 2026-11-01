@@ -74,6 +74,22 @@ def test_gpu_worker_round_robin_skips_default_avoid_list(tmp_path: Path) -> None
     assert (first.gpu_device, second.gpu_device, third.gpu_device) == ("1", "2", "1")
 
 
+def test_gpu_env_pool_round_robins_four_worker_slots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "1,2")
+    plans = [
+        build_docker_simulator_plan(
+            SCENARIO,
+            repository_root=ROOT,
+            job_dir=tmp_path / f"worker-{worker}",
+            image="multidetect/px4-sitl-gazebo:gpu",
+            worker_index=worker,
+        )
+        for worker in range(4)
+    ]
+    assert [plan.gpu_device for plan in plans] == ["1", "2", "1", "2"]
+
+
 def test_gpu_render_env_can_enable_and_explicit_false_disables(
     tmp_path: Path, monkeypatch
 ) -> None:
