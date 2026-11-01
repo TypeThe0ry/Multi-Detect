@@ -384,6 +384,9 @@ def main(argv: list[str] | None = None) -> int:
             rows.append(
                 {
                     "text": item["text"],
+                    "source": (
+                        "host_pregate" if args.plan_pregate and not request_usage else "model"
+                    ),
                     "planner_source": (
                         "host_pregate" if args.plan_pregate and not request_usage else "model"
                     ),
@@ -420,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
     n = len(rows)
     summary = {
         "tasks": n,
+        "host_pregate": sum(row.get("source") == "host_pregate" for row in rows),
+        "model_processed": sum(row.get("source") != "host_pregate" for row in rows),
         "valid_rate": sum(r["valid"] for r in rows) / n,
         "exact_sequence_rate": sum(r["exact"] for r in rows) / n,
         "same_skill_set_rate": sum(r["same_skills"] for r in rows) / n,

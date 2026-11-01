@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts import run_planner_round as round_runner
 from scripts.run_planner_round import replacement_decision, stage_current
 
@@ -46,6 +48,19 @@ def test_stage_current_requires_matching_hashes(tmp_path: Path):
     assert not stage_current("data", out, state)
 
 
+def test_eval_cache_requires_matching_plan_pregate_mode(tmp_path: Path, monkeypatch):
+    output = tmp_path / "eval.json"
+    output.write_text("{}\n", encoding="utf-8")
+    import hashlib
+    state = {"stages": {"eval": {
+        "status": "complete", "plan_pregate": False,
+        "sha256": {str(output): hashlib.sha256(output.read_bytes()).hexdigest()},
+    }}}
+    monkeypatch.setattr(round_runner, "stage_outputs", lambda *args, **kwargs: (output,))
+    assert stage_current("eval", tmp_path, state, plan_pregate=False)
+    assert not stage_current("eval", tmp_path, state, plan_pregate=True)
+
+
 def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
     out = tmp_path / "dry-run"
@@ -58,6 +73,18 @@ def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, cap
     assert "--r20-plan-intent-count 40" in output
     assert "--replay-planner-train" not in output
     assert not (out / "round-state.json").exists()
+
+
+def test_plan_pregate_is_passed_to_candidate_and_baseline(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "pregate"),
+        "--eval-root", str(tmp_path / "eval"), "--plan-pregate",
+    ]) == 0
+    commands = capsys.readouterr().out.splitlines()
+    eval_commands = [line for line in commands if "run_model_round_eval.py" in line or "run_planner_probe.py" in line]
+    assert len(eval_commands) == 4
+    assert all("--plan-pregate" in line for line in eval_commands)
 
 
 def test_r22_options_are_explicit_without_changing_r21_defaults(tmp_path, monkeypatch, capsys):

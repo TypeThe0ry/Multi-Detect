@@ -69,8 +69,11 @@ def stage_outputs(name: str, out: Path, *, include_planning_v5: bool = False) ->
     return mapping[name]
 
 
-def stage_current(name: str, out: Path, state: dict, *, include_planning_v5: bool = False) -> bool:
+def stage_current(name: str, out: Path, state: dict, *, include_planning_v5: bool = False,
+                  plan_pregate: bool = False) -> bool:
     entry = state.get("stages", {}).get(name, {})
+    if name in {"eval", "report"} and entry.get("plan_pregate", False) != plan_pregate:
+        return False
     outputs = stage_outputs(name, out, include_planning_v5=include_planning_v5)
     if entry.get("status") != "complete" or not all(p.is_file() for p in outputs):
         return False
@@ -198,10 +201,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                           # 93.75% valid on v3), not a broken server, which
                           # --max-transport-rate still guards.
                           "--min-valid-rate", "0"]
-                         + (["--decision-contract"] if decision_contract else []))
+                         + (["--decision-contract"] if decision_contract else [])
+                         + (["--plan-pregate"] if getattr(args, "plan_pregate", False) else []))
     for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
         eval_cmds.append([sys.executable, str(ROOT / "scripts/run_planner_probe.py"), "--tasks", str(PROBE_ROOT / "probe_tasks.json"), "--model", str(model), "--label", label, "--out", str(EVAL_ROOT / f"probe-{label}.json")]
-                         + (["--decision-contract"] if decision_contract else []))
+                         + (["--decision-contract"] if decision_contract else [])
+                         + (["--plan-pregate"] if getattr(args, "plan_pregate", False) else []))
     return {"data": [data_cmd], "train": [train], "export": [export], "eval": eval_cmds, "report": []}
 
 
@@ -243,6 +248,8 @@ def main(argv=None) -> int:
                         help="difficult executable positives (default: 400)")
     parser.add_argument("--include-planning-v5", action="store_true",
                         help="include planning-v5 in eval (default keeps legacy v3/v4 comparison)")
+    parser.add_argument("--plan-pregate", action="store_true",
+                        help="enable host preflight for candidate and baseline planning evaluations")
     parser.add_argument("--r28-recipe", action="store_true",
                         help="extend r27 with threshold-stop and fixed-wing capability data")
     parser.add_argument("--r28-stop-count", type=int, default=80)
@@ -299,7 +306,8 @@ def main(argv=None) -> int:
         print(f"guards: disk>={args.min_free_disk_gb:g} GB, memory>={args.min_memory_gb:g} GB; lock={args.lock_path}")
     for stage in selected:
         if not args.no_skip_completed and stage_current(
-            stage, out, state, include_planning_v5=args.include_planning_v5
+            stage, out, state, include_planning_v5=args.include_planning_v5,
+            plan_pregate=args.plan_pregate,
         ):
             print(f"[skip] {stage}: completed outputs match SHA-256")
             continue
@@ -328,11 +336,28 @@ def main(argv=None) -> int:
             if stage == "report":
                 versions = ("v3", "v4", "v5") if args.include_planning_v5 else ("v3", "v4")
                 metrics = {name: {f"planning-{version}": load_json(EVAL_ROOT / name / f"planning-{version}.json")["summary"] for version in versions} for name in ("candidate", "baseline")}
-                probes = {name: load_json(EVAL_ROOT / f"probe-{name}.json") for name in ("candidate", "baseline")}
+                probe_reports = {name: load_json(EVAL_ROOT / f"probe-{name}.json") for name in ("candidate", "baseline")}
+                probes = {name: value.get("rows", value) if isinstance(value, dict) else value
+                          for name, value in probe_reports.items()}
                 decision = replacement_decision(metrics["candidate"], metrics["baseline"], probes["candidate"], probes["baseline"], args.baseline_label)
+                decision["plan_pregate"] = args.plan_pregate
                 baseline_label = args.baseline_label
                 title = "# r21 规划模型对比报告" if baseline_label == "r14" else "# 规划模型对比报告"
-                lines = [title, "", f"- planning-v3：候选 {decision['planning_v3_candidate']:.3f} / {baseline_label} {decision['planning_v3_r14']:.3f}", f"- planning-v4：候选 {metrics['candidate']['planning-v4']['exact_sequence_rate']:.3f} / {baseline_label} {metrics['baseline']['planning-v4']['exact_sequence_rate']:.3f}", "", "## planning-v4 类别指标", "", "| 模型 | 类别 | 准确率 | 拒绝正确率 | 意图违规率 | 能力违规率 |", "|---|---|---:|---:|---:|---:|"]
+                lines = [
+                    title, "",
+                    f"- 主机预检：{'开启（候选和基线同条件）' if args.plan_pregate else '关闭'}",
+                    f"- planning-v3：候选 {decision['planning_v3_candidate']:.3f} / {baseline_label} {decision['planning_v3_r14']:.3f}",
+                    f"- planning-v4：候选 {metrics['candidate']['planning-v4']['exact_sequence_rate']:.3f} / {baseline_label} {metrics['baseline']['planning-v4']['exact_sequence_rate']:.3f}",
+                ]
+                for model_name in ("candidate", "baseline"):
+                    for version in versions:
+                        preflight = metrics[model_name][f"planning-{version}"].get("host_pregate", 0)
+                        processed = metrics[model_name][f"planning-{version}"].get("model_processed", 0)
+                        lines.append(f"- {model_name} planning-{version}：预检命中 {preflight} / 模型处理 {processed}")
+                    probe_summary = probe_reports[model_name].get("summary", {}) if isinstance(probe_reports[model_name], dict) else {}
+                    if probe_summary:
+                        lines.append(f"- {model_name} 返航探测：预检命中 {probe_summary.get('host_pregate', 0)} / 模型处理 {probe_summary.get('model_processed', 0)}")
+                lines += ["", "## planning-v4 类别指标", "", "| 模型 | 类别 | 准确率 | 拒绝正确率 | 意图违规率 | 能力违规率 |", "|---|---|---:|---:|---:|---:|"]
                 for model_name in ("candidate", "baseline"):
                     for category, values in sorted(metrics[model_name]["planning-v4"].get("category_metrics", {}).items()):
                         fmt = lambda value: "N/A" if value is None else f"{value:.3f}"
@@ -370,7 +395,11 @@ def main(argv=None) -> int:
             missing = [str(p) for p in outputs if not p.is_file()]
             if missing:
                 raise RuntimeError(f"stage {stage} missing outputs: {missing}")
-            state.setdefault("stages", {})[stage] = {"status": "complete", "completed_utc": datetime.now(timezone.utc).isoformat(), "sha256": {str(p): sha256(p) for p in outputs}}
+            state.setdefault("stages", {})[stage] = {
+                "status": "complete", "completed_utc": datetime.now(timezone.utc).isoformat(),
+                "sha256": {str(p): sha256(p) for p in outputs},
+                **({"plan_pregate": args.plan_pregate} if stage in {"eval", "report"} else {}),
+            }
             atomic_json(state_path, state)
         finally:
             if lock_context:
