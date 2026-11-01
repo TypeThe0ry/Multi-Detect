@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -122,6 +123,34 @@ def spawn_clearance_report(
     }
 
 
+def teacher_intent_clearance_route_points(observation: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return the route points used by the collector's spawn check."""
+    views = observation.get("views") or ()
+    route_points: list[dict[str, Any]] = []
+    for view in views:
+        point = view.get("observation_waypoint", {}) if isinstance(view, Mapping) else {}
+        if isinstance(point, Mapping):
+            route_points.append(dict(point))
+    if not route_points:
+        point = observation.get("observation_waypoint")
+        if isinstance(point, Mapping):
+            route_points.append(dict(point))
+    return route_points
+
+
+def teacher_intent_clearance_altitude(
+    observation: Mapping[str, Any], *, default_altitude_m: float | None = None
+) -> float | None:
+    """Resolve the camera altitude override used for generated teacher takeoff."""
+    requested = observation.get("camera_altitude_m")
+    if requested is None:
+        return None if default_altitude_m is None else float(default_altitude_m)
+    altitude = float(requested)
+    if not math.isfinite(altitude) or altitude <= 0:
+        raise ValueError("task_intent.observation.camera_altitude_m must be finite and positive")
+    return altitude
+
+
 def require_spawn_clearance(*args, **kwargs) -> dict[str, Any]:
     """Raise ``ValueError`` when the world cannot safely launch."""
     report = spawn_clearance_report(*args, **kwargs)
@@ -131,4 +160,9 @@ def require_spawn_clearance(*args, **kwargs) -> dict[str, Any]:
     return report
 
 
-__all__ = ["spawn_clearance_report", "require_spawn_clearance"]
+__all__ = [
+    "spawn_clearance_report",
+    "require_spawn_clearance",
+    "teacher_intent_clearance_altitude",
+    "teacher_intent_clearance_route_points",
+]

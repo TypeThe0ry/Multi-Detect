@@ -12,15 +12,15 @@
     "views": [
       {
         "observation_waypoint": {
-          "x_east_m": 14.434,
-          "y_north_m": -0.0,
+          "x_east_m": 23.934,
+          "y_north_m": 0.0,
           "z_up_m": 0.0
         },
         "view": "front"
       },
       {
         "observation_waypoint": {
-          "x_east_m": 13.129,
+          "x_east_m": 22.629,
           "y_north_m": -4.14,
           "z_up_m": 0.0
         },
@@ -28,7 +28,7 @@
       },
       {
         "observation_waypoint": {
-          "x_east_m": 7.217,
+          "x_east_m": 16.717,
           "y_north_m": -7.217,
           "z_up_m": 0.0
         },
@@ -36,7 +36,7 @@
       },
       {
         "observation_waypoint": {
-          "x_east_m": 1.305,
+          "x_east_m": 10.805,
           "y_north_m": -4.14,
           "z_up_m": 0.0
         },

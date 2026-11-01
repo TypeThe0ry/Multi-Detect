@@ -176,7 +176,11 @@ def audit_collection(
                     "path": str(episode_dir),
                     "passed": bool(smoke.get("passed") and short_ok),
                     "view_counts": view_counts,
-                    "designed_ground_distance_m": geometry.get("ground_distance_m"),
+                    # The index ground_distance_m is measured from the world
+                    # home after scene translation.  The smoke check compares
+                    # camera-to-target distance, which remains invariant when
+                    # target and observation waypoints shift together.
+                    "designed_ground_distance_m": smoke.get("designed_ground_distance_m"),
                     "observed_ground_distance_mean_m": smoke.get("observed_ground_distance_mean_m"),
                     "short_side_band": geometry.get("target_short_side_px"),
                     "short_side_estimate_px": geometry.get("target_short_side_px_estimate"),

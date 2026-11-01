@@ -469,8 +469,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 32.0,
-        "ground_distance_m": 9.499,
-        "slant_distance_m": 33.38,
+        "ground_distance_m": 19.499,
+        "slant_distance_m": 37.473,
         "target_short_side_px": ">=32",
         "target_short_side_px_estimate": 40.0,
         "camera_intrinsics": {
@@ -507,7 +507,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0005"
+        "target_id": "target_true_gen_r21id_r4_w0005",
+        "scene_shift_m": 10.0
       },
       "task_text_variants": [
         {
@@ -943,8 +944,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 32.0,
-        "ground_distance_m": 14.535,
-        "slant_distance_m": 35.146,
+        "ground_distance_m": 19.035,
+        "slant_distance_m": 37.233,
         "target_short_side_px": ">=32",
         "target_short_side_px_estimate": 40.0,
         "camera_intrinsics": {
@@ -981,7 +982,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0011"
+        "target_id": "target_true_gen_r21id_r4_w0011",
+        "scene_shift_m": 4.5
       },
       "task_text_variants": [
         {
@@ -1156,8 +1158,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.0,
-        "ground_distance_m": 13.11,
-        "slant_distance_m": 13.148,
+        "ground_distance_m": 16.61,
+        "slant_distance_m": 16.64,
         "target_short_side_px": "24-32",
         "target_short_side_px_estimate": 28.0,
         "camera_intrinsics": {
@@ -1194,7 +1196,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0014"
+        "target_id": "target_true_gen_r21id_r4_w0014",
+        "scene_shift_m": 3.5
       }
     },
     {
@@ -1223,8 +1226,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.0,
-        "ground_distance_m": 9.149,
-        "slant_distance_m": 9.204,
+        "ground_distance_m": 16.649,
+        "slant_distance_m": 16.679,
         "target_short_side_px": ">=32",
         "target_short_side_px_estimate": 40.0,
         "camera_intrinsics": {
@@ -1261,7 +1264,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0015"
+        "target_id": "target_true_gen_r21id_r4_w0015",
+        "scene_shift_m": 7.5
       }
     },
     {
@@ -1290,8 +1294,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.5,
-        "ground_distance_m": 10.423,
-        "slant_distance_m": 10.53,
+        "ground_distance_m": 16.923,
+        "slant_distance_m": 16.989,
         "target_short_side_px": "24-32",
         "target_short_side_px_estimate": 28.0,
         "camera_intrinsics": {
@@ -1328,7 +1332,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0016"
+        "target_id": "target_true_gen_r21id_r4_w0016",
+        "scene_shift_m": 6.5
       }
     },
     {
@@ -1357,8 +1362,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.5,
-        "ground_distance_m": 7.217,
-        "slant_distance_m": 7.371,
+        "ground_distance_m": 16.717,
+        "slant_distance_m": 16.784,
         "target_short_side_px": ">=32",
         "target_short_side_px_estimate": 40.0,
         "camera_intrinsics": {
@@ -1395,7 +1400,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0017"
+        "target_id": "target_true_gen_r21id_r4_w0017",
+        "scene_shift_m": 9.5
       }
     },
     {
@@ -1424,8 +1430,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.5,
-        "ground_distance_m": 10.423,
-        "slant_distance_m": 10.53,
+        "ground_distance_m": 16.923,
+        "slant_distance_m": 16.989,
         "target_short_side_px": "24-32",
         "target_short_side_px_estimate": 28.0,
         "camera_intrinsics": {
@@ -1462,7 +1468,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0018"
+        "target_id": "target_true_gen_r21id_r4_w0018",
+        "scene_shift_m": 6.5
       }
     },
     {
@@ -1491,8 +1498,8 @@
       "view_geometry": {
         "paired_same_world": true,
         "camera_altitude_m": 1.5,
-        "ground_distance_m": 7.217,
-        "slant_distance_m": 7.371,
+        "ground_distance_m": 16.717,
+        "slant_distance_m": 16.784,
         "target_short_side_px": ">=32",
         "target_short_side_px_estimate": 40.0,
         "camera_intrinsics": {
@@ -1529,7 +1536,8 @@
           "edge_truncated",
           "recovery"
         ],
-        "target_id": "target_true_gen_r21id_r4_w0019"
+        "target_id": "target_true_gen_r21id_r4_w0019",
+        "scene_shift_m": 9.5
       }
     },
     {
