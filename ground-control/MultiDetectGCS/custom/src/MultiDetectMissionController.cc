@@ -917,6 +917,9 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
             auto& list = kind == QStringLiteral("finding") ? _findings : _alerts;
             list.append(obj.toVariantMap());
         } else if (kind == QStringLiteral("mission_refused")) {
+            // A planner refusal is fail-closed: do not leave an older
+            // executable plan visible or approvable for this mission.
+            _plan.clear();
             const QJsonValue decisionValue = obj.value(QStringLiteral("decision"));
             if (decisionValue.isObject()) {
                 const QJsonObject decision = decisionValue.toObject();

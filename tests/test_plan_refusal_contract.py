@@ -105,7 +105,14 @@ def test_package_refusal_is_written_to_existing_operator_downlink(tmp_path):
                                         SimpleNamespace(mission_id="requested"))
     assert records[0][0][0] == "mission_refused"
     assert records[0][1]["requested_mission_id"] == "requested"
-    assert records[0][1]["decision"]["reason_code"] == "missing_capability"
+    payload = records[0][1]["decision"]
+    assert payload["plan_version"] == 1
+    assert payload["decision"] == "reject"
+    assert payload["reason_code"] == "missing_capability"
+    assert payload["reason"] == "No payload drop capability."
+    assert list(payload["missing_capabilities"]) == ["payload_drop"]
+    assert list(payload["unresolved_refs"]) == []
+    assert payload["question"] is None
     assert notified == [True]
 
 
