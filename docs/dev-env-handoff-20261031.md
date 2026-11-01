@@ -203,3 +203,7 @@ GPU 渲染可以与宿主网络模式同时启用，例如：
 python scripts/collect_sim_teacher_episodes.py \
   --sim-network host --sim-instance 0 --gpu-render --gpu-device 1 ...
 ```
+
+### GPU 渲染实测（2026-11-01）
+
+派生镜像 `multidetect/px4-sitl-gazebo:gpu` 已在本机构建（`docker build -f simulation/docker/gpu/Dockerfile -t multidetect/px4-sitl-gazebo:gpu simulation/docker/gpu`）。`scripts/check_sim_gpu_render.py` 在 GPU1 上：固定镜像（无 EGL 用户态库）回退软件渲染，1280×960 相机 1.46 帧/秒；派生镜像 EGL 厂商为 NVIDIA、渲染器 RTX 3080，2.71 帧/秒（同时有 3 个 CPU 渲染采集 worker 在跑，空载时差距应更大）。之后的采集默认用派生镜像加 `--gpu-render`。
