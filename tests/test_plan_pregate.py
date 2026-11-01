@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import sys
+from collections import Counter
+from pathlib import Path
 
 from multidetect.autonomy.mission_plan import PlanDecision
 from multidetect.autonomy.plan_pregate import preflight_plan_task
 from scripts.onboard_policy import build_mission_from_text
 from scripts.plan_from_task import compile_task
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from audit_plan_pregate_training import audit_training_file  # noqa: E402
 
 
 REFS = ("poi:gate (大门 / gate)", "poi:pad (起降坪 / landing pad / pad)")
@@ -35,6 +42,25 @@ def test_unknown_place_needs_explicit_move_and_map_evidence():
     assert preflight_plan_task("飞去地图上没有的Raven Pier，找到后再返航。", REFS).reason_code == "unknown_place"
     assert preflight_plan_task("Go to the gate and return home.", REFS) is None
     assert preflight_plan_task("Inspect the gate and return home.", REFS) is None
+
+
+def test_known_place_parser_accepts_dataset_and_mission_package_ref_shapes():
+    text_en = "Go to North Annex to check it and return to the launch point."
+    text_zh = "飞到北侧附楼后返航。"
+    assert preflight_plan_task(
+        text_en, ["poi:north_annex (北侧附楼 / North Annex / North Wing)"]
+    ) is None
+    assert preflight_plan_task(
+        "Go to Cedar Wharf for a look, then come back to base.",
+        ["poi:cedar_wharf (Cedar码头 | Cedar Wharf; Cedar Dock)"],
+    ) is None
+    assert preflight_plan_task(
+        text_zh, {"poi:north_annex": ["北侧附楼", "North Annex", "North Wing"]}
+    ) is None
+    assert preflight_plan_task(
+        text_en,
+        {"poi:north_annex": {"labels": ["北侧附楼", "North Annex"], "north_m": 1}},
+    ) is None
 
 
 def test_negated_capability_action_is_not_blocked():
@@ -81,3 +107,38 @@ def test_evaluation_compile_task_pregate_skips_model_post():
     assert json.loads(raw)["unresolved_refs"] == ["nonexistent Raven Pier"]
     assert attempts == [0.0]
     assert error is None
+
+
+def test_pregate_training_audit_has_no_executable_false_positives():
+    for version in ("r24", "r27"):
+        report = audit_training_file(
+            ROOT / f"artifacts/scratch/cx-planner-round/{version}/dataset/train.jsonl"
+        )
+        assert report["executable_false_positive_count"] == 0
+        assert report["unlabelled_annotation_gap_count"] == 133
+
+
+def test_pregate_eval_hit_counts_and_normal_task_false_positives():
+    expected = {
+        "plan-eval-tasks-v3.json": 8,
+        "plan-eval-tasks-v4.json": 8,
+        "plan-eval-tasks-v5.json": 56,
+        "plan-probe-tasks-return-home.json": 0,
+    }
+    for filename, expected_hits in expected.items():
+        document = json.loads((ROOT / "configs/onboard" / filename).read_text(encoding="utf-8"))
+        refs = document.get("refs", ())
+        hits = Counter()
+        false_positives = []
+        for item in document["tasks"]:
+            capabilities = item.get("capabilities", ())
+            decision = preflight_plan_task(
+                item["text"], item.get("refs", refs), capabilities,
+                "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+            )
+            if decision is not None:
+                hits[decision.reason_code] += 1
+                if not item.get("expect_invalid", False):
+                    false_positives.append(item["text"])
+        assert sum(hits.values()) == expected_hits, filename
+        assert false_positives == [], filename

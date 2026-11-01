@@ -67,16 +67,37 @@ def _normalized(value: str) -> str:
 
 def _known_names(refs: Mapping[str, Any] | Sequence[str] | None) -> set[str]:
     names: set[str] = set()
+
+    def add_label(value: Any) -> None:
+        if isinstance(value, str):
+            names.add(_normalized(value))
+            for alias in re.split(r"[/|;]", value):
+                names.add(_normalized(alias))
+        elif isinstance(value, Mapping):
+            for key in ("name", "label", "labels", "aliases", "alias"):
+                if key in value:
+                    add_label(value[key])
+        elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+            for item in value:
+                add_label(item)
+
     if isinstance(refs, Mapping):
-        values = refs.keys()
+        for raw, labels in refs.items():
+            value = str(raw)
+            names.add(_normalized(value))
+            add_label(labels)
     else:
         values = refs or ()
-    for raw in values:
-        value = str(raw)
-        names.add(_normalized(value))
-        names.add(_normalized(value.split("(", 1)[0]))
-        for alias_group in re.findall(r"\(([^)]*)\)", value):
-            names.update(_normalized(alias) for alias in re.split(r"[/|]", alias_group))
+        if isinstance(values, str):
+            values = (values,)
+        for raw in values:
+            value = str(raw)
+            base, separator, remainder = value.partition("(")
+            names.add(_normalized(value))
+            names.add(_normalized(base))
+            if separator:
+                label_text = remainder.rsplit(")", 1)[0]
+                add_label(label_text)
     return {name for name in names if name}
 
 
@@ -90,7 +111,18 @@ def _matches_known(normalized: str, names: set[str]) -> bool:
         return True
     if re.search(r"[\u3400-\u9fff]", normalized):
         return any(name and re.search(r"[\u3400-\u9fff]", name) and name in normalized for name in names)
-    return False
+    # English task wording may continue with an operational clause (for
+    # example, "North Annex to check it" or "Cedar Wharf for a look"). Only
+    # recognized clause boundaries permit the suffix; "North Annex East" stays
+    # a distinct place name.
+    return any(
+        name and re.match(
+            rf"^{re.escape(name)}\s+(?:to|for|and|then|before|after|while|but)\b",
+            normalized,
+        )
+        for name in names
+        if not re.search(r"[\u3400-\u9fff]", name)
+    )
 
 
 def _unknown_place(text: str, refs: Mapping[str, Any] | Sequence[str] | None) -> PlanDecision | None:

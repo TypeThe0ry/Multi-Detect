@@ -44,9 +44,9 @@
 
 契约开启的 r24 v5 总分在轮次报告中记为 81/126，但没有对应的 r24 逐题 v5 缓存，因此不能可靠计算该组合的预检估算。v5 估算使用指定的 r24 契约关闭逐题缓存。
 
-## 误拦与数据限制
+## 误拦与训练集审计
 
-规划 holdout 和返航探测共 241 题，预检没有误拦任何 `expect_invalid=false` 的题。误拦清单为空。v4/v5 的范围外漏拦是 `query_ungrounded`：v4 两题，v5 以下 14 题，均未被预检拦下：
+规划 holdout 和返航探测共 241 题，预检没有误拦任何正常题。v3/v4/v5/返航探测的离线重算由 `scripts/audit_plan_pregate_training.py` 和 `tests/test_plan_pregate.py` 固定；命中分别为 8、8、56、0，类别分布与上表一致。v4/v5 的范围外漏拦是 `query_ungrounded`：v4 两题，v5 以下 14 题，均未被预检拦下：
 
 1. `检查大门，但不要凭空检查救护车，然后返航。`
 2. `Inspect the gate and return home, but do not invent a fire truck target.`
@@ -63,8 +63,23 @@
 13. `到桥查看桥面，不要凭空找救护车，结束后回家。`
 14. `Inspect the bridge and return home; do not add a made-up ambulance inspection.`
 
-仓库中没有 r24 配方生成的完整 5,460 行训练集（该轮数据记录的是临时目录 `.tmp/r24-data`）。因此不能声称已完成用户要求的“r24 训练集全部任务文本”检查。当前可读的 `artifacts/datasets/plan-sft-v4/train.jsonl` 是 1,500 行 replay 基集，不是 r24 全量训练集；对这 1,500 条任务文本运行同一规则，命中 0 条。推荐配置启用前，应对实际 r24 train JSONL 重跑审计并确认全部命中都属于拒绝样本。
+训练集审计直接读取（不修改）以下 JSONL，并逐行使用该行自己的 `refs`、`capabilities` 调用 `preflight_plan_task`：
+
+| 集合 | 行数 | 预检命中 | 缺能力 | 未知地点 | 命中但目标可执行计划 | refs/标注缺口 |
+|---|---:|---:|---:|---:|---:|---:|
+| r24 train | 5,460 | 458 | 240 | 218 | 0 | 133 |
+| r27 train | 5,940 | 480 | 267 | 213 | 0 | 133 |
+
+两轮的 133 条标注缺口完全相同：该行 `refs` 为 `null`，但目标计划含有无法由本行地图解析的 `target_ref`（例如 `poi:tower`、`poi:south`）。它们不是 refs 标签解析造成的误拦，审计脚本在 `unlabelled_annotation_gaps` 中逐条列出行号、`sample_id`、任务文本和未解析引用；命令如下：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python \
+  scripts/audit_plan_pregate_training.py
+```
+
+带括号标签的正常任务（包括 `North Annex`、`Cedar Wharf` 以及中文名/英文名/别名混合形式）在两轮训练集中的“命中但目标可执行计划”均为 0。此前记录的每轮 213 条正常任务命中，复核后分为 80 条可由 refs 名称/别名解析修复的误拦，以及 133 条目标引用无法由该行地图解析的数据缺口；后一类按上表逐条报告，不通过放宽 unknown-place 规则处理。
 
 ## 建议
 
-建议将 `planning_pregate: true` 作为推荐配置候选，保持 `planning_decision_contract: false`。holdout 上目标类别全命中、正常题零误拦，且不依赖拒绝提示词；预检仍需保持代码默认关闭。由于 r24 完整训练集暂不可读，正式切换推荐配置前先完成该训练集审计，并确保任务包提供完整的 refs/别名与有效能力集合。查询编造继续由原意图校验器负责。
+建议将 `planning_pregate: true` 作为推荐配置候选，保持 `planning_decision_contract: false`。holdout 上目标类别全命中、正常题零误拦，训练集的可执行目标误拦为 0；启用前仍应确保任务包提供完整的 refs/别名与有效能力集合。查询编造继续由原意图校验器负责。
