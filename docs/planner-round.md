@@ -420,3 +420,22 @@ query_ungrounded 九类各 14 题，中文和英文各 63 题。题目加入多�
 `scripts/run_model_round_eval.py --stages planning-v5` 可单独评测；
 `scripts/run_planner_round.py` 只有在传入 `--include-planning-v5` 时才会把 v5 加入候选
 和基线评测，默认仍只跑 v3/v4，旧轮次的比较口径不变。
+
+### planning-v5 首次对比：现役 r24（契约关闭）vs r27（契约开启）
+
+结果在 `artifacts/evaluation/planning-v5-r24-vs-r27/`（126 题，精确或正确拒绝）：
+
+| 类别 | r24 | r27 |
+|---|---:|---:|
+| 合计 | 66/126 | **81/126** |
+| missing_payload_drop | 3/14 | **14/14** |
+| unknown_place | 2/14 | **12/14** |
+| query_ungrounded | 2/14 | 3/14 |
+| fixed_wing_hover | 14/14 | 13/14 |
+| fixed_wing_target_land | 11/14 | 8/14 |
+| return_intent | 10/14 | 7/14 |
+| return_negated_land | 7/14 | 7/14 |
+| query_grounding | 8/14 | 8/14 |
+| ref_alias | 9/14 | 9/14 |
+
+r27 总分高 12 个百分点，提升全部来自结构化拒绝的两类；但返航意图（-3）和固定翼定点降落（-3）退步，与 r27 在返航探测、v4 上掉的题一致。r28 正好针对这两类补数据。v5 证实了 v4 的判断方向，且单类 14 题让差距可信得多。之后的替换判定把 v5 纳入（`--include-planning-v5`）。
