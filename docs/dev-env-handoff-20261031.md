@@ -207,3 +207,26 @@ python scripts/collect_sim_teacher_episodes.py \
 ### GPU 渲染实测（2026-11-01）
 
 派生镜像 `multidetect/px4-sitl-gazebo:gpu` 已在本机构建（`docker build -f simulation/docker/gpu/Dockerfile -t multidetect/px4-sitl-gazebo:gpu simulation/docker/gpu`）。`scripts/check_sim_gpu_render.py` 在 GPU1 上：固定镜像（无 EGL 用户态库）回退软件渲染，1280×960 相机 1.46 帧/秒；派生镜像 EGL 厂商为 NVIDIA、渲染器 RTX 3080，2.71 帧/秒（同时有 3 个 CPU 渲染采集 worker 在跑，空载时差距应更大）。之后的采集默认用派生镜像加 `--gpu-render`。
+
+### 用现役模型跑任务套件
+
+夜间回归默认仍使用原有套件配置。指定 `--model-set r21idr3-r24plan`（或设置
+`MULTIDETECT_MODEL_SET=r21idr3-r24plan`）会切换到身份 r21id-r3、规划 r24 的四份套件配置；
+任务内容和套件参数保持原样。Linux 上先准备运行环境，再 dry-run 检查计划：
+
+```bash
+export PYTHONPATH=src:.
+export PYTHONUTF8=1
+export TMPDIR="$PWD/.tmp"
+export MULTIDETECT_SIM_GPU=1
+export MULTIDETECT_SIM_IMAGE=multidetect/px4-sitl-gazebo:gpu
+mkdir -p "$TMPDIR"
+
+python scripts/run_nightly_regression.py \
+  --model-set r21idr3-r24plan --dry-run \
+  --out /data/scratch/cx-nightly/dry-check
+```
+
+dry-run 会报告 SITL 锁路径、控制/遥测 UDP 端口（`14540/14541`）、传给套件子进程的
+GPU/镜像环境变量和每套实际配置及命令，不启动 Docker。确认后去掉 `--dry-run` 即可运行；
+也可用 `--no-gpu-render` 关闭 GPU 渲染，或用 `--sim-image IMAGE` 覆盖镜像。

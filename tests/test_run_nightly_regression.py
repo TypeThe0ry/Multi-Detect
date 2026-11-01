@@ -43,6 +43,75 @@ def test_dry_run_prints_all_suites(tmp_path, capsys):
     assert capsys.readouterr().out.count('"suite"') == 4 + int(e2e)
 
 
+def test_model_set_dry_run_reports_linux_runtime_settings(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "2")
+    monkeypatch.setenv("MULTIDETECT_SIM_IMAGE", "multidetect/px4-sitl-gazebo:gpu")
+    assert run([
+        "--model-set", "r21idr3-r24plan", "--dry-run", "--out", str(tmp_path),
+        "--lock-path", "/tmp/nightly-sitl.lock",
+    ]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    runtime = rows[0]
+    assert runtime == {
+        "model_set": "r21idr3-r24plan",
+        "lock_path": "/tmp/nightly-sitl.lock",
+        "sim_control_port": 14540,
+        "sim_telemetry_port": 14541,
+        "sim_environment": {
+            "MULTIDETECT_SIM_GPU": "2",
+            "MULTIDETECT_SIM_IMAGE": "multidetect/px4-sitl-gazebo:gpu",
+            "MULTIDETECT_SITL_LOCK": "/tmp/nightly-sitl.lock",
+        },
+    }
+    configs = {
+        Path(row["command"][row["command"].index("--suite") + 1]).name
+        for row in rows[1:]
+    }
+    assert configs == {
+        "suite-main-r21idr3-r24plan.json",
+        "suite-airframes-r21idr3-r24plan.json",
+        "suite-follow-r21idr3-r24plan.json",
+        "suite-robustness-r21idr3-r24plan.json",
+    }
+
+
+def test_model_set_can_be_selected_from_environment(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_MODEL_SET", "r21idr3-r24plan")
+    assert run(["--dry-run", "--suites", "main", "--out", str(tmp_path)]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rows[0]["model_set"] == "r21idr3-r24plan"
+    assert Path(rows[1]["command"][rows[1]["command"].index("--suite") + 1]).name == (
+        "suite-main-r21idr3-r24plan.json"
+    )
+
+
+def test_sim_environment_is_passed_to_suite_process(tmp_path, monkeypatch):
+    import scripts.run_nightly_regression as mod
+
+    calls = []
+
+    class NoopLock:
+        def __init__(self, *_args, **_kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+
+    monkeypatch.setattr(mod, "SitlLock", NoopLock)
+    monkeypatch.setattr(mod, "preflight", lambda *a, **k: None)
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
+    monkeypatch.setenv("MULTIDETECT_SIM_IMAGE", "multidetect/px4-sitl-gazebo:gpu")
+    def fake(cmd, **kwargs):
+        calls.append(kwargs["env"])
+        return SimpleNamespace(returncode=0)
+
+    assert run([
+        "--suites", "main", "--out", str(tmp_path / "out"),
+        "--lock-path", str(tmp_path / "lock"),
+    ], runner=fake) == 0
+    assert calls[0]["MULTIDETECT_SIM_GPU"] == "1"
+    assert calls[0]["MULTIDETECT_SIM_IMAGE"] == "multidetect/px4-sitl-gazebo:gpu"
+    assert calls[0]["MULTIDETECT_SITL_LOCK"] == str((tmp_path / "lock").resolve())
+
+
 def test_failure_does_not_stop_following(tmp_path):
     calls = []
     def fake(cmd, **kwargs):

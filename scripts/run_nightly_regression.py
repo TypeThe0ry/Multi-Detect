@@ -1,6 +1,6 @@
 """Run all SIM mission suites sequentially and merge their reports."""
 from __future__ import annotations
-import argparse, json, os, signal, subprocess, sys, time
+import argparse, json, os, shutil, signal, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,25 @@ DEFAULT_SUITES = {
     "robustness": ROOT / "configs/onboard/suite-robustness.json",
     "e2e": ROOT / "configs/onboard/suite-e2e-operator.json",
 }
+MODEL_SET_SUITES = {
+    "default": DEFAULT_SUITES,
+    "r21idr3-r24plan": {
+        "main": ROOT / "configs/onboard/suite-main-r21idr3-r24plan.json",
+        "airframes": ROOT / "configs/onboard/suite-airframes-r21idr3-r24plan.json",
+        "follow": ROOT / "configs/onboard/suite-follow-r21idr3-r24plan.json",
+        "robustness": ROOT / "configs/onboard/suite-robustness-r21idr3-r24plan.json",
+    },
+}
+SIM_ENV_KEYS = (
+    "MULTIDETECT_SIM_GPU",
+    "MULTIDETECT_SIM_IMAGE",
+    "MULTIDETECT_SIM_GPU_DEVICES",
+    "MULTIDETECT_SIM_GPU_AVOID",
+    "MULTIDETECT_SIM_NETWORK",
+    "MULTIDETECT_SITL_LOCK",
+)
+SIM_CONTROL_PORT = 14540
+SIM_TELEMETRY_PORT = 14541
 
 
 def pid_alive(pid: int) -> bool:
@@ -86,7 +105,8 @@ def load_suite_report(path: Path) -> dict[str, Any]:
 
 def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--suites", nargs="+", default=list(DEFAULT_SUITES), choices=list(DEFAULT_SUITES))
+    p.add_argument("--model-set", choices=list(MODEL_SET_SUITES), default=os.environ.get("MULTIDETECT_MODEL_SET", "default"))
+    p.add_argument("--suites", nargs="+", default=None)
     p.add_argument("--episodes", type=int, default=1)
     p.add_argument("--suite-episodes", action="append", default=[], metavar="NAME=N")
     p.add_argument("--fire-hydrant-episodes", type=int, default=None)
@@ -96,20 +116,40 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p.add_argument("--min-free-disk-gb", type=float, default=0.0)
     p.add_argument("--disk-check-every", type=int, default=1)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--gpu-render", action=argparse.BooleanOptionalAction, default=None)
+    p.add_argument("--sim-image", default=None, metavar="IMAGE")
     args = p.parse_args(argv)
+    if args.model_set not in MODEL_SET_SUITES:
+        p.error(f"unknown --model-set: {args.model_set}")
+    suite_paths = MODEL_SET_SUITES[args.model_set]
+    suites = list(suite_paths) if args.suites is None else args.suites
+    unknown_suites = sorted(set(suites) - set(suite_paths))
+    if unknown_suites:
+        p.error(f"unknown suites for model set {args.model_set}: {', '.join(unknown_suites)}")
     if args.episodes < 1: p.error("--episodes must be positive")
-    counts = {name: args.episodes for name in args.suites}
+    counts = {name: args.episodes for name in suites}
     for item in args.suite_episodes:
         name, sep, value = item.partition("=")
         if name not in counts or not sep or int(value) < 1: p.error(f"invalid --suite-episodes: {item}")
         counts[name] = int(value)
-    if args.fire_hydrant_episodes is not None: counts["robustness"] = args.fire_hydrant_episodes
+    if args.fire_hydrant_episodes is not None:
+        if "robustness" not in counts:
+            p.error("--fire-hydrant-episodes requires the robustness suite")
+        counts["robustness"] = args.fire_hydrant_episodes
+    child_env = os.environ.copy()
+    if args.gpu_render is not None:
+        child_env["MULTIDETECT_SIM_GPU"] = "1" if args.gpu_render else "0"
+    if args.sim_image is not None:
+        child_env["MULTIDETECT_SIM_IMAGE"] = args.sim_image
+    lock_path = args.lock_path.expanduser().resolve()
+    child_env["MULTIDETECT_SITL_LOCK"] = str(lock_path)
+    forwarded_sim_env = {key: child_env[key] for key in SIM_ENV_KEYS if key in child_env}
     out = (args.out or (ROOT.parent / "_scratch" / "cx-nightly" / ("nightly-" + datetime.now().strftime("%Y%m%d-%H%M%S")))).resolve()
     out.mkdir(parents=True, exist_ok=True)
     previous_path = args.previous_report or (out.parent / "nightly-report.json")
     plans = []
-    for name in args.suites:
-        config = DEFAULT_SUITES[name]
+    for name in suites:
+        config = suite_paths[name]
         if name == "e2e" and not (config.exists() and (ROOT / "scripts/run_e2e_operator_suite.py").exists()):
             continue
         suite_out = out / name
@@ -117,15 +157,22 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         if name == "e2e": cmd = [sys.executable, str(ROOT / "scripts/run_e2e_operator_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name])]
         plans.append((name, cmd, suite_out))
     if args.dry_run:
+        print(json.dumps({
+            "model_set": args.model_set,
+            "lock_path": str(lock_path),
+            "sim_control_port": SIM_CONTROL_PORT,
+            "sim_telemetry_port": SIM_TELEMETRY_PORT,
+            "sim_environment": forwarded_sim_env,
+        }, ensure_ascii=False))
         for name, cmd, _ in plans: print(json.dumps({"suite": name, "episodes": counts[name], "command": cmd}, ensure_ascii=False))
         return 0
     records = []
-    with SitlLock(args.lock_path):
+    with SitlLock(lock_path):
         for name, cmd, suite_out in plans:
             started = now_iso(); code = 0; error = None
             try:
                 preflight(args.min_free_disk_gb); suite_out.mkdir(parents=True, exist_ok=True)
-                completed = runner(cmd, cwd=ROOT, check=False)
+                completed = runner(cmd, cwd=ROOT, check=False, env=child_env)
                 code = completed if isinstance(completed, int) else getattr(completed, "returncode", 0)
             except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
                 code = getattr(exc, "returncode", 1) or 1; error = str(exc)
@@ -137,7 +184,7 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
             if rp.exists(): report = load_suite_report(rp)
             records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "report": str(rp)})
     merged = {"generated_at": now_iso(), "suites": records,
-              "provenance": build_provenance(root=ROOT, config_paths=[DEFAULT_SUITES[n] for n in args.suites if DEFAULT_SUITES[n].is_file()], command=sys.argv)}
+              "provenance": build_provenance(root=ROOT, config_paths=[suite_paths[n] for n in suites if suite_paths[n].is_file()], command=sys.argv)}
     previous = load_suite_report(previous_path) if previous_path.exists() else None
     merged["regressions"] = compare_reports(merged, previous)
     (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
