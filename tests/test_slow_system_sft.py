@@ -262,6 +262,81 @@ def test_build_dataset_keeps_world_splits_and_labels_true_vs_distractor(tmp_path
         assert {"confirm_target", "reject_track"} <= decisions
 
 
+def test_task_text_variants_add_swapped_identity_pair_only_when_enabled(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    index = root / "index.json"
+    variants = [
+        {"requested_category": "pickup", "task_text": "找皮卡", "task_text_en": "Find the pickup."},
+        {"requested_category": "suv", "task_text": "找 SUV", "task_text_en": "Find the SUV."},
+    ]
+    worlds = [
+        {"world_id": f"gen-pair-{split}", "split": split, "asset_mode": "fuel_v1",
+         "task_text": "找皮卡", "task_text_en": "Find the pickup.",
+         "target_combo": {"category": "pickup"}, "task_text_variants": variants}
+        for split in ("train", "val", "test")
+    ]
+    index.write_text(json.dumps({"asset_mode": "fuel_v1", "worlds": worlds}), encoding="utf-8")
+    monkeypatch.setattr(builder, "ROOT", root)
+    monkeypatch.setattr(runtime, "ROOT", root)
+    monkeypatch.setattr(builder, "_relative", lambda path: Path(path).name)
+    monkeypatch.setattr(builder, "_sdf_sizes", lambda path: {})
+    monkeypatch.setattr(builder, "load_sdf_obstacles", lambda path: [])
+
+    frames = []
+    true = {"target_id": "target_true_pickup", "category": "pickup", "category_words": ["pickup"],
+            "class": "pickup", "asset_slug": "pickup", "true_target": True}
+    suv = {"target_id": "paired_suv", "category_words": ["car", "suv"],
+           "class": "suv", "asset_slug": "suv", "true_target": False}
+    projected = [
+        {"target": true, "box": (10.0, 10.0, 50.0, 50.0), "class": "pickup", "color": None,
+         "range_m": 10.0, "visible_fraction": 1.0},
+        {"target": suv, "box": (60.0, 10.0, 90.0, 40.0), "class": "suv", "color": None,
+         "range_m": 10.0, "visible_fraction": 1.0},
+    ]
+    for split in ("train", "val", "test"):
+        world = f"gen-pair-{split}"
+        frame = root / f"{world}.png"
+        frame.write_bytes(b"frame")
+        slug = {"task_text": "找皮卡", "task_text_en": "Find the pickup.",
+                "task_category": "pickup", "true_target": true,
+                "task_text_variants": variants}
+        frames.append(("campaign", world, split, frame, (100, 100), slug, projected,
+                       {}, "before", {}, None))
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+
+    off_a = root / "off-a"
+    off_b = root / "off-b"
+    builder.build_dataset([], off_a, index=index)
+    no_variants = [
+        (*frame[:5], {key: value for key, value in frame[5].items() if key != "task_text_variants"}, *frame[6:])
+        for frame in frames
+    ]
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(no_variants))
+    builder.build_dataset([], off_b, index=index, task_text_variants=False)
+    for split in ("train", "val", "test"):
+        assert (off_a / f"{split}.jsonl").read_bytes() == (off_b / f"{split}.jsonl").read_bytes()
+    assert (off_a / "manifest.json").read_bytes() == (off_b / "manifest.json").read_bytes()
+
+    enabled = root / "enabled"
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+    builder.build_dataset([], enabled, index=index, task_text_variants=True)
+    train_rows = [json.loads(line) for line in (enabled / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    swapped = [row for row in train_rows if row["task_text"] in {"Find the SUV.", "找 SUV"}]
+    rejected = next(row for row in swapped if row["label_type"] == "confusable_negative")
+    accepted = next(row for row in swapped if row["label_type"] == "confusable_positive")
+    assert rejected["assistant_target"]["decision"] == "reject_track"
+    assert rejected["target_id"] == "target_true_pickup"
+    assert rejected["confusable_pair_type"] == "suv->pickup"
+    assert rejected["assistant_target"]["args"]["track_id"] == "track-1"
+    assert accepted["assistant_target"]["decision"] == "confirm_target"
+    assert accepted["target_id"] == "paired_suv"
+    assert accepted["confusable_pair_type"] == "suv->pickup"
+    assert accepted["assistant_target"]["args"]["track_id"] == "track-2"
+    assert accepted["candidates"][1]["box_xyxy_normalized"] == [0.6, 0.1, 0.9, 0.4]
+    assert all(row["split"] == "train" for row in swapped)
+    test_rows = [json.loads(line) for line in (enabled / "test.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(row["task_text"] == "Find the SUV." for row in test_rows)
 def test_fuel_worlds_build_natural_bilingual_tasks_and_focused_decisions(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     truth_dir = root / "configs/scenarios/generated-v2"
