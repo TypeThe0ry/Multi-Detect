@@ -1,0 +1,84 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 160,
+    "size_aware_search": true,
+    "fast_identity": true
+  },
+  "missions": [
+    {
+      "id": "standard-vtol-w0016-ambulance-return",
+      "index": "configs/scenarios/vtol-v2/standard_vtol/index.json",
+      "split": "train",
+      "world": "gen_v2_w0016",
+      "airframe": "standard_vtol",
+      "takeoff_method": "vtol",
+      "task_text": "Find the white ambulance and return home.",
+      "expect": {
+        "skills": [
+          "area_search",
+          "return_home"
+        ],
+        "confirmed": true,
+        "min_safety_pass": true
+      },
+      "safety": {
+        "min_relative_altitude_m": 5,
+        "max_return_distance_m": 120
+      },
+      "steps": 160,
+      "max_episode_s": 900
+    },
+    {
+      "id": "rc-cessna-w0016-ambulance-known-limit",
+      "index": "configs/scenarios/fixed-wing-v2/index.json",
+      "split": "train",
+      "world": "gen_v2_w0016",
+      "airframe": "rc_cessna_runway",
+      "takeoff_method": "runway",
+      "task_text": "Find the white ambulance and return home.",
+      "expect": {
+        "skills": [
+          "area_search",
+          "return_home"
+        ],
+        "confirmed": true,
+        "min_safety_pass": true
+      },
+      "safety": {
+        "min_relative_altitude_m": 5,
+        "max_return_distance_m": 300
+      },
+      "steps": 160,
+      "max_episode_s": 900
+    },
+    {
+      "id": "rc-cessna-w0031-ambulance-negative",
+      "index": "configs/scenarios/fixed-wing-v2/index.json",
+      "split": "val",
+      "world": "gen_v2_w0031",
+      "airframe": "rc_cessna_runway",
+      "takeoff_method": "runway",
+      "not_found": true,
+      "task_text": "Find the ambulance and return home.",
+      "expect": {
+        "skills": [
+          "area_search",
+          "return_home"
+        ],
+        "confirmed": false,
+        "min_safety_pass": true
+      },
+      "safety": {
+        "min_relative_altitude_m": 5,
+        "max_return_distance_m": 300
+      },
+      "steps": 160,
+      "max_episode_s": 900
+    }
+  ]
+}
