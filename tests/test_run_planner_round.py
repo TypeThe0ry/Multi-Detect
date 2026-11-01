@@ -160,6 +160,19 @@ def test_r27_recipe_transmits_counts_and_enables_contract(tmp_path, monkeypatch,
     assert output.count("--decision-contract") == 4
 
 
+def test_r28_recipe_transmits_r27_base_and_new_counts(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r28"),
+        "--r28-recipe", "--r28-stop-count", "80", "--r28-fixed-wing-count", "30",
+        "--r28-return-count", "30",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r27-recipe --r27-refusal-count 40 --r27-complex-count 400" in output
+    assert "--r28-recipe --r28-stop-count 80 --r28-fixed-wing-count 30 --r28-return-count 30" in output
+    assert output.count("--decision-contract") == 4
+
+
 def test_replacement_reasons_use_configured_baseline_label():
     baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
                 "planning-v4": {"category_metrics": {}}}

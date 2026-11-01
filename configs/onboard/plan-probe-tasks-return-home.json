@@ -1,0 +1,18 @@
+{"refs": ["poi:gate (大门 / gate)", "zone:people (人员区域 / people area)", "route:patrol (巡逻路线 / patrol route)", "zone:site (场地 / the site)"],
+ "tasks": [
+  {"id": "p01", "text": "到大门检查位置，然后返回起飞前指定的 home。", "expect": [["goto", "return_home"], ["goto", "inspect", "return_home"], ["goto", "hover", "return_home"]]},
+  {"id": "p02", "text": "到大门看一下，然后返航。", "expect": [["goto", "return_home"], ["goto", "hover", "return_home"]]},
+  {"id": "p03", "text": "去大门，然后回到起飞点。", "expect": [["goto", "return_home"]]},
+  {"id": "p04", "text": "飞到大门上空，然后回 home。", "expect": [["goto", "return_home"]]},
+  {"id": "p05", "text": "到大门检查一下，再返回 home 点。", "expect": [["goto", "return_home"], ["goto", "inspect", "return_home"], ["goto", "hover", "return_home"]]},
+  {"id": "p06", "text": "数一数场地里的交通锥，数完回到 home。", "expect": [["count", "return_home"]]},
+  {"id": "p07", "text": "沿巡逻路线巡一圈找人，然后返回起飞前的 home。", "expect": [["patrol", "return_home"]]},
+  {"id": "p08", "text": "在人员区域监视三分钟，看有没有人，结束后返回 home。", "expect": [["monitor", "return_home"]]},
+  {"id": "p09", "text": "场地里的电瓶车给我报个总数，凑够十二辆就停手。", "expect": [["count", "return_home"]]},
+  {"id": "p10", "text": "数一下场地里的交通锥，然后返航。", "expect": [["count", "return_home"]]},
+  {"id": "p11", "text": "Go to the gate, check the position, then return to the home set before takeoff.", "expect": [["goto", "return_home"], ["goto", "inspect", "return_home"], ["goto", "hover", "return_home"]]},
+  {"id": "p12", "text": "Fly to the gate and come back home.", "expect": [["goto", "return_home"]]},
+  {"id": "p13", "text": "到大门，然后在大门降落。", "expect": [["goto", "land"]]},
+  {"id": "p14", "text": "找到场地里的人，记录位置后返航。", "expect": [["area_search", "return_home"], ["area_search", "record", "return_home"]]},
+  {"id": "p15", "text": "在场地里找那辆白色轿车，找到后在原地降落。", "expect": [["area_search", "land"], ["area_search", "record", "land"]]}
+ ]}

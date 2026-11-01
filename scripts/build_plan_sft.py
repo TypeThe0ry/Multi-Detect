@@ -1775,6 +1775,213 @@ def r27_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r28_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add stop-at-threshold intent and paired multirotor/fixed-wing contrasts."""
+    rows = []
+    labels = {ref: f"{zh} / {en}" for ref, zh, en in ZONES + POIS + ROUTES}
+
+    def emit(text, refs, capabilities, target, family, *, valid, reason_code=None):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        if valid:
+            validate_mission_plan(target, capabilities=frozenset(capabilities))
+            findings = check_plan_intent(target, text, tuple(refs))
+            capability = capability_violations(
+                target, capabilities,
+                airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+            )
+            if findings or capability:
+                raise ValueError(f"r28 positive validation failed ({family}): {findings} {capability}: {text}")
+        else:
+            validate_plan_decision(target)
+            if reason_code != "missing_capability":
+                raise ValueError(f"r28 unsupported refusal reason for {family}: {reason_code}")
+        seen.add(key)
+        rows.append({
+            "sample_id": f"plan-r28-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+            "kind": "mission_plan", "world": "synthetic_plan_r28", "family": family,
+            "pair_role": "positive" if valid else "refusal", "reason_code": reason_code,
+            "task_text": text, "refs": list(refs), "capabilities": list(capabilities),
+            "expected_valid": valid, "expected_findings": [] if valid else [reason_code],
+            "prompt": plan_prompt(text, refs=tuple(refs), capabilities=frozenset(capabilities),
+                                  include_decision_contract=True),
+            "assistant_target": target,
+        })
+        return True
+
+    def plan(text, steps, report):
+        return {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+
+    def terminal(skill):
+        return S("s2", skill, {}, None, None)
+
+    stop_zh = (
+        "凑够{n}辆就停手", "数到{n}辆为止", "够{n}辆就收工", "累计到{n}辆就停止计数",
+        "达到{n}辆后别再数", "最多数到{n}辆就结束", "数满{n}辆便停下", "看到第{n}辆就停",
+    )
+    stop_en = (
+        "stop once you reach {n}", "count only until you get to {n}", "call it done at {n}",
+        "stop counting when you have {n}", "quit once the tally reaches {n}", "count up to {n} and stop",
+        "wrap up when you hit {n}", "do not count past {n}",
+    )
+    land_zh = ("数够{n}辆后就地降落", "达到{n}辆便降落", "数到{n}辆就落地结束", "凑齐{n}辆后着陆")
+    land_en = ("land here once you reach {n}", "land after counting {n}", "touch down when the count reaches {n}",
+               "stop at {n} and land here")
+    object_pairs = [("vehicles", "车辆"), ("cars", "汽车"), ("bicycles", "自行车"),
+                    ("motorcycles", "摩托车"), ("people", "行人"), ("trucks", "卡车")]
+    zone_pool = [item for item in ZONES if item[0] != "zone:all"]
+    route_pool = ROUTES
+    index = 0
+    stop_emitted = 0
+    while stop_emitted < args.r28_stop_count:
+        if index > args.r28_stop_count * 100 + 1000:
+            raise ValueError(f"r28 stop-threshold template pool exhausted: {stop_emitted}/{args.r28_stop_count}")
+        index += 1
+        number = (6, 8, 10, 12, 15, 20)[(index // 2) % 6]
+        zone, zone_zh, zone_en = zone_pool[(index // 4) % len(zone_pool)]
+        object_en, object_zh = object_pairs[(index // 8) % len(object_pairs)]
+        use_zh = index % 2 == 0
+        land = index % 4 == 0
+        mode = index % 3
+        route, route_zh, route_en = route_pool[(index // 6) % len(route_pool)]
+        if mode == 0 and use_zh:
+            ending = (land_zh if land else stop_zh)[(index // 4) % (len(land_zh) if land else len(stop_zh))].format(n=zh_number(number))
+            text = f"在{zone_zh}里清点{object_zh}，{ending}。"
+        elif mode == 0:
+            ending = (land_en if land else stop_en)[(index // 4) % (len(land_en) if land else len(stop_en))].format(n=number)
+            text = f"Count {object_en} in {zone_en}; {ending}."
+        elif mode == 1 and use_zh:
+            ending = (land_zh if land else stop_zh)[(index // 4) % (len(land_zh) if land else len(stop_zh))].format(n=zh_number(number))
+            text = f"在{zone_zh}搜索{object_zh}并报数，{ending}。"
+        elif mode == 1:
+            ending = (land_en if land else stop_en)[(index // 4) % (len(land_en) if land else len(stop_en))].format(n=number)
+            text = f"Search {zone_en} for {object_en} and report the tally; {ending}."
+        elif use_zh:
+            ending = (land_zh if land else stop_zh)[(index // 4) % (len(land_zh) if land else len(stop_zh))].format(n=zh_number(number))
+            text = f"沿{route_zh}巡逻并观察{object_zh}，完成{zh_number(number)}圈后停手" + ("并就地降落。" if land else "。")
+        else:
+            text = f"Patrol {route_en} while watching for {object_en}; stop after completing {number} loops" + (" and land here." if land else ".")
+        refs = (f"{zone} ({labels[zone]})",)
+        end_skill = "land" if land else "return_home"
+        if mode == 0:
+            steps = [S("s1", "count", {"region": zone, "query": object_en, "max_count": number}, "s2", "s2"),
+                     terminal(end_skill)]
+            report = ["count", "positions"]
+        elif mode == 1:
+            steps = [S("s1", "area_search", {"region": zone, "query": object_en}, "s2", "s3"),
+                     S("s2", "count", {"region": zone, "query": object_en, "max_count": number}, "s3", "s3"),
+                     S("s3", end_skill, {}, None, None)]
+            report = ["findings", "count", "positions"]
+        else:
+            refs = (f"{route} ({labels[route]})",)
+            steps = [S("s1", "patrol", {"route_ref": route, "query": object_en, "loops": number}, "s2", "s2"),
+                     terminal(end_skill)]
+            report = ["alerts"]
+        target = plan(text, steps, report)
+        if emit(text, refs, (), target, "r28_stop_threshold", valid=True):
+            stop_emitted += 1
+
+    return_zh = ("场地上的电瓶车帮我点一下数，到{n}辆就别再数了。",
+                 "数一数院子里的电瓶车，数到{n}辆为止。",
+                 "统计停车场里的电瓶车，够{n}辆就收工。",
+                 "帮我清点场地中的电瓶车，累计到{n}辆后停止。")
+    return_en = ("Count electric scooters in the lot and stop once you reach {n}.",
+                 "Tally the electric scooters in the yard; quit when the count gets to {n}.",
+                 "Count the electric scooters in the field, up to {n} and no further.",
+                 "Report the electric scooters in the lot and stop counting at {n}.")
+    return_zones = [("zone:field", "场地", "the field"), ("zone:yard", "院子", "the yard"),
+                    ("zone:lot", "停车场", "the lot")]
+    index = 0
+    return_emitted = 0
+    while return_emitted < args.r28_return_count:
+        if index > args.r28_return_count * 100 + 1000:
+            raise ValueError(f"r28 return-intent template pool exhausted: {return_emitted}/{args.r28_return_count}")
+        index += 1
+        number = (8, 10, 12, 15, 20)[(index // 2) % 5]
+        zone, zone_zh, zone_en = return_zones[(index // 8) % len(return_zones)]
+        use_zh = index % 2 == 0
+        forms = return_zh if use_zh else return_en
+        text = forms[(index // 2) % len(forms)].format(n=zh_number(number) if use_zh else number)
+        query = "electric scooters" if not use_zh else "电瓶车"
+        target = plan(text, [S("s1", "count", {"region": zone, "query": query,
+                                                   "max_count": number}, "s2", "s2"),
+                             terminal("return_home")], ["count", "positions"])
+        if emit(text, (f"{zone} ({labels[zone]})",), (), target, "r28_return_intent", valid=True):
+            return_emitted += 1
+
+    examples = {
+        "r28_fixed_wing_hover": {
+            "capability": "hover", "skill": "hover", "params": {"duration_s": 60},
+            "zh": ("在{zone_zh}上空悬停一分钟观察。", "请在{zone_zh}上方悬停六十秒。",
+                   "到{zone_zh}上空定点悬停一分钟。", "在{zone_zh}上空保持悬停六十秒观察。"),
+            "en": ("Hover over {zone_en} for one minute and observe.", "Please hover above {zone_en} for sixty seconds.",
+                   "Hold a hover over {zone_en} for one minute.", "Stay hovering above {zone_en} for sixty seconds."),
+        },
+        "r28_fixed_wing_target_land": {
+            "capability": "landing_on_target", "skill": "land", "params": {"target_ref": "{poi}"},
+            "zh": ("飞到{poi_zh}上方定点降落。", "请在{poi_zh}精确着陆。",
+                   "前往{poi_zh}并降落在指定点。", "把飞机降落到{poi_zh}这个目标点。"),
+            "en": ("Fly to {poi_en} and land precisely on it.", "Please land exactly at {poi_en}.",
+                   "Proceed to {poi_en} and touch down on the marked point.", "Set down on the target at {poi_en}."),
+        },
+    }
+    for family, spec in examples.items():
+        made = 0
+        pair_index = 0
+        while made < args.r28_fixed_wing_count:
+            if pair_index > args.r28_fixed_wing_count * 10 + 100:
+                raise ValueError(f"r28 fixed-wing template pool exhausted for {family}: {made}/{args.r28_fixed_wing_count}")
+            pair_index += 1
+            zone, zone_zh, zone_en = zone_pool[(pair_index // 2) % len(zone_pool)]
+            poi, poi_zh, poi_en = POIS[(pair_index // 2) % len(POIS)]
+            use_zh = pair_index % 2 == 1
+            forms = spec["zh"] if use_zh else spec["en"]
+            text = forms[(pair_index // 2) % len(forms)].format(
+                zone_zh=zone_zh, poi_zh=poi_zh, zone_en=zone_en, poi_en=poi_en)
+            region = zone if spec["skill"] == "hover" else None
+            params = ({"region": region, **spec["params"]} if region else {"target_ref": poi})
+            refs = (f"{zone} ({labels[zone]})",) if region else (f"{poi} ({labels[poi]})",)
+            steps = ([S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                      S("s2", "land", params, None, None)]
+                     if spec["skill"] == "land" else
+                     [S("s1", "hover", params, "s2", "s2"), terminal("return_home")])
+            multi_caps = ("airframe:multirotor", spec["capability"])
+            multi_plan = plan(text, steps, [spec["skill"]])
+            if not emit(text, refs, multi_caps, multi_plan, family, valid=True):
+                continue
+            # Add a distinct fixed-wing-context version of the same intent.
+            # The task text is identical; aircraft context lives in the prompt capabilities.
+            refusal = {"plan_version": 1, "decision": "reject", "reason_code": "missing_capability",
+                       "reason": f"This fixed-wing aircraft does not support {spec['capability']}.",
+                       "missing_capabilities": [spec["capability"]], "unresolved_refs": [], "question": None}
+            # Context is encoded in the prompt so normalize_task remains the same; use a
+            # separate seen key for paired aircraft contexts while preserving task text.
+            key = normalize_task(text) + "|airframe:fixed_wing"
+            if key in held_out or key in seen:
+                raise ValueError(f"r28 fixed-wing pair collided: {text}")
+            validate_plan_decision(refusal)
+            candidate = plan(text, steps, [spec["skill"]])
+            capability = capability_violations(candidate, ("airframe:fixed_wing",),
+                                               airframe="airframe:fixed_wing")
+            if not any(item.get("code") == "missing_capability" for item in capability):
+                raise ValueError(f"r28 fixed-wing refusal not supported by capability contract: {text}: {capability}")
+            seen.add(key)
+            rows.append({
+                "sample_id": f"plan-r28-{family}-fixed-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+                "kind": "mission_plan", "world": "synthetic_plan_r28", "family": family,
+                "pair_role": "refusal", "reason_code": "missing_capability", "task_text": text,
+                "refs": list(refs), "capabilities": ["airframe:fixed_wing"], "expected_valid": False,
+                "expected_findings": ["missing_capability"],
+                "prompt": plan_prompt(text, refs=refs, capabilities=frozenset(("airframe:fixed_wing",)),
+                                      include_decision_contract=True),
+                "assistant_target": refusal, "rejected_candidate": candidate,
+                "negative_target_mode": "rejected_candidate",
+            })
+            made += 2
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -2457,6 +2664,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="refusal rows per supported reason_code, each paired with one positive (default: 40)")
     parser.add_argument("--r27-complex-count", type=int, default=400,
                         help="difficult executable positives (default: 400)")
+    parser.add_argument("--r28-recipe", action="store_true",
+                        help="extend r27 with threshold-stop intent and aircraft-capability contrasts")
+    parser.add_argument("--r28-stop-count", type=int, default=80,
+                        help="count/search/patrol threshold-stop rows (default: 80)")
+    parser.add_argument("--r28-fixed-wing-count", type=int, default=30,
+                        help="contrast rows per fixed-wing family (default: 30)")
+    parser.add_argument("--r28-return-count", type=int, default=30,
+                        help="return-home intent rows (default: 30)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -2479,10 +2694,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("r26 refusal count must be non-negative and even for an equal Chinese/English split")
     if args.r27_refusal_count < 0 or args.r27_complex_count < 0:
         parser.error("r27 counts must be non-negative")
+    if any(value < 0 for value in (args.r28_stop_count, args.r28_fixed_wing_count,
+                                   args.r28_return_count)):
+        parser.error("r28 counts must be non-negative")
+    if args.r28_fixed_wing_count % 2:
+        parser.error("r28 fixed-wing contrast count must be even for paired aircraft contexts")
     if args.r25_recipe:
         args.r24_recipe = True
     if args.r26_recipe:
         args.r24_recipe = True
+    if args.r28_recipe:
+        # Must run before the r27 expansion below, which r28 includes.
+        args.r27_recipe = True
     if args.r27_recipe:
         args.r23_recipe = True
         args.r24_recipe = True
@@ -2501,6 +2724,14 @@ def main(argv: list[str] | None = None) -> int:
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
+    if getattr(args, "r28_recipe", False):
+        # The 15 return-home probe tasks gate planner replacement too; r28 targets
+        # their failure mode, so keep them (and near-duplicates) out of training.
+        probe = ROOT / "configs/onboard/plan-probe-tasks-return-home.json"
+        held_out |= {
+            normalize_task(task["text"])
+            for task in json.loads(probe.read_text(encoding="utf-8"))["tasks"]
+        }
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
@@ -2604,6 +2835,15 @@ def main(argv: list[str] | None = None) -> int:
             for row in rows
         )
         args.rows = max(args.rows, math.ceil(refusal_rows / 0.02))
+    if args.r28_recipe:
+        new_rows = r28_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+        refusal_rows = sum(
+            row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
+            for row in rows
+        )
+        args.rows = max(args.rows, math.ceil(refusal_rows / 0.02))
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -2655,7 +2895,9 @@ def main(argv: list[str] | None = None) -> int:
                                           "r27_missing_capability_positive", "r27_unknown_place",
                                           "r27_unknown_place_positive", "r27_multi_step",
                                           "r27_colloquial", "r27_negation", "r27_mapping",
-                                          "r27_monitoring", "r27_counting", "r27_local_position"}:
+                                          "r27_monitoring", "r27_counting", "r27_local_position",
+                                          "r28_stop_threshold", "r28_fixed_wing_hover",
+                                          "r28_fixed_wing_target_land"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -2724,9 +2966,9 @@ def main(argv: list[str] | None = None) -> int:
         structured_codes = {row.get("reason_code") for row in decisions}
         if structured_codes - {"missing_capability", "unknown_place"}:
             raise ValueError(f"r27 emitted unsupported refusal reasons: {sorted(structured_codes)}")
-        refusal_share = len(refusals) / max(1, len(splits["train"]))
-        if refusal_share > 0.02:
-            raise ValueError(f"r27 structured refusal share {refusal_share:.4%} exceeds 2%")
+        r27_refusal_share = len(refusals) / max(1, len(splits["train"]))
+        if r27_refusal_share > 0.02:
+            raise ValueError(f"r27 structured refusal share {r27_refusal_share:.4%} exceeds 2%")
         if len(decisions) != 2 * args.r27_refusal_count:
             raise ValueError(f"r27 structured refusal rows {len(decisions)} != {2 * args.r27_refusal_count}")
         complex_rows = [row for row in r27_rows_all
@@ -2737,7 +2979,7 @@ def main(argv: list[str] | None = None) -> int:
             "refusal_requested_per_reason_code": args.r27_refusal_count,
             "complex_positive_requested": args.r27_complex_count,
             "structured_refusal_rows": len(refusals),
-            "structured_refusal_share_train": refusal_share,
+            "structured_refusal_share_train": r27_refusal_share,
             "reason_counts": {
                 code: {
                     "refusal": sum(row.get("reason_code") == code and row.get("assistant_target", {}).get("decision") in {"reject", "clarify"} for row in r27_rows_all),
@@ -2752,6 +2994,25 @@ def main(argv: list[str] | None = None) -> int:
                 "ambiguous_task": "缺少必要字段时由主机规则澄清更可靠",
                 "ungrounded_query": "查询依据由主机规则检查更可靠",
             },
+        }
+    if args.r28_recipe:
+        r28_rows_all = [row for row in rows if row.get("world") == "synthetic_plan_r28"]
+        r28_decisions = [row for row in r28_rows_all
+                         if row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}]
+        cumulative_decisions = [row for row in rows
+                                if row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}]
+        r28_refusal_share = len(cumulative_decisions) / max(1, len(splits["train"]))
+        if r28_refusal_share > 0.02:
+            raise ValueError(f"r28 structured refusal share {r28_refusal_share:.4%} exceeds 2%")
+        manifest["r28_recipe"] = {
+            "stop_threshold_requested": args.r28_stop_count,
+            "fixed_wing_contrast_rows_per_family_requested": args.r28_fixed_wing_count,
+            "return_intent_requested": args.r28_return_count,
+            "rows_added": len(r28_rows_all),
+            "structured_refusal_rows": len(r28_decisions),
+            "cumulative_structured_refusal_rows": len(cumulative_decisions),
+            "structured_refusal_share_train": r28_refusal_share,
+            "family_counts": dict(sorted(Counter(row["family"] for row in r28_rows_all).items())),
         }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
@@ -2802,7 +3063,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r28' if args.r28_recipe else ' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -2834,11 +3095,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.r26_recipe:
             stats += ["", "r26 rows supervise structured reject/clarify decisions and exclude r25 rejected-candidate targets.", ""]
         if args.r27_recipe:
-            stats += ["", f"Structured refusal rows: {len(decisions)} ({refusal_share:.3%} of train; maximum 2%).",
+            stats += ["", f"Structured refusal rows: {len(decisions)} ({r27_refusal_share:.3%} of train; maximum 2%).",
                       f"Complex executable positives: {len(complex_rows)}.",
                       "", "| r27 family | Rows |", "|---|---:|---:|"]
             stats += [f"| {family} | {count} |" for family, count in sorted(Counter(
                 row.get("family") for row in r27_rows_all).items())]
+        if args.r28_recipe:
+            stats += ["", f"Total structured refusal rows: {len(cumulative_decisions)} ({r28_refusal_share:.3%} of train; maximum 2%).",
+                      "", "| r28 family | Rows |", "|---|---:|"]
+            stats += [f"| {family} | {count} |"
+                      for family, count in manifest["r28_recipe"]["family_counts"].items()]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

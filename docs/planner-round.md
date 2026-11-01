@@ -402,3 +402,36 @@ r27 = r24 配方 + 窄拒绝（只训练 missing_capability、unknown_place 各 
 过度拒绝已解决：r27 在 planning-v3 的 80 题里只拒绝了 8 题，逐条核对全部是该拒绝的（地图上没有的地点 4 题、没有投放能力却要求投放 4 题），r26 那种把正常任务拒掉的情况没有再出现。planning-v4：缺载荷投递 2/2、未知地点 2/2（r24 都是 0/2）；但返航意图 1/2、固定翼悬停 1/2、固定翼定点降落 1/2 各掉一题。
 
 结论：**按门槛不替换 r24**——返航探测 14/15（“场地里的电瓶车给我报个总数，凑够十二辆就停手。”规划成 `count→land`，应为返航）。r27 在契约开启下的 v3/v4 已经追平现役 r24（契约关闭），并且新增了正确拒绝能力，是目前最接近可替换的候选。下一步：(1) 用更大的 planning-v5 评测集（正在建，v4 每类只有 2 题，单题波动 50 个百分点）重新比较 r24 与 r27；(2) r28 在 r27 基础上补“计数达到上限后停止”类任务的返航结尾，以及固定翼悬停/定点降落的能力对照。
+
+## r28 数据准备
+
+r28 在 r27 配方上增加三组小缺口：达到数量/搜索/巡逻条件后停止的任务（默认 80 条，中文英文各半，约四分之一明确要求降落，其余默认返航）、固定翼能力对照（`fixed_wing_hover` 与 `fixed_wing_target_land` 各 30 条，正例和固定翼缺能力拒绝成对出现），以及 30 条返航意图表达。`r28` 自动包含 r27 的两类结构化拒绝和 400 条复杂正例；r27 未启用时的输出路径保持不变。
+
+生成器对每条新增正例运行 `validate_mission_plan`、`check_plan_intent` 和能力契约校验；固定翼拒绝使用 `missing_capability` 决策对象，候选计划保存在审计字段中。holdout 读取继续使用 `configs/onboard/plan-eval-tasks*.json`，若 v5 文件合入会自动纳入排除集合；未修改任何评测配置。
+
+本轮实际生成命令（只运行 data 阶段，未训练）：
+
+~~~bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r28
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r28-data --eval-root .tmp/r28-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r28-recipe
+~~~
+
+结果：train **6,110** 行、val **100** 行；训练准入 `admit_train_rows` 接受 **6,110/6,110** 行。r28 新增 **170** 行：`r28_stop_threshold` 80、`r28_return_intent` 30、`r28_fixed_wing_hover` 30、`r28_fixed_wing_target_land` 30；新增固定翼结构化拒绝 30 条。叠加 r27 后结构化拒绝共 **110** 条，占训练集 **1.800%**（不超过 2%）。与当前所有 `plan-eval-tasks*.json` holdout 的归一化文本碰撞 **0**。数据统计和 manifest 位于 `.tmp/r28-data/dataset/`，准入摘要 SHA-256 为 `ad7842ef87d24accbd5484465d8b439351348409dcb7e3a2851e08c698970a75`。
+
+随机抽取的 10 条新增族原文：
+
+1. `Patrol the north route while watching for motorcycles; stop after completing 10 loops.`
+2. `在院子搜索行人并报数，凑够二十辆就停手。`
+3. `在场地上空保持悬停六十秒观察。`
+4. `把飞机降落到仓库这个目标点。`
+5. `在农田搜索卡车并报数，累计到二十辆就停止计数。`
+6. `Patrol the fence route while watching for cars; stop after completing 20 loops.`
+7. `Proceed to the tower and touch down on the marked point.`
+8. `到院子上空定点悬停一分钟。`
+9. `Tally the electric scooters in the yard; quit when the count gets to 15.`
+10. `Search the field for vehicles and report the tally; count up to 12 and stop.`
