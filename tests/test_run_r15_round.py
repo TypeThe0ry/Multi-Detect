@@ -767,12 +767,14 @@ def test_collect_plans_the_configured_episodes_per_world():
     index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
     result = subprocess.run(
         [sys.executable, "scripts/run_r15_round.py", "--stage", "collect", "--dry-run",
-         "--episodes-per-world", "2", "--r15-index", str(index),
+         "--episodes-per-world", "2", "--workers", "4", "--r15-index", str(index),
          "--scenarios", str(index.parent)],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
-        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1",
+             "MULTIDETECT_SIM_GPU": "1", "MULTIDETECT_SIM_GPU_DEVICES": "1,2"},
     )
     assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr
+    assert "GPU worker slots: slot 0->GPU 1, slot 1->GPU 2, slot 2->GPU 1, slot 3->GPU 2" in result.stdout
 
 
 def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
@@ -830,3 +832,16 @@ def test_with_worker_slot_rewrites_ports_and_prefix():
     assert out[out.index("--telemetry-port") + 1] == str(R15_BASE_TELEMETRY_PORT + 30)
     assert out[out.index("--sim-instance") + 1] == "3"
     assert out[-2:] == ["--out", "x"] and cmd[3] == "r15-worker-0"
+
+
+def test_worker_gpu_assignments_follow_runtime_slots(monkeypatch):
+    from scripts import run_r15_round as round_mod
+
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "1,2")
+    assert round_mod.worker_gpu_assignments(4) == (
+        (0, "1"),
+        (1, "2"),
+        (2, "1"),
+        (3, "2"),
+    )
