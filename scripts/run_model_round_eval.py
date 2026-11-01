@@ -25,6 +25,7 @@ STAGES = (
     "planning-v2",
     "planning-v3",
     "planning-v4",
+    "planning-v5",
     "find",
     "suite-v1",
     "suite-v2",

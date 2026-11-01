@@ -402,3 +402,21 @@ r27 = r24 配方 + 窄拒绝（只训练 missing_capability、unknown_place 各 
 过度拒绝已解决：r27 在 planning-v3 的 80 题里只拒绝了 8 题，逐条核对全部是该拒绝的（地图上没有的地点 4 题、没有投放能力却要求投放 4 题），r26 那种把正常任务拒掉的情况没有再出现。planning-v4：缺载荷投递 2/2、未知地点 2/2（r24 都是 0/2）；但返航意图 1/2、固定翼悬停 1/2、固定翼定点降落 1/2 各掉一题。
 
 结论：**按门槛不替换 r24**——返航探测 14/15（“场地里的电瓶车给我报个总数，凑够十二辆就停手。”规划成 `count→land`，应为返航）。r27 在契约开启下的 v3/v4 已经追平现役 r24（契约关闭），并且新增了正确拒绝能力，是目前最接近可替换的候选。下一步：(1) 用更大的 planning-v5 评测集（正在建，v4 每类只有 2 题，单题波动 50 个百分点）重新比较 r24 与 r27；(2) r28 在 r27 基础上补“计数达到上限后停止”类任务的返航结尾，以及固定翼悬停/定点降落的能力对照。
+
+## planning-v5 评测集
+
+`configs/onboard/plan-eval-tasks-v5.json` 是 planning-v5 人工留出集，共 126 题：
+return_intent、return_negated_land、unknown_place、missing_payload_drop、
+fixed_wing_hover、fixed_wing_target_land、ref_alias、query_grounding、
+query_ungrounded 九类各 14 题，中文和英文各 63 题。题目加入多步口语任务、
+作用域否定、当前位置/起飞点和复杂但可执行的组合，期望步骤按当前
+`plan_validation`、`plan_intent` 与 `capability_contract` 契约自检。
+
+`build_plan_sft.py` 默认读取全部 `configs/onboard/plan-eval-tasks*.json`，因此 v2/v3/v4/v5
+都会自动把 v5 作为 holdout；按 `normalize_task` 去重。用标准 v4 规模和 r24 配方做的
+加入前后 SHA-256 核对未发生变化，旧训练输出保持字节一致。
+
+模型 round runner 已支持 `planning-v5` 阶段。直接运行
+`scripts/run_model_round_eval.py --stages planning-v5` 可单独评测；
+`scripts/run_planner_round.py` 只有在传入 `--include-planning-v5` 时才会把 v5 加入候选
+和基线评测，默认仍只跑 v3/v4，旧轮次的比较口径不变。
