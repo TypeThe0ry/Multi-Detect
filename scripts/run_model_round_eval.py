@@ -443,7 +443,12 @@ def main(argv=None, *, runner=None) -> int:
         action="store_true",
         help="bypass GPU process inspection; never bypass lock/disk/validity",
     )
-    parser.add_argument("--gpu-heavy-mib", type=int, default=512)
+    parser.add_argument(
+        "--gpu-heavy-mib",
+        type=int,
+        # Override for shared GPUs (e.g. SITL rendering on the same card).
+        default=int(os.environ.get("MULTIDETECT_GPU_HEAVY_MIB", "512")),
+    )
     parser.add_argument("--min-free-disk-gb", type=float, default=30)
     parser.add_argument("--disk-check-every", type=int, default=1)
     parser.add_argument("--min-valid-rate", type=float, default=0.99)
