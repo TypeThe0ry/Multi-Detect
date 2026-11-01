@@ -487,3 +487,49 @@ r28 = r27 + 计数/巡逻达到条件后停止（80）+ 返航意图（30）+ �
 结论：**不替换 r24，r28 明显退步**。返航探测有 7 题输出了拒绝（“到大门看一下，然后返航。”“去大门，然后回到起飞点。”这类最简单的任务），说明固定翼能力对照里的结构化拒绝样本让模型把“到某地 + 降落/返航”泛化成了拒绝；“凑够十二辆就停手”仍是 `count→land`。
 
 另一个重要发现：**现役 r24 只要打开拒绝契约，planning-v5 就是 81/126**（契约关闭时 66/126），与 r27 持平。也就是说 r27 在 v5 上的提升主要来自提示和输出格式本身，而不是训练；而 r24 打开契约后 v3 会从 0.7375 降到 0.6875。规划拒绝这条线的下一步应该先弄清楚这个取舍：契约提示怎样写才能不伤 v3（例如只在任务包里的能力/地点列表能直接判定时才给拒绝选项），而不是继续堆拒绝训练数据。
+
+## r29 数据准备
+
+r29 基于 r24 的 replay、v3 覆盖和引用/当前位置正例配方，关闭结构化拒绝训练目标；不继承 r25、r26、r27 或 r28 的缺载荷、未知地点、固定翼和拒绝/澄清族。`--r29-recipe` 自动启用 r23、r24 的正例配方，并把 r24 未知地点数量置为 0；同时把 `configs/onboard/plan-eval-tasks*.json` 和 `configs/onboard/plan-probe-tasks-return-home.json` 纳入 holdout。runner 的 r29 分支不自动加入 `--r20-plan-intent`，评测建议显式使用 `--plan-pregate --include-planning-v5`。
+
+新增五族，每族默认 72 行（中文 36、英文 36），每种语言各 18 条目标正例与 18 条同句式对照：
+
+- `query_ungrounded`：否定范围内的类别不进入 query；对照明确要求同时查询该类别。所有 target 都是正常可执行计划。
+- `return_negated_land`：`不要返航/不回起飞点` 仍保留当地 `land`；对照改为 `不要降落` 并以 `return_home` 结束。
+- `query_grounding`：明确给出的对象、地点、搜索和记录动作全部保留；对照使用同一地点的别名/标准名。
+- `ref_alias`：别名与标准引用都落到同一 `poi:`，保留 `goto -> inspect -> return_home`；对照使用 canonical 名称。
+- `return_intent`：明确返航的 count 任务以 `return_home` 结束；对照明确就地降落，不产生返航。
+
+每条新增行在生成时运行 `validate_mission_plan` 和 `check_plan_intent`，训练准入再运行完整 admission；r29 结构化拒绝行数为 0。完整生成命令（只生成数据，不训练）为：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r29-data --eval-root .tmp/r29-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r29-recipe \
+  --r29-query-ungrounded-count 72 \
+  --r29-return-negated-land-count 72 \
+  --r29-query-grounding-count 72 \
+  --r29-ref-alias-count 72 \
+  --r29-return-intent-count 72
+```
+
+实际结果：train **4,700** 行、val **100** 行；r29 新增 **360** 行，五族各 72，中文/英文 **180/180**。其余 train 行为 replay 3,500、r23 v3 覆盖 600、r23 faithful deliver 80、r24 reference 80、r24 context land/return 各 40。`admit_train_rows` 接受 **4,700/4,700** 行；r29 结构化拒绝 **0**；与全部 planning-v3/v4/v5 评测题及 15 条返航探测按 `normalize_task` 碰撞 **0**。产物位于 `.tmp/r29-data/dataset/`，未写入 `artifacts/`，没有启动训练、GPU 推理、llama-server、SITL 或 Docker。
+
+随机抽取的 12 条新增原文：
+
+1. `Check the lot for bicycles and fire trucks; then head back to the launch point.`
+2. `在塔区查看红色轿车并记下位置，飞回起飞点。`
+3. `Go to the tower and inspect the sign from 5 views; do not land, then head home.`
+4. `在停车场巡查红色轿车，并查找救护车，飞回基地。`
+5. `Check the tower for bicycle, note its position, and then fly home.`
+6. `清点农田的自行车，数到三个就停，返场。`
+7. `Go to the warehouse and inspect the sign from 3 views; do not return home, land there when done.`
+8. `清点场地的自行车，数到十个就停，然后在这里降落。`
+9. `到塔区附近检查标牌，从六个角度拍摄后返航。`
+10. `在仓库查看自行车并记下位置，返回出发地。`
+11. `Go to the warehouse and inspect the sign from 7 views; do not return home, land there when done.`
+12. `Go to the warehouse and inspect the sign from 6 views; do not return home, land there when done.`
