@@ -170,6 +170,7 @@ VTOL_TRANSITION_MARGIN_M = 10.0
 MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
+EPISODE_PROGRESS_STALL_TIMEOUT_S = 180.0
 GCS_SOURCE_SYSTEM = 255
 GCS_SOURCE_COMPONENT = 190
 # The only collector-specific SITL setting is the GCS/RC input mode used by
@@ -2914,6 +2915,55 @@ def _episode_budget(started: float, maximum_s: float, cap_s: float) -> float:
     return min(float(cap_s), remaining)
 
 
+class _EpisodeProgressWatchdog:
+    """Bound an episode by vehicle-clock progress after the nominal wall budget."""
+
+    def __init__(
+        self,
+        started: float,
+        maximum_s: float,
+        reader: Any,
+        *,
+        stall_timeout_s: float = EPISODE_PROGRESS_STALL_TIMEOUT_S,
+        clock: callable = time.monotonic,
+    ) -> None:
+        self.started = float(started)
+        self.maximum_s = float(maximum_s)
+        self.reader = reader
+        self.stall_timeout_s = max(1.0, float(stall_timeout_s))
+        self.clock = clock
+        self.last_vehicle_ms: int | None = None
+        self.last_message_count = int(getattr(reader.state, "count", 0))
+        self.last_progress_wall = self.clock()
+
+    def check(self) -> None:
+        now = self.clock()
+        vehicle_ms = getattr(self.reader.state, "vehicle_time_boot_ms", None)
+        try:
+            vehicle_ms = int(vehicle_ms) if vehicle_ms is not None else None
+        except (TypeError, ValueError):
+            vehicle_ms = None
+        message_count = int(getattr(self.reader.state, "count", self.last_message_count))
+        message_progress = message_count > self.last_message_count
+        if vehicle_ms is not None and (
+            self.last_vehicle_ms is None or vehicle_ms > self.last_vehicle_ms
+        ):
+            self.last_vehicle_ms = vehicle_ms
+            self.last_progress_wall = now
+        elif vehicle_ms is None and message_progress:
+            self.last_progress_wall = now
+        self.last_message_count = message_count
+        if now - self.started <= self.maximum_s:
+            return
+        if now - self.last_progress_wall <= self.stall_timeout_s:
+            return
+        raise TimeoutError(
+            "episode telemetry stalled after wall-clock budget "
+            f"(vehicle_time_boot_ms={vehicle_ms}, message_count={message_count}, "
+            f"stall={now - self.last_progress_wall:.1f}s)"
+        )
+
+
 def _raise_reader_error(reader: MavlinkReader) -> bool:
     raise RuntimeError(
         f"MAVLink reader stopped: {reader.error}; messages={reader.state.count}; "
@@ -2978,6 +3028,7 @@ def _arm(
     deadline = time.monotonic() + timeout_s
     last_ack: int | None = None
     attempts = 0
+    accepted_seen = False
     mav = getattr(connection, "mav", None)
 
     def source_id(name: str) -> int | None:
@@ -2987,41 +3038,47 @@ def _arm(
         except (TypeError, ValueError):
             return None
 
-    while attempts < ARM_MAX_ATTEMPTS and time.monotonic() < deadline:
-        attempts += 1
-        # The udpin socket learns PX4's peer and must carry both receive and
-        # transmit traffic.  A separate control socket can fail the GCS gate.
-        heartbeat = connection
-        _send_gcs_heartbeat(heartbeat, mavutil_module)
+    while time.monotonic() < deadline and (attempts < ARM_MAX_ATTEMPTS or accepted_seen):
+        if accepted_seen:
+            wait_deadline = deadline
+            heartbeat = connection
+            _send_gcs_heartbeat(heartbeat, mavutil_module)
+        else:
+            attempts += 1
+            wait_deadline = min(deadline, time.monotonic() + ARM_RETRY_INTERVAL_S)
+            # The udpin socket learns PX4's peer and must carry both receive and
+            # transmit traffic.  A separate control socket can fail the GCS gate.
+            heartbeat = connection
+            _send_gcs_heartbeat(heartbeat, mavutil_module)
         target_system = int(getattr(connection, "target_system", 1) or 1)
         target_component = int(
             getattr(connection, "target_component", 1)
             or getattr(constants, "MAV_COMP_ID_AUTOPILOT1", 1)
             or 1
         )
-        sender(
-            target_system,
-            target_component,
-            command,
-            0,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        )
-        _progress(
-            "arm_command_sent",
-            attempt=attempts,
-            command_id=command,
-            target_system=target_system,
-            target_component=target_component,
-            source_system=source_id("srcSystem"),
-            source_component=source_id("srcComponent"),
-        )
-        wait_deadline = min(deadline, time.monotonic() + ARM_RETRY_INTERVAL_S)
+        if not accepted_seen:
+            sender(
+                target_system,
+                target_component,
+                command,
+                0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+            _progress(
+                "arm_command_sent",
+                attempt=attempts,
+                command_id=command,
+                target_system=target_system,
+                target_component=target_component,
+                source_system=source_id("srcSystem"),
+                source_component=source_id("srcComponent"),
+            )
         while time.monotonic() < wait_deadline:
             reader.raise_if_failed()
             hb = reader.state.get("HEARTBEAT")
@@ -3042,6 +3099,13 @@ def _arm(
             if ack is not None and int(_field(ack, "command", -1)) == command:
                 result = int(_field(ack, "result", -1))
                 last_ack = result
+                if result == accepted:
+                    # PX4 may publish the accepted ACK immediately but carry
+                    # the armed bit only on its next slow lockstep heartbeat.
+                    # Stop duplicate ARM commands and wait for that heartbeat
+                    # until the phase deadline instead of the 1 s retry window.
+                    accepted_seen = True
+                    wait_deadline = deadline
                 if result == denied:
                     health = _prearm_health_snapshot(reader.state)
                     _progress(
@@ -3266,6 +3330,7 @@ def run_episode(
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
+            episode_watchdog = _EpisodeProgressWatchdog(started, plan.max_episode_s, mav_reader)
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
                 lambda: (
@@ -3678,8 +3743,7 @@ def run_episode(
                     if reason is not None:
                         raise LowDiskSpace(reason)
                 mav_reader.raise_if_failed()
-                if time.monotonic() - started > plan.max_episode_s:
-                    raise TimeoutError("episode wall-clock timeout")
+                episode_watchdog.check()
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
