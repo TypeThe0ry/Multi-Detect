@@ -126,6 +126,21 @@ def test_r24_recipe_transmits_reference_families_and_learning_rate(tmp_path, mon
     assert "--learning-rate 2e-05" in output
 
 
+def test_r29_recipe_transmits_families_without_enabling_decision_contract(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r29"), "--r29-recipe",
+        "--plan-pregate", "--include-planning-v5",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r29-recipe" in output
+    assert "--r29-query-ungrounded-count 72" in output
+    assert "--plan-pregate" in output
+    assert "--decision-contract" not in output
+
+
 def test_r25_recipe_and_model_paths_are_transmitted(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
     init_adapter = tmp_path / "r24-adapter"

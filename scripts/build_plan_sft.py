@@ -1982,6 +1982,189 @@ def r28_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r29_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add executable contrasts for query scope, landing, aliases, and return intent."""
+    rows = []
+    zones = [("zone:lot", "停车场", "the lot"), ("zone:field", "场地", "the field"),
+             ("zone:yard", "院子", "the yard"), ("zone:farm", "农田", "the farm")]
+    pois = [("poi:gate", "大门", "the gate", "入口", "entrance"),
+            ("poi:tower", "水塔", "the tower", "塔楼", "tower"),
+            ("poi:shed", "仓库", "the warehouse", "库房", "warehouse"),
+            ("poi:bridge", "桥", "the bridge", "桥梁", "bridge")]
+    routes = [("route:fence", "围栏路线", "the fence route"),
+              ("route:north", "北线", "the north route"),
+              ("route:road", "道路路线", "the road route")]
+    objects = [("red car", "红色轿车", "ambulance", "救护车"),
+               ("bicycle", "自行车", "fire truck", "消防车")]
+    ref_aliases = [("poi:gate", "大门", "the gate", "入口", "the entrance"),
+                   ("poi:tower", "水塔", "the tower", "塔区", "the tower area"),
+                   ("poi:shed", "仓库", "the warehouse", "库房", "the storage building"),
+                   ("poi:bridge", "桥", "the bridge", "桥梁", "the bridge span")]
+    zh_tail = ("返航", "回到起飞点", "回家", "返场", "飞回基地", "返回出发地",
+               "飞回放飞点", "回到基地", "返回起点", "回到出发地", "飞回起飞点", "回基地")
+    en_tail = ("then return home", "then head back to the launch point", "then come back to base",
+               "then fly back", "then return to launch", "then head home", "then go back to base",
+               "then fly home", "then return to the start", "then head back to launch",
+               "then come back", "then fly to the launch point")
+
+    def emit(text, refs, target, family, role):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        validate_mission_plan(target)
+        findings = check_plan_intent(target, text, tuple(refs))
+        if findings:
+            raise ValueError(f"r29 intent failure ({family}): {findings}: {text}")
+        seen.add(key)
+        rows.append({"sample_id": f"plan-r29-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+                     "kind": "mission_plan", "world": "synthetic_plan_r29", "family": family,
+                     "pair_role": role, "task_text": text, "refs": list(refs), "capabilities": [],
+                     "expected_valid": True, "expected_findings": [],
+                     "prompt": plan_prompt(text, refs=refs, capabilities=frozenset(),
+                                           prompt_variant=args.prompt_variant),
+                     "assistant_target": target})
+        return True
+
+    def plan(text, steps, report):
+        return {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+
+    specs = (
+        ("query_ungrounded", args.r29_query_ungrounded_count),
+        ("return_negated_land", args.r29_return_negated_land_count),
+        ("query_grounding", args.r29_query_grounding_count),
+        ("ref_alias", args.r29_ref_alias_count),
+        ("return_intent", args.r29_return_intent_count),
+    )
+    paired_roles = {
+        "query_ungrounded": ("negated_category_excluded", "affirmative_control"),
+        "return_negated_land": ("land_not_return", "return_not_land"),
+        "query_grounding": ("explicit_query", "alias_query_control"),
+        "ref_alias": ("named_alias_reference", "canonical_name_control"),
+        "return_intent": ("explicit_return_intent", "no_return_requested"),
+    }
+    for family, count in specs:
+        family_kind = family.removeprefix("r29_")
+        index = 0
+        attempts = 0
+        language_rows = {"zh": 0, "en": 0}
+        role_language_rows = Counter()
+        while index < count:
+            if attempts >= count * 100 + 100:
+                raise ValueError(f"r29 template pool exhausted for {family}: {index}/{count}")
+            zh = language_rows["zh"] < (count + 1) // 2
+            variant = attempts // 4
+            positive_role, control_role = paired_roles[family_kind]
+            language = "zh" if zh else "en"
+            contrast = role_language_rows[(language, control_role)] < role_language_rows[(language, positive_role)]
+            if family_kind == "query_ungrounded":
+                query, query_zh, excluded, excluded_zh = objects[variant % len(objects)]
+                zone, zone_zh, zone_en = zones[(variant // len(objects)) % len(zones)]
+                if zh:
+                    text = (f"在{zone_zh}{'搜索' if variant % 3 == 0 else '巡查'}{query_zh}，"
+                            + (f"并查找{excluded_zh}，{zh_tail[variant % len(zh_tail)]}。" if contrast else
+                               f"不要把{excluded_zh}另编成查询，{zh_tail[variant % len(zh_tail)]}。"))
+                else:
+                    verb = ("Search" if variant % 3 == 0 else "Check")
+                    query_text = english_plural(query)
+                    excluded_text = english_plural(excluded)
+                    excluded_phrase = (excluded_text if excluded_text.endswith("s")
+                                       else f"{'an' if excluded_text[0].lower() in 'aeiou' else 'a'} {excluded_text}")
+                    text = (f"{verb} {zone_en} for {query_text}" +
+                            (f" and {excluded_phrase}; {en_tail[variant % len(en_tail)]}." if contrast else
+                             f", but do not add an invented {excluded_text} query; {en_tail[variant % len(en_tail)]}."))
+                steps = [S("s1", "area_search", {"region": zone, "query": query},
+                           "s2" if contrast else "s3", "s3")]
+                if contrast:
+                    steps.append(S("s2", "area_search", {"region": zone, "query": excluded}, "s3", "s3"))
+                steps.append(H("s3"))
+                target = plan(text, steps, ["findings", "positions"])
+                role = "affirmative_control" if contrast else "negated_category_excluded"
+            elif family_kind == "return_negated_land":
+                poi, poi_zh, poi_en, alias_zh, alias_en = ref_aliases[variant % len(ref_aliases)]
+                views = 2 + variant % 7
+                if contrast:
+                    text = (f"去{poi_zh}从{zh_number(views)}个角度核对标志，不要降落，{zh_tail[variant % len(zh_tail)]}。" if zh else
+                            f"Go to {poi_en} and inspect the sign from {views} views; do not land, {en_tail[variant % len(en_tail)]}.")
+                    terminal = H
+                    role = "return_not_land"
+                else:
+                    text = (f"去{poi_zh}从{zh_number(views)}个角度核对标志，不要返航，任务结束就在当地降落。" if zh else
+                            f"Go to {poi_en} and inspect the sign from {views} views; do not return home, land there when done.")
+                    terminal = L
+                    role = "land_not_return"
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                query = ("标志" if variant % 2 == 0 else "入口") if zh else "sign"
+                target = plan(text, [S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                                     S("s2", "inspect", {"target_ref": poi, "query": query,
+                                                          "standoff_m": 12, "views": views}, "s3", "s3"),
+                                     terminal("s3")], ["findings", "views", "positions"])
+            elif family_kind == "query_grounding":
+                query, query_zh, _excluded, _excluded_zh = objects[variant % len(objects)]
+                poi, poi_zh, poi_en, alias_zh, alias_en = ref_aliases[(variant // len(objects)) % len(ref_aliases)]
+                if zh:
+                    text = (f"到{alias_zh if contrast else poi_zh}附近找{query_zh}，找到后拍照留档，随后回起飞点。"
+                            if variant % 3 == 0 else
+                            f"在{poi_zh if not contrast else alias_zh}查看{query_zh}并记下位置，{zh_tail[variant % len(zh_tail)]}。")
+                else:
+                    text = (f"At {alias_en if contrast else poi_en}, find the {query} and save a photo, then return to the launch point."
+                            if variant % 3 == 0 else
+                            f"Check {alias_en if contrast else poi_en} for {query}, note its position, and {en_tail[variant % len(en_tail)]}.")
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                target = plan(text, [S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                                     S("s2", "inspect", {"target_ref": poi, "query": query,
+                                                          "standoff_m": 10, "views": 3}, "s3", "s3"),
+                                     S("s3", "record", {"query": query}, "s4", "s4"), H("s4")],
+                              ["findings", "evidence", "positions"])
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                role = "alias_query_control" if contrast else "explicit_query"
+            elif family_kind == "ref_alias":
+                poi, poi_zh, poi_en, alias_zh, alias_en = ref_aliases[variant % len(ref_aliases)]
+                views = 2 + variant % 9
+                query_zh = "标牌"
+                query_en = "sign"
+                canonical_en = poi_en.removeprefix("the ")
+                alias_place_en = alias_en
+                if zh:
+                    text = (f"去{poi_zh if contrast else alias_zh}核对{query_zh}，拍{zh_number(views)}个角度后返航。" if variant % 3 == 0
+                            else f"到{poi_zh if contrast else alias_zh}附近检查{query_zh}，从{zh_number(views)}个角度拍摄后返航。")
+                else:
+                    text = (f"Go to {canonical_en if contrast else alias_place_en}, inspect the {query_en} from {views} views, then return home."
+                            if variant % 3 == 0 else
+                            f"At {canonical_en if contrast else alias_place_en}, check the {query_en} from {views} views and return to base.")
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                query = query_zh if zh else query_en
+                target = plan(text, [S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                                     S("s2", "inspect", {"target_ref": poi, "query": query,
+                                                          "standoff_m": 12, "views": views}, "s3", "s3"),
+                                     H("s3")], ["findings", "views", "positions"])
+                role = control_role if contrast else positive_role
+            else:
+                query, query_zh, _excluded, _excluded_zh = objects[variant % len(objects)]
+                zone, zone_zh, zone_en = zones[(variant // len(objects)) % len(zones)]
+                number = (3, 5, 8, 10, 12)[variant % 5]
+                if zh:
+                    text = (f"清点{zone_zh}的{query_zh}，数到{zh_number(number)}个就停，{zh_tail[variant % len(zh_tail)]}。"
+                            if not contrast else f"清点{zone_zh}的{query_zh}，数到{zh_number(number)}个就停，然后在这里降落。")
+                else:
+                    text = (f"Count {english_plural(query)} in {zone_en} up to {number}, stop there; {en_tail[variant % len(en_tail)]}."
+                            if not contrast else f"Count {english_plural(query)} in {zone_en} up to {number}, then stop and land here.")
+                terminal = L if contrast else H
+                target = plan(text, [S("s1", "count", {"region": zone, "query": query,
+                                                         "max_count": number}, "s2", "s2"),
+                                     terminal("s2")], ["count", "positions"])
+                role = "explicit_return_intent" if not contrast else "no_return_requested"
+            if family_kind in {"query_ungrounded", "return_intent"}:
+                refs = (f"{zone} ({zone_zh} / {zone_en})",)
+            if emit(text, refs, target, family, role):
+                index += 1
+                language_rows["zh" if zh else "en"] += 1
+                role_language_rows[(language, role)] += 1
+            attempts += 1
+            # Avoid carrying a reference from the previous family iteration.
+            refs = ()
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -2672,6 +2855,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="contrast rows per fixed-wing family (default: 30)")
     parser.add_argument("--r28-return-count", type=int, default=30,
                         help="return-home intent rows (default: 30)")
+    parser.add_argument("--r29-recipe", action="store_true",
+                        help="extend the r24 data recipe with executable planning-error contrasts")
+    parser.add_argument("--r29-query-ungrounded-count", type=int, default=72)
+    parser.add_argument("--r29-return-negated-land-count", type=int, default=72)
+    parser.add_argument("--r29-query-grounding-count", type=int, default=72)
+    parser.add_argument("--r29-ref-alias-count", type=int, default=72)
+    parser.add_argument("--r29-return-intent-count", type=int, default=72)
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -2706,6 +2896,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.r28_recipe:
         # Must run before the r27 expansion below, which r28 includes.
         args.r27_recipe = True
+    if args.r29_recipe:
+        # r29 inherits r24's positive/replay distribution only; no r25-r28 refusal recipe.
+        args.r23_recipe = True
+        args.r24_recipe = True
+        args.r24_unknown_count = 0
     if args.r27_recipe:
         args.r23_recipe = True
         args.r24_recipe = True
@@ -2724,7 +2919,7 @@ def main(argv: list[str] | None = None) -> int:
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
-    if getattr(args, "r28_recipe", False):
+    if getattr(args, "r28_recipe", False) or getattr(args, "r29_recipe", False):
         # The 15 return-home probe tasks gate planner replacement too; r28 targets
         # their failure mode, so keep them (and near-duplicates) out of training.
         probe = ROOT / "configs/onboard/plan-probe-tasks-return-home.json"
@@ -2844,6 +3039,10 @@ def main(argv: list[str] | None = None) -> int:
             for row in rows
         )
         args.rows = max(args.rows, math.ceil(refusal_rows / 0.02))
+    if args.r29_recipe:
+        new_rows = r29_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -2897,7 +3096,9 @@ def main(argv: list[str] | None = None) -> int:
                                           "r27_colloquial", "r27_negation", "r27_mapping",
                                           "r27_monitoring", "r27_counting", "r27_local_position",
                                           "r28_stop_threshold", "r28_fixed_wing_hover",
-                                          "r28_fixed_wing_target_land"}:
+                                          "r28_fixed_wing_target_land", "r29_query_ungrounded",
+                                          "r29_return_negated_land", "r29_query_grounding",
+                                          "r29_ref_alias", "r29_return_intent"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -3013,6 +3214,18 @@ def main(argv: list[str] | None = None) -> int:
             "cumulative_structured_refusal_rows": len(cumulative_decisions),
             "structured_refusal_share_train": r28_refusal_share,
             "family_counts": dict(sorted(Counter(row["family"] for row in r28_rows_all).items())),
+        }
+    if args.r29_recipe:
+        r29_all = [row for row in rows if row.get("world") == "synthetic_plan_r29"]
+        manifest["r29_recipe"] = {
+            "rows_added": len(r29_all),
+            "family_counts": dict(sorted(Counter(row["family"] for row in r29_all).items())),
+            "language_counts": dict(sorted(Counter(
+                "zh" if re.search(r"[\u3400-\u9fff]", row["task_text"]) else "en"
+                for row in r29_all).items())),
+            "structured_refusal_rows": sum(
+                row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
+                for row in r29_all),
         }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
