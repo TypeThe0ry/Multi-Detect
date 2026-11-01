@@ -85,3 +85,8 @@
 ## 未纳入本任务
 
 本文件只规划，不改代码、不运行策略测试、不更新 parity JSON 或黄金基线。兼容层最终是否能删，应在所有仓库调用方和 monkeypatch 测试完成迁移后另行决策；默认保留 `scripts.onboard_policy` 作为稳定 facade。
+
+## 进度记录
+
+- 第 1 步（helpers/simulation）、第 2 步（model_config）已合并，行为不变，回归闸门通过。
+- 第 3 步（构造与任务包准入方法移入 runtime mixin）**未合并**：实现用 `globals().update(vars(scripts.onboard_policy))` 把 facade 的全局变量整体复制进 `src/` 下的新模块，形成 `src → scripts` 的反向依赖和循环导入，而且测试对 facade 名字的 monkeypatch 只对其中 3 个显式改成动态读取的名字生效，其余会静默失效。黄金重放数据不在这台机器上，无法用重放兜底验证。下一次做第 3 步前，先把这些方法依赖的名字显式导入（或通过参数注入），再按计划搬移。
