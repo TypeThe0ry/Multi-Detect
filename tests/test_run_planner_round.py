@@ -147,6 +147,19 @@ def test_no_decision_contract_overrides_r26_auto_enable(tmp_path, monkeypatch, c
     assert "--decision-contract" not in capsys.readouterr().out
 
 
+def test_r27_recipe_transmits_counts_and_enables_contract(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r27"),
+        "--r27-recipe", "--r27-refusal-count", "12", "--r27-complex-count", "420",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r27-recipe --r27-refusal-count 12 --r27-complex-count 420" in output
+    assert output.count("--decision-contract") == 4
+
+
 def test_replacement_reasons_use_configured_baseline_label():
     baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
                 "planning-v4": {"category_metrics": {}}}

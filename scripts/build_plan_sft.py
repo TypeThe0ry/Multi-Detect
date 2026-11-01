@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import sys
@@ -67,6 +68,7 @@ OBJECTS = [  # (english query, chinese)
     ("pipe", "管道"),
     ("crate", "木箱"),
 ]
+IRREGULAR_PLURALS = {"person": "people"}
 ZONES = [
     ("zone:lot", "停车场", "the lot"),
     ("zone:field", "场地", "the field"),
@@ -124,6 +126,23 @@ def zh_number(n: int) -> str:
     rest = n % 100
     tail = "" if rest == 0 else ("零" + DIGITS[rest] if rest < 10 else zh_number(rest))
     return DIGITS[n // 100] + "百" + tail
+
+
+def english_plural(noun: str) -> str:
+    """Return a natural plural for the English object labels used in tasks."""
+    irregular = IRREGULAR_PLURALS.get(noun.casefold())
+    if irregular:
+        return irregular
+    head, separator, tail = noun.rpartition(" ")
+    word = tail if separator else noun
+    lowered = word.casefold()
+    if lowered.endswith(("s", "x", "z", "ch", "sh")):
+        plural = word + "es"
+    elif len(word) > 1 and lowered.endswith("y") and lowered[-2] not in "aeiou":
+        plural = word[:-1] + "ies"
+    else:
+        plural = word + "s"
+    return f"{head}{separator}{plural}" if separator else plural
 
 
 def localise_places(rng, steps, text, labels):
@@ -492,13 +511,16 @@ R23_SEQUENCE_QUOTAS = (
 )
 
 
-def r23_target_case(rng: random.Random, sequence: str):
+def r23_target_case(rng: random.Random, sequence: str, *, natural_plural: bool = False):
     """Natural v3 regression coverage with an explicit target sequence."""
     q, qz = rng.choice(OBJECTS)
+    q_plural = english_plural(q) if natural_plural else f"{q}s"
     first, firstz, firste = rng.choice(POIS)
     second, secondz, seconde = rng.choice(POIS)
     zone, zonez, zonee = rng.choice(ZONES)
     zone2, zone2z, zone2e = rng.choice(ZONES)
+    zone_label = zonee if natural_plural else f"the {zonee}"
+    zone2_label = zone2e if natural_plural else f"the {zone2e}"
     route, routez, routee = rng.choice(ROUTES)
     sec = rng.choice([15, 30, 45, 60, 90])
     use_zh = rng.random() < 0.5
@@ -508,9 +530,15 @@ def r23_target_case(rng: random.Random, sequence: str):
         zh = rng.choice([f"先到{firstz}，在{zonez}上空悬停{sec}秒，然后返航",
                          f"飞往{firstz}后稳住{sec}秒，再回到起飞点",
                          f"去{firstz}等{sec}秒，完成后回家"])
-        en = rng.choice([f"Go to {firste}, hold over the {zonee} for {sec} seconds, then return home.",
-                         f"Fly to {firste}, hover for {sec} seconds, and come back to base.",
-                         f"Reposition to {firste}, wait there for {sec} seconds, then return."])
+        en = rng.choice([
+            f"Go to {firste}, hold over {zone_label} for {sec} seconds, then return home.",
+            f"Fly to {firste}, hover over {zone_label} for {sec} seconds, and come back to base.",
+            f"Reposition to {firste}, wait there for {sec} seconds, then return.",
+        ] if natural_plural else [
+            f"Go to {firste}, hold over the {zonee} for {sec} seconds, then return home.",
+            f"Fly to {firste}, hover for {sec} seconds, and come back to base.",
+            f"Reposition to {firste}, wait there for {sec} seconds, then return.",
+        ])
     elif sequence == "record_hover_land":
         plan = [S("s1", "record", {"query": q}, "s2", "s2"),
                 S("s2", "hover", {"duration_s": sec}, "s3", "s3"),
@@ -525,12 +553,24 @@ def r23_target_case(rng: random.Random, sequence: str):
         loops = rng.choice([2, 3, 4, 5])
         plan = [S("s1", "patrol", {"route_ref": route, "query": q, "loops": loops}, "s2", "s2"),
                 S("s2", "goto", {"target_ref": second}, "s3", "s3"), H("s3")]
-        zh = rng.choice([f"沿{routez}巡逻{loops}圈观察{qz}，结束后去{secondz}，再返航",
-                         f"巡查{routez}{loops}趟，随后飞到{secondz}，最后回家",
-                         f"先巡视{routez}{loops}圈，再转到{secondz}并回到起飞点"])
-        en = rng.choice([f"Patrol {routee} for {loops} loops watching for {q}s, then go to {seconde} and return home.",
-                         f"Run {loops} circuits of {routee}, reposition to {seconde}, and come back.",
-                         f"Inspect {routee} {loops} times, then fly to {seconde} before returning."])
+        zh = rng.choice([
+            f"沿{routez}巡逻{loops}圈观察{qz}，结束后去{secondz}，再返航",
+            f"巡查{routez}{loops}趟，留意{qz}，随后飞到{secondz}，最后回家",
+            f"先巡视{routez}{loops}圈寻找{qz}，再转到{secondz}并回到起飞点",
+        ] if natural_plural else [
+            f"沿{routez}巡逻{loops}圈观察{qz}，结束后去{secondz}，再返航",
+            f"巡查{routez}{loops}趟，随后飞到{secondz}，最后回家",
+            f"先巡视{routez}{loops}圈，再转到{secondz}并回到起飞点",
+        ])
+        en = rng.choice([
+            f"Patrol {routee} for {loops} loops watching for {q_plural}, then go to {seconde} and return home.",
+            f"Run {loops} circuits of {routee} watching for {q_plural}, reposition to {seconde}, and come back.",
+            f"Inspect {routee} {loops} times for {q_plural}, then fly to {seconde} before returning.",
+        ] if natural_plural else [
+            f"Patrol {routee} for {loops} loops watching for {q}s, then go to {seconde} and return home.",
+            f"Run {loops} circuits of {routee}, reposition to {seconde}, and come back.",
+            f"Inspect {routee} {loops} times, then fly to {seconde} before returning.",
+        ])
     elif sequence == "monitor_monitor_return":
         sec2 = rng.choice([120, 180, 240, 300])
         plan = [S("s1", "monitor", {"region": zone, "query": q, "duration_s": sec}, "s2", "s2"),
@@ -540,9 +580,16 @@ def r23_target_case(rng: random.Random, sequence: str):
         zh = rng.choice([f"在{zonez}观察{qz}{sec}秒，再到{zone2z}观察{q2z}{sec2}秒，最后返航",
                          f"先盯着{zonez}里的{qz}，然后监看{zone2z}的{q2z}，完成后回家",
                          f"监视{zonez}{sec}秒，再监视{zone2z}{sec2}秒，带着{q2z}记录返航"])
-        en = rng.choice([f"Monitor the {zonee} for {q}s for {sec} seconds, then monitor {zone2e} for {q2}s for {sec2} seconds and return home.",
-                         f"Watch {zonee} for {sec} seconds, then observe {zone2e} for {sec2} seconds before coming back.",
-                         f"Monitor {zonee} and then {zone2e} for the requested durations, then return."])
+        q2_plural = english_plural(q2) if natural_plural else f"{q2}s"
+        en = rng.choice([
+            f"Monitor {zone_label} for {q_plural} for {sec} seconds, then monitor {zone2_label} for {q2_plural} for {sec2} seconds and return home.",
+            f"Watch {zone_label} for {q_plural} for {sec} seconds, then observe {zone2_label} for {q2_plural} for {sec2} seconds before coming back.",
+            f"Monitor {zone_label} for {q_plural}, then monitor {zone2_label} for {q2_plural} for the requested durations before returning.",
+        ] if natural_plural else [
+            f"Monitor the {zonee} for {q}s for {sec} seconds, then monitor {zone2e} for {q2}s for {sec2} seconds and return home.",
+            f"Watch {zonee} for {sec} seconds, then observe {zone2e} for {sec2} seconds before coming back.",
+            f"Monitor {zonee} and then {zone2e} for the requested durations, then return.",
+        ])
     elif sequence == "survey_survey_land":
         overlap = rng.choice([0.6, 0.7, 0.8, 0.85])
         plan = [S("s1", "survey", {"region": zone, "overlap": overlap}, "s2", "s2"),
@@ -551,17 +598,35 @@ def r23_target_case(rng: random.Random, sequence: str):
         zh = rng.choice([f"先测绘{zonez}，再测{zone2z}，两处影像重叠{pct}%，完成后降落",
                          f"给{zonez}和{zone2z}各做一次航测，保持{pct}%重叠，最后落地",
                          f"连续测量{zonez}、{zone2z}，相邻照片重叠{pct}%，结束降落"])
-        en = rng.choice([f"Survey the {zonee} and then the {zone2e} with {pct}% overlap, then land.",
-                         f"Map {zonee} followed by {zone2e}, keeping {pct}% image overlap before setting down.",
-                         f"Collect mapping imagery over {zonee} and {zone2e} at {pct}% overlap, then land."])
+        en = rng.choice([
+            f"Survey {zone_label} and then {zone2_label} with {pct}% overlap, then land.",
+            f"Map {zone_label} followed by {zone2_label}, keeping {pct}% image overlap before setting down.",
+            f"Collect mapping imagery over {zone_label} and {zone2_label} at {pct}% overlap, then land.",
+        ] if natural_plural else [
+            f"Survey the {zonee} and then the {zone2e} with {pct}% overlap, then land.",
+            f"Map {zonee} followed by {zone2e}, keeping {pct}% image overlap before setting down.",
+            f"Collect mapping imagery over {zonee} and {zone2e} at {pct}% overlap, then land.",
+        ])
     else:
         plan = [S("s1", "record", {"query": q}, "s2", "s2"), H("s2")]
-        zh = rng.choice([f"把当前视野里的{qz}拍照存档，然后返航",
-                         f"不用搜索，直接记录眼前的{qz}并回到起飞点",
-                         f"拍下已经看到的{qz}，保存证据后回家"])
-        en = rng.choice([f"Photograph the {q} already in view, then return home; no search is needed.",
-                         f"Save a still of the {q} currently visible and come back without searching.",
-                         f"Record the {q} in the current view, then return to launch."])
+        zh = rng.choice([
+            f"把当前视野里的{qz}拍照存档，然后返航",
+            f"不用搜索，直接记录眼前的{qz}并回到起飞点",
+            f"拍下已经看到的{qz}，保存证据后回家",
+        ] if not natural_plural else [
+            f"把视野里的{qz}拍照存档后返航",
+            f"记录已经看到的{qz}并返回起点",
+            f"拍下当前观察到的{qz}，保存证据后回家",
+        ])
+        en = rng.choice([
+            f"Photograph the {q} already in view, then return home; no search is needed.",
+            f"Save a still of the {q} currently visible and come back without searching.",
+            f"Record the {q} in the current view, then return to launch.",
+        ] if not natural_plural else [
+            f"Photograph the visible {q} before returning home.",
+            f"Save a still of the {q} already in view, then head back to base.",
+            f"Record the {q} in the current view and return to launch.",
+        ])
     return (zh if use_zh else en), plan, ["coverage", "positions"]
 
 
@@ -1353,6 +1418,363 @@ def r26_rows(args, held_out: set[str], seen: set[str], existing: list[dict]) -> 
     return rows
 
 
+def r27_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add narrowly grounded refusal pairs and difficult executable positives."""
+    rows = []
+    places = [("poi:gate", "大门", "gate"), ("poi:pad", "起降坪", "landing pad"),
+              ("poi:tower", "水塔", "water tower"), ("poi:shed", "仓库", "warehouse"),
+              ("poi:bridge", "桥", "bridge"), ("poi:yard", "院子", "yard")]
+    payloads = [
+        ("包裹", "parcel", "package"), ("药品箱", "medical case", "medical_kit"),
+        ("工具箱", "tool case", "toolkit"), ("样品盒", "sample box", "sample_box"),
+        ("急救包", "first-aid kit", "first_aid_kit"), ("设备箱", "equipment case", "equipment_case"),
+        ("物资袋", "supply bag", "supply_bag"), ("零件盒", "parts box", "parts_box"),
+        ("水样瓶", "water sample", "water_sample"), ("电池组", "battery pack", "battery_pack"),
+        ("通信器材", "radio equipment", "radio_equipment"), ("医疗物资", "medical supplies", "medical_supplies"),
+        ("传感器", "sensor", "sensor"), ("备用电台", "spare radio", "spare_radio"),
+        ("样本罐", "specimen jar", "specimen_jar"), ("救援绳包", "rescue rope kit", "rescue_rope_kit"),
+    ]
+    unknowns = [("青石码头", "Blue Stone Wharf"), ("旧气象站", "Old Weather Station"),
+                ("北岸仓库", "North Shore Depot"), ("石拱渡口", "Stone Arch Ferry"),
+                ("林场观测点", "Forest Survey Point"), ("月台遗址", "Moon Platform Ruins")]
+    canonical_labels = {ref: f"{zh} / {en}" for ref, zh, en in ZONES + POIS + ROUTES}
+
+    def canonical_refs(steps):
+        refs = []
+        for step in steps:
+            for key in ("region", "target_ref", "route_ref"):
+                ref = step.get("params", {}).get(key)
+                if ref in canonical_labels and ref not in refs:
+                    refs.append(ref)
+        return tuple(f"{ref} ({canonical_labels[ref]})" for ref in refs)
+
+    terminal_phrases = {
+        "en_return": (
+            "then head back to base", "before flying to the launch point", "and finish at the starting point",
+            "then make the return leg to base", "ending at the place the flight began", "and come back to launch",
+            "before heading home", "then fly back to the departure point", "with a final leg to base",
+            "and conclude at the launch site", "before returning to the takeoff point", "then retrace the way home",
+            "to finish back at base", "and return to the starting location", "with the aircraft back at launch",
+            "then continue home", "and complete the trip at base", "before making the flight back",
+            "to end where the sortie started", "and head for the launch site",
+            "and fly back to the launch pad", "before taking the return route", "and head back to the launch site",
+            "then return to the home point", "and bring the aircraft back to launch", "before returning to the home point",
+            "and complete the trip back to base", "then fly back to the pad", "and make the flight back to base",
+            "before heading to the takeoff point", "and finish the return to base", "then make for home",
+            "and return to the departure pad", "before flying back to the launch area", "and bring the aircraft home",
+        ),
+        "zh_return": (
+            "，再飞回出发地点", "，随后返回起飞位置", "，最后回到基地", "，结束时飞回起点",
+            "，并返回最初的起降点", "，收尾时回到出发地", "，然后飞回基地", "，完成后回到起始位置",
+            "，最后回到出发点", "，返程至起飞地点", "，再回到基地待命", "，以返航结束这趟任务",
+            "，飞回最初的地点", "，随后回到出发位置", "，并飞回起降点", "，最后返回基地",
+            "，让飞机回到起点", "，再沿返程回到出发地", "，返航至最初的位置", "，回到起飞处结束",
+            "，然后飞回起飞地点", "，返回最初的起降坪", "，并回到出发基地", "，最后飞回起降位置",
+            "，再返回最初的地点", "，随后飞向基地降落待命", "，飞回最初的起飞位置", "，并回到起飞处",
+            "，返程回到基地位置", "，最后回到起飞场地", "，飞回任务开始的位置", "，回到出发的起降场",
+            "，随后返回飞行起点", "，结束返程并回到基地", "，再飞回起降坪", "，将飞机带回起飞地点",
+        ),
+        "en_land": (
+            "and touch down at the end", "before setting the aircraft down", "finishing with a landing",
+            "and bring the flight to a close on the ground", "to complete the sortie with a landing",
+            "then put the aircraft down", "and end the flight with touchdown", "before coming to rest on the ground",
+            "to finish the mission on the ground", "and complete the flight by landing", "ending with touchdown",
+            "then settle onto the ground", "to conclude with a landing", "and finish the sortie on the ground",
+            "before touching down", "and bring the aircraft down to land", "to end the flight with touchdown",
+            "then complete the landing", "and close out the sortie on the ground", "to finish with the aircraft landed",
+            "and land at the end of the flight", "then touch down at the landing site", "and finish after touchdown",
+            "before landing the aircraft", "and set the drone down to finish", "to end with the aircraft on the ground",
+            "then bring the aircraft in to land", "and complete the flight with touchdown", "before the final landing",
+            "and finish on the ground after landing", "then land the aircraft safely", "to close the flight with a landing",
+            "and touch down to complete the mission", "before ending the sortie on the ground", "then finish with a touchdown",
+            "and bring the aircraft to the ground", "to complete the mission after landing",
+        ),
+        "zh_land": (
+            "，随后完成着陆", "，以落地结束飞行", "，最后让飞机着陆", "，并在地面结束任务",
+            "，收尾时完成降落", "，然后把飞机降下来", "，最终停在地面", "，结束航段并落地",
+            "，完成着陆后结束任务", "，最后在地面收尾", "，以着陆完成本次飞行", "，然后安全落地",
+            "，将这趟飞行结束在地面", "，着陆后结束本次任务", "，最后完成落地", "，并以降落收尾",
+            "，让飞机在地面停下", "，以落地作为终点", "，随后在地面结束飞行", "，并完成最终着陆",
+            "，然后在地面完成任务", "，最后降到地面停稳", "，并在此结束飞行", "，着陆后结束航段",
+            "，让无人机落地停下", "，以最终落地结束飞行", "，随后把飞机停在地面", "，降落后结束航程",
+            "，并在着陆后收工", "，最后停在地面", "，飞行到此结束并着陆", "，之后完成着陆",
+            "，以飞机落地作为结束", "，随后落地结束任务", "，把本次飞行收在地面", "，落地后停止飞行",
+        ),
+    }
+    def vary_terminal(text, steps, index):
+        language = "zh" if re.search(r"[\u4e00-\u9fff]", text) else "en"
+        landing = steps[-1]["skill"] == "land"
+        key = f"{language}_{'land' if landing else 'return'}"
+        choices = terminal_phrases[key]
+        phrase_index = ((index // 10) * 7 if family == "r27_counting"
+                        else (index // len(family_sequences)) * 7 + (index % len(family_sequences)))
+        phrase = choices[phrase_index % len(choices)]
+        if language == "zh":
+            pattern = (r"(?:然后|随后|完成后|最后|再|并|让飞机)?(?:返航|回家|回来|返回(?:起飞点|起点|基地|出发点|起降点|最初的起降点)|"
+                       r"回到(?:起飞点|起点|基地|出发点|起降点)|让飞机回到(?:起飞点|起点|基地|出发点)|"
+                       r"飞回(?:起飞点|起点|基地|出发点|起降点))[。]?$" ) if not landing else (
+                       r"(?:然后|随后|完成后|最后|再|并)?(?:降落|落地|着陆)[。]?$" )
+            match = re.search(pattern, text)
+            return text[:match.start()].rstrip(" ，,。.!?") + phrase + "。" if match else text
+        if not landing and re.search(r"(?:no search is needed|without searching)\.?$", text, re.I):
+            endings = (
+                "with no search beyond what is already in view", "without starting a search", "and no search is required",
+                "while leaving the visible target unsearched", "without searching for anything else", "with the target already visible",
+                "and skip any further search", "without looking for additional targets", "with no wider search",
+                "and leave the current view as is", "without a new search pass", "while keeping the task to the current view",
+                "and do not scan another area", "without expanding the search", "with no extra search activity",
+                "and avoid searching beyond the current view", "with the existing observation only", "without looking elsewhere",
+                "and keep the request limited to what is visible", "with no additional scan",
+            )
+            text = re.sub(r"(?:;\s*no search is needed|\s+without searching)\.?$", "", text, flags=re.I)
+            return text.rstrip(" ,;.") + ", " + endings[phrase_index % len(endings)] + "."
+        pattern = (r"(?:,?\s*)(?:then |and |before |to )?(?:return home|return|come back(?: to base| to launch)?|"
+                   r"returning|coming back|heading home|head back(?: to base| to the launch point)?|"
+                   r"flying back|fly back(?: to the departure point| to base| home)?|"
+                   r"return to (?:launch|base|the starting location))\.?$") if not landing else (
+                   r"(?:,?\s*)(?:then |and |before |to )?(?:land|set down|setting down|touch down|touching down|"
+                   r"set the aircraft down|come to rest on the ground)\.?$")
+        match = re.search(pattern, text, re.I)
+        if match:
+            return text[:match.start()].rstrip(" ,;.") + ", " + phrase + "."
+        return text
+
+    def emit(text, refs, capabilities, target, family, *, valid, code=None, candidate=None):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        if valid:
+            validate_mission_plan(target, capabilities=frozenset(capabilities))
+            findings = check_plan_intent(target, text, tuple(refs))
+            if findings:
+                raise ValueError(f"r27 positive intent failure: {family}: {findings}: {text}")
+        else:
+            validate_plan_decision(target)
+        seen.add(key)
+        prompt = plan_prompt(text, refs=tuple(refs), capabilities=frozenset(capabilities),
+                             include_decision_contract=True)
+        if family == "r27_missing_capability":
+            prompt = prompt.replace("Task: " + text,
+                "Available aircraft capabilities: none. Payload drop is unavailable.\nTask: " + text)
+        row = {"sample_id": f"plan-r27-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+               "kind": "mission_plan", "world": "synthetic_plan_r27", "family": family,
+               "pair_role": "positive" if valid and code else "refusal" if code else None,
+               "reason_code": code, "task_text": text, "refs": list(refs),
+               "capabilities": list(capabilities), "expected_valid": valid,
+               "expected_findings": [] if valid else [code], "prompt": prompt,
+               "assistant_target": target, "_key": key}
+        if candidate is not None:
+            row["rejected_candidate"] = candidate
+            row["negative_target_mode"] = "rejected_candidate"
+        rows.append(row)
+        return True
+
+    def plan(text, steps, report):
+        return {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+
+    # Every refusal has a same-frame executable counterpart with only the
+    # missing capability or place-list fact changed.
+    index = 0
+    payload_refusals = 0
+    unknown_refusals = 0
+    attempts = 0
+    while payload_refusals < args.r27_refusal_count or unknown_refusals < args.r27_refusal_count:
+        if attempts > args.r27_refusal_count * 20 + 100:
+            raise ValueError(
+                "r27 refusal pair pool exhausted after holdout filtering "
+                f"(missing_capability={payload_refusals}, unknown_place={unknown_refusals})"
+            )
+        cursor = index + attempts
+        place_ref, place_zh, place_en = places[(cursor // 2) % len(places)]
+        payload_zh, payload_en, payload_ref = payloads[(cursor // len(places)) % len(payloads)]
+        unknown_zh, unknown_en = unknowns[(cursor // 2) % len(unknowns)]
+        suffixes = [("北侧", "north side"), ("南侧", "south side"), ("东侧", "east side"),
+                    ("西侧", "west side"), ("旧址", "old site"), ("二号点", "site two"),
+                    ("山脚点", "foothill site")]
+        suffix_zh, suffix_en = suffixes[(cursor // 2) % len(suffixes)]
+        unknown_zh, unknown_en = unknown_zh + suffix_zh, unknown_en + " " + suffix_en
+        use_zh = cursor % 2 == 0
+        if use_zh:
+            bad_payload = f"把{payload_zh}送到{place_zh}后返航。"
+            good_payload = f"飞机具备投放能力，把{payload_zh}送到{place_zh}后返航。"
+            bad_place = f"飞到地图没标出的{unknown_zh}后返航。"
+            known_zh_verbs = (f"飞到{place_zh}后返航。", f"前往{place_zh}再回家。",
+                              f"到{place_zh}后返回起飞点。", f"请去{place_zh}然后返航。",
+                              f"先抵达{place_zh}，完成后回来。", f"直接飞到{place_zh}再返航。",
+                              f"现在去{place_zh}，随后回家。", f"到达{place_zh}就返航。",
+                              f"把飞机带到{place_zh}后回来。", f"去一趟{place_zh}再回起点。",
+                              f"按计划前往{place_zh}，然后返航。", f"抵达{place_zh}即可返回。")
+            good_place = known_zh_verbs[(cursor // (2 * len(places))) % len(known_zh_verbs)]
+            payload_reason = "飞机没有载荷投放能力。"
+            unknown_reason = "请求的地点不在已知地点列表中。"
+            unknown_question = f"请问要改去哪个已知地点，例如{place_zh}吗？"
+        else:
+            bad_payload = f"Deliver the {payload_en} to the {place_en}, then return home."
+            good_payload = f"With payload drop capability, deliver the {payload_en} to the {place_en}, then return home."
+            bad_place = f"Visit the unlisted {unknown_en}, then return home."
+            known_en_verbs = (f"Visit the listed {place_en}, then return home.",
+                              f"Go to the listed {place_en} and come back.",
+                              f"Fly to the listed {place_en} before heading back to launch.",
+                              f"Reposition to the listed {place_en}, then come home.",
+                              f"Navigate to the listed {place_en} and return to base.",
+                              f"Directly fly to the listed {place_en}, then return.",
+                              f"Go to the listed {place_en} now and head home.",
+                              f"Reach the listed {place_en}, then fly back.",
+                              f"Take the aircraft to the listed {place_en} and come back.",
+                              f"Make one trip to the listed {place_en}, then return.",
+                              f"Proceed to the listed {place_en} before returning.",
+                              f"Once at the listed {place_en}, return to base.")
+            good_place = known_en_verbs[(cursor // (2 * len(places))) % len(known_en_verbs)]
+            payload_reason = "Payload drop capability is unavailable."
+            unknown_reason = "The requested place is not in the known-place list."
+            unknown_question = f"Should I use the listed {place_en} instead?"
+        refs = (f"{place_ref} ({place_zh} / {place_en})",)
+        payload_candidate = plan(bad_payload, [S("s1", "deliver", {
+            "target_ref": place_ref, "payload_ref": f"payload:{payload_ref}"}, "s2", "s2"), H("s2")], ["delivery"])
+        missing = {"plan_version": 1, "decision": "reject", "reason_code": "missing_capability",
+                   "reason": payload_reason, "missing_capabilities": ["payload_drop"],
+                   "unresolved_refs": [], "question": None}
+        payload_positive = plan(good_payload, [S("s1", "deliver", {
+            "target_ref": place_ref, "payload_ref": f"payload:{payload_ref}"}, "s2", "s2"), H("s2")], ["delivery"])
+        unknown_ref = "poi:" + re.sub(r"[^a-z0-9]+", "_", unknown_en.casefold()).strip("_")
+        unknown_candidate = plan(bad_place, [S("s1", "goto", {"target_ref": unknown_ref}, "s2", "s2"), H("s2")], ["status"])
+        unknown_decision = {"plan_version": 1, "decision": "clarify", "reason_code": "unknown_place",
+                            "reason": unknown_reason, "missing_capabilities": [],
+                            "unresolved_refs": [unknown_ref], "question": unknown_question}
+        known_positive = plan(good_place, [S("s1", "goto", {"target_ref": place_ref}, "s2", "s2"),
+                                           H("s2")], ["positions"])
+        if payload_refusals < args.r27_refusal_count:
+            if (emit(bad_payload, refs, (), missing, "r27_missing_capability", valid=False,
+                     code="missing_capability", candidate=payload_candidate)
+                    and emit(good_payload, refs, ("payload_drop",), payload_positive,
+                             "r27_missing_capability_positive", valid=True, code="missing_capability")):
+                payload_refusals += 1
+        if unknown_refusals < args.r27_refusal_count:
+            if (emit(bad_place, refs, (), unknown_decision, "r27_unknown_place", valid=False,
+                     code="unknown_place", candidate=unknown_candidate)
+                    and emit(good_place, refs, (), known_positive,
+                             "r27_unknown_place_positive", valid=True, code="unknown_place")):
+                unknown_refusals += 1
+        index += 1
+        attempts += 1
+
+    # Difficult positives span multi-step, conversational, scoped-negation,
+    # local-position, mapping, counting, and monitoring requests.
+    rng = random.Random(f"{args.seed}:r27-complex")
+    family_sequences = (
+        ("r27_multi_step", "patrol_goto_return"),
+        ("r27_colloquial", "goto_hover_return"),
+        ("r27_negation", "current_view_record"),
+        ("r27_mapping", "survey_survey_land"),
+        ("r27_monitoring", "monitor_monitor_return"),
+    )
+    family_openers = {
+        "r27_multi_step": (
+            ("依照步骤顺序，", "这趟按先后次序完成：", "几项操作依次进行：", "先后安排如下：",
+             "按流程逐项执行：", "本次需要连续完成：", "把各项操作接起来：", "任务分步进行：",
+             "从第一项开始依序处理：", "这些步骤按顺序衔接：", "先做前项再接后项：", "连贯完成这些操作："),
+            ("Following the requested order, ", "In sequence, ", "Work through these actions in order: ",
+             "The steps run as follows: ", "Carry out each action in sequence: ", "For this sortie, ",
+             "Start with the first action: ", "Handle the steps one by one: ", "Run these actions consecutively: ",
+             "Keep the actions in sequence: ", "Move from one step to the next: ", "Complete the sequence: "),
+        ),
+        "r27_colloquial": (
+            ("有空时，", "方便的话，", "这次想请你，", "能否帮忙，", "请顺手，", "劳烦安排：",
+             "想麻烦你，", "抽空处理一下：", "能帮我，", "请帮着，", "这趟请你，", "方便时帮忙："),
+            ("Could you ", "Can you ", "Please ", "For this flight, ", "On this sortie, ", "Let's ",
+             "When ready, ", "I would like you to ", "Go ahead and ", "Take a moment to ",
+             "It would help to ", "If convenient, "),
+        ),
+        "r27_negation": (
+            ("不用扩大搜索范围，", "不必再扫查其他区域，", "保持搜索范围有限，", "其他区域无需检查，",
+             "不要转去别的区域，", "无需额外搜索，", "只处理眼前目标，", "跳过全域搜索，",
+             "不要重新搜索，", "搜索限制在当前视野内，", "不需要继续找目标，", "勿扩大扫描范围，"),
+            ("No wider search is needed; ", "Skip any search outside the current view; ",
+             "Keep the search scoped to what is visible; ", "Do not scan other areas; ",
+             "There is no need to search elsewhere; ", "Avoid a broad search; ",
+             "Leave other areas unchecked; ", "Do not expand the search area; ",
+             "Search only what is already in view; ", "No additional search is required; ",
+             "Keep this to the current view; ", "Do not start a new search; "),
+        ),
+        "r27_mapping": (
+            ("两处都要完成测绘：", "按两个区域分别测绘：", "连续覆盖这两处：", "先后获取两处地图：",
+             "这趟安排两片区域的航测：", "两块区域都纳入测绘：", "为这两个区域采集影像：",
+             "分区域完成地图采集：", "把两处都测一遍：", "分别覆盖两个测区：", "连做两处航测：",
+             "两处地图都要收齐："),
+            ("Map both areas: ", "Cover the two regions in turn: ", "Collect imagery over both sites: ",
+             "The mapping covers two areas: ", "Survey each region in sequence: ", "For both areas, ",
+             "Build coverage over the two sites: ", "Run the two mapping passes: ", "Map the first area, then the second: ",
+             "Capture both regions: ", "Include both sites in the survey: ", "Complete the two area surveys: "),
+        ),
+        "r27_monitoring": (
+            ("按时段轮流观察：", "两个区域都要盯一遍：", "分段监视这两处：", "依次留意两片区域：",
+             "把观察任务分到两处：", "连续观察两个区域：", "每个时段各看一处：", "先后监看两片区域：",
+             "两处都安排观察：", "轮换查看两个区域：", "分别监视这两个地点：", "按顺序跟进两处："),
+            ("Watch the two areas in turn: ", "Split the monitoring between both sites: ",
+             "Keep an eye on each area: ", "Monitor both regions in sequence: ",
+             "The watch covers two locations: ", "For the two monitoring periods, ",
+             "Move through both watch areas: ", "Check each region in turn: ",
+             "Monitor one area, then the other: ", "Keep both sites under observation: ",
+             "Run the two monitoring periods: ", "Cover both locations during the watch: "),
+        ),
+    }
+    index = 0
+    attempts = 0
+    while index < args.r27_complex_count:
+        if attempts > args.r27_complex_count * 30 + 100:
+            raise ValueError(
+                "r27 complex-positive pool exhausted after holdout filtering "
+                f"(accepted={index}, attempts={attempts}, family={family})"
+            )
+        family, sequence = family_sequences[index % len(family_sequences)]
+        if index % 10 == 8:
+            n = 2 + ((index // 10) % 8)
+            query, query_zh = rng.choice(OBJECTS)
+            text = (f"院子里有多少{query_zh}就报多少，数到{n}个就停，然后返航。"
+                    if (index // 10) % 2 == 0 else
+                    f"Count {english_plural(query)} in the yard up to {n}, report the total, then return home.")
+            steps = [S("s1", "count", {"region": "zone:yard", "query": query, "max_count": n}, "s2", "s2"), H("s2")]
+            report, family = ["count", "positions"], "r27_counting"
+        elif index % 10 == 9:
+            spots = (("当前位置", "the current position"), ("此处", "this spot"),
+                     ("飞机所在地点", "the aircraft's present location"), ("眼下这个点", "where you are now"),
+                     ("脚下", "right here"), ("当前航迹点", "the current waypoint"),
+                     ("所在位置", "the present location"), ("现在这个地点", "this location"),
+                     ("当前坐标", "the current coordinates"))
+            forms = (
+                ("在{zh}降落。", "Land at {en}."),
+                ("把飞机降在{zh}。", "Set the aircraft down at {en}."),
+                ("飞行任务在{zh}结束并着陆。", "End the flight with a landing at {en}."),
+                ("不必转场，直接在{zh}落地。", "Skip repositioning and touch down at {en}."),
+                ("以{zh}作为终点，随后降落。", "Use {en} as the endpoint and land there."),
+            )
+            local_texts = tuple((zh.format(zh=spot_zh), en.format(en=spot_en))
+                               for spot_zh, spot_en in spots for zh, en in forms)
+            local_index = index // 10
+            text_zh, text_en = local_texts[(local_index + attempts) % len(local_texts)]
+            text = text_zh if (local_index + attempts) % 2 == 0 else text_en
+            steps, report, family = [L("s1")], ["status"], "r27_local_position"
+        else:
+            text, steps, report = r23_target_case(rng, sequence, natural_plural=True)
+            zh_text = bool(re.search(r"[\u4e00-\u9fff]", text))
+            openers = family_openers[family][0 if zh_text else 1]
+            opener = openers[(index // len(family_sequences)) % len(openers)]
+            if zh_text:
+                text = opener + text
+            else:
+                text = opener + text[0].lower() + text[1:]
+        text = vary_terminal(text, steps, index)
+        refs = canonical_refs(steps)
+        row_plan = plan(text, steps, report)
+        if check_plan_intent(row_plan, text, tuple(refs)):
+            attempts += 1
+            continue
+        if emit(text, refs, (), row_plan, family, valid=True):
+            index += 1
+        attempts += 1
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -2029,6 +2451,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="extend r24 with structured reject/clarify decisions; excludes r25 rejected candidates")
     parser.add_argument("--r26-refusal-count", type=int, default=60,
                         help="refusal/clarification rows per reason_code; the recipe adds an equal positive count (default: 60)")
+    parser.add_argument("--r27-recipe", action="store_true",
+                        help="extend r24 with narrow structured refusals and difficult executable positives")
+    parser.add_argument("--r27-refusal-count", type=int, default=40,
+                        help="refusal rows per supported reason_code, each paired with one positive (default: 40)")
+    parser.add_argument("--r27-complex-count", type=int, default=400,
+                        help="difficult executable positives (default: 400)")
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -2049,10 +2477,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("r25 counts must be non-negative")
     if args.r26_refusal_count < 0 or args.r26_refusal_count % 2:
         parser.error("r26 refusal count must be non-negative and even for an equal Chinese/English split")
+    if args.r27_refusal_count < 0 or args.r27_complex_count < 0:
+        parser.error("r27 counts must be non-negative")
     if args.r25_recipe:
         args.r24_recipe = True
     if args.r26_recipe:
         args.r24_recipe = True
+    if args.r27_recipe:
+        args.r23_recipe = True
+        args.r24_recipe = True
+        # r27 emits its own paired unknown-place decisions at the requested count.
+        args.r24_unknown_count = 0
     eval_paths = args.eval_tasks
     if eval_paths is None:
         eval_paths = sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json"))
@@ -2158,6 +2593,17 @@ def main(argv: list[str] | None = None) -> int:
         new_rows = r26_rows(args, held_out, seen, rows)
         rows.extend(new_rows)
         args.rows += len(new_rows)
+    if args.r27_recipe:
+        new_rows = r27_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+        # Keep the refusal fraction within the contract even for small custom
+        # runs; the filler rows are ordinary executable v4 positives.
+        refusal_rows = sum(
+            row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
+            for row in rows
+        )
+        args.rows = max(args.rows, math.ceil(refusal_rows / 0.02))
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -2205,7 +2651,11 @@ def main(argv: list[str] | None = None) -> int:
                                           "r25_missing_payload", "r25_payload_capable",
                                           "r25_negated_query", "r26_missing_capability", "r26_unknown_place",
                                           "r26_ungrounded_query", "r26_ambiguous_task", "r26_unsafe_request",
-                                          "r26_payload_capable"}:
+                                          "r26_payload_capable", "r27_missing_capability",
+                                          "r27_missing_capability_positive", "r27_unknown_place",
+                                          "r27_unknown_place_positive", "r27_multi_step",
+                                          "r27_colloquial", "r27_negation", "r27_mapping",
+                                          "r27_monitoring", "r27_counting", "r27_local_position"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -2265,6 +2715,44 @@ def main(argv: list[str] | None = None) -> int:
             "structured_targets_only": True,
             "r25_rejected_candidate_rows_included": False,
         }
+    if args.r27_recipe:
+        r27_rows_all = [row for row in rows if row.get("world") == "synthetic_plan_r27"]
+        decisions = [row for row in r27_rows_all
+                     if row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}]
+        refusals = [row for row in decisions if row["assistant_target"]["decision"] == "reject"
+                    or row["assistant_target"]["reason_code"] == "unknown_place"]
+        structured_codes = {row.get("reason_code") for row in decisions}
+        if structured_codes - {"missing_capability", "unknown_place"}:
+            raise ValueError(f"r27 emitted unsupported refusal reasons: {sorted(structured_codes)}")
+        refusal_share = len(refusals) / max(1, len(splits["train"]))
+        if refusal_share > 0.02:
+            raise ValueError(f"r27 structured refusal share {refusal_share:.4%} exceeds 2%")
+        if len(decisions) != 2 * args.r27_refusal_count:
+            raise ValueError(f"r27 structured refusal rows {len(decisions)} != {2 * args.r27_refusal_count}")
+        complex_rows = [row for row in r27_rows_all
+                        if row.get("pair_role") is None and row.get("expected_valid") is True]
+        if len(complex_rows) < args.r27_complex_count:
+            raise ValueError(f"r27 complex positive rows {len(complex_rows)} < {args.r27_complex_count}")
+        manifest["r27_recipe"] = {
+            "refusal_requested_per_reason_code": args.r27_refusal_count,
+            "complex_positive_requested": args.r27_complex_count,
+            "structured_refusal_rows": len(refusals),
+            "structured_refusal_share_train": refusal_share,
+            "reason_counts": {
+                code: {
+                    "refusal": sum(row.get("reason_code") == code and row.get("assistant_target", {}).get("decision") in {"reject", "clarify"} for row in r27_rows_all),
+                    "positive": sum(row.get("reason_code") == code and row.get("pair_role") == "positive" for row in r27_rows_all),
+                } for code in ("missing_capability", "unknown_place")
+            },
+            "complex_families": dict(sorted(Counter(
+                row.get("family") for row in complex_rows
+            ).items())),
+            "excluded_refusal_reasons": {
+                "unsafe_request": "安全区域和危险区域由主机规则判断更可靠",
+                "ambiguous_task": "缺少必要字段时由主机规则澄清更可靠",
+                "ungrounded_query": "查询依据由主机规则检查更可靠",
+            },
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -2314,7 +2802,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -2345,6 +2833,12 @@ def main(argv: list[str] | None = None) -> int:
             stats += ["", "r25 missing-payload negatives retain deliver for validator rejection; capable counterparts remain valid. Negated query negatives retain the forbidden query candidate for ungrounded_query rejection.", ""]
         if args.r26_recipe:
             stats += ["", "r26 rows supervise structured reject/clarify decisions and exclude r25 rejected-candidate targets.", ""]
+        if args.r27_recipe:
+            stats += ["", f"Structured refusal rows: {len(decisions)} ({refusal_share:.3%} of train; maximum 2%).",
+                      f"Complex executable positives: {len(complex_rows)}.",
+                      "", "| r27 family | Rows |", "|---|---:|---:|"]
+            stats += [f"| {family} | {count} |" for family, count in sorted(Counter(
+                row.get("family") for row in r27_rows_all).items())]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

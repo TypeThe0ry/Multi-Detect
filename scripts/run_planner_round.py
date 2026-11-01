@@ -130,19 +130,19 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     report = EVAL_ROOT
     decision_contract = args.decision_contract
     if decision_contract is None:
-        decision_contract = bool(args.r26_recipe)
+        decision_contract = bool(args.r26_recipe or args.r27_recipe)
     data_cmd = [sys.executable, str(ROOT / "scripts/build_plan_sft.py"), "--output", str(dataset), "--version", "v4", "--rows", str(args.rows), "--val-rows", str(args.val_rows), "--r20-plan-intent", "--r20-plan-intent-count", str(args.intent_count), "--r20-plan-intent-mix"]
     if args.replay_planner_train:
         data_cmd += ["--replay-planner-train", str(args.replay_planner_train)]
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
     learning_rate = args.learning_rate
-    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe:
+    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe:
         data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
-    if args.r24_recipe or args.r25_recipe or args.r26_recipe:
+    if args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe:
         data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
                      "--r24-unknown-count", str(args.r24_unknown_count),
                      "--r24-context-count", str(args.r24_context_count)]
@@ -156,6 +156,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
             learning_rate = 2.0e-5
     if args.r26_recipe:
         data_cmd += ["--r26-recipe", "--r26-refusal-count", str(args.r26_refusal_count)]
+        if learning_rate == 1e-4:
+            learning_rate = 2.0e-5
+    if args.r27_recipe:
+        data_cmd += ["--r27-recipe", "--r27-refusal-count", str(args.r27_refusal_count),
+                     "--r27-complex-count", str(args.r27_complex_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.0e-5
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
@@ -207,6 +212,12 @@ def main(argv=None) -> int:
                         help="extend r24 with structured reject/clarify targets")
     parser.add_argument("--r26-refusal-count", type=int, default=60,
                         help="structured refusal rows per reason_code (r26 default: 60)")
+    parser.add_argument("--r27-recipe", action="store_true",
+                        help="extend r24 with narrow structured refusals; enables the decision contract")
+    parser.add_argument("--r27-refusal-count", type=int, default=40,
+                        help="refusal rows per supported reason code (default: 40)")
+    parser.add_argument("--r27-complex-count", type=int, default=400,
+                        help="difficult executable positives (default: 400)")
     contract = parser.add_mutually_exclusive_group()
     contract.add_argument("--decision-contract", dest="decision_contract", action="store_true",
                           help="enable structured reject/clarify evaluation")
@@ -232,7 +243,8 @@ def main(argv=None) -> int:
         parser.error("row counts must be positive (val rows may be zero)")
     if any(value < 0 for value in (args.r24_reference_count, args.r24_unknown_count,
                                    args.r24_context_count, args.r25_missing_payload_count,
-                                   args.r25_negated_query_count, args.r26_refusal_count)):
+                                   args.r25_negated_query_count, args.r26_refusal_count,
+                                   args.r27_refusal_count, args.r27_complex_count)):
         parser.error("recipe counts must be non-negative")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())
