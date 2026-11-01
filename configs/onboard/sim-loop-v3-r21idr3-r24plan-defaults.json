@@ -5,5 +5,6 @@
   "confirm_max_range_m": 40,
   "fast_identity": true,
   "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
-  "near_depth": false
+  "near_depth": false,
+  "planning_pregate": true
 }
