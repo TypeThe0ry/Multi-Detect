@@ -59,7 +59,11 @@ from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # no
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
-from multidetect.sim_teacher.spawn_clearance import require_spawn_clearance  # noqa: E402
+from multidetect.sim_teacher.spawn_clearance import (  # noqa: E402
+    require_spawn_clearance,
+    teacher_intent_clearance_altitude,
+    teacher_intent_clearance_route_points,
+)
 from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkReader,
     MavlinkState,
@@ -1181,11 +1185,11 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 runtime_data = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
                 data = runtime_data.get("task_intent", {}) if isinstance(runtime_data, dict) else {}
             observation = data.get("observation", {}) if isinstance(data, dict) else {}
-            requested = observation.get("camera_altitude_m") if isinstance(observation, dict) else None
+            if isinstance(observation, dict):
+                requested = teacher_intent_clearance_altitude(observation)
+            else:
+                requested = None
             if requested is not None:
-                requested = float(requested)
-                if not math.isfinite(requested) or requested <= 0:
-                    raise ValueError("task_intent.observation.camera_altitude_m must be finite and positive")
                 altitude, source = requested, "teacher_intent_camera_altitude"
         except (OSError, json.JSONDecodeError):
             pass
@@ -1220,13 +1224,7 @@ def _validate_spawn_clearance(plan: CollectionPlan) -> dict[str, Any] | None:
         intent_path = _teacher_intent_path(Path(plan.scenario))
         intent = json.loads(intent_path.read_text(encoding="utf-8")) if intent_path.is_file() else {}
         observation = intent.get("observation", {}) if isinstance(intent, dict) else {}
-        views = observation.get("views") or []
-        for view in views:
-            point = view.get("observation_waypoint", {}) if isinstance(view, dict) else {}
-            if isinstance(point, dict):
-                route_points.append(point)
-        if not route_points and isinstance(observation.get("observation_waypoint"), dict):
-            route_points.append(observation["observation_waypoint"])
+        route_points = teacher_intent_clearance_route_points(observation)
     except (OSError, ValueError, TypeError):
         route_points = []
     return require_spawn_clearance(

@@ -7,17 +7,24 @@ import argparse
 import json
 import math
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
+from multidetect.sim_teacher.spawn_clearance import (  # noqa: E402
+    spawn_clearance_report,
+    teacher_intent_clearance_altitude,
+    teacher_intent_clearance_route_points,
+)
 from multidetect.simulator.world_gen import (  # noqa: E402
     FIXED_WING_SENSORS,
     generate_fuel_worlds,  # noqa: E402
 )
-from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 
 
 def r21id_r4_templates():
@@ -55,6 +62,109 @@ def r21id_r4_templates():
 def projected_short_edge_px(asset, ground_distance_m, altitude_m):
     short_edge_m = min(float(asset["measured_size_m"][0]), float(asset["measured_size_m"][1]))
     return DEFAULT_CAMERA_INFO["fx"] * short_edge_m / math.hypot(ground_distance_m, altitude_m)
+
+
+def _translate_sdf_scene(world_path: str | Path, east_m: float, north_m: float) -> None:
+    root = ET.parse(world_path)
+    world = root.find("world")
+    if world is None:
+        raise ValueError(f"world SDF has no <world>: {world_path}")
+    for model in world.findall("model"):
+        name = model.get("name", "")
+        if name == "ground_plane" or name.startswith(("px4_", "x500_", "rc_cessna")):
+            continue
+        pose = model.find("pose")
+        if pose is None:
+            continue
+        values = pose.text.split() if pose.text else []
+        if len(values) < 2:
+            continue
+        values[0] = f"{float(values[0]) + east_m:.3f}"
+        values[1] = f"{float(values[1]) + north_m:.3f}"
+        pose.text = " ".join(values)
+    Path(world_path).write_text(
+        ET.tostring(root.getroot(), encoding="unicode") + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def r21id_r4_scene_shift(
+    world_path: str | Path,
+    *,
+    target_east_m: float,
+    target_north_m: float,
+    observation: Mapping[str, object],
+    step_m: float = 0.5,
+) -> float:
+    """Find the smallest +target-ray scene translation accepted at origin spawn."""
+    if step_m <= 0 or not math.isfinite(step_m):
+        raise ValueError("step_m must be finite and positive")
+    target_radius = math.hypot(float(target_east_m), float(target_north_m))
+    if target_radius <= 0:
+        raise ValueError("r21id-r4 target must be away from the spawn origin")
+    altitude = teacher_intent_clearance_altitude(observation)
+    if altitude is None:
+        raise ValueError("r21id-r4 observation must declare camera_altitude_m")
+    route_points = teacher_intent_clearance_route_points(observation)
+    radial_east = float(target_east_m) / target_radius
+    radial_north = float(target_north_m) / target_radius
+
+    with tempfile.TemporaryDirectory() as temporary:
+        for index in range(401):
+            shift = index * step_m
+            candidate = Path(temporary) / Path(world_path).name
+            candidate.write_bytes(Path(world_path).read_bytes())
+            _translate_sdf_scene(candidate, shift * radial_east, shift * radial_north)
+            shifted_route = [
+                {
+                    **point,
+                    "x_east_m": float(point.get("x_east_m", 0.0)) + shift * radial_east,
+                    "y_north_m": float(point.get("y_north_m", 0.0)) + shift * radial_north,
+                }
+                for point in route_points
+            ]
+            report = spawn_clearance_report(
+                candidate,
+                {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.2},
+                climb_altitude_m=altitude,
+                route_points=shifted_route,
+            )
+            if report["clear"]:
+                return round(shift, 3)
+    raise ValueError(f"{Path(world_path).stem}: no spawn-clearance shift found")
+
+
+def _shift_truth_scene(truth: dict, east_m: float, north_m: float) -> None:
+    latitude0 = 1.352100
+    longitude0 = 103.819800
+    longitude_scale = 111_320.0 * math.cos(math.radians(latitude0))
+    for target in truth.get("targets", []):
+        pose = target.get("pose")
+        if not isinstance(pose, dict):
+            continue
+        pose["x_east_m"] = float(pose.get("x_east_m", 0.0)) + east_m
+        pose["y_north_m"] = float(pose.get("y_north_m", 0.0)) + north_m
+        position = target.get("position")
+        if not isinstance(position, dict):
+            continue
+        position["latitude_deg"] = round(
+            float(position.get("latitude_deg", latitude0)) + north_m / 111_132.0,
+            8,
+        )
+        position["longitude_deg"] = round(
+            float(position.get("longitude_deg", longitude0)) + east_m / longitude_scale,
+            8,
+        )
+
+
+def _shift_observation_views(observation: dict, east_m: float, north_m: float) -> None:
+    for view in observation.get("views", []):
+        point = view.get("observation_waypoint") if isinstance(view, dict) else None
+        if not isinstance(point, dict):
+            continue
+        point["x_east_m"] = round(float(point.get("x_east_m", 0.0)) + east_m, 3)
+        point["y_north_m"] = round(float(point.get("y_north_m", 0.0)) + north_m, 3)
 
 
 def main(argv=None):
@@ -457,6 +567,14 @@ def main(argv=None):
                 "kind": "find_and_observe",
                 "observation": observation_intent,
             }
+            spawn_pose = {
+                "x_east_m": 0.0,
+                "y_north_m": 0.0,
+                "z_up_m": 0.2,
+                "roll_rad": 0.0,
+                "pitch_rad": 0.0,
+                "yaw_rad": 0.0,
+            }
             root = ET.parse(a.out_worlds / f"{wid}.sdf")
             model = root.find(f".//model[@name='{target['target_id']}']")
             if model is None:
@@ -534,6 +652,45 @@ def main(argv=None):
             sdf_path = a.out_worlds / f"{wid}.sdf"
             with sdf_path.open("w", encoding="utf-8", newline="\n") as stream:
                 stream.write(ET.tostring(root.getroot(), encoding="unicode") + "\n")
+            scene_shift_m = 0.0
+            if a.profile == "r21id-r4":
+                target_radius = math.hypot(tx, ty)
+                radial_east = tx / target_radius
+                radial_north = ty / target_radius
+                scene_shift_m = r21id_r4_scene_shift(
+                    sdf_path,
+                    target_east_m=tx,
+                    target_north_m=ty,
+                    observation=observation_intent,
+                )
+                shift_east = scene_shift_m * radial_east
+                shift_north = scene_shift_m * radial_north
+                if scene_shift_m:
+                    _translate_sdf_scene(sdf_path, shift_east, shift_north)
+                    _shift_truth_scene(truth, shift_east, shift_north)
+                    _shift_observation_views(observation_intent, shift_east, shift_north)
+                    shifted_target_radius = math.hypot(tx + shift_east, ty + shift_north)
+                    geometry = entry["view_geometry"]
+                    old_slant = geometry.get("slant_distance_m")
+                    geometry["ground_distance_m"] = round(shifted_target_radius, 3)
+                    geometry["slant_distance_m"] = round(
+                        math.hypot(shifted_target_radius, altitude), 3
+                    )
+                    if "max_detection_range_m" in observation_intent and old_slant is not None:
+                        margin = float(observation_intent["max_detection_range_m"]) - float(old_slant)
+                        observation_intent["max_detection_range_m"] = round(
+                            geometry["slant_distance_m"] + margin, 3
+                        )
+                if scene_shift_m:
+                    entry["view_geometry"]["scene_shift_m"] = scene_shift_m
+                final_report = spawn_clearance_report(
+                    sdf_path,
+                    spawn_pose,
+                    climb_altitude_m=teacher_intent_clearance_altitude(observation_intent),
+                    route_points=teacher_intent_clearance_route_points(observation_intent),
+                )
+                if not final_report["clear"]:
+                    raise RuntimeError(f"{wid}: final SDF spawn clearance failed: {final_report}")
             if case == "fixed_wing_oblique":
                 runtime["vehicle"] = {
                     "model": "px4_fixed_wing_standard",
@@ -574,13 +731,7 @@ def main(argv=None):
                 teacher_intent["takeoff_method"] = "runway"
             else:
                 runtime["vehicle"]["spawn_pose"].update(
-                    {
-                        "x_east_m": 0.0,
-                        "y_north_m": 0.0,
-                        "z_up_m": 0.2,
-                        "pitch_rad": 0.0,
-                        "yaw_rad": 0.0,
-                    }
+                    spawn_pose
                 )
             # Teacher geometry is deliberately a sidecar.  It is consumed by
             # the collector only and must not widen the strict runtime-input

@@ -84,7 +84,7 @@
         1.875731
       ],
       "pose": {
-        "x_east_m": 7.2170596489392755,
+        "x_east_m": 16.717059648939276,
         "y_north_m": 0.0,
         "yaw_rad": 0.0,
         "z_up_m": 0.0
@@ -93,7 +93,7 @@
         "altitude_m": 0.0,
         "altitude_reference": "world",
         "latitude_deg": 1.3521,
-        "longitude_deg": 103.81986485
+        "longitude_deg": 103.81995021
       },
       "size_m": [
         0.546086,
@@ -121,7 +121,7 @@
         1.524
       ],
       "pose": {
-        "x_east_m": 10.717059648939276,
+        "x_east_m": 20.217059648939276,
         "y_north_m": 0.0,
         "yaw_rad": 0.829685,
         "z_up_m": 0.0
@@ -130,7 +130,7 @@
         "altitude_m": 0.0,
         "altitude_reference": "world",
         "latitude_deg": 1.3521,
-        "longitude_deg": 103.8198963
+        "longitude_deg": 103.81998166
       },
       "size_m": [
         0.681827,
@@ -158,7 +158,7 @@
         0.56
       ],
       "pose": {
-        "x_east_m": -52.641,
+        "x_east_m": -43.141,
         "y_north_m": -61.502,
         "yaw_rad": 0.810697,
         "z_up_m": 0.28
@@ -167,7 +167,7 @@
         "altitude_m": 0.28,
         "altitude_reference": "world",
         "latitude_deg": 1.35154659,
-        "longitude_deg": 103.81932698
+        "longitude_deg": 103.81941234
       },
       "size_m": [
         0.43441,
@@ -194,7 +194,7 @@
         0.522393
       ],
       "pose": {
-        "x_east_m": 47.871,
+        "x_east_m": 57.371,
         "y_north_m": -84.917,
         "yaw_rad": 1.613033,
         "z_up_m": 0.261
@@ -203,7 +203,7 @@
         "altitude_m": 0.261,
         "altitude_reference": "world",
         "latitude_deg": 1.35133589,
-        "longitude_deg": 103.82023015
+        "longitude_deg": 103.82031551
       },
       "size_m": [
         0.441576,
@@ -230,7 +230,7 @@
         1.088889
       ],
       "pose": {
-        "x_east_m": -97.465,
+        "x_east_m": -87.965,
         "y_north_m": -8.207,
         "yaw_rad": -2.645086,
         "z_up_m": 0.544
@@ -239,7 +239,7 @@
         "altitude_m": 0.544,
         "altitude_reference": "world",
         "latitude_deg": 1.35202615,
-        "longitude_deg": 103.81892421
+        "longitude_deg": 103.81900957
       },
       "size_m": [
         0.50292,
@@ -266,7 +266,7 @@
         0.931294
       ],
       "pose": {
-        "x_east_m": 91.591,
+        "x_east_m": 101.091,
         "y_north_m": 69.856,
         "yaw_rad": -2.428184,
         "z_up_m": 0.466
@@ -275,7 +275,7 @@
         "altitude_m": 0.466,
         "altitude_reference": "world",
         "latitude_deg": 1.35272859,
-        "longitude_deg": 103.820623
+        "longitude_deg": 103.82070836
       },
       "size_m": [
         0.423605,
@@ -302,7 +302,7 @@
         1.567894
       ],
       "pose": {
-        "x_east_m": 13.887,
+        "x_east_m": 23.387,
         "y_north_m": 87.737,
         "yaw_rad": -0.239335,
         "z_up_m": 0.784
@@ -311,7 +311,7 @@
         "altitude_m": 0.784,
         "altitude_reference": "world",
         "latitude_deg": 1.35288948,
-        "longitude_deg": 103.81992478
+        "longitude_deg": 103.82001014
       },
       "size_m": [
         4.001102,
@@ -337,7 +337,7 @@
         1.067241
       ],
       "pose": {
-        "x_east_m": -50.348,
+        "x_east_m": -40.848,
         "y_north_m": 83.405,
         "yaw_rad": -2.058003,
         "z_up_m": 0.534
@@ -346,7 +346,7 @@
         "altitude_m": 0.534,
         "altitude_reference": "world",
         "latitude_deg": 1.35285051,
-        "longitude_deg": 103.81934759
+        "longitude_deg": 103.81943295
       },
       "size_m": [
         0.133416,
