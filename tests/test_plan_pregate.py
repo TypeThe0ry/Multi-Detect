@@ -142,3 +142,38 @@ def test_pregate_eval_hit_counts_and_normal_task_false_positives():
                     false_positives.append(item["text"])
         assert sum(hits.values()) == expected_hits, filename
         assert false_positives == [], filename
+
+
+def test_independent_paraphrase_fixture_has_no_false_positives():
+    fixture = json.loads(
+        (ROOT / "tests/fixtures/plan_pregate_paraphrases.json").read_text(encoding="utf-8")
+    )
+    cases = fixture["cases"]
+    assert len({item["id"] for item in cases}) == len(cases)
+    by_category = Counter(item["category"] for item in cases)
+    assert by_category == {
+        "missing_payload_drop": 52,
+        "fixed_wing_hover": 26,
+        "fixed_wing_target_land": 26,
+        "unknown_place": 26,
+        "legitimate": 64,
+    }
+    for category in ("missing_payload_drop", "fixed_wing_hover", "fixed_wing_target_land", "unknown_place"):
+        expected_language_counts = {"zh": 26, "en": 26} if category == "missing_payload_drop" else {"zh": 13, "en": 13}
+        assert Counter(item["language"] for item in cases if item["category"] == category) == expected_language_counts
+    assert Counter(item["language"] for item in cases if item["category"] == "legitimate") == {
+        "zh": 32, "en": 32,
+    }
+
+    intentional_chinese_place_misses = {"unknown-zh-11", "unknown-zh-13"}
+    misses = set()
+    false_positives = []
+    for item in cases:
+        decision = preflight_plan_task(item["text"], fixture["refs"], item["capabilities"])
+        blocked = decision is not None
+        if item["expect_block"] and not blocked:
+            misses.add(item["id"])
+        elif not item["expect_block"] and blocked:
+            false_positives.append((item["id"], decision.reason_code))
+    assert misses == intentional_chinese_place_misses
+    assert false_positives == []
