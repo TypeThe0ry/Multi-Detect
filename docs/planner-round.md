@@ -439,3 +439,36 @@ query_ungrounded 九类各 14 题，中文和英文各 63 题。题目加入多�
 | ref_alias | 9/14 | 9/14 |
 
 r27 总分高 12 个百分点，提升全部来自结构化拒绝的两类；但返航意图（-3）和固定翼定点降落（-3）退步，与 r27 在返航探测、v4 上掉的题一致。r28 正好针对这两类补数据。v5 证实了 v4 的判断方向，且单类 14 题让差距可信得多。之后的替换判定把 v5 纳入（`--include-planning-v5`）。
+
+## r28 数据准备
+
+r28 在 r27 配方上增加三组小缺口：达到数量/搜索/巡逻条件后停止的任务（默认 80 条，中文英文各半，约四分之一明确要求降落，其余默认返航）、固定翼能力对照（`fixed_wing_hover` 与 `fixed_wing_target_land` 各 30 条，正例和固定翼缺能力拒绝成对出现），以及 30 条返航意图表达。`r28` 自动包含 r27 的两类结构化拒绝和 400 条复杂正例；r27 未启用时的输出路径保持不变。
+
+生成器对每条新增正例运行 `validate_mission_plan`、`check_plan_intent` 和能力契约校验；固定翼拒绝使用 `missing_capability` 决策对象，候选计划保存在审计字段中。holdout 读取继续使用 `configs/onboard/plan-eval-tasks*.json`，若 v5 文件合入会自动纳入排除集合；未修改任何评测配置。
+
+本轮实际生成命令（只运行 data 阶段，未训练）：
+
+~~~bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r28
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r28-data --eval-root .tmp/r28-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r28-recipe
+~~~
+
+结果：train **6,110** 行、val **100** 行；训练准入 `admit_train_rows` 接受 **6,110/6,110** 行。r28 新增 **170** 行：`r28_stop_threshold` 80、`r28_return_intent` 30、`r28_fixed_wing_hover` 30、`r28_fixed_wing_target_land` 30；新增固定翼结构化拒绝 30 条。叠加 r27 后结构化拒绝共 **110** 条，占训练集 **1.800%**（不超过 2%）。与当前所有 `plan-eval-tasks*.json` holdout 的归一化文本碰撞 **0**。数据统计和 manifest 位于 `.tmp/r28-data/dataset/`，准入摘要 SHA-256 为 `ad7842ef87d24accbd5484465d8b439351348409dcb7e3a2851e08c698970a75`。
+
+随机抽取的 10 条新增族原文：
+
+1. `Patrol the north route while watching for motorcycles; stop after completing 10 loops.`
+2. `在院子搜索行人并报数，凑够二十辆就停手。`
+3. `在场地上空保持悬停六十秒观察。`
+4. `把飞机降落到仓库这个目标点。`
+5. `在农田搜索卡车并报数，累计到二十辆就停止计数。`
+6. `Patrol the fence route while watching for cars; stop after completing 20 loops.`
+7. `Proceed to the tower and touch down on the marked point.`
+8. `到院子上空定点悬停一分钟。`
+9. `Tally the electric scooters in the yard; quit when the count gets to 15.`
+10. `Search the field for vehicles and report the tally; count up to 12 and stop.`
