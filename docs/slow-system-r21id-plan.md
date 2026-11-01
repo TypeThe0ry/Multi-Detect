@@ -485,3 +485,25 @@ $PY scripts/run_r15_round.py --stage build_sft --dry-run \
 ```
 
 输出要点：annotate 发现现有 campaign `gen_r21id_r4_w0000`、`w0001`、`w0002`、`w0003`、`w0004`、`w0006`、`w0007`、`w0008`、`w0009`、`w0010`、`w0012`、`w0013`、`w0020`、`w0021`、`w0022`、`w0023`，并把 proposal cache 规划到 `.tmp/r21id-r4-pipeline-dryrun/yoloe-v3-cache.jsonl`；build 命令包含 `--confusable-negatives --balance-identity-views --balance-confusable-negative-views --max-upsample 2`，merge 命令包含 `--r12-dataset artifacts/r21id-r3/pipeline/r15-sft --r12-replay-fraction 1.0`。一次性 `--stage all --dry-run` 会在 train 前因临时目录没有真实 `r15-sft/manifest.json` 停止，这是 runner 对 train 输入的预期检查；dry-run 本身不会执行阶段或写入 `artifacts/r21id-r4c`。当前 `round-state.json` 仍有失败/未完成 episode，采集完成后再执行真实 build/train。
+
+## 错误分层报告工具
+
+`scripts/report_identity_errors.py` 读取 `eval_slow_system.py` 格式的预测 JSON（顶层 `rows`，也接受行数组），按 `sample_id` 与 test JSONL 对齐；既可只分析候选模型，也可同时比较基线与候选。报告按任务类别、候选类别、视角、候选框短边尺寸档和 world 分层，分别列出干扰物误收、真目标误拒的计分数、错误数和比率，并附候选相对基线的差值及 Top-N 错误组合。候选类别优先从 world 对应的 `truth.json` 按行 `target_id` 反查；任务类别从 truth 中的 `true_target` 获取，若数据行已有 `task_category`/`task_query` 则优先使用。真实飞行 v1 没有视角时会归入 `unknown`。r21id 四视角数据仅计入带 `target_id` 且 `view` 属于四视角的正例和显式干扰物行，与 `eval_r21id_identity.py` 的分母口径一致。
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+python scripts/report_identity_errors.py \
+  --dataset artifacts/r21id-r3/pipeline/r15-additions/test.jsonl \
+  --baseline artifacts/evaluation/r21id-r3-view-eval/r18-predictions.json \
+  --candidate artifacts/evaluation/r21id-r3-view-eval/r21id-r3-predictions.json \
+  --output-json .tmp/r21id-r3-errors.json --output-md .tmp/r21id-r3-errors.md \
+  --top-n 20
+
+python scripts/report_identity_errors.py \
+  --dataset artifacts/datasets/flight-identity-eval-v1/test.jsonl \
+  --baseline artifacts/evaluation/r21id-r3-view-eval/r18-v1-recheck.json \
+  --candidate artifacts/r21id-r3/pipeline/eval-v1.json \
+  --output-json .tmp/v1-errors.json --output-md .tmp/v1-errors.md
+```
+
+world truth 默认从 `configs/scenarios/*/<world>.truth.json` 查找；输出目录由调用者指定，推荐使用 `.tmp/`，避免覆盖评测产物。测试：`python -m pytest tests/test_report_identity_errors.py -q -p no:xdist`。
