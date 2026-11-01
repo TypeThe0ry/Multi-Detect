@@ -1320,6 +1320,15 @@ class Round:
             ]
             if getattr(self.a, "r21id_r2_filter", False):
                 cmd.append("--confusable-negatives")
+            elif getattr(self.a, "confusable_negatives", False):
+                cmd.append("--confusable-negatives")
+            if getattr(self.a, "balance_identity_views", False):
+                cmd.append("--balance-identity-views")
+            if getattr(self.a, "balance_confusable_negative_views", False):
+                cmd.append("--balance-confusable-negative-views")
+            max_upsample = getattr(self.a, "max_upsample", None)
+            if max_upsample is not None:
+                cmd.extend(("--max-upsample", str(max_upsample)))
             self.run(
                 "build_sft",
                 cmd,
@@ -1927,6 +1936,14 @@ def main():
         "--r21id-keep-small-true-targets", action="store_true",
         help="with --r21id-r2-filter, do not down-weight true-target positives below 16 px",
     )
+    p.add_argument("--balance-identity-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-identity-views")
+    p.add_argument("--balance-confusable-negative-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-confusable-negative-views")
+    p.add_argument("--max-upsample", type=int, default=None,
+                   help="pass through build_slow_system_sft.py --max-upsample")
+    p.add_argument("--confusable-negatives", action="store_true",
+                   help="pass through build_slow_system_sft.py --confusable-negatives")
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.no_category_holdout:

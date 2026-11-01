@@ -404,3 +404,84 @@ python scripts/collect_sim_teacher_episodes.py \
 负责人把决定交给开发侧。决定：**r21id-r3 替换 r18 成为机载身份模型**。理由：主门两部分（r3 冻结测试世界四视角、真实飞行集 v1）r21id-r3 都明显好于 r18，v1 在同一台机器上对比没有任何退化（身份 0.913→0.946、干扰物拒绝 0.958→0.993、确认召回 0.462→0.716）；四视角绝对门槛 r18 自己差得更远（真目标误拒 34.6%），继续以 r18 为现役等于保留更差的模型。已知短板照实记录：四视角干扰物误收 9.4%（门槛 2.6%）、v3 参考集 <12 px 小目标召回 0.703→0.622，由 r21id-r4 继续改进（新增 24 个世界的采集已在跑）。
 
 模型：`artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf`（sha256 `4392eab6…`），adapter 在 `artifacts/models/slow-system-lora-v2-r21id-r3/`。推荐机载组合：`configs/onboard/sim-loop-v3-r21idr3-r24plan-defaults.json`（r21id-r3 身份 + r24 规划 + YOLOE v3 1280）。各回归套件配置等 Linux 上 SITL 任务套件跑通后再切换。下一轮 r21id-r4 以 r21id-r3 为热启动和基线。
+
+## r21id-r4 流水线
+
+`run_r15_round.py --stage build_sft` 先生成本轮 additions，再自动调用自身的 `--merge-only`：`--r12-dataset` 是上一轮合并集，作为 replay；本轮 additions 来自 `$OUT/r15-additions`；合并输出是 `$OUT/r15-sft`。因此 r4 使用 `--r12-dataset artifacts/r21id-r3/pipeline/r15-sft --r12-replay-fraction 1.0`，保留 r3 全部 replay。`--r12-baseline` 与 `--r12-v1-baseline` 只在 report 阶段读取，分别与本轮 v3/v1 结果比较；本轮标签显式设为 `r21id-r3` 和 `r21id-r4`。`--stage train` 通过 `--hot-start --r12-adapter` 从 r3 adapter 初始化。
+
+runner 新增 `--confusable-negatives`、`--balance-identity-views`、`--balance-confusable-negative-views`、`--max-upsample`，仅在显式传入时透传给 `build_slow_system_sft.py`，默认行为不变。r4 显式打开 hard-negative 构建，但不启用会降权 additions 的 `--r21id-r2-filter`。
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+PY=/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python
+OUT=artifacts/r21id-r4/pipeline
+EPISODES=artifacts/r21id-r4c/episodes
+INDEX=configs/scenarios/generated-r21id-r4/index.json
+SCENARIOS=configs/scenarios/generated-r21id-r4
+R3_DATA=artifacts/r21id-r3/pipeline/r15-sft
+R3_ADAPTER=artifacts/models/slow-system-lora-v2-r21id-r3/adapter
+BASE_MODEL=artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203
+R3_V3=artifacts/r21id-r3/pipeline/eval-v3.json
+R3_V1=artifacts/r21id-r3/pipeline/eval-v1.json
+
+$PY scripts/run_r15_round.py --stage annotate --out "$OUT" --episodes "$EPISODES" \
+  --scenarios "$SCENARIOS" --r15-index "$INDEX"
+$PY scripts/run_r15_round.py --stage build_sft --out "$OUT" --episodes "$EPISODES" \
+  --scenarios "$SCENARIOS" --r15-index "$INDEX" --r12-dataset "$R3_DATA" \
+  --r12-replay-fraction 1.0 --confusable-negatives --balance-identity-views \
+  --balance-confusable-negative-views --max-upsample 2
+# build_sft 已自动合并；仅在 additions 已存在、需要单独重建合并集时运行：
+$PY scripts/run_r15_round.py --merge-only --r12-dataset "$R3_DATA" \
+  --additions "$OUT/r15-additions" --merged "$OUT/r15-sft" --r12-replay-fraction 1.0
+$PY scripts/run_r15_round.py --stage train --out "$OUT" --model "$BASE_MODEL" \
+  --r12-adapter "$R3_ADAPTER" --r12-replay-fraction 1.0 --hot-start --learning-rate 5e-5
+$PY scripts/run_r15_round.py --stage export --out "$OUT" --model "$BASE_MODEL"
+$PY scripts/run_r15_round.py --stage eval --out "$OUT" --data-root "$PWD" \
+  --r12-baseline "$R3_V3" --r12-v1-baseline "$R3_V1" \
+  --baseline-label r21id-r3 --candidate-label r21id-r4
+$PY scripts/run_r15_round.py --stage report --out "$OUT" \
+  --r12-baseline "$R3_V3" --r12-v1-baseline "$R3_V1" \
+  --baseline-label r21id-r3 --candidate-label r21id-r4
+```
+
+四视角评测固定使用 r3 冻结测试世界 `artifacts/r21id-r3/pipeline/r15-additions/test.jsonl`。先用同一测试目录分别生成 r3/r4 预测，再用 `eval_r21id_identity.py` 按 `sample_id` 对齐，比较跨视角一致率、恢复率、真目标误拒和干扰物误收：
+
+```bash
+TEST_DIR=artifacts/r21id-r3/pipeline/r15-additions
+TEST_JSONL=$TEST_DIR/test.jsonl
+R3_GGUF=artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf
+R4_GGUF=$OUT/merged-gguf/slow-system-Q5_K_M.gguf
+MMPROJ=artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf
+LLAMA_SERVER=artifacts/cache/llama-cpp/b11552/llama-server
+VIEW_OUT=$OUT/four-view; mkdir -p "$VIEW_OUT"
+for pair in "r21id-r3:$R3_GGUF" "r21id-r4:$R4_GGUF"; do
+  label=${pair%%:*}; model=${pair#*:}
+  $PY scripts/eval_slow_system.py --dataset "$TEST_DIR" --data-root "$PWD" \
+    --backend gguf --device cuda:0 --identity-only --fast-identity \
+    --crop-policy candidate_zoom_v2 --gguf-model "$model" --mmproj "$MMPROJ" \
+    --llama-server "$LLAMA_SERVER" --output "$VIEW_OUT/$label-predictions.json"
+done
+$PY scripts/eval_r21id_identity.py --dataset "$TEST_JSONL" \
+  --baseline "$VIEW_OUT/r21id-r3-predictions.json" \
+  --candidate "$VIEW_OUT/r21id-r4-predictions.json" \
+  --output-json "$VIEW_OUT/identity-report.json" \
+  --output-md "$VIEW_OUT/identity-report.md"
+```
+
+2026-11-01 对现有采集目录做了不写入 artifacts 的 dry-run：
+
+```bash
+$PY scripts/run_r15_round.py --stage annotate --dry-run \
+  --out .tmp/r21id-r4-pipeline-dryrun --episodes artifacts/r21id-r4c/episodes \
+  --scenarios configs/scenarios/generated-r21id-r4 \
+  --r15-index configs/scenarios/generated-r21id-r4/index.json
+$PY scripts/run_r15_round.py --stage build_sft --dry-run \
+  --out .tmp/r21id-r4-pipeline-dryrun --episodes artifacts/r21id-r4c/episodes \
+  --scenarios configs/scenarios/generated-r21id-r4 \
+  --r15-index configs/scenarios/generated-r21id-r4/index.json \
+  --r12-dataset artifacts/r21id-r3/pipeline/r15-sft --r12-replay-fraction 1.0 \
+  --confusable-negatives --balance-identity-views \
+  --balance-confusable-negative-views --max-upsample 2
+```
+
+输出要点：annotate 发现现有 campaign `gen_r21id_r4_w0000`、`w0001`、`w0002`、`w0003`、`w0004`、`w0006`、`w0007`、`w0008`、`w0009`、`w0010`、`w0012`、`w0013`、`w0020`、`w0021`、`w0022`、`w0023`，并把 proposal cache 规划到 `.tmp/r21id-r4-pipeline-dryrun/yoloe-v3-cache.jsonl`；build 命令包含 `--confusable-negatives --balance-identity-views --balance-confusable-negative-views --max-upsample 2`，merge 命令包含 `--r12-dataset artifacts/r21id-r3/pipeline/r15-sft --r12-replay-fraction 1.0`。一次性 `--stage all --dry-run` 会在 train 前因临时目录没有真实 `r15-sft/manifest.json` 停止，这是 runner 对 train 输入的预期检查；dry-run 本身不会执行阶段或写入 `artifacts/r21id-r4c`。当前 `round-state.json` 仍有失败/未完成 episode，采集完成后再执行真实 build/train。
