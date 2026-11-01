@@ -387,3 +387,21 @@ python scripts/run_planner_round.py --stage data --force-stage data \
 结果：train **5,940** 行、val **100** 行；训练准入 admit_train_rows 接受 **5,940/5,940** 行。r27 新增拒绝 80 条（missing_capability 40、unknown_place 40），每类另有 40 条正例对照；拒绝占训练集 **1.347%**。复杂正例 400 条，族计数为 r27_multi_step 80、r27_colloquial 80、r27_negation 80、r27_mapping 40、r27_monitoring 40、r27_counting 40、r27_local_position 40。与 planning-v3/v4 holdout 归一化文本碰撞 **0**。统计和 manifest 位于 .tmp/r27-data/dataset/；训练集准入摘要 SHA-256 为 f1933b693a5856005e75e147756c4ee65772efbb358cf743dae3d951bd11a673。
 
 24 条误拒绝、r26 模板相似度和触发模式详见 docs/r27-refusal-analysis.md。
+
+## planning-v5 评测集
+
+`configs/onboard/plan-eval-tasks-v5.json` 是 planning-v5 人工留出集，共 126 题：
+return_intent、return_negated_land、unknown_place、missing_payload_drop、
+fixed_wing_hover、fixed_wing_target_land、ref_alias、query_grounding、
+query_ungrounded 九类各 14 题，中文和英文各 63 题。题目加入多步口语任务、
+作用域否定、当前位置/起飞点和复杂但可执行的组合，期望步骤按当前
+`plan_validation`、`plan_intent` 与 `capability_contract` 契约自检。
+
+`build_plan_sft.py` 默认读取全部 `configs/onboard/plan-eval-tasks*.json`，因此 v2/v3/v4/v5
+都会自动把 v5 作为 holdout；按 `normalize_task` 去重。用标准 v4 规模和 r24 配方做的
+加入前后 SHA-256 核对未发生变化，旧训练输出保持字节一致。
+
+模型 round runner 已支持 `planning-v5` 阶段。直接运行
+`scripts/run_model_round_eval.py --stages planning-v5` 可单独评测；
+`scripts/run_planner_round.py` 只有在传入 `--include-planning-v5` 时才会把 v5 加入候选
+和基线评测，默认仍只跑 v3/v4，旧轮次的比较口径不变。

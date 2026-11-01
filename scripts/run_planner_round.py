@@ -42,20 +42,36 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def stage_outputs(name: str, out: Path) -> tuple[Path, ...]:
+def stage_outputs(name: str, out: Path, *, include_planning_v5: bool = False) -> tuple[Path, ...]:
     mapping = {
         "data": (out / "dataset/manifest.json", out / "dataset/train.jsonl", out / "dataset/val.jsonl"),
         "train": (out / "adapter/adapter/adapter_config.json", out / "adapter/training-report.json"),
         "export": (out / "slow-system-Q5_K_M.gguf",),
-        "eval": (EVAL_ROOT / "candidate/planning-v3.json", EVAL_ROOT / "candidate/planning-v4.json", EVAL_ROOT / "baseline/planning-v3.json", EVAL_ROOT / "baseline/planning-v4.json", EVAL_ROOT / "probe-candidate.json", EVAL_ROOT / "probe-baseline.json"),
+        "eval": tuple(
+            path
+            for path in (
+                EVAL_ROOT / "candidate/planning-v3.json",
+                EVAL_ROOT / "candidate/planning-v4.json",
+                EVAL_ROOT / "baseline/planning-v3.json",
+                EVAL_ROOT / "baseline/planning-v4.json",
+                *(
+                    (
+                        EVAL_ROOT / "candidate/planning-v5.json",
+                        EVAL_ROOT / "baseline/planning-v5.json",
+                    ) if include_planning_v5 else ()
+                ),
+                EVAL_ROOT / "probe-candidate.json",
+                EVAL_ROOT / "probe-baseline.json",
+            )
+        ),
         "report": (out / "planner-round-report.md",),
     }
     return mapping[name]
 
 
-def stage_current(name: str, out: Path, state: dict) -> bool:
+def stage_current(name: str, out: Path, state: dict, *, include_planning_v5: bool = False) -> bool:
     entry = state.get("stages", {}).get(name, {})
-    outputs = stage_outputs(name, out)
+    outputs = stage_outputs(name, out, include_planning_v5=include_planning_v5)
     if entry.get("status") != "complete" or not all(p.is_file() for p in outputs):
         return False
     recorded = entry.get("sha256", {})
@@ -168,8 +184,11 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
         train += ["--init-adapter", str(args.init_adapter)]
     export = [py, str(ROOT / "scripts/export_slow_system_r15.py"), "--base", str(BASE_CACHE), "--adapter", str(adapter / "adapter"), "--output", str(out), "--quantization", "Q5_K_M", "--drop-intermediates"]
     eval_cmds = []
+    planning_stages = ["planning-v3", "planning-v4"]
+    if args.include_planning_v5:
+        planning_stages.append("planning-v5")
     for label, model in (("candidate", gguf), ("baseline", args.baseline_gguf)):
-        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", "planning-v3", "planning-v4", "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
+        eval_cmds.append([sys.executable, str(ROOT / "scripts/run_model_round_eval.py"), "--model", f"r21-{label}", "--gguf", str(model), "--stages", *planning_stages, "--out", str(report / label), "--data-root", str(ROOT), "--min-free-disk-gb", "8",
                           # Planner rows count semantic plan errors as invalid; those are
                           # model quality, scored by the replacement gate (r14 itself is
                           # 93.75% valid on v3), not a broken server, which
@@ -218,6 +237,8 @@ def main(argv=None) -> int:
                         help="refusal rows per supported reason code (default: 40)")
     parser.add_argument("--r27-complex-count", type=int, default=400,
                         help="difficult executable positives (default: 400)")
+    parser.add_argument("--include-planning-v5", action="store_true",
+                        help="include planning-v5 in eval (default keeps legacy v3/v4 comparison)")
     contract = parser.add_mutually_exclusive_group()
     contract.add_argument("--decision-contract", dest="decision_contract", action="store_true",
                           help="enable structured reject/clarify evaluation")
@@ -264,7 +285,9 @@ def main(argv=None) -> int:
         print(f"dry-run: python={sys.executable}; train/export python={VLM_PYTHON}; output={out}")
         print(f"guards: disk>={args.min_free_disk_gb:g} GB, memory>={args.min_memory_gb:g} GB; lock={args.lock_path}")
     for stage in selected:
-        if not args.no_skip_completed and stage_current(stage, out, state):
+        if not args.no_skip_completed and stage_current(
+            stage, out, state, include_planning_v5=args.include_planning_v5
+        ):
             print(f"[skip] {stage}: completed outputs match SHA-256")
             continue
         if args.dry_run:
@@ -290,7 +313,8 @@ def main(argv=None) -> int:
         try:
             started = datetime.now(timezone.utc).isoformat()
             if stage == "report":
-                metrics = {name: {f"planning-{version}": load_json(EVAL_ROOT / name / f"planning-{version}.json")["summary"] for version in ("v3", "v4")} for name in ("candidate", "baseline")}
+                versions = ("v3", "v4", "v5") if args.include_planning_v5 else ("v3", "v4")
+                metrics = {name: {f"planning-{version}": load_json(EVAL_ROOT / name / f"planning-{version}.json")["summary"] for version in versions} for name in ("candidate", "baseline")}
                 probes = {name: load_json(EVAL_ROOT / f"probe-{name}.json") for name in ("candidate", "baseline")}
                 decision = replacement_decision(metrics["candidate"], metrics["baseline"], probes["candidate"], probes["baseline"], args.baseline_label)
                 baseline_label = args.baseline_label
@@ -300,6 +324,12 @@ def main(argv=None) -> int:
                     for category, values in sorted(metrics[model_name]["planning-v4"].get("category_metrics", {}).items()):
                         fmt = lambda value: "N/A" if value is None else f"{value:.3f}"
                         lines.append(f"| {model_name} | {category} | {fmt(values.get('accuracy'))} | {fmt(values.get('rejection_correct_rate'))} | {fmt(values.get('intent_violation_rate'))} | {fmt(values.get('capability_violation_rate'))} |")
+                if args.include_planning_v5:
+                    lines += ["", "## planning-v5 类别指标", "", "| 模型 | 类别 | 准确率 | 拒绝正确率 | 意图违规率 | 能力违规率 |", "|---|---|---:|---:|---:|---:|"]
+                    for model_name in ("candidate", "baseline"):
+                        for category, values in sorted(metrics[model_name]["planning-v5"].get("category_metrics", {}).items()):
+                            fmt = lambda value: "N/A" if value is None else f"{value:.3f}"
+                            lines.append(f"| {model_name} | {category} | {fmt(values.get('accuracy'))} | {fmt(values.get('rejection_correct_rate'))} | {fmt(values.get('intent_violation_rate'))} | {fmt(values.get('capability_violation_rate'))} |")
                 decision_line = (f"- r21 替换 r14：{'建议' if decision['replace_r14'] else '不建议'}"
                                  if baseline_label == "r14" else
                                  f"- 是否替换 {baseline_label}：{'建议' if decision['replace_r14'] else '不建议'}")
@@ -323,7 +353,7 @@ def main(argv=None) -> int:
                 if stage == "data":
                     manifest = load_json(out / "dataset/manifest.json")
                     atomic_json(out / "dataset/provenance.json", {"created_utc": started, "builder": str(ROOT / "scripts/build_plan_sft.py"), "builder_sha256": sha256(ROOT / "scripts/build_plan_sft.py"), "command": commands[stage][0], "manifest_sha256": sha256(out / "dataset/manifest.json"), "manifest": manifest})
-            outputs = stage_outputs(stage, out)
+            outputs = stage_outputs(stage, out, include_planning_v5=args.include_planning_v5)
             missing = [str(p) for p in outputs if not p.is_file()]
             if missing:
                 raise RuntimeError(f"stage {stage} missing outputs: {missing}")
