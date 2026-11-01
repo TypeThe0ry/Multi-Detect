@@ -533,3 +533,16 @@ python scripts/run_planner_round.py --stage data --force-stage data \
 10. `在仓库查看自行车并记下位置，返回出发地。`
 11. `Go to the warehouse and inspect the sign from 7 views; do not return home, land there when done.`
 12. `Go to the warehouse and inspect the sign from 6 views; do not return home, land there when done.`
+
+## r29 结果（2026-11-01）
+
+r29 = r24 基础数据（不变）+ 针对“r24 + 预检”剩余失分的正例（否定查询、否定降落→返航、查询落地、别名、返航意图，各 72 条），r24 热启动；候选与基线都开主机预检，并纳入 planning-v5。
+
+| 指标 | r24 + 预检（现役） | r29 + 预检 |
+|---|---:|---:|
+| planning-v3 | 0.80 | 0.7125 |
+| planning-v4 | 18/20 | 17/20 |
+| planning-v5 | 93/126 | 96/126 |
+| 返航探测 | 15/15 | 14/15 |
+
+结论：**不替换**。v5 小幅提升（query_grounding 8→11），但 v3 降 9 个点、探测掉 1 题。从 r25 到 r29 连续五轮，凡是在 r24 上追加训练数据，v3 都会下降，说明在当前 2B 模型和数据规模下，规划模型已接近这条路线的上限；现役维持 **r24 + 主机预检**（v3 0.80、v5 93/126、探测 15/15）。规划这条线暂停新训练轮次，后续更值得做的是：用 Linux SITL 任务套件验证现役组合的闭环表现、在真实任务文本上核对预检，以及把剩余错误类型（否定查询、否定降落）优先考虑用主机侧意图检查兜底而不是加训练数据。
