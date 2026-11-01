@@ -93,3 +93,9 @@
 - `tests/test_round_collect_preflight.py` 前 6 项通过，但在 `test_deterministic_collector_config_failure_is_not_retried` 卡住，使用 20 秒外部超时终止；未把它改成通过。
 - 未运行 `run_onboard_gate.py`，未启动 Docker、SITL、GPU 训练或网络下载。
 - 共享压缩流有 3 条半截记录；结论只使用可完整解析的 ACK、STATUSTEXT、HEARTBEAT、SYS_STATUS 和 episode 元数据。
+
+## 落地后仍解锁的收尾边界
+
+多旋翼降落命令的目标是先确认 PX4 已进入 `landed_state=1`（`ON_GROUND`），再完成架次收尾。旧逻辑在收到这个状态后立即返回，即使 `HEARTBEAT` 仍显示 `armed=true`；它没有等待或保证解除锁定。`_EpisodeProgressWatchdog` 只在策略动作循环中检查，落地 helper 使用独立的下降期限，因此不能单凭看门狗推断落地 helper 会无限等待。episode 的整体超时可能因飞行遥测持续推进而延期，但每个等待阶段仍应由本阶段的目标和固定期限收束。持续的 `HEARTBEAT` 只说明遥测活跃，不能替代落地或解除锁定条件。
+
+当前 Linux 多旋翼收尾按三个有界阶段处理：`ON_GROUND` 连续稳定 3 秒后，等待 PX4 自动上锁最多 30 秒；窗口内仍保持解锁时，采集器发送一次 `MAV_CMD_COMPONENT_ARM_DISARM`（参数 `1.0` 改为 `0.0`）并最多等待 10 秒确认新的未解锁 `HEARTBEAT`。两种结果都会结束架次：自动上锁记录 `disarm_source=px4_auto`，主动解除锁定记录 `disarm_source=collector`。若没有确认到未解锁心跳，则按明确的阶段超时失败。Windows 继续沿用收到 `ON_GROUND` 即完成的旧条件；固定翼/VTOL 路径也未改变。主动解除锁定仅用于一次性 SITL 采集的容器收尾。

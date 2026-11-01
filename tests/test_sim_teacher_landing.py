@@ -6,14 +6,17 @@ from scripts import collect_sim_teacher_episodes as collector
 
 
 class FakeClock:
-    def __init__(self) -> None:
+    def __init__(self, on_sleep=None) -> None:
         self.now = 100.0
+        self.on_sleep = on_sleep
 
     def monotonic(self) -> float:
         return self.now
 
     def sleep(self, seconds: float) -> None:
         self.now += seconds
+        if self.on_sleep is not None:
+            self.on_sleep(seconds)
 
 
 class FakeState:
@@ -40,6 +43,18 @@ class FakeReader:
 
 
 class FakeConnection:
+    def __init__(self, on_disarm=None) -> None:
+        self.target_system = 1
+        self.target_component = 1
+        self.commands = []
+        self.on_disarm = on_disarm
+        self.mav = self
+
+    def command_long_send(self, *args) -> None:
+        self.commands.append(args)
+        if args[2] == 400 and args[4] == 0.0 and self.on_disarm is not None:
+            self.on_disarm()
+
     @staticmethod
     def mode_mapping() -> dict[str, tuple[int, int, int]]:
         return {"LAND": (29, 4, 6)}
@@ -75,6 +90,16 @@ def test_land_acknowledged_promptly_stops_setpoints(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
     clock = FakeClock()
     state = FakeState(12.0)
+    telemetry_ticks = [0]
+    clock.on_sleep = lambda _seconds: (
+        (
+            _record_heartbeat(state, clock, mode=100925440, armed=True),
+            state.mark_received("EXTENDED_SYS_STATE", clock),
+            telemetry_ticks.__setitem__(0, telemetry_ticks[0] + 1),
+        )
+        if state.messages["HEARTBEAT"]["base_mode"] & 128
+        else None
+    )
 
     def land(_attempt: int) -> None:
         _record_heartbeat(state, clock, mode=100925440, armed=True)
@@ -85,11 +110,17 @@ def test_land_acknowledged_promptly_stops_setpoints(monkeypatch: pytest.MonkeyPa
 
     executor = FakeExecutor(land)
     streamer = FakeStreamer()
+    start_s = clock.monotonic()
+    connection = FakeConnection(
+        on_disarm=lambda: _record_heartbeat(state, clock, mode="LAND", armed=False)
+    )
     result = collector._land_and_wait(
         executor,
         FakeReader(state),
-        FakeConnection(),
+        connection,
         streamer,
+        stable_ground_s=0.5,
+        auto_disarm_wait_s=1.0,
         clock=clock.monotonic,
         sleep=clock.sleep,
     )
@@ -100,6 +131,48 @@ def test_land_acknowledged_promptly_stops_setpoints(monkeypatch: pytest.MonkeyPa
     assert result["land_mode_confirmed"]
     assert result["landed_state"] == 1
     assert result["land_ack_result"] == 0
+    assert result["disarm_source"] == "collector"
+    assert len(connection.commands) == 1
+    assert connection.commands[0][2:5] == (400, 0, 0.0)
+    assert clock.monotonic() - start_s <= 2.0
+    assert telemetry_ticks[0] >= 2
+
+
+def test_landed_aircraft_uses_px4_auto_disarm_without_collector_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    state = FakeState(0.0)
+    clock = FakeClock()
+
+    def auto_disarm(_seconds: float) -> None:
+        if clock.now >= 102.0 and state.messages["HEARTBEAT"]["base_mode"] & 128:
+            _record_heartbeat(state, clock, mode="LAND", armed=False)
+
+    clock.on_sleep = auto_disarm
+
+    def land(_attempt: int) -> None:
+        _record_heartbeat(state, clock, mode="LAND", armed=True)
+        state.messages["EXTENDED_SYS_STATE"] = {"landed_state": 1}
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+
+    connection = FakeConnection()
+    result = collector._land_and_wait(
+        FakeExecutor(land),
+        FakeReader(state),
+        connection,
+        None,
+        stable_ground_s=0.5,
+        auto_disarm_wait_s=5.0,
+        disarm_confirm_timeout_s=1.0,
+        clock=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    assert result["disarm_source"] == "px4_auto"
+    assert result["armed"] is False
+    assert connection.commands == []
+    assert clock.monotonic() - 100.0 <= 5.5
 
 
 def test_lost_land_request_is_resent_until_mode_changes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,6 +209,9 @@ def test_slow_descent_uses_altitude_derived_timeout(monkeypatch: pytest.MonkeyPa
         _record_heartbeat(state, clock, mode="LAND", armed=True)
 
     executor = FakeExecutor(land)
+    connection = FakeConnection(
+        on_disarm=lambda: _record_heartbeat(state, clock, mode="LAND", armed=False)
+    )
 
     def descend(seconds: float) -> None:
         clock.sleep(seconds)
@@ -149,7 +225,7 @@ def test_slow_descent_uses_altitude_derived_timeout(monkeypatch: pytest.MonkeyPa
     result = collector._land_and_wait(
         executor,
         FakeReader(state),
-        FakeConnection(),
+        connection,
         None,
         clock=clock.monotonic,
         sleep=descend,

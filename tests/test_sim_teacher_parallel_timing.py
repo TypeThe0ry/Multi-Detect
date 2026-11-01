@@ -172,3 +172,24 @@ def test_episode_watchdog_times_out_after_telemetry_stalls() -> None:
     clock.sleep(3.1)
     with pytest.raises(TimeoutError, match="telemetry stalled"):
         watchdog.check()
+
+
+def test_progress_watchdog_has_a_hard_ceiling():
+    from types import SimpleNamespace
+
+    import pytest
+
+    from scripts.collect_sim_teacher_episodes import _EpisodeProgressWatchdog
+
+    now = [0.0]
+    state = SimpleNamespace(count=0, vehicle_time_boot_ms=0)
+    watchdog = _EpisodeProgressWatchdog(0.0, 100.0, SimpleNamespace(state=state), clock=lambda: now[0])
+    for t in range(1, 700, 5):  # telemetry keeps advancing past the nominal budget
+        now[0] = float(t)
+        state.vehicle_time_boot_ms += 5000
+        state.count += 10
+        watchdog.check()
+    now[0] = 701.0
+    state.vehicle_time_boot_ms += 5000
+    with pytest.raises(TimeoutError, match="hard wall-clock ceiling"):
+        watchdog.check()
