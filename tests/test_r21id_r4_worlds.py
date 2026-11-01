@@ -60,6 +60,8 @@ def test_generated_r21id_r4_offline_contract():
         assert (8 <= computed < 12 if band == "8-12" else
                 12 <= computed < 16 if band == "12-16" else
                 24 <= computed < 32 if band == "24-32" else computed >= 32)
+        if target["asset_slug"] in {"pickup", "suv"} and band in {"8-12", "12-16"}:
+            assert intent["max_detection_range_m"] >= geom["slant_distance_m"] + 4.9
         if target["asset_slug"] in small_counts and band in {"8-12", "12-16"}:
             small_counts[target["asset_slug"]] += 1
         if target["asset_slug"] in {"pickup", "suv"}:
