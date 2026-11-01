@@ -37,6 +37,7 @@ from multidetect.autonomy.capability_contract import capability_violations  # no
 from multidetect.autonomy.mission_package import MissionPackage  # noqa: E402
 from multidetect.autonomy.mission_plan import validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
+from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -59,7 +60,21 @@ def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
     *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
     airframe: str | None = None, decision_contract: bool = False,
+    plan_pregate: bool = False,
 ):
+    if plan_pregate:
+        decision = preflight_plan_task(task, refs, capabilities, airframe)
+        if decision is not None:
+            raw = json.dumps({
+                "plan_version": decision.plan_version,
+                "decision": decision.decision,
+                "reason_code": decision.reason_code,
+                "reason": decision.reason,
+                "missing_capabilities": list(decision.missing_capabilities),
+                "unresolved_refs": list(decision.unresolved_refs),
+                "question": decision.question,
+            }, ensure_ascii=False)
+            return decision, raw, [0.0], None
     plan, report = compile_mission_plan(
         post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
         capabilities=capabilities, airframe=airframe,
@@ -268,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--decision-contract", action="store_true",
                         help="enable structured reject/clarify output (default: legacy MissionPlan)")
+    parser.add_argument("--plan-pregate", action="store_true",
+                        help="run deterministic host preflight before starting the model")
     parser.add_argument(
         "--llama-server", type=Path,
         default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
@@ -303,12 +320,23 @@ def main(argv: list[str] | None = None) -> int:
         from scripts.slow_system_runtime import trained_key_order_schema
 
         schema = trained_key_order_schema(schema)
-    server = LlamaServerRunner(
-        args.gguf, None if args.no_mmproj else args.mmproj,
-        executable=args.llama_server, port=args.port,
-        max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
-        log_dir=args.log_dir or (args.output.parent / "llama-server-logs"),
-        keep_logs=args.keep_server_logs,
+    needs_model = not args.plan_pregate or any(
+        preflight_plan_task(
+            item["text"], item.get("refs", tuple(document.get("refs", ()))),
+            frozenset(item.get("capabilities", ())),
+            "airframe:fixed_wing" if "airframe:fixed_wing" in item.get("capabilities", ()) else None,
+        ) is None
+        for item in document["tasks"]
+    )
+    server = (
+        LlamaServerRunner(
+            args.gguf, None if args.no_mmproj else args.mmproj,
+            executable=args.llama_server, port=args.port,
+            max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
+            log_dir=args.log_dir or (args.output.parent / "llama-server-logs"),
+            keep_logs=args.keep_server_logs,
+        )
+        if needs_model else None
     )
     request_usage: list[dict[str, int | None]] = []
 
@@ -351,10 +379,14 @@ def main(argv: list[str] | None = None) -> int:
                 post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
                 capabilities=capabilities, airframe=airframe,
                 decision_contract=args.decision_contract,
+                plan_pregate=args.plan_pregate,
             )
             rows.append(
                 {
                     "text": item["text"],
+                    "planner_source": (
+                        "host_pregate" if args.plan_pregate and not request_usage else "model"
+                    ),
                     **score_task(
                         {**item, "refs": item.get("refs", task_refs)}, plan, error, raw=raw
                     ),
@@ -383,7 +415,8 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
     finally:
-        server.close()
+        if server is not None:
+            server.close()
     n = len(rows)
     summary = {
         "tasks": n,
