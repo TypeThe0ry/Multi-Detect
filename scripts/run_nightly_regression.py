@@ -168,6 +168,8 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         return 0
     records = []
     with SitlLock(lock_path):
+        # Children inherit this lock; without the marker each collector waits on it forever.
+        child_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
         for name, cmd, suite_out in plans:
             started = now_iso(); code = 0; error = None
             try:
