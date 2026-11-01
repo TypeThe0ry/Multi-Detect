@@ -57,6 +57,7 @@ from multidetect.autonomy.mission_plan import (  # noqa: E402
     PlanDecision,
     validate_mission_plan,
 )
+from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     compile_mission_plan,
     plan_json_schema,
@@ -140,8 +141,20 @@ def build_mission_from_text(
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
     include_decision_contract: bool = False,
+    enable_plan_pregate: bool = False,
 ) -> tuple[MissionPlan | PlanDecision, dict[str, Any]]:
     """Compile a task; explicit reject/clarify results never get a flight fallback."""
+    if enable_plan_pregate:
+        decision = preflight_plan_task(task_text, refs, capabilities, airframe)
+        if decision is not None:
+            return decision, {
+                "error": None,
+                "decision": decision,
+                "source": "host_pregate",
+                "raw": None,
+                "attempts": [],
+                "repairs": [],
+            }
     schema = plan_json_schema(
         capabilities=capabilities, include_decision_contract=include_decision_contract
     )
@@ -217,6 +230,8 @@ class OnboardPolicy:
         }
         if type(options.get("planning_decision_contract", False)) is not bool:
             raise ValueError("planning_decision_contract must be a boolean")
+        if type(options.get("planning_pregate", False)) is not bool:
+            raise ValueError("planning_pregate must be a boolean")
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(
@@ -1117,6 +1132,7 @@ class OnboardPolicy:
                             include_decision_contract=bool(
                                 options.get("planning_decision_contract", False)
                             ),
+                            enable_plan_pregate=bool(options.get("planning_pregate", False)),
                         )
                     except Exception:
                         # ``post`` records HTTP outcomes; do not count an
@@ -1493,6 +1509,7 @@ class OnboardPolicy:
                             include_decision_contract=bool(
                                 self.config.get("planning_decision_contract", False)
                             ),
+                            enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
                         )
                         if report.get("error"):
                             raise ValueError(f"operator task planning failed: {report['error']}")
@@ -1524,6 +1541,7 @@ class OnboardPolicy:
                             include_decision_contract=bool(
                                 self.config.get("planning_decision_contract", False)
                             ),
+                            enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
                         )
                     else:
                         planner_close = getattr(planner, "close", None)
@@ -1559,6 +1577,7 @@ class OnboardPolicy:
                 include_decision_contract=bool(
                     self.config.get("planning_decision_contract", False)
                 ),
+                enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
                 )
             if report.get("error"):
                 raise ValueError(f"operator task planning failed: {report['error']}")
