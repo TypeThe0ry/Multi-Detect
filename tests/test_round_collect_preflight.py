@@ -148,6 +148,7 @@ def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_
 
     monkeypatch.setattr(round_script.subprocess, "run", fake_run)
     monkeypatch.setattr(round_script, "_remove_worker_containers", lambda prefix: None)
+    monkeypatch.setattr(round_script, "_docker_daemon_reachable", lambda: True)
     runner = Round.__new__(Round)
     runner.a = type("Args", (), {"retries": 4})()
     cmd = ["python", "collect.py", "--container-prefix", "w", "--out", str(tmp_path)]

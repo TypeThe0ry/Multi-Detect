@@ -694,7 +694,9 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                  operator_key: Path | None = None, output: Path | None = None,
                  work_dir: Path | None = None,
                  runtime_factory: Callable[[Any, FaultEvent, Path], CampaignSession] | None = None,
-                 duration_s: float | None = None) -> dict[str, Any]:
+                 duration_s: float | None = None,
+                 timing_scale: float = 1.0,
+                 evaluation_padding_s: float = 2.0) -> dict[str, Any]:
     """Run every scenario in its own runtime and compare only captured evidence."""
     del episode
     work_dir = (work_dir or ROOT / "tmp" / "onboard-fault-campaign").resolve()
@@ -712,6 +714,8 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
             key=key_bytes,
             require_signature=True,
         )
+    if timing_scale <= 0 or evaluation_padding_s < 0:
+        raise ValueError("campaign timing scale must be positive and padding nonnegative")
     policy = admitted.document["link_loss_policy"]
     # Each scenario owns an isolated runtime, so every source fault uses the
     # same relative window.  ``schedule_faults`` remains available for HIL
@@ -726,11 +730,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
     }
     events = tuple(
         FaultEvent(
-            name, 0.05 if name == "gcs_heartbeat_recovery" else 0.25,
-            3.0 if name == "fence_approach" else
-            (1.0 if name == "gcs_heartbeat_loss" else 0.35),
+            name,
+            (0.05 if name == "gcs_heartbeat_recovery" else 0.25) * timing_scale,
+            (3.0 if name == "fence_approach" else
+             (1.0 if name == "gcs_heartbeat_loss" else 0.35)) * timing_scale,
             severity=severities.get(name, "fault"),
-            react_after_s=1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15,
+            react_after_s=(1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15)
+            * timing_scale,
         )
         for name in FAULTS
     )
@@ -743,12 +749,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         scenario_dir = work_dir / "runs" / f"{event.fault}-{time.time_ns()}"
         scenario_dir.mkdir(parents=True, exist_ok=True)
         session = factory(admitted, event, scenario_dir)
-        minimum_run = event.at_s + event.duration_s + event.react_after_s + 2.0
+        minimum_run = event.at_s + event.duration_s + event.react_after_s + evaluation_padding_s
         run_for = duration_s or minimum_run
         if run_for < minimum_run:
             raise ValueError(
-                f"scenario {event.fault} evaluation window must be at least 2.0 s "
-                f"after react_deadline; duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
+                f"scenario {event.fault} evaluation window must be at least "
+                f"{evaluation_padding_s:.3f} s after react_deadline "
+                f"duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
             )
         try:
             session.runtime.run(run_for)
