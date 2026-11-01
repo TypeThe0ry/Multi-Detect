@@ -226,6 +226,11 @@ def audit_collection(
     failure_groups = Counter(row["failure_group"] for row in failed_artifacts)
     pickup_task = sum(1 for row in complete_reports if row.get("passed") and "皮卡" in str(row.get("task_text")))
     suv_task = sum(1 for row in complete_reports if row.get("passed") and "SUV" in str(row.get("task_text")))
+    category_by_world = {row["world_id"]: row["target_category"] for row in world_reports}
+    pickup_to_suv = sum(
+        1 for row in complete_reports
+        if row.get("passed") and category_by_world.get(row["world_id"]) == "pickup" and "SUV" in str(row.get("task_text"))
+    )
     return {
         "generated_on": date.today().isoformat(),
         "minimum_frames": minimum_frames,
@@ -244,8 +249,25 @@ def audit_collection(
         "qualified_task_texts": dict(task_counter),
         "pickup_task_qualified_count": pickup_task,
         "suv_task_qualified_count": suv_task,
-        "pickup_to_suv_rejection_coverage": False,
+        "pickup_to_suv_rejection_coverage": pickup_to_suv,
+        "index_world_count": len(index_by_world),
+        "unqualified_worlds": [row["world_id"] for row in world_reports if not row["qualified_count"]],
     }
+
+
+def _readiness_line(report: dict[str, Any]) -> str:
+    total = report.get("index_world_count") or 0
+    qualified = report["qualified_world_count"]
+    pickup_to_suv = report.get("pickup_to_suv_rejection_coverage") or 0
+    gaps = []
+    if qualified < total:
+        gaps.append(f"仍有 {total - qualified} 个 world 没有合格架次（{', '.join(report.get('unqualified_worlds') or [])}）")
+    if not pickup_to_suv:
+        gaps.append("pickup world 上没有合格的 SUV 请求架次（pickup→suv 拒绝方向未覆盖）")
+    head = f"合格覆盖 {qualified}/{total} world、{report['qualified_episode_count']} 个 episode；pickup→suv 合格架次 {pickup_to_suv} 个。"
+    if gaps:
+        return head + "尚未满足完整采集：" + "；".join(gaps) + "。已有合格架次可作为增量数据。"
+    return head + "覆盖完整，可以进入 annotate/build_sft。"
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -260,7 +282,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"失败逻辑架次 {report['logical_failed_count']} 个；对应失败 episode artifact {report['failed_artifact_count']} 个。短边档位这里只能核对 index 的设计 estimate（采集 steps 没有 bbox/短边字段），不会把设计值冒充实测像素。",
         "",
-        "当前不能进入 annotate/build_sft：合格覆盖只有 8/24 world、15 个 episode，且 pickup world 没有 SUV 任务文本对应的反向 pickup→suv 拒绝覆盖；设计要求的 24 world/96 视角组尚未满足。已有合格架次可作为增量数据，但不能作为本轮完整采集完成信号。",
+        _readiness_line(report),
         "",
         "## 按世界",
         "",
@@ -287,8 +309,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         if row["failure_groups"]:
             details = ", ".join(f"{key}={value}" for key, value in sorted(row["failure_groups"].items()))
             lines.append(f"- {row['world_id']}：{details}。")
-    lines += ["", "armed heartbeat 失败横跨 pickup、SUV、postbox 和 ambulance 多类 world，现有证据更像 PX4/SITL 启动或连接稳定性问题，不能归因于某一类目标摆放。降落超时目前只出现在 w0020（ambulance/SUV 对照），应单独复跑确认是否与该 world 的出生点、目标布局或返航路径有关；仅凭本轮失败 artifact 不能下结论。"]
-    lines += ["", "## 重新生成或修改清单", "", "- w0000–w0003、w0006–w0009：虽有 complete，实际只有 search/front，没有四个 observe 视角；需要重新采集，不能按 status 放行。", "- w0005、w0011、w0014–w0019：当前没有合格 complete；失败主要是 armed heartbeat，person/postbox 大小档世界还没有有效四视角记录，需先排查运行稳定性后重采。", "- w0004、w0010、w0012、w0013、w0020–w0023：已有合格记录，但同一 world 的覆盖不完整（例如 w0013 只有一个逻辑 episode），应补齐计划数量并保留四视角。", "- pickup/SUV 配对：当前合格任务文本统计没有证明 pickup→suv hard reject；必须补采 pickup world 的 SUV 请求（以及 SUV world 的 pickup 请求作为对称对照），否则不能宣称关键拒绝方向已覆盖。", "", "## 审计口径", "", "- complete 架次按 round-state 的最终 path 审计；失败原因按对应 world/ep 下所有 status=failed 的 episode.json artifact 统计，同时保留逻辑失败架次数量。", "- 每个视角只计 phase=observe、target_in_fov=true 且 RGB 文件存在的帧；距离使用现有 smoke 检查的目标地面距离 ±25% 判定。", "- index 短边档检查的是 target_short_side_px_estimate 是否落在声明档位；steps 没有目标 bbox，因此未声称实测短边像素合格。", ""]
+    lines += ["", "## 重新生成或修改清单", ""]
+    for row in report["world_reports"]:
+        if not row["qualified_count"]:
+            lines.append(f"- {row['world_id']}：没有合格 complete 架次（失败原因：{', '.join(sorted(row['failure_groups'])) or '无失败 artifact'}），需修复后重采。")
+        elif row["issues"]:
+            lines.append(f"- {row['world_id']}：有合格架次，但部分架次有问题：{'；'.join(row['issues'])}。")
+    lines += ["", "## 审计口径", "", "- complete 架次按 round-state 的最终 path 审计；失败原因按对应 world/ep 下所有 status=failed 的 episode.json artifact 统计，同时保留逻辑失败架次数量。", "- 每个视角只计 phase=observe、target_in_fov=true 且 RGB 文件存在的帧；距离使用现有 smoke 检查的目标地面距离 ±25% 判定。", "- index 短边档检查的是 target_short_side_px_estimate 是否落在声明档位；steps 没有目标 bbox，因此未声称实测短边像素合格。", ""]
     return "\n".join(lines)
 
 
