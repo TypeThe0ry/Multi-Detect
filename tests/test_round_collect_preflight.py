@@ -70,6 +70,7 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
                     "observation": {
                         "camera_altitude_m": 24.0,
                         "camera_pitch_rad": -0.31,
+                        "max_detection_range_m": 145.0,
                         "observation_waypoint": {
                             "x_east_m": 12.0,
                             "y_north_m": 34.0,
@@ -99,9 +100,27 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
     policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
     assert policy.altitude_m == 24.0
     assert policy.camera_pitch_rad == 0.31
+    assert policy.max_detection_range_m == 145.0
     assert policy.home_ned == (34.0, 12.0, 0.0)
     assert policy.observation_frames == 8
     assert policy.observation_waypoints == ((34.0, 12.0, -24.0),)
+
+
+def test_expert_search_keeps_default_detection_range_without_intent_override(tmp_path: Path, monkeypatch):
+    import scripts.collect_sim_teacher_episodes as collector
+
+    runtime = tmp_path / "runtime.json"
+    runtime.write_text(json.dumps({"task_intent": {"observation": {"camera_altitude_m": 20.0}}}), encoding="utf-8")
+    plan = collector.CollectionPlan(
+        scenario="scenario.json", runtime=str(runtime), truth="truth.json", teacher="expert_search",
+        episodes=1, steps_per_episode=1, seed=1, out=str(tmp_path),
+    )
+    monkeypatch.setattr(collector, "_truth_target", lambda *args, **kwargs: ((1.0, 2.0, 0.0), "target"))
+    monkeypatch.setattr(collector, "_takeoff_altitude_for_plan", lambda plan: (20.0, "default"))
+    monkeypatch.setattr(collector, "scenario_world_path", lambda runtime: None)
+    monkeypatch.setattr(collector, "load_sdf_obstacles", lambda path: ())
+    policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
+    assert policy.max_detection_range_m == 80.0
 
 
 def test_fixed_wing_intent_uses_camera_altitude_and_observation_route(tmp_path: Path, monkeypatch):

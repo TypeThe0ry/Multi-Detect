@@ -1739,6 +1739,10 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     frames = int(intent.get("observation_frames", intent.get("min_observation_frames", 8)))
     if frames < 1:
         raise ValueError("task_intent.observation observation_frames must be positive")
+    max_detection_range = intent.get("max_detection_range_m", 80.0)
+    max_detection_range = float(max_detection_range)
+    if not math.isfinite(max_detection_range) or max_detection_range <= 0.0:
+        raise ValueError("task_intent.observation.max_detection_range_m must be finite and positive")
     view_rows = intent.get("views", intent.get("observation_views", ()))
     observation_waypoints = []
     observation_view_names = []
@@ -1762,6 +1766,7 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
         camera_pitch_rad=camera_pitch,
+        max_detection_range_m=max_detection_range,
         **({"home_ned": home_ned} if home_ned is not None else {}),
         obstacles=obstacles,
         observation_frames=frames if observation_waypoints else 0,

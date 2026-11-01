@@ -94,3 +94,22 @@ armed heartbeat 失败横跨 pickup、SUV、postbox 和 ambulance 多类 world�
 - complete 架次按 round-state 的最终 path 审计；失败原因按对应 world/ep 下所有 status=failed 的 episode.json artifact 统计，同时保留逻辑失败架次数量。
 - 每个视角只计 phase=observe、target_in_fov=true 且 RGB 文件存在的帧；距离使用现有 smoke 检查的目标地面距离 ±25% 判定。
 - index 短边档检查的是 target_short_side_px_estimate 是否落在声明档位；steps 没有目标 bbox，因此未声称实测短边像素合格。
+
+## 视角缺失根因
+
+对照 `gen_r21id_r4_w0004`、`w0010`、`w0012`、`w0013` 的合格架次与 pickup/SUV 小目标世界的 complete 架次后，缺失不是 `observation_view` 字段名或 sidecar 未加载造成的。采集器确实读取了四个 `views`，并在每个步骤写入当前视角名；但视角名在进入 `phase=observe` 前就会出现，不能单独证明已经采样。
+
+证据如下：
+
+- `w0000–w0003、w0006–w0009` 的所有 complete episode 都是 120 步、`phase=search` 120 步，四个世界组的 `phase=observe` 计数均为 0；对应的合格 `w0004` 和 `w0010` 是 25/27 步搜索后各 32 个观察步（四视角各 8 帧）。
+- 原始 r4 sidecar 的小目标视角点与目标相距约 95.6–140.9 m（w0000–w0003、w0006–w0009 的实际设计斜距约 100.4–145.6 m），而 `ExpertSearchPolicy.max_detection_range_m` 默认是 80 m。教师能在搜索阶段短暂看到目标，但到达由 sidecar 指定的 front/oblique/edge_truncated/recovery 航点后，目标超出 80 m 检测门限，策略回到 search，耗尽 120 步，因此从未开始观察阶段。
+- 合格的较大目标世界视角航点距离约 32–50 m，落在同一 80 m 默认门限内；因此能正常完成四视角。这也解释了为什么问题只集中在 pickup/SUV 的 8–16 px 档位，而不是所有 r4 世界。
+- `camera_altitude_m`、`views`、truth 目标坐标及字段名在合格/不合格架次之间一致；失败 artifact 中另有 PX4 armed heartbeat 和 wall-clock timeout，它们是独立的运行稳定性噪声，不解释“complete 但零观察”。
+
+根因是 r21id-r4 生成器把小目标像素档反推到远距离，却没有把该设计斜距传给教师的检测范围。修法是：
+
+1. `scripts/generate_r15_worlds.py` 在 r21id-r4 的 observation intent 写入 `max_detection_range_m = slant_distance_m + 5 m`；该字段只在 r4 生成的 sidecar 出现。
+2. `scripts/collect_sim_teacher_episodes.py` 读取并校验该可选字段，再传给 `ExpertSearchPolicy`；缺字段仍使用历史 80 m 默认值，因此 r3 和其他 profile 行为不变。
+3. 已用生成器重新生成并带回 `w0000–w0003、w0006–w0009` 八个世界的 `.teacher_intent.json`；比较显示这些世界的 SDF、truth、runtime_input、expectations 未变化。
+
+需要重采：至少 `w0000–w0003、w0006–w0009` 各补足计划的 complete 架次，且每架确认 `front/oblique/edge_truncated/recovery` 各不少于 8 个 `phase=observe`、`target_in_fov=true` 帧。`w0005、w0011、w0014–w0019` 仍需先处理本轮记录的 PX4/超时问题后重采；本修复不改变这些世界的生成几何。已有合格世界只需按覆盖计划补齐缺失逻辑架次。

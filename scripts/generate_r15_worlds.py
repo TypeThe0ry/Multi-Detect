@@ -419,6 +419,12 @@ def main(argv=None):
                         },
                     })
                 observation_intent["observation_frames"] = 8
+                if target["asset_slug"] in {"pickup", "suv"} and world["target_short_side_px"] in {"8-12", "12-16"}:
+                    # These small r4 targets are beyond the expert teacher's
+                    # historical 80 m prior. Align its search gate with design.
+                    observation_intent["max_detection_range_m"] = round(
+                        math.hypot(tx, altitude) + 5.0, 3
+                    )
                 observation_intent["views"] = views
             if a.profile == "r21id-r4":
                 runtime["vehicle"]["spawn_pose"].update({
