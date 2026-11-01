@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -65,3 +66,50 @@ def test_r27_complex_rows_are_holdout_disjoint_and_have_all_requested_families(t
     assert all(row.get("expected_valid") is True for row in complex_rows)
     admitted, _ = admit_train_rows(output)
     assert len(admitted) == len(rows)
+
+
+def test_r27_complex_text_has_varied_endings_clean_english_and_correct_plurals(tmp_path):
+    output = tmp_path / "r27-quality"
+    assert sft.main([
+        "--output", str(output), "--version", "v4", "--rows", "500", "--val-rows", "0",
+        "--r27-recipe", "--r27-refusal-count", "2", "--r27-complex-count", "400",
+        "--r23-v3-count", "0", "--r23-deliver-count", "0",
+        "--r24-reference-count", "0", "--r24-context-count", "0",
+    ]) == 0
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    complex_rows = [row for row in rows if row.get("world") == "synthetic_plan_r27"
+                    and row.get("pair_role") is None]
+    endings = Counter()
+    for row in complex_rows:
+        text = row["task_text"].rstrip(".!?。！？ ")
+        language = "zh" if re.search(r"[\u4e00-\u9fff]", text) else "en"
+        # Count the complete sentence ending after normalization. This catches
+        # copied-on suffix clauses without treating ordinary Chinese characters
+        # or shared operational words (return/land) as a template by themselves.
+        ending = re.split(r"[,，;；:：]", text)[-1].strip().casefold()
+        # Operational return/landing wording is part of the requested plan;
+        # audit only an extra trailing clause that follows that action.
+        if not re.search(
+            r"(?:return|come back|head back|fly back|launch|base|land|touch down|"
+            r"返航|回家|回来|返回|回到|飞回|降落|落地|着陆|起飞点|基地|起点|出发地)",
+            ending,
+            re.I,
+        ):
+            endings[(language, ending)] += 1
+
+        assert not re.search(
+            r"(?:按眼前计划处理|按这个顺序来|Complete the current plan as stated|"
+            r"Do not change the steps for this pass)\s*[.!?。！？]*$", row["task_text"], re.I,
+        )
+        assert not re.search(r"\b(?:and|then|but|so)\s+[A-Z][a-z]+", text)
+        assert not re.search(r"\b(?:mailboxs|buss|boxs|benchs)\b", text, re.I)
+
+    for (_language, _ending), count in endings.items():
+        assert count / len(complex_rows) < 0.03
+
+    expected = {
+        "bus": "buses", "box": "boxes", "mailbox": "mailboxes", "bench": "benches",
+        "person": "people", "bicycle": "bicycles", "traffic cone": "traffic cones",
+        "fire truck": "fire trucks", "cardboard box": "cardboard boxes",
+    }
+    assert {noun: sft.english_plural(noun) for noun in expected} == expected
