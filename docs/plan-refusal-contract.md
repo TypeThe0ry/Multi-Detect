@@ -36,6 +36,30 @@
 
 地面站任务面板读取 `mission_refused.decision`，显示拒绝原因、`reason_code` 和需要澄清的问题。Linux 环境不保证 QGroundControl/C++ 工程可编译；负责人应在 Windows 的现有 GCS 构建环境编译 custom 插件并通过任务包审批 UI 验证：收到拒绝时不出现可批准的执行计划，收到澄清时显示问题文本。
 
+## 地面站验证步骤（Windows）
+
+1. 在仓库根目录打开 PowerShell，确认 Qt、Visual Studio/MSVC 和地面站依赖已按现有 Windows 环境配置，然后执行：
+
+   ```powershell
+   .\scripts\build_multidetect_windows.ps1 -Configuration Debug -BuildSelfTests
+   ```
+
+   若已有匹配配置的 CMake 构建目录，可按脚本约定追加 `-SkipConfigure`；构建输出应无 C++/QML 错误。
+
+2. 启动构建出的 QGroundControl，连接一套 SIM operator-link 测试链路。用 `scripts\run_sim_session.py --operator-link` 建立本地机载会话，再按 `scripts\fake_gcs_console.py --help` 运行仓库的假 GCS 控制台上传签名任务包；测试配置须开启 `planning_decision_contract`，并让测试 planner 返回下列拒绝/澄清 JSON。`fake_gcs_console.py` 是地面站端客户端，不负责伪造机载下行；拒绝事件应由 SIM 机载策略通过现有 mission log/downlink 发回：
+
+   ```json
+   {"plan_version":1,"decision":"reject","reason_code":"missing_capability","reason":"Aircraft has no payload drop capability.","missing_capabilities":["payload_drop"],"unresolved_refs":[],"question":null}
+   ```
+
+   澄清用例将 `decision` 设为 `clarify`、`reason_code` 设为 `ambiguous_task`，并提供非空 `question`。
+
+3. 在任务面板的机载日志中确认记录标题显示为“任务规划已拒绝”，正文显示 `reason_code`、原因和（clarify 时）问题文本；字段缺失、`question: null` 或空数组时面板仍可打开，不崩溃。
+
+4. 先让面板收到一个带 `requires_approval: true` 的旧计划，再发送同一任务的 `mission_refused`。确认旧计划和“批准计划”按钮被清除，不可批准拒绝的任务；收到 `clarify` 时只显示澄清文本并提示修改任务后重新提交。
+
+5. 用一条 `decision: "reject"` 且 `question: null` 的拒绝记录和一条 `decision: "clarify"` 且非空 `question` 的记录各验证一次。中英文 `reason` 均应原样保留显示；必要时展开原始审计字段核对 JSON 键名和嵌套层级。
+
 ## 评测与数据
 
 `plan_from_task.py` 将带合理 `reason_code` 的拒绝/澄清计为正确拒绝。`build_plan_sft.py --r26-recipe` 将应拒绝或澄清的 assistant target 统一设为结构化 `decision`；r24 未知地点和无载荷能力的 deliver 也按此转换，原计划只保存在 `rejected_candidate` 审计字段中。未启用 r26 时，r23/r24 生成路径保持原样。

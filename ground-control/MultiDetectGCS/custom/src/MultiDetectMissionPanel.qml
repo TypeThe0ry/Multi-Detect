@@ -256,6 +256,7 @@ QGCPopupDialog {
     function kindText(kind) {
         const labels = {
             "status": qsTr("监督器状态"), "mission_started": qsTr("任务已开始"),
+            "mission_refused": qsTr("任务规划已拒绝"),
             "ground_event": qsTr("地面事件已接受"), "ground_event_rejected": qsTr("地面事件已拒绝"),
             "estimates": qsTr("剩余预算估计"), "escalation": qsTr("安全策略已收紧"),
             "decision": qsTr("监督器决定"), "perception_verdict": qsTr("感知判断"),
@@ -281,9 +282,16 @@ QGCPopupDialog {
         const reason = entry.reason || state.supervisor_reason || summary.reason;
         if (reason)
             text += qsTr("\n原因：%1").arg(reasonText(reason));
-        if (decision.reason)
-            text += qsTr("\n规划决定（%1）：%2").arg(decision.reason_code || "").arg(decision.reason);
-        if (decision.question)
+        if (decision && Object.keys(decision).length > 0) {
+            const decisionLabels = { "reject": qsTr("拒绝"), "clarify": qsTr("需要澄清") };
+            const decisionType = decisionLabels[decision.decision] || String(decision.decision || "");
+            const reasonCode = typeof decision.reason_code === "string" ? decision.reason_code : "";
+            const plannerReason = typeof decision.reason === "string" ? decision.reason : "";
+            const decisionParts = [decisionType, reasonCode, plannerReason].filter(part => part.length > 0);
+            if (decisionParts.length > 0)
+                text += qsTr("\n规划决定：%1").arg(decisionParts.join(" · "));
+        }
+        if (typeof decision.question === "string" && decision.question.length > 0)
             text += qsTr("\n需要澄清：%1").arg(decision.question);
         const statuses = { "completed": qsTr("任务完成"), "recovery_finished": qsTr("安全返航／降落完成"), "stopped": qsTr("任务已停止") };
         if (summary.status)
