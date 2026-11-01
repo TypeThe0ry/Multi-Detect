@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -59,6 +60,8 @@ def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
     package_path = tmp_path / "mission.json"
     key_path = tmp_path / "operator.key"
     key_path.write_text("hmac:" + key.hex(), encoding="ascii")
+    if os.name != "nt":
+        key_path.chmod(0o600)
     package_path.write_text(
         json.dumps(sign_document(document(), key, algorithm="hmac-sha256")), encoding="utf-8"
     )
@@ -256,7 +259,8 @@ def test_campaign_rejects_defective_runtime(mutator, expected_failed, tmp_path):
         package=package_path,
         operator_key=key_path,
         runtime_factory=_mutant_factory(mutator),
-        duration_s=5.5,
+        timing_scale=0.25,
+        evaluation_padding_s=0.05,
     )
     assert report["passed"] is False
     failed = {row["scenario"] for row in report["scenarios"] if not row["passed"]}
