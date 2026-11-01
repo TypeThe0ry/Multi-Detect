@@ -90,3 +90,14 @@
 
 - 第 1 步（helpers/simulation）、第 2 步（model_config）已合并，行为不变，回归闸门通过。
 - 第 3 步（构造与任务包准入方法移入 runtime mixin）**未合并**：实现用 `globals().update(vars(scripts.onboard_policy))` 把 facade 的全局变量整体复制进 `src/` 下的新模块，形成 `src → scripts` 的反向依赖和循环导入，而且测试对 facade 名字的 monkeypatch 只对其中 3 个显式改成动态读取的名字生效，其余会静默失效。黄金重放数据不在这台机器上，无法用重放兜底验证。下一次做第 3 步前，先把这些方法依赖的名字显式导入（或通过参数注入），再按计划搬移。
+- 第 3 步重评估（本次）：没有改运行代码。按当前文件重新核对，`OnboardPolicy.__init__` 位于第 208–1326 行，约 1,119 行；它同时装配 airframe/motion adapter、mission package 与签名密钥、安全包络、模型和健康监控、搜索策略、loop、MissionExecutor，以及启动期任务计划。计划中第 3 步原估 900–1,300 行搬移，实际依赖面与估算一致，且不是单一 runtime 子系统。
+- 本次不直接抽出 `__init__` 和 operator-package 方法：除大量可从 `multidetect.*` 导入的领域类型外，构造路径还调用 facade 定义的 `build_mission_from_text`，并在函数内部延迟导入 `scripts.eval_slow_system.LlamaServerRunner`、`_http_json`；任务准入方法也依赖这些 runner/helper。若只把方法搬进新模块，必须将这些可替换依赖逐项作为类属性/构造依赖注入，并确保 facade 子类属性在运行时读取；若把辅助实现一并迁走，则会扩展到慢模型运行时和计划编译流程，超出本阶段的窄范围。`build_mission_from_text` 自身还延迟导入 `scripts.slow_system_runtime`，因此不适合作为新模块中的直接实现依赖。新模块不得导入 `scripts.*`，也不得复制 facade globals。
+- 已用 `rg` 核对现存测试对 `scripts.onboard_policy` 的 monkeypatch。需保留的实际调用关系如下：
+  - `YoloeProposer`：`test_onboard_policy_package.py`、`test_onboard_ground_policy.py` 直接 patch facade；`test_onboard_main.py`、`test_onboard_runtime_policy.py` 用字符串路径 patch。均须影响 `OnboardPolicy.__init__` 创建 proposer 的路径。
+  - `HealthMonitor`：`test_onboard_health.py` 在构造后检查监控器并在失败路径检查记录；均须影响 `__init__` 的健康监控构造路径。
+  - `build_mission_from_text`：`test_onboard_model_split.py`、`test_onboard_operator_model_split.py`、`test_onboard_health.py` patch facade；分别覆盖启动规划、operator package 规划、失败记录及取消/错误路径，必须影响构造或 `prepare_operator_package` 内实际规划调用。
+  - `compile_mission_plan`：`test_onboard_policy_package.py` patch facade；目前由仍在 facade 的 `build_mission_from_text` 查找，若该 helper 保留在 facade，此 patch 路径可继续成立。
+  - `pixel_ground_point`：`test_place_memory_integration.py` patch facade；本阶段若不迁移后续感知/投影方法，该路径不受影响。
+  - `time.perf_counter`：`test_onboard_health.py` patch `onboard_policy.time` 的共享模块对象；保持新旧模块引用同一 `time` 模块时可继续生效。
+  - `hashlib.sha256`、`Path`：`test_onboard_model_split.py` 仍覆盖 facade 导出的对象；属于第 2 步 `model_config.py` 的契约，本阶段不得破坏。
+- 建议替代切分：把第 3 步拆成可独立验证的小步骤。先从 `__init__` 中选没有 facade 专属实现的纯领域构造器/计算片段，建立明确的依赖参数对象，并以 facade 子类类属性注入需要 monkeypatch 的 `YoloeProposer`、`HealthMonitor` 等依赖；每次只搬一个有边界的子系统。将任务计划编译/慢模型 runner 保留在 facade 的兼容边界，后续单独设计不依赖 `scripts.*` 的 runtime adapter 后再迁移。开始任何方法搬移前，为上列每个 patch 目标补充或确认测试，证明 patch 修改的是实际执行路径。若找不到职责足够小且不牵涉这些 facade 专属 helper 的首个片段，应继续只拆纯辅助函数，不推进 runtime。
