@@ -22,6 +22,9 @@ measured false-block rates):
     table) appears in the text, or the query's object word has a known Chinese
     name that appears in the text.  A query whose words are all outside the
     tables is *undecided* and passes, so an unknown object never blocks a plan.
+    A validated mission-package preset may authorize its own non-placeholder
+    query for the same skill; free-text and model-authored plans still require
+    task grounding.
     ``patrol``/``monitor`` must carry a query even when the task names no
     object, so for them the same finding is only a warning when the task does
     ask to patrol/watch (and blocks when the whole step is invented).
@@ -596,6 +599,17 @@ def _steps(plan: Any) -> list[Any]:
     return [s for s in steps or () if isinstance(s, Mapping) or hasattr(s, "skill")]
 
 
+def _declared_queries(plan: Any) -> set[tuple[str, str]]:
+    """Return non-placeholder queries declared by a trusted preset plan."""
+    declared: set[tuple[str, str]] = set()
+    for step in reachable_steps(plan):
+        skill = str(_get(step, "skill") or "")
+        query = str((_get(step, "params") or {}).get("query") or "").strip().lower()
+        if skill and query and query not in PLACEHOLDER_QUERIES:
+            declared.add((skill, query))
+    return declared
+
+
 def reachable_steps(plan: Any) -> list[Any]:
     """Steps reachable from the first step over on_success/on_fail, in plan order."""
     steps = _steps(plan)
@@ -617,15 +631,23 @@ def reachable_steps(plan: Any) -> list[Any]:
 
 
 def check_plan_intent(
-    plan: Any, task_text: str, refs: Iterable[str] | Mapping[str, Any] | None = None
+    plan: Any,
+    task_text: str,
+    refs: Iterable[str] | Mapping[str, Any] | None = None,
+    *,
+    declared_plan: Any | None = None,
 ) -> list[IntentFinding]:
     """Findings where ``plan`` (MissionPlan or plan document) contradicts the task text.
 
     ``refs`` are the known places offered to the planner (optionally labelled,
     ``"poi:gate (大门 / the gate)"``); without them the place rule is skipped.
+    ``declared_plan`` is an optional trusted mission-package preset. Its exact
+    non-placeholder query is accepted for the same skill because the package
+    declares the object independently of a generic regression sentence.
     """
     findings: list[IntentFinding] = []
     reachable = reachable_steps(plan)
+    declared_queries = _declared_queries(declared_plan)
     labels = parse_ref_labels(refs)
     if labels:
         conflicts = _alias_conflicts(labels)
@@ -690,7 +712,12 @@ def check_plan_intent(
         query = (_get(step, "params") or {}).get("query")
         if skill == "record" and str(query).strip().lower() in VIEW_QUERIES:
             continue
-        if query is None or query_grounding(str(query), task_text) != "ungrounded":
+        if query is None:
+            continue
+        query_text = str(query).strip().lower()
+        if query_grounding(query_text, task_text) != "ungrounded":
+            continue
+        if (str(skill), query_text) in declared_queries:
             continue
         findings.append(
             IntentFinding(
