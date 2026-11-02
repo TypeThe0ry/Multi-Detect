@@ -123,6 +123,11 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--gpu-render", action=argparse.BooleanOptionalAction, default=None)
     p.add_argument("--sim-image", default=None, metavar="IMAGE")
+    p.add_argument(
+        "--keep-px4-ulog",
+        action="store_true",
+        help="copy PX4 .ulg flight logs into each collector job before cleanup",
+    )
     args = p.parse_args(argv)
     if args.model_set not in MODEL_SET_SUITES:
         p.error(f"unknown --model-set: {args.model_set}")
@@ -159,6 +164,8 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
             continue
         suite_out = out / name
         cmd = [sys.executable, str(ROOT / "scripts/run_mission_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name]), "--min-free-disk-gb", str(args.min_free_disk_gb), "--disk-check-every", str(args.disk_check_every)]
+        if args.keep_px4_ulog:
+            cmd.append("--keep-px4-ulog")
         if name == "e2e": cmd = [sys.executable, str(ROOT / "scripts/run_e2e_operator_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name])]
         plans.append((name, cmd, suite_out))
     if args.dry_run:

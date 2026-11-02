@@ -102,6 +102,7 @@ def build_command(
     min_free_disk_gb: float = 0,
     disk_check_every: int = 1,
     strict: bool = False,
+    keep_px4_ulog: bool = False,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -129,6 +130,8 @@ def build_command(
         command.append("--retry-failed-episodes")
     if strict:
         command.append("--strict")
+    if keep_px4_ulog:
+        command.append("--keep-px4-ulog")
     command += [
         "--min-free-disk-gb",
         str(min_free_disk_gb),
@@ -436,6 +439,11 @@ def main(
     )
     parser.add_argument("--min-free-disk-gb", type=float, default=0)
     parser.add_argument("--disk-check-every", type=int, default=1)
+    parser.add_argument(
+        "--keep-px4-ulog",
+        action="store_true",
+        help="copy PX4 .ulg flight logs into each collector job before cleanup",
+    )
     args = parser.parse_args(argv)
     suite = json.loads(repo_path(args.suite).read_text(encoding="utf-8"))
     missions = suite["missions"]
@@ -555,6 +563,7 @@ def main(
             min_free_disk_gb=args.min_free_disk_gb,
             disk_check_every=args.disk_check_every,
             strict=args.strict,
+            keep_px4_ulog=args.keep_px4_ulog,
         )
         if args.dry_run:
             print(

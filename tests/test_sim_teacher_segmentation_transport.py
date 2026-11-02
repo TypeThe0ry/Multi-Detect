@@ -22,6 +22,8 @@ from scripts.sim_teacher_frame_server import (  # noqa: E402
     Candidate,
     ExactSegmentationPairer,
     LatestCandidate,
+    OdometrySamplePolicy,
+    ODOMETRY_VELOCITY_BOUND_ERROR,
     encode_candidate,
 )
 
@@ -67,6 +69,27 @@ def test_join_requires_exact_stamp_and_handles_both_callback_orders(seg_first):
     assert len(pairer.rgb) == 2
     pairer.put_seg(99, 2, 1, bytes(6), "/seg")
     assert latest.latest.stamp_ns == 100
+
+
+def test_one_odometry_velocity_spike_is_dropped_then_stream_recovers() -> None:
+    policy = OdometrySamplePolicy(max_consecutive_rejections=3)
+
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.velocity_rejections == 1
+    policy.accepted()
+    assert policy.consecutive_rejections == 0
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.velocity_rejections == 2
+
+
+def test_persistent_odometry_velocity_spikes_fail_closed() -> None:
+    policy = OdometrySamplePolicy(max_consecutive_rejections=3)
+
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "fail"
+    assert policy.velocity_rejections == 3
+    assert policy.max_observed_consecutive_rejections == 3
 
 
 def test_raw_labels_map_strips_padding_without_channel_swap():
