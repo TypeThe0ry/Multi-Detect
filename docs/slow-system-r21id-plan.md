@@ -509,3 +509,60 @@ python scripts/report_identity_errors.py \
 ```
 
 world truth 默认从 `configs/scenarios/*/<world>.truth.json` 查找；输出目录由调用者指定，推荐使用 `.tmp/`，避免覆盖评测产物。测试：`python -m pytest tests/test_report_identity_errors.py -q -p no:xdist`。
+
+## r21id-r4 结果与决定（2026-11-02）
+
+评测输入为相同的 v1 真实飞行集（1,900 行）、v3 参考集（233 行）及 r3 冻结四视角测试集（55 个 target、30 个完整四视角实例）。表中拒绝率的百分点差均为绝对变化；四视角阈值依次为一致率 ≥0.90、真目标误拒 ≤0.08、干扰物误收 ≤0.026。
+
+| 集合/指标 | r21id-r3 | r21id-r4 | 变化 |
+|---|---:|---:|---:|
+| v1 身份准确率 | 0.946 | 0.947 | +0.1 pp |
+| v1 干扰物拒绝率 | 0.993（1,022/1,029） | 0.974（1,002/1,029） | -1.9 pp |
+| v3 身份准确率 | 0.918 | 0.927 | +0.9 pp |
+| v3 `<12 px` 真目标召回 | 0.622（46/74） | 0.757（56/74） | +13.5 pp |
+| v3 干扰物拒绝率 | 1.000（116/116） | 0.974（113/116） | -2.6 pp |
+| 四视角一致率 | 0.733（22/30） | 0.833（25/30） | +10.0 pp；仍低于 0.90 |
+| 四视角真目标误拒 | 8.6%（72/838） | 4.2%（35/838） | -4.4 pp；r4 达到 0.08 单项门槛 |
+| 四视角干扰物误收 | 9.4%（110/1,166） | 7.5%（87/1,166） | -1.9 pp；仍高于 0.026 |
+
+**新增误收行（r3 拒绝、r4 接受）**。分类和尺寸取对齐后的测试数据及目标 truth；真实飞行集没有视角字段，所以 view 为 `unknown`。表中每组按完全相同的任务文本、候选类别、尺寸档、视角和 r4 决策合并，数量就是该组全部新增误收行数。
+
+| 集合 | 数量 | task text | 候选类别 | 尺寸档 | view | r4 decision | sample_id |
+|---|---:|---|---|---|---|---|---|
+| v1 | 8 | `找到SUV并记录位置` | postbox | 12-16 | unknown | approach_track | `4413259fb89a78408f3a6d34` `48236655824dceeec22e76f9` `5ab3a8444dba6583282f8e1f` `ab9c42de2a3d81ea28352cde` `c049b4e7ffa1d8d0f6560db7` `c9fe2d3e74c5c2a7a9582e80` `ceefedf688f84e2f5f21b1ee` `db48dd0dcf2155b50321e5be` |
+| v1 | 1 | `找到SUV并记录位置` | postbox | 16-24 | unknown | confirm_target | `784a5e4262ee82b360226edf` |
+| v1 | 4 | `Find the SUV and record its position.` | postbox | 12-16 | unknown | approach_track | `5c16eaf3b951c765198e8011` `7e173b95524ecdbe33f30e87` `814e550ad923bec0b615c618` `feeebe47b6850fea5f5f5a67` |
+| v1 | 3 | `找到行人并记录位置` | jersey_barrier | 12-16 | unknown | approach_track | `5b4984e3fa8e4fc3050f1b76` `9412bf74e91d362e36fedd5d` `e412d895f99f2028093a15c0` |
+| v1 | 2 | `找到行人并记录位置` | jersey_barrier | 8-12 | unknown | approach_track | `204d387e6ebb0e616530159d` `b41ba49c941b184667957048` |
+| v1 | 2 | `找到红色停止标志并记录位置` | jersey_barrier | 12-16 | unknown | approach_track | `20f5f3951c7464312af86900` `7510415f6a73a52eb3cb79d8` |
+| v1 | 1 | `找到红色停止标志并记录位置` | jersey_barrier | 12-16 | unknown | confirm_target | `6b9e81b539fca9aa272a2809` |
+| v1 | 2 | `找到红色停止标志并记录位置` | jersey_barrier | 16-24 | unknown | confirm_target | `dd07de685cc4caf79980e4f6` `ececb60b8b80d17a2b76f5c7` |
+| v1 | 1 | `找到红色停止标志并记录位置` | jersey_barrier | 8-12 | unknown | approach_track | `31d65d150789a577d883b6c0` |
+| v3 | 2 | `Find the person and record its position.` | jersey_barrier | 8-12 | unknown | approach_track | `43aefe9b8ca70564f15ba7ea` `66cf4e051d5b86deca51b2de` |
+| v3 | 1 | `Find the car and record its position.` | postbox | 12-16 | unknown | approach_track | `af88675786b1042568960b86` |
+
+v1 合计新增误收 24 行：SUV→postbox 13、person→jersey_barrier 5、red stop sign→jersey_barrier 6；其中 21 行是 approach_track、3 行是 confirm_target。v3 合计 3 行：person→jersey_barrier 2、car→postbox 1，均为 approach_track。上表列出完整 `sample_id`，可直接在对应 eval JSON 中定位。v1 误收集中于 `gen_v2_w0035` 的 SUV 任务/postbox 候选，其次是 `w0036` person/jersey barrier 和 `w0034` stop sign/jersey barrier。
+
+四视角按三类 confusable pair 汇总显式 distractor 行（两个方向合并）：
+
+| pair | r3 误收/计分数 | r3 误收率 | r4 误收/计分数 | r4 误收率 |
+|---|---:|---:|---:|---:|
+| pickup↔SUV | 80/306 | 26.1% | 62/306 | 20.3% |
+| person↔postbox | 7/189 | 3.7% | 5/189 | 2.6% |
+| car↔postbox | 11/256 | 4.3% | 11/256 | 4.3% |
+
+因此，三类已知四视角家族均没有整体回退：pickup↔SUV 仍最难但误收减少 18 行；person↔postbox 减少 2 行；car↔postbox 持平。v1/v3 新增误收与四视角汇总变化不是同一批样本，不能用上表解释真实飞行集回归。
+
+**与 additions 的关系**。r4 additions train 为 7,213 行；manifest `label_types` 计数为：`true_target` 724、`proposal_true` 302、`distractor` 1,149、`proposal_distractor` 599、`confusable_positive` 934、`confusable_negative` 760、`counterfactual` 813、`counterfactual_negative` 770、`proposal_counterfactual` 572、`proposal_counterfactual_negative` 296、`background` 60、`proposal_background` 29、`proposal_scenery` 30、`no_candidate` 150、`ambiguous_task` 25。`task_text_variants=true`。manifest 的 `confusable_pair_type` 源计数（positive/reject）为：`car->pickup` 156/30、`car->postbox` 65/30、`jersey_barrier->person` 0/23、`mailbox->car` 0/30、`mailbox->person` 0/23、`person->jersey_barrier` 0/10、`person->postbox` 172/30、`pickup->car` 134/30、`pickup->postbox` 0/30、`postbox->car` 185/30、`postbox->person` 8/23、`suv->car` 0/30、`suv->pickup` 0/30；另有 counterfactual 1,072 行和 counterfactual_negative 960 行。交换任务确实会同帧生成正例和拒绝行。
+
+manifest 的 `identity_view_balance` 按 task category × polarity × view 增加 1,095 行，`confusable_negative_view_balance` 再增加 145 行（训练前重平衡/去重后的实际加入 additions 行数仍以 manifest counts 为准）。前者对 person positive 增 120、pickup positive 增 123、postbox positive 增 50、SUV positive 增 66、car positive 增 71；负例也有对应补齐。后者按 pair 增补最多的是 `pickup->suv` 29、`pickup->postbox` 24、`suv->pickup` 19、`car->postbox` 17、`person->postbox` 11、`postbox->car` 9。正例 view upsampling 与整体拒绝倾向变弱在机制上相符，但新增误收主族 SUV→postbox 并非本轮专项平衡的 pair；v1 的 person→barrier、stop sign→barrier 也不是主要 hard-negative 平衡方向。因此目前只能判断“正例增强/交换任务可能扩大接受边界”，不能证明该回归由某个被上采样 pair 单独造成。car→postbox 在 v3 出现 1 行新误收，但四视角 car↔postbox 汇总持平，也不足以支持单因果结论。
+
+**r21id-r5 配方**。以 r3 adapter 热启动，保留 r4 全量 replay、proposal 小目标正例和四视角负例覆盖；不要把 additions 整体降权，以免损失 `<12 px` 召回。改动建议：
+
+1. `--task-text-variants` 产生的同帧交换正例不再无上限进入训练：每个 world × view × pair 的 swapped-task positive 最多保留原始数的 1 倍，整体正例 view balance 的 `max-upsample` 从 2 降为 1（不复制正例）；硬负例视角补齐继续单独启用，最多 2 倍。先在 manifest 统计过滤前后各 label/pair/view 数，确保小目标 true/proposal_true 不被裁掉。
+2. 增加针对本轮新误收方向的真实 hard rejects：SUV task→postbox、person task→jersey_barrier、red stop sign task→jersey_barrier、car task→postbox。每个方向至少 2 个不同 world、四视角每视角至少 8 条，覆盖 8-12、12-16、16-24 px；来自已有 world 的拒绝行与交换文本只作补充，优先增加新纹理/新位置样本。已有 `suv->pickup`、`person->postbox`、`postbox->car` hard rejects 保留。
+3. 热启动学习率由 `5e-5` 降至 `2.5e-5`，维持 1 epoch；r4 已完成 1 epoch/7,131 optimizer steps，先控制一次更新幅度，不叠加训练轮数。期望保留 r4 的小目标及四视角真目标误拒收益，同时减少正例复制引起的决策边界漂移；拒绝样本增加应优先修复以上四类 false accept。若 r5 小目标召回比 r4 回落超过 3 pp，再单独做 2 epoch、`1.5e-5` 的低学习率对照，不与主配方混跑。
+
+验收用相同 frozen v1/v3 及 r3 四视角测试，按样本 ID 做决策差分，并另做新增 world 留出测试。硬门槛：v1/v3 distractor rejection 相对 r3 的下降均不超过 2 pp；r4 的 v3 `<12 px` recall 0.757 不回落超过 3 pp；四视角一致率不低于 r4 的 0.833、真目标误拒不高于 0.042、误收不高于 r4 的 0.075，并继续报告绝对门槛 0.90/0.08/0.026。任何固定集通过都不能替代未见 world 测试；无 GPU/SITL 工作在本次分析中执行。
+
+**r21id-r4 不替换 r21id-r3**（v1 真实飞行集干扰物拒绝下降 1.9 个百分点、v3 下降 2.6 个百分点，超过 2 个百分点门槛；四视角与小目标召回改善记录在案，作为 r5 起点）。r4 merged GGUF：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/merged-gguf/`；adapter：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/adapter/`。继续以 r3 为当前机载身份模型，r5 以 r3 adapter 热启动，并把 r4 的四视角一致率、真目标误拒与 `<12 px` recall 改善作为不可回退的对照指标。

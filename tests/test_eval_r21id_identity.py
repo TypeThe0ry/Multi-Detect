@@ -72,3 +72,21 @@ def test_null_view_rows_are_counted_and_incomplete_instances_reported(tmp_path):
     result = evaluate(ds, first, second)
     assert result["null_view_rows"] == {"r18": 1, "candidate": 1}
     assert result["incomplete_instances"] == {"r18": 1, "candidate": 1}
+
+
+def test_custom_model_labels_are_used_in_report(tmp_path):
+    rows = _rows()
+    ds = tmp_path / "test.jsonl"
+    ds.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    predictions = [{"sample_id": r["sample_id"], "decision": r["expected"]} for r in rows]
+    baseline, candidate = tmp_path / "r3.json", tmp_path / "r4.json"
+    baseline.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+    candidate.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+
+    report = evaluate(ds, baseline, candidate, baseline_label="r21id-r3", candidate_label="r21id-r4")
+    rendered = markdown_report(report)
+
+    assert report["baseline_label"] == "r21id-r3"
+    assert report["candidate_label"] == "r21id-r4"
+    assert "| 指标 | r21id-r3 | r21id-r4 | 门槛 |" in rendered
+    assert report["decision"] == "保留 r21id-r3"
