@@ -353,6 +353,9 @@ class _StepRun:
     follow_finding: dict[str, Any] | None = None
     # Landing is a two-phase command/observation operation.
     landing_commanded: bool = False
+    landing_target_ref: str | None = None
+    landing_reference_ne: tuple[float, float] | None = None
+    landing_target_logged: bool = False
     # Number of control cycles for which landing has remained unconfirmed.
     landing_wait_steps: int = 0
     fresh_ground_tracks: set[str] = field(default_factory=set)
@@ -534,6 +537,7 @@ class MissionExecutor:
         self.track_ids: list[str] = []
         self.answers: list[str] = []
         self.alerts: list[str] = []
+        self.landing_positions: list[str] = []
         self.history: list[dict[str, Any]] = []
         # Ephemeral protocol records consumed by MissionSupervisor/downlink.
         # Keeping these separate from the durable mission log avoids coupling
@@ -861,11 +865,13 @@ class MissionExecutor:
                     return None
             return None
         value = self.refs.get(ref)
-        if value is None or len(value) < 2:
+        if value is None or isinstance(value, (str, bytes)):
             return None
         try:
+            if len(value) < 2:
+                return None
             point = (float(value[0]), float(value[1]))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, IndexError):
             return None
         return point if all(math.isfinite(v) for v in point) else None
 
@@ -2136,6 +2142,17 @@ class MissionExecutor:
             "rule": record.get("rule"),
             "frame_id": frame_id,
         }
+        footprint = record.get("footprint_m")
+        if footprint is None:
+            appearance = record.get("appearance")
+            footprint = getattr(appearance, "footprint_m", None)
+        if (
+            isinstance(footprint, (int, float))
+            and not isinstance(footprint, bool)
+            and math.isfinite(float(footprint))
+            and float(footprint) > 0
+        ):
+            finding["footprint_m"] = float(footprint)
         finding.update(
             {
                 key: value
@@ -2990,7 +3007,10 @@ class MissionExecutor:
             run.blocked = 0
             return ActionPrimitive.translate(0.0, 0.0, altitude_m - altitude)
         target = (float(goal_ne[0]), float(goal_ne[1]))
-        if run.step.skill == "return_home" and run.detour_planned:
+        target_return = run.step.skill == "return_home" or (
+            run.step.skill == "land" and run.landing_target_ref == "home"
+        )
+        if target_return and run.detour_planned:
             while run.detour_index < len(run.detour_waypoints):
                 waypoint = run.detour_waypoints[run.detour_index]
                 if math.dist((pose[0], pose[1]), waypoint) > (
@@ -3002,7 +3022,7 @@ class MissionExecutor:
             if run.detour_index < len(run.detour_waypoints):
                 target = run.detour_waypoints[run.detour_index]
         if self._leg_enters_no_fly((pose[0], pose[1]), target):
-            if run.step.skill == "return_home" and run.detour_planned:
+            if target_return and run.detour_planned:
                 # Numerical error or a changed pose invalidated this cached
                 # tangent. Replan from the observed position on the next
                 # cycle; recovery must not be failed in the air.
@@ -3010,7 +3030,7 @@ class MissionExecutor:
                 run.detour_waypoints = []
                 run.detour_index = 0
                 return ActionPrimitive.hold(self.config.hold_s)
-            if run.step.skill == "return_home" and not run.detour_planned:
+            if target_return and not run.detour_planned:
                 detour = self._return_home_detour((pose[0], pose[1]), target)
                 if detour is _DETOUR_TIMEOUT:
                     run.detour_replan_failures += 1
@@ -3522,6 +3542,93 @@ class MissionExecutor:
         return ActionPrimitive.hold(seconds), {"remaining_s": remaining - seconds}
 
     def _land(self, run, pose, yaw, ground_point, frame_id):
+        target_ref = run.step.params.get("target_ref")
+        if target_ref is not None and run.landing_target_ref is None:
+            run.landing_target_ref = str(target_ref)
+            reference = self.resolve(run.landing_target_ref)
+            if reference is None:
+                self._finish("failed", "unknown_ref")
+                return None
+            run.landing_reference_ne = reference
+            target = reference
+            offset_m = 0.0
+            footprint_source = "none"
+            if run.landing_target_ref.startswith("finding:"):
+                try:
+                    finding_index = int(run.landing_target_ref.split(":", 1)[1])
+                    finding = self.findings[finding_index - 1]
+                except (IndexError, ValueError):
+                    self._finish("failed", "finding_not_found")
+                    return None
+                footprint = finding.get("footprint_m")
+                if footprint is None:
+                    footprint = getattr(finding.get("appearance"), "footprint_m", None)
+                if (
+                    not isinstance(footprint, (int, float))
+                    or isinstance(footprint, bool)
+                    or not math.isfinite(float(footprint))
+                    or float(footprint) <= 0
+                ):
+                    footprint = 4.0
+                    footprint_source = "default"
+                else:
+                    footprint = float(footprint)
+                    footprint_source = "finding"
+                margin = max(0.0, float(self.config.no_fly_margin_m))
+                offset_m = footprint + margin
+                dn, de = reference[0] - pose[0], reference[1] - pose[1]
+                distance = math.hypot(dn, de)
+                if distance <= 1e-6:
+                    heading = math.radians(float(yaw))
+                    direction = (math.cos(heading), math.sin(heading))
+                else:
+                    direction = (dn / distance, de / distance)
+                # Stay on the approach side of the object, leaving its full
+                # footprint and the configured clearance margin untouched.
+                target = (
+                    reference[0] - direction[0] * offset_m,
+                    reference[1] - direction[1] * offset_m,
+                )
+            run.goal_ne = target
+            if run.landing_target_ref == "home" and run.goal_altitude_m is None:
+                requested_altitude = run.step.params.get("altitude_m", self.cruise_altitude_m)
+                if requested_altitude is not None:
+                    run.goal_altitude_m = float(requested_altitude)
+            if not run.landing_target_logged:
+                run.landing_target_logged = True
+                chosen = {
+                    "event": "landing_target_selected",
+                    "step_id": run.step.id,
+                    "target_ref": run.landing_target_ref,
+                    "reference_position_ne": [float(reference[0]), float(reference[1])],
+                    "landing_position_ne": [float(target[0]), float(target[1])],
+                    "offset_m": float(offset_m),
+                    "footprint_source": footprint_source,
+                }
+                if run.landing_target_ref.startswith("finding:"):
+                    chosen["footprint_radius_m"] = float(offset_m - max(0.0, float(self.config.no_fly_margin_m)))
+                    chosen["margin_m"] = max(0.0, float(self.config.no_fly_margin_m))
+                self.mission_log.append(chosen)
+                self.landing_positions.append(f"{target[0]:.1f},{target[1]:.1f}")
+
+        if run.landing_target_ref is not None and run.phase != "land":
+            moved = self._move_to(run, pose, yaw, run.goal_ne)
+            if moved == "no_fly":
+                return None
+            if moved == "land_fallback":
+                run.phase = "land"
+            elif moved == "blocked":
+                self._finish("failed", "blocked")
+                return None
+            elif moved is not None:
+                return moved, {
+                    "phase": "target_approach",
+                    "target_ref": run.landing_target_ref,
+                    "landing_position_ne": list(run.goal_ne),
+                }
+            else:
+                run.phase = "land"
+
         landed = self._landed_observation
         if landed is True:
             self._finish("succeeded", "landed")
@@ -3562,8 +3669,14 @@ class MissionExecutor:
                 f"{f['position_ne'][0]:.1f},{f['position_ne'][1]:.1f}" for f in self.findings
             ),
             state_answers=tuple(self.answers)
-            + tuple(f"{step_id}:coverage:{value:.2f}" for step_id, value in self.coverage.items()),
+            + tuple(f"{step_id}:coverage:{value:.2f}" for step_id, value in self.coverage.items())
+            + tuple(
+                f"{item['step_id']}:landing_target:{item['landing_position_ne'][0]:.1f},{item['landing_position_ne'][1]:.1f}"
+                for item in self.mission_log
+                if item.get("event") == "landing_target_selected"
+            ),
             alerts=tuple(self.alerts),
+            landing_positions=tuple(self.landing_positions),
         )
 
 
