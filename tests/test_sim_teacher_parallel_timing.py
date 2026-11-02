@@ -119,6 +119,46 @@ def test_arm_without_acceptance_keeps_bounded_retry_behavior(monkeypatch, ack) -
     assert len(mav.commands) == 6
 
 
+def test_offboard_wait_accepts_delayed_mode_heartbeat_while_setpoints_stream(monkeypatch) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+
+    class Streamer:
+        active = True
+
+        def raise_if_failed(self) -> None:
+            assert self.active
+
+    class Reader:
+        state = SimpleNamespace(messages={"HEARTBEAT": {"custom_mode": 0}})
+
+        def __init__(self) -> None:
+            self.state.get = lambda name: self.state.messages.get(name)
+
+        def raise_if_failed(self) -> None:
+            if clock.monotonic() >= 110.5:
+                self.state.messages["HEARTBEAT"] = {"custom_mode": 393216}
+
+    streamer = Streamer()
+    requests: list[tuple[str, bool, float]] = []
+
+    class Connection:
+        def set_mode(self, mode: str) -> None:
+            requests.append((mode, streamer.active, clock.monotonic()))
+
+    collector._wait_for_offboard(Connection(), Reader(), streamer)
+
+    assert clock.monotonic() >= 110.5
+    assert clock.monotonic() < 130.0
+    assert len(requests) >= 6
+    assert all(mode == "OFFBOARD" and active for mode, active, _ in requests)
+    assert all(
+        later[2] - earlier[2] >= 2.0
+        for earlier, later in zip(requests, requests[1:], strict=False)
+    )
+
+
 def test_episode_watchdog_allows_overrun_while_vehicle_clock_advances() -> None:
     clock = FakeClock()
     reader = SimpleNamespace(state=SimpleNamespace(vehicle_time_boot_ms=100, count=1))

@@ -137,6 +137,7 @@ DEFAULT_TELEMETRY_PORT = 14541
 # 180 s (run_simulator_docker.GAZEBO_WORLD_ATTEMPTS); wait past that.
 DEFAULT_HEARTBEAT_TIMEOUT_S = 240.0
 DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
+DEFAULT_OFFBOARD_ENTER_TIMEOUT_S = 30.0
 LAND_BASE_TIMEOUT_S = 60.0
 LAND_MIN_TIMEOUT_S = 120.0
 # PX4/Gazebo lockstep has taken only 0.15-0.17 simulated seconds per wall second
@@ -2293,6 +2294,33 @@ def _wait_for(
     raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s")
 
 
+def _wait_for_offboard(
+    connection: Any,
+    reader: MavlinkReader,
+    streamer: SetpointStreamer,
+    timeout_s: float = DEFAULT_OFFBOARD_ENTER_TIMEOUT_S,
+) -> None:
+    """Request OFFBOARD until PX4 reports the mode on HEARTBEAT."""
+    offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
+    last_mode_request = [0.0]
+
+    def entered() -> bool:
+        streamer.raise_if_failed()
+        now = time.monotonic()
+        if now - last_mode_request[0] >= 2.0:
+            last_mode_request[0] = now
+            _set_mode(connection, "OFFBOARD")
+        heartbeat = reader.state.get("HEARTBEAT")
+        return heartbeat is not None and str(_field(heartbeat, "custom_mode", "")) in offboard_modes
+
+    _wait_for(
+        entered,
+        timeout_s,
+        phase="offboard_entered",
+        health_check=reader.raise_if_failed,
+    )
+
+
 def _landing_altitude(state: Any) -> tuple[float, str]:
     """Return current altitude above the local origin and its telemetry source."""
     local_position = state.get("LOCAL_POSITION_NED")
@@ -3664,23 +3692,13 @@ def run_episode(
                 )
                 time.sleep(1.0)
                 setpoint_streamer.raise_if_failed()
-                offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
-                last_mode_request = [0.0]
-
-                def _offboard_entered() -> bool:
-                    setpoint_streamer.raise_if_failed()
-                    now = time.monotonic()
-                    if now - last_mode_request[0] >= 2.0:
-                        last_mode_request[0] = now
-                        _set_mode(telemetry_connection, "OFFBOARD")
-                    hb = mav_reader.state.get("HEARTBEAT")
-                    return hb is not None and str(_field(hb, "custom_mode", "")) in offboard_modes
-
-                _wait_for(
-                    _offboard_entered,
-                    _episode_budget(started, plan.max_episode_s, 10.0),
-                    phase="offboard_entered",
-                    health_check=mav_reader.raise_if_failed,
+                _wait_for_offboard(
+                    telemetry_connection,
+                    mav_reader,
+                    setpoint_streamer,
+                    _episode_budget(
+                        started, plan.max_episode_s, DEFAULT_OFFBOARD_ENTER_TIMEOUT_S
+                    ),
                 )
                 _progress("offboard_entered")
                 last_z_report = [0.0]
