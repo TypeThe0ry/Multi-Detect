@@ -48,6 +48,67 @@ def test_valid_plan_is_accepted_without_mutation():
     assert result.repairs == ()
 
 
+def test_preset_plan_query_is_authorized_by_the_package_not_generic_task_text():
+    document = _package().document | {
+        "task_text": "Autonomous count regression, then return home.",
+        "plan": {
+            "plan_version": 1,
+            "goal": "Autonomous count then return home",
+            "steps": [
+                {
+                    "id": "work",
+                    "skill": "count",
+                    "params": {"region": "zone:yard", "query": "orange traffic cones"},
+                    "on_success": "home",
+                    "on_fail": "home",
+                },
+                {
+                    "id": "home",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                },
+            ],
+            "report": ["status"],
+        },
+    }
+    package = load_mission_package(document)
+    result = validate_plan_for_execution(package.plan, package, document["task_text"])
+    assert result.decision == "accept"
+
+
+def test_preset_query_exception_does_not_authorize_a_changed_object():
+    document = _package().document | {
+        "task_text": "Autonomous count regression, then return home.",
+        "plan": {
+            "plan_version": 1,
+            "goal": "Autonomous count then return home",
+            "steps": [
+                {
+                    "id": "work",
+                    "skill": "count",
+                    "params": {"region": "zone:yard", "query": "orange traffic cones"},
+                    "on_success": "home",
+                    "on_fail": "home",
+                },
+                {
+                    "id": "home",
+                    "skill": "return_home",
+                    "params": {},
+                    "on_success": None,
+                    "on_fail": None,
+                },
+            ],
+            "report": ["status"],
+        },
+    }
+    package = load_mission_package(document)
+    changed = _plan("count", {"region": "zone:yard", "query": "backpacks"})
+    result = validate_plan_for_execution(changed, package, document["task_text"])
+    assert result.decision == "clarify"
+
+
 def test_outside_operating_area_is_rejected():
     package = _package()
     package = MissionPackage(package.document,

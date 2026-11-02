@@ -145,7 +145,12 @@ def validate_plan_for_execution(
         return PlanValidationResult("reject", None, messages, repairs=tuple(repairs))
 
     # The intent checker already handles grounded objects/places and return intent.
-    intent = check_plan_intent(checked, prompt, package.refs)
+    intent = check_plan_intent(
+        checked,
+        prompt,
+        package.refs,
+        declared_plan=package.plan,
+    )
     blocking = [item for item in intent if item.blocking]
     hard_intent = [
         item for item in blocking if item.code in {"ungrounded_place", "return_intent_land"}

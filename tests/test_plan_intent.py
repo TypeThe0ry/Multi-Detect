@@ -378,6 +378,50 @@ def test_intent_check_can_be_disabled():
     assert [s.skill for s in plan.steps] == ["goto", "land"]
 
 
+def test_preset_query_is_allowed_only_for_the_declared_skill():
+    plan = _plan(
+        ("count", {"region": "zone:site", "query": "orange traffic cones"}),
+        ("return_home", {}),
+    )
+    preset = _plan(
+        ("count", {"region": "zone:site", "query": "orange traffic cones"}),
+        ("return_home", {}),
+    )
+    assert not check_plan_intent(
+        plan,
+        "Autonomous count regression, then return home.",
+        ("zone:site",),
+        declared_plan=preset,
+    )
+
+    changed = _plan(
+        ("count", {"region": "zone:site", "query": "backpacks"}),
+        ("return_home", {}),
+    )
+    findings = check_plan_intent(
+        changed,
+        "Autonomous count regression, then return home.",
+        ("zone:site",),
+        declared_plan=preset,
+    )
+    assert [finding.code for finding in findings if finding.blocking] == ["ungrounded_query"]
+
+    unreachable_preset = {
+        "steps": [
+            {"id": "home", "skill": "return_home", "params": {}, "on_success": None, "on_fail": None},
+            {"id": "unused", "skill": "count", "params": {"query": "backpacks"},
+             "on_success": None, "on_fail": None},
+        ]
+    }
+    findings = check_plan_intent(
+        changed,
+        "Autonomous count regression, then return home.",
+        ("zone:site",),
+        declared_plan=unreachable_preset,
+    )
+    assert [finding.code for finding in findings if finding.blocking] == ["ungrounded_query"]
+
+
 def test_warning_is_reported_without_blocking():
     patrol = _plan(
         ("patrol", {"route_ref": "route:patrol", "query": "person", "loops": 1}),
