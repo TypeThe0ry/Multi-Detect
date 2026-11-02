@@ -851,3 +851,31 @@ def test_relative_paths_of_main_checkout_data_from_a_worktree(tmp_path, monkeypa
     frame.parent.mkdir(parents=True)
     frame.write_bytes(b"png")
     assert _relative(frame) == "artifacts/r15-episodes/w/rgb/000000_before.png"
+
+
+def test_task_variant_positive_cap_is_per_world_view_pair_and_preserves_originals():
+    rows = []
+    for index in range(3):
+        rows.append({
+            "sample_id": f"orig-{index}", "world": "w", "view": "front",
+            "label_type": "true_target", "confusable_pair_type": None,
+            "assistant_target": {"decision": "confirm_target"},
+        })
+    for index in range(5):
+        rows.append({
+            "sample_id": f"variant-{index}", "world": "w", "view": "front",
+            "label_type": "confusable_positive", "confusable_pair_type": "postbox->suv",
+            "assistant_target": {"decision": "confirm_target"},
+        })
+    rows.append({
+        "sample_id": "other-view", "world": "w", "view": "oblique",
+        "label_type": "confusable_positive", "confusable_pair_type": "postbox->suv",
+        "assistant_target": {"decision": "confirm_target"},
+    })
+    selected, report = builder._cap_task_variant_positives(rows, positive_cap=1.0)
+    assert [row["sample_id"] for row in selected] == [
+        "orig-0", "orig-1", "orig-2", "variant-0", "variant-1", "variant-2"
+    ]
+    assert report["before"] == 6
+    assert report["after"] == 3
+    assert report["dropped"] == 3

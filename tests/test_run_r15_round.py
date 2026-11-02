@@ -843,6 +843,26 @@ def test_build_sft_view_balancing_defaults_off():
     assert "--max-upsample" not in build
 
 
+def test_build_sft_stage_passes_task_variant_positive_cap_only_when_set():
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"}
+    base = [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+            "--r15-index", str(index), "--scenarios", str(index.parent), "--task-text-variants"]
+    plain = subprocess.run(base, cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8", env=env)
+    line = next(line for line in plain.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--task-variant-positive-cap" not in line
+    capped = subprocess.run(base + ["--task-variant-positive-cap", "1.0"], cwd=round_mod.ROOT,
+                            capture_output=True, text=True, encoding="utf-8", env=env)
+    line = next(line for line in capped.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--task-variant-positive-cap 1.0" in line
+
+
 def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
     import os
     import subprocess

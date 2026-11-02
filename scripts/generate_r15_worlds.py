@@ -25,6 +25,7 @@ from multidetect.simulator.world_gen import (  # noqa: E402
     FIXED_WING_SENSORS,
     generate_fuel_worlds,  # noqa: E402
 )
+from multidetect.simulator.task_semantics import fuel_task_texts  # noqa: E402
 
 
 def r21id_r4_templates():
@@ -59,8 +60,45 @@ def r21id_r4_templates():
     return rows
 
 
-def projected_short_edge_px(asset, ground_distance_m, altitude_m):
-    short_edge_m = min(float(asset["measured_size_m"][0]), float(asset["measured_size_m"][1]))
+def r21id_r5_templates():
+    """Train/val identity worlds for the four r21id-r5 hard-reject directions."""
+    directions = (
+        ("suv", "postbox"),
+        ("walking_person", "jersey_barrier"),
+        ("stop_sign", "jersey_barrier"),
+        ("hatchback", "postbox"),
+    )
+    bands = (("8-12", 10), ("12-16", 13), ("16-24", 16))
+    appearances = ("noon_clear", "overcast_flat", "morning_low_sun", "haze", "evening_low_sun")
+    rows = []
+    for direction_index, (target, confuser) in enumerate(directions):
+        for band_index, (size_bin, px) in enumerate(bands):
+            height = (
+                (18.0, 24.0, 30.0)[band_index]
+                if target in {"suv", "hatchback"}
+                else (12.0, 10.0, 6.0)[band_index]
+            )
+            rows.append({
+                "case": "identity_multiview",
+                "target": target,
+                "confusers": [confuser],
+                "forced_distractors": ["electrical_box"],
+                "appearance": appearances[(direction_index + band_index) % len(appearances)],
+                "height_m": height,
+                "target_short_side_px": size_bin,
+                "target_short_side_px_value": px,
+                "split": "val" if band_index == 2 else "train",
+                "r5_direction": f"{target}->{confuser}",
+                "geometry_reference": None,
+            })
+    return rows
+
+
+def projected_short_edge_px(asset, ground_distance_m, altitude_m, *, visible_face: bool = False):
+    dimensions = [float(value) for value in asset["measured_size_m"]]
+    # The r5 stop-sign face is bounded by X/Z; preserve the historical X/Y
+    # default for every existing profile and caller.
+    short_edge_m = min(dimensions[0], dimensions[2]) if visible_face else min(dimensions[0], dimensions[1])
     return DEFAULT_CAMERA_INFO["fx"] * short_edge_m / math.hypot(ground_distance_m, altitude_m)
 
 
@@ -182,13 +220,13 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
         "--profile",
-        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4"),
+        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
     a = p.parse_args(argv)
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
         # Four deterministic hard-case families. All true-target slugs are
         # outside generated-v2's frozen holdout. Cone/barrier is the primary
         # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
@@ -265,6 +303,8 @@ def main(argv=None):
             )
         elif a.profile == "r21id-r4":
             templates = tuple(r21id_r4_templates())
+        elif a.profile == "r21id-r5":
+            templates = tuple(r21id_r5_templates())
         elif a.profile == "r21id-r3":
             # Six independently seeded worlds per identity class. The final ten
             # entries are held-out combinations from the frozen identity set.
@@ -303,10 +343,10 @@ def main(argv=None):
                 template["split"] = "test" if i in test_indices else ("val" if i in val_indices else "train")
         cfg.update(
             {
-                "world_prefix": "gen_r21id_r4_w" if a.profile == "r21id-r4" else ("gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w")),
-                "seed": 20261031 if a.profile == "r21id-r4" else (20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024)),
+                "world_prefix": "gen_r21id_r5_w" if a.profile == "r21id-r5" else ("gen_r21id_r4_w" if a.profile == "r21id-r4" else ("gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w"))),
+                "seed": 20261102 if a.profile == "r21id-r5" else (20261031 if a.profile == "r21id-r4" else (20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024))),
                 "count": len(templates),
-                "split_ratios": [18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0])),
+                "split_ratios": [8 / 12, 4 / 12, 0.0] if a.profile == "r21id-r5" else ([18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0]))),
                 "spread_m": [80.0, 120.0],
                 "count_copies": 1,
                 "confuser_copies": 1,
@@ -376,16 +416,16 @@ def main(argv=None):
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
     )
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
         doc["profile"] = a.profile
         for entry, world in zip(doc["worlds"], cfg["worlds"], strict=True):
             entry["split"] = world.get("split", entry.get("split", "train"))
             entry["hard_case_profile"] = world["case"]
             entry["paired_confusers"] = list(world.get("confusers", ()))
             entry["view_geometry"] = {"paired_same_world": True}
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
                 entry["hard_case_profile"] = "identity_multiview"
-                if a.profile != "r21id-r4":
+                if a.profile not in ("r21id-r4", "r21id-r5"):
                     entry["view_geometry"].update({
                     "camera_altitude_m": world["height_m"], "ground_distance_m": world["distance_m"],
                     "target_short_side_px": world["target_short_side_px"],
@@ -407,19 +447,29 @@ def main(argv=None):
             # Place the target in a controlled camera-relative position and write
             # the same pose into SDF and truth, preserving asset and label identity.
             case = entry["hard_case_profile"]
-            if a.profile == "r21id-r4":
+            if a.profile in ("r21id-r4", "r21id-r5"):
                 catalog = json.loads((a.catalog or ROOT / cfg["catalog"]).read_text(encoding="utf-8"))
                 asset = next(x for x in catalog["assets"] if x["slug"] == target["asset_slug"])
-                short_edge = min(float(asset["measured_size_m"][0]), float(asset["measured_size_m"][1]))
+                dimensions = [float(value) for value in asset["measured_size_m"]]
+                short_edge = min(dimensions[0], dimensions[2]) if asset.get("slug") == "stop_sign" else min(dimensions[0], dimensions[1])
                 altitude = float(world["height_m"])
                 slant = DEFAULT_CAMERA_INFO["fx"] * short_edge / float(world["target_short_side_px_value"])
                 tx, ty, tz, angle = math.sqrt(max(1.0, slant * slant - altitude * altitude)), 0.0, 0.0, -0.42
+                if a.profile == "r21id-r5":
+                    # Point each teacher station at the ground target centre;
+                    # r4's fixed pitch is too steep for the larger r5 standoffs.
+                    angle = -math.atan2(altitude, max(tx, 1e-6))
                 entry["view_geometry"].update({
                     "camera_altitude_m": altitude,
                     "ground_distance_m": round(tx, 3),
                     "slant_distance_m": round(math.hypot(tx, altitude), 3),
                     "target_short_side_px": world["target_short_side_px"],
-                    "target_short_side_px_estimate": round(projected_short_edge_px(asset, tx, altitude), 2),
+                "target_short_side_px_estimate": round(
+                    projected_short_edge_px(
+                        asset, tx, altitude,
+                        visible_face=(a.profile == "r21id-r5" and target["asset_slug"] == "stop_sign"),
+                    ), 2
+                ),
                     "camera_intrinsics": {k: DEFAULT_CAMERA_INFO[k] for k in ("width", "height", "fx", "fy", "cx", "cy")},
                     "camera_pitch_rad": angle,
                     "geometry_reference": world["geometry_reference"],
@@ -509,7 +559,7 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 }
                 observation_intent["ground_distance_m"] = 80.0
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
                 target_radius = math.hypot(tx, ty)
                 radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
                 perpendicular = (-radial[1], radial[0])
@@ -529,14 +579,18 @@ def main(argv=None):
                         },
                     })
                 observation_intent["observation_frames"] = 8
-                if target["asset_slug"] in {"pickup", "suv"} and world["target_short_side_px"] in {"8-12", "12-16"}:
+                if (
+                    a.profile == "r21id-r5"
+                    or target["asset_slug"] in {"pickup", "suv"}
+                    and world["target_short_side_px"] in {"8-12", "12-16"}
+                ):
                     # These small r4 targets are beyond the expert teacher's
                     # historical 80 m prior. Align its search gate with design.
                     observation_intent["max_detection_range_m"] = round(
                         math.hypot(tx, altitude) + 5.0, 3
                     )
                 observation_intent["views"] = views
-            if a.profile == "r21id-r4":
+            if a.profile in ("r21id-r4", "r21id-r5"):
                 runtime["vehicle"]["spawn_pose"].update({
                     "x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.2,
                     "roll_rad": 0.0, "pitch_rad": 0.0, "yaw_rad": 0.0,
@@ -551,6 +605,32 @@ def main(argv=None):
                     entry["task_text_variants"] = [
                         {"requested_category": slug, "task_text": texts[slug][0], "task_text_en": texts[slug][1]}
                         for slug in (requested, other)
+                    ]
+                if a.profile == "r21id-r5":
+                    confuser_slug = world["confusers"][0]
+                    confuser = next(
+                        item for item in truth["targets"]
+                        if item.get("confuser") and item.get("asset_slug") == confuser_slug
+                    )
+                    target_text, target_text_en = fuel_task_texts(target)
+                    if target["asset_slug"] == "suv":
+                        target_text, target_text_en = "找到 SUV 并记录位置", "Find the SUV and record its position."
+                    confuser_text, confuser_text_en = fuel_task_texts(confuser)
+                    entry["task_text"] = target_text
+                    entry["task_text_en"] = target_text_en
+                    entry["find_task_text"] = target_text
+                    entry["find_task_text_en"] = target_text_en
+                    entry["task_text_variants"] = [
+                        {
+                            "requested_category": target["asset_slug"],
+                            "task_text": target_text,
+                            "task_text_en": target_text_en,
+                        },
+                        {
+                            "requested_category": confuser_slug,
+                            "task_text": confuser_text,
+                            "task_text_en": confuser_text_en,
+                        },
                     ]
                 if world.get("task_override"):
                     entry["task_text"] = "找到 SUV 并记录位置"
@@ -582,7 +662,7 @@ def main(argv=None):
             model.find(
                 "pose"
             ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 0"
-            if a.profile in ("r21id-r3", "r21id-r4") and world.get("confusers"):
+            if a.profile in ("r21id-r3", "r21id-r4", "r21id-r5") and world.get("confusers"):
                 pair_slug = world.get("confusers", [None])[0]
                 pair = next((row for row in truth["targets"] if row.get("confuser") and row["asset_slug"] == pair_slug), None)
                 if pair is not None:
@@ -620,7 +700,7 @@ def main(argv=None):
                 pair_model.find("pose").text = (
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
-            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4"):
+            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
                 # Keep the occluder on the target ray while placing its nearest
                 # footprint edge outside the multirotor takeoff clearance ring.
                 # The old midpoint (tx/2, ty/2) put the 12x8 m building over
@@ -631,7 +711,7 @@ def main(argv=None):
                 # waypoint; keep its near footprint beyond every view's 15 m
                 # clearance ring while remaining on the target ray.
                 target_radius = math.hypot(tx, ty)
-                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4"):
+                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
                     building_radius = 2.0 * target_radius + 24.0
                     scale = building_radius / max(target_radius, 1e-6)
                 else:
@@ -653,7 +733,7 @@ def main(argv=None):
             with sdf_path.open("w", encoding="utf-8", newline="\n") as stream:
                 stream.write(ET.tostring(root.getroot(), encoding="unicode") + "\n")
             scene_shift_m = 0.0
-            if a.profile == "r21id-r4":
+            if a.profile in ("r21id-r4", "r21id-r5"):
                 target_radius = math.hypot(tx, ty)
                 radial_east = tx / target_radius
                 radial_north = ty / target_radius

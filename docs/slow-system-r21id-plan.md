@@ -565,4 +565,54 @@ manifest 的 `identity_view_balance` 按 task category × polarity × view 增�
 
 验收用相同 frozen v1/v3 及 r3 四视角测试，按样本 ID 做决策差分，并另做新增 world 留出测试。硬门槛：v1/v3 distractor rejection 相对 r3 的下降均不超过 2 pp；r4 的 v3 `<12 px` recall 0.757 不回落超过 3 pp；四视角一致率不低于 r4 的 0.833、真目标误拒不高于 0.042、误收不高于 r4 的 0.075，并继续报告绝对门槛 0.90/0.08/0.026。任何固定集通过都不能替代未见 world 测试；无 GPU/SITL 工作在本次分析中执行。
 
+## r21id-r5 离线准备
+
+r21id-r5 保留 r4 的 identity multiview、`front/oblique/edge_truncated/recovery` 四视角、场景平移 spawn clearance 和 teacher view-station 可见性检查，只生成 train/val 世界，不接触 r3 冻结 test。新增方向如下，每个方向 3 个世界，覆盖 8-12、12-16、16-24 px；每个世界保留真目标和指定 hard reject confuser，因此同一帧可生成原始请求正例与交换任务拒绝/正例。
+
+| world | split | task target | hard reject candidate | size band | appearance |
+|---|---|---|---|---|---|
+| `gen_r21id_r5_w0000..w0002` | train/train/val | SUV | postbox | 8-12 / 12-16 / 16-24 | noon / overcast / morning |
+| `gen_r21id_r5_w0003..w0005` | train/train/val | person | jersey_barrier | 8-12 / 12-16 / 16-24 | overcast / morning / haze |
+| `gen_r21id_r5_w0006..w0008` | train/train/val | red stop sign | jersey_barrier | 8-12 / 12-16 / 16-24 | morning / haze / evening |
+| `gen_r21id_r5_w0009..w0011` | train/train/val | car | postbox | 8-12 / 12-16 / 16-24 | haze / evening / noon |
+
+资产目录已核对包含 `stop_sign`、`jersey_barrier`、`postbox`；生成索引中的 `task_text`/`task_text_en` 是真目标请求，`paired_confusers` 标记指定干扰物，`task_text_variants` 同时写入真目标和 confuser 请求。生成结果位于 `configs/scenarios/generated-r21id-r5/`、`simulation/gazebo/worlds/`，并伴随对应的 `simulation/maps/` 与 `simulation/terrain/` 文件。
+
+SFT builder 新增 opt-in `--task-variant-positive-cap RATIO`。它只限制 train/val 的 `confusable_positive` 交换任务正例，按 world × view × pair 以原始请求正例为基准截断，并在 `manifest.json` 写入 `before/after/dropped` 及各 strata；未传该参数时保持原有字节输出。`run_r15_round.py` 只在显式传入时透传该参数。
+
+r5 的计划命令（只描述离线/后续流水线，不在本轮启动训练或采集）：
+
+```bash
+PY=/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python
+export PYTHONPATH=src:. PYTHONUTF8=1
+
+$PY scripts/generate_r15_worlds.py --profile r21id-r5 \
+  --out-scenarios configs/scenarios/generated-r21id-r5 \
+  --out-worlds simulation/gazebo/worlds
+
+$PY scripts/run_r15_round.py --stage annotate --out artifacts/r21id-r5/pipeline \
+  --episodes artifacts/r21id-r4d/episodes \
+  --extra-episodes artifacts/r21id-r4e/episodes \
+  --extra-episodes artifacts/r21id-r4g/episodes \
+  --extra-episodes artifacts/r21id-r5/episodes \
+  --r15-index configs/scenarios/generated-r21id-r5/index.json \
+  --scenarios configs/scenarios/generated-r21id-r5
+$PY scripts/run_r15_round.py --stage build_sft --out artifacts/r21id-r5/pipeline \
+  --episodes artifacts/r21id-r4d/episodes \
+  --extra-episodes artifacts/r21id-r4e/episodes \
+  --extra-episodes artifacts/r21id-r4g/episodes \
+  --extra-episodes artifacts/r21id-r5/episodes \
+  --r15-index configs/scenarios/generated-r21id-r5/index.json \
+  --scenarios configs/scenarios/generated-r21id-r5 \
+  --r12-replay-fraction 1.0 --confusable-negatives --task-text-variants \
+  --task-variant-positive-cap 1.0 --balance-identity-views \
+  --balance-confusable-negative-views --max-upsample 1
+$PY scripts/run_r15_round.py --stage train --out artifacts/r21id-r5/pipeline \
+  --r12-dataset artifacts/r21id-r3/pipeline/r15-sft \
+  --r12-adapter artifacts/models/slow-system-lora-v2-r21id-r3/adapter \
+  --hot-start --learning-rate 2.5e-5 --r12-replay-fraction 1.0
+```
+
+训练 episodes 由 `r4d + r4e + r4g + r5 新采集` 组成，baseline 固定为 `r21id-r3`；r5 的新增世界只进入 train/val collection，r3 frozen test 继续单独评测。
+
 **r21id-r4 不替换 r21id-r3**（v1 真实飞行集干扰物拒绝下降 1.9 个百分点、v3 下降 2.6 个百分点，超过 2 个百分点门槛；四视角与小目标召回改善记录在案，作为 r5 起点）。r4 merged GGUF：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/merged-gguf/`；adapter：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/adapter/`。继续以 r3 为当前机载身份模型，r5 以 r3 adapter 热启动，并把 r4 的四视角一致率、真目标误拒与 `<12 px` recall 改善作为不可回退的对照指标。

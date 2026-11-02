@@ -1329,6 +1329,9 @@ class Round:
                 cmd.append("--confusable-negatives")
             if getattr(self.a, "task_text_variants", False):
                 cmd.append("--task-text-variants")
+            task_variant_positive_cap = getattr(self.a, "task_variant_positive_cap", None)
+            if task_variant_positive_cap is not None:
+                cmd.extend(("--task-variant-positive-cap", str(task_variant_positive_cap)))
             if getattr(self.a, "balance_identity_views", False):
                 cmd.append("--balance-identity-views")
             if getattr(self.a, "balance_confusable_negative_views", False):
@@ -1953,6 +1956,10 @@ def main():
                    help="pass through build_slow_system_sft.py --confusable-negatives")
     p.add_argument("--task-text-variants", action="store_true",
                    help="pass through build_slow_system_sft.py --task-text-variants")
+    p.add_argument(
+        "--task-variant-positive-cap", type=float, default=None, metavar="RATIO",
+        help="pass through build_slow_system_sft.py --task-variant-positive-cap only when set",
+    )
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.no_category_holdout:

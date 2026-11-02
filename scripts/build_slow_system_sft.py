@@ -764,6 +764,74 @@ def _balance_confusable_negative_views(
     return result, report
 
 
+def _cap_task_variant_positives(
+    rows: list[dict], *, positive_cap: float,
+) -> tuple[list[dict], dict[str, object]]:
+    """Bound swapped-task positives against the original target positives.
+
+    ``confusable_positive`` rows are produced only from ``task_text_variants``.
+    The budget is per world, derived view, and pair direction; original target
+    positives remain untouched so the cap cannot remove the requested object.
+    """
+    if not math.isfinite(positive_cap) or positive_cap < 0:
+        raise ValueError("task_variant_positive_cap must be finite and non-negative")
+    positive_decisions = {"confirm_target", "approach_track"}
+    original_labels = {"true_target", "proposal_true"}
+    original: Counter[tuple[str, str | None, str]] = Counter()
+    variants: dict[tuple[str, str | None, str], list[dict]] = defaultdict(list)
+    for row in rows:
+        decision = (row.get("assistant_target") or {}).get("decision")
+        key_pair = row.get("confusable_pair_type")
+        if not key_pair or decision not in positive_decisions:
+            continue
+        key = (str(row.get("world", "")), row.get("view"), str(key_pair))
+        if row.get("label_type") == "confusable_positive":
+            variants[key].append(row)
+        elif row.get("label_type") in original_labels:
+            original[key] += 1
+
+    # A variant pair is keyed by requested->primary. Its original positives are
+    # the true/proposal positives for the same world/view, regardless of pair.
+    original_by_world_view: Counter[tuple[str, str | None]] = Counter()
+    for row in rows:
+        decision = (row.get("assistant_target") or {}).get("decision")
+        if row.get("label_type") not in original_labels or decision not in positive_decisions:
+            continue
+        original_by_world_view[(str(row.get("world", "")), row.get("view"))] += 1
+
+    report_strata: dict[str, dict[str, int | float]] = {}
+    kept_ids: set[str] = set()
+    for key, candidates in sorted(variants.items()):
+        world, view, pair = key
+        base = original[key] or original_by_world_view[(world, view)]
+        limit = math.floor(base * positive_cap)
+        ordered = sorted(candidates, key=lambda row: str(row.get("sample_id", "")))
+        keep = ordered[:limit]
+        kept_ids.update(str(row.get("sample_id")) for row in keep)
+        report_strata[f"{world}|{view or 'unknown'}|{pair}"] = {
+            "original": int(base),
+            "before": len(candidates),
+            "after": len(keep),
+            "limit": int(limit),
+        }
+
+    result = [
+        row for row in rows
+        if row.get("label_type") != "confusable_positive"
+        or str(row.get("sample_id")) in kept_ids
+        or not row.get("confusable_pair_type")
+    ]
+    before = sum(item["before"] for item in report_strata.values())
+    after = sum(item["after"] for item in report_strata.values())
+    return result, {
+        "ratio": positive_cap,
+        "before": before,
+        "after": after,
+        "dropped": before - after,
+        "strata": report_strata,
+    }
+
+
 def _proposal_counterfactual_negative(
     groups, stats: Counter, proposals, index: int, named_obj: dict, task: str, covered_object, *,
     held_out: frozenset[str], min_side_px: float, world: str, split: str, frame: Path,
@@ -891,6 +959,7 @@ def build_dataset(
     balance_task_categories: float | None = None, max_upsample: int = 4,
     balance_identity_views: bool = False,
     balance_confusable_negative_views: bool = False,
+    task_variant_positive_cap: float | None = None,
     image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
     if output.exists():
@@ -899,6 +968,10 @@ def build_dataset(
         raise ValueError("negative_ratio must be finite and positive")
     if balance_task_categories is not None and (not math.isfinite(balance_task_categories) or balance_task_categories < 0):
         raise ValueError("balance_task_categories must be finite and non-negative")
+    if task_variant_positive_cap is not None and (
+        not math.isfinite(task_variant_positive_cap) or task_variant_positive_cap < 0
+    ):
+        raise ValueError("task_variant_positive_cap must be finite and non-negative")
     if max_upsample < 1:
         raise ValueError("max_upsample must be at least 1")
     if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
@@ -1222,6 +1295,25 @@ def build_dataset(
                 row.setdefault("view", metadata.get("view"))
                 row.setdefault("view_distance_m", metadata.get("view_distance_m"))
                 row.setdefault("target_id", None)
+    task_variant_cap_report = None
+    if task_variant_positive_cap is not None:
+        task_variant_cap_report = {
+            "ratio": task_variant_positive_cap,
+            "before": 0,
+            "after": 0,
+            "dropped": 0,
+            "strata": {},
+        }
+        for split in ("train", "val"):
+            selected[split], split_report = _cap_task_variant_positives(
+                selected[split], positive_cap=task_variant_positive_cap,
+            )
+            task_variant_cap_report["before"] += split_report["before"]
+            task_variant_cap_report["after"] += split_report["after"]
+            task_variant_cap_report["dropped"] += split_report["dropped"]
+            task_variant_cap_report["strata"].update({
+                f"{split}|{key}": value for key, value in split_report["strata"].items()
+            })
     seen = set()
     for split, rows in selected.items():
         selected[split] = rows = _dedupe_rows(rows, stats)
@@ -1277,6 +1369,8 @@ def build_dataset(
         report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
     if task_text_variants:
         report["task_text_variants"] = True
+    if task_variant_cap_report is not None:
+        report["task_variant_positive_cap"] = task_variant_cap_report
     if identity_variant != "default":
         frame_side, crop_side = identity_image_sizes({}, identity_variant=identity_variant)
         report["identity_variant"] = identity_variant
@@ -1323,6 +1417,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--counterfactual-negatives", action="store_true", help="pair each counterfactual task with a reject on another visible object it does not describe")
     parser.add_argument("--confusable-negatives", action="store_true", help="train/val only: add near-category same-frame reject/positive pairs")
     parser.add_argument("--task-text-variants", action="store_true", help="train/val only: add identity pairs for index task_text_variants")
+    parser.add_argument(
+        "--task-variant-positive-cap", type=float, default=None, metavar="RATIO",
+        help="opt-in cap on swapped-task positives per world/view/pair, relative to original positives",
+    )
     parser.add_argument("--balance-task-categories", type=float, default=None, metavar="MIN_RATIO", help="train only: upsample identity positives until each task category reaches MIN_RATIO times its rejects")
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--balance-identity-views", action="store_true", help="train only: upsample task-category/decision strata to balance front, oblique, edge_truncated, and recovery views")
@@ -1330,7 +1428,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, task_variant_positive_cap=args.task_variant_positive_cap, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 
