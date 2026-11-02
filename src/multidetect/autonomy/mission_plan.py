@@ -189,6 +189,7 @@ class MissionReport:
     positions: tuple[str, ...] = ()
     state_answers: tuple[str, ...] = ()
     alerts: tuple[str, ...] = ()
+    landing_positions: tuple[str, ...] = ()
 
 
 def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities: frozenset[str] = frozenset()) -> MissionPlan:
