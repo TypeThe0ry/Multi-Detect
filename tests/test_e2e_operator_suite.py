@@ -106,3 +106,22 @@ def test_lock_owner_uses_shared_pid_field_and_releases(tmp_path):
     assert owner[1].isdigit()
     lock.release()
     assert not path.exists()
+
+
+def test_suite_skips_nested_lock_when_parent_marker_is_set(tmp_path, monkeypatch):
+    import scripts.run_e2e_operator_suite as suite
+
+    class NoNestedAcquire:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            raise AssertionError("nested e2e suite must not acquire the parent SITL lock")
+
+        def release(self):
+            raise AssertionError("nested e2e suite must not release the parent SITL lock")
+
+    monkeypatch.setattr(suite, "SitlLock", NoNestedAcquire)
+    monkeypatch.setattr(suite, "load_suite", lambda _path: [])
+    monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    assert suite.run_suite(tmp_path / "suite.json", output_root=tmp_path / "out") == 0

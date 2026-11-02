@@ -9,7 +9,6 @@ planned launch without starting Docker.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import dataclasses
 import io
 import json
@@ -54,7 +53,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
-from scripts.sitl_lock import SitlLock, default_lock_path  # noqa: E402
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
@@ -4596,12 +4595,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit("Docker daemon is not reachable; use --dry-run or start Docker")
     args.out.mkdir(parents=True, exist_ok=True)
     completed: list[str] = []
-    lock_context = (
-        contextlib.nullcontext()
-        if os.environ.get("MULTIDETECT_SITL_LOCK_HELD") == "1"
-        else SitlLock(args.sitl_lock_path, label=args.container_prefix, min_memory_gb=5.0)
-    )
-    with lock_context:
+    with sitl_lock_context(
+        SitlLock(args.sitl_lock_path, label=args.container_prefix, min_memory_gb=5.0)
+    ):
         for index in range(args.episodes):
             free = free_space_bytes(args.out)
             if free < plan.min_free_gb * 1024**3:

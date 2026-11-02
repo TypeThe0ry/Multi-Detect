@@ -8,7 +8,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
-from scripts.sitl_lock import SitlLock, available_memory_gb as _available_memory_gb, default_lock_path
+from scripts.sitl_lock import (
+    SitlLock,
+    available_memory_gb as _available_memory_gb,
+    default_lock_path,
+    sitl_lock_context,
+)
 DEFAULT_LOCK = default_lock_path()
 DEFAULT_SUITES = {
     "main": ROOT / "configs/onboard/suite-main.json",
@@ -167,7 +172,7 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         for name, cmd, _ in plans: print(json.dumps({"suite": name, "episodes": counts[name], "command": cmd}, ensure_ascii=False))
         return 0
     records = []
-    with SitlLock(lock_path):
+    with sitl_lock_context(SitlLock(lock_path)):
         # Children inherit this lock; without the marker each collector waits on it forever.
         child_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
         for name, cmd, suite_out in plans:

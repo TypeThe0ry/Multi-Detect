@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import scripts.sitl_lock as lock_module
-from scripts.sitl_lock import SitlLock, running_sitl_containers
+from scripts.sitl_lock import SitlLock, running_sitl_containers, sitl_lock_context
 
 
 def test_container_gate_matches_only_sitl_prefixes():
@@ -23,6 +23,54 @@ def test_container_gate_fails_closed_when_docker_is_unavailable():
         raise FileNotFoundError("docker")
 
     assert running_sitl_containers(runner) is None
+
+
+def test_sitl_lock_context_acquires_sets_marker_and_restores_environment(monkeypatch):
+    events = []
+
+    class FakeLock:
+        def acquire(self, *args, **kwargs):
+            events.append(("acquire", args, kwargs))
+
+        def release(self):
+            events.append(("release",))
+
+    monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    with sitl_lock_context(FakeLock(), 3, wait=False):
+        assert os.environ["MULTIDETECT_SITL_LOCK_HELD"] == "1"
+    assert "MULTIDETECT_SITL_LOCK_HELD" not in os.environ
+    assert events == [("acquire", (3,), {"wait": False}), ("release",)]
+
+
+def test_sitl_lock_context_skips_nested_acquire_and_preserves_marker(monkeypatch):
+    events = []
+
+    class FakeLock:
+        def acquire(self, *args, **kwargs):
+            events.append("acquire")
+
+        def release(self):
+            events.append("release")
+
+    monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    with sitl_lock_context(FakeLock()):
+        assert os.environ["MULTIDETECT_SITL_LOCK_HELD"] == "1"
+    assert os.environ["MULTIDETECT_SITL_LOCK_HELD"] == "1"
+    assert events == []
+
+
+def test_sitl_lock_context_restores_nonheld_previous_value(monkeypatch):
+    class FakeLock:
+        def acquire(self):
+            pass
+
+        def release(self):
+            pass
+
+    monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "0")
+    with sitl_lock_context(FakeLock()):
+        assert os.environ["MULTIDETECT_SITL_LOCK_HELD"] == "1"
+    assert os.environ["MULTIDETECT_SITL_LOCK_HELD"] == "0"
 
 
 @pytest.mark.parametrize("busy,memory", [(True, 8.0), (False, 4.99)])

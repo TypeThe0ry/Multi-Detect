@@ -36,6 +36,52 @@ def test_session_options_reject_invalid_snapshot_interval() -> None:
         main(["--snapshot-interval", "0"])
 
 
+@pytest.mark.parametrize("held,should_acquire", [(False, True), (True, False)])
+def test_session_honors_inherited_sitl_lock_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, held: bool, should_acquire: bool
+) -> None:
+    events: list[str] = []
+
+    class FakeLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            events.append("acquire")
+
+        def release(self):
+            events.append("release")
+
+    class Result:
+        returncode = 0
+        stdout = "true\n"
+
+    monkeypatch.setattr(session, "SitlLock", FakeLock)
+    monkeypatch.setattr(session, "validate_runtime_prerequisites", lambda **_: None)
+    monkeypatch.setattr(session, "ensure_viewer_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        session,
+        "build_session_command",
+        lambda **_kwargs: (["docker", "run"], type("Plan", (), {"docker_executable": "docker", "container_name": "c"})(), ROOT / "simulation/gazebo/worlds/gen_cnt2_w0000.sdf"),
+    )
+    monkeypatch.setattr(session, "_wait_world_ready", lambda *_args: (True, True, ""))
+    monkeypatch.setattr(session.subprocess, "run", lambda *_args, **_kwargs: Result())
+    if held:
+        monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    else:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    try:
+        assert main([
+            "--onboard-task", "test", "--exit-after-task",
+            "--onboard-out", str(tmp_path / "out"), "--artifacts-root", str(tmp_path / "art"),
+            "--sitl-lock-path", str(tmp_path / "lock"),
+        ]) == 0
+    finally:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    assert ("acquire" in events) is should_acquire
+    assert ("release" in events) is should_acquire
+
+
 def test_world_must_be_repository_owned() -> None:
     with pytest.raises(ValueError, match="world not found"):
         resolve_world("missing-world.sdf")
