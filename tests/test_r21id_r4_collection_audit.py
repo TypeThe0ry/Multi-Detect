@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.audit_r21id_r4_collection import audit_collection
+from scripts.audit_r21id_r4_collection import audit_collection, audit_sft_additions
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -130,3 +130,33 @@ def test_audit_marks_missing_view(tmp_path):
     )
     assert report["qualified_episode_count"] == 0
     assert any("缺视角: recovery" in issue for issue in report["complete_reports"][0]["issues"])
+
+
+def test_sft_audit_counts_direction_views_splits_and_acceptance(tmp_path):
+    sft = tmp_path / "sft"
+    _write_json(sft / "manifest.json", {"schema_version": 1, "counts": {"train": {"total": 8}}})
+    rows = []
+    views = ("front", "oblique", "edge_truncated", "recovery")
+    for view in views:
+        for label in ("confusable_negative", "confusable_positive"):
+            rows.append({
+                "confusable_pair_type": "pickup->suv",
+                "label_type": label,
+                "view": view,
+                "world": "w0",
+                "target_id": "target-0",
+                "task_category": "pickup",
+            })
+    for split in ("train", "val", "test"):
+        path = sft / f"{split}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(row) + "\n" for row in (rows if split == "train" else [])), encoding="utf-8")
+
+    report = audit_sft_additions(sft)
+
+    assert report["counts"]["train"]["pickup->suv"]["front"] == {"reject": 1, "positive": 1}
+    assert report["four_view_pairs"]["train"]["pickup->suv"] == {"reject": 1, "positive": 1}
+    assert report["acceptance_targets"]["pickup->suv"] == {
+        "four_view_pairs": {"train": 1, "val": 0, "test": 0},
+        "met": False,
+    }

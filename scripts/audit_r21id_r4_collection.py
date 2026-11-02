@@ -15,6 +15,11 @@ from scripts.check_sim_teacher_smoke import evaluate_episode
 
 
 REQUIRED_VIEWS = ("front", "oblique", "edge_truncated", "recovery")
+SFT_SPLITS = ("train", "val", "test")
+SFT_ACCEPTANCE_DIRECTIONS = (
+    "pickup->suv", "suv->pickup", "person->postbox", "postbox->person",
+    "car->postbox", "postbox->car",
+)
 SHORT_SIDE_BANDS = {
     "8-12": (8.0, 12.0),
     "12-16": (12.0, 16.0),
@@ -88,6 +93,62 @@ def _failure_group(value: Any) -> str:
     return text.split(":", 1)[0] if ":" in text else text
 
 
+def audit_sft_additions(sft_dir: str | Path) -> dict[str, Any]:
+    """Summarize task-text-variant rows emitted by build_slow_system_sft."""
+    root = Path(sft_dir)
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(manifest_path)
+    manifest = _load(manifest_path)
+    counts: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    for split in SFT_SPLITS:
+        path = root / f"{split}.jsonl"
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid JSON in {path}:{line_number}") from exc
+            if not isinstance(row, dict):
+                continue
+            pair = str(row.get("confusable_pair_type") or "")
+            view = str(row.get("view") or "")
+            label_type = str(row.get("label_type") or "")
+            if not pair or view not in REQUIRED_VIEWS or label_type not in {"confusable_negative", "confusable_positive"}:
+                continue
+            polarity = "reject" if label_type == "confusable_negative" else "positive"
+            by_view = counts.setdefault(split, {}).setdefault(pair, {}).setdefault(view, {"reject": 0, "positive": 0})
+            by_view[polarity] += 1
+    four_view_pairs: dict[str, dict[str, int]] = {}
+    directions = sorted({pair for split in counts.values() for pair in split} | set(SFT_ACCEPTANCE_DIRECTIONS))
+    acceptance = {}
+    for pair in directions:
+        for split in SFT_SPLITS:
+            per_view = counts.get(split, {}).get(pair, {})
+            four_view_pairs.setdefault(split, {})[pair] = {
+                "reject": min((per_view.get(view, {}).get("reject", 0) for view in REQUIRED_VIEWS), default=0),
+                "positive": min((per_view.get(view, {}).get("positive", 0) for view in REQUIRED_VIEWS), default=0),
+            }
+        paired_per_split = {split: min(
+            four_view_pairs[split][pair]["reject"], four_view_pairs[split][pair]["positive"]
+        ) for split in SFT_SPLITS}
+        acceptance[pair] = {"four_view_pairs": paired_per_split, "met": sum(paired_per_split.values()) >= 30}
+    return {
+        "dir": str(root),
+        "manifest": {"schema_version": manifest.get("schema_version"), "counts": manifest.get("counts", {})},
+        "counts": counts,
+        "four_view_pairs": four_view_pairs,
+        "acceptance_targets": acceptance,
+        "pickup_to_suv_reject_count": sum(
+            counts.get(split, {}).get("pickup->suv", {}).get(view, {}).get("reject", 0)
+            for split in SFT_SPLITS for view in REQUIRED_VIEWS
+        ),
+    }
+
+
 def _failed_artifacts(episodes_root: Path, key: str) -> list[tuple[Path, dict[str, Any]]]:
     world = _world_id(key)
     ep_index = _ep_index(key)
@@ -128,6 +189,7 @@ def audit_collection(
     index_path: str | Path,
     scenarios: str | Path,
     minimum_frames: int = 8,
+    sft_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     episodes_root = Path(episodes_root)
     round_state_data = _load(Path(round_state))
@@ -235,7 +297,7 @@ def audit_collection(
         1 for row in complete_reports
         if row.get("passed") and category_by_world.get(row["world_id"]) == "pickup" and "SUV" in str(row.get("task_text"))
     )
-    return {
+    report = {
         "generated_on": date.today().isoformat(),
         "minimum_frames": minimum_frames,
         "logical_entry_count": len(round_state_data.get("episodes", {})),
@@ -257,18 +319,23 @@ def audit_collection(
         "index_world_count": len(index_by_world),
         "unqualified_worlds": [row["world_id"] for row in world_reports if not row["qualified_count"]],
     }
+    if sft_dir is not None:
+        report["sft"] = audit_sft_additions(sft_dir)
+    return report
 
 
 def _readiness_line(report: dict[str, Any]) -> str:
     total = report.get("index_world_count") or 0
     qualified = report["qualified_world_count"]
-    pickup_to_suv = report.get("pickup_to_suv_rejection_coverage") or 0
+    sft = report.get("sft")
+    pickup_to_suv = (sft.get("pickup_to_suv_reject_count") if sft else report.get("pickup_to_suv_rejection_coverage")) or 0
     gaps = []
     if qualified < total:
         gaps.append(f"仍有 {total - qualified} 个 world 没有合格架次（{', '.join(report.get('unqualified_worlds') or [])}）")
     if not pickup_to_suv:
         gaps.append("pickup world 上没有合格的 SUV 请求架次（pickup→suv 拒绝方向未覆盖）")
-    head = f"合格覆盖 {qualified}/{total} world、{report['qualified_episode_count']} 个 episode；pickup→suv 合格架次 {pickup_to_suv} 个。"
+    pickup_label = "SFT pickup→suv 拒绝行" if sft else "pickup→suv 合格架次"
+    head = f"合格覆盖 {qualified}/{total} world、{report['qualified_episode_count']} 个 episode；{pickup_label} {pickup_to_suv} 个。"
     if gaps:
         return head + "尚未满足完整采集：" + "；".join(gaps) + "。已有合格架次可作为增量数据。"
     return head + "覆盖完整，可以进入 annotate/build_sft。"
@@ -305,6 +372,20 @@ def render_markdown(report: dict[str, Any]) -> str:
         counts = ", ".join(f"{view}={row['view_counts'][view]}" for view in REQUIRED_VIEWS)
         distance = f"{row['designed_ground_distance_m']:.1f}/{row['observed_ground_distance_mean_m']:.1f}"
         lines.append(f"| {row['key']} | {row['world_id']} | {row.get('task_text', '-')} | {counts} | {distance} | {row['short_side_band']}（{row['short_side_estimate_px']} px） |")
+    sft = report.get("sft")
+    if sft:
+        lines += ["", "## SFT 交换任务覆盖", "", f"读取目录：`{sft['dir']}`；manifest schema_version={sft['manifest'].get('schema_version')}。", "", "| split | 方向 | view | reject | positive |", "|---|---|---|---:|---:|"]
+        for split in SFT_SPLITS:
+            for pair in sorted(sft["counts"].get(split, {})):
+                for view in REQUIRED_VIEWS:
+                    values = sft["counts"][split][pair].get(view)
+                    if values:
+                        lines.append(f"| {split} | {pair} | {view} | {values['reject']} | {values['positive']} |")
+        lines += ["", "| 方向 | 四视角 reject pair | 四视角 positive pair | acceptance（每方向 ≥30） |", "|---|---:|---:|---|"]
+        for pair, target in sorted(sft["acceptance_targets"].items()):
+            reject_pairs = sum(sft["four_view_pairs"].get(split, {}).get(pair, {}).get("reject", 0) for split in SFT_SPLITS)
+            positive_pairs = sum(sft["four_view_pairs"].get(split, {}).get(pair, {}).get("positive", 0) for split in SFT_SPLITS)
+            lines.append(f"| {pair} | {reject_pairs} | {positive_pairs} | {'满足' if target['met'] else '未满足'} |")
     lines += ["", "## 失败原因", "", "| 归一化原因 | 失败 artifact 数 |", "|---|---:|"]
     for reason, count in sorted(report["failure_groups"].items(), key=lambda item: (-item[1], item[0])):
         lines.append(f"| {reason} | {count} |")
@@ -330,17 +411,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--index", type=Path, default=Path("configs/scenarios/generated-r21id-r4/index.json"))
     parser.add_argument("--scenarios", type=Path, default=Path("configs/scenarios/generated-r21id-r4"))
     parser.add_argument("--minimum-frames", type=int, default=8)
+    parser.add_argument("--sft-dir", type=Path, help="built SFT additions directory containing train/val/test.jsonl and manifest.json")
     parser.add_argument("--output-md", type=Path)
     parser.add_argument("--output-json", type=Path)
     args = parser.parse_args(argv)
-    report = audit_collection(episodes_root=args.episodes_root, round_state=args.round_state, index_path=args.index, scenarios=args.scenarios, minimum_frames=args.minimum_frames)
+    report = audit_collection(episodes_root=args.episodes_root, round_state=args.round_state, index_path=args.index, scenarios=args.scenarios, minimum_frames=args.minimum_frames, sft_dir=args.sft_dir)
     if args.output_md:
         args.output_md.parent.mkdir(parents=True, exist_ok=True)
         args.output_md.write_text(render_markdown(report), encoding="utf-8")
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         args.output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ("logical_entry_count", "logical_complete_count", "qualified_episode_count", "qualified_world_count", "logical_failed_count", "failed_artifact_count", "failure_groups")}, ensure_ascii=False, indent=2))
+    summary = {key: report[key] for key in ("logical_entry_count", "logical_complete_count", "qualified_episode_count", "qualified_world_count", "logical_failed_count", "failed_artifact_count", "failure_groups")}
+    if report.get("sft"):
+        summary["sft"] = report["sft"]
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
 
