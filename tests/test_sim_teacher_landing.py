@@ -23,9 +23,13 @@ class FakeState:
     def __init__(self, altitude_m: float) -> None:
         self.messages = {
             "HEARTBEAT": {"base_mode": 128, "custom_mode": "OFFBOARD"},
-            "LOCAL_POSITION_NED": {"z": -altitude_m},
+            "LOCAL_POSITION_NED": {"z": -altitude_m, "vz": 0.0},
         }
-        self.received_monotonic_ns = {"HEARTBEAT": 0, "EXTENDED_SYS_STATE": 0}
+        self.received_monotonic_ns = {
+            "HEARTBEAT": 0,
+            "EXTENDED_SYS_STATE": 0,
+            "LOCAL_POSITION_NED": 0,
+        }
 
     def get(self, name: str):
         return self.messages.get(name)
@@ -314,6 +318,158 @@ def test_land_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert events[-1][0] == "land_timeout"
     assert events[-1][1]["altitude_m"] == 10.0
     assert events[-1][1]["mode"] == "OFFBOARD"
+
+
+def test_fresh_descent_progress_extends_landing_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    events = []
+    monkeypatch.setattr(
+        collector,
+        "_progress",
+        lambda phase, **fields: events.append((phase, fields)),
+    )
+    clock = FakeClock()
+    state = FakeState(3.0)
+    connection = FakeConnection(
+        on_disarm=lambda: _record_heartbeat(state, clock, mode="LAND", armed=False)
+    )
+    state.messages["EXTENDED_SYS_STATE"] = {"landed_state": 4}
+
+    def descend(seconds: float) -> None:
+        clock.now += seconds
+        position = state.messages["LOCAL_POSITION_NED"]
+        position["z"] = min(0.0, position["z"] + 0.1 * seconds)
+        state.mark_received("LOCAL_POSITION_NED", clock)
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+        _record_heartbeat(state, clock, mode=100925440, armed=True)
+        if position["z"] == 0.0:
+            state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+
+    start_s = clock.monotonic()
+    result = collector._land_and_wait(
+        FakeExecutor(lambda _attempt: None),
+        FakeReader(state),
+        connection,
+        None,
+        timeout_s=5.0,
+        stable_ground_s=0.5,
+        auto_disarm_wait_s=1.0,
+        clock=clock.monotonic,
+        sleep=descend,
+    )
+
+    assert result["landed_state"] == 1
+    assert result["disarm_source"] == "collector"
+    assert clock.monotonic() - start_s > 5.0
+    assert any(phase == "land_progress" for phase, _ in events)
+
+
+def test_near_ground_landed_in_air_only_disarms_when_settled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    clock = FakeClock()
+    state = FakeState(1.0)
+    state.messages["EXTENDED_SYS_STATE"] = {"landed_state": 4}
+    connection = FakeConnection(
+        on_disarm=lambda: _record_heartbeat(state, clock, mode="LAND", armed=False)
+    )
+
+    def stationary(seconds: float) -> None:
+        clock.now += seconds
+        state.mark_received("LOCAL_POSITION_NED", clock)
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+        _record_heartbeat(state, clock, mode=100925440, armed=True)
+
+    result = collector._land_and_wait(
+        FakeExecutor(lambda _attempt: None),
+        FakeReader(state),
+        connection,
+        None,
+        timeout_s=30.0,
+        clock=clock.monotonic,
+        sleep=stationary,
+    )
+
+    assert result["disarm_source"] == "collector"
+    assert result["altitude_m"] == 1.0
+    assert connection.commands[0][2] == 400
+
+
+def test_high_vehicle_without_descent_still_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    clock = FakeClock()
+    state = FakeState(8.0)
+    state.messages["EXTENDED_SYS_STATE"] = {"landed_state": 4}
+
+    def fresh_but_stuck(seconds: float) -> None:
+        clock.now += seconds
+        state.mark_received("LOCAL_POSITION_NED", clock)
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+        _record_heartbeat(state, clock, mode=100925440, armed=True)
+
+    with pytest.raises(TimeoutError, match="timed out waiting for land"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None),
+            FakeReader(state),
+            FakeConnection(),
+            None,
+            timeout_s=5.0,
+            max_retries=0,
+            clock=clock.monotonic,
+            sleep=fresh_but_stuck,
+        )
+
+    assert clock.monotonic() == 105.0
+
+
+def test_descent_progress_cannot_extend_past_hard_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(collector, "LAND_HARD_CEILING_S", 12.0)
+    monkeypatch.setattr(collector, "LAND_PROGRESS_GRACE_S", 4.0)
+    clock = FakeClock()
+    state = FakeState(8.0)
+
+    def slow_descent(seconds: float) -> None:
+        clock.now += seconds
+        state.messages["LOCAL_POSITION_NED"]["z"] += 0.1 * seconds
+        state.mark_received("LOCAL_POSITION_NED", clock)
+        _record_heartbeat(state, clock, mode=100925440, armed=True)
+
+    with pytest.raises(TimeoutError, match="timed out waiting for land"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None),
+            FakeReader(state),
+            FakeConnection(),
+            None,
+            timeout_s=5.0,
+            max_retries=0,
+            clock=clock.monotonic,
+            sleep=slow_descent,
+        )
+
+    assert clock.monotonic() == 112.0
+
+
+def test_stale_altitude_does_not_extend_landing_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    clock = FakeClock()
+    state = FakeState(8.0)
+
+    with pytest.raises(TimeoutError, match="timed out waiting for land"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None),
+            FakeReader(state),
+            FakeConnection(),
+            None,
+            timeout_s=5.0,
+            max_retries=0,
+            clock=clock.monotonic,
+            sleep=clock.sleep,
+        )
+
+    assert clock.monotonic() == 105.0
 
 
 def test_takeoff_budget_scales_with_altitude_like_landing():

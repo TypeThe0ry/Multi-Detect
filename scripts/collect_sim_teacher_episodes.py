@@ -149,6 +149,15 @@ LAND_DIAGNOSTIC_INTERVAL_S = 5.0
 LAND_STABLE_GROUND_S = 3.0
 LAND_AUTO_DISARM_WAIT_S = 30.0
 LAND_DISARM_CONFIRM_TIMEOUT_S = 10.0
+# Landing progress is measured from fresh wall-clock altitude samples.  The
+# lockstep simulator can descend much more slowly than PX4's nominal rate, so
+# each real descent sample earns a bounded grace period, never past the ceiling.
+LAND_PROGRESS_GRACE_S = 30.0
+LAND_PROGRESS_TOLERANCE_M = 0.05
+LAND_HARD_CEILING_S = 600.0
+LAND_SETTLED_ALTITUDE_M = 1.5
+LAND_SETTLED_VERTICAL_SPEED_MPS = 0.08
+LAND_SETTLED_DURATION_S = 10.0
 FIXED_WING_LANDING_GLIDE_ANGLE_DEG = 5.0
 FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
@@ -2697,22 +2706,42 @@ def _upload_fixed_wing_landing_mission(
 
 
 def _land_diagnostics(
-    state: Any, custom_modes: set[int], *, land_started_ns: int
+    state: Any,
+    custom_modes: set[int],
+    *,
+    land_started_ns: int,
+    now_ns: int | None = None,
 ) -> dict[str, Any]:
     heartbeat = state.get("HEARTBEAT")
     extended_state = state.get("EXTENDED_SYS_STATE")
     ack = state.get("COMMAND_ACK")
     altitude_m, altitude_source = _landing_altitude(state)
     received = getattr(state, "received_monotonic_ns", {})
-    heartbeat_fresh = received.get("HEARTBEAT", -1) >= land_started_ns
-    extended_fresh = received.get("EXTENDED_SYS_STATE", -1) >= land_started_ns
-    ack_fresh = received.get("COMMAND_ACK", -1) >= land_started_ns
+    now_ns = time.monotonic_ns() if now_ns is None else int(now_ns)
+    stale_ns = int(LANDING_TELEMETRY_STALE_S * 1_000_000_000)
+    heartbeat_ns = received.get("HEARTBEAT", -1)
+    heartbeat_fresh = heartbeat_ns >= land_started_ns and now_ns - heartbeat_ns <= stale_ns
+    extended_ns = received.get("EXTENDED_SYS_STATE", -1)
+    extended_fresh = extended_ns >= land_started_ns and now_ns - extended_ns <= stale_ns
+    ack_ns = received.get("COMMAND_ACK", -1)
+    ack_fresh = ack_ns >= land_started_ns and now_ns - ack_ns <= stale_ns
     base_mode = _field(heartbeat, "base_mode", None)
     try:
         armed = bool(int(base_mode) & 128) if heartbeat is not None else None
     except (TypeError, ValueError):
         armed = None
     landed_state = _field(extended_state, "landed_state", None)
+    position_ns = max(
+        received.get("LOCAL_POSITION_NED", -1),
+        received.get("GLOBAL_POSITION_INT", -1),
+    )
+    altitude_fresh = position_ns >= land_started_ns and now_ns - position_ns <= stale_ns
+    local_position = state.get("LOCAL_POSITION_NED")
+    vz = _field(local_position, "vz", None)
+    try:
+        vertical_speed_mps = abs(float(vz))
+    except (TypeError, ValueError):
+        vertical_speed_mps = float("nan")
     return {
         "mode": _field(heartbeat, "mode", _field(heartbeat, "custom_mode", None)),
         "land_mode_confirmed": heartbeat_fresh and _land_mode_confirmed(heartbeat, custom_modes),
@@ -2727,6 +2756,10 @@ def _land_diagnostics(
         ),
         "altitude_m": round(altitude_m, 3),
         "altitude_source": altitude_source,
+        "altitude_fresh": altitude_fresh,
+        "vertical_speed_mps": (
+            round(vertical_speed_mps, 3) if math.isfinite(vertical_speed_mps) else None
+        ),
     }
 
 
@@ -2753,13 +2786,17 @@ def _land_and_wait(
     custom_modes = _land_mode_custom_values(connection)
     altitude_m, _ = _landing_altitude(state)
     wait_timeout_s = _land_timeout_s(altitude_m) if timeout_s is None else float(timeout_s)
-    deadline = clock() + wait_timeout_s
+    started_s = clock()
+    hard_deadline = started_s + max(wait_timeout_s, LAND_HARD_CEILING_S)
+    deadline = started_s + wait_timeout_s
     attempts = 1
     retries = 0
-    last_command_s = clock()
+    last_command_s = started_s
     last_diagnostic_s = last_command_s
     land_started_ns = int(last_command_s * 1_000_000_000)
     ground_since: float | None = None
+    lowest_altitude_m = altitude_m if math.isfinite(altitude_m) else None
+    last_altitude_progress_s = started_s
 
     executor.land()
     _progress(
@@ -2767,12 +2804,82 @@ def _land_and_wait(
         attempt=attempts,
         retries=retries,
         timeout_s=round(wait_timeout_s, 1),
-        **_land_diagnostics(state, custom_modes, land_started_ns=land_started_ns),
+        **_land_diagnostics(
+            state,
+            custom_modes,
+            land_started_ns=land_started_ns,
+            now_ns=int(clock() * 1_000_000_000),
+        ),
     )
+
+    def collector_disarm(diagnostics: dict[str, Any]) -> dict[str, Any]:
+        mav = getattr(connection, "mav", None)
+        sender = getattr(mav, "command_long_send", None)
+        if not callable(sender):
+            raise RuntimeError("MAVLink connection cannot send DISARM command")
+        command = 400
+        target_system = int(getattr(connection, "target_system", 1) or 1)
+        target_component = int(getattr(connection, "target_component", 1) or 1)
+        sender(
+            target_system,
+            target_component,
+            command,
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+        disarm_started_ns = int(clock() * 1_000_000_000)
+        disarm_deadline = clock() + max(0.0, float(disarm_confirm_timeout_s))
+        _progress(
+            "land_disarm_command_sent",
+            command_id=command,
+            timeout_s=disarm_confirm_timeout_s,
+            **diagnostics,
+        )
+        while clock() < disarm_deadline:
+            reader.raise_if_failed()
+            diagnostics = _land_diagnostics(
+                state,
+                custom_modes,
+                land_started_ns=land_started_ns,
+                now_ns=int(clock() * 1_000_000_000),
+            )
+            heartbeat_ns = getattr(state, "received_monotonic_ns", {}).get("HEARTBEAT", -1)
+            if heartbeat_ns >= disarm_started_ns and diagnostics["armed"] is False:
+                _progress("land", disarm_source="collector", **diagnostics)
+                return {
+                    "retries": retries,
+                    "disarm_source": "collector",
+                    **diagnostics,
+                    "timeout_s": wait_timeout_s,
+                }
+            sleep(min(0.25, max(0.0, disarm_deadline - clock())))
+        diagnostics = _land_diagnostics(
+            state,
+            custom_modes,
+            land_started_ns=land_started_ns,
+            now_ns=int(clock() * 1_000_000_000),
+        )
+        _progress("land_disarm_timeout", **diagnostics)
+        raise TimeoutError(
+            "timed out waiting for disarmed heartbeat after collector DISARM; "
+            f"landed_state={diagnostics['landed_state']!r}; "
+            f"armed={diagnostics['armed']!r}"
+        )
 
     while clock() < deadline:
         reader.raise_if_failed()
-        diagnostics = _land_diagnostics(state, custom_modes, land_started_ns=land_started_ns)
+        diagnostics = _land_diagnostics(
+            state,
+            custom_modes,
+            land_started_ns=land_started_ns,
+            now_ns=int(clock() * 1_000_000_000),
+        )
         if diagnostics["heartbeat_fresh"] and diagnostics["armed"] is False:
             _progress("land", retries=retries, **diagnostics)
             return {"retries": retries, **diagnostics, "timeout_s": wait_timeout_s}
@@ -2786,7 +2893,37 @@ def _land_and_wait(
             return {"retries": retries, **diagnostics, "timeout_s": wait_timeout_s}
 
         now = clock()
+        if diagnostics["altitude_fresh"]:
+            current_altitude = float(diagnostics["altitude_m"])
+            if math.isfinite(current_altitude):
+                if (
+                    lowest_altitude_m is None
+                    or current_altitude < lowest_altitude_m - LAND_PROGRESS_TOLERANCE_M
+                ):
+                    lowest_altitude_m = current_altitude
+                    last_altitude_progress_s = now
+                    previous_deadline = deadline
+                    deadline = min(
+                        hard_deadline,
+                        max(deadline, now + max(0.0, float(LAND_PROGRESS_GRACE_S))),
+                    )
+                    if deadline > previous_deadline:
+                        _progress(
+                            "land_progress",
+                            deadline_s=round(deadline - started_s, 1),
+                            hard_ceiling_s=round(hard_deadline - started_s, 1),
+                            **diagnostics,
+                        )
         on_ground = diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1
+        settled_near_ground = (
+            diagnostics["landed_state_fresh"]
+            and diagnostics["landed_state"] == 4
+            and diagnostics["altitude_fresh"]
+            and diagnostics["altitude_m"] <= LAND_SETTLED_ALTITUDE_M
+            and diagnostics["vertical_speed_mps"] is not None
+            and diagnostics["vertical_speed_mps"] <= LAND_SETTLED_VERTICAL_SPEED_MPS
+            and now - last_altitude_progress_s >= LAND_SETTLED_DURATION_S
+        )
         if on_ground:
             if ground_since is None:
                 ground_since = now
@@ -2797,7 +2934,10 @@ def _land_and_wait(
                 while clock() < auto_disarm_deadline:
                     reader.raise_if_failed()
                     diagnostics = _land_diagnostics(
-                        state, custom_modes, land_started_ns=land_started_ns
+                        state,
+                        custom_modes,
+                        land_started_ns=land_started_ns,
+                        now_ns=int(clock() * 1_000_000_000),
                     )
                     if diagnostics["heartbeat_fresh"] and diagnostics["armed"] is False:
                         _progress("land", disarm_source="px4_auto", **diagnostics)
@@ -2807,78 +2947,30 @@ def _land_and_wait(
                             **diagnostics,
                             "timeout_s": wait_timeout_s,
                         }
-                    if not (diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1):
+                    if not (
+                        diagnostics["landed_state_fresh"]
+                        and diagnostics["landed_state"] == 1
+                    ):
                         ground_since = None
                         break
                     sleep(min(0.5, max(0.0, auto_disarm_deadline - clock())))
                 else:
                     diagnostics = _land_diagnostics(
-                        state, custom_modes, land_started_ns=land_started_ns
+                        state,
+                        custom_modes,
+                        land_started_ns=land_started_ns,
+                        now_ns=int(clock() * 1_000_000_000),
                     )
-                    if not (diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 1):
+                    if not (
+                        diagnostics["landed_state_fresh"]
+                        and diagnostics["landed_state"] == 1
+                    ):
                         ground_since = None
                     else:
-                        mav = getattr(connection, "mav", None)
-                        sender = getattr(mav, "command_long_send", None)
-                        if not callable(sender):
-                            raise RuntimeError("MAVLink connection cannot send DISARM command")
-                        command = 400
-                        target_system = int(getattr(connection, "target_system", 1) or 1)
-                        target_component = int(getattr(connection, "target_component", 1) or 1)
-                        sender(
-                            target_system,
-                            target_component,
-                            command,
-                            0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        )
-                        disarm_started_ns = int(clock() * 1_000_000_000)
-                        disarm_deadline = clock() + max(
-                            0.0, float(disarm_confirm_timeout_s)
-                        )
-                        _progress(
-                            "land_disarm_command_sent",
-                            command_id=command,
-                            timeout_s=disarm_confirm_timeout_s,
-                            **diagnostics,
-                        )
-                        while clock() < disarm_deadline:
-                            reader.raise_if_failed()
-                            diagnostics = _land_diagnostics(
-                                state,
-                                custom_modes,
-                                land_started_ns=land_started_ns,
-                            )
-                            heartbeat_ns = getattr(state, "received_monotonic_ns", {}).get(
-                                "HEARTBEAT", -1
-                            )
-                            if (
-                                heartbeat_ns >= disarm_started_ns
-                                and diagnostics["armed"] is False
-                            ):
-                                _progress("land", disarm_source="collector", **diagnostics)
-                                return {
-                                    "retries": retries,
-                                    "disarm_source": "collector",
-                                    **diagnostics,
-                                    "timeout_s": wait_timeout_s,
-                                }
-                            sleep(min(0.25, max(0.0, disarm_deadline - clock())))
-                        diagnostics = _land_diagnostics(
-                            state, custom_modes, land_started_ns=land_started_ns
-                        )
-                        _progress("land_disarm_timeout", **diagnostics)
-                        raise TimeoutError(
-                            "timed out waiting for disarmed heartbeat after collector DISARM; "
-                            f"landed_state={diagnostics['landed_state']!r}; "
-                            f"armed={diagnostics['armed']!r}"
-                        )
+                        return collector_disarm(diagnostics)
+        elif settled_near_ground:
+            _progress("land_settled_near_ground", **diagnostics)
+            return collector_disarm(diagnostics)
         else:
             ground_since = None
 
@@ -2906,7 +2998,12 @@ def _land_and_wait(
         sleep(min(0.5, max(0.0, deadline - now)))
 
     reader.raise_if_failed()
-    diagnostics = _land_diagnostics(state, custom_modes, land_started_ns=land_started_ns)
+    diagnostics = _land_diagnostics(
+        state,
+        custom_modes,
+        land_started_ns=land_started_ns,
+        now_ns=int(clock() * 1_000_000_000),
+    )
     _progress("land_timeout", retries=retries, **diagnostics)
     raise TimeoutError(
         f"timed out waiting for land after {wait_timeout_s:.1f}s; "
