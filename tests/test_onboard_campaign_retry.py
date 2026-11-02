@@ -149,8 +149,10 @@ def test_suite_forwards_retry_and_disk_options(tmp_path):
         retry_failed_episodes=True,
         min_free_disk_gb=30,
         disk_check_every=5,
+        keep_px4_ulog=True,
     )
     assert "--retry-failed-episodes" in command
+    assert "--keep-px4-ulog" in command
     assert command[command.index("--min-free-disk-gb") + 1] == "30"
     assert command[command.index("--disk-check-every") + 1] == "5"
 

@@ -167,6 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-episode-s", type=int, default=2400)
     parser.add_argument("--retry-failed-episodes", action="store_true")
     parser.add_argument(
+        "--keep-px4-ulog",
+        action="store_true",
+        help="copy PX4 .ulg flight logs into each collector job before cleanup",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="fail on collector errors or incomplete scored rows (legacy default is permissive)",
@@ -262,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
                 command += ["--airframe", str(args.airframe)]
             if args.takeoff_method:
                 command += ["--takeoff-method", str(args.takeoff_method)]
+            if args.keep_px4_ulog:
+                command.append("--keep-px4-ulog")
             if args.min_free_disk_gb > 0:
                 # The collector otherwise applies its own 15 GB guard and aborts
                 # episodes that the campaign's lower --min-free-disk-gb allows.
@@ -342,6 +349,8 @@ def main(argv: list[str] | None = None) -> int:
                 command += ["--airframe", str(args.airframe)]
             if args.takeoff_method:
                 command += ["--takeoff-method", str(args.takeoff_method)]
+            if args.keep_px4_ulog:
+                command.append("--keep-px4-ulog")
             if args.min_free_disk_gb > 0:
                 # The collector otherwise applies its own 15 GB guard and aborts
                 # episodes that the campaign's lower --min-free-disk-gb allows.

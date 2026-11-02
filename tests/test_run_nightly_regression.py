@@ -75,6 +75,12 @@ def test_model_set_dry_run_reports_linux_runtime_settings(tmp_path, capsys, monk
     }
 
 
+def test_keep_px4_ulog_reaches_mission_suite(tmp_path, capsys):
+    assert run(["--suites", "main", "--dry-run", "--keep-px4-ulog", "--out", str(tmp_path)]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert "--keep-px4-ulog" in rows[1]["command"]
+
+
 def test_model_set_can_be_selected_from_environment(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("MULTIDETECT_MODEL_SET", "r21idr3-r24plan")
     assert run(["--dry-run", "--suites", "main", "--out", str(tmp_path)]) == 0

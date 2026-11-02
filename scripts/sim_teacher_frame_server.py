@@ -42,6 +42,41 @@ from gazebo_sensor_stream import (
 )
 
 
+MAX_CONSECUTIVE_ODOMETRY_VELOCITY_REJECTIONS = 3
+ODOMETRY_VELOCITY_BOUND_ERROR = "wire Odometry velocity exceeds the safety bound"
+
+
+class OdometrySamplePolicy:
+    """Drop isolated velocity spikes while failing closed on a persistent stream fault."""
+
+    def __init__(self, max_consecutive_rejections: int = MAX_CONSECUTIVE_ODOMETRY_VELOCITY_REJECTIONS) -> None:
+        if max_consecutive_rejections < 1:
+            raise ValueError("max_consecutive_rejections must be positive")
+        self.max_consecutive_rejections = max_consecutive_rejections
+        self.consecutive_rejections = 0
+        self.velocity_rejections = 0
+        self.max_observed_consecutive_rejections = 0
+
+    def accepted(self) -> None:
+        self.consecutive_rejections = 0
+
+    def reject(self, error: Exception) -> str:
+        """Return ``drop`` for a recoverable velocity spike or ``fail`` otherwise."""
+        if str(error) != ODOMETRY_VELOCITY_BOUND_ERROR:
+            return "fail"
+        self.velocity_rejections += 1
+        self.consecutive_rejections += 1
+        self.max_observed_consecutive_rejections = max(
+            self.max_observed_consecutive_rejections,
+            self.consecutive_rejections,
+        )
+        return (
+            "fail"
+            if self.consecutive_rejections >= self.max_consecutive_rejections
+            else "drop"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     stamp_ns: int
@@ -346,7 +381,16 @@ def main() -> int:
     image_lock = threading.Lock()
     latest = LatestCandidate()
     pairer = ExactSegmentationPairer(latest) if args.segmentation else None
-    stats = {"images": 0, "incomplete": 0, "stale_sources": 0, "depth_missing": 0}
+    stats = {
+        "images": 0,
+        "incomplete": 0,
+        "stale_sources": 0,
+        "depth_missing": 0,
+        "odometry_invalid": 0,
+        "odometry_velocity_rejected": 0,
+        "odometry_max_consecutive_velocity_rejections": 0,
+    }
+    odometry_policy = OdometrySamplePolicy()
 
     def guard(name: str, operation: Any) -> None:
         try:
@@ -414,7 +458,25 @@ def main() -> int:
     def on_odometry(message: OdometryWithCovariance) -> None:
         def update() -> None:
             stamp = _stamp_ns(message)
-            fields = _odometry_from_message(message)
+            try:
+                fields = _odometry_from_message(message)
+            except Exception as exc:
+                with state_lock:
+                    stats["odometry_invalid"] += 1
+                    action = odometry_policy.reject(exc)
+                    stats["odometry_velocity_rejected"] = odometry_policy.velocity_rejections
+                    stats[
+                        "odometry_max_consecutive_velocity_rejections"
+                    ] = odometry_policy.max_observed_consecutive_rejections
+                if action == "drop":
+                    _diagnostic(
+                        "sim_teacher_odometry_dropped",
+                        stamp_ns=stamp,
+                        reason=str(exc),
+                        consecutive_rejections=odometry_policy.consecutive_rejections,
+                    )
+                    return
+                raise
             names = (
                 "position_east_m",
                 "position_north_m",
@@ -431,6 +493,7 @@ def main() -> int:
             row["attitude_covariance_enu_rad2"] = fields[10:]
             row["stamp_ns"] = stamp
             with state_lock:
+                odometry_policy.accepted()
                 buffers["odometry"].append(row)
 
         guard("Odometry", update)
