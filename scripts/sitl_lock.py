@@ -15,6 +15,7 @@ import socket
 import subprocess
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover
 
 
 CONTAINER_NAME_RE = re.compile(r"^(?:md-|r15-worker)")
+SITL_LOCK_HELD_ENV = "MULTIDETECT_SITL_LOCK_HELD"
 
 
 def default_lock_path() -> Path:
@@ -200,3 +202,37 @@ class SitlLock:
 
     def __exit__(self, *_):
         self.release()
+
+
+@contextmanager
+def sitl_lock_context(lock: object, *acquire_args: object, **acquire_kwargs: object):
+    """Acquire a SITL lock unless the current process already holds its parent lock.
+
+    The helper accepts both the shared :class:`SitlLock` API and the older
+    script-local lock APIs, which all expose ``acquire`` and ``release``.
+    Children inherit the marker while the body runs; the previous value is
+    restored when leaving the context.
+    """
+    previous = os.environ.get(SITL_LOCK_HELD_ENV)
+    acquired = previous != "1"
+    used_context_manager = False
+    if acquired:
+        acquire = getattr(lock, "acquire", None)
+        if acquire is not None:
+            acquire(*acquire_args, **acquire_kwargs)
+        else:
+            lock.__enter__()  # type: ignore[attr-defined]
+            used_context_manager = True
+    os.environ[SITL_LOCK_HELD_ENV] = "1"
+    try:
+        yield lock
+    finally:
+        if previous is None:
+            os.environ.pop(SITL_LOCK_HELD_ENV, None)
+        else:
+            os.environ[SITL_LOCK_HELD_ENV] = previous
+        if acquired:
+            if used_context_manager:
+                lock.__exit__(None, None, None)  # type: ignore[attr-defined]
+            else:
+                lock.release()  # type: ignore[attr-defined]

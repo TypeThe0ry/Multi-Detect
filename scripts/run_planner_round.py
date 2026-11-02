@@ -348,9 +348,11 @@ def main(argv=None) -> int:
                 raise RuntimeError(f"memory guard: {available:.1f} GB available, need {args.min_memory_gb:g} GB")
         lock_context = None
         if stage in {"train", "eval"} and not args.no_lock:
-            from scripts.run_nightly_regression import SitlLock
-            lock_context = SitlLock(args.lock_path, label="planner-round", retry_s=30)
-            lock_context.acquire()
+            from scripts.sitl_lock import SitlLock, sitl_lock_context
+            lock_context = sitl_lock_context(
+                SitlLock(args.lock_path, label="planner-round", retry_s=30)
+            )
+            lock_context.__enter__()
         try:
             started = datetime.now(timezone.utc).isoformat()
             if stage == "report":
@@ -423,7 +425,7 @@ def main(argv=None) -> int:
             atomic_json(state_path, state)
         finally:
             if lock_context:
-                lock_context.release()
+                lock_context.__exit__(*sys.exc_info())
     return 0
 
 

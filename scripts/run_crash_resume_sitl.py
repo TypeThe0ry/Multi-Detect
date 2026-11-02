@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.run_simulator_docker import DEFAULT_SCENARIO, build_docker_simulator_plan
 from scripts.platform_paths import pythonpath_value
-from scripts.sitl_lock import SitlLock, default_lock_path
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
 from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 CASES = ("valid", "corrupt", "digest", "expired", "rtl")
@@ -330,7 +330,7 @@ def main() -> int:
     OUT = args.output_dir.resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
-    with SitlLock(args.sitl_lock_path, label="crash-resume", min_memory_gb=5.0):
+    with sitl_lock_context(SitlLock(args.sitl_lock_path, label="crash-resume", min_memory_gb=5.0)):
         for name in args.cases:
             args.attempt = 1
             case = run_case(name, args)

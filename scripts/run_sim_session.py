@@ -35,7 +35,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     build_docker_simulator_plan,
 )
 from scripts.platform_paths import default_llama_server
-from scripts.sitl_lock import SitlLock, default_lock_path
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
 from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
@@ -688,15 +688,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")
     print(f"Browser viewer: http://127.0.0.1:{args.viewer_port}/vnc.html?autoconnect=1")
     sitl_lock = SitlLock(args.sitl_lock_path, label="sim-session", min_memory_gb=5.0)
-    sitl_lock.acquire()
+    lock_context = sitl_lock_context(sitl_lock)
+    lock_context.__enter__()
     try:
         subprocess.run(command, cwd=ROOT, check=True)
-    except (OSError, subprocess.CalledProcessError):
-        subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
-        subprocess.run([docker, "rm", plan.container_name], check=False)
-        sitl_lock.release()
-        raise
-    try:
         _session_log(session_log, "container_started", container=plan.container_name)
         for _ in range(60):
             state = subprocess.run(
@@ -786,12 +781,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Stopping owned simulator container...")
     finally:
-        try:
-            _session_log(session_log, "teardown", container=plan.container_name)
-            subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
-            subprocess.run([docker, "rm", plan.container_name], check=False)
-        finally:
-            sitl_lock.release()
+        _session_log(session_log, "teardown", container=plan.container_name)
+        subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
+        subprocess.run([docker, "rm", plan.container_name], check=False)
+        lock_context.__exit__(*sys.exc_info())
     return 0
 
 

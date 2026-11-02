@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
-from scripts.sitl_lock import SitlLock, default_lock_path
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
 from scripts.run_simulator_docker import gpu_assignment_for_worker
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
@@ -1275,20 +1275,12 @@ class Round:
             if getattr(self.a, "dry_run", False):
                 self.collect()
             else:
-                with SitlLock(
+                with sitl_lock_context(SitlLock(
                     getattr(self.a, "sitl_lock_path", default_lock_path()),
                     label="r15-worker",
                     min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
-                ):
-                    previous = os.environ.get("MULTIDETECT_SITL_LOCK_HELD")
-                    os.environ["MULTIDETECT_SITL_LOCK_HELD"] = "1"
-                    try:
-                        self.collect()
-                    finally:
-                        if previous is None:
-                            os.environ.pop("MULTIDETECT_SITL_LOCK_HELD", None)
-                        else:
-                            os.environ["MULTIDETECT_SITL_LOCK_HELD"] = previous
+                )):
+                    self.collect()
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = self.annotate_command()

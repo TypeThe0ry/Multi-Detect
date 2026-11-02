@@ -85,6 +85,30 @@ def test_model_set_can_be_selected_from_environment(tmp_path, capsys, monkeypatc
     )
 
 
+def test_nightly_e2e_child_receives_held_lock_marker(tmp_path, monkeypatch):
+    import scripts.run_nightly_regression as mod
+
+    class NoopLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            pass
+
+        def release(self):
+            pass
+
+    seen = []
+
+    def runner(command, **kwargs):
+        seen.append((command, kwargs["env"]))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(mod, "SitlLock", NoopLock)
+    assert run(["--suites", "e2e", "--out", str(tmp_path)], runner=runner) == 0
+    assert seen and seen[0][1]["MULTIDETECT_SITL_LOCK_HELD"] == "1"
+
+
 def test_sim_environment_is_passed_to_suite_process(tmp_path, monkeypatch):
     import scripts.run_nightly_regression as mod
 
