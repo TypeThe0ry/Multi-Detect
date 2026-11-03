@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 
-def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+def _model_sha256(
+    path: str | Path,
+    *,
+    cache_path: Path | None = None,
+    path_type: type[Path] = Path,
+    sha256_factory=hashlib.sha256,
+) -> str:
     """Hash a model with a size/mtime keyed cache; failures are non-fatal."""
-    from scripts import onboard_policy
-
-    path_type = onboard_policy.Path
     candidate = path_type(path)
     try:
         stat = candidate.stat()
@@ -39,7 +43,7 @@ def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
         except (OSError, ValueError, TypeError):
             cached = {}
     try:
-        digest = onboard_policy.hashlib.sha256()
+        digest = sha256_factory()
         with candidate.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
@@ -58,10 +62,14 @@ def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
     return result
 
 
-def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
+def _planning_model_spec(
+    value: Any,
+    *,
+    identity_mmproj: str,
+    root: Path,
+    path_type: type[Path] = Path,
+) -> tuple[str, str | None] | None:
     """Normalize the optional planner model; planner prompts are text-only."""
-    from scripts import onboard_policy
-
     if value is None or value == "":
         return None
     if isinstance(value, Mapping):
@@ -73,12 +81,11 @@ def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str 
         mmproj = value.get("mmproj")
     else:
         model, mmproj = value, None
-    path_type = onboard_policy.Path
     model_path = path_type(str(model))
-    model_path = model_path if model_path.is_absolute() else onboard_policy.ROOT / model_path
+    model_path = model_path if model_path.is_absolute() else root / model_path
     if mmproj is not None:
         mmproj_path = path_type(str(mmproj))
         mmproj = str(
-            mmproj_path if mmproj_path.is_absolute() else onboard_policy.ROOT / mmproj_path
+            mmproj_path if mmproj_path.is_absolute() else root / mmproj_path
         )
     return str(model_path), mmproj

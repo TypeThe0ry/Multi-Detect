@@ -92,11 +92,13 @@ from multidetect.autonomy.onboard_policy_parts.helpers import (  # noqa: E402
     _observation_timestamp_s,
     _vehicle_receipt_s,
     labelled_refs,
-    perception_task_text,
+    perception_task_text as _perception_task_text,
 )
 from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
 from multidetect.autonomy.onboard_policy_parts.runtime import (  # noqa: E402
+    RuntimeAdmissionMixin,
     build_safety_envelope as _build_safety_envelope,
+    load_runtime_mission_package,
 )
 from multidetect.autonomy.onboard_policy_parts.simulation import (  # noqa: E402
     SimGroundTimeline,
@@ -124,13 +126,29 @@ from multidetect.simulator.task_semantics import typical_object_size  # noqa: E4
 
 
 from multidetect.autonomy.onboard_policy_parts.model_config import (  # noqa: E402
-    _model_sha256,
-    _planning_model_spec,
+    _model_sha256 as _model_sha256_impl,
+    _planning_model_spec as _planning_model_spec_impl,
 )
 
 
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
+
+
+def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+    return _model_sha256_impl(
+        path, cache_path=cache_path, path_type=Path, sha256_factory=hashlib.sha256
+    )
+
+
+def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
+    return _planning_model_spec_impl(
+        value, identity_mmproj=identity_mmproj, root=ROOT, path_type=Path
+    )
+
+
+def perception_task_text(step, original: str) -> str:
+    return _perception_task_text(step, original, task_text_for=task_text_for)
 
 
 def build_mission_from_text(
@@ -199,7 +217,7 @@ def build_mission_from_text(
     return plan, report
 
 
-class OnboardPolicy:
+class OnboardPolicy(RuntimeAdmissionMixin):
     # Optional subsystems default to "absent" (tests build bare instances).
     supervisor: MissionSupervisor | None = None
     downlink: DownlinkQueue | None = None
@@ -294,77 +312,19 @@ class OnboardPolicy:
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
-        package_raw = options.get("mission_package")
-        if (
-            effective_runtime_mode
-            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
-            and package_raw is None
-        ):
-            raise ValueError("real/flight runtime requires a signed mission_package")
-        security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        mission_key_setting = options.get("mission_package_verify_key") or security.get(
-            "mission_package_verify_key"
-        )
-        legacy_key_setting = (
-            options.get("operator_key_path")
-            or options.get("mission_key_path")
-            or options.get("mission_signing_key_path")
-            or security.get("key_path")
-        )
-        key_setting = mission_key_setting or legacy_key_setting
-        if legacy_key_setting is not None and mission_key_setting is None:
-            warnings.warn(
-                "operator_key_path is deprecated; use mission_package_verify_key",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        ground_key_setting = (
-            options.get("ground_command_verify_key")
-            or security.get("ground_command_verify_key")
-            or legacy_key_setting
-        )
-        self._ground_key_setting = ground_key_setting
-        if isinstance(key_setting, str):
-            key_path = Path(key_setting)
-            key_setting = key_path if key_path.is_absolute() else ROOT / key_path
-        if isinstance(package_raw, str):
-            package_path = Path(package_raw)
-            package_raw = package_path if package_path.is_absolute() else ROOT / package_path
-        # ``mission_package`` is supplied by the admission layer when the
-        # comms-free entry is used.  Reusing that exact object prevents a
-        # second load from observing a different path/file after admission.
-        self.mission_package = mission_package or (
-            load_mission_package(
-                package_raw,
-                key_path=key_setting,
-                require_signature=key_setting is not None,
-                mode=effective_runtime_mode,
-            )
-            if package_raw is not None
-            else None
-        )
-        if self.mission_package is not None:
-            package = self.mission_package
-            options["refs"] = package.refs
-            options["ref_labels"] = package.document.get("ref_labels", {})
-            options["task_text"] = package.document.get("task_text") or package.plan.goal
-            options["mission"] = "package" if package.plan is not None else "from_text"
-            area = package.document["operating_area"]
-            if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
-                raise ValueError("launch altitude outside mission package limits")
-        configured_capabilities = set(options.get("capabilities", ()))
-        if _enabled(options.get("payload_capability")):
-            configured_capabilities.add("payload_drop")
-        self.airframe_capabilities = capabilities_for_airframe(
-            self.airframe_profile, configured_capabilities
-        )
-        package_capabilities = (
-            normalize_capabilities(self.mission_package.document.get("capabilities", ()))
-            if self.mission_package is not None
-            else None
-        )
-        effective_airframe_capabilities = effective_capabilities(
-            self.airframe_capabilities, package_capabilities
+        (
+            self.mission_package,
+            self._ground_key_setting,
+            self.airframe_capabilities,
+            effective_airframe_capabilities,
+        ) = load_runtime_mission_package(
+            options,
+            runtime_mode=effective_runtime_mode,
+            mission_package=mission_package,
+            altitude_m=altitude_m,
+            airframe_profile=self.airframe_profile,
+            enabled=_enabled,
+            root=ROOT,
         )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
@@ -1291,93 +1251,6 @@ class OnboardPolicy:
                     self.supervisor.ground_event(event)
         self.slow_calls = 0
 
-    def _supervisor_link_options(self) -> dict[str, Any]:
-        """Clock and ground-command security settings shared by every MissionSupervisor."""
-        options = self.config
-        security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key = self._ground_key_setting
-        return {
-            **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-            "security_key_path": str(key) if key is not None else None,
-            "timestamp_window_s": float(
-                options.get(
-                    "command_timestamp_window_s",
-                    security.get("timestamp_window_s", 30.0),
-                )
-            ),
-            "clock_skew_s": float(
-                options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
-            ),
-            "rate_limit": int(options.get("command_rate_limit", security.get("rate_limit", 20))),
-            "rate_window_s": float(
-                options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
-            ),
-        }
-
-    def _refuse_package_plan(
-        self,
-        violations: Sequence[Mapping[str, Any]],
-        package: MissionPackage | None = None,
-        *,
-        close_runner: bool = True,
-    ) -> None:
-        """Persist a fail-closed admission decision before raising to the caller.
-
-        An operator-link package is refused with ``close_runner=False``: the
-        running mission and its slow runner must stay untouched.
-        """
-        package = package if package is not None else self.mission_package
-        if package is None:
-            raise ValueError("mission plan violates package policy")
-        log = None
-        try:
-            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
-            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
-            log.append(
-                "mission_refused",
-                now,
-                reason="package_policy_violation",
-                violations=list(violations),
-            )
-            log.finish(
-                now,
-                {
-                    "status": "refused",
-                    "reason": "package_policy_violation",
-                    "violations": list(violations),
-                },
-            )
-        finally:
-            close = getattr(self.slow, "close", None) if close_runner else None
-            if close is not None:
-                close()
-        details = "; ".join(
-            f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
-            for item in violations
-        )
-        raise ValueError(f"mission plan refused by package policy: {details}")
-
-    def _record_planner_decision(self, decision: PlanDecision, package: MissionPackage | None = None) -> None:
-        """Downlink a model reject/clarify using the existing refusal record."""
-        payload = asdict(decision)
-        self.mission_plan = None
-        self.mission_plan_report = {"error": None, "decision": payload, "raw": payload}
-        package = package or self.mission_package
-        if package is not None:
-            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
-            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
-            log.append("mission_refused", now, reason="planner_decision", decision=payload)
-            log.finish(now, {"status": "refused", "reason": "planner_decision", "decision": payload})
-            active = getattr(self, "supervisor", None)
-            active_log = getattr(active, "log", None)
-            downlink = getattr(active, "downlink", None)
-            if active_log is not None and active_log.mission_id != package.mission_id:
-                active_log.append("mission_refused", now, requested_mission_id=package.mission_id,
-                                  reason="planner_decision", decision=payload)
-                if downlink is not None:
-                    downlink.notify()
-        raise ValueError(f"mission planner {decision.decision}: {decision.reason}")
-
     def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
         """Compile and install a package (both steps; tests and legacy hosts)."""
         supervisor = self.prepare_operator_package(package)
@@ -1589,33 +1462,6 @@ class OnboardPolicy:
         )
         supervisor.plan_report = report
         return supervisor
-
-    def install_operator_package(self, supervisor: MissionSupervisor) -> None:
-        """Make a prepared operator-link candidate the policy's mission."""
-        if not isinstance(supervisor, MissionSupervisor):
-            raise TypeError("operator package candidate must be a MissionSupervisor")
-        self.mission_package, self.mission_plan = supervisor.package, supervisor.executor.plan
-        self.mission_plan_report = getattr(supervisor, "plan_report", None)
-        # The package's sentence is now the mission's task, as for a package
-        # loaded at start-up: it sizes the search and titles the summary.
-        task_text = str(supervisor.package.document.get("task_text") or self.mission_plan.goal)
-        self.task_text = task_text
-        retarget = getattr(self, "_retarget_search", None)
-        if retarget is not None:
-            queries = [
-                str(step.params["query"])
-                for step in self.mission_plan.steps
-                if isinstance(step.params.get("query"), str)
-            ]
-            retarget(" ".join([task_text, *queries]))
-        self.supervisor, self.executor, self.downlink = supervisor, supervisor, supervisor.downlink
-        self.operator_link_waiting = False
-
-    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
-        """Forward a host receipt; this policy has no payload hardware driver."""
-        return self.executor is not None and self.executor.acknowledge_payload_release(
-            request_id, released=released
-        )
 
     def close(self) -> None:
         self._model_shutdown.set()
