@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from multidetect.autonomy.mission_plan import MissionStep
@@ -42,14 +42,18 @@ def _enabled(value: object) -> bool:
     return value is True
 
 
-def perception_task_text(step: MissionStep, original: str) -> str:
+def perception_task_text(
+    step: MissionStep,
+    original: str,
+    *,
+    task_text_for: Callable[[MissionStep], str] | None = None,
+) -> str:
     """Use a plan query for slow perception unless the query is non-ASCII."""
     query = step.params.get("query") if step is not None else None
     if isinstance(query, str) and query.isascii():
-        # Keep scripts.onboard_policy.task_text_for as the historical patch seam.
-        from scripts import onboard_policy
-
-        return onboard_policy.task_text_for(step)
+        if task_text_for is not None:
+            return task_text_for(step)
+        return f"Find the {query} and record its position."
     return original
 
 
