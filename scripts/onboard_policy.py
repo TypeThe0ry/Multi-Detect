@@ -95,6 +95,9 @@ from multidetect.autonomy.onboard_policy_parts.helpers import (  # noqa: E402
     perception_task_text,
 )
 from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.runtime import (  # noqa: E402
+    build_safety_envelope as _build_safety_envelope,
+)
 from multidetect.autonomy.onboard_policy_parts.simulation import (  # noqa: E402
     SimGroundTimeline,
     validate_sim_ground_events,
@@ -366,49 +369,13 @@ class OnboardPolicy:
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
-        # One final arbiter is shared by SIM and onboard callers.  Package
-        # geometry is authoritative for the home and operating rectangle;
-        # explicit safety_envelope settings may tighten it further.
-        envelope_source = dict(options)
-        if self.airframe_profile.category != "multirotor":
-            dynamics = self.motion_adapter.safety.vehicle
-            envelope_source["vehicle"] = {
-                "category": dynamics.category,
-                "can_hover": dynamics.can_hover,
-                "min_airspeed_mps": dynamics.min_airspeed_mps,
-                "cruise_airspeed_mps": dynamics.cruise_airspeed_mps,
-                "max_airspeed_mps": dynamics.max_airspeed_mps,
-                "min_turn_radius_m": dynamics.min_turn_radius_m,
-                "max_bank_deg": dynamics.max_bank_deg,
-                "climb_rate_mps": dynamics.climb_rate_mps,
-                "descent_rate_mps": dynamics.descent_rate_mps,
-            }
-            # The 15 m default step bound is multirotor-sized: a plane's search leg
-            # or turn-off leg would be clipped, and a clipped high-level command is
-            # refused into a loiter.  Use the profile's per-step bound instead
-            # (explicit safety settings still win).
-            envelope_source.setdefault(
-                "max_translation_m", self.airframe_profile.limits.max_step_distance_m
-            )
-        if self.mission_package is not None:
-            area = self.mission_package.document["operating_area"]
-            package_polygon = (
-                (float(area["north_min_m"]), float(area["east_min_m"])),
-                (float(area["north_max_m"]), float(area["east_min_m"])),
-                (float(area["north_max_m"]), float(area["east_max_m"])),
-                (float(area["north_min_m"]), float(area["east_max_m"])),
-            )
-            envelope_source.setdefault("operating_polygon", package_polygon)
-            envelope_source.setdefault("min_altitude_m", float(area["min_altitude_m"]))
-            envelope_source.setdefault("max_altitude_m", float(area["max_altitude_m"]))
-        package_home = None
-        if self.mission_package is not None:
-            raw_home = tuple(float(v) for v in self.mission_package.document["home"])
-            package_home = raw_home if len(raw_home) == 3 else (*raw_home, 0.0)
-        self.safety_envelope = SafetyEnvelope(
-            SafetyEnvelopeConfig.from_mapping(envelope_source),
-            home_ned=(tuple(float(v) for v in home_ned) if home_ned is not None else package_home),
-            ground_model=getattr(self.ground_projection, "model", None),
+        self.safety_envelope = _build_safety_envelope(
+            options,
+            self.airframe_profile,
+            self.motion_adapter,
+            self.mission_package,
+            home_ned,
+            self.ground_projection,
         )
         # Keep the adapter on the same envelope instance so a rejection has a
         # single counter/event stream and fixed-wing recovery becomes loiter.
