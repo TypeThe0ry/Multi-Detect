@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 
-
 ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
