@@ -44,7 +44,12 @@ def validate_sim_ground_events(config: Mapping[str, Any]) -> list[dict[str, Any]
 
 
 class SimGroundTimeline:
-    """Drive supervisor time from SIM frames, never inference or startup latency.
+    """Drive supervisor time from SIM vehicle progress, never host latency.
+
+    Prefer the PX4 pose clock used by mission execution and battery aging.
+    Camera frames can keep advancing after PX4 telemetry stops. Bind the first
+    available source for the timeline's lifetime, using frame time only for
+    observations without a vehicle stamp; never switch domains mid-mission.
 
     A nonempty timeline models a healthy link until link_lost stops heartbeats.
     An empty timeline emits no ground events at all. Loss becomes observable
@@ -56,6 +61,7 @@ class SimGroundTimeline:
         self.events = events
         self.now = 0.0
         self.origin_ns: int | None = None
+        self._clock_field: str | None = None
         self.index = 0
         self.link_up = bool(events)
 
@@ -65,14 +71,25 @@ class SimGroundTimeline:
         supervisor: MissionSupervisor,
         pose_ned: Sequence[float] | None = None,
     ) -> None:
-        stamp = observation.get("frame_sensor_stamp_ns")
+        field = self._clock_field or next(
+            (
+                name
+                for name in ("pose_time_boot_ms", "pose_sim_stamp_ns", "frame_sensor_stamp_ns")
+                if observation.get(name) is not None
+            ),
+            "frame_sensor_stamp_ns",
+        )
+        stamp = observation.get(field)
         if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0:
-            raise ValueError("SIM timeline requires frame_sensor_stamp_ns")
+            raise ValueError(f"SIM timeline requires nonnegative integer {field}")
+        if field == "pose_time_boot_ms":
+            stamp *= 1_000_000
         if self.origin_ns is None:
             self.origin_ns = stamp
+            self._clock_field = field
         target = (stamp - self.origin_ns) / 1_000_000_000
         if target < self.now:
-            raise ValueError("SIM frame clock moved backwards")
+            raise ValueError(f"SIM {field} clock moved backwards")
 
         def heartbeat():
             supervisor.ground_event(
