@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from scripts import collect_sim_teacher_episodes as collector
@@ -475,3 +477,230 @@ def test_stale_altitude_does_not_extend_landing_wait(monkeypatch: pytest.MonkeyP
 def test_takeoff_budget_scales_with_altitude_like_landing():
     assert collector._takeoff_timeout_s(5.0) == collector.LAND_MIN_TIMEOUT_S
     assert collector._takeoff_timeout_s(22.0) == collector._land_timeout_s(22.0) > 60.0
+
+
+class LockstepClock(FakeClock):
+    def __init__(self, state: FakeState, speed: float = 0.1) -> None:
+        super().__init__()
+        self.state = state
+        self.speed = speed
+        self.state.messages["LOCAL_POSITION_NED"]["time_boot_ms"] = 10_000
+        self.state.messages["EXTENDED_SYS_STATE"] = {"landed_state": 4}
+
+    @property
+    def sim_elapsed(self) -> float:
+        return (self.now - 100.0) * self.speed
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+        self.state.messages["LOCAL_POSITION_NED"]["time_boot_ms"] = (
+            10_000 + round(self.sim_elapsed * 1000)
+        )
+        for name in ("LOCAL_POSITION_NED", "EXTENDED_SYS_STATE", "HEARTBEAT"):
+            self.state.mark_received(name, self)
+        if self.on_sleep is not None:
+            self.on_sleep(seconds)
+
+
+def _linux_landing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Exercise Linux timing even when this unit test is run on Windows.
+    monkeypatch.setattr(collector, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+
+
+def test_lockstep_landing_budget_and_ground_stability_use_boot_time(monkeypatch) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(2.0)
+    clock = LockstepClock(state)
+
+    def land(_attempt: int) -> None:
+        _record_heartbeat(state, clock, mode="LAND", armed=True)
+
+    def update(_seconds: float) -> None:
+        if clock.sim_elapsed >= 2.0:
+            state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+        if clock.sim_elapsed >= 4.0:
+            _record_heartbeat(state, clock, mode="LAND", armed=False)
+
+    clock.on_sleep = update
+    connection = FakeConnection()
+    result = collector._land_and_wait(
+        FakeExecutor(land), FakeReader(state), connection, None,
+        timeout_s=6.0, stable_ground_s=3.0,
+        clock=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert result["armed"] is False
+    assert connection.commands == []
+    assert 4.0 <= clock.sim_elapsed < 5.0
+    assert clock.monotonic() - 100.0 > 6.0
+
+
+def test_lockstep_near_ground_and_disarm_confirmation_use_boot_time(monkeypatch) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(1.0)
+    clock = LockstepClock(state)
+    sent_at = []
+    connection = FakeConnection(on_disarm=lambda: sent_at.append(clock.sim_elapsed))
+
+    def update(_seconds: float) -> None:
+        if sent_at and clock.sim_elapsed - sent_at[0] >= 2.0:
+            _record_heartbeat(state, clock, mode="LAND", armed=False)
+
+    clock.on_sleep = update
+    result = collector._land_and_wait(
+        FakeExecutor(lambda _attempt: None), FakeReader(state), connection, None,
+        disarm_confirm_timeout_s=3.0, clock=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert result["disarm_source"] == "collector"
+    assert len(sent_at) == 1
+    assert sent_at[0] >= collector.LAND_SETTLED_DURATION_S
+    assert clock.sim_elapsed - sent_at[0] >= 2.0
+    # The ordinary disarm never sets the force-disarm magic value in param2.
+    assert connection.commands[0][2:6] == (400, 0, 0.0, 0.0)
+
+
+def test_lockstep_auto_disarm_wait_uses_boot_time(monkeypatch) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(0.0)
+    clock = LockstepClock(state)
+    state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+    state.mark_received("EXTENDED_SYS_STATE", clock)
+
+    def update(_seconds: float) -> None:
+        if clock.sim_elapsed >= 2.0:
+            _record_heartbeat(state, clock, mode="LAND", armed=False)
+
+    clock.on_sleep = update
+    connection = FakeConnection()
+    result = collector._land_and_wait(
+        FakeExecutor(lambda _attempt: None), FakeReader(state), connection, None,
+        stable_ground_s=0.0, auto_disarm_wait_s=3.0,
+        clock=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert result["disarm_source"] == "px4_auto"
+    assert clock.monotonic() - 100.0 >= 20.0
+    assert connection.commands == []
+
+
+@pytest.mark.parametrize("phase", ["descent", "auto_disarm", "collector_disarm"])
+def test_frozen_boot_clock_is_bounded_even_with_fresh_messages(monkeypatch, phase) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(8.0)
+    clock = LockstepClock(state, speed=0.0)
+    connection = FakeConnection()
+    kwargs = {}
+    if phase != "descent":
+        state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+        kwargs["stable_ground_s"] = 0.0
+        if phase == "collector_disarm":
+            kwargs["auto_disarm_wait_s"] = 0.0
+
+    with pytest.raises(TimeoutError, match="PX4 simulation clock stalled"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None), FakeReader(state), connection, None,
+            clock=clock.monotonic, sleep=clock.sleep, **kwargs,
+        )
+
+    assert clock.monotonic() - 100.0 == collector.LANDING_TELEMETRY_STALE_S
+    assert len(connection.commands) == (1 if phase == "collector_disarm" else 0)
+
+
+@pytest.mark.parametrize("phase", ["descent", "auto_disarm", "collector_disarm"])
+def test_slow_boot_clock_cannot_bypass_wall_ceiling(monkeypatch, phase) -> None:
+    _linux_landing(monkeypatch)
+    monkeypatch.setattr(collector, "LAND_HARD_CEILING_S", 12.0)
+    state = FakeState(8.0)
+    clock = LockstepClock(state)
+    kwargs = {}
+    if phase != "descent":
+        state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+        state.mark_received("EXTENDED_SYS_STATE", clock)
+        kwargs["stable_ground_s"] = 0.0
+        if phase == "collector_disarm":
+            kwargs["auto_disarm_wait_s"] = 0.0
+
+    with pytest.raises(TimeoutError, match="hard wall-clock ceiling"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None), FakeReader(state), FakeConnection(), None,
+            timeout_s=5.0, clock=clock.monotonic, sleep=clock.sleep, **kwargs,
+        )
+
+    assert clock.monotonic() == 112.0
+    assert clock.sim_elapsed == pytest.approx(1.2)
+
+
+def test_lockstep_retries_keep_wall_clock_cadence(monkeypatch) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(8.0)
+    clock = LockstepClock(state)
+    state.messages.pop("EXTENDED_SYS_STATE")
+    clock.on_sleep = lambda _seconds: None
+    sent_at = []
+
+    def land(attempt: int) -> None:
+        sent_at.append(clock.monotonic())
+        if attempt == 2:
+            _record_heartbeat(state, clock, mode="LAND", armed=False)
+
+    collector._land_and_wait(
+        FakeExecutor(land), FakeReader(state), FakeConnection(), None,
+        clock=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert sent_at == [100.0, 105.0]
+
+
+def test_windows_landing_retains_wall_budget_with_boot_stamps(monkeypatch) -> None:
+    monkeypatch.setattr(collector, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    state = FakeState(8.0)
+    clock = LockstepClock(state)
+
+    with pytest.raises(TimeoutError, match="timed out waiting for land after 5.0s"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None), FakeReader(state), FakeConnection(), None,
+            timeout_s=5.0, clock=clock.monotonic, sleep=clock.sleep,
+        )
+
+    assert clock.monotonic() == 105.0
+    assert clock.sim_elapsed == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("stamp", [None, True, "10000", -1, float("nan"), float("inf")])
+def test_missing_or_invalid_boot_stamp_falls_back_to_wall_budget(monkeypatch, stamp) -> None:
+    _linux_landing(monkeypatch)
+    state = FakeState(8.0)
+    state.messages["LOCAL_POSITION_NED"]["time_boot_ms"] = stamp
+    clock = FakeClock()
+
+    with pytest.raises(TimeoutError, match="timed out waiting for land after 5.0s"):
+        collector._land_and_wait(
+            FakeExecutor(lambda _attempt: None), FakeReader(state), FakeConnection(), None,
+            timeout_s=5.0, clock=clock.monotonic, sleep=clock.sleep,
+        )
+
+    assert clock.monotonic() == 105.0
+
+
+def test_windows_keeps_landed_state_completion_with_boot_stamps(monkeypatch) -> None:
+    monkeypatch.setattr(collector, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+    state = FakeState(0.0)
+    clock = LockstepClock(state)
+    state.messages["EXTENDED_SYS_STATE"]["landed_state"] = 1
+    state.mark_received("EXTENDED_SYS_STATE", clock)
+    connection = FakeConnection()
+
+    result = collector._land_and_wait(
+        FakeExecutor(lambda _attempt: None), FakeReader(state), connection, None,
+        clock=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert result["landed_state"] == 1
+    assert result["armed"] is True
+    assert connection.commands == []
+    assert clock.monotonic() == 100.0

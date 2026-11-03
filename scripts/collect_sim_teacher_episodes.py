@@ -140,8 +140,8 @@ DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
 DEFAULT_OFFBOARD_ENTER_TIMEOUT_S = 30.0
 LAND_BASE_TIMEOUT_S = 60.0
 LAND_MIN_TIMEOUT_S = 120.0
-# PX4/Gazebo lockstep has taken only 0.15-0.17 simulated seconds per wall second
-# in slow episodes. Allow roughly 0.2 m of descent per wall second plus settling.
+# Conservative descent allowance; Linux landing waits use PX4 boot time, while
+# takeoff and the established Windows path still use wall-clock budgets.
 LAND_DESCENT_RATE_MPS = 0.2
 LAND_COMMAND_RETRY_INTERVAL_S = 5.0
 LAND_COMMAND_MAX_RETRIES = 5
@@ -149,9 +149,8 @@ LAND_DIAGNOSTIC_INTERVAL_S = 5.0
 LAND_STABLE_GROUND_S = 3.0
 LAND_AUTO_DISARM_WAIT_S = 30.0
 LAND_DISARM_CONFIRM_TIMEOUT_S = 10.0
-# Landing progress is measured from fresh wall-clock altitude samples.  The
-# lockstep simulator can descend much more slowly than PX4's nominal rate, so
-# each real descent sample earns a bounded grace period, never past the ceiling.
+# Fresh descent samples earn a bounded grace period on the landing budget clock.
+# The independent wall-clock ceiling also bounds frozen or extremely slow SITL.
 LAND_PROGRESS_GRACE_S = 30.0
 LAND_PROGRESS_TOLERANCE_M = 0.05
 LAND_HARD_CEILING_S = 600.0
@@ -2778,7 +2777,11 @@ def _land_and_wait(
     clock: callable = time.monotonic,
     sleep: callable = time.sleep,
 ) -> dict[str, Any]:
-    """Stop offboard control, request LAND until acknowledged by mode, then await ground."""
+    """Await ground/disarm on PX4 time, with independent wall-clock safety bounds.
+
+    Command retries, diagnostic cadence and receive freshness stay on host time.
+    Windows retains its established wall-clock timing and completion condition.
+    """
     if streamer is not None:
         streamer.stop()
 
@@ -2786,17 +2789,68 @@ def _land_and_wait(
     custom_modes = _land_mode_custom_values(connection)
     altitude_m, _ = _landing_altitude(state)
     wait_timeout_s = _land_timeout_s(altitude_m) if timeout_s is None else float(timeout_s)
-    started_s = clock()
+    wall_started_s = clock()
+    budget_clock = clock if os.name == "nt" else _SimClock(reader, wall=clock)
+    started_s = budget_clock()
     hard_deadline = started_s + max(wait_timeout_s, LAND_HARD_CEILING_S)
+    wall_deadline = wall_started_s + max(wait_timeout_s, LAND_HARD_CEILING_S)
     deadline = started_s + wait_timeout_s
     attempts = 1
     retries = 0
-    last_command_s = started_s
+    last_command_s = wall_started_s
     last_diagnostic_s = last_command_s
     land_started_ns = int(last_command_s * 1_000_000_000)
     ground_since: float | None = None
     lowest_altitude_m = altitude_m if math.isfinite(altitude_m) else None
     last_altitude_progress_s = started_s
+    last_budget_s = started_s
+    last_clock_progress_wall_s = wall_started_s
+
+    def wait_now() -> float:
+        nonlocal last_budget_s, last_clock_progress_wall_s
+        wall_now = clock()
+        now = budget_clock()
+        if os.name == "nt":
+            return now
+        if now > last_budget_s:
+            last_budget_s = now
+            last_clock_progress_wall_s = wall_now
+        reason = None
+        if wall_now >= wall_deadline:
+            reason = "hard wall-clock ceiling"
+        elif wall_now - last_clock_progress_wall_s >= LANDING_TELEMETRY_STALE_S:
+            reason = "PX4 simulation clock stalled"
+        if reason is not None:
+            diagnostics = _land_diagnostics(
+                state,
+                custom_modes,
+                land_started_ns=land_started_ns,
+                now_ns=int(wall_now * 1_000_000_000),
+            )
+            _progress(
+                "land_timeout",
+                reason=reason,
+                elapsed_wall_s=round(wall_now - wall_started_s, 3),
+                elapsed_budget_s=round(now - started_s, 3),
+                **diagnostics,
+            )
+            raise TimeoutError(
+                f"timed out waiting for land: {reason}; "
+                f"landed_state={diagnostics['landed_state']!r}; "
+                f"altitude_m={diagnostics['altitude_m']}"
+            )
+        return now
+
+    def wait_sleep(interval_s: float, phase_deadline: float) -> None:
+        # A simulation-second remainder is not a wall-clock sleep duration.
+        # Keep the old exact sleeps on the Windows/fallback wall-clock path.
+        if os.name == "nt":
+            sleep(min(interval_s, max(0.0, phase_deadline - budget_clock())))
+            return
+        remaining = max(0.0, wall_deadline - clock())
+        if _pose_sim_stamp_ns(state) is None:
+            remaining = min(remaining, max(0.0, phase_deadline - budget_clock()))
+        sleep(min(interval_s, remaining))
 
     executor.land()
     _progress(
@@ -2804,6 +2858,8 @@ def _land_and_wait(
         attempt=attempts,
         retries=retries,
         timeout_s=round(wait_timeout_s, 1),
+        timeout_clock="wall" if os.name == "nt" else "px4_boot_with_wall_fallback",
+        hard_wall_ceiling_s=round(wall_deadline - wall_started_s, 1),
         **_land_diagnostics(
             state,
             custom_modes,
@@ -2834,14 +2890,14 @@ def _land_and_wait(
             0.0,
         )
         disarm_started_ns = int(clock() * 1_000_000_000)
-        disarm_deadline = clock() + max(0.0, float(disarm_confirm_timeout_s))
+        disarm_deadline = wait_now() + max(0.0, float(disarm_confirm_timeout_s))
         _progress(
             "land_disarm_command_sent",
             command_id=command,
             timeout_s=disarm_confirm_timeout_s,
             **diagnostics,
         )
-        while clock() < disarm_deadline:
+        while wait_now() < disarm_deadline:
             reader.raise_if_failed()
             diagnostics = _land_diagnostics(
                 state,
@@ -2858,7 +2914,7 @@ def _land_and_wait(
                     **diagnostics,
                     "timeout_s": wait_timeout_s,
                 }
-            sleep(min(0.25, max(0.0, disarm_deadline - clock())))
+            wait_sleep(0.25, disarm_deadline)
         diagnostics = _land_diagnostics(
             state,
             custom_modes,
@@ -2872,7 +2928,7 @@ def _land_and_wait(
             f"armed={diagnostics['armed']!r}"
         )
 
-    while clock() < deadline:
+    while wait_now() < deadline:
         reader.raise_if_failed()
         diagnostics = _land_diagnostics(
             state,
@@ -2892,7 +2948,8 @@ def _land_and_wait(
             _progress("land", retries=retries, **diagnostics)
             return {"retries": retries, **diagnostics, "timeout_s": wait_timeout_s}
 
-        now = clock()
+        now = wait_now()
+        wall_now = clock()
         if diagnostics["altitude_fresh"]:
             current_altitude = float(diagnostics["altitude_m"])
             if math.isfinite(current_altitude):
@@ -2931,7 +2988,7 @@ def _land_and_wait(
             if now - ground_since >= max(0.0, float(stable_ground_s)):
                 _progress("land_auto_disarm_wait", timeout_s=auto_disarm_wait_s, **diagnostics)
                 auto_disarm_deadline = now + max(0.0, float(auto_disarm_wait_s))
-                while clock() < auto_disarm_deadline:
+                while wait_now() < auto_disarm_deadline:
                     reader.raise_if_failed()
                     diagnostics = _land_diagnostics(
                         state,
@@ -2953,7 +3010,7 @@ def _land_and_wait(
                     ):
                         ground_since = None
                         break
-                    sleep(min(0.5, max(0.0, auto_disarm_deadline - clock())))
+                    wait_sleep(0.5, auto_disarm_deadline)
                 else:
                     diagnostics = _land_diagnostics(
                         state,
@@ -2978,12 +3035,12 @@ def _land_and_wait(
             not diagnostics["land_mode_confirmed"]
             and not (diagnostics["landed_state_fresh"] and diagnostics["landed_state"] == 4)
             and retries < max_retries
-            and now - last_command_s >= retry_interval_s
+            and wall_now - last_command_s >= retry_interval_s
         ):
             executor.land()
             retries += 1
             attempts += 1
-            last_command_s = now
+            last_command_s = wall_now
             _progress(
                 "land_command_sent",
                 attempt=attempts,
@@ -2992,10 +3049,16 @@ def _land_and_wait(
                 **diagnostics,
             )
 
-        if now - last_diagnostic_s >= LAND_DIAGNOSTIC_INTERVAL_S:
-            last_diagnostic_s = now
-            _progress("land_waiting", retries=retries, **diagnostics)
-        sleep(min(0.5, max(0.0, deadline - now)))
+        if wall_now - last_diagnostic_s >= LAND_DIAGNOSTIC_INTERVAL_S:
+            last_diagnostic_s = wall_now
+            _progress(
+                "land_waiting",
+                retries=retries,
+                elapsed_wall_s=round(wall_now - wall_started_s, 3),
+                elapsed_budget_s=round(now - started_s, 3),
+                **diagnostics,
+            )
+        wait_sleep(0.5, deadline)
 
     reader.raise_if_failed()
     diagnostics = _land_diagnostics(
@@ -4329,8 +4392,8 @@ def run_episode(
                             timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
                         ),
                     )
-            # Fixed-wing/VTOL use their physical landing lifecycle.  x500 keeps
-            # the original OFFBOARD -> LAND helper and timing unchanged.
+            # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
+            # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
             if plan.airframe == "x500_mono_cam":
                 land_result = _land_and_wait(
                     executor,
