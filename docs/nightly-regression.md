@@ -38,3 +38,25 @@ JSON 在每套的 `missions` 中保存分诊行，顶层 `failure_categories` �
 `suite-report.json`、夜间报告、e2e suite 结果行和训练轮 `manifest.json` 附加 `provenance`。字段包含代码 commit/dirty/分支/worktree、输入配置路径及 SHA-256、命令行 argv；架次记录另含配置快照、模型摘要和世界文件摘要。所有字段均为新增字段，不替换既有指标。训练轮 manifest 以顶层 `provenance` 记录生成该轮数据的代码状态。
 
 预计耗时取决于每套任务数和 `max_episode_s`：默认主套件 14 条加 airframes 3 条、follow 1 条、robustness 9 条，单架次通常需要数小时；dry-run 不启动 SITL、Docker 或 llama-server，只打印完整命令。
+
+鲁棒性套件的变体由 `run_mission_suite.py` 调用 `augment_sim_world.py` 生成。
+每个任务先把源场景的 scenario、runtime_input、truth、expectations 四个 JSON
+复制到 `<out>/<任务 id>/`，再生成 dusk、noise-fog 或 wind-gust 变体并注册到
+同目录的 `scenario-index.json`。旧版生成数据的 index 没有 `files` 字段，仍必须根据
+`<世界>.scenario.json` 及其 `channels` 复制源通道；显式绑定中的 Windows 路径分隔符
+也会规范化。源文件缺失时立即报错，不再登记指向缺失通道的变体。
+
+变体的四个 JSON 和 SDF 副本都保存在任务目录，scenario 内的通道路径及 SHA-256
+会重建。SDF、map 和 DEM 仍按既有 `builtin://` 规则发布到当前工作树的
+`simulation/gazebo/worlds/`、`simulation/maps/` 和 `simulation/terrain/`；这是显式指定的
+资产位置，不受子进程 cwd 影响。`--dry-run` 只准备源通道、配置并打印命令，不执行
+变体生成或采集。follow、airframes 当前直接使用仓库已有场景，没有变体生成步骤。
+
+`--out` 可以位于固定工作树之外（例如主仓库的共享产物目录）。Docker 命令规划器
+先通过运行通道加载器校验 manifest 的相对通道路径和哈希，再用运行通道构建计划；
+SDF、map、DEM 和机型资产仍必须通过当前工作树内的既有边界检查。
+
+无需仿真的回归测试会复制源数据到隔离目录，执行真实变体生成器，以假采集器检查两版
+robustness 全部任务的通道哈希、真值保留、SDF 和 map/DEM 解析，同时覆盖 follow、
+airframes、显式 Windows 路径绑定、缺失通道提前失败，以及预览和生成器的世界命名一致性。
+假采集器还会调用真实命令规划器，验证工作树外的任务输出可用于规划，不启动容器。

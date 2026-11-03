@@ -9,14 +9,14 @@ campaign, so use a fresh directory when changing tasks or model configuration.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import copy
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
-import os
-import concurrent.futures
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
 from multidetect.simulator.cpu import resolve_cpu_isolation
+from scripts.augment_sim_world import scenario_files, variant_world_id  # noqa: E402
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
+
 METADATA = {
     "id",
     "index",
@@ -228,27 +230,30 @@ def build_variant_command(mission: dict[str, Any], *, index: Path, out_dir: Path
 
 
 def _copy_variant_index(source: Path, destination: Path, *, world: str) -> None:
-    """Copy only the source index's referenced channels into a temporary index."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    """Stage the selected world's channels, including legacy indexes without files."""
     payload = json.loads(source.read_text(encoding="utf-8"))
-    destination.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
     source_entry = next(
-        (w for w in payload.get("worlds", []) if Path(str(w.get("world_file", ""))).stem == world),
+        (w for w in payload.get("worlds", [])
+         if Path(str(w.get("world_file", "")).replace("\\", "/")).stem == world),
         None,
     )
     if source_entry is None:
         raise ValueError(f"scenario index has no worlds: {source}")
-    for binding in (source_entry.get("files") or {}).values():
-        relative = binding.get("path") if isinstance(binding, dict) else binding
-        if not relative:
-            continue
-        src = source.parent / relative
-        if src.is_file():
-            target = destination.parent / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, target)
+    sources = scenario_files(source, source_entry)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for name, src in sources.items():
+        shutil.copyfile(src, destination.parent / f"{world}.{name}.json")
+    # Normalize the staged manifest to canonical sibling names. Explicit source
+    # bindings may use subdirectories or Windows separators, unlike legacy ones.
+    scenario_path = destination.parent / f"{world}.scenario.json"
+    manifest = json.loads(scenario_path.read_text(encoding="utf-8"))
+    for name, binding in manifest["channels"].items():
+        binding["path"] = f"{world}.{name}.json"
+    write_json(scenario_path, manifest)
+    source_entry["files"] = {
+        name: {"path": f"{world}.{name}.json"} for name in sources
+    }
+    write_json(destination, payload)
 
 
 def _expectations(row: dict[str, Any], expect: dict[str, Any]) -> dict[str, bool]:
@@ -541,43 +546,7 @@ def main(
             if not args.dry_run:
                 generator_runner(variant_command, cwd=ROOT, check=True)
             mission["variant_label"] = label
-            # The generator's suffix is the canonical world id.  Keep this
-            # derivation in one place so dry-run and execution print the same
-            # collector command without importing private CLI helpers.
-            suffix = []
-            for key in (
-                "wind_mps",
-                "gust_mps",
-                "gust_period",
-                "camera_noise",
-                "time_of_day",
-                "fog",
-                "actors",
-                "terrain",
-            ):
-                value = variant.get(key)
-                if (
-                    value is None
-                    or value is False
-                    or key == "gust_mps"
-                    or (key == "gust_period" and variant.get("gust_mps") is None)
-                ):
-                    continue
-                if key == "gust_period":
-                    suffix.append(f"gust{variant['gust_mps']:g}p{value:g}")
-                elif key == "wind_mps":
-                    suffix.append(f"wind{value:g}")
-                elif key == "camera_noise":
-                    suffix.append(f"noise{value:g}")
-                elif key == "time_of_day":
-                    suffix.append(str(value))
-                elif key == "fog":
-                    suffix.append("fog")
-                elif key == "actors":
-                    suffix.append(f"actors{value}")
-                else:
-                    suffix.append(str(value))
-            mission["world"] = f"{Path(mission['world']).stem}__{'_'.join(suffix or ['base'])}"
+            mission["world"] = variant_world_id(Path(mission["world"]).stem, variant)
             mission["index"] = str(index_path)
         else:
             mission["variant_label"] = "base"
